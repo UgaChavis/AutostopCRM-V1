@@ -284,17 +284,12 @@ async def _first_move_target(session: ClientSession, card_id: str) -> str:
     return current_column
 
 
-async def run_mcp_perf(args: argparse.Namespace) -> dict[str, Any]:
-    local_runtime: LocalMcpRuntime | None = None
-    mcp_url = args.mcp_url
-    if args.local_temp_server:
-        local_runtime = start_local_mcp_runtime(args)
-        mcp_url = local_runtime.mcp_url
-
-    headers: dict[str, str] = {}
-    if args.bearer_token:
-        headers["Authorization"] = f"Bearer {args.bearer_token}"
-
+async def _run_mcp_perf_payload(
+    mcp_url: str,
+    headers: dict[str, str],
+    args: argparse.Namespace,
+    local_runtime: LocalMcpRuntime | None,
+) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     scenario_samples: dict[str, list[dict[str, Any]]] = {
         "mcp.tools_list": [],
@@ -306,115 +301,127 @@ async def run_mcp_perf(args: argparse.Namespace) -> dict[str, Any]:
         "mcp.update_card": [],
         "mcp.move_card": [],
     }
-    try:
-        timeout = httpx.Timeout(45.0, connect=10.0, read=45.0, write=45.0, pool=45.0)
-        async with httpx.AsyncClient(
-            headers=headers, timeout=timeout, follow_redirects=False
-        ) as http_client:
-            async with streamable_http_client(mcp_url, http_client=http_client) as (
-                read,
-                write,
-                _,
-            ):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    first_tools_sample, tool_names = await _list_tools_sample(session)
-                    scenario_samples["mcp.tools_list"].append(first_tools_sample)
-                    card_id = await _discover_card_id(
-                        session,
-                        args.card_id or (local_runtime.card_id if local_runtime else ""),
-                    )
-                    move_target = ""
-                    writes_enabled = bool(args.local_temp_server or args.allow_live_writes)
-                    if writes_enabled and card_id:
-                        move_target = await _first_move_target(session, card_id)
+    timeout = httpx.Timeout(45.0, connect=10.0, read=45.0, write=45.0, pool=45.0)
+    async with httpx.AsyncClient(
+        headers=headers, timeout=timeout, follow_redirects=False
+    ) as http_client:
+        async with streamable_http_client(mcp_url, http_client=http_client) as (
+            read,
+            write,
+            _,
+        ):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                first_tools_sample, tool_names = await _list_tools_sample(session)
+                scenario_samples["mcp.tools_list"].append(first_tools_sample)
+                card_id = await _discover_card_id(
+                    session,
+                    args.card_id or (local_runtime.card_id if local_runtime else ""),
+                )
+                move_target = ""
+                writes_enabled = bool(args.local_temp_server or args.allow_live_writes)
+                if writes_enabled and card_id:
+                    move_target = await _first_move_target(session, card_id)
 
-                    for index in range(max(1, args.iterations)):
-                        if index > 0:
-                            sample, _ = await _list_tools_sample(session)
-                            scenario_samples["mcp.tools_list"].append(sample)
-                        scenario_samples["mcp.ping_connector"].append(
-                            await _call_tool_sample(session, "ping_connector", {})
+                for index in range(max(1, args.iterations)):
+                    if index > 0:
+                        sample, _ = await _list_tools_sample(session)
+                        scenario_samples["mcp.tools_list"].append(sample)
+                    scenario_samples["mcp.ping_connector"].append(
+                        await _call_tool_sample(session, "ping_connector", {})
+                    )
+                    scenario_samples["mcp.runtime_status"].append(
+                        await _call_tool_sample(session, "get_runtime_status", {})
+                    )
+                    scenario_samples["mcp.bootstrap_context_compact"].append(
+                        await _call_tool_sample(
+                            session,
+                            "bootstrap_context",
+                            {"compact": True, "include_archived": False, "event_limit": 50},
                         )
-                        scenario_samples["mcp.runtime_status"].append(
-                            await _call_tool_sample(session, "get_runtime_status", {})
+                    )
+                    if card_id:
+                        scenario_samples["mcp.get_card"].append(
+                            await _call_tool_sample(session, "get_card", {"card_id": card_id})
                         )
-                        scenario_samples["mcp.bootstrap_context_compact"].append(
+                        scenario_samples["mcp.get_card_log_compact"].append(
                             await _call_tool_sample(
                                 session,
-                                "bootstrap_context",
-                                {"compact": True, "include_archived": False, "event_limit": 50},
+                                "get_card_log",
+                                {"card_id": card_id, "compact": True, "limit": 50},
                             )
                         )
-                        if card_id:
-                            scenario_samples["mcp.get_card"].append(
-                                await _call_tool_sample(session, "get_card", {"card_id": card_id})
-                            )
-                            scenario_samples["mcp.get_card_log_compact"].append(
+                        if writes_enabled:
+                            scenario_samples["mcp.update_card"].append(
                                 await _call_tool_sample(
                                     session,
-                                    "get_card_log",
-                                    {"card_id": card_id, "compact": True, "limit": 50},
+                                    "update_card",
+                                    {
+                                        "card_id": card_id,
+                                        "description": f"MCP perf update {index}",
+                                        "actor_name": "PERF",
+                                    },
                                 )
                             )
-                            if writes_enabled:
-                                scenario_samples["mcp.update_card"].append(
-                                    await _call_tool_sample(
-                                        session,
-                                        "update_card",
-                                        {
-                                            "card_id": card_id,
-                                            "description": f"MCP perf update {index}",
-                                            "actor_name": "PERF",
-                                        },
-                                    )
+                            scenario_samples["mcp.move_card"].append(
+                                await _call_tool_sample(
+                                    session,
+                                    "move_card",
+                                    {
+                                        "card_id": card_id,
+                                        "column": move_target,
+                                        "actor_name": "PERF",
+                                    },
                                 )
-                                scenario_samples["mcp.move_card"].append(
-                                    await _call_tool_sample(
-                                        session,
-                                        "move_card",
-                                        {
-                                            "card_id": card_id,
-                                            "column": move_target,
-                                            "actor_name": "PERF",
-                                        },
-                                    )
-                                )
+                            )
 
-                    if not card_id:
-                        rows.append(skipped_row("mcp.get_card", "No card_id available."))
-                        rows.append(
-                            skipped_row("mcp.get_card_log_compact", "No card_id available.")
+                if not card_id:
+                    rows.append(skipped_row("mcp.get_card", "No card_id available."))
+                    rows.append(skipped_row("mcp.get_card_log_compact", "No card_id available."))
+                if not writes_enabled:
+                    rows.append(
+                        skipped_row(
+                            "mcp.update_card",
+                            "Write scenarios require --local-temp-server or --allow-live-writes.",
                         )
-                    if not writes_enabled:
-                        rows.append(
-                            skipped_row(
-                                "mcp.update_card",
-                                "Write scenarios require --local-temp-server or --allow-live-writes.",
-                            )
-                        )
-                        rows.append(
-                            skipped_row(
-                                "mcp.move_card",
-                                "Write scenarios require --local-temp-server or --allow-live-writes.",
-                            )
-                        )
-
-                    rows.extend(
-                        summarize(samples, scenario)
-                        for scenario, samples in scenario_samples.items()
-                        if samples
                     )
-                    return {
-                        "mcp_url": mcp_url,
-                        "tool_count": len(tool_names),
-                        "card_id": card_id,
-                        "safe_mode": {
-                            "local_temp_server": bool(args.local_temp_server),
-                            "allow_live_writes": bool(args.allow_live_writes),
-                        },
-                        "rows": rows,
-                    }
+                    rows.append(
+                        skipped_row(
+                            "mcp.move_card",
+                            "Write scenarios require --local-temp-server or --allow-live-writes.",
+                        )
+                    )
+
+                rows.extend(
+                    summarize(samples, scenario)
+                    for scenario, samples in scenario_samples.items()
+                    if samples
+                )
+                return {
+                    "mcp_url": mcp_url,
+                    "tool_count": len(tool_names),
+                    "card_id": card_id,
+                    "safe_mode": {
+                        "local_temp_server": bool(args.local_temp_server),
+                        "allow_live_writes": bool(args.allow_live_writes),
+                    },
+                    "rows": rows,
+                }
+
+
+async def run_mcp_perf(args: argparse.Namespace) -> dict[str, Any]:
+    local_runtime: LocalMcpRuntime | None = None
+    mcp_url = args.mcp_url
+    if args.local_temp_server:
+        local_runtime = start_local_mcp_runtime(args)
+        mcp_url = local_runtime.mcp_url
+
+    headers: dict[str, str] = {}
+    if args.bearer_token:
+        headers["Authorization"] = f"Bearer {args.bearer_token}"
+
+    try:
+        return await _run_mcp_perf_payload(mcp_url, headers, args, local_runtime)
     finally:
         if local_runtime is not None:
             local_runtime.close()

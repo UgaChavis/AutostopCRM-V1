@@ -7,6 +7,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, replace
 from logging import Logger
+from typing import Any
 
 import httpx
 from mcp import ClientSession
@@ -166,10 +167,21 @@ class SettingsService:
     def validate(self, settings: IntegrationSettings) -> dict[str, str]:
         settings = self.normalize(settings)
         errors: dict[str, str] = {}
+        self._validate_general_settings(settings, errors)
+        self._validate_local_api_settings(settings, errors)
+        self._validate_mcp_settings(settings, errors)
+        self._validate_openai_settings(settings, errors)
+        return errors
 
+    def _validate_general_settings(
+        self, settings: IntegrationSettings, errors: dict[str, str]
+    ) -> None:
         if settings.auth.auth_mode not in AUTH_MODE_VALUES:
             errors["auth.auth_mode"] = "Режим авторизации должен быть none или bearer."
 
+    def _validate_local_api_settings(
+        self, settings: IntegrationSettings, errors: dict[str, str]
+    ) -> None:
         if not settings.local_api.local_api_host:
             errors["local_api.local_api_host"] = "Укажите хост локального API."
         elif not is_http_url(settings.local_api.runtime_local_api_url):
@@ -191,6 +203,7 @@ class SettingsService:
                 "Режим авторизации локального API должен быть none или bearer."
             )
 
+    def _validate_mcp_settings(self, settings: IntegrationSettings, errors: dict[str, str]) -> None:
         if not settings.mcp.mcp_host:
             errors["mcp.mcp_host"] = "Укажите хост MCP."
         elif not is_http_url(settings.mcp.local_mcp_url):
@@ -216,6 +229,9 @@ class SettingsService:
         if settings.mcp.mcp_auth_mode not in AUTH_MODE_VALUES:
             errors["mcp.mcp_auth_mode"] = "Режим авторизации MCP должен быть none или bearer."
 
+    def _validate_openai_settings(
+        self, settings: IntegrationSettings, errors: dict[str, str]
+    ) -> None:
         if not settings.openai.provider:
             errors["openai.provider"] = "Укажите provider."
         if not settings.openai.model:
@@ -226,8 +242,6 @@ class SettingsService:
             )
         if settings.openai.timeout_seconds <= 0:
             errors["openai.timeout_seconds"] = "Timeout должен быть больше нуля."
-
-        return errors
 
     def update_section(
         self,
@@ -901,14 +915,7 @@ class SettingsService:
             source_column = str(card.get("column") or "").strip()
             steps.append("create_card")
 
-            move_target = None
-            for item in columns_data:
-                if not isinstance(item, dict):
-                    continue
-                candidate = str(item.get("id") or "").strip()
-                if candidate and candidate != source_column:
-                    move_target = candidate
-                    break
+            move_target = self._select_smoke_move_target(columns_data, source_column)
             moved = (
                 client.move_card(card_id=card_id, column=move_target)
                 if move_target
@@ -939,6 +946,17 @@ class SettingsService:
             "warnings": warnings,
             "errors": errors,
         }
+
+    def _select_smoke_move_target(
+        self, columns: list[dict[str, Any]], source_column: str
+    ) -> str | None:
+        for item in columns:
+            if not isinstance(item, dict):
+                continue
+            candidate = str(item.get("id") or "").strip()
+            if candidate and candidate != source_column:
+                return candidate
+        return None
 
     def _extract_error_message(self, payload: dict, *, fallback: str) -> str:
         if not isinstance(payload, dict):

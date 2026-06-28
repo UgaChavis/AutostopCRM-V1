@@ -431,107 +431,152 @@ def scenario_target(scenario: str) -> float:
     return 0.0
 
 
+def _workflow_reliability_finding(
+    *,
+    scenario: str,
+    avg_ms: float,
+    target_ms: float,
+    over_by_ms: float,
+    area: str,
+    next_step: str,
+    files: list[str],
+    error: str | None = None,
+) -> dict[str, Any]:
+    finding = {
+        "scenario": scenario,
+        "area": area,
+        "avg_ms": avg_ms,
+        "target_ms": target_ms,
+        "over_by_ms": over_by_ms,
+        "files": files,
+        "next_step": next_step,
+    }
+    if error is not None:
+        finding["error"] = error
+    return finding
+
+
+def _workflow_slowdown_context(scenario: str) -> tuple[str, str, list[str]]:
+    if scenario.startswith("backend.") or scenario.startswith("storage."):
+        return (
+            "backend/storage",
+            "Profile JsonStore/CardService and avoid full-state writes or unnecessary read-cache misses.",
+            [
+                "src/minimal_kanban/storage/json_store.py",
+                "src/minimal_kanban/services/card_service.py",
+            ],
+        )
+    if scenario.startswith("open_modal."):
+        return (
+            "modal data/render",
+            "Open the modal shell first, then lazy-load heavy lists with compact payloads.",
+            ["src/minimal_kanban/web_app_assets/source/"],
+        )
+    if scenario.startswith("open_employee_salary") or scenario.startswith(
+        "open_repair_order_salary"
+    ):
+        return (
+            "payroll UI",
+            "Profile employee payroll payloads and keep salary/reconciliation tables compact.",
+            [
+                "src/minimal_kanban/web_app_assets/source/",
+                "src/minimal_kanban/services/card_service.py",
+            ],
+        )
+    if "move_card" in scenario:
+        return (
+            "board move",
+            "Keep optimistic DOM patching on the success path and eliminate fallback full snapshot refreshes.",
+            [
+                "src/minimal_kanban/web_app_assets/source/",
+                "src/minimal_kanban/services/card_service.py",
+            ],
+        )
+    if "save_card" in scenario:
+        return (
+            "card save",
+            "Measure update_card write time and remove post-save refresh or heavy side effects.",
+            [
+                "src/minimal_kanban/web_app_assets/source/",
+                "src/minimal_kanban/services/card_service.py",
+            ],
+        )
+    return (
+        "card open",
+        "Use compact snapshot immediately and keep journal/files lazy.",
+        [
+            "src/minimal_kanban/web_app_assets/source/",
+            "src/minimal_kanban/services/snapshot_service.py",
+        ],
+    )
+
+
+def _workflow_failure_finding(row: dict[str, Any], scenario: str) -> dict[str, Any]:
+    return _workflow_reliability_finding(
+        scenario=scenario,
+        avg_ms=_safe_float(row.get("avg_ms")),
+        target_ms=scenario_target(scenario),
+        over_by_ms=999999.0,
+        area="workflow reliability",
+        next_step="Reproduce the scenario failure and fix the app or audit wait condition.",
+        files=["scripts/perf_workflows.py"],
+        error=str(row.get("error") or ""),
+    )
+
+
+def _workflow_ui_error_finding(
+    row: dict[str, Any], scenario: str, ui_errors: list[str]
+) -> dict[str, Any]:
+    return _workflow_reliability_finding(
+        scenario=scenario,
+        avg_ms=_safe_float(row.get("avg_ms")),
+        target_ms=scenario_target(scenario),
+        over_by_ms=999999.0,
+        area="workflow reliability",
+        next_step="Reproduce the browser workflow and fix the app error hidden inside perf entries.",
+        files=[
+            "scripts/perf_workflows.py",
+            "src/minimal_kanban/web_app_assets/source/",
+        ],
+        error="; ".join(ui_errors[:3]),
+    )
+
+
+def _workflow_slowdown_finding(
+    row: dict[str, Any], scenario: str, avg_ms: float
+) -> dict[str, Any] | None:
+    target = scenario_target(scenario)
+    if target <= 0 or avg_ms <= target:
+        return None
+    area, next_step, files = _workflow_slowdown_context(scenario)
+    return _workflow_reliability_finding(
+        scenario=scenario,
+        avg_ms=avg_ms,
+        target_ms=target,
+        over_by_ms=round(avg_ms - target, 1),
+        area=area,
+        next_step=next_step,
+        files=files,
+    )
+
+
 def ranked_findings(rows: list[dict[str, Any]], *, limit: int = 5) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     for row in rows:
         scenario = str(row.get("scenario") or "")
         if row.get("failed"):
-            findings.append(
-                {
-                    "scenario": scenario,
-                    "area": "workflow reliability",
-                    "avg_ms": _safe_float(row.get("avg_ms")),
-                    "target_ms": scenario_target(scenario),
-                    "over_by_ms": 999999.0,
-                    "files": ["scripts/perf_workflows.py"],
-                    "next_step": "Reproduce the scenario failure and fix the app or audit wait condition.",
-                    "error": str(row.get("error") or ""),
-                }
-            )
+            findings.append(_workflow_failure_finding(row, scenario))
             continue
         ui_errors = row_ui_perf_errors(row)
         if ui_errors:
-            findings.append(
-                {
-                    "scenario": scenario,
-                    "area": "workflow reliability",
-                    "avg_ms": _safe_float(row.get("avg_ms")),
-                    "target_ms": scenario_target(scenario),
-                    "over_by_ms": 999999.0,
-                    "files": [
-                        "scripts/perf_workflows.py",
-                        "src/minimal_kanban/web_app_assets/source/",
-                    ],
-                    "next_step": "Reproduce the browser workflow and fix the app error hidden inside perf entries.",
-                    "error": "; ".join(ui_errors[:3]),
-                }
-            )
+            findings.append(_workflow_ui_error_finding(row, scenario, ui_errors))
             continue
         if row.get("skipped"):
             continue
-        target = scenario_target(str(row.get("scenario") or ""))
         avg_ms = _safe_float(row.get("avg_ms"))
-        if target <= 0 or avg_ms <= target:
-            continue
-        scenario = str(row.get("scenario") or "")
-        if scenario.startswith("backend.") or scenario.startswith("storage."):
-            area = "backend/storage"
-            next_step = "Profile JsonStore/CardService and avoid full-state writes or unnecessary read-cache misses."
-            files = [
-                "src/minimal_kanban/storage/json_store.py",
-                "src/minimal_kanban/services/card_service.py",
-            ]
-        elif scenario.startswith("open_modal."):
-            area = "modal data/render"
-            next_step = (
-                "Open the modal shell first, then lazy-load heavy lists with compact payloads."
-            )
-            files = ["src/minimal_kanban/web_app_assets/source/"]
-        elif scenario.startswith("open_employee_salary") or scenario.startswith(
-            "open_repair_order_salary"
-        ):
-            area = "payroll UI"
-            next_step = (
-                "Profile employee payroll payloads and keep salary/reconciliation tables compact."
-            )
-            files = [
-                "src/minimal_kanban/web_app_assets/source/",
-                "src/minimal_kanban/services/card_service.py",
-            ]
-        elif "move_card" in scenario:
-            area = "board move"
-            next_step = "Keep optimistic DOM patching on the success path and eliminate fallback full snapshot refreshes."
-            files = [
-                "src/minimal_kanban/web_app_assets/source/",
-                "src/minimal_kanban/services/card_service.py",
-            ]
-        elif "save_card" in scenario:
-            area = "card save"
-            next_step = (
-                "Measure update_card write time and remove post-save refresh or heavy side effects."
-            )
-            files = [
-                "src/minimal_kanban/web_app_assets/source/",
-                "src/minimal_kanban/services/card_service.py",
-            ]
-        else:
-            area = "card open"
-            next_step = "Use compact snapshot immediately and keep journal/files lazy."
-            files = [
-                "src/minimal_kanban/web_app_assets/source/",
-                "src/minimal_kanban/services/snapshot_service.py",
-            ]
-        findings.append(
-            {
-                "scenario": scenario,
-                "area": area,
-                "avg_ms": avg_ms,
-                "target_ms": target,
-                "over_by_ms": round(avg_ms - target, 1),
-                "files": files,
-                "next_step": next_step,
-            }
-        )
+        finding = _workflow_slowdown_finding(row, scenario, avg_ms)
+        if finding is not None:
+            findings.append(finding)
     findings.sort(key=lambda item: _safe_float(item.get("over_by_ms")), reverse=True)
     return findings[:limit]
 

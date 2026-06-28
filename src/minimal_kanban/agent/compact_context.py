@@ -128,13 +128,21 @@ def _extract_vehicle_facts(
     return vehicle_block
 
 
-def build_ai_wall_digest_packet(context_payload: dict[str, Any]) -> dict[str, Any]:
-    events = (
-        context_payload.get("events") if isinstance(context_payload.get("events"), list) else []
-    )
-    card = context_payload.get("card") if isinstance(context_payload.get("card"), dict) else {}
-    description = str(card.get("description", "") or "")
-    description_lines = _compact_lines(description, limit=_MAX_WALL_NOTES, line_limit=200)
+def _dedupe_casefolded_texts(values: list[str], *, limit: int | None = None) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in values:
+        normalized = item.casefold()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(item)
+        if limit is not None and len(deduped) >= limit:
+            break
+    return deduped
+
+
+def _collect_wall_event_sections(events: list[Any]) -> tuple[list[str], list[str], list[str]]:
     facts: list[str] = []
     recent_changes: list[str] = []
     important_notes: list[str] = []
@@ -159,42 +167,28 @@ def build_ai_wall_digest_packet(context_payload: dict[str, Any]) -> dict[str, An
             )
             if detail_note:
                 important_notes.append(detail_note)
+    return facts, recent_changes, important_notes
+
+
+def _collect_wall_description_notes(description_lines: list[str]) -> list[str]:
+    important_notes: list[str] = []
     for line in description_lines:
         if len(important_notes) >= _MAX_WALL_NOTES:
             break
         if any(marker in line.casefold() for marker in _IMPORTANT_WALL_MARKERS):
             important_notes.append(line)
-    deduped_notes: list[str] = []
-    seen_notes: set[str] = set()
-    for item in important_notes:
-        normalized = item.casefold()
-        if normalized in seen_notes:
-            continue
-        seen_notes.add(normalized)
-        deduped_notes.append(item)
-    return {
-        "kind": "wall_digest",
-        "facts": facts[:_MAX_WALL_FACTS],
-        "recent_changes": recent_changes[:_MAX_WALL_CHANGES],
-        "important_notes": deduped_notes[:_MAX_WALL_NOTES],
-        "normalization_candidate": _text_has_normalization_opportunity(description),
-    }
+    return important_notes
 
 
-def build_ai_card_context_packet(
-    context_payload: dict[str, Any], *, wall_digest: dict[str, Any] | None = None
-) -> dict[str, Any]:
-    card = context_payload.get("card") if isinstance(context_payload.get("card"), dict) else {}
-    repair_order = card.get("repair_order") if isinstance(card.get("repair_order"), dict) else {}
-    description = str(card.get("description", "") or "")
-    vehicle_block = _extract_vehicle_facts(card, repair_order, description)
-    phone_match = _PHONE_PATTERN.search(description)
-    customer = _coalesce(card.get("title"))
+def _collect_card_context_facts(
+    description: str, vehicle_block: dict[str, Any]
+) -> list[dict[str, str]]:
     facts: list[dict[str, str]] = []
     if vehicle_block["vin"]:
         facts.append({"kind": "vin", "value": vehicle_block["vin"]})
     if vehicle_block["vehicle_label"]:
         facts.append({"kind": "vehicle", "value": vehicle_block["vehicle_label"]})
+    phone_match = _PHONE_PATTERN.search(description)
     if phone_match:
         facts.append({"kind": "phone", "value": _clean_text(phone_match.group(0), limit=32)})
     if vehicle_block["mileage"]:
@@ -219,6 +213,36 @@ def build_ai_card_context_packet(
             facts.append({"kind": "note", "value": line})
         if len(facts) >= _MAX_CARD_FACTS:
             break
+    return facts
+
+
+def build_ai_wall_digest_packet(context_payload: dict[str, Any]) -> dict[str, Any]:
+    events = (
+        context_payload.get("events") if isinstance(context_payload.get("events"), list) else []
+    )
+    card = context_payload.get("card") if isinstance(context_payload.get("card"), dict) else {}
+    description = str(card.get("description", "") or "")
+    description_lines = _compact_lines(description, limit=_MAX_WALL_NOTES, line_limit=200)
+    facts, recent_changes, important_notes = _collect_wall_event_sections(events)
+    important_notes.extend(_collect_wall_description_notes(description_lines))
+    return {
+        "kind": "wall_digest",
+        "facts": facts[:_MAX_WALL_FACTS],
+        "recent_changes": recent_changes[:_MAX_WALL_CHANGES],
+        "important_notes": _dedupe_casefolded_texts(important_notes, limit=_MAX_WALL_NOTES),
+        "normalization_candidate": _text_has_normalization_opportunity(description),
+    }
+
+
+def build_ai_card_context_packet(
+    context_payload: dict[str, Any], *, wall_digest: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    card = context_payload.get("card") if isinstance(context_payload.get("card"), dict) else {}
+    repair_order = card.get("repair_order") if isinstance(card.get("repair_order"), dict) else {}
+    description = str(card.get("description", "") or "")
+    vehicle_block = _extract_vehicle_facts(card, repair_order, description)
+    customer = _coalesce(card.get("title"))
+    facts = _collect_card_context_facts(description, vehicle_block)
     missing_key_fields: list[str] = []
     if not vehicle_block["vehicle_label"]:
         missing_key_fields.append("vehicle")

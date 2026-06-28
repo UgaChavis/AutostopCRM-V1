@@ -760,63 +760,75 @@ class SettingsWindow(QDialog):
 
     def _toggle_advanced_mode(self, enabled: bool) -> None:
         self._advanced_mode = bool(enabled)
-        for section_name in ("local_api_section", "openai_section", "auth_section"):
+        self._set_named_sections_visible(
+            ("local_api_section", "openai_section", "auth_section"),
+            self._advanced_mode,
+        )
+        self._set_form_rows_visible(
+            getattr(self, "mcp_form", None),
+            (
+                "mcp_host_input",
+                "mcp_port_input",
+                "mcp_path_input",
+                "mcp_auth_mode_input",
+                "mcp_public_base_input",
+                "mcp_full_url_input",
+                "mcp_public_endpoint_input",
+                "mcp_tunnel_endpoint_input",
+                "mcp_allowed_hosts_input",
+                "mcp_allowed_origins_input",
+                "mcp_resolved_hosts_input",
+                "mcp_resolved_origins_input",
+            ),
+            self._advanced_mode,
+        )
+        self._set_form_rows_visible(
+            getattr(self, "diagnostics_form", None),
+            (
+                "settings_file_input",
+                "log_file_input",
+                "mcp_log_file_input",
+                "runtime_api_input",
+                "runtime_mcp_url_input",
+                "openai_status_input",
+                "last_local_api_check_input",
+                "last_mcp_check_input",
+                "last_external_check_input",
+                "last_openai_check_input",
+                "last_full_check_input",
+            ),
+            self._advanced_mode,
+        )
+        self._set_named_widgets_visible(
+            ("open_mcp_log_button", "copy_mcp_error_button", "test_openai_button"),
+            self._advanced_mode,
+        )
+
+    def _set_named_sections_visible(self, section_names: tuple[str, ...], visible: bool) -> None:
+        for section_name in section_names:
             section = getattr(self, section_name, None)
             if section is not None:
-                section.setVisible(self._advanced_mode)
+                section.setVisible(visible)
 
-        advanced_widgets = (
-            getattr(self, "mcp_host_input", None),
-            getattr(self, "mcp_port_input", None),
-            getattr(self, "mcp_path_input", None),
-            getattr(self, "mcp_auth_mode_input", None),
-            getattr(self, "mcp_public_base_input", None),
-            getattr(self, "mcp_full_url_input", None),
-            getattr(self, "mcp_public_endpoint_input", None),
-            getattr(self, "mcp_tunnel_endpoint_input", None),
-            getattr(self, "mcp_allowed_hosts_input", None),
-            getattr(self, "mcp_allowed_origins_input", None),
-            getattr(self, "mcp_resolved_hosts_input", None),
-            getattr(self, "mcp_resolved_origins_input", None),
-        )
-        form = getattr(self, "mcp_form", None)
-        if form is not None:
-            for widget in advanced_widgets:
-                if widget is not None:
-                    try:
-                        form.setRowVisible(widget, self._advanced_mode)
-                    except Exception:
-                        widget.setVisible(self._advanced_mode)
+    def _set_form_rows_visible(
+        self, form: QFormLayout | None, widget_names: tuple[str, ...], visible: bool
+    ) -> None:
+        if form is None:
+            return
+        for widget_name in widget_names:
+            widget = getattr(self, widget_name, None)
+            if widget is None:
+                continue
+            try:
+                form.setRowVisible(widget, visible)
+            except Exception:
+                widget.setVisible(visible)
 
-        diagnostics_advanced_widgets = (
-            getattr(self, "settings_file_input", None),
-            getattr(self, "log_file_input", None),
-            getattr(self, "mcp_log_file_input", None),
-            getattr(self, "runtime_api_input", None),
-            getattr(self, "runtime_mcp_url_input", None),
-            getattr(self, "openai_status_input", None),
-            getattr(self, "last_local_api_check_input", None),
-            getattr(self, "last_mcp_check_input", None),
-            getattr(self, "last_external_check_input", None),
-            getattr(self, "last_openai_check_input", None),
-            getattr(self, "last_full_check_input", None),
-        )
-        diagnostics_form = getattr(self, "diagnostics_form", None)
-        if diagnostics_form is not None:
-            for widget in diagnostics_advanced_widgets:
-                if widget is not None:
-                    try:
-                        diagnostics_form.setRowVisible(widget, self._advanced_mode)
-                    except Exception:
-                        widget.setVisible(self._advanced_mode)
-
-        for widget_name in ("open_mcp_log_button", "copy_mcp_error_button"):
+    def _set_named_widgets_visible(self, widget_names: tuple[str, ...], visible: bool) -> None:
+        for widget_name in widget_names:
             widget = getattr(self, widget_name, None)
             if widget is not None:
-                widget.setVisible(self._advanced_mode)
-
-        if hasattr(self, "test_openai_button"):
-            self.test_openai_button.setVisible(self._advanced_mode)
+                widget.setVisible(visible)
 
     def _wire_copy_feedback(self) -> None:
         copy_widgets = [
@@ -1434,6 +1446,14 @@ class SettingsWindow(QDialog):
         self._clear_validation_state()
 
     def _update_hints(self, settings: IntegrationSettings) -> None:
+        self._update_general_hint(settings)
+        self._update_local_api_hint(settings)
+        self._update_mcp_hint(settings)
+        self._update_mcp_external_hint(settings)
+        self._update_auth_hint()
+        self._update_openai_hint()
+
+    def _update_general_hint(self, settings: IntegrationSettings) -> None:
         general_hints: list[str] = []
         if not settings.general.integration_enabled:
             general_hints.append(
@@ -1443,6 +1463,7 @@ class SettingsWindow(QDialog):
             general_hints.append("Автоподключение включено, но MCP выключен.")
         self.general_hint_label.setText(" ".join(general_hints))
 
+    def _update_local_api_hint(self, settings: IntegrationSettings) -> None:
         local_api_hints: list[str] = []
         if not settings.general.use_local_api:
             local_api_hints.append(
@@ -1455,6 +1476,7 @@ class SettingsWindow(QDialog):
             local_api_hints.append("Для bearer-режима локального API нужен токен.")
         self.local_api_hint_label.setText(" ".join(local_api_hints))
 
+    def _update_mcp_hint(self, settings: IntegrationSettings) -> None:
         mcp_hints: list[str] = []
         if not settings.mcp.mcp_enabled:
             mcp_hints.append("MCP выключен. Включите его для подключения GPT-агента.")
@@ -1468,6 +1490,7 @@ class SettingsWindow(QDialog):
             mcp_hints.append("Host и Origin для внешнего MCP URL будут разрешены автоматически.")
         self.mcp_hint_label.setText(" ".join(mcp_hints))
 
+    def _update_mcp_external_hint(self, settings: IntegrationSettings) -> None:
         if settings.mcp.full_mcp_url_override:
             self.mcp_external_hint_label.setProperty("variant", "")
             self.mcp_external_hint_label.setText(
@@ -1500,11 +1523,13 @@ class SettingsWindow(QDialog):
         self.style().unpolish(self.mcp_external_hint_label)
         self.style().polish(self.mcp_external_hint_label)
 
+    def _update_auth_hint(self) -> None:
         auth_hints = ["Секреты пока хранятся в settings.json без системного шифрования."]
         if self.auth_mode_input.currentData() == "bearer" and not self.access_token_input.value():
             auth_hints.append("Общий bearer-режим включён, но access token пустой.")
         self.auth_hint_label.setText(" ".join(auth_hints))
 
+    def _update_openai_hint(self) -> None:
         openai_hints: list[str] = []
         if not self.openai_api_key_input.value() and not self.access_token_input.value():
             openai_hints.append(

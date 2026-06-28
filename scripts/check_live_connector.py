@@ -638,90 +638,82 @@ async def check_mcp(mcp_url: str, *, bearer_token: str | None = None) -> dict[st
                 ):
                     async with ClientSession(read, write) as session:
                         await session.initialize()
-                        tools = await session.list_tools()
-                        tool_names = {tool.name for tool in tools.tools}
-                        result["tool_count"] = len(tool_names)
-                        result["has_ping_connector"] = "ping_connector" in tool_names
-                        result["has_bootstrap_context"] = "bootstrap_context" in tool_names
-                        result["has_get_runtime_status"] = "get_runtime_status" in tool_names
-                        result["has_get_connector_identity"] = (
-                            "get_connector_identity" in tool_names
-                        )
-                        result["has_review_board"] = "review_board" in tool_names
-
-                        if result["has_ping_connector"]:
-                            ping = await session.call_tool("ping_connector", {})
-                            result["ping_ok"] = bool(
-                                not ping.isError
-                                and isinstance(ping.structuredContent, dict)
-                                and ping.structuredContent.get("ok")
-                            )
-                            if isinstance(ping.structuredContent, dict):
-                                result["ping_data"] = ping.structuredContent.get("data")
-
-                        if result["has_bootstrap_context"]:
-                            bootstrap = await session.call_tool("bootstrap_context", {})
-                            result["bootstrap_ok"] = bool(
-                                not bootstrap.isError
-                                and isinstance(bootstrap.structuredContent, dict)
-                                and bootstrap.structuredContent.get("ok")
-                            )
-                            if isinstance(bootstrap.structuredContent, dict):
-                                result["bootstrap_data"] = bootstrap.structuredContent.get("data")
-
-                        if result["has_get_runtime_status"]:
-                            runtime = await session.call_tool("get_runtime_status", {})
-                            result["runtime_ok"] = bool(
-                                not runtime.isError
-                                and isinstance(runtime.structuredContent, dict)
-                                and runtime.structuredContent.get("ok")
-                            )
-                            if isinstance(runtime.structuredContent, dict):
-                                result["runtime_data"] = runtime.structuredContent.get("data")
-
-                        if result["has_get_connector_identity"]:
-                            identity = await session.call_tool("get_connector_identity", {})
-                            result["identity_ok"] = bool(
-                                not identity.isError
-                                and isinstance(identity.structuredContent, dict)
-                                and identity.structuredContent.get("ok")
-                            )
-                            if isinstance(identity.structuredContent, dict):
-                                result["identity_data"] = identity.structuredContent.get("data")
-
-                        if result["has_review_board"]:
-                            review = await session.call_tool("review_board", {})
-                            result["review_ok"] = bool(
-                                not review.isError
-                                and isinstance(review.structuredContent, dict)
-                                and review.structuredContent.get("ok")
-                            )
-                            if isinstance(review.structuredContent, dict):
-                                result["review_data"] = review.structuredContent.get("data")
-
-                        result["ok"] = all(
-                            [
-                                result["has_ping_connector"],
-                                result["has_bootstrap_context"],
-                                result["has_get_runtime_status"],
-                                result["has_get_connector_identity"],
-                                result["has_review_board"],
-                                result["ping_ok"],
-                                result["bootstrap_ok"],
-                                result["runtime_ok"],
-                                result["identity_ok"],
-                                result["review_ok"],
-                            ]
-                        )
-                        if not result["ok"]:
-                            result["error"] = "mcp_surface_incomplete"
-                        return result
+                        return await _collect_mcp_probe_result(session, result)
         except Exception as exc:  # pragma: no cover
             last_error = str(exc)
             if attempt < 2:
                 await asyncio.sleep(1.0)
     result["error"] = last_error or result["error"] or "mcp_surface_incomplete"
     return result
+
+
+async def _collect_mcp_probe_result(
+    session: ClientSession, result: dict[str, Any]
+) -> dict[str, Any]:
+    tools = await session.list_tools()
+    tool_names = {tool.name for tool in tools.tools}
+    result["tool_count"] = len(tool_names)
+    result["has_ping_connector"] = "ping_connector" in tool_names
+    result["has_bootstrap_context"] = "bootstrap_context" in tool_names
+    result["has_get_runtime_status"] = "get_runtime_status" in tool_names
+    result["has_get_connector_identity"] = "get_connector_identity" in tool_names
+    result["has_review_board"] = "review_board" in tool_names
+
+    if result["has_ping_connector"]:
+        await _capture_mcp_tool_result(session, result, "ping_connector", "ping_ok", "ping_data")
+
+    if result["has_bootstrap_context"]:
+        await _capture_mcp_tool_result(
+            session, result, "bootstrap_context", "bootstrap_ok", "bootstrap_data"
+        )
+
+    if result["has_get_runtime_status"]:
+        await _capture_mcp_tool_result(
+            session, result, "get_runtime_status", "runtime_ok", "runtime_data"
+        )
+
+    if result["has_get_connector_identity"]:
+        await _capture_mcp_tool_result(
+            session, result, "get_connector_identity", "identity_ok", "identity_data"
+        )
+
+    if result["has_review_board"]:
+        await _capture_mcp_tool_result(session, result, "review_board", "review_ok", "review_data")
+
+    result["ok"] = all(
+        [
+            result["has_ping_connector"],
+            result["has_bootstrap_context"],
+            result["has_get_runtime_status"],
+            result["has_get_connector_identity"],
+            result["has_review_board"],
+            result["ping_ok"],
+            result["bootstrap_ok"],
+            result["runtime_ok"],
+            result["identity_ok"],
+            result["review_ok"],
+        ]
+    )
+    if not result["ok"]:
+        result["error"] = "mcp_surface_incomplete"
+    return result
+
+
+async def _capture_mcp_tool_result(
+    session: ClientSession,
+    result: dict[str, Any],
+    tool_name: str,
+    ok_key: str,
+    data_key: str,
+) -> None:
+    tool_result = await session.call_tool(tool_name, {})
+    result[ok_key] = bool(
+        not tool_result.isError
+        and isinstance(tool_result.structuredContent, dict)
+        and tool_result.structuredContent.get("ok")
+    )
+    if isinstance(tool_result.structuredContent, dict):
+        result[data_key] = tool_result.structuredContent.get("data")
 
 
 def _print_api_surface(report: dict[str, Any]) -> None:

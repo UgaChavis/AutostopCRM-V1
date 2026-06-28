@@ -71,6 +71,11 @@ MOBILE_SMOKE_SCENARIOS = (
 )
 
 SMOKE_SCENARIOS = SMOKE_SCENARIOS + MOBILE_SMOKE_SCENARIOS
+DESKTOP_SMOKE_SCENARIOS = tuple(
+    name
+    for name in SMOKE_SCENARIOS
+    if name not in set(MOBILE_SMOKE_SCENARIOS) | {"login_gate_hides_board_until_operator_login"}
+)
 
 BROWSER_READ_RETRY_LIMIT = 1
 BROWSER_READ_RETRY_DELAY_SECONDS = 0.15
@@ -586,6 +591,14 @@ async def _is_modal_open(page: Any, selector: str) -> bool:
     )
 
 
+async def _close_card_modal_if_open(page: Any) -> bool:
+    if not await _is_modal_open(page, "#cardModal"):
+        return False
+    await page.click("#cardModalCloseButtonTop")
+    await _wait_modal_closed(page, "#cardModal")
+    return True
+
+
 async def _wait_clients_search_ready(
     page: Any, *, client_id: str, mobile: bool = False, query: str = ""
 ) -> None:
@@ -765,16 +778,7 @@ def _payroll_chain_reaches_reports_and_reconciliation(runtime: TempRuntime) -> b
     return bool(payroll_ok and ledger_ok and report_ok and reconciliation_ok and print_ok)
 
 
-async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]:
-    scenarios = {
-        name: False
-        for name in SMOKE_SCENARIOS
-        if name not in set(MOBILE_SMOKE_SCENARIOS) | {"login_gate_hides_board_until_operator_login"}
-    }
-    await page.wait_for_selector("#board")
-    scenarios["payroll_chain_reaches_reports_and_reconciliation"] = (
-        _payroll_chain_reaches_reports_and_reconciliation(runtime)
-    )
+async def _exercise_operator_admin_employee_binding(page: Any) -> bool:
     await page.click("#operatorButton")
     await _wait_modal_open(page, "#operatorProfileModal")
     await page.click("#operatorAdminButton")
@@ -790,7 +794,7 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     await page.wait_for_function(
         """() => document.querySelector('#operatorUserEmployeeBindingPanel')?.classList.contains('hidden')"""
     )
-    admin_binding_escape_ok = bool(
+    escape_ok = bool(
         await page.evaluate(
             """() => {
               return Boolean(
@@ -808,18 +812,19 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     await page.wait_for_function(
         """() => document.querySelector('#operatorUserEmployeeBindingPanel')?.classList.contains('hidden')"""
     )
-    admin_binding_back_ok = await _is_modal_open(page, "#operatorAdminModal")
+    back_ok = await _is_modal_open(page, "#operatorAdminModal")
     await page.click("#operatorAdminCloseButton")
     await _wait_modal_closed(page, "#operatorAdminModal")
-    admin_binding_final_close_ok = not await _is_modal_open(page, "#operatorAdminModal")
+    final_close_ok = not await _is_modal_open(page, "#operatorAdminModal")
     await page.click('[data-close="operator-profile"]')
     await _wait_modal_closed(page, "#operatorProfileModal")
-    scenarios["operator_admin_employee_binding_returns_to_users"] = bool(
-        admin_binding_escape_ok and admin_binding_back_ok and admin_binding_final_close_ok
-    )
+    return bool(escape_ok and back_ok and final_close_ok)
 
-    await page.wait_for_selector(f'[data-card-id="{runtime.card_id}"]')
-    await page.click(f'[data-card-id="{runtime.card_id}"]')
+
+async def _exercise_card_modal_roundtrip(page: Any, runtime: TempRuntime) -> tuple[bool, bool]:
+    card_selector = f'[data-card-id="{runtime.card_id}"]'
+    await page.wait_for_selector(card_selector)
+    await page.click(card_selector)
     await _wait_modal_open(page, "#cardModal")
     await page.wait_for_function(
         """() => {
@@ -838,7 +843,7 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
           return editor && editor.scrollHeight > editor.clientHeight;
         }"""
     )
-    scenarios["card_long_description_controls_reachable"] = bool(
+    controls_ok = bool(
         await page.evaluate(
             """() => {
               const overview = document.querySelector('#cardModal [data-panel="overview"]');
@@ -896,12 +901,26 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     )
     snapshot = _read_json(f"{runtime.base_url}/api/get_board_snapshot?compact=1&include_archive=0")
     cards = snapshot.get("data", {}).get("cards", [])
-    scenarios["desktop_board_card_roundtrip"] = any(
+    roundtrip_ok = any(
         card.get("id") == runtime.card_id and card.get("title") == "Browser smoke saved"
         for card in cards
     )
-    await page.click("#cardModalCloseButtonTop")
-    await _wait_modal_closed(page, "#cardModal")
+    await _close_card_modal_if_open(page)
+    return controls_ok, bool(roundtrip_ok)
+
+
+async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]:
+    scenarios = {name: False for name in DESKTOP_SMOKE_SCENARIOS}
+    await page.wait_for_selector("#board")
+    scenarios["payroll_chain_reaches_reports_and_reconciliation"] = (
+        _payroll_chain_reaches_reports_and_reconciliation(runtime)
+    )
+    admin_binding_ok = await _exercise_operator_admin_employee_binding(page)
+    scenarios["operator_admin_employee_binding_returns_to_users"] = bool(admin_binding_ok)
+
+    controls_ok, roundtrip_ok = await _exercise_card_modal_roundtrip(page, runtime)
+    scenarios["card_long_description_controls_reachable"] = bool(controls_ok)
+    scenarios["desktop_board_card_roundtrip"] = bool(roundtrip_ok)
 
     await page.click("#cashboxesButton")
     await _wait_modal_open(page, "#cashboxesModal")
@@ -1084,8 +1103,7 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     scenarios["escape_closes_top_modal_only"] = await _is_modal_open(page, "#repairOrderModal")
     await page.click('[data-close="repair-order"]')
     await _wait_modal_closed(page, "#repairOrderModal")
-    await page.click("#cardModalCloseButtonTop")
-    await _wait_modal_closed(page, "#cardModal")
+    await _close_card_modal_if_open(page)
 
     await page.click("#employeesButton")
     await _wait_modal_open(page, "#employeesModal")
