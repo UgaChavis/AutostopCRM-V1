@@ -1749,6 +1749,8 @@
       gap: 9px;
       align-content: start;
       --card-meta-panel-height: 94px;
+      --card-description-target-height: 550px;
+      --card-description-max-height: 620px;
       min-height: 0;
       min-width: 0;
       max-width: none;
@@ -1757,9 +1759,10 @@
     }
     .overview-main__meta {
       display: grid;
-      grid-template-columns: minmax(168px, 184px) minmax(0, 1fr);
+      grid-template-columns: minmax(144px, 150px) minmax(0, 450px);
       gap: 8px;
       align-items: stretch;
+      justify-content: start;
       min-height: var(--card-meta-panel-height);
     }
     .dialog__tabs--card {
@@ -1962,9 +1965,9 @@
       text-underline-offset: 2px;
     }
     .field--description .description-editor {
-      min-height: 180px;
-      height: 180px;
-      max-height: clamp(220px, 42vh, 520px);
+      min-height: 220px;
+      height: min(var(--card-description-target-height), 48vh);
+      max-height: min(var(--card-description-max-height), 58vh);
       padding: 10px 12px;
       line-height: 1.54;
       overflow-y: auto;
@@ -4020,8 +4023,8 @@
     }
     .vehicle-group {
       display: grid;
-      gap: 6px;
-      padding-top: 7px;
+      gap: 5px;
+      padding-top: 6px;
       border-top: 1px solid rgba(115, 126, 105, 0.18);
     }
     .vehicle-group:first-child {
@@ -4029,11 +4032,26 @@
       border-top: none;
     }
     .vehicle-group__title {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 14px;
       font-family: var(--mono);
       font-size: 11px;
+      line-height: 1;
       text-transform: uppercase;
       letter-spacing: 0.1em;
       color: var(--text-soft);
+    }
+    .vehicle-group__title::after {
+      content: "";
+      flex: 1 1 auto;
+      height: 1px;
+      background: rgba(115, 126, 105, 0.22);
+    }
+    .vehicle-group--aggregates {
+      gap: 4px;
+      padding-top: 5px;
     }
     .vehicle-group__grid {
       display: grid;
@@ -4049,8 +4067,10 @@
     }
     .vehicle-field input,
     .vehicle-field select {
+      height: 32px;
       min-height: 32px;
-      padding: 5px 8px;
+      padding: 4px 8px;
+      box-sizing: border-box;
       font-size: 12.5px;
     }
     .vehicle-field textarea {
@@ -5394,12 +5414,17 @@
         grid-template-columns: minmax(0, 1fr) minmax(270px, 320px);
         gap: 18px;
       }
+      .overview-main__meta {
+        grid-template-columns: minmax(144px, 150px) minmax(0, 1fr);
+      }
     }
     @media (max-width: 760px) {
       .grid { grid-template-columns: 1fr; }
       .overview-layout { grid-template-columns: 1fr; }
       .overview-main {
         --card-meta-panel-height: auto;
+        --card-description-target-height: 260px;
+        --card-description-max-height: 420px;
       }
       .overview-main__meta {
         grid-template-columns: 1fr;
@@ -5832,6 +5857,8 @@
     body.is-mobile-lite .overview-main {
       max-width: none;
       --card-meta-panel-height: auto;
+      --card-description-target-height: 260px;
+      --card-description-max-height: 420px;
     }
     body.is-mobile-lite .grid--overview {
       grid-template-columns: 1fr;

@@ -787,7 +787,7 @@
     }
 
     async function saveCard() {
-      if (state.cardSaveInFlight) return;
+      if (state.cardSaveInFlight) return state.cardSavePromise || false;
       if (state.editingId && !state.activeCardIsFull) return setStatus('ДОЖДИТЕСЬ ЗАГРУЗКИ КАРТОЧКИ.', true);
       const payload = currentCardPayload();
       if (!payload.title) return setStatus(CARD_TITLE_REQUIRED_MESSAGE, true);
@@ -795,7 +795,8 @@
       state.cardSaveInFlight = true;
       if (els.saveCardButton) els.saveCardButton.disabled = true;
       syncCardSaveDirtyState();
-      return perfMeasureAsync('saveCard', async () => {
+      let saveSucceeded = false;
+      const savePromise = perfMeasureAsync('saveCard', async () => {
         try {
           const data = await persistCardPayload(payload);
           const savedCard = data?.card || null;
@@ -805,15 +806,24 @@
           } else {
             rememberCardModalCleanState(payload);
           }
+          saveSucceeded = true;
           setStatus('КАРТОЧКА СОХРАНЕНА.', false);
+          return true;
         } catch (error) {
           setStatus(error.message, true);
+          return false;
         } finally {
+          const shouldCloseAfterSave = state.cardCloseAfterSave && saveSucceeded && els.cardModal?.classList.contains('is-open');
           state.cardSaveInFlight = false;
+          state.cardSavePromise = null;
+          state.cardCloseAfterSave = false;
           if (els.saveCardButton) els.saveCardButton.disabled = false;
           syncCardSaveDirtyState();
+          if (shouldCloseAfterSave) closeCardModal({ force: true });
         }
       });
+      state.cardSavePromise = savePromise;
+      return savePromise;
     }
 
     configureCardFieldSemantics();

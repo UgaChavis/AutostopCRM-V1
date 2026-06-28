@@ -114,6 +114,8 @@
       editingId: null,
       cardCreateColumnId: '',
       cardSaveInFlight: false,
+      cardSavePromise: null,
+      cardCloseAfterSave: false,
       cardInitialPayloadKey: '',
       cardDescriptionLoading: false,
       cardHydratingId: '',
@@ -11559,6 +11561,11 @@
       return Math.max(0, finiteNumber(value, fallback));
     }
 
+    function cssPixelNumber(value, fallback = 0) {
+      const numeric = parseFloat(String(value || ''));
+      return Number.isFinite(numeric) ? numeric : fallback;
+    }
+
     function applyBoardScale(value, { syncInput = false } = {}) {
       const scale = normalizeBoardScale(value);
       state.boardScale = scale;
@@ -11851,6 +11858,12 @@
       return title || vehicle || 'Без названия';
     }
 
+    function cardModalHeading(card) {
+      const vehicle = String(card?.vehicle || '').trim();
+      const profileVehicle = vehicleDisplayFromProfile(card?.vehicle_profile || {});
+      return vehicle || profileVehicle || 'Без марки / модели';
+    }
+
     function limitCardModalHeading(value, maxLength = 92) {
       const text = String(value || '').trim();
       if (!text) return 'Рабочая карточка';
@@ -11881,25 +11894,27 @@
       const editor = els.cardDescriptionEditor;
       if (!editor) return;
       const style = window.getComputedStyle(editor);
-      const lineHeight = Math.max(22, finiteNumber(style.lineHeight, 24));
-      const paddingTop = finiteNonNegativeNumber(style.paddingTop);
-      const paddingBottom = finiteNonNegativeNumber(style.paddingBottom);
-      const borderTop = finiteNonNegativeNumber(style.borderTopWidth);
-      const borderBottom = finiteNonNegativeNumber(style.borderBottomWidth);
+      const lineHeight = Math.max(22, cssPixelNumber(style.lineHeight, 24));
+      const paddingTop = cssPixelNumber(style.paddingTop);
+      const paddingBottom = cssPixelNumber(style.paddingBottom);
+      const borderTop = cssPixelNumber(style.borderTopWidth);
+      const borderBottom = cssPixelNumber(style.borderBottomWidth);
       const chromeHeight = paddingTop + paddingBottom + borderTop + borderBottom;
       const text = String(els.cardDescription?.value || editor.innerText || '').trim();
       const lineCount = text ? text.split(/\r?\n/).length : 0;
       const preferredRows = text ? Math.max(8, Math.min(12, lineCount + 2)) : 7;
       const preferredHeight = Math.round(preferredRows * lineHeight + chromeHeight);
+      const configuredTargetHeight = cssPixelNumber(style.getPropertyValue('--card-description-target-height'));
+      const configuredMaxHeight = cssPixelNumber(style.getPropertyValue('--card-description-max-height'), 620);
       const overviewPanel = editor.closest('[data-panel="overview"]');
       const overviewMain = editor.closest('.overview-main');
       const overviewGrid = overviewMain?.querySelector('.grid--overview');
       const overviewMeta = overviewMain?.querySelector('.overview-main__meta');
       const descriptionHead = editor.closest('.field--description')?.querySelector('.description-field-head');
       const mainStyle = overviewMain ? window.getComputedStyle(overviewMain) : null;
-      const mainGap = mainStyle ? finiteNonNegativeNumber(mainStyle.rowGap || mainStyle.gap) : 0;
+      const mainGap = mainStyle ? cssPixelNumber(mainStyle.rowGap || mainStyle.gap) : 0;
       const metaStyle = overviewMeta ? window.getComputedStyle(overviewMeta) : null;
-      const configuredMetaReserve = metaStyle ? finiteNonNegativeNumber(metaStyle.getPropertyValue('--card-meta-panel-height')) : 0;
+      const configuredMetaReserve = metaStyle ? cssPixelNumber(metaStyle.getPropertyValue('--card-meta-panel-height')) : 0;
       const measuredMetaReserve = overviewMeta?.getBoundingClientRect().height || 0;
       const metaReserveHeight = configuredMetaReserve > 0 ? configuredMetaReserve : measuredMetaReserve;
       const reserveHeight =
@@ -11910,10 +11925,12 @@
         18;
       const overviewHeight = overviewPanel?.clientHeight || 0;
       const reservedMaxHeight = overviewHeight > reserveHeight ? overviewHeight - reserveHeight : Infinity;
-      const viewportMaxHeight = Math.min(window.innerHeight * 0.42, 520);
+      const viewportLimit = configuredMaxHeight > 0 ? configuredMaxHeight : 620;
+      const viewportMaxHeight = Math.min(window.innerHeight * 0.48, viewportLimit);
       const maxHeight = Math.max(preferredHeight, Math.min(viewportMaxHeight, reservedMaxHeight));
+      const targetHeight = configuredTargetHeight > 0 ? Math.min(configuredTargetHeight, maxHeight) : preferredHeight;
       editor.style.height = 'auto';
-      editor.style.height = Math.max(preferredHeight, Math.min(editor.scrollHeight, maxHeight)) + 'px';
+      editor.style.height = Math.max(targetHeight, Math.min(editor.scrollHeight, maxHeight)) + 'px';
     }
 
     function stickyPayload() {
@@ -12458,7 +12475,7 @@
             vehicleFieldControlHtml(field) +
             '</div>';
         }).join('');
-        return '<section class="vehicle-group' + (index === 0 ? ' vehicle-group--identity' : '') + '">' +
+        return '<section class="vehicle-group' + (index === 0 ? ' vehicle-group--identity' : '') + (index === 1 ? ' vehicle-group--aggregates' : '') + '">' +
           (group.title ? '<div class="vehicle-group__title">' + escapeHtml(group.title) + '</div>' : '') +
           '<div class="vehicle-group__grid">' + fields + '</div>' +
           '</section>';
@@ -14470,7 +14487,7 @@
       state.pendingCreateClientVehicleFromCard = false;
       state.draftTags = normalizeDraftTags(currentCard?.tag_items || currentCard?.tags || []);
       state.draftTagColor = 'green';
-      const modalHeading = currentCard?.id ? cardHeading(currentCard) : 'Новая карточка';
+      const modalHeading = currentCard?.id ? cardModalHeading(currentCard) : 'Новая карточка';
       els.cardModalTitle.textContent = limitCardModalHeading(modalHeading);
       els.cardModalTitle.title = modalHeading;
       els.cardVehicle.value = currentCard?.vehicle || '';
@@ -14522,6 +14539,8 @@
       state.editingId = null;
       state.cardCreateColumnId = '';
       state.cardSaveInFlight = false;
+      state.cardSavePromise = null;
+      state.cardCloseAfterSave = false;
       state.cardInitialPayloadKey = '';
       state.cardDescriptionLoading = false;
       state.cardHydratingId = '';
@@ -16067,6 +16086,11 @@
     }
 
     function closeCardModal({ force = false } = {}) {
+      if (state.cardSaveInFlight) {
+        state.cardCloseAfterSave = true;
+        setStatus('СОХРАНЯЮ КАРТОЧКУ. ЗАКРОЮ ПОСЛЕ СОХРАНЕНИЯ.', false);
+        return false;
+      }
       if (!force && cardModalHasUnsavedChanges()) {
         const confirmed = window.confirm('Есть несохраненные изменения. Закрыть карточку без сохранения?');
         if (!confirmed) return false;

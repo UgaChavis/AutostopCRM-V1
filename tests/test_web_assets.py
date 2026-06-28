@@ -1033,6 +1033,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".tag-controls {", BOARD_WEB_APP_HTML)
         self.assertIn(".tag-list .tag {", BOARD_WEB_APP_HTML)
         self.assertIn("--card-meta-panel-height: 94px;", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "grid-template-columns: minmax(144px, 150px) minmax(0, 450px);",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn(".overview-main__meta > .subpanel {", BOARD_WEB_APP_HTML)
         self.assertIn("height: var(--card-meta-panel-height);", BOARD_WEB_APP_HTML)
         self.assertIn("min-height: var(--card-meta-panel-height);", BOARD_WEB_APP_HTML)
@@ -1910,19 +1914,29 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(".field--description .description-editor {", BOARD_WEB_APP_HTML)
-        self.assertIn("min-height: 180px;", BOARD_WEB_APP_HTML)
-        self.assertIn("height: 180px;", BOARD_WEB_APP_HTML)
-        self.assertIn("max-height: clamp(220px, 42vh, 520px);", BOARD_WEB_APP_HTML)
+        self.assertIn("--card-description-target-height: 550px;", BOARD_WEB_APP_HTML)
+        self.assertIn("--card-description-max-height: 620px;", BOARD_WEB_APP_HTML)
+        self.assertIn("min-height: 220px;", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "height: min(var(--card-description-target-height), 48vh);", BOARD_WEB_APP_HTML
+        )
+        self.assertIn(
+            "max-height: min(var(--card-description-max-height), 58vh);", BOARD_WEB_APP_HTML
+        )
         self.assertIn("function syncCardDescriptionHeight()", BOARD_WEB_APP_HTML)
         self.assertIn(
             "const preferredRows = text ? Math.max(8, Math.min(12, lineCount + 2)) : 7;",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
+            "const configuredTargetHeight = cssPixelNumber(style.getPropertyValue('--card-description-target-height'));",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
             "const reservedMaxHeight = overviewHeight > reserveHeight ? overviewHeight - reserveHeight : Infinity;",
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn("window.innerHeight * 0.42", BOARD_WEB_APP_HTML)
+        self.assertIn("window.innerHeight * 0.48", BOARD_WEB_APP_HTML)
         self.assertIn(
             "els.cardDescriptionEditor.addEventListener('input', handleCardDescriptionInput);",
             BOARD_WEB_APP_HTML,
@@ -2031,7 +2045,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("justify-content: stretch;", BOARD_WEB_APP_HTML)
         self.assertIn("max-width: none;", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "const configuredMetaReserve = metaStyle ? finiteNonNegativeNumber(metaStyle.getPropertyValue('--card-meta-panel-height')) : 0;",
+            "const configuredMetaReserve = metaStyle ? cssPixelNumber(metaStyle.getPropertyValue('--card-meta-panel-height')) : 0;",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
@@ -2057,7 +2071,12 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("async function persistCardPayload(payload)", BOARD_WEB_APP_HTML)
         self.assertIn("state.cardCreateColumnId = ''", BOARD_WEB_APP_HTML)
         self.assertIn("state.cardSaveInFlight = false", BOARD_WEB_APP_HTML)
-        self.assertIn("if (state.cardSaveInFlight) return;", BOARD_WEB_APP_HTML)
+        self.assertIn("cardSavePromise: null", BOARD_WEB_APP_HTML)
+        self.assertIn("cardCloseAfterSave: false", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "if (state.cardSaveInFlight) return state.cardSavePromise || false;",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("state.cardSaveInFlight = true;", BOARD_WEB_APP_HTML)
         self.assertIn("state.cardCreateColumnId || state.activeCard?.column", BOARD_WEB_APP_HTML)
         self.assertNotIn('id="cardButton" type="button"', BOARD_WEB_APP_HTML)
@@ -2122,6 +2141,11 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function cardModalHasUnsavedChanges()", BOARD_WEB_APP_HTML)
         self.assertIn("function syncCardSaveDirtyState()", BOARD_WEB_APP_HTML)
         self.assertIn("function scheduleCardSaveDirtyStateSync()", BOARD_WEB_APP_HTML)
+        self.assertIn("function cardModalHeading(card)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const modalHeading = currentCard?.id ? cardModalHeading(currentCard) : 'Новая карточка';",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn(
             "els.saveCardButton.classList.toggle('is-dirty', hasUnsavedChanges);",
             BOARD_WEB_APP_HTML,
@@ -2137,6 +2161,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("#saveCardButton.is-dirty:not(:disabled) {", BOARD_WEB_APP_HTML)
         self.assertIn("Есть несохраненные изменения", BOARD_WEB_APP_HTML)
         self.assertIn("function closeCardModal({ force = false } = {})", BOARD_WEB_APP_HTML)
+        self.assertIn("state.cardCloseAfterSave = true;", BOARD_WEB_APP_HTML)
+        self.assertIn("СОХРАНЯЮ КАРТОЧКУ. ЗАКРОЮ ПОСЛЕ СОХРАНЕНИЯ.", BOARD_WEB_APP_HTML)
         self.assertIn("const data = await persistCardPayload(payload);", BOARD_WEB_APP_HTML)
         self.assertIn("const savedCard = data?.card || null;", save_fragment)
         self.assertIn("applySavedCardLocalPatch(savedCard);", save_fragment)
@@ -2145,7 +2171,15 @@ class WebAssetsTests(unittest.TestCase):
             save_fragment,
         )
         self.assertIn("rememberCardModalCleanState(payload);", save_fragment)
-        self.assertNotIn("closeCardModal({ force: true });", save_fragment)
+        self.assertIn(
+            "const shouldCloseAfterSave = state.cardCloseAfterSave && saveSucceeded", save_fragment
+        )
+        self.assertIn("state.cardSavePromise = savePromise;", save_fragment)
+        self.assertIn("if (shouldCloseAfterSave) closeCardModal({ force: true });", save_fragment)
+        self.assertNotIn(
+            "setStatus('КАРТОЧКА СОХРАНЕНА.', false);\n          closeCardModal({ force: true });",
+            save_fragment,
+        )
         self.assertIn(
             "state.cardSaveInFlight = true;\n      if (els.saveCardButton) els.saveCardButton.disabled = true;\n      syncCardSaveDirtyState();",
             BOARD_WEB_APP_HTML,
@@ -2364,6 +2398,9 @@ class WebAssetsTests(unittest.TestCase):
 
     def test_vehicle_panel_hides_empty_summary_and_first_group_title(self) -> None:
         self.assertIn("VEHICLE_FIELD_GROUPS[0].title = '';", BOARD_WEB_APP_HTML)
+        self.assertIn("vehicle-group--aggregates", BOARD_WEB_APP_HTML)
+        self.assertIn(".vehicle-group__title::after {", BOARD_WEB_APP_HTML)
+        self.assertIn("height: 32px;", BOARD_WEB_APP_HTML)
         self.assertIn("Пробег", BOARD_WEB_APP_HTML)
         self.assertIn("Телефон клиента", BOARD_WEB_APP_HTML)
         self.assertIn("ФИО клиента", BOARD_WEB_APP_HTML)

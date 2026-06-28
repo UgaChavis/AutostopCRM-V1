@@ -1369,7 +1369,7 @@ _PRINTING_SCRIPT_PART2 = r"""
       const viewport = repairOrderPrintPreviewViewport();
       if (repairOrderPrintState.zoomMode === 'fit') {
         const availableWidth = Math.max(320, (printEls.previewWrap?.clientWidth ?? viewport.width) - 24);
-        return Math.max(0.3, Math.min(1.2, availableWidth / Math.max(viewport.width, 1)));
+        return Math.max(0.3, Math.min(1, availableWidth / viewport.width));
       }
       return Math.max(0.4, Math.min(2, printFiniteNumber(repairOrderPrintState.zoom, 1)));
     }
