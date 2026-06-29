@@ -1189,6 +1189,7 @@ class PrintModuleService:
                 paper_size=settings.paper_size,
                 orientation=render_orientation,
                 title=f"AutoStop CRM {card.heading()}",
+                allow_plain_text_fallback=False,
             )
         except PdfRenderError as exc:
             raise PrintModuleError("pdf_error", str(exc), status_code=500) from exc

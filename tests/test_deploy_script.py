@@ -76,13 +76,22 @@ class DeployScriptTests(unittest.TestCase):
         dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
 
         for package in (
+            "fonts-dejavu-core",
+            "libgbm1",
             "libnspr4",
             "libnss3",
             "libasound2t64",
             "libgssapi-krb5-2",
+            "libx11-xcb1",
             "libxcomposite1",
             "libxdamage1",
             "libxfixes3",
+            "libxrender1",
+            "libxshmfence1",
+            "libxcb-cursor0",
+            "libxcb-icccm4",
+            "libxcb-image0",
+            "libxcb-keysyms1",
             "libxtst6",
             "libxkbfile1",
             "libxrandr2",

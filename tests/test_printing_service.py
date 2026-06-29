@@ -25,6 +25,7 @@ from minimal_kanban.printing.defaults import PRINT_BASE_STYLES
 from minimal_kanban.printing.models import SUPPORTED_PRINT_DOCUMENT_TYPES, PrintModuleSettings
 from minimal_kanban.printing.pdf import (
     PdfRenderError,
+    _ensure_qt_webengine_chromium_flags,
     _html_to_plain_text,
     _parse_json_object,
     _read_generated_pdf_bytes,
@@ -2054,6 +2055,16 @@ class PrintingServiceTests(unittest.TestCase):
         webengine.assert_called_once()
         legacy_qt.assert_not_called()
 
+    def test_pdf_renderer_adds_webengine_chromium_flags_without_overwriting(self) -> None:
+        env = {"QTWEBENGINE_CHROMIUM_FLAGS": "--existing"}
+
+        _ensure_qt_webengine_chromium_flags(env)
+
+        self.assertIn("--existing", env["QTWEBENGINE_CHROMIUM_FLAGS"])
+        self.assertIn("--no-sandbox", env["QTWEBENGINE_CHROMIUM_FLAGS"])
+        self.assertIn("--disable-dev-shm-usage", env["QTWEBENGINE_CHROMIUM_FLAGS"])
+        self.assertIn("--disable-gpu", env["QTWEBENGINE_CHROMIUM_FLAGS"])
+
     def test_pdf_json_parser_rejects_nonstandard_constants(self) -> None:
         with self.assertRaisesRegex(ValueError, "Unsupported JSON constant: NaN"):
             _parse_json_object('{"content_base64": NaN}', label="Qt subprocess response")
@@ -2087,7 +2098,7 @@ class PrintingServiceTests(unittest.TestCase):
                 with self.assertRaisesRegex(PdfRenderError, "слишком большой PDF"):
                     _read_generated_pdf_bytes(pdf_path, label="Qt")
 
-    def test_pdf_renderer_falls_back_from_oversized_preferred_pdf(self) -> None:
+    def test_pdf_renderer_rejects_plain_text_fallback_by_default(self) -> None:
         with (
             patch("minimal_kanban.printing.pdf._should_use_qt_renderer", return_value=True),
             patch(
@@ -2095,11 +2106,28 @@ class PrintingServiceTests(unittest.TestCase):
             ),
             patch("minimal_kanban.printing.pdf.PDF_OUTPUT_MAX_BYTES", 4096),
             patch(
-                "minimal_kanban.printing.pdf._render_preferred_qt_pdf_bytes",
+                "minimal_kanban.printing.pdf._render_webengine_pdf_bytes",
                 return_value=b"%PDF" + (b"x" * 4096),
             ),
         ):
-            pdf_bytes = render_html_to_pdf_bytes("<h1>Fallback</h1>")
+            with self.assertRaisesRegex(PdfRenderError, "HTML-рендер PDF недоступен"):
+                render_html_to_pdf_bytes("<h1>Fallback</h1>")
+
+    def test_pdf_renderer_can_use_explicit_plain_text_fallback(self) -> None:
+        with (
+            patch("minimal_kanban.printing.pdf._should_use_qt_renderer", return_value=True),
+            patch(
+                "minimal_kanban.printing.pdf._should_use_qt_subprocess_renderer", return_value=False
+            ),
+            patch("minimal_kanban.printing.pdf.PDF_OUTPUT_MAX_BYTES", 4096),
+            patch(
+                "minimal_kanban.printing.pdf._render_webengine_pdf_bytes",
+                return_value=b"%PDF" + (b"x" * 4096),
+            ),
+        ):
+            pdf_bytes = render_html_to_pdf_bytes(
+                "<h1>Fallback</h1>", allow_plain_text_fallback=True
+            )
 
         self.assertTrue(pdf_bytes.startswith(b"%PDF"))
         self.assertLessEqual(len(pdf_bytes), 4096)
@@ -2115,7 +2143,8 @@ class PrintingServiceTests(unittest.TestCase):
                   <head><style>body { color: red; }</style></head>
                   <body><h1>Счет на оплату</h1><p>Владимир Регин</p></body>
                 </html>
-                """
+                """,
+                allow_plain_text_fallback=True,
             )
 
         thread = threading.Thread(target=run, name="pdf-worker-test")

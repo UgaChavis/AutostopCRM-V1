@@ -69,6 +69,7 @@ def _ensure_qt_application():
         os.environ["QT_QPA_PLATFORM"] = "offscreen"
     if not os.environ.get("QTWEBENGINE_DISABLE_SANDBOX"):
         os.environ["QTWEBENGINE_DISABLE_SANDBOX"] = "1"
+    _ensure_qt_webengine_chromium_flags(os.environ)
     try:
         from PySide6.QtWidgets import QApplication
     except Exception as exc:  # pragma: no cover
@@ -78,6 +79,15 @@ def _ensure_qt_application():
         app = QApplication([])
         app.setQuitOnLastWindowClosed(False)
     return app
+
+
+def _ensure_qt_webengine_chromium_flags(env: os._Environ[str] | dict[str, str]) -> None:
+    existing = str(env.get("QTWEBENGINE_CHROMIUM_FLAGS", "") or "").strip()
+    flags = existing.split() if existing else []
+    for flag in ("--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"):
+        if flag not in flags:
+            flags.append(flag)
+    env["QTWEBENGINE_CHROMIUM_FLAGS"] = " ".join(flags)
 
 
 def _should_use_qt_renderer() -> bool:
@@ -126,11 +136,13 @@ def render_html_to_pdf_bytes(
     paper_size: str = "A4",
     orientation: str = "portrait",
     title: str = "AutoStop CRM",
+    allow_plain_text_fallback: bool = False,
 ) -> bytes:
+    errors: list[str] = []
     if _should_use_qt_renderer():
         try:
             return _validate_pdf_bytes(
-                _render_preferred_qt_pdf_bytes(
+                _render_webengine_pdf_bytes(
                     html,
                     paper_size=paper_size,
                     orientation=orientation,
@@ -138,8 +150,8 @@ def render_html_to_pdf_bytes(
                 ),
                 label="Qt renderer",
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            errors.append(f"Qt WebEngine: {exc}")
     if _should_use_qt_subprocess_renderer():
         try:
             return _validate_pdf_bytes(
@@ -151,8 +163,17 @@ def render_html_to_pdf_bytes(
                 ),
                 label="Qt subprocess",
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            errors.append(f"Qt subprocess: {exc}")
+    if not allow_plain_text_fallback:
+        detail = "; ".join(error for error in errors if error)
+        message = (
+            "HTML-рендер PDF недоступен, поэтому невозможно скачать документ "
+            "в том же виде, что в предпросмотре."
+        )
+        if detail:
+            message = f"{message} {detail}"
+        raise PdfRenderError(message)
     return _render_fallback_pdf_bytes(
         html,
         paper_size=paper_size,
@@ -374,8 +395,9 @@ def _render_qt_pdf_in_subprocess(
     orientation: str = "portrait",
     title: str = "AutoStop CRM",
 ) -> bytes:
-    script_path = Path(__file__).resolve()
-    if not script_path.exists():
+    module_path = Path(__file__).resolve()
+    source_root = module_path.parents[2]
+    if not module_path.exists():
         raise PdfRenderError("Не найден модуль генерации PDF для subprocess.")
     payload = json.dumps(
         {
@@ -390,10 +412,17 @@ def _render_qt_pdf_in_subprocess(
     env = os.environ.copy()
     env["MINIMAL_KANBAN_PDF_RENDER_CHILD"] = "1"
     env.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
+    _ensure_qt_webengine_chromium_flags(env)
+    existing_pythonpath = str(env.get("PYTHONPATH", "") or "")
+    env["PYTHONPATH"] = (
+        str(source_root)
+        if not existing_pythonpath
+        else f"{source_root}{os.pathsep}{existing_pythonpath}"
+    )
     if not os.environ.get("QT_QPA_PLATFORM") and os.name != "nt":
         env["QT_QPA_PLATFORM"] = "offscreen"
     completed = subprocess.run(
-        [sys.executable, str(script_path)],
+        [sys.executable, "-m", "minimal_kanban.printing.pdf"],
         input=payload,
         capture_output=True,
         env=env,
@@ -574,7 +603,7 @@ def _render_pdf_cli() -> int:
             _read_pdf_cli_stdin(sys.stdin.buffer).decode("utf-8"),
             label="Qt subprocess request",
         )
-        pdf_bytes = _render_preferred_qt_pdf_bytes(
+        pdf_bytes = _render_webengine_pdf_bytes(
             str(payload.get("html", "") or ""),
             paper_size=str(payload.get("paper_size", "A4") or "A4"),
             orientation=str(payload.get("orientation", "portrait") or "portrait"),

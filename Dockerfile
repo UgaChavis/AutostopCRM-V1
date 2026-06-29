@@ -11,15 +11,36 @@ RUN apt-get update && \
         libdbus-1-3 \
         libegl1 \
         libfontconfig1 \
+        fonts-dejavu-core \
         libgl1 \
+        libgbm1 \
         libglib2.0-0 \
         libnspr4 \
         libnss3 \
         libasound2t64 \
         libgssapi-krb5-2 \
+        libice6 \
+        libsm6 \
+        libx11-xcb1 \
         libxcomposite1 \
         libxdamage1 \
+        libxext6 \
         libxfixes3 \
+        libxrender1 \
+        libxshmfence1 \
+        libxcb-cursor0 \
+        libxcb-glx0 \
+        libxcb-icccm4 \
+        libxcb-image0 \
+        libxcb-keysyms1 \
+        libxcb-randr0 \
+        libxcb-render-util0 \
+        libxcb-shape0 \
+        libxcb-shm0 \
+        libxcb-sync1 \
+        libxcb-xfixes0 \
+        libxcb-xinerama0 \
+        libxcb-xkb1 \
         libxkbcommon0 \
         libxkbfile1 \
         libxrandr2 \
