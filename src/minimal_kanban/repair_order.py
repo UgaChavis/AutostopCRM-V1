@@ -773,6 +773,16 @@ class RepairOrder:
             ]
         )
 
+    def is_empty_for_archive(self) -> bool:
+        return (
+            not self.works
+            and not self.materials
+            and not self.payments
+            and not self.has_prepayment()
+            and self.subtotal_value() == Decimal("0")
+            and self.due_total_value() == Decimal("0")
+        )
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "number": self.number,
@@ -814,6 +824,7 @@ class RepairOrder:
             "payment_status": self.payment_status(),
             "payment_status_label": self.payment_status_label(),
             "has_any_data": not self.is_empty(),
+            "is_empty_for_archive": self.is_empty_for_archive(),
         }
 
     def to_storage_dict(self) -> dict[str, Any]:

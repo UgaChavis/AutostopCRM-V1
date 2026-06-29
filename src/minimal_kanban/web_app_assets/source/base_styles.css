@@ -1788,18 +1788,6 @@
       font-size: 10px;
       line-height: 1;
     }
-    #cardMetaLine {
-      min-width: 0;
-      color: rgba(200, 198, 187, 0.76);
-      font-size: 9px;
-      line-height: 1.2;
-      letter-spacing: 0.03em;
-      text-align: left;
-      opacity: 0.82;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
     .stack { display: grid; gap: 12px; }
     .field { display: grid; gap: 5px; }
     .grid--overview { grid-template-columns: minmax(176px, 0.62fr) minmax(0, 1fr); gap: 7px; }
@@ -1946,11 +1934,6 @@
     .description-editor.is-loading {
       color: var(--muted);
       cursor: progress;
-    }
-    .description-editor:empty::before {
-      content: attr(data-placeholder);
-      color: var(--muted);
-      pointer-events: none;
     }
     .description-editor b,
     .description-editor strong {
@@ -2529,9 +2512,16 @@
     }
     .vehicle-panel__head {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr);
       align-items: start;
       gap: 8px;
+    }
+    .vehicle-panel__title-block {
+      display: grid;
+      gap: 6px;
+      justify-items: center;
+      text-align: center;
+      min-width: 0;
     }
     .vehicle-panel__summary {
       color: var(--text-soft);
@@ -4132,6 +4122,10 @@
       align-items: center;
       gap: 6px;
     }
+    .vehicle-field--centered .vehicle-field__label {
+      justify-content: center;
+      text-align: center;
+    }
     .vehicle-field__label label,
     .vehicle-field__label span {
       font-family: var(--mono);
@@ -4143,6 +4137,11 @@
     .vehicle-control--mono {
       font-family: var(--mono);
       letter-spacing: 0.05em;
+    }
+    .vehicle-field--centered input {
+      height: 32px;
+      min-width: 0;
+      text-align: center;
     }
     .vehicle-copy {
       border: 1px solid rgba(115, 126, 105, 0.28);
@@ -5769,9 +5768,6 @@
     body.is-mobile-lite .card__tags {
       gap: 4px;
     }
-    body.is-mobile-lite .card__signal-value {
-      font-size: 12px;
-    }
     body.is-mobile-lite .sticky-layer {
       display: none;
     }
@@ -5871,10 +5867,6 @@
     }
     body.is-mobile-lite .dialog__tabs--card .tab-btn[data-tab="journal"] {
       display: inline-block;
-    }
-    body.is-mobile-lite .dialog__tabs--card #cardMetaLine {
-      width: 100%;
-      text-align: left;
     }
     body.is-mobile-lite .dialog__foot--card {
       flex-direction: column-reverse;

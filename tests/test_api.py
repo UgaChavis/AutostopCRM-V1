@@ -3178,6 +3178,41 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(blocked["error"]["code"], "repair_order_open_archive_blocked")
         self.assertIn("открыт заказ-наряд", blocked["error"]["message"])
 
+    def test_archive_card_route_allows_open_empty_repair_order_without_money(self) -> None:
+        status, created = self.request(
+            "/api/create_card",
+            {
+                "vehicle": "KIA RIO",
+                "title": "Empty order",
+                "description": "Открыли, но не расписывали",
+                "deadline": {"hours": 2},
+            },
+        )
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+
+        status, updated = self.request(
+            "/api/update_card",
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "number": "20",
+                    "date": "06.04.2026 10:00",
+                    "status": "open",
+                    "opened_at": "06.04.2026 10:00",
+                    "client": "Иван Иванов",
+                    "vehicle": "KIA RIO",
+                    "reason": "Empty order",
+                },
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(updated["data"]["card"]["repair_order"]["is_empty_for_archive"])
+
+        status, archived = self.request("/api/archive_card", {"card_id": card_id})
+        self.assertEqual(status, 200)
+        self.assertTrue(archived["data"]["card"]["archived"])
+
     def test_employee_routes_and_payroll_report(self) -> None:
         status, saved_employee = self.request(
             "/api/save_employee",

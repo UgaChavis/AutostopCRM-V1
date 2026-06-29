@@ -37,6 +37,7 @@ ALLOWED_LARGE_MODULES = {
     "src/minimal_kanban/services/snapshot_service.py": "snapshot serialization split target",
     "src/minimal_kanban/agent/runner.py": "agent orchestration split target",
     "src/minimal_kanban/mcp/server.py": "MCP registry split target",
+    "src/minimal_kanban/printing/service.py": "print rendering workflow split target",
     "tests/test_service.py": "legacy broad service coverage pending domain split",
     "tests/test_api.py": "legacy broad API coverage pending route split",
     "tests/test_mcp.py": "legacy broad MCP coverage pending contract split",

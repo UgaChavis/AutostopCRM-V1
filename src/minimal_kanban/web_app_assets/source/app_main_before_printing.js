@@ -357,9 +357,9 @@
         title: 'Идентификация',
         fields: [
           { name: 'display_name', label: 'Марка / модель', wide: true },
-          { name: 'registration_plate', label: 'Гос номер', mono: true },
-          { name: 'production_year', label: 'Год', type: 'number', min: '1900', max: '2100', step: '1' },
-          { name: 'mileage', label: 'Пробег', type: 'number', min: '0', step: '1' },
+          { name: 'registration_plate', label: 'Гос номер', mono: true, centered: true },
+          { name: 'production_year', label: 'Год', type: 'number', min: '1900', max: '2100', step: '1', centered: true },
+          { name: 'mileage', label: 'Пробег', type: 'number', min: '0', step: '1', centered: true },
           { name: 'vin', label: 'VIN', copy: true, mono: true, wide: true, maxlength: '17' },
         ],
       },
@@ -1123,7 +1123,6 @@
       cardModalTitle: document.getElementById('cardModalTitle'),
       cardModalCloseButtonTop: document.getElementById('cardModalCloseButtonTop'),
       cardModalCloseButtonBottom: document.getElementById('cardModalCloseButtonBottom'),
-      cardMetaLine: document.getElementById('cardMetaLine'),
       cardVehicle: document.getElementById('cardVehicle'),
       cardTitle: document.getElementById('cardTitle'),
       cardDescription: document.getElementById('cardDescription'),
@@ -12625,7 +12624,7 @@
           const copyButton = field.copy
             ? '<button class="vehicle-copy" type="button" data-copy-vehicle-field="' + escapeHtml(field.name) + '" data-copy-available="false" title="Нет данных для копирования" disabled>копия</button>'
             : '';
-          return '<div class="field field--compact vehicle-field' + (field.wide ? ' vehicle-field--wide' : '') + '">' +
+          return '<div class="field field--compact vehicle-field' + (field.wide ? ' vehicle-field--wide' : '') + (field.centered ? ' vehicle-field--centered' : '') + '">' +
             '<div class="vehicle-field__label"><span>' + escapeHtml(field.label) + '</span>' + copyButton + '</div>' +
             vehicleFieldControlHtml(field) +
             '</div>';
@@ -13580,25 +13579,67 @@
     function repairOrderHasAnyData(order) {
       const normalized = normalizeRepairOrder(order);
       return Boolean(
-        normalized.number ||
-        normalized.date ||
-        normalized.opened_at ||
-        normalized.closed_at ||
-        normalized.client ||
-        normalized.phone ||
-        normalized.vehicle ||
-        normalized.license_plate ||
-        normalized.vin ||
-        normalized.mileage ||
-        normalized.prepayment ||
+        repairOrderTextHasMeaning(normalized.number) ||
+        repairOrderTextHasMeaning(normalized.date) ||
+        repairOrderTextHasMeaning(normalized.opened_at) ||
+        repairOrderTextHasMeaning(normalized.closed_at) ||
+        repairOrderTextHasMeaning(normalized.client) ||
+        repairOrderTextHasMeaning(normalized.phone) ||
+        repairOrderTextHasMeaning(normalized.vehicle) ||
+        repairOrderTextHasMeaning(normalized.license_plate) ||
+        repairOrderTextHasMeaning(normalized.vin) ||
+        repairOrderTextHasMeaning(normalized.mileage) ||
+        repairOrderMoneyHasValue(normalized.prepayment) ||
         normalized.payments.length ||
-        normalized.reason ||
-        normalized.comment ||
-        normalized.note ||
+        repairOrderTextHasMeaning(normalized.reason) ||
+        repairOrderTextHasMeaning(normalized.comment) ||
+        repairOrderTextHasMeaning(normalized.note) ||
         normalized.tags.length ||
         normalized.works.length ||
         normalized.materials.length
       );
+    }
+
+    function repairOrderTextHasMeaning(value) {
+      const normalized = String(value ?? '').trim();
+      return Boolean(normalized && normalized !== '-' && normalized !== '—');
+    }
+
+    function repairOrderMoneyHasValue(value) {
+      const parsed = repairOrderParseNumber(value);
+      return parsed !== null && Math.abs(parsed) > 0.000001;
+    }
+
+    function repairOrderIsEmptyForArchive(order) {
+      if (order?.is_empty_for_archive === true) return true;
+      const normalized = normalizeRepairOrder(order);
+      return !normalized.works.length
+        && !normalized.materials.length
+        && !normalized.payments.length
+        && !repairOrderMoneyHasValue(normalized.prepayment)
+        && !repairOrderMoneyHasValue(order?.subtotal_total)
+        && !repairOrderMoneyHasValue(order?.due_total);
+    }
+
+    function cardArchiveAvailability(card) {
+      if (!card?.id || card?.archived) return false;
+      if (!repairOrderHasAnyData(card?.repair_order) || repairOrderIsEmptyForArchive(card?.repair_order)) return true;
+      return normalizeRepairOrderStatus(card?.repair_order?.status) === 'closed'
+        && repairOrderIsFullyPaid(card?.repair_order);
+    }
+
+    function cardArchiveUnavailableTitle(card) {
+      if (!card?.id || card?.archived) return '';
+      if (!repairOrderHasAnyData(card?.repair_order) || repairOrderIsEmptyForArchive(card?.repair_order)) return '';
+      const number = String(card?.repair_order?.number || '').trim();
+      const suffix = number ? (' №' + number) : '';
+      if (normalizeRepairOrderStatus(card?.repair_order?.status) !== 'closed') {
+        return 'Заказ-наряд' + suffix + ' открыт. Закройте его перед архивированием.';
+      }
+      if (!repairOrderIsFullyPaid(card?.repair_order)) {
+        return 'Заказ-наряд' + suffix + ' закрыт, но не оплачен.';
+      }
+      return '';
     }
 
     function ensureRepairOrderRows(rows) {
@@ -14715,8 +14756,11 @@
       els.signalDays.value = parts.days;
       els.signalHours.value = parts.hours;
       renderSignalPreview();
-      els.cardMetaLine.textContent = currentCard?.id ? ('создано ' + formatDate(currentCard.created_at) + ' · изменено ' + formatDate(currentCard.updated_at)) : 'новая запись';
+      const archiveAvailable = cardArchiveAvailability(currentCard);
       els.archiveAction.classList.toggle('hidden', !currentCard?.id || currentCard.archived);
+      els.archiveAction.disabled = !archiveAvailable;
+      els.archiveAction.dataset.archiveAvailable = archiveAvailable ? 'true' : 'false';
+      els.archiveAction.title = archiveAvailable ? '' : cardArchiveUnavailableTitle(currentCard);
       els.restoreAction.classList.toggle('hidden', !currentCard?.id || !currentCard.archived);
       state.vehicleProfileBaseline = cloneVehicleProfile(currentCard?.vehicle_profile || {});
       applyVehicleProfileToForm(currentCard?.vehicle_profile || emptyVehicleProfile());
@@ -16243,7 +16287,7 @@
       const renameTitle = isReadyColumn ? 'Системную колонку готовых автомобилей нельзя переименовать' : 'Переименовать столбец';
       const deleteAttrs = isDeleteBlocked ? ' disabled' : '';
       const renameAttrs = isReadyColumn ? ' disabled data-system-column="ready"' : '';
-      return '<section class="column" style="' + toneStyle + '" data-column-id="' + escapeHtml(column.id) + '" draggable="true"><div class="column__head" data-drag-column-handle="1"><div class="column__title">' + escapeHtml(column.label) + '</div><div class="column__head-actions"><button class="btn btn--ghost column__rename" type="button" data-rename-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" title="' + escapeHtml(renameTitle) + '" aria-label="' + escapeHtml(renameTitle) + '"' + renameAttrs + '>&#9998;</button><button class="btn btn--ghost column__delete" type="button" data-delete-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" data-card-count="' + cards.length + '" title="' + escapeHtml(deleteTitle) + '" aria-label="' + escapeHtml(deleteTitle) + '"' + deleteAttrs + '>&times;</button><div class="column__count">' + cards.length + '</div></div></div><div class="column__cards">' + (cards.length ? cards.map(renderBoardCardHtml).join('') : '<div class="empty">ЗДЕСЬ ПОКА ПУСТО.</div>') + '</div><button class="btn" type="button" data-create-in="' + escapeHtml(column.id) + '">+ КАРТОЧКА</button></section>';
+      return '<section class="column" style="' + toneStyle + '" data-column-id="' + escapeHtml(column.id) + '" draggable="true"><div class="column__head" data-drag-column-handle="1"><div class="column__title">' + escapeHtml(column.label) + '</div><div class="column__head-actions"><button class="btn btn--ghost column__rename" type="button" data-rename-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" title="' + escapeHtml(renameTitle) + '" aria-label="' + escapeHtml(renameTitle) + '"' + renameAttrs + '>&#9998;</button><button class="btn btn--ghost column__delete" type="button" data-delete-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" data-card-count="' + cards.length + '" title="' + escapeHtml(deleteTitle) + '" aria-label="' + escapeHtml(deleteTitle) + '"' + deleteAttrs + '>&times;</button><div class="column__count">' + cards.length + '</div></div></div><div class="column__cards">' + (cards.length ? cards.map(renderBoardCardHtml).join('') : '') + '</div><button class="btn" type="button" data-create-in="' + escapeHtml(column.id) + '">+ КАРТОЧКА</button></section>';
     }
 
     function renderBoardColumnById(columnId, cardsByColumn = null) {

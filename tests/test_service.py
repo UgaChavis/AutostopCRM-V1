@@ -1418,6 +1418,35 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 409)
         self.assertIn("открыт заказ-наряд", raised.exception.message)
 
+    def test_archive_card_allows_open_empty_repair_order_without_money(self) -> None:
+        created = self.service.create_card(
+            {
+                "vehicle": "KIA RIO",
+                "title": "Пустой заказ-наряд",
+                "description": "Открыли, но не расписывали",
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "number": "20",
+                    "date": "06.04.2026 10:00",
+                    "status": "open",
+                    "opened_at": "06.04.2026 10:00",
+                    "client": "Иван Иванов",
+                    "vehicle": "KIA RIO",
+                    "reason": "Пустой заказ-наряд",
+                },
+            }
+        )
+
+        archived = self.service.archive_card({"card_id": card_id})
+
+        self.assertTrue(archived["card"]["archived"])
+
     def test_archive_card_allows_closed_repair_order(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
             "cashbox"

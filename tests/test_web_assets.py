@@ -1106,6 +1106,22 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("'/api/delete_column'", BOARD_WEB_APP_HTML)
         self.assertIn("await deleteColumnFromButton(deleteColumnButton);", BOARD_WEB_APP_HTML)
 
+    def test_column_create_card_button_uses_compact_board_sizing(self) -> None:
+        create_button_rule = re.search(
+            r"^    \.column > \.btn\[data-create-in\]\s*\{(?P<body>.*?)\n    \}",
+            BOARD_WEB_APP_HTML,
+            re.S | re.M,
+        )
+        self.assertIsNotNone(create_button_rule)
+        assert create_button_rule is not None
+        body = create_button_rule.group("body")
+        self.assertIn("height: calc(25px * var(--board-scale));", body)
+        self.assertIn("padding: 0 calc(12px * var(--board-scale));", body)
+        self.assertIn("font-size: calc(10px * var(--board-scale));", body)
+        self.assertIn("font-weight: 300;", body)
+        self.assertNotIn("font-size: 12px;", body)
+        self.assertNotIn("padding: 9px 12px;", body)
+
     def test_columns_expose_rename_flow(self) -> None:
         self.assertIn("data-rename-column", BOARD_WEB_APP_HTML)
         self.assertIn("async function renameColumnFromButton(button)", BOARD_WEB_APP_HTML)
@@ -1944,6 +1960,84 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(
             "requestAnimationFrame(() => syncCardDescriptionHeight());", BOARD_WEB_APP_HTML
         )
+
+    def test_card_modal_header_does_not_render_created_updated_meta_line(self) -> None:
+        self.assertNotIn('id="cardMetaLine"', BOARD_WEB_APP_HTML)
+        self.assertNotIn(
+            "cardMetaLine: document.getElementById('cardMetaLine')", BOARD_WEB_APP_HTML
+        )
+        self.assertNotIn("els.cardMetaLine.textContent", BOARD_WEB_APP_HTML)
+
+    def test_empty_card_description_editor_has_no_placeholder_hint(self) -> None:
+        editor_match = re.search(r'<div id="cardDescriptionEditor"[^>]*>', BOARD_WEB_APP_HTML)
+        self.assertIsNotNone(editor_match)
+        editor_html = editor_match.group(0)
+        self.assertNotIn("data-placeholder", editor_html)
+        self.assertNotIn(".description-editor:empty::before", BOARD_WEB_APP_HTML)
+        self.assertNotIn("Описание карточки", BOARD_WEB_APP_HTML)
+
+    def test_vehicle_passport_identity_fields_are_equal_and_centered(self) -> None:
+        for field_name in ("registration_plate", "production_year", "mileage"):
+            self.assertRegex(
+                BOARD_WEB_APP_HTML,
+                r"\{ name: '" + field_name + r"'.*centered: true",
+            )
+        self.assertIn(
+            "field.centered ? ' vehicle-field--centered' : ''",
+            BOARD_WEB_APP_HTML,
+        )
+        centered_label_rule = re.search(
+            r"\.vehicle-field--centered \.vehicle-field__label\s*\{(?P<body>.*?)\n\s*\}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(centered_label_rule)
+        self.assertIn("justify-content: center;", centered_label_rule.group("body"))
+        self.assertIn("text-align: center;", centered_label_rule.group("body"))
+
+        centered_input_rule = re.search(
+            r"\.vehicle-field--centered input\s*\{(?P<body>.*?)\n\s*\}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(centered_input_rule)
+        self.assertIn("height: 32px;", centered_input_rule.group("body"))
+        self.assertIn("text-align: center;", centered_input_rule.group("body"))
+        self.assertIn("min-width: 0;", centered_input_rule.group("body"))
+
+    def test_vehicle_passport_header_title_is_centered(self) -> None:
+        self.assertIn('class="vehicle-panel__title-block"', BOARD_WEB_APP_HTML)
+        title_block_rule = re.search(
+            r"\.vehicle-panel__title-block\s*\{(?P<body>.*?)\n\s*\}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(title_block_rule)
+        self.assertIn("justify-items: center;", title_block_rule.group("body"))
+        self.assertIn("text-align: center;", title_block_rule.group("body"))
+
+    def test_archive_button_reflects_repair_order_archive_availability(self) -> None:
+        self.assertIn("function cardArchiveAvailability(card)", BOARD_WEB_APP_HTML)
+        self.assertIn("function repairOrderIsEmptyForArchive(order)", BOARD_WEB_APP_HTML)
+        self.assertIn("function repairOrderMoneyHasValue(value)", BOARD_WEB_APP_HTML)
+        self.assertIn("function repairOrderTextHasMeaning(value)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const archiveAvailable = cardArchiveAvailability(currentCard);", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("els.archiveAction.disabled = !archiveAvailable;", BOARD_WEB_APP_HTML)
+        self.assertIn("els.archiveAction.dataset.archiveAvailable", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "if (!repairOrderHasAnyData(card?.repair_order) || repairOrderIsEmptyForArchive(card?.repair_order)) return true;",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("order?.is_empty_for_archive === true", BOARD_WEB_APP_HTML)
+        self.assertIn("repairOrderMoneyHasValue(normalized.prepayment)", BOARD_WEB_APP_HTML)
+        self.assertIn("normalized !== '-' && normalized !== '—'", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "normalizeRepairOrderStatus(card?.repair_order?.status) === 'closed'",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(".btn--danger:disabled", BOARD_WEB_APP_HTML)
 
     def test_card_description_supports_minimal_markdown_formatting(self) -> None:
         self.assertIn('id="cardDescriptionToolbar"', BOARD_WEB_APP_HTML)
@@ -2784,7 +2878,15 @@ class WebAssetsTests(unittest.TestCase):
     def test_cards_stack_vehicle_above_short_essence(self) -> None:
         self.assertIn(".card__heading {", BOARD_WEB_APP_HTML)
         self.assertIn("display: grid;", BOARD_WEB_APP_HTML)
-        self.assertIn("font-size: calc(15px * var(--board-scale));", BOARD_WEB_APP_HTML)
+        vehicle_rule = re.search(
+            r"\.card__vehicle\s*\{(?P<body>.*?)\n    \}", BOARD_WEB_APP_HTML, re.S
+        )
+        self.assertIsNotNone(vehicle_rule)
+        assert vehicle_rule is not None
+        self.assertIn("font-size: calc(16px * var(--board-scale));", vehicle_rule.group("body"))
+        self.assertIn("font-weight: 700;", vehicle_rule.group("body"))
+        self.assertNotIn("font-size: calc(15px * var(--board-scale));", vehicle_rule.group("body"))
+        self.assertNotIn("font-weight: 800;", vehicle_rule.group("body"))
         self.assertIn("font-size: calc(14px * var(--board-scale));", BOARD_WEB_APP_HTML)
         self.assertIn("color: #373227;", BOARD_WEB_APP_HTML)
         self.assertIn("color: #454034;", BOARD_WEB_APP_HTML)
@@ -2824,13 +2926,38 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("-webkit-line-clamp: 5;", BOARD_WEB_APP_HTML)
 
     def test_card_preview_uses_readable_russian_meta_labels(self) -> None:
-        self.assertIn("БЕЗ МЕТОК", BOARD_WEB_APP_HTML)
         self.assertIn("Описание не указано", BOARD_WEB_APP_HTML)
         self.assertNotIn("СИГН", BOARD_WEB_APP_HTML)
         self.assertIn(".card__footer {", BOARD_WEB_APP_HTML)
         self.assertIn('class="card__footer"', BOARD_WEB_APP_HTML)
         self.assertIn("ФАЙЛЫ ", BOARD_WEB_APP_HTML)
         self.assertIn("ЖУРНАЛ ", BOARD_WEB_APP_HTML)
+
+    def test_card_preview_omits_empty_tag_placeholder(self) -> None:
+        self.assertNotIn("БЕЗ МЕТОК", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const tagsHtml = previewTags.length",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            ": '';",
+            BOARD_WEB_APP_HTML,
+        )
+
+    def test_empty_board_columns_render_without_placeholder_text(self) -> None:
+        self.assertNotIn("ЗДЕСЬ ПОКА ПУСТО.", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "cards.length ? cards.map(renderBoardCardHtml).join('') : ''",
+            BOARD_WEB_APP_HTML,
+        )
+
+    def test_board_card_preview_keeps_signal_lamp_without_timer_value(self) -> None:
+        self.assertIn(
+            '<div class="card__signal"><span class="lamp" data-indicator="',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertNotIn("card__signal-value", BOARD_WEB_APP_HTML)
+        self.assertNotIn("durationToMarkup(card.remaining_seconds, false)", BOARD_WEB_APP_HTML)
 
     def test_red_deadline_indicator_pulses_subtly(self) -> None:
         self.assertIn('.lamp[data-indicator="red"] {', BOARD_WEB_APP_HTML)
@@ -5202,7 +5329,6 @@ class WebAssetsTests(unittest.TestCase):
         )
 
     def test_card_preview_clean_russian_labels_override_broken_legacy_copy(self) -> None:
-        self.assertIn("БЕЗ МЕТОК", BOARD_WEB_APP_HTML)
         self.assertIn("Описание не указано", BOARD_WEB_APP_HTML)
         self.assertNotIn("СИГН", BOARD_WEB_APP_HTML)
         self.assertIn(".card__footer {", BOARD_WEB_APP_HTML)

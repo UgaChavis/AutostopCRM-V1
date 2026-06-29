@@ -391,6 +391,20 @@
         inset 0 0 16px rgba(97, 169, 85, 0.06);
     }
     .btn--danger { border-color: var(--danger); color: #ffd2c9; }
+    .btn--danger:disabled,
+    .btn--danger[disabled] {
+      border-color: rgba(200, 198, 187, 0.22);
+      background: rgba(0,0,0,0.08);
+      color: rgba(200, 198, 187, 0.56);
+      opacity: 0.62;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+    .btn--danger:disabled:hover,
+    .btn--danger[disabled]:hover {
+      background: rgba(0,0,0,0.08);
+      color: rgba(200, 198, 187, 0.56);
+    }
     .btn--ghost {
       color: var(--text-soft);
       border-color: rgba(255,255,255,0.14);
@@ -719,6 +733,16 @@
       font-size: calc(12px * var(--board-scale));
     }
     .column__cards { display: flex; flex-direction: column; gap: calc(8px * var(--board-scale)); min-height: calc(80px * var(--board-scale)); }
+    .column > .btn[data-create-in] {
+      height: calc(25px * var(--board-scale));
+      padding: 0 calc(12px * var(--board-scale));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: calc(10px * var(--board-scale));
+      font-weight: 300;
+      line-height: 1;
+    }
     .empty {
       border: 1px dashed rgba(255,255,255,0.1);
       background: var(--column-empty);
@@ -894,12 +918,12 @@
     }
     .card__vehicle {
       font-family: var(--mono);
-      font-size: calc(15px * var(--board-scale));
+      font-size: calc(16px * var(--board-scale));
       line-height: 1.08;
       letter-spacing: 0.05em;
       text-transform: uppercase;
       color: #373227;
-      font-weight: 800;
+      font-weight: 700;
       min-width: 0;
       overflow: hidden;
       white-space: nowrap;
@@ -988,8 +1012,6 @@
       text-transform: uppercase;
       flex: 0 0 auto;
     }
-    .card__signal-label { display: inline-flex; align-items: center; color: #544f42; flex: 0 0 auto; }
-    .card__signal-value { font-weight: 700; letter-spacing: 0.04em; margin-left: 0; flex: 0 0 auto; }
     .time-readout {
       display: inline-flex;
       align-items: baseline;

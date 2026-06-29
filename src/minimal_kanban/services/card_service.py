@@ -7768,6 +7768,8 @@ class CardService(
     def _ensure_card_can_be_archived(self, card: Card) -> None:
         if not self._card_has_repair_order(card):
             return
+        if card.repair_order.is_empty_for_archive():
+            return
         repair_order_number = str(card.repair_order.number or "").strip()
         number_suffix = f" №{repair_order_number}" if repair_order_number else ""
         if card.repair_order.status == REPAIR_ORDER_STATUS_CLOSED:
