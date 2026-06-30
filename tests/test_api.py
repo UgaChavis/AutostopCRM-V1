@@ -2047,7 +2047,7 @@ class ApiServerTests(unittest.TestCase):
         status, moved = self.request(
             "/api/move_card",
             {
-                "card_id": third["data"]["card"]["id"],
+                "card_id": first["data"]["card"]["id"],
                 "column": "inbox",
                 "before_card_id": second["data"]["card"]["id"],
             },
@@ -2059,8 +2059,8 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(
             [card["id"] for card in moved["data"]["affected_cards"][:3]],
             [
-                first["data"]["card"]["id"],
                 third["data"]["card"]["id"],
+                first["data"]["card"]["id"],
                 second["data"]["card"]["id"],
             ],
         )
@@ -2076,8 +2076,8 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(
             [card["id"] for card in inbox_cards[:3]],
             [
-                first["data"]["card"]["id"],
                 third["data"]["card"]["id"],
+                first["data"]["card"]["id"],
                 second["data"]["card"]["id"],
             ],
         )

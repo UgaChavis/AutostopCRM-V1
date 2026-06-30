@@ -5960,7 +5960,7 @@ class CardServiceTests(unittest.TestCase):
 
         moved = self.service.move_card(
             {
-                "card_id": third["card"]["id"],
+                "card_id": first["card"]["id"],
                 "column": "inbox",
                 "before_card_id": second["card"]["id"],
             }
@@ -5971,7 +5971,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(moved["affected_column_ids"], ["inbox"])
         self.assertEqual(
             [card["id"] for card in moved["affected_cards"][:3]],
-            [first["card"]["id"], third["card"]["id"], second["card"]["id"]],
+            [third["card"]["id"], first["card"]["id"], second["card"]["id"]],
         )
         self.assertTrue(all("repair_order" not in card for card in moved["affected_cards"]))
         self.assertTrue(moved["meta"]["changed"])
@@ -5983,7 +5983,7 @@ class CardServiceTests(unittest.TestCase):
         )
         self.assertEqual(
             [card["id"] for card in inbox_cards[:3]],
-            [first["card"]["id"], third["card"]["id"], second["card"]["id"]],
+            [third["card"]["id"], first["card"]["id"], second["card"]["id"]],
         )
 
     def test_move_card_can_insert_before_card_in_another_column(self) -> None:
@@ -6001,7 +6001,7 @@ class CardServiceTests(unittest.TestCase):
             {
                 "card_id": source["card"]["id"],
                 "column": "in_progress",
-                "before_card_id": second_target["card"]["id"],
+                "before_card_id": first_target["card"]["id"],
             }
         )
 
@@ -6010,7 +6010,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(moved["affected_column_ids"], ["inbox", "in_progress"])
         self.assertEqual(
             [card["id"] for card in moved["affected_cards"]],
-            [first_target["card"]["id"], source["card"]["id"], second_target["card"]["id"]],
+            [second_target["card"]["id"], source["card"]["id"], first_target["card"]["id"]],
         )
 
         snapshot = self.service.get_board_snapshot()
@@ -6020,8 +6020,69 @@ class CardServiceTests(unittest.TestCase):
         )
         self.assertEqual(
             [card["id"] for card in target_cards[:3]],
-            [first_target["card"]["id"], source["card"]["id"], second_target["card"]["id"]],
+            [second_target["card"]["id"], source["card"]["id"], first_target["card"]["id"]],
         )
+
+    def test_create_card_inserts_new_cards_at_top_of_column(self) -> None:
+        first = self.service.create_card(
+            {"title": "First", "column": "inbox", "deadline": {"hours": 2}}
+        )
+        second = self.service.create_card(
+            {"title": "Second", "column": "inbox", "deadline": {"hours": 2}}
+        )
+        third = self.service.create_card(
+            {"title": "Third", "column": "inbox", "deadline": {"hours": 2}}
+        )
+
+        self.assertEqual(third["card"]["position"], 0)
+
+        snapshot = self.service.get_board_snapshot()
+        inbox_cards = sorted(
+            [card for card in snapshot["cards"] if card["column"] == "inbox"],
+            key=lambda item: item["position"],
+        )
+        self.assertEqual(
+            [card["id"] for card in inbox_cards[:3]],
+            [third["card"]["id"], second["card"]["id"], first["card"]["id"]],
+        )
+        self.assertEqual([card["position"] for card in inbox_cards[:3]], [0, 1, 2])
+
+    def test_move_card_without_before_card_id_inserts_at_top_of_target_column(self) -> None:
+        source = self.service.create_card(
+            {"title": "Source", "column": "inbox", "deadline": {"hours": 2}}
+        )
+        first_target = self.service.create_card(
+            {"title": "Target A", "column": "in_progress", "deadline": {"hours": 2}}
+        )
+        second_target = self.service.create_card(
+            {"title": "Target B", "column": "in_progress", "deadline": {"hours": 2}}
+        )
+
+        moved = self.service.move_card(
+            {
+                "card_id": source["card"]["id"],
+                "column": "in_progress",
+            }
+        )
+
+        self.assertEqual(moved["card"]["column"], "in_progress")
+        self.assertEqual(moved["card"]["position"], 0)
+        self.assertEqual(moved["affected_column_ids"], ["inbox", "in_progress"])
+        self.assertEqual(
+            [card["id"] for card in moved["affected_cards"][:3]],
+            [source["card"]["id"], second_target["card"]["id"], first_target["card"]["id"]],
+        )
+
+        snapshot = self.service.get_board_snapshot()
+        target_cards = sorted(
+            [card for card in snapshot["cards"] if card["column"] == "in_progress"],
+            key=lambda item: item["position"],
+        )
+        self.assertEqual(
+            [card["id"] for card in target_cards[:3]],
+            [source["card"]["id"], second_target["card"]["id"], first_target["card"]["id"]],
+        )
+        self.assertEqual([card["position"] for card in target_cards[:3]], [0, 1, 2])
 
     def test_rejects_card_description_above_limit(self) -> None:
         too_large_description = "Б" * (CARD_DESCRIPTION_LIMIT + 1)

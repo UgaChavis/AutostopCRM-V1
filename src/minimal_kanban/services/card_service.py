@@ -757,7 +757,7 @@ class CardService(
                 updated_at=now_iso,
                 deadline_timestamp=(now + timedelta(seconds=deadline_total_seconds)).isoformat(),
                 deadline_total_seconds=deadline_total_seconds,
-                position=self._next_card_position(cards, column),
+                position=0,
                 vehicle=vehicle,
                 vehicle_profile=vehicle_profile,
                 tags=tags,
@@ -792,6 +792,7 @@ class CardService(
                 self._sync_card_client_fields(card, client, overwrite=False)
             card.mark_seen(actor_name, seen_at=now_iso)
             cards.append(card)
+            self._reposition_card(cards, card, target_column=column)
             self._append_event(
                 events,
                 actor_name=actor_name,
@@ -4860,7 +4861,7 @@ class CardService(
                 cards, target_column, exclude_card_id=card.id
             )
 
-        insert_index = len(target_cards)
+        insert_index = 0
         if before_card is not None:
             insert_index = next(
                 (index for index, item in enumerate(target_cards) if item.id == before_card.id),

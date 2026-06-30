@@ -2314,7 +2314,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 moved = await session.call_tool(
                     "move_card",
                     {
-                        "card_id": third.structuredContent["data"]["card"]["id"],
+                        "card_id": first.structuredContent["data"]["card"]["id"],
                         "column": column_id,
                         "before_card_id": second.structuredContent["data"]["card"]["id"],
                         "actor_name": "ОПЕРАТОР",
@@ -2337,8 +2337,8 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(
                     [item["id"] for item in cards[:3]],
                     [
-                        first.structuredContent["data"]["card"]["id"],
                         third.structuredContent["data"]["card"]["id"],
+                        first.structuredContent["data"]["card"]["id"],
                         second.structuredContent["data"]["card"]["id"],
                     ],
                 )
