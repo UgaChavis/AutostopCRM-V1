@@ -6243,6 +6243,148 @@ class CardServiceTests(unittest.TestCase):
         self.assertTrue(alice_view["has_unseen_update"])
         self.assertFalse(alice_view["is_unread"])
 
+    def test_timer_only_deadline_update_does_not_mark_seen_user_updated(self) -> None:
+        created = self.service.create_card(
+            {
+                "title": "Silent timer",
+                "description": "Initial",
+                "deadline": {"hours": 2},
+                "source": "ui",
+                "actor_name": "ALICE",
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.mark_card_seen({"card_id": card_id, "actor_name": "BOB"})
+        before = self.service.get_card({"card_id": card_id, "actor_name": "BOB"})["card"]
+        before_revision = self.service.get_board_revision(
+            {"actor_name": "BOB", "compact": True, "include_archive": False}
+        )["revision"]
+
+        updated = self.service.update_card(
+            {
+                "card_id": card_id,
+                "deadline": {"hours": 6},
+                "actor_name": "ALICE",
+                "source": "ui",
+            }
+        )
+
+        after = self.service.get_card({"card_id": card_id, "actor_name": "BOB"})["card"]
+        after_revision = self.service.get_board_revision(
+            {"actor_name": "BOB", "compact": True, "include_archive": False}
+        )["revision"]
+        self.assertEqual(updated["meta"]["changed_fields"], ["deadline"])
+        self.assertNotEqual(after["updated_at"], before["updated_at"])
+        self.assertNotEqual(after_revision, before_revision)
+        self.assertFalse(after["is_unread"])
+        self.assertFalse(after["has_unseen_update"])
+
+    def test_timer_only_update_preserves_existing_unseen_update_badge(self) -> None:
+        created = self.service.create_card(
+            {
+                "title": "Timer after content",
+                "description": "Initial",
+                "deadline": {"hours": 2},
+                "source": "ui",
+                "actor_name": "ALICE",
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.mark_card_seen({"card_id": card_id, "actor_name": "BOB"})
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "description": "Real update",
+                "actor_name": "ALICE",
+                "source": "ui",
+            }
+        )
+        self.assertTrue(
+            self.service.get_card({"card_id": card_id, "actor_name": "BOB"})["card"][
+                "has_unseen_update"
+            ]
+        )
+
+        self.service.set_card_deadline(
+            {"card_id": card_id, "deadline": {"hours": 8}, "actor_name": "ALICE"}
+        )
+
+        bob_view = self.service.get_card({"card_id": card_id, "actor_name": "BOB"})["card"]
+        self.assertFalse(bob_view["is_unread"])
+        self.assertTrue(bob_view["has_unseen_update"])
+
+    def test_mixed_content_and_deadline_update_marks_seen_user_updated(self) -> None:
+        created = self.service.create_card(
+            {
+                "title": "Mixed update",
+                "description": "Initial",
+                "deadline": {"hours": 2},
+                "source": "ui",
+                "actor_name": "ALICE",
+            }
+        )
+        card_id = created["card"]["id"]
+        self.service.mark_card_seen({"card_id": card_id, "actor_name": "BOB"})
+
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "description": "Content and timer",
+                "deadline": {"hours": 4},
+                "actor_name": "ALICE",
+                "source": "ui",
+            }
+        )
+
+        bob_view = self.service.get_card({"card_id": card_id, "actor_name": "BOB"})["card"]
+        self.assertFalse(bob_view["is_unread"])
+        self.assertTrue(bob_view["has_unseen_update"])
+
+    def test_signal_indicator_and_bulk_deadline_updates_do_not_mark_seen_users_updated(
+        self,
+    ) -> None:
+        indicator_card = self.service.create_card(
+            {
+                "title": "Indicator only",
+                "deadline": {"hours": 2},
+                "source": "ui",
+                "actor_name": "ALICE",
+            }
+        )["card"]
+        bulk_card = self.service.create_card(
+            {
+                "title": "Bulk timer only",
+                "deadline": {"seconds": 1},
+                "source": "ui",
+                "actor_name": "ALICE",
+            }
+        )["card"]
+        self.service.mark_card_seen({"card_id": indicator_card["id"], "actor_name": "BOB"})
+        self.service.mark_card_seen({"card_id": bulk_card["id"], "actor_name": "BOB"})
+
+        self.service.set_card_indicator(
+            {"card_id": indicator_card["id"], "indicator": "yellow", "actor_name": "ALICE"}
+        )
+        bulk = self.service.bulk_set_deadline_if_below(
+            {
+                "mode": "apply",
+                "actor_name": "ALICE",
+                "card_ids": [bulk_card["id"]],
+                "min_total_seconds": 3600,
+                "target_total_seconds": 7200,
+            }
+        )
+
+        indicator_view = self.service.get_card(
+            {"card_id": indicator_card["id"], "actor_name": "BOB"}
+        )["card"]
+        bulk_view = self.service.get_card({"card_id": bulk_card["id"], "actor_name": "BOB"})["card"]
+        self.assertEqual(bulk["changed"], 1)
+        self.assertFalse(indicator_view["is_unread"])
+        self.assertFalse(indicator_view["has_unseen_update"])
+        self.assertFalse(bulk_view["is_unread"])
+        self.assertFalse(bulk_view["has_unseen_update"])
+
     def test_deadline_status_transitions(self) -> None:
         base = datetime(2026, 3, 23, 12, 0, 0, tzinfo=timezone.utc)
         patches = self._patch_time(base)

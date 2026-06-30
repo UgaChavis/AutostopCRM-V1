@@ -1735,6 +1735,80 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertFalse(marked["data"]["card"]["has_unseen_update"])
 
+    def test_snapshot_does_not_mark_timer_only_update_as_unseen_for_viewer(self) -> None:
+        status, admin_login = self.request(
+            "/api/login_operator", {"username": "admin", "password": "admin"}
+        )
+        self.assertEqual(status, 200)
+        admin_headers = {"X-Operator-Session": admin_login["data"]["session"]["token"]}
+
+        status, _ = self.request(
+            "/api/save_operator_user",
+            {"username": "worker", "password": "1234"},
+            headers=admin_headers,
+        )
+        self.assertEqual(status, 200)
+
+        status, worker_login = self.request(
+            "/api/login_operator", {"username": "worker", "password": "1234"}
+        )
+        self.assertEqual(status, 200)
+        worker_headers = {"X-Operator-Session": worker_login["data"]["session"]["token"]}
+
+        status, created = self.request(
+            "/api/create_card",
+            {
+                "title": "Timer-only API",
+                "description": "Initial",
+                "deadline": {"hours": 1},
+                "source": "ui",
+            },
+            headers=admin_headers,
+        )
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+
+        status, opened = self.request(
+            "/api/open_card", {"card_id": card_id}, headers=worker_headers
+        )
+        self.assertEqual(status, 200)
+        self.assertFalse(opened["data"]["card"]["is_unread"])
+        before_updated_at = opened["data"]["card"]["updated_at"]
+
+        status, before_revision = self.request(
+            "/api/get_board_revision?compact=1&include_archive=0",
+            method="GET",
+            headers=worker_headers,
+        )
+        self.assertEqual(status, 200)
+
+        status, updated = self.request(
+            "/api/update_card",
+            {"card_id": card_id, "deadline": {"hours": 4}, "source": "ui"},
+            headers=admin_headers,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(updated["data"]["meta"]["changed_fields"], ["deadline"])
+        self.assertNotEqual(updated["data"]["card"]["updated_at"], before_updated_at)
+
+        status, after_revision = self.request(
+            "/api/get_board_revision?compact=1&include_archive=0",
+            method="GET",
+            headers=worker_headers,
+        )
+        self.assertEqual(status, 200)
+        self.assertNotEqual(after_revision["data"]["revision"], before_revision["data"]["revision"])
+
+        status, snapshot = self.request(
+            "/api/get_board_snapshot?compact=1&include_archive=0",
+            method="GET",
+            headers=worker_headers,
+        )
+        self.assertEqual(status, 200)
+        worker_card = next(card for card in snapshot["data"]["cards"] if card["id"] == card_id)
+        self.assertFalse(worker_card["is_unread"])
+        self.assertFalse(worker_card["has_unseen_update"])
+
     def test_ui_created_card_is_unread_for_other_operator_sessions(self) -> None:
         status, admin_login = self.request(
             "/api/login_operator", {"username": "admin", "password": "admin"}

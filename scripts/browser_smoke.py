@@ -783,7 +783,9 @@ async def _exercise_operator_admin_employee_binding(page: Any) -> bool:
     await _wait_modal_open(page, "#operatorProfileModal")
     await page.click("#operatorAdminButton")
     await _wait_modal_open(page, "#operatorAdminModal")
-    await page.click('[data-operator-admin-tab="users"]')
+    users_tab = page.locator('[data-operator-admin-tab="users"]')
+    if await users_tab.count():
+        await users_tab.first.click()
     await page.wait_for_selector("[data-bind-operator-employee]")
     await page.click("[data-bind-operator-employee]")
     await page.wait_for_selector("#operatorUserEmployeeBindingPanel:not(.hidden)")

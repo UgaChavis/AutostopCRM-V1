@@ -18,7 +18,7 @@ if str(SRC) not in sys.path:
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from minimal_kanban.models import AuditEvent, utc_now  # noqa: E402
+from minimal_kanban.models import AuditEvent, Card, utc_now  # noqa: E402
 from minimal_kanban.storage.audit_archive import (  # noqa: E402
     AuditArchiveStore,
     compact_audit_event_details,
@@ -61,6 +61,25 @@ class JsonStoreTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
+
+    def test_card_notification_updated_at_falls_back_to_updated_at(self) -> None:
+        card = Card.from_dict(
+            {
+                "id": "card-1",
+                "title": "Legacy card",
+                "created_at": "2026-04-02T10:00:00+00:00",
+                "updated_at": "2026-04-02T10:30:00+00:00",
+                "seen_by_users": {"ALICE": "2026-04-02T10:00:00+00:00"},
+            }
+        )
+
+        self.assertEqual(card.notification_updated_at, "2026-04-02T10:30:00+00:00")
+        self.assertTrue(card.has_unseen_update_for("ALICE"))
+        self.assertEqual(
+            card.to_storage_dict()["notification_updated_at"],
+            "2026-04-02T10:30:00+00:00",
+        )
+        self.assertNotIn("notification_updated_at", card.to_dict())
 
     def _write_financial_history_state(self) -> dict:
         raw_state = {

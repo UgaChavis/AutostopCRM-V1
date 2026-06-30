@@ -1670,6 +1670,7 @@ class Card:
     updated_at: str
     deadline_timestamp: str
     deadline_total_seconds: int = DEFAULT_DEADLINE_TOTAL_SECONDS
+    notification_updated_at: str = ""
     board_summary: str = ""
     board_summary_updated_at: str = ""
     board_summary_source: str = ""
@@ -1707,6 +1708,13 @@ class Card:
         self.board_summary_card_fingerprint = normalize_text(
             self.board_summary_card_fingerprint, default="", limit=128
         )
+        notification_updated_at = (
+            parse_datetime(self.notification_updated_at)
+            or parse_datetime(self.updated_at)
+            or parse_datetime(self.created_at)
+            or utc_now()
+        )
+        self.notification_updated_at = notification_updated_at.isoformat()
         self.client_id = normalize_text(self.client_id, default="", limit=128)
         self.client_vehicle_id = normalize_text(self.client_vehicle_id, default="", limit=128)
         self.tags = normalize_tags(self.tags)
@@ -1829,6 +1837,7 @@ class Card:
             return False
         timestamp = (
             parse_datetime(seen_at)
+            or parse_datetime(self.notification_updated_at)
             or parse_datetime(self.updated_at)
             or parse_datetime(self.created_at)
             or utc_now()
@@ -1858,10 +1867,10 @@ class Card:
         if not normalized_actor or self.is_unread_for(normalized_actor):
             return False
         seen_at = parse_datetime(self.seen_by_users.get(normalized_actor))
-        updated_at = parse_datetime(self.updated_at)
-        if seen_at is None or updated_at is None:
+        notification_updated_at = parse_datetime(self.notification_updated_at)
+        if seen_at is None or notification_updated_at is None:
             return False
-        return seen_at < updated_at
+        return seen_at < notification_updated_at
 
     def board_summary_content_fingerprint(self) -> str:
         payload = {
@@ -2026,6 +2035,7 @@ class Card:
             "updated_at": self.updated_at,
             "deadline_timestamp": self.deadline_timestamp,
             "deadline_total_seconds": self.deadline_total_seconds,
+            "notification_updated_at": self.notification_updated_at,
             "tags": self.tag_items(),
             "attachments": [attachment.to_dict() for attachment in self.attachments],
             "is_unread": self.is_unread,
@@ -2054,6 +2064,9 @@ class Card:
 
         created_at = parse_datetime(payload.get("created_at")) or utc_now()
         updated_at = parse_datetime(payload.get("updated_at")) or created_at
+        notification_updated_at = (
+            parse_datetime(payload.get("notification_updated_at")) or updated_at
+        )
         archived = normalize_bool(payload.get("archived"), default=False)
         deadline_total_seconds = normalize_int(
             payload.get("deadline_total_seconds"),
@@ -2122,6 +2135,7 @@ class Card:
             updated_at=updated_at.isoformat(),
             deadline_timestamp=deadline.isoformat(),
             deadline_total_seconds=deadline_total_seconds,
+            notification_updated_at=notification_updated_at.isoformat(),
             vehicle=vehicle,
             client_id=normalize_text(payload.get("client_id"), default="", limit=128),
             client_vehicle_id=normalize_text(

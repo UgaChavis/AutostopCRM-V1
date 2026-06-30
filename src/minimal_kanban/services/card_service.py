@@ -1347,7 +1347,10 @@ class CardService(
                 changed = True
             if actor_name:
                 changed = (
-                    card.mark_seen(actor_name, seen_at=card.updated_at or card.created_at)
+                    card.mark_seen(
+                        actor_name,
+                        seen_at=card.notification_updated_at or card.updated_at or card.created_at,
+                    )
                     or changed
                 )
             if changed:
@@ -1907,7 +1910,7 @@ class CardService(
                         source,
                     )
                     if changed:
-                        self._touch_card(card, actor_name)
+                        self._touch_card(card, actor_name, notify_viewers=False)
                         changed_cards.append(card)
                         item["changed"] = True
                     else:
@@ -3662,8 +3665,14 @@ class CardService(
                     )
 
             numbering_changed = self._synchronize_repair_order_numbers(cards)
+            notify_viewers = not (
+                changed_fields == ["deadline"]
+                and not numbering_changed
+                and not ready_column_changed
+                and not linked_vehicle_changed
+            )
             if changed or numbering_changed or ready_column_changed or linked_vehicle_changed:
-                self._touch_card(card, actor_name)
+                self._touch_card(card, actor_name, notify_viewers=notify_viewers)
                 self._refresh_card_ai_fingerprint_if_agent_changed(card, actor_name, source)
                 if self._card_has_repair_order(card):
                     self._ensure_repair_order_text_file(card, force=True)
@@ -3782,7 +3791,7 @@ class CardService(
             response_mode = self._validated_response_mode(payload, default="full")
             previous_indicator = card.indicator()
             self._apply_indicator(card, indicator)
-            self._touch_card(card, actor_name)
+            self._touch_card(card, actor_name, notify_viewers=False)
             self._append_event(
                 events,
                 actor_name=actor_name,
@@ -5337,14 +5346,23 @@ class CardService(
         self._cleanup_repair_orders_directory(cards)
         self._cleanup_attachment_directories(cards)
 
-    def _touch_card(self, card: Card, actor_name: str | None = None) -> str:
+    def _touch_card(
+        self,
+        card: Card,
+        actor_name: str | None = None,
+        *,
+        notify_viewers: bool = True,
+    ) -> str:
         next_updated_at = utc_now()
         previous_updated_at = parse_datetime(card.updated_at)
         if previous_updated_at is not None and next_updated_at <= previous_updated_at:
             next_updated_at = previous_updated_at + timedelta(microseconds=1)
         updated_at = next_updated_at.isoformat()
         card.updated_at = updated_at
-        card.mark_seen(actor_name, seen_at=updated_at)
+        if notify_viewers:
+            card.notification_updated_at = updated_at
+        seen_at = card.notification_updated_at or updated_at
+        card.mark_seen(actor_name, seen_at=seen_at)
         return updated_at
 
     def _notify_agent_card_created(self, card: Card) -> None:
