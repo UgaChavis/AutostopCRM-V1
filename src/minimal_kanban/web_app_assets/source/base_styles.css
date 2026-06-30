@@ -3927,7 +3927,7 @@
     }
     .repair-order-payments-form {
       display: grid;
-      grid-template-columns: minmax(132px, 154px) minmax(136px, 152px) 50px;
+      grid-template-columns: minmax(132px, 154px) minmax(136px, 152px) 176px;
       gap: 6px 7px;
       align-items: end;
       padding: 8px 9px;
@@ -3954,17 +3954,18 @@
       padding: 7px;
     }
     .repair-order-payments-form #repairOrderPaymentAddButton {
-      width: 50px;
-      min-width: 50px;
-      max-width: 50px;
+      width: 176px;
+      min-width: 176px;
+      max-width: 176px;
       height: 40px;
       min-height: 40px;
-      padding: 0;
+      padding: 0 10px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      font-size: 17px;
+      font-size: 11px;
       line-height: 1;
+      white-space: nowrap;
     }
     .repair-order-payments-list {
       display: flex;
@@ -5535,6 +5536,7 @@
       .repair-order-payments-form { grid-template-columns: 1fr; }
       .repair-order-payments-form #repairOrderPaymentAddButton {
         width: 100%;
+        min-width: 0;
         max-width: none;
       }
       .repair-order-payments-form__note { grid-column: auto; }

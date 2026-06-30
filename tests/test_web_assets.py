@@ -354,7 +354,21 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("#repairOrderPaymentNote {", BOARD_WEB_APP_HTML)
         self.assertIn("min-height: 38px;", BOARD_WEB_APP_HTML)
         self.assertIn("#repairOrderPaymentAddButton {", BOARD_WEB_APP_HTML)
-        self.assertIn("width: 50px;", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            'aria-label="Добавить оплату">+ Добавить оплату</button>',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("width: 176px;", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            '<select id="repairOrderPaymentCashbox"></select>',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("const options = preferredItems.map((item) => {", BOARD_WEB_APP_HTML)
+        self.assertNotIn(
+            "const options = ['<option value=\"\">ВЫБЕРИ КАССУ</option>']"
+            ".concat(preferredItems.map",
+            BOARD_WEB_APP_HTML,
+        )
 
     def test_mobile_repair_order_detail_uses_tabbed_sections_and_sticky_actions(self) -> None:
         self.assertIn('class="mobile-repair-order-detail__sticky"', BOARD_WEB_APP_HTML)

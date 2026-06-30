@@ -421,9 +421,9 @@
             + '<div class="repair-order-payments-layout">'
             + '<div class="repair-order-payments-head"><div class="repair-order-payments-summary" id="repairOrderPaymentsMeta">Пока нет оплат.</div></div>'
             + '<div class="repair-order-payments-form">'
-            + '<div class="field field--compact"><label for="repairOrderPaymentCashbox">Касса</label><select id="repairOrderPaymentCashbox"><option value="">Выберите кассу</option></select></div>'
+            + '<div class="field field--compact"><label for="repairOrderPaymentCashbox">Касса</label><select id="repairOrderPaymentCashbox"></select></div>'
             + '<div class="field field--compact"><label for="repairOrderPaymentAmount">Сумма</label><input id="repairOrderPaymentAmount" type="text" inputmode="decimal" maxlength="24"></div>'
-            + '<button class="btn btn--accent" id="repairOrderPaymentAddButton" type="button" title="Добавить оплату" aria-label="Добавить оплату">+</button>'
+            + '<button class="btn btn--accent" id="repairOrderPaymentAddButton" type="button" title="Добавить оплату" aria-label="Добавить оплату">+ Добавить оплату</button>'
             + '<div class="field field--compact repair-order-payments-form__note"><label for="repairOrderPaymentNote">Комментарий</label><input id="repairOrderPaymentNote" type="text" maxlength="240" placeholder="Предоплата / оплата по работам"></div>'
             + '</div>'
             + '<div class="repair-order-payments-list" id="repairOrderPaymentsList"></div>'
@@ -13435,11 +13435,11 @@
       if (!els.repairOrderPaymentCashbox) return;
       const selected = String(selectedId || '').trim();
       const preferredItems = repairOrderPaymentCashboxItems();
-      const options = ['<option value="">ВЫБЕРИ КАССУ</option>'].concat(preferredItems.map((item) => {
+      const options = preferredItems.map((item) => {
         const itemId = String(item?.id || '').trim();
         const isSelected = itemId && itemId === selected ? ' selected' : '';
         return '<option value="' + escapeHtml(itemId) + '"' + isSelected + '>' + escapeHtml(repairOrderPaymentCashboxLabel(repairOrderPaymentCashboxBucket(item?.name || ''))) + '</option>';
-      }));
+      });
       els.repairOrderPaymentCashbox.innerHTML = options.join('');
       if (!selected && preferredItems.length && !els.repairOrderPaymentCashbox.value) {
         els.repairOrderPaymentCashbox.value = String(preferredItems[0]?.id || '').trim();
