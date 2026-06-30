@@ -36,6 +36,7 @@ class DocsAuditTests(unittest.TestCase):
         rules = {line.strip() for line in dockerignore if line.strip() and not line.startswith("#")}
 
         self.assertIn("*.md", rules)
+        self.assertIn("!AGENTS.md", rules)
         self.assertIn("!README.md", rules)
         self.assertIn("!API_GUIDE.md", rules)
         self.assertIn("!MCP_GUIDE.md", rules)
@@ -57,6 +58,7 @@ class DocsAuditTests(unittest.TestCase):
 
         self.assertEqual(
             {
+                "Docker image excludes canonical documentation: !AGENTS.md",
                 "Docker image excludes canonical documentation: !API_GUIDE.md",
                 "Docker image excludes canonical documentation: !CHATGPT_CONNECTOR_SETUP.md",
                 "Docker image excludes canonical documentation: !MCP_GUIDE.md",

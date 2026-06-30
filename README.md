@@ -63,6 +63,7 @@ routes call the same backend API and storage.
 
 ## Documentation Map
 
+- `AGENTS.md` - agent-only startup instructions for AI coding agents.
 - `README.md` - short project map and contributor entrypoint.
 - `docs/OPERATIONS_RUNBOOK.md` - release gates, GitHub/server sync, deploy,
   production smoke, performance checks, watchdog, and maintenance safety.

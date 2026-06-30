@@ -386,6 +386,7 @@ journalctl -u autostopcrm-watchdog.service -n 100 --no-pager
 
 Canonical active docs:
 
+- `AGENTS.md`
 - `README.md`
 - `docs/OPERATIONS_RUNBOOK.md`
 - `API_GUIDE.md`
@@ -403,5 +404,6 @@ Documentation cleanup loop:
 2. Delete or archive duplicate, historical, or one-off docs instead of keeping
    parallel sources of truth.
 3. Update every kept document, then run `python scripts\docs_audit.py --format text`.
-4. Keep `README.md` as the short project map, this runbook as the operational
-   source of truth, and API/MCP/ChatGPT docs as narrow contract references.
+4. Keep `AGENTS.md` as the agent-only startup file, `README.md` as the short
+   project map, this runbook as the operational source of truth, and
+   API/MCP/ChatGPT docs as narrow contract references.
