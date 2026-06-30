@@ -17,6 +17,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.config import get_state_file
+from minimal_kanban.json_safety import reject_deeply_nested_json
 from minimal_kanban.models import format_money_minor, parse_datetime
 from minimal_kanban.services.card_service import CardService
 from minimal_kanban.storage.json_store import JsonStore
@@ -42,6 +43,7 @@ def _read_json(path: Path) -> dict[str, Any]:
         )
     except RecursionError as exc:
         raise ValueError("state file JSON is too deeply nested") from exc
+    reject_deeply_nested_json(payload, message="state file JSON is too deeply nested")
     if not isinstance(payload, dict):
         raise ValueError("state file must contain a JSON object")
     return payload

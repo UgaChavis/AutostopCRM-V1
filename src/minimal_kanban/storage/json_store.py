@@ -12,6 +12,7 @@ from typing import Any
 from uuid import uuid4
 
 from ..config import get_app_data_dir, get_state_file
+from ..json_safety import reject_deeply_nested_json
 from ..models import (
     ARCHIVED_CARD_RETENTION_LIMIT,
     AUDIT_EVENT_RETENTION_DAYS,
@@ -420,6 +421,10 @@ class JsonStore:
             payload = json.loads(
                 self._read_state_text(),
                 parse_constant=_reject_json_constant,
+            )
+            reject_deeply_nested_json(
+                payload,
+                message="state file JSON is too deeply nested",
             )
         except (json.JSONDecodeError, UnicodeDecodeError, ValueError, RecursionError):
             backup = self._corrupted_backup_path()

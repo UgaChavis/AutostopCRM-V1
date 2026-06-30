@@ -5,6 +5,7 @@ import json
 import math
 import os
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -13,6 +14,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC = PROJECT_ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from minimal_kanban.json_safety import reject_deeply_nested_json  # noqa: E402
+
 READY_MCP_STATUSES = {200, 204, 307, 308, 400, 401, 403, 405, 406}
 WATCHDOG_ENDPOINT_RESPONSE_MAX_BYTES = 64 * 1024
 
@@ -147,6 +154,10 @@ def _endpoint_result_from_response(
         )
     try:
         payload = json.loads(body.decode("utf-8"), parse_constant=_reject_json_constant)
+        reject_deeply_nested_json(
+            payload,
+            message="health response JSON is too deeply nested",
+        )
         if not isinstance(payload, dict):
             raise ValueError("health response must be a JSON object")
     except RecursionError as exc:

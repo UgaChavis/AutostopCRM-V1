@@ -26,6 +26,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.api.server import ApiServer
+from minimal_kanban.json_safety import reject_deeply_nested_json
 from minimal_kanban.operator_activity import OperatorActivityService
 from minimal_kanban.operator_auth import OperatorAuthService
 from minimal_kanban.services.card_service import CardService
@@ -253,6 +254,10 @@ def _load_json_response(raw: bytes) -> dict[str, Any]:
         payload = json.loads(raw.decode("utf-8"), parse_constant=_reject_json_constant)
     except RecursionError as exc:
         raise ValueError("API response JSON is too deeply nested") from exc
+    reject_deeply_nested_json(
+        payload,
+        message="API response JSON is too deeply nested",
+    )
     if not isinstance(payload, dict):
         raise ValueError("API response must be a JSON object")
     return payload

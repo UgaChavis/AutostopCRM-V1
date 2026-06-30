@@ -17,6 +17,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.config import get_state_file
+from minimal_kanban.json_safety import reject_deeply_nested_json
 from minimal_kanban.services.repair_order_number_audit import (
     format_repair_order_number_audit_text,
     limited_repair_order_number_audit_data,
@@ -151,6 +152,10 @@ def fetch_audit(
         payload = json.loads(raw_body.decode("utf-8"), parse_constant=_reject_json_constant)
     except RecursionError as exc:
         raise ValueError("API response JSON is too deeply nested") from exc
+    reject_deeply_nested_json(
+        payload,
+        message="API response JSON is too deeply nested",
+    )
     if not isinstance(payload, dict):
         raise ValueError("API response must be a JSON object")
     return payload
@@ -165,6 +170,7 @@ def _read_state_audit(state_file: str) -> dict[str, Any]:
         )
     except RecursionError as exc:
         raise ValueError("state file JSON is too deeply nested") from exc
+    reject_deeply_nested_json(state, message="state file JSON is too deeply nested")
     if not isinstance(state, dict):
         raise ValueError("state file must contain a JSON object")
     return repair_order_number_audit_payload(state)

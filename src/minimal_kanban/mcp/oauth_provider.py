@@ -24,6 +24,7 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 from pydantic import ValidationError
 
 from ..config import get_app_data_dir, get_mcp_oauth_state_file
+from ..json_safety import reject_deeply_nested_json
 from ..storage.file_lock import ProcessFileLock
 from ..storage.limited_io import read_text_limited
 
@@ -466,6 +467,7 @@ class EmbeddedOAuthAuthorizationServerProvider(
                 self._read_state_text(),
                 parse_constant=_reject_json_constant,
             )
+            reject_deeply_nested_json(payload)
         except (OSError, UnicodeDecodeError, ValueError, RecursionError):
             backup = self._corrupted_backup_path()
             self._state_file.replace(backup)

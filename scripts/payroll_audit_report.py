@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -10,7 +11,15 @@ from collections import Counter, defaultdict
 from collections.abc import Callable
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from pathlib import Path
 from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from minimal_kanban.json_safety import reject_deeply_nested_json  # noqa: E402
 
 UrlOpen = Callable[[urllib.request.Request, float], Any]
 AUDIT_RESPONSE_MAX_BYTES = 4 * 1024 * 1024
@@ -106,6 +115,10 @@ def _load_audit_response(raw_body: bytes) -> dict[str, Any]:
         payload = json.loads(raw_body.decode("utf-8"), parse_constant=_reject_json_constant)
     except RecursionError as exc:
         raise ValueError("payroll audit response JSON is too deeply nested") from exc
+    reject_deeply_nested_json(
+        payload,
+        message="payroll audit response JSON is too deeply nested",
+    )
     if not isinstance(payload, dict):
         raise ValueError("payroll audit response must be a JSON object")
     return payload

@@ -6,11 +6,18 @@ import fnmatch
 import json
 import re
 import subprocess
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from minimal_kanban.json_safety import reject_deeply_nested_json  # noqa: E402
+
 GIT_COMMAND_TIMEOUT_SECONDS = 15
 DOCS_AUDIT_TEXT_MAX_BYTES = 2 * 1024 * 1024
 
@@ -770,6 +777,7 @@ def _load_json(path: Path) -> dict[str, Any]:
         data = json.loads(_read_text(path), parse_constant=_reject_json_constant)
     except RecursionError as exc:
         raise ValueError(f"{path} JSON is too deeply nested") from exc
+    reject_deeply_nested_json(data, message=f"{path} JSON is too deeply nested")
     if not isinstance(data, dict):
         raise ValueError(f"{path} must contain a JSON object")
     return data

@@ -7,6 +7,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from ..json_safety import reject_deeply_nested_json
 from ..models import utc_now_iso
 from ..storage.file_lock import ProcessFileLock
 from ..storage.limited_io import read_text_limited
@@ -651,6 +652,7 @@ class AgentStorage:
                 self._read_json_text(path),
                 parse_constant=_reject_json_constant,
             )
+            reject_deeply_nested_json(payload)
         except (OSError, json.JSONDecodeError, UnicodeDecodeError, ValueError, RecursionError):
             self._replace_with_corrupted_backup(path)
             self._write_json(path, default_payload)

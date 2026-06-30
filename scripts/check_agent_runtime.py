@@ -4,9 +4,18 @@ import argparse
 import json
 import math
 import os
+import sys
 import urllib.error
 import urllib.request
 from datetime import UTC, datetime
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from minimal_kanban.json_safety import reject_deeply_nested_json  # noqa: E402
 
 
 def _reject_json_constant(value: str) -> None:
@@ -42,6 +51,10 @@ def _load_json_response(raw: bytes) -> dict:
         decoded = json.loads(raw.decode("utf-8"), parse_constant=_reject_json_constant)
     except RecursionError as exc:
         raise ValueError("API response JSON is too deeply nested") from exc
+    reject_deeply_nested_json(
+        decoded,
+        message="API response JSON is too deeply nested",
+    )
     if not isinstance(decoded, dict):
         raise ValueError("API response must be a JSON object")
     return decoded

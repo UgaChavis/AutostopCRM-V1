@@ -6,6 +6,7 @@ import json
 import logging
 import math
 import statistics
+import sys
 import tempfile
 import time
 import urllib.error
@@ -17,6 +18,11 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from minimal_kanban.json_safety import reject_deeply_nested_json  # noqa: E402
+
 PERF_PROBE_RESPONSE_MAX_BYTES = 4 * 1024 * 1024
 PERF_PROBE_MAX_ITERATIONS = 100
 PERF_PROBE_MAX_THRESHOLD = 3_600_000.0
@@ -80,6 +86,7 @@ def _load_response_json(raw_body: bytes, *, context: str) -> dict[str, Any]:
         payload_data = json.loads(raw_body.decode("utf-8"), parse_constant=_reject_json_constant)
     except RecursionError as exc:
         raise ValueError(f"{context} JSON is too deeply nested") from exc
+    reject_deeply_nested_json(payload_data, message=f"{context} JSON is too deeply nested")
     if not isinstance(payload_data, dict):
         raise ValueError(f"{context} must be a JSON object")
     return payload_data

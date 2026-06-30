@@ -11,6 +11,7 @@ import tempfile
 import threading
 from pathlib import Path
 
+from ..json_safety import reject_deeply_nested_json
 from ..storage.limited_io import read_bytes_limited
 
 PDF_CLI_STDIN_MAX_BYTES = 8 * 1024 * 1024
@@ -51,6 +52,10 @@ def _parse_json_object(raw: str, *, label: str) -> dict[str, object]:
     try:
         payload = json.loads(raw, parse_constant=_reject_json_constant)
     except (json.JSONDecodeError, RecursionError) as exc:
+        raise ValueError(f"{label} must contain valid JSON") from exc
+    try:
+        reject_deeply_nested_json(payload)
+    except ValueError as exc:
         raise ValueError(f"{label} must contain valid JSON") from exc
     if not isinstance(payload, dict):
         raise ValueError(f"{label} must be a JSON object")

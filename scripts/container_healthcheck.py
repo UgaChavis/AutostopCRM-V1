@@ -1,8 +1,17 @@
 from __future__ import annotations
 
 import json
+import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from minimal_kanban.json_safety import reject_deeply_nested_json  # noqa: E402
 
 API_HEALTH_URL = "http://127.0.0.1:41731/api/health"
 MCP_URL = "http://127.0.0.1:41831/mcp"
@@ -35,9 +44,14 @@ def _read_api_health_body(response) -> bytes:
 
 def _load_api_health_json(raw: bytes):
     try:
-        return json.loads(raw.decode("utf-8"), parse_constant=_reject_json_constant)
+        payload = json.loads(raw.decode("utf-8"), parse_constant=_reject_json_constant)
     except RecursionError as exc:
         raise ValueError("API health response JSON is too deeply nested") from exc
+    reject_deeply_nested_json(
+        payload,
+        message="API health response JSON is too deeply nested",
+    )
+    return payload
 
 
 def _check_api() -> bool:

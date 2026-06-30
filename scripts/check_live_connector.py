@@ -22,6 +22,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.config import get_settings_file
+from minimal_kanban.json_safety import reject_deeply_nested_json
 from minimal_kanban.mcp.client import discover_board_api
 from minimal_kanban.settings_models import IntegrationSettings
 
@@ -69,9 +70,11 @@ def _json_dumps(payload: Any, *, indent: int | None = None) -> str:
 
 def _load_json_text(raw: str, *, context: str) -> Any:
     try:
-        return json.loads(raw, parse_constant=_reject_json_constant)
+        payload = json.loads(raw, parse_constant=_reject_json_constant)
     except RecursionError as exc:
         raise ValueError(f"{context} JSON is too deeply nested") from exc
+    reject_deeply_nested_json(payload, message=f"{context} JSON is too deeply nested")
+    return payload
 
 
 def _parse_api_response(raw: str) -> dict[str, Any]:

@@ -8,12 +8,20 @@ import secrets
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from minimal_kanban.json_safety import reject_deeply_nested_json  # noqa: E402
 
 DEFAULT_PORTS = [f"http://127.0.0.1:{port}" for port in range(41731, 41741)]
 POST_BUILD_RESPONSE_MAX_BYTES = 4 * 1024 * 1024
@@ -90,6 +98,7 @@ def _load_response_json(raw: bytes, *, context: str) -> dict:
         decoded = json.loads(raw.decode("utf-8"), parse_constant=_reject_json_constant)
     except RecursionError as exc:
         raise ValueError(f"{context} JSON is too deeply nested") from exc
+    reject_deeply_nested_json(decoded, message=f"{context} JSON is too deeply nested")
     if not isinstance(decoded, dict):
         raise ValueError(f"{context} must be a JSON object")
     return decoded

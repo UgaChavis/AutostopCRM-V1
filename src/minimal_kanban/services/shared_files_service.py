@@ -16,6 +16,7 @@ from typing import Any
 from uuid import uuid4
 
 from ..config import get_shared_files_dir, get_shared_files_index_file
+from ..json_safety import reject_deeply_nested_json
 from ..models import normalize_actor_name, normalize_file_name, normalize_int
 from ..storage.file_lock import ProcessFileLock
 from ..storage.limited_io import copy_file_limited, read_bytes_limited, read_text_limited
@@ -641,6 +642,7 @@ class SharedFilesService:
                 self._read_index_text() or "{}",
                 parse_constant=_reject_json_constant,
             )
+            reject_deeply_nested_json(raw)
         except (OSError, ValueError, json.JSONDecodeError, RecursionError):
             raise ServiceError(
                 "storage_error",

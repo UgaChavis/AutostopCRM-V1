@@ -28,6 +28,7 @@ from ..config import (
     get_api_port,
     get_api_port_fallback_limit,
 )
+from ..json_safety import reject_deeply_nested_json
 from ..models import business_timezone, parse_datetime
 from ..operator_auth import OperatorAuthService
 from ..services.card_service import CardService
@@ -838,6 +839,7 @@ class ApiServer:
                         raw_body.decode("utf-8") or "{}",
                         parse_constant=_reject_json_constant,
                     )
+                    reject_deeply_nested_json(payload)
                 except (UnicodeDecodeError, ValueError, RecursionError):
                     self._send_error_response(
                         request_id,
