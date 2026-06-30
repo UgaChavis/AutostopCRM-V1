@@ -423,7 +423,7 @@
             + '<div class="repair-order-payments-form">'
             + '<div class="field field--compact"><label for="repairOrderPaymentCashbox">Касса</label><select id="repairOrderPaymentCashbox"><option value="">Выберите кассу</option></select></div>'
             + '<div class="field field--compact"><label for="repairOrderPaymentAmount">Сумма</label><input id="repairOrderPaymentAmount" type="text" inputmode="decimal" maxlength="24"></div>'
-            + '<button class="btn btn--accent" id="repairOrderPaymentAddButton" type="button">+ Оплата</button>'
+            + '<button class="btn btn--accent" id="repairOrderPaymentAddButton" type="button" title="Добавить оплату" aria-label="Добавить оплату">+</button>'
             + '<div class="field field--compact repair-order-payments-form__note"><label for="repairOrderPaymentNote">Комментарий</label><input id="repairOrderPaymentNote" type="text" maxlength="240" placeholder="Предоплата / оплата по работам"></div>'
             + '</div>'
             + '<div class="repair-order-payments-list" id="repairOrderPaymentsList"></div>'
@@ -14223,14 +14223,14 @@
         const latestPayment = payments.length ? payments[payments.length - 1] : null;
         const latestText = latestPayment
           ? ('Последняя оплата: ' + (String(latestPayment?.paid_at || '').trim() || 'дата не указана') + ' | Кем: ' + (String(latestPayment?.actor_name || '').trim() || 'оператор не указан') + ' | Касса: ' + (String(latestPayment?.cashbox_name || '').trim() || 'касса не указана'))
-          : 'Пока нет оплат. Добавьте первое поступление в выбранную кассу.';
+          : '';
         els.repairOrderPaymentsMeta.innerHTML =
           '<div class="repair-order-payments-stats">'
-            + '<div class="repair-order-payments-stat"><span>Оплат</span><strong>' + escapeHtml(String(payments.length)) + '</strong></div>'
-            + '<div class="repair-order-payments-stat"><span>Внесено</span><strong>' + escapeHtml(repairOrderFormatMoney(total)) + '</strong></div>'
-            + '<div class="repair-order-payments-stat"><span>К доплате</span><strong>' + escapeHtml(repairOrderFormatMoney(due)) + '</strong></div>'
+            + '<div class="repair-order-payments-stat"><span>Оплат:</span><strong>' + escapeHtml(String(payments.length)) + '</strong></div>'
+            + '<div class="repair-order-payments-stat"><span>Внесено:</span><strong>' + escapeHtml(repairOrderFormatMoney(total)) + '</strong></div>'
+            + '<div class="repair-order-payments-stat"><span>К доплате:</span><strong>' + escapeHtml(repairOrderFormatMoney(due)) + '</strong></div>'
           + '</div>'
-          + '<div class="repair-order-payments-subline">' + escapeHtml(latestText) + '</div>';
+          + (latestText ? '<div class="repair-order-payments-subline">' + escapeHtml(latestText) + '</div>' : '');
       }
       if (els.repairOrderPaymentsList) {
         els.repairOrderPaymentsList.innerHTML = payments.length ? payments.slice().reverse().map((item) => {

@@ -3893,15 +3893,19 @@
     }
     .repair-order-payments-stats {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: auto auto auto;
       gap: 6px;
+      justify-content: start;
     }
     .repair-order-payments-stat {
-      display: grid;
-      gap: 2px;
-      padding: 7px 8px;
+      display: inline-flex;
+      align-items: baseline;
+      gap: 4px;
+      min-width: 0;
+      padding: 5px 8px;
       border: 1px solid rgba(116, 126, 106, 0.18);
       background: rgba(0, 0, 0, 0.08);
+      white-space: nowrap;
     }
     .repair-order-payments-stat span {
       color: var(--text-soft);
@@ -3912,7 +3916,7 @@
     }
     .repair-order-payments-stat strong {
       color: var(--text);
-      font-size: 16px;
+      font-size: 14px;
       line-height: 1.1;
       font-variant-numeric: tabular-nums;
     }
@@ -3923,7 +3927,7 @@
     }
     .repair-order-payments-form {
       display: grid;
-      grid-template-columns: minmax(132px, 154px) minmax(136px, 152px) auto;
+      grid-template-columns: minmax(132px, 154px) minmax(136px, 152px) 50px;
       gap: 6px 7px;
       align-items: end;
       padding: 8px 9px;
@@ -3933,14 +3937,34 @@
     .repair-order-payments-form__note {
       grid-column: 1 / -1;
     }
+    .repair-order-payments-form .field--compact label {
+      display: flex;
+      align-items: center;
+      min-height: 18px;
+    }
     .repair-order-payments-form .field--compact input[type="text"],
     .repair-order-payments-form .field--compact select {
-      min-height: 31px;
-      padding: 5px 7px;
+      height: 40px;
+      min-height: 40px;
+      padding: 8px 7px;
     }
-    .repair-order-payments-form .btn {
-      min-width: 104px;
-      min-height: 31px;
+    .repair-order-payments-form #repairOrderPaymentNote {
+      height: 38px;
+      min-height: 38px;
+      padding: 7px;
+    }
+    .repair-order-payments-form #repairOrderPaymentAddButton {
+      width: 50px;
+      min-width: 50px;
+      max-width: 50px;
+      height: 40px;
+      min-height: 40px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 17px;
+      line-height: 1;
     }
     .repair-order-payments-list {
       display: flex;
@@ -5509,6 +5533,10 @@
       .repair-order-footer__actions .btn { flex: 1 1 0; min-width: 0; }
       .repair-order-payments-stats { grid-template-columns: 1fr; }
       .repair-order-payments-form { grid-template-columns: 1fr; }
+      .repair-order-payments-form #repairOrderPaymentAddButton {
+        width: 100%;
+        max-width: none;
+      }
       .repair-order-payments-form__note { grid-column: auto; }
       .cashbox-form-grid { grid-template-columns: 1fr; }
       .repair-order-payment-row { grid-template-columns: 1fr auto; align-items: start; }

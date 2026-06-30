@@ -332,6 +332,30 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("payment_method: repairOrderPaymentMethodFromPayments(", BOARD_WEB_APP_HTML)
         self.assertIn(".mobile-repair-order-payment-row", BOARD_WEB_APP_HTML)
 
+    def test_repair_order_payments_popup_uses_compact_single_line_controls(self) -> None:
+        self.assertNotIn(
+            "Пока нет оплат. Добавьте первое поступление в выбранную кассу.",
+            BOARD_WEB_APP_HTML,
+        )
+        for label in ("Оплат:", "Внесено:", "К доплате:"):
+            self.assertIn(f"<span>{label}</span><strong>", BOARD_WEB_APP_HTML)
+        self.assertIn("grid-template-columns: auto auto auto;", BOARD_WEB_APP_HTML)
+        self.assertIn("white-space: nowrap;", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            ".repair-order-payments-form .field--compact label {",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("min-height: 18px;", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            '.repair-order-payments-form .field--compact input[type="text"],',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("min-height: 40px;", BOARD_WEB_APP_HTML)
+        self.assertIn("#repairOrderPaymentNote {", BOARD_WEB_APP_HTML)
+        self.assertIn("min-height: 38px;", BOARD_WEB_APP_HTML)
+        self.assertIn("#repairOrderPaymentAddButton {", BOARD_WEB_APP_HTML)
+        self.assertIn("width: 50px;", BOARD_WEB_APP_HTML)
+
     def test_mobile_repair_order_detail_uses_tabbed_sections_and_sticky_actions(self) -> None:
         self.assertIn('class="mobile-repair-order-detail__sticky"', BOARD_WEB_APP_HTML)
         self.assertIn(
