@@ -18,7 +18,12 @@ class ScenarioPolicy:
 _SCENARIO_POLICIES: dict[str, ScenarioPolicy] = {
     "vin_enrichment": ScenarioPolicy(
         required_tools=("decode_vin",),
-        optional_tools=("search_web", "fetch_page_excerpt"),
+        optional_tools=(
+            "search_web_multi",
+            "search_web",
+            "fetch_page_excerpt",
+            "fetch_page_browser",
+        ),
         allowed_write_targets=("description", "vehicle", "vehicle_profile"),
         source_type="external_vin",
     ),
@@ -87,8 +92,10 @@ _TOOL_SOURCE_TYPES = {
     "decode_dtc": "external_diagnostic",
     "search_fault_info": "external_fault",
     "estimate_maintenance": "external_maintenance",
+    "search_web_multi": "external_search_multi",
     "search_web": "external_search",
     "fetch_page_excerpt": "external_page",
+    "fetch_page_browser": "external_page_browser",
     "update_card": "crm_write",
     "update_repair_order": "crm_write",
     "replace_repair_order_works": "crm_write",

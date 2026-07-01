@@ -69,6 +69,8 @@ UI / MCP / API clients
   `src/minimal_kanban/api/route_registry.py`.
 - MCP tools live in `src/minimal_kanban/mcp/server.py` and
   `src/minimal_kanban/mcp/tool_registry.py`.
+- CRM agent automotive/web tools live in `src/minimal_kanban/agent/`; public
+  research should use `search_web_multi` before excerpt/browser tools.
 - JSON state normalization and persistence live in
   `src/minimal_kanban/storage/json_store.py`.
 - Browser UI chunks live in `src/minimal_kanban/web_app_assets/source/`; keep

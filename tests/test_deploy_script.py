@@ -108,6 +108,15 @@ class DeployScriptTests(unittest.TestCase):
         self.assertIn("requirements-runtime.txt", dockerfile)
         self.assertNotIn("pyinstaller", runtime_requirements.lower())
 
+    def test_dockerfile_installs_agent_browser_runtime(self) -> None:
+        dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
+        runtime_requirements = (PROJECT_ROOT / "requirements-runtime.txt").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("playwright", runtime_requirements)
+        self.assertIn("python -m playwright install --with-deps chromium", dockerfile)
+
     def test_dockerignore_excludes_server_local_vpn_artifacts(self) -> None:
         dockerignore = (PROJECT_ROOT / ".dockerignore").read_text(encoding="utf-8")
 

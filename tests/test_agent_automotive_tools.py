@@ -22,7 +22,9 @@ from minimal_kanban.agent.tools import AgentToolExecutor, _json_dumps  # noqa: E
 class _FakeSearchClient:
     def __init__(self) -> None:
         self.search_calls: list[dict[str, object]] = []
+        self.search_multi_calls: list[dict[str, object]] = []
         self.fetch_calls: list[dict[str, object]] = []
+        self.browser_fetch_calls: list[dict[str, object]] = []
 
     def search(
         self,
@@ -36,9 +38,33 @@ class _FakeSearchClient:
         )
         return []
 
+    def search_multi(
+        self,
+        query: str,
+        *,
+        limit: int = 5,
+        allowed_domains: list[str] | None = None,
+        providers: list[str] | None = None,
+    ) -> dict[str, object]:
+        self.search_multi_calls.append(
+            {
+                "query": query,
+                "limit": limit,
+                "allowed_domains": allowed_domains or [],
+                "providers": providers or [],
+            }
+        )
+        return {"query": query, "results": [], "providers": []}
+
     def fetch_page_excerpt(self, url: str, *, max_chars: int = 2500) -> dict[str, object]:
         self.fetch_calls.append({"url": url, "max_chars": max_chars})
         return {"url": url, "excerpt": "x" * max_chars}
+
+    def fetch_page_browser(
+        self, url: str, *, max_chars: int = 2500, wait_ms: int = 750
+    ) -> dict[str, object]:
+        self.browser_fetch_calls.append({"url": url, "max_chars": max_chars, "wait_ms": wait_ms})
+        return {"ok": True, "url": url, "excerpt": "x" * max_chars, "wait_ms": wait_ms}
 
 
 def _service_with_fake_search() -> tuple[AutomotiveLookupService, _FakeSearchClient]:
@@ -107,21 +133,40 @@ class AutomotiveLookupServiceTests(unittest.TestCase):
         service, fake_search = _service_with_fake_search()
 
         service.search_web(query="oil filter", limit=float("inf"))
+        service.search_web_multi(query="gearbox issue", limit=float("inf"))
         service.fetch_page_excerpt(url="https://example.com/specs", max_chars=float("inf"))
+        service.fetch_page_browser(
+            url="https://example.com/rendered",
+            max_chars=float("inf"),
+            wait_ms=float("inf"),
+        )
 
         self.assertEqual(fake_search.search_calls[0]["limit"], 5)
+        self.assertEqual(fake_search.search_multi_calls[0]["limit"], 5)
         self.assertEqual(fake_search.fetch_calls[0]["max_chars"], 2500)
+        self.assertEqual(fake_search.browser_fetch_calls[0]["max_chars"], 2500)
+        self.assertEqual(fake_search.browser_fetch_calls[0]["wait_ms"], 750)
 
     def test_web_tools_fall_back_for_boolean_and_fractional_limits(self) -> None:
         service, fake_search = _service_with_fake_search()
 
         service.search_web(query="oil filter", limit=True)
         service.search_web(query="air filter", limit=1.5)  # type: ignore[arg-type]
+        service.search_web_multi(query="spark plugs", limit=True, providers=["brave", "ddg"])
         service.fetch_page_excerpt(url="https://example.com/specs", max_chars=True)
+        service.fetch_page_browser(
+            url="https://example.com/rendered",
+            max_chars=True,
+            wait_ms=True,
+        )
 
         self.assertEqual(fake_search.search_calls[0]["limit"], 5)
         self.assertEqual(fake_search.search_calls[1]["limit"], 5)
+        self.assertEqual(fake_search.search_multi_calls[0]["limit"], 5)
+        self.assertEqual(fake_search.search_multi_calls[0]["providers"], ["brave", "ddg"])
         self.assertEqual(fake_search.fetch_calls[0]["max_chars"], 2500)
+        self.assertEqual(fake_search.browser_fetch_calls[0]["max_chars"], 2500)
+        self.assertEqual(fake_search.browser_fetch_calls[0]["wait_ms"], 750)
 
     def test_part_lookup_clamps_large_limits_before_searching(self) -> None:
         service, fake_search = _service_with_fake_search()

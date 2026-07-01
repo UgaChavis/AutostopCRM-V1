@@ -547,7 +547,7 @@ def _lookup_controlled_internet(
     allowed_domains = _select_allowed_domains(prompt, context)
     normalized_limit = _normalize_limit(limit, default=3, maximum=5)
     try:
-        search_payload = service.search_web(
+        search_payload = service.search_web_multi(
             query=query, limit=normalized_limit, allowed_domains=allowed_domains
         )
     except InternetToolError as exc:

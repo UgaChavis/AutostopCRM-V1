@@ -95,7 +95,7 @@ class VinEnrichmentScenarioTests(unittest.TestCase):
                             "source_url": "https://vpic.nhtsa.dot.gov/api/vehicles/example",
                         },
                     }
-                if tool_name == "search_web":
+                if tool_name == "search_web_multi":
                     return {
                         "ok": True,
                         "data": {
@@ -195,7 +195,7 @@ class VinEnrichmentScenarioTests(unittest.TestCase):
         self.assertEqual(result.tool_calls_used, 3)
         self.assertEqual(
             [item[0] for item in runtime.actions],
-            ["decode_vin", "search_web", "fetch_page_excerpt"],
+            ["decode_vin", "search_web_multi", "fetch_page_excerpt"],
         )
         decoded = result.orchestration_updates["decode_vin"]
         self.assertEqual(decoded["make"], "AUDI")
@@ -230,7 +230,7 @@ class VinEnrichmentScenarioTests(unittest.TestCase):
                             "source_url": "https://vpic.nhtsa.dot.gov/api/vehicles/example",
                         },
                     }
-                if tool_name == "search_web":
+                if tool_name == "search_web_multi":
                     return {
                         "ok": True,
                         "data": {
@@ -330,7 +330,7 @@ class VinEnrichmentScenarioTests(unittest.TestCase):
         self.assertFalse(result.needs_followup)
         self.assertEqual(
             [item[0] for item in runtime.actions],
-            ["decode_vin", "search_web", "fetch_page_excerpt"],
+            ["decode_vin", "search_web_multi", "fetch_page_excerpt"],
         )
         decoded = result.orchestration_updates["decode_vin"]
         self.assertEqual(decoded["make"], "AUDI")
@@ -416,7 +416,7 @@ class VinEnrichmentScenarioTests(unittest.TestCase):
                             "source_url": "https://vpic.nhtsa.dot.gov/api/vehicles/example",
                         },
                     }
-                if tool_name == "search_web":
+                if tool_name == "search_web_multi":
                     return {
                         "ok": True,
                         "data": {

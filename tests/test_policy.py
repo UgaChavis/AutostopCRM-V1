@@ -30,7 +30,10 @@ class ToolPolicyEngineTests(unittest.TestCase):
         self.assertEqual(plan.scenario_id, "vin_enrichment")
         self.assertEqual(plan.execution_mode, "structured_card")
         self.assertEqual(plan.required_tools, ["decode_vin"])
-        self.assertEqual(plan.optional_tools, ["search_web", "fetch_page_excerpt"])
+        self.assertEqual(
+            plan.optional_tools,
+            ["search_web_multi", "search_web", "fetch_page_excerpt", "fetch_page_browser"],
+        )
         self.assertEqual(plan.write_mode, "patch_only_additive")
         self.assertTrue(plan.followup_policy["enabled"])
 
@@ -97,6 +100,7 @@ class ToolPolicyEngineTests(unittest.TestCase):
         engine = ToolPolicyEngine()
         self.assertEqual(engine.tool_source_type("DECODE_VIN"), "external_vin")
         self.assertEqual(engine.tool_source_type("Search_Fault_Info"), "external_fault")
+        self.assertEqual(engine.tool_source_type("Fetch_Page_Browser"), "external_page_browser")
 
     def test_build_plan_ignores_unknown_scenarios_and_falls_back_cleanly(self) -> None:
         engine = ToolPolicyEngine()

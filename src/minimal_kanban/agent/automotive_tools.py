@@ -462,6 +462,38 @@ class AutomotiveLookupService:
             ),
         )
 
+    def search_web_multi(
+        self,
+        *,
+        query: str,
+        limit: int = 5,
+        allowed_domains: list[str] | None = None,
+        providers: list[str] | None = None,
+    ) -> dict[str, Any]:
+        normalized_query = self._required_query(query)
+        normalized_domains = sorted(
+            {str(item or "").strip() for item in (allowed_domains or []) if str(item or "").strip()}
+        )
+        normalized_providers = [
+            str(item or "").strip() for item in (providers or []) if str(item or "").strip()
+        ]
+        normalized_limit = self._normalize_limit(limit, default=5, maximum=10)
+        return self._cached_result(
+            "search_web_multi",
+            {
+                "query": normalized_query,
+                "limit": normalized_limit,
+                "allowed_domains": normalized_domains,
+                "providers": normalized_providers,
+            },
+            lambda: self._search_web_multi_uncached(
+                query=normalized_query,
+                limit=normalized_limit,
+                allowed_domains=normalized_domains,
+                providers=normalized_providers,
+            ),
+        )
+
     def decode_dtc(
         self,
         *,
@@ -519,6 +551,26 @@ class AutomotiveLookupService:
             ),
         )
 
+    def fetch_page_browser(
+        self, *, url: str, max_chars: int = 2500, wait_ms: int = 750
+    ) -> dict[str, Any]:
+        normalized_url = str(url or "").strip()
+        normalized_max_chars = self._normalize_limit(max_chars, default=2500, maximum=8000)
+        normalized_wait_ms = self._normalize_limit(wait_ms, default=750, minimum=0, maximum=5000)
+        return self._cached_result(
+            "fetch_page_browser",
+            {
+                "url": normalized_url,
+                "max_chars": normalized_max_chars,
+                "wait_ms": normalized_wait_ms,
+            },
+            lambda: self._fetch_page_browser_uncached(
+                url=normalized_url,
+                max_chars=normalized_max_chars,
+                wait_ms=normalized_wait_ms,
+            ),
+        )
+
     def _search_web_uncached(
         self, *, query: str, limit: int, allowed_domains: list[str]
     ) -> dict[str, Any]:
@@ -530,6 +582,21 @@ class AutomotiveLookupService:
             "query": str(query or "").strip(),
             "results": results,
         }
+
+    def _search_web_multi_uncached(
+        self,
+        *,
+        query: str,
+        limit: int,
+        allowed_domains: list[str],
+        providers: list[str],
+    ) -> dict[str, Any]:
+        return self._search.search_multi(
+            query,
+            limit=limit,
+            allowed_domains=allowed_domains,
+            providers=providers,
+        )
 
     def _decode_dtc_uncached(
         self, *, code: str, context: dict[str, Any], limit: int
@@ -569,6 +636,11 @@ class AutomotiveLookupService:
 
     def _fetch_page_excerpt_uncached(self, *, url: str, max_chars: int) -> dict[str, Any]:
         return self._search.fetch_page_excerpt(url, max_chars=max_chars)
+
+    def _fetch_page_browser_uncached(
+        self, *, url: str, max_chars: int, wait_ms: int
+    ) -> dict[str, Any]:
+        return self._search.fetch_page_browser(url, max_chars=max_chars, wait_ms=wait_ms)
 
     def _required_query(self, value: str) -> str:
         text = str(value or "").strip()

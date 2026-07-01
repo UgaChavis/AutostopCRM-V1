@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -51,6 +52,18 @@ def _client_factory(*, text: str = "", url: str, chunks: list[bytes] | None = No
     return _Client
 
 
+class _JsonResponse:
+    def __init__(self, payload: dict[str, object]) -> None:
+        self._payload = payload
+        self.status_code = 200
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict[str, object]:
+        return self._payload
+
+
 def _result_html(count: int) -> str:
     return "\n".join(
         f"""
@@ -63,6 +76,111 @@ def _result_html(count: int) -> str:
         """
         for index in range(count)
     )
+
+
+class _FakeBrowserResponse:
+    status = 403
+
+
+class _FakeBrowserLocator:
+    def inner_text(self, *, timeout=None) -> str:
+        _ = timeout
+        return "Rendered specs text. CAPTCHA required. Checking your browser before access. " + (
+            "x" * 100
+        )
+
+
+class _FakeBrowserPage:
+    url = "https://example.com/rendered"
+
+    def __init__(self) -> None:
+        self.waited_ms: list[int] = []
+
+    def goto(self, *args, **kwargs) -> _FakeBrowserResponse:
+        _ = (args, kwargs)
+        return _FakeBrowserResponse()
+
+    def wait_for_timeout(self, wait_ms: int) -> None:
+        self.waited_ms.append(wait_ms)
+
+    def wait_for_load_state(self, *args, **kwargs) -> None:
+        _ = (args, kwargs)
+
+    def title(self) -> str:
+        return "Rendered Page"
+
+    def locator(self, selector: str) -> _FakeBrowserLocator:
+        self.selector = selector
+        return _FakeBrowserLocator()
+
+    def content(self) -> str:
+        return "<html><body>fallback</body></html>"
+
+    def eval_on_selector_all(self, *args, **kwargs) -> list[dict[str, str]]:
+        _ = (args, kwargs)
+        return [
+            {"text": "Public link", "url": "https://example.org/part"},
+            {"text": "Private link", "url": "http://127.0.0.1/admin"},
+            {"text": "Duplicate", "url": "https://example.org/part"},
+        ]
+
+
+class _FakeBrowserContext:
+    def __init__(self, page: _FakeBrowserPage) -> None:
+        self.page = page
+        self.closed = False
+        self.routes: list[tuple[str, object]] = []
+
+    def route(self, pattern: str, handler) -> None:  # noqa: ANN001
+        self.routes.append((pattern, handler))
+
+    def new_page(self) -> _FakeBrowserPage:
+        return self.page
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FakeBrowser:
+    def __init__(self, page: _FakeBrowserPage) -> None:
+        self.page = page
+        self.closed = False
+        self.contexts: list[_FakeBrowserContext] = []
+
+    def new_context(self, **kwargs) -> _FakeBrowserContext:
+        self.context_kwargs = kwargs
+        context = _FakeBrowserContext(self.page)
+        self.contexts.append(context)
+        return context
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FakeChromium:
+    def __init__(self, browser: _FakeBrowser) -> None:
+        self.browser = browser
+        self.launch_kwargs: dict[str, object] = {}
+
+    def launch(self, **kwargs) -> _FakeBrowser:
+        self.launch_kwargs = dict(kwargs)
+        return self.browser
+
+
+class _FakePlaywright:
+    def __init__(self, browser: _FakeBrowser) -> None:
+        self.chromium = _FakeChromium(browser)
+
+
+class _FakePlaywrightContextManager:
+    def __init__(self, browser: _FakeBrowser) -> None:
+        self.playwright = _FakePlaywright(browser)
+
+    def __enter__(self) -> _FakePlaywright:
+        return self.playwright
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        _ = (exc_type, exc, tb)
 
 
 class AgentWebToolsTests(unittest.TestCase):
@@ -144,6 +262,172 @@ class AgentWebToolsTests(unittest.TestCase):
         self.assertEqual(client._timeout_seconds, 12.0)
         self.assertEqual(len(bool_results), 5)
         self.assertEqual(len(fractional_results), 5)
+
+    def test_search_multi_skips_missing_api_keys_and_uses_duckduckgo(self) -> None:
+        client = DuckDuckGoSearchClient()
+
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch(
+                "minimal_kanban.agent.web_tools.httpx.Client",
+                _client_factory(text=_result_html(2), url="https://html.duckduckgo.com/html/"),
+            ),
+        ):
+            payload = client.search_multi("oil filter", limit=2)
+
+        self.assertEqual(
+            [item["provider"] for item in payload["providers"]],
+            ["brave", "tavily", "google_cse", "duckduckgo"],
+        )
+        self.assertEqual(
+            [item["status"] for item in payload["providers"][:3]], ["skipped", "skipped", "skipped"]
+        )
+        self.assertEqual(payload["providers"][-1]["status"], "success")
+        self.assertTrue(payload["fallback_used"])
+        self.assertEqual(
+            [item["provider"] for item in payload["results"]], ["duckduckgo", "duckduckgo"]
+        )
+
+    def test_search_multi_uses_brave_first_when_configured(self) -> None:
+        class BraveClient:
+            calls: list[dict[str, object]] = []
+
+            def __init__(self, *args, **kwargs) -> None:
+                _ = (args, kwargs)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+
+            def get(self, url: str, *, params=None, headers=None) -> _JsonResponse:  # noqa: ANN001
+                self.calls.append({"url": url, "params": params or {}, "headers": headers or {}})
+                return _JsonResponse(
+                    {
+                        "web": {
+                            "results": [
+                                {
+                                    "title": "<b>Specs</b>",
+                                    "url": "https://example.com/specs",
+                                    "description": "Main description",
+                                    "extra_snippets": ["Extra snippet"],
+                                }
+                            ]
+                        }
+                    }
+                )
+
+        client = DuckDuckGoSearchClient()
+        with (
+            patch.dict(os.environ, {"BRAVE_SEARCH_API_KEY": "brave-key"}, clear=True),
+            patch("minimal_kanban.agent.web_tools.httpx.Client", BraveClient),
+        ):
+            payload = client.search_multi("oil filter", limit=1)
+
+        self.assertEqual(
+            payload["providers"],
+            [{"provider": "brave", "status": "success", "result_count": 1, "added_count": 1}],
+        )
+        self.assertFalse(payload["fallback_used"])
+        self.assertEqual(payload["results"][0]["provider"], "brave")
+        self.assertEqual(payload["results"][0]["title"], "Specs")
+        self.assertIn("Extra snippet", payload["results"][0]["snippet"])
+        self.assertEqual(BraveClient.calls[0]["headers"]["X-Subscription-Token"], "brave-key")
+
+    def test_search_multi_falls_back_after_provider_error_without_secret_leak(self) -> None:
+        class MixedClient:
+            def __init__(self, *args, **kwargs) -> None:
+                _ = (args, kwargs)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+
+            def get(self, *args, **kwargs):  # noqa: ANN001
+                _ = (args, kwargs)
+                raise RuntimeError("brave-key should not leak")
+
+            def stream(self, *args, **kwargs):  # noqa: ANN001
+                _ = (args, kwargs)
+                return _client_factory(
+                    text=_result_html(1),
+                    url="https://html.duckduckgo.com/html/",
+                )().stream()
+
+        client = DuckDuckGoSearchClient()
+        with (
+            patch.dict(os.environ, {"BRAVE_SEARCH_API_KEY": "brave-key"}, clear=True),
+            patch("minimal_kanban.agent.web_tools.httpx.Client", MixedClient),
+        ):
+            payload = client.search_multi("oil filter", limit=1)
+
+        self.assertEqual(payload["providers"][0]["provider"], "brave")
+        self.assertEqual(payload["providers"][0]["status"], "error")
+        self.assertNotIn("brave-key", payload["providers"][0]["error"])
+        self.assertEqual(payload["results"][0]["provider"], "duckduckgo")
+
+    def test_search_multi_parses_tavily_and_google_cse_results(self) -> None:
+        class ProviderClient:
+            def __init__(self, *args, **kwargs) -> None:
+                _ = (args, kwargs)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+
+            def post(self, *args, **kwargs) -> _JsonResponse:  # noqa: ANN001
+                _ = (args, kwargs)
+                return _JsonResponse(
+                    {
+                        "results": [
+                            {
+                                "title": "Tavily",
+                                "url": "https://forum.example/item",
+                                "content": "Forum result",
+                            }
+                        ]
+                    }
+                )
+
+            def get(self, *args, **kwargs) -> _JsonResponse:  # noqa: ANN001
+                _ = (args, kwargs)
+                return _JsonResponse(
+                    {
+                        "items": [
+                            {
+                                "title": "Google",
+                                "link": "https://catalog.example/item",
+                                "snippet": "Catalog result",
+                            }
+                        ]
+                    }
+                )
+
+        client = DuckDuckGoSearchClient()
+        with (
+            patch.dict(os.environ, {"TAVILY_API_KEY": "tvly-key"}, clear=True),
+            patch("minimal_kanban.agent.web_tools.httpx.Client", ProviderClient),
+        ):
+            tavily_payload = client.search_multi("oil filter", limit=1, providers=["tavily"])
+        with (
+            patch.dict(
+                os.environ,
+                {"GOOGLE_CUSTOM_SEARCH_API_KEY": "google-key", "GOOGLE_CUSTOM_SEARCH_CX": "cx"},
+                clear=True,
+            ),
+            patch("minimal_kanban.agent.web_tools.httpx.Client", ProviderClient),
+        ):
+            google_payload = client.search_multi("oil filter", limit=1, providers=["google"])
+
+        self.assertEqual(tavily_payload["results"][0]["provider"], "tavily")
+        self.assertEqual(tavily_payload["results"][0]["domain"], "forum.example")
+        self.assertEqual(google_payload["results"][0]["provider"], "google_cse")
+        self.assertEqual(google_payload["results"][0]["domain"], "catalog.example")
 
     def test_search_skips_non_public_result_urls(self) -> None:
         html_text = """
@@ -387,6 +671,69 @@ class AgentWebToolsTests(unittest.TestCase):
 
         self.assertEqual((url, text), ("https://example.com/specs", "ok"))
         self.assertEqual(response.chunk_size, 9)
+
+    def test_fetch_page_browser_rejects_private_urls_before_loading_playwright(self) -> None:
+        client = DuckDuckGoSearchClient()
+
+        with patch("minimal_kanban.agent.web_tools._load_sync_playwright") as load_playwright:
+            with self.assertRaises(InternetToolError):
+                client.fetch_page_browser("http://127.0.0.1:41731/api/health")
+
+        load_playwright.assert_not_called()
+
+    def test_fetch_page_browser_reports_missing_playwright_without_http_client(self) -> None:
+        client = DuckDuckGoSearchClient()
+
+        with (
+            patch("minimal_kanban.agent.web_tools._load_sync_playwright", return_value=None),
+            patch("minimal_kanban.agent.web_tools.httpx.Client") as http_client,
+        ):
+            payload = client.fetch_page_browser("https://example.com/specs")
+
+        http_client.assert_not_called()
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"], "playwright_missing")
+        self.assertEqual(payload["access_flags"], ["browser_unavailable"])
+
+    def test_fetch_page_browser_extracts_rendered_text_links_and_access_flags(self) -> None:
+        page = _FakeBrowserPage()
+        browser = _FakeBrowser(page)
+
+        def sync_playwright():
+            return _FakePlaywrightContextManager(browser)
+
+        client = DuckDuckGoSearchClient()
+        with patch(
+            "minimal_kanban.agent.web_tools._load_sync_playwright", return_value=sync_playwright
+        ):
+            payload = client.fetch_page_browser(
+                "https://example.com/specs",
+                max_chars=30,
+                wait_ms=0,
+            )
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["final_url"], "https://example.com/rendered")
+        self.assertEqual(payload["domain"], "example.com")
+        self.assertEqual(payload["status_code"], 403)
+        self.assertEqual(payload["excerpt"], "Rendered specs text. CAPTCHA r")
+        self.assertEqual(
+            payload["links"],
+            [
+                {
+                    "text": "Public link",
+                    "url": "https://example.org/part",
+                    "domain": "example.org",
+                }
+            ],
+        )
+        self.assertIn("captcha_required", payload["access_flags"])
+        self.assertIn("js_challenge", payload["access_flags"])
+        self.assertIn("access_denied", payload["access_flags"])
+        self.assertTrue(payload["requires_human"])
+        self.assertEqual(page.waited_ms, [])
+        self.assertTrue(browser.closed)
+        self.assertTrue(browser.contexts[0].closed)
 
 
 if __name__ == "__main__":

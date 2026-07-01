@@ -11,6 +11,7 @@ Current:
 - data: /root/.minimal-kanban
 - CRM: https://crm.autostopcrm.ru
 - MCP: https://crm.autostopcrm.ru/mcp
+- agent web research: search_web_multi -> excerpt -> fetch_page_browser; never bypass CAPTCHA/login/paywall/IP blocks
 - active server projects:
   - /opt/autostopcrm -> autostopcrm container, 127.0.0.1:8000/8001
   - /opt/autostop-app -> autostop-app + autostop-db, 127.0.0.1:8010

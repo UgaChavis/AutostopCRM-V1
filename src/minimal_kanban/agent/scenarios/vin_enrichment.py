@@ -293,14 +293,14 @@ def _collect_vin_web_lookup_artifacts(
         step=2,
         level="INFO",
         phase="tool",
-        message="search_web requested for VIN enrichment.",
+        message="search_web_multi requested for VIN enrichment.",
     )
     web_tool_calls += 1
     web_search_payload = runtime._run_autofill_tool(
         task_id=context.task_id,
         run_id=context.run_id,
         step=2,
-        tool_name="search_web",
+        tool_name="search_web_multi",
         args=web_search_args,
         reason="Look up VIN-derived vehicle facts in the public web when decode_vin output is sparse",
     )
@@ -618,7 +618,7 @@ class VinEnrichmentScenarioExecutor:
                 *(
                     [
                         runtime._build_tool_result(
-                            "search_web",
+                            "search_web_multi",
                             web_search_payload,
                             status="success",
                             reason="Look up VIN-derived vehicle facts in the public web when decode_vin output is sparse",

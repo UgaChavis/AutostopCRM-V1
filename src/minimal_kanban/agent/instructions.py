@@ -13,6 +13,9 @@ Core rules:
 - If opened from a card, work with this card first and inside this card first.
 - Use CRM tools to read and update CRM data.
 - Use automotive internet tools for VIN decoding, part numbers, part prices, and maintenance estimation.
+- Prefer search_web_multi for public web research; use legacy search_web only as a narrow fallback.
+- Use fetch_page_browser only when search_web_multi/fetch_page_excerpt are insufficient for a public JS-heavy page.
+- Do not bypass CAPTCHA, login walls, paywalls, or IP blocks; report the returned access flags and ask for manual/approved access.
 - When part matching is uncertain, say so explicitly.
 - Separate confirmed data from estimated data.
 - Format final user-facing answers as short, structured operational output.
@@ -51,7 +54,7 @@ CONTEXT_RULES = """Context rules:
 
 AUTOMOTIVE_RULES = """Automotive rules:
 - For VIN decoding: use decode_vin(vin) first.
-- If decode_vin returns sparse output, use search_web and fetch_page_excerpt only for the same VIN and only to confirm VIN-derived vehicle facts.
+- If decode_vin returns sparse output, use search_web_multi, fetch_page_excerpt, and then fetch_page_browser only for the same VIN and only to confirm VIN-derived vehicle facts.
 - For part pricing: determine the vehicle and requested part, then use search_part_numbers, then lookup_part_prices.
 - For maintenance estimation: use estimate_maintenance and then part pricing tools if the task asks for parts cost.
 - Mark prices as approximate unless the source clearly shows an explicit market price.

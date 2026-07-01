@@ -73,8 +73,10 @@ AUTOMOTIVE_TOOL_NAMES = frozenset(
         "decode_dtc",
         "search_fault_info",
         "estimate_maintenance",
+        "search_web_multi",
         "search_web",
         "fetch_page_excerpt",
+        "fetch_page_browser",
     }
 )
 CARD_CONTEXT_EXTRA_TOOL_NAMES = frozenset(
@@ -95,7 +97,16 @@ TASK_TYPE_ALLOWED_TOOL_NAMES = {
     | REPAIR_ORDER_TOOL_NAMES
     | AUTOMOTIVE_TOOL_NAMES,
     "vin_decode": CARD_UPDATE_TOOL_NAMES
-    | frozenset({"get_repair_order", "decode_vin", "search_web", "fetch_page_excerpt"}),
+    | frozenset(
+        {
+            "get_repair_order",
+            "decode_vin",
+            "search_web_multi",
+            "search_web",
+            "fetch_page_excerpt",
+            "fetch_page_browser",
+        }
+    ),
     "parts_lookup": CARD_UPDATE_TOOL_NAMES
     | frozenset(
         {
@@ -107,8 +118,10 @@ TASK_TYPE_ALLOWED_TOOL_NAMES = {
             "lookup_part_prices",
             "decode_dtc",
             "search_fault_info",
+            "search_web_multi",
             "search_web",
             "fetch_page_excerpt",
+            "fetch_page_browser",
         }
     ),
     "maintenance_estimate": CARD_UPDATE_TOOL_NAMES
@@ -127,8 +140,10 @@ TASK_TYPE_ALLOWED_TOOL_NAMES = {
             "get_repair_order",
             "decode_dtc",
             "search_fault_info",
+            "search_web_multi",
             "search_web",
             "fetch_page_excerpt",
+            "fetch_page_browser",
         }
     ),
     "full_card_enrichment": CORE_BOARD_TOOL_NAMES
@@ -224,8 +239,10 @@ class AgentToolExecutor:
             "decode_dtc": self._decode_dtc,
             "search_fault_info": self._search_fault_info,
             "estimate_maintenance": self._estimate_maintenance,
+            "search_web_multi": self._search_web_multi,
             "search_web": self._search_web,
             "fetch_page_excerpt": self._fetch_page_excerpt,
+            "fetch_page_browser": self._fetch_page_browser,
         }
 
     @property
@@ -480,8 +497,18 @@ class AgentToolExecutor:
                 },
             ),
             AgentToolDefinition(
+                "search_web_multi",
+                "Search the public web through configured providers: Brave, Tavily, Google CSE, then DuckDuckGo fallback.",
+                {
+                    "query": "required string",
+                    "limit": "optional int",
+                    "allowed_domains": "optional array",
+                    "providers": "optional array",
+                },
+            ),
+            AgentToolDefinition(
                 "search_web",
-                "Search trusted web sources by free-text query.",
+                "Legacy DuckDuckGo HTML search by free-text query.",
                 {
                     "query": "required string",
                     "limit": "optional int",
@@ -492,6 +519,15 @@ class AgentToolExecutor:
                 "fetch_page_excerpt",
                 "Fetch and clean a web page excerpt.",
                 {"url": "required string", "max_chars": "optional int"},
+            ),
+            AgentToolDefinition(
+                "fetch_page_browser",
+                "Open a public web page with Chromium when the normal excerpt is blocked by JavaScript.",
+                {
+                    "url": "required string",
+                    "max_chars": "optional int",
+                    "wait_ms": "optional int",
+                },
             ),
         ]
 
@@ -796,11 +832,29 @@ class AgentToolExecutor:
             allowed_domains=self._maybe_list(args.get("allowed_domains")),
         )
 
+    def _search_web_multi(self, args: dict[str, Any]) -> dict[str, Any]:
+        self._consume_external_request_budget()
+        return self._automotive.search_web_multi(
+            query=self._required_text(args, "query"),
+            limit=self._maybe_int(args.get("limit")) or 5,
+            allowed_domains=self._maybe_list(args.get("allowed_domains")),
+            providers=self._maybe_text_list(args.get("providers")),
+        )
+
     def _fetch_page_excerpt(self, args: dict[str, Any]) -> dict[str, Any]:
         self._consume_external_request_budget()
         return self._automotive.fetch_page_excerpt(
             url=self._required_text(args, "url"),
             max_chars=self._maybe_int(args.get("max_chars")) or 2500,
+        )
+
+    def _fetch_page_browser(self, args: dict[str, Any]) -> dict[str, Any]:
+        self._consume_external_request_budget()
+        wait_ms = self._maybe_int(args.get("wait_ms"))
+        return self._automotive.fetch_page_browser(
+            url=self._required_text(args, "url"),
+            max_chars=self._maybe_int(args.get("max_chars")) or 2500,
+            wait_ms=wait_ms if wait_ms is not None else 750,
         )
 
     def _required_text(self, args: dict[str, Any], key: str) -> str:

@@ -25,7 +25,7 @@ class _FakeLookupService:
         self.search_limits: list[int] = []
         self.fetch_max_chars: list[int] = []
 
-    def search_web(self, *, query: str, limit: int, allowed_domains=None):  # noqa: ANN001
+    def search_web_multi(self, *, query: str, limit: int, allowed_domains=None):  # noqa: ANN001
         self.search_limits.append(limit)
         return {
             "results": [
@@ -45,7 +45,7 @@ class _FakeLookupService:
 
 
 class _MalformedUrlLookupService:
-    def search_web(self, *, query: str, limit: int, allowed_domains=None):  # noqa: ANN001
+    def search_web_multi(self, *, query: str, limit: int, allowed_domains=None):  # noqa: ANN001
         return {
             "results": [
                 {

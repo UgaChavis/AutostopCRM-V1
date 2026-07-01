@@ -103,11 +103,11 @@ DIAGNOSTIC_SOURCES: tuple[SourceDefinition, ...] = (
 
 GENERIC_WEB_SOURCES: tuple[SourceDefinition, ...] = (
     SourceDefinition(
-        key="duckduckgo_html",
-        label="DuckDuckGo HTML",
+        key="multi_search",
+        label="Brave/Tavily/Google CSE/DuckDuckGo",
         kind="search",
-        domains=("duckduckgo.com", "html.duckduckgo.com"),
-        note="External search index for discovery.",
+        domains=("search.brave.com", "tavily.com", "googleapis.com", "duckduckgo.com"),
+        note="Configured public search providers for discovery.",
     ),
 )
 
