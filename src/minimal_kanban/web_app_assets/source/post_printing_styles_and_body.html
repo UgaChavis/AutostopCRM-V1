@@ -864,19 +864,21 @@
     .cashbox-journal-text {
       border: 1px solid var(--line-soft);
       background: rgba(8, 12, 10, 0.68);
-      padding: 10px 12px 12px;
+      padding: 12px 14px 16px;
       min-height: 420px;
       max-height: none;
       flex: 1 1 auto;
       overflow: auto;
+      scroll-padding-top: 42px;
+      scrollbar-gutter: stable;
       font-size: 13px;
       line-height: 1.34;
       font-variant-numeric: tabular-nums;
     }
     .cashbox-journal-view {
-      --cash-journal-operation-grid: 52px minmax(112px, 154px) minmax(82px, 108px) minmax(0, 1fr) minmax(82px, 118px) minmax(78px, 96px);
+      --cash-journal-operation-grid: 58px minmax(142px, 176px) 82px minmax(280px, 1fr) 86px minmax(104px, 124px);
       display: grid;
-      gap: 9px;
+      gap: 10px;
     }
     .cashbox-journal-actions {
       display: inline-flex;
@@ -915,224 +917,13 @@
       background: rgba(167, 178, 132, 0.12);
       box-shadow: inset 0 0 0 1px rgba(167, 178, 132, 0.22);
     }
-    .cashbox-journal-sticky {
-      position: sticky;
-      top: -10px;
-      z-index: 2;
-      display: grid;
-      gap: 8px;
-      margin: -10px -12px 0;
-      padding: 10px 12px 9px;
-      background:
-        linear-gradient(180deg, rgba(8, 12, 10, 0.98), rgba(8, 12, 10, 0.94)),
-        var(--bg-panel);
-      border-bottom: 1px solid rgba(255,255,255,0.08);
-    }
-    .cashbox-journal-toolbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 2px 0 6px;
-      border-bottom: 1px solid rgba(255,255,255,0.07);
-    }
-    .cashbox-journal-toolbar__status {
-      color: var(--text-soft);
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      white-space: nowrap;
-    }
-    .cashbox-journal-toolbar__meta,
-    .cashbox-journal-toolbar__total,
-    .cashbox-journal-filter label,
     .cashbox-journal-operation-row__source,
     .cashbox-journal-operation-row__actor,
-    .cashbox-journal-day-divider__meta,
-    .cashbox-journal-opening summary {
+    .cashbox-journal-day-divider__meta {
       color: var(--muted);
       font-size: 10px;
       letter-spacing: 0.04em;
       text-transform: uppercase;
-    }
-    .cashbox-journal-toolbar__total {
-      color: var(--text);
-      text-align: right;
-      white-space: nowrap;
-    }
-    .cashbox-journal-toolbar__total strong {
-      display: block;
-      margin-top: 2px;
-      font-size: 16px;
-      color: #f5f8e9;
-    }
-    .cashbox-journal-filters {
-      display: grid;
-      grid-template-columns: minmax(220px, 1fr) minmax(135px, auto) minmax(135px, auto) minmax(220px, auto) auto;
-      gap: 7px;
-      align-items: end;
-    }
-    .cashbox-journal-filter {
-      display: grid;
-      gap: 4px;
-      min-width: 0;
-    }
-    .cashbox-journal-filter input,
-    .cashbox-journal-filter select {
-      width: 100%;
-      min-height: 31px;
-      border: 1px solid rgba(167, 178, 132, 0.28);
-      background: rgba(0,0,0,0.18);
-      color: var(--text);
-      padding: 7px 8px;
-      outline: none;
-    }
-    .cashbox-journal-filter input:focus,
-    .cashbox-journal-filter select:focus {
-      border-color: rgba(167, 178, 132, 0.78);
-      box-shadow: 0 0 0 1px rgba(167, 178, 132, 0.12);
-    }
-    .cashbox-journal-filter--period select {
-      display: none;
-    }
-    .cashbox-journal-period-segments {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 3px;
-      min-height: 31px;
-    }
-    .cashbox-journal-period-button,
-    .cashbox-journal-active-filter {
-      border: 1px solid rgba(167, 178, 132, 0.24);
-      background: rgba(0,0,0,0.12);
-      color: var(--text-soft);
-      cursor: pointer;
-      font-family: var(--mono);
-      font-size: 9.5px;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-    }
-    .cashbox-journal-period-button {
-      padding: 6px 5px;
-      white-space: nowrap;
-    }
-    .cashbox-journal-period-button:hover,
-    .cashbox-journal-period-button:focus-visible,
-    .cashbox-journal-active-filter:hover,
-    .cashbox-journal-active-filter:focus-visible {
-      border-color: rgba(167, 178, 132, 0.72);
-      color: var(--text);
-      outline: none;
-    }
-    .cashbox-journal-period-button.is-active {
-      border-color: rgba(167, 178, 132, 0.58);
-      background: rgba(167, 178, 132, 0.09);
-      color: #f5f8e9;
-    }
-    .cashbox-journal-active-filters {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 5px;
-      min-height: 0;
-    }
-    .cashbox-journal-active-filters:empty {
-      display: none;
-    }
-    .cashbox-journal-active-filter {
-      min-height: 24px;
-      padding: 3px 7px;
-      text-align: left;
-      max-width: 100%;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .cashbox-journal-reset {
-      min-width: 78px;
-      min-height: 31px;
-      align-self: end;
-      border: 1px solid rgba(167, 178, 132, 0.22);
-      background: rgba(0,0,0,0.12);
-      color: var(--text-soft);
-      cursor: pointer;
-      font-family: var(--mono);
-      font-size: 10px;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-    }
-    .cashbox-journal-reset:hover,
-    .cashbox-journal-reset:focus-visible {
-      border-color: rgba(167, 178, 132, 0.78);
-      color: #f5f8e9;
-      outline: none;
-    }
-    .cashbox-journal-filter-reset {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .cashbox-journal-filter-reset[hidden] {
-      display: none !important;
-    }
-    .cashbox-journal-balance-strip {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      align-items: center;
-      padding: 2px 0 7px;
-      border-bottom: 1px solid rgba(255,255,255,0.055);
-    }
-    .cashbox-journal-balance-strip.is-expanded {
-      padding-bottom: 9px;
-    }
-    .cashbox-journal-balance-strip:not(.is-expanded) .cashbox-journal-balance-chip:not(.cashbox-journal-balance-chip--total),
-    .cashbox-journal-balance-strip:not(.is-expanded) .cashbox-journal-balance-strip__items {
-      display: none;
-    }
-    .cashbox-journal-balance-strip__main,
-    .cashbox-journal-balance-strip__items {
-      display: inline-flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      align-items: center;
-      min-width: 0;
-    }
-    .cashbox-journal-balance-chip {
-      display: inline-flex;
-      gap: 7px;
-      align-items: baseline;
-      min-width: 0;
-      color: var(--text-soft);
-      white-space: nowrap;
-    }
-    .cashbox-journal-balance-chip strong {
-      color: var(--text);
-      font-weight: 700;
-    }
-    .cashbox-journal-balance-chip[data-balance-sign="negative"] strong {
-      color: #f0b1a6;
-    }
-    .cashbox-journal-balance-toggle {
-      min-height: 24px;
-      border: 1px solid rgba(167, 178, 132, 0.22);
-      background: rgba(0,0,0,0.1);
-      color: var(--text-soft);
-      cursor: pointer;
-      font-family: var(--mono);
-      font-size: 9.5px;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-    }
-    .cashbox-journal-balance-toggle:hover,
-    .cashbox-journal-balance-toggle:focus-visible {
-      border-color: rgba(167, 178, 132, 0.66);
-      color: var(--text);
-      outline: none;
-    }
-    .cashbox-journal-balance-toggle[data-balance-warning="true"] {
-      border-color: rgba(212, 175, 55, 0.46);
-      color: #e8dfaf;
     }
     .cashbox-journal-summary {
       display: grid;
@@ -1146,7 +937,6 @@
       text-transform: uppercase;
     }
     .cashbox-journal-stat,
-    .cashbox-journal-opening,
     .cashbox-journal-day,
     .cashbox-journal-stats-section {
       border: 0;
@@ -1159,7 +949,6 @@
       min-width: 0;
     }
     .cashbox-journal-stat__label,
-    .cashbox-journal-opening__title,
     .cashbox-journal-stats-row__meta {
       color: var(--muted);
       font-size: 10px;
@@ -1167,28 +956,30 @@
       text-transform: uppercase;
     }
     .cashbox-journal-stat__value,
-    .cashbox-journal-balance__amount,
     .cashbox-journal-operation-row__amount {
       font-weight: 700;
       white-space: nowrap;
     }
-    .cashbox-journal-stat__value,
-    .cashbox-journal-balance__amount {
+    .cashbox-journal-stat__value {
       font-size: 15px;
     }
     .cashbox-journal-day {
       display: grid;
-      gap: 4px;
-      padding: 2px 0 7px;
+      gap: 6px;
+      padding: 0 0 9px;
     }
     .cashbox-journal-day-divider {
+      position: relative;
       display: flex;
       align-items: baseline;
       justify-content: space-between;
       gap: 12px;
       flex-wrap: wrap;
-      padding: 9px 0 6px;
-      border-top: 1px solid rgba(255,255,255,0.09);
+      margin: 2px 0 0;
+      padding: 10px 0 8px;
+      border-top: 1px solid rgba(255,255,255,0.12);
+      border-bottom: 1px solid rgba(255,255,255,0.055);
+      background: linear-gradient(180deg, rgba(167, 178, 132, 0.045), transparent 82%);
     }
     .cashbox-journal-day-divider__title {
       font-weight: 700;
@@ -1200,60 +991,11 @@
       flex-wrap: wrap;
       justify-content: flex-end;
     }
-    .cashbox-journal-day-details {
-      margin: -2px 0 2px 52px;
-      color: var(--muted);
-      font-size: 10px;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-    }
-    .cashbox-journal-day-details summary {
-      cursor: pointer;
-      list-style-position: inside;
-      padding: 2px 0 4px;
-    }
-    .cashbox-journal-day-details__grid {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      padding: 2px 0 4px 12px;
-      border-left: 2px solid rgba(167, 178, 132, 0.22);
-    }
-    .cashbox-journal-opening {
-      display: grid;
-      gap: 6px;
-      margin: 0 0 4px 52px;
-      padding: 0;
-    }
-    .cashbox-journal-opening summary {
-      cursor: pointer;
-      list-style-position: inside;
-      padding: 4px 0;
-    }
-    .cashbox-journal-opening__grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-      gap: 4px;
-      padding: 4px 0 7px 12px;
-      border-left: 2px solid rgba(167, 178, 132, 0.34);
-    }
-    .cashbox-journal-balance {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 6px;
-      align-items: center;
-      padding: 3px 0;
-      border: 0;
-      background: transparent;
-    }
-    .cashbox-journal-balance__name {
-      min-width: 0;
-      overflow-wrap: normal;
-      word-break: normal;
-      hyphens: none;
-    }
     .cashbox-journal-operation-row__note {
       min-width: 0;
+      color: #f3f1e7;
+      font-weight: 650;
+      line-height: 1.25;
       overflow-wrap: anywhere;
       display: -webkit-box;
       -webkit-line-clamp: 2;
@@ -1263,22 +1005,26 @@
     .cashbox-journal-entries {
       display: grid;
       gap: 0;
+      padding-bottom: 4px;
     }
     .cashbox-journal-operation-head {
       position: sticky;
-      top: 104px;
-      z-index: 1;
+      top: 0;
+      z-index: 3;
       display: grid;
       grid-template-columns: var(--cash-journal-operation-grid);
-      gap: 9px;
+      gap: 12px;
       align-items: center;
-      padding: 7px 0 6px;
-      border-bottom: 1px solid rgba(255,255,255,0.06);
-      background: rgba(8, 12, 10, 0.96);
+      padding: 8px 0 7px;
+      border-top: 1px solid rgba(255,255,255,0.055);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      background: rgba(8, 12, 10, 0.98);
+      box-shadow: 0 1px 0 rgba(255,255,255,0.08), 0 8px 16px rgba(0,0,0,0.28);
       color: var(--muted);
       font-size: 9.5px;
       letter-spacing: 0.06em;
       text-transform: uppercase;
+      transform: translateZ(0);
     }
     .cashbox-journal-operation-head span {
       min-width: 0;
@@ -1289,25 +1035,30 @@
     .cashbox-journal-operation-row {
       display: grid;
       grid-template-columns: var(--cash-journal-operation-grid);
-      gap: 9px;
-      align-items: baseline;
-      padding: 5px 0;
+      gap: 12px;
+      align-items: center;
+      min-height: 42px;
+      padding: 7px 0 8px;
       border-top: 1px solid rgba(255,255,255,0.045);
     }
     .cashbox-journal-operation-row__time {
       color: rgba(231, 226, 193, 0.8);
-      font-size: 12px;
+      font-size: 12.5px;
+      line-height: 1.2;
       white-space: nowrap;
     }
     .cashbox-journal-operation-row__cashbox {
       color: var(--text-soft);
       min-width: 0;
+      line-height: 1.24;
       overflow-wrap: anywhere;
     }
     .cashbox-journal-operation-row__type {
       color: rgba(231, 226, 193, 0.76);
-      font-size: 10px;
-      letter-spacing: 0.06em;
+      justify-self: start;
+      font-size: 9.5px;
+      line-height: 1.2;
+      letter-spacing: 0.045em;
       text-transform: uppercase;
       white-space: nowrap;
     }
@@ -1317,12 +1068,16 @@
       min-width: 0;
     }
     .cashbox-journal-operation-row__amount {
+      min-width: 104px;
       text-align: right;
+      font-size: 13px;
+      line-height: 1.2;
     }
     .cashbox-journal-operation-tags {
       display: flex;
       flex-wrap: wrap;
       gap: 4px;
+      margin-top: 2px;
       min-width: 0;
     }
     .cashbox-journal-operation-tag {
@@ -1333,17 +1088,16 @@
       border: 1px solid rgba(167, 178, 132, 0.18);
       background: rgba(0,0,0,0.12);
       color: rgba(231, 226, 193, 0.74);
-      font-size: 9.5px;
+      font-size: 9px;
       line-height: 1.1;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.045em;
       text-transform: uppercase;
-      max-width: 100%;
+      max-width: min(100%, 180px);
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
     .cashbox-journal-operation-row__amount[data-direction="expense"],
-    .cashbox-journal-balance__amount[data-balance-sign="negative"],
     .cashbox-journal-stat__value[data-balance-sign="negative"],
     .cashbox-journal-stats-row__value[data-balance-sign="negative"] {
       color: #f0b1a6;
@@ -1358,8 +1112,8 @@
       color: #e8dfaf;
     }
     .cashbox-journal-operation-row--transfer {
-      box-shadow: inset 2px 0 0 rgba(167, 178, 132, 0.42);
-      padding-left: 7px;
+      background: linear-gradient(90deg, rgba(167, 178, 132, 0.38) 0 2px, transparent 2px);
+      box-shadow: none;
     }
     .cashbox-journal-load-more {
       width: 100%;
@@ -1489,20 +1243,9 @@
       font-size: 11px;
     }
     @media (max-width: 720px) {
-      .cashbox-journal-toolbar {
-        display: grid;
-      }
-      .cashbox-journal-toolbar__total {
-        text-align: left;
-      }
-      .cashbox-journal-filters,
       .cashbox-journal-summary {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
-      .cashbox-journal-filter--period select {
-        display: block;
-      }
-      .cashbox-journal-period-segments,
       .cashbox-journal-operation-head {
         display: none;
       }
@@ -1520,9 +1263,6 @@
         grid-column: 2;
         grid-row: 1;
         text-align: left;
-      }
-      .cashbox-journal-opening {
-        margin-left: 42px;
       }
       .cashbox-journal-stats-row {
         grid-template-columns: minmax(0, 1fr) auto;

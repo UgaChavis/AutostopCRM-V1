@@ -564,11 +564,6 @@
       els.cashboxJournalStatsButton.addEventListener('click', handleCashJournalModeClick);
       els.cashboxJournalStatsButton.addEventListener('keydown', handleCashJournalModeKeydown);
     }
-    els.cashboxJournalText.addEventListener('input', handleCashJournalFilterInput);
-    els.cashboxJournalText.addEventListener('change', handleCashJournalFilterInput);
-    els.cashboxJournalText.addEventListener('click', handleCashJournalResetClick);
-    els.cashboxJournalText.addEventListener('click', handleCashJournalBalancesToggle);
-    els.cashboxJournalText.addEventListener('click', handleCashJournalPeriodClick);
     els.cashboxJournalText.addEventListener('click', handleCashJournalStatsPeriodClick);
     els.cashboxJournalText.addEventListener('click', handleCashJournalLoadMoreClick);
     els.cashboxJournalDownloadButton.addEventListener('click', downloadCashJournal);

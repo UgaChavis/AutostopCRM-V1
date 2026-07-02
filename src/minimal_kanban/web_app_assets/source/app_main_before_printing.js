@@ -205,9 +205,7 @@
       cashboxJournalData: null,
       cashboxJournalView: 'journal',
       cashboxJournalFilters: { query: '', cashbox: '', type: 'all', period: 'all', periodKind: '', periodKey: '', periodLabel: '' },
-      cashboxJournalFilterTimer: null,
       cashboxJournalVisibleRowLimit: CASH_JOURNAL_RENDER_BATCH_SIZE,
-      cashboxJournalBalancesExpanded: false,
       cashboxDragId: '',
       cashboxDropBeforeId: '',
       cashboxDragIgnoreClicksUntil: 0,
@@ -19098,35 +19096,6 @@
       return '<span data-balance-sign="' + escapeHtml(sign) + '">' + escapeHtml(balanceText) + ' · ' + escapeHtml(String(operationCount)) + ' оп.</span>';
     }
 
-    function renderCashJournalDayDetails(day) {
-      const details = cashJournalDaySummaryHtml(day || {});
-      if (!details) return '';
-      return '<details class="cashbox-journal-day-details">'
-        + '<summary>Детали дня</summary>'
-        + '<div class="cashbox-journal-day-details__grid">' + details + '</div>'
-        + '</details>';
-    }
-
-    function renderCashJournalOpening(day) {
-      const balances = Array.isArray(day?.opening_balances) ? day.opening_balances : [];
-      if (!balances.length) return '';
-      const totalText = String(day?.opening_total_display || '');
-      return '<details class="cashbox-journal-opening">'
-        + '<summary><span class="cashbox-journal-opening__title">Остатки на начало дня</span>' + (totalText ? ' · ' + escapeHtml(totalText) : '') + '</summary>'
-        + '<div class="cashbox-journal-opening__grid">'
-        + balances.map((item) => {
-          const balanceMinor = finiteNumber(item?.balance_minor);
-          const sign = String(item?.balance_sign || (balanceMinor < 0 ? 'negative' : 'positive'));
-          const display = String(item?.balance_display || cashboxFormatMinorAmount(balanceMinor));
-          return '<div class="cashbox-journal-balance">'
-            + '<div class="cashbox-journal-balance__name">' + escapeHtml(item?.cashbox_name || 'Касса') + '</div>'
-            + '<div class="cashbox-journal-balance__amount" data-balance-sign="' + escapeHtml(sign) + '">' + escapeHtml(display) + '</div>'
-            + '</div>';
-        }).join('')
-        + '</div>'
-        + '</details>';
-    }
-
     function renderCashJournalEntry(item) {
       const direction = item?.direction === 'expense' ? 'expense' : 'income';
       const source = cashJournalVisibleSource(item?.source_label);
@@ -19196,144 +19165,10 @@
         + '<div class="cashbox-journal-day-divider__title">' + escapeHtml(day?.label || day?.date || 'День') + '</div>'
         + '<div class="cashbox-journal-day-divider__meta" data-cash-journal-compact-day="' + escapeHtml(day?.key || day?.date || '') + '">' + cashJournalDayCompactSummaryHtml(day || {}) + '</div>'
         + '</div>'
-        + renderCashJournalDayDetails(day || {})
-        + renderCashJournalOpening(day || {})
         + '<div class="cashbox-journal-entries">'
         + (rows.length ? rows.map(renderCashJournalRow).join('') : '<div class="cashbox-journal-empty">Операций за день нет.</div>')
         + '</div>'
         + '</section>';
-    }
-
-    function cashJournalCurrentTotalMinor(data) {
-      const cashboxes = Array.isArray(data?.cashboxes) ? data.cashboxes : [];
-      if (cashboxes.length) {
-        return cashboxes.reduce((sum, cashbox) => sum + finiteNumber(cashbox?.statistics?.balance_minor), 0);
-      }
-      return finiteNumber(data?.totals?.balance_minor);
-    }
-
-    function renderCashJournalCurrentBalances(data) {
-      const cashboxes = Array.isArray(data?.cashboxes) ? data.cashboxes : [];
-      if (!cashboxes.length) return '<div class="cashbox-journal-empty">Текущие остатки касс не загружены.</div>';
-      const hasNegative = cashboxes.some((cashbox) => finiteNumber(cashbox?.statistics?.balance_minor) < 0);
-      const expanded = Boolean(state.cashboxJournalBalancesExpanded);
-      const rows = cashboxes.map((cashbox) => {
-        const balanceMinor = finiteNumber(cashbox?.statistics?.balance_minor);
-        const sign = String(cashbox?.statistics?.balance_sign || (balanceMinor < 0 ? 'negative' : 'positive'));
-        const display = String(cashbox?.statistics?.balance_display || cashboxFormatMinorAmount(balanceMinor));
-        return '<div class="cashbox-journal-balance-chip" data-balance-sign="' + escapeHtml(sign) + '">'
-          + '<span>' + escapeHtml(cashbox?.name || 'Касса') + '</span>'
-          + '<strong>' + escapeHtml(display) + '</strong>'
-          + '</div>';
-      }).join('');
-      const totalMinor = cashJournalCurrentTotalMinor(data);
-      const totalSign = totalMinor < 0 ? 'negative' : 'positive';
-      return '<div class="cashbox-journal-balance-strip' + (expanded ? ' is-expanded' : '') + '">'
-        + '<div class="cashbox-journal-balance-strip__main">'
-        + '<div class="cashbox-journal-balance-chip cashbox-journal-balance-chip--total" data-balance-sign="' + escapeHtml(totalSign) + '"><span>Итого</span><strong>' + escapeHtml(cashboxFormatMinorAmount(totalMinor)) + '</strong></div>'
-        + '<button class="cashbox-journal-balance-toggle" type="button" data-cash-journal-toggle-balances aria-expanded="' + (expanded ? 'true' : 'false') + '" data-balance-warning="' + (hasNegative ? 'true' : 'false') + '">' + (expanded ? 'Скрыть кассы' : 'Кассы') + '</button>'
-        + '</div>'
-        + '<div class="cashbox-journal-balance-strip__items">' + rows + '</div>'
-        + '</div>';
-    }
-
-    function cashJournalSelectOption(value, label, selectedValue) {
-      const selected = String(value) === String(selectedValue) ? ' selected' : '';
-      return '<option value="' + escapeHtml(value) + '"' + selected + '>' + escapeHtml(label) + '</option>';
-    }
-
-    function cashJournalPeriodButton(value, label, filters) {
-      const isActive = !filters.periodKind && String(filters.period || 'all') === String(value);
-      return '<button class="cashbox-journal-period-button' + (isActive ? ' is-active' : '') + '" type="button" data-cash-journal-period="' + escapeHtml(value) + '" aria-pressed="' + (isActive ? 'true' : 'false') + '">'
-        + escapeHtml(label)
-        + '</button>';
-    }
-
-    function cashJournalActiveFiltersHtml(data) {
-      const filters = cashJournalFilters();
-      const chips = [];
-      const query = String(filters.query || '').trim();
-      const cashboxes = Array.isArray(data?.cashboxes) ? data.cashboxes : [];
-      const cashbox = cashboxes.find((item) => String(item?.id || '') === filters.cashbox);
-      const typeLabels = { income: 'Поступления', expense: 'Списания', transfer: 'Перемещения' };
-      const periodLabels = { today: 'Сегодня', '7': '7 дней', '30': '30 дней', all: '3 мес.' };
-      if (query) chips.push({ key: 'query', label: 'Поиск: ' + query });
-      if (filters.cashbox) chips.push({ key: 'cashbox', label: 'Касса: ' + String(cashbox?.name || 'касса') });
-      if (filters.type !== 'all') chips.push({ key: 'type', label: 'Тип: ' + String(typeLabels[filters.type] || filters.type) });
-      if (filters.periodKind && filters.periodKey) {
-        chips.push({ key: 'period', label: 'Период: ' + String(filters.periodLabel || filters.periodKey) });
-      } else if (filters.period !== 'all') {
-        chips.push({ key: 'period', label: 'Период: ' + String(periodLabels[filters.period] || filters.period) });
-      }
-      return '<div class="cashbox-journal-active-filters" data-cash-journal-region="active-filters">'
-        + chips.map((chip) => '<button class="cashbox-journal-active-filter" type="button" data-cash-journal-clear-filter="' + escapeHtml(chip.key) + '" title="Снять фильтр: ' + escapeHtml(chip.label) + '">' + escapeHtml(chip.label) + ' ×</button>').join('')
-        + '</div>';
-    }
-
-    function renderCashJournalFilters(data) {
-      const filters = cashJournalFilters();
-      const cashboxes = Array.isArray(data?.cashboxes) ? data.cashboxes : [];
-      const cashboxOptions = [cashJournalSelectOption('', 'Все кассы', filters.cashbox)]
-        .concat(cashboxes.map((cashbox) => cashJournalSelectOption(cashbox?.id || '', cashbox?.name || 'Касса', filters.cashbox)))
-        .join('');
-      const resetHidden = cashJournalFiltersAreActive(filters) ? '' : ' hidden';
-      const resetButton = '<button class="cashbox-journal-reset cashbox-journal-filter-reset" type="button" data-cash-journal-reset title="Сбросить фильтры" aria-label="Сбросить фильтры"' + resetHidden + '>Сбросить</button>';
-      return '<div class="cashbox-journal-filters" data-cash-journal-region="filters">'
-        + '<label class="cashbox-journal-filter"><span>Поиск</span><input type="search" data-cash-journal-filter="query" value="' + escapeHtml(filters.query) + '" placeholder="ЗН, сумма, комментарий"></label>'
-        + '<label class="cashbox-journal-filter"><span>Касса</span><select data-cash-journal-filter="cashbox">' + cashboxOptions + '</select></label>'
-        + '<label class="cashbox-journal-filter"><span>Тип</span><select data-cash-journal-filter="type">'
-        + cashJournalSelectOption('all', 'Все', filters.type)
-        + cashJournalSelectOption('income', 'Поступления', filters.type)
-        + cashJournalSelectOption('expense', 'Списания', filters.type)
-        + cashJournalSelectOption('transfer', 'Перемещения', filters.type)
-        + '</select></label>'
-        + '<label class="cashbox-journal-filter cashbox-journal-filter--period"><span>Период</span>'
-        + '<div class="cashbox-journal-period-segments" role="group" aria-label="Быстрый период журнала">'
-        + cashJournalPeriodButton('today', 'Сегодня', filters)
-        + cashJournalPeriodButton('7', '7 дней', filters)
-        + cashJournalPeriodButton('30', '30 дней', filters)
-        + cashJournalPeriodButton('all', '3 мес.', filters)
-        + '</div>'
-        + '<select data-cash-journal-filter="period">'
-        + cashJournalSelectOption('all', 'Все 3 мес.', filters.period)
-        + cashJournalSelectOption('30', '30 дней', filters.period)
-        + cashJournalSelectOption('7', '7 дней', filters.period)
-        + cashJournalSelectOption('today', 'Сегодня', filters.period)
-        + '</select></label>'
-        + resetButton
-        + '</div>';
-    }
-
-    function cashJournalFiltersAreActive(filters = cashJournalFilters()) {
-      return Boolean(
-        String(filters.query || '').trim()
-          || String(filters.cashbox || '').trim()
-          || String(filters.type || 'all') !== 'all'
-          || String(filters.period || 'all') !== 'all'
-          || (String(filters.periodKind || '').trim() && String(filters.periodKey || '').trim())
-      );
-    }
-
-    function cashJournalOperationCountText(renderedRowCount, visibleRowCount, totalRowCount) {
-      const rendered = finiteNonNegativeNumber(renderedRowCount);
-      const visible = finiteNonNegativeNumber(visibleRowCount);
-      const total = finiteNonNegativeNumber(totalRowCount);
-      if (rendered < visible) {
-        return String(rendered) + ' из ' + String(visible) + ' операций';
-      }
-      if (cashJournalFiltersAreActive()) {
-        return String(visible) + ' из ' + String(total) + ' операций';
-      }
-      return String(total) + ' операций';
-    }
-
-    function renderCashJournalToolbar(data, renderedRowCount, visibleRowCount, totalRowCount) {
-      const meta = data?.meta || {};
-      const periodText = String(finiteNonNegativeNumber(meta?.months, 3)) + ' мес.';
-      return '<div class="cashbox-journal-toolbar">'
-        + '<div class="cashbox-journal-toolbar__status">' + escapeHtml(periodText + ' · ' + cashJournalOperationCountText(renderedRowCount, visibleRowCount, totalRowCount)) + '</div>'
-        + '<div class="cashbox-journal-toolbar__total">Общий остаток<strong>' + escapeHtml(cashboxFormatMinorAmount(cashJournalCurrentTotalMinor(data))) + '</strong></div>'
-        + '</div>';
     }
 
     function cashJournalStatsRowHtml(item, periodKind = '') {
@@ -19462,12 +19297,6 @@
     function renderCashJournalLedger(data) {
       const parts = cashJournalLedgerParts(data);
       return '<div class="cashbox-journal-view">'
-        + '<div class="cashbox-journal-sticky" data-cash-journal-region="chrome">'
-        + '<div data-cash-journal-region="toolbar">' + renderCashJournalToolbar(data, parts.renderedRowCount, parts.visibleRowCount, parts.totalRowCount) + '</div>'
-        + renderCashJournalFilters(data)
-        + cashJournalActiveFiltersHtml(data)
-        + renderCashJournalCurrentBalances(data)
-        + '</div>'
         + '<div data-cash-journal-region="body">' + parts.bodyHtml + '</div>'
         + '</div>';
     }
@@ -19478,149 +19307,18 @@
         : renderCashJournalLedger(data);
     }
 
-    function refreshCashJournalView({ focusFilter = '', selectionStart = null, selectionEnd = null } = {}) {
+    function refreshCashJournalView() {
       if (!state.cashboxJournalData) return;
       els.cashboxJournalText.innerHTML = renderCashJournal(state.cashboxJournalData);
-      if (!focusFilter || state.cashboxJournalView === 'stats') return;
-      const control = els.cashboxJournalText.querySelector('[data-cash-journal-filter="' + focusFilter + '"]');
-      if (!(control instanceof HTMLElement)) return;
-      control.focus();
-      if (typeof control.setSelectionRange === 'function' && selectionStart !== null) {
-        control.setSelectionRange(selectionStart, selectionEnd ?? selectionStart);
-      }
-    }
-
-    function syncCashJournalFilterControls() {
-      const filters = cashJournalFilters();
-      const periodSelect = els.cashboxJournalText.querySelector('[data-cash-journal-filter="period"]');
-      if (periodSelect instanceof HTMLSelectElement) periodSelect.value = filters.period;
-      const resetButton = els.cashboxJournalText.querySelector('[data-cash-journal-reset]');
-      if (resetButton instanceof HTMLElement) resetButton.hidden = !cashJournalFiltersAreActive(filters);
-      els.cashboxJournalText.querySelectorAll('[data-cash-journal-period]').forEach((button) => {
-        if (!(button instanceof HTMLElement)) return;
-        const active = !filters.periodKind && String(button.dataset.cashJournalPeriod || '') === filters.period;
-        button.classList.toggle('is-active', active);
-        button.setAttribute('aria-pressed', active ? 'true' : 'false');
-      });
     }
 
     function refreshCashJournalLedgerBody() {
       if (!state.cashboxJournalData || state.cashboxJournalView === 'stats') return false;
-      const toolbarRegion = els.cashboxJournalText.querySelector('[data-cash-journal-region="toolbar"]');
-      const activeFiltersRegion = els.cashboxJournalText.querySelector('[data-cash-journal-region="active-filters"]');
       const bodyRegion = els.cashboxJournalText.querySelector('[data-cash-journal-region="body"]');
-      if (!(toolbarRegion instanceof HTMLElement) || !(bodyRegion instanceof HTMLElement)) {
-        return false;
-      }
+      if (!(bodyRegion instanceof HTMLElement)) return false;
       const parts = cashJournalLedgerParts(state.cashboxJournalData);
-      toolbarRegion.innerHTML = renderCashJournalToolbar(
-        state.cashboxJournalData,
-        parts.renderedRowCount,
-        parts.visibleRowCount,
-        parts.totalRowCount
-      );
-      if (activeFiltersRegion instanceof HTMLElement) {
-        activeFiltersRegion.outerHTML = cashJournalActiveFiltersHtml(state.cashboxJournalData);
-      }
       bodyRegion.innerHTML = parts.bodyHtml;
-      syncCashJournalFilterControls();
       return true;
-    }
-
-    function handleCashJournalFilterInput(event) {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      const control = target.closest('[data-cash-journal-filter]');
-      if (!(control instanceof HTMLInputElement) && !(control instanceof HTMLSelectElement)) return;
-      const name = String(control.dataset.cashJournalFilter || '');
-      if (!name) return;
-      const nextFilters = cashJournalFilters();
-      nextFilters[name] = control.value;
-      if (name === 'period') {
-        nextFilters.periodKind = '';
-        nextFilters.periodKey = '';
-        nextFilters.periodLabel = '';
-      }
-      state.cashboxJournalFilters = nextFilters;
-      state.cashboxJournalVisibleRowLimit = CASH_JOURNAL_RENDER_BATCH_SIZE;
-      const refreshOptions = {
-        focusFilter: name,
-        selectionStart: typeof control.selectionStart === 'number' ? control.selectionStart : null,
-        selectionEnd: typeof control.selectionEnd === 'number' ? control.selectionEnd : null,
-      };
-      if (state.cashboxJournalFilterTimer) {
-        window.clearTimeout(state.cashboxJournalFilterTimer);
-        state.cashboxJournalFilterTimer = null;
-      }
-      if (control instanceof HTMLInputElement) {
-        state.cashboxJournalFilterTimer = window.setTimeout(() => {
-          state.cashboxJournalFilterTimer = null;
-          if (!refreshCashJournalLedgerBody()) refreshCashJournalView(refreshOptions);
-        }, CASH_JOURNAL_FILTER_DEBOUNCE_MS);
-        return;
-      }
-      if (!refreshCashJournalLedgerBody()) refreshCashJournalView(refreshOptions);
-    }
-
-    function handleCashJournalResetClick(event) {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      const clearButton = target.closest('[data-cash-journal-clear-filter]');
-      if (clearButton instanceof HTMLElement) {
-        event.preventDefault();
-        const name = String(clearButton.dataset.cashJournalClearFilter || '');
-        const nextFilters = cashJournalFilters();
-        if (name === 'query') nextFilters.query = '';
-        if (name === 'cashbox') nextFilters.cashbox = '';
-        if (name === 'type') nextFilters.type = 'all';
-        if (name === 'period') {
-          nextFilters.period = 'all';
-          nextFilters.periodKind = '';
-          nextFilters.periodKey = '';
-          nextFilters.periodLabel = '';
-        }
-        state.cashboxJournalFilters = nextFilters;
-        state.cashboxJournalVisibleRowLimit = CASH_JOURNAL_RENDER_BATCH_SIZE;
-        refreshCashJournalView();
-        return;
-      }
-      const button = target.closest('[data-cash-journal-reset]');
-      if (!(button instanceof HTMLElement)) return;
-      event.preventDefault();
-      if (state.cashboxJournalFilterTimer) {
-        window.clearTimeout(state.cashboxJournalFilterTimer);
-        state.cashboxJournalFilterTimer = null;
-      }
-      state.cashboxJournalFilters = cashJournalDefaultFilters();
-      state.cashboxJournalVisibleRowLimit = CASH_JOURNAL_RENDER_BATCH_SIZE;
-      refreshCashJournalView();
-    }
-
-    function handleCashJournalBalancesToggle(event) {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      const button = target.closest('[data-cash-journal-toggle-balances]');
-      if (!(button instanceof HTMLElement)) return;
-      event.preventDefault();
-      state.cashboxJournalBalancesExpanded = !state.cashboxJournalBalancesExpanded;
-      refreshCashJournalView();
-    }
-
-    function handleCashJournalPeriodClick(event) {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      const button = target.closest('[data-cash-journal-period]');
-      if (!(button instanceof HTMLElement)) return;
-      event.preventDefault();
-      const period = String(button.dataset.cashJournalPeriod || 'all');
-      const nextFilters = cashJournalFilters();
-      nextFilters.period = ['today', '7', '30', 'all'].indexOf(period) >= 0 ? period : 'all';
-      nextFilters.periodKind = '';
-      nextFilters.periodKey = '';
-      nextFilters.periodLabel = '';
-      state.cashboxJournalFilters = nextFilters;
-      state.cashboxJournalVisibleRowLimit = CASH_JOURNAL_RENDER_BATCH_SIZE;
-      if (!refreshCashJournalLedgerBody()) refreshCashJournalView();
     }
 
     function applyCashJournalStatsPeriodFilter(periodKind, periodKey, periodLabel) {
@@ -19689,7 +19387,6 @@
     async function openCashJournalModal() {
       state.cashboxJournalFilters = cashJournalDefaultFilters();
       state.cashboxJournalVisibleRowLimit = CASH_JOURNAL_RENDER_BATCH_SIZE;
-      state.cashboxJournalBalancesExpanded = false;
       syncCashJournalModeButtons();
       els.cashboxJournalText.innerHTML = renderCashJournalLoading();
       maybeOpenModal(els.cashboxJournalModal, true);
