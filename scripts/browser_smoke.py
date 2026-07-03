@@ -936,7 +936,6 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     journal_open_started = time.perf_counter()
     await page.click("#cashboxJournalButton")
     await _wait_modal_open(page, "#cashboxJournalModal")
-    await page.wait_for_selector('[data-cash-journal-filter="query"]')
     await page.wait_for_selector(".cashbox-journal-operation-head")
     await page.wait_for_selector(".cashbox-journal-operation-row")
     journal_first_rows_ms = (time.perf_counter() - journal_open_started) * 1000
@@ -950,24 +949,25 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
               const balanceStrip = document.querySelector('.cashbox-journal-balance-strip');
               const balanceToggle = document.querySelector('[data-cash-journal-toggle-balances]');
               const reset = document.querySelector('[data-cash-journal-reset]');
-              const resetVisuallyHidden = reset?.hidden === true
-                && window.getComputedStyle(reset).display === 'none';
+              const filters = document.querySelector('[data-cash-journal-filter]');
+              const activeFilters = document.querySelector('[data-cash-journal-region="active-filters"]');
+              const bodyRegion = document.querySelector('[data-cash-journal-region="body"]');
               const firstNote = document.querySelector('.cashbox-journal-operation-row__note')?.textContent || '';
               const firstType = document.querySelector('.cashbox-journal-operation-row__type')?.textContent || '';
               const dayMeta = document.querySelector('[data-cash-journal-compact-day]')?.textContent || '';
-              const bodyTitle = document.querySelector('.cashbox-journal-toolbar__title');
               const visibleNoPairTags = Array.from(document.querySelectorAll('.cashbox-journal-operation-tag'))
                 .filter((tag) => tag.textContent.trim() === 'нет пары');
               const transferRowsWithoutDiagnosticChips = Array.from(
                 document.querySelectorAll('.cashbox-journal-operation-row--transfer')
               ).every((row) => !row.querySelector('.cashbox-journal-operation-tag'));
               return Boolean(
-                toolbar?.querySelector('.cashbox-journal-toolbar__status') &&
-                !bodyTitle &&
-                balanceStrip &&
-                !balanceStrip.classList.contains('is-expanded') &&
-                balanceToggle?.textContent.trim() === 'Кассы' &&
-                resetVisuallyHidden &&
+                bodyRegion &&
+                !toolbar &&
+                !balanceStrip &&
+                !balanceToggle &&
+                !reset &&
+                !filters &&
+                !activeFilters &&
                 !/^(Поступление|Списание)\\s*:/.test(firstNote.trim()) &&
                 /^(Приход|Расход|Перевод)$/.test(firstType.trim()) &&
                 /[+-]?\\d/.test(dayMeta) &&
@@ -978,14 +978,6 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
             }"""
         )
     )
-    await page.click("[data-cash-journal-toggle-balances]")
-    await page.wait_for_function(
-        """() => document.querySelector('.cashbox-journal-balance-strip')?.classList.contains('is-expanded')"""
-    )
-    await page.click("[data-cash-journal-toggle-balances]")
-    await page.wait_for_function(
-        """() => !document.querySelector('.cashbox-journal-balance-strip')?.classList.contains('is-expanded')"""
-    )
     await page.click("#cashboxJournalStatsButton")
     await page.wait_for_selector(".cashbox-journal-view--stats")
     await page.wait_for_selector("[data-cash-journal-period-kind][data-cash-journal-period-key]")
@@ -994,26 +986,27 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     await page.wait_for_function(
         """() => document.querySelector('#cashboxJournalLedgerButton')?.getAttribute('aria-pressed') === 'true'"""
     )
-    await page.fill('[data-cash-journal-filter="query"]', "Smoke")
     await page.wait_for_function(
         """() => document.querySelectorAll('.cashbox-journal-operation-row').length >= 1"""
     )
     scenarios["cashbox_journal_filters_and_no_audit"] = bool(
         await page.evaluate(
             """() => {
-              const query = document.querySelector('[data-cash-journal-filter="query"]');
+              const filters = document.querySelector('[data-cash-journal-filter]');
+              const reset = document.querySelector('[data-cash-journal-reset]');
+              const toolbar = document.querySelector('.cashbox-journal-toolbar');
+              const activeFilters = document.querySelector('[data-cash-journal-region="active-filters"]');
               const rows = Array.from(document.querySelectorAll('.cashbox-journal-operation-row'));
               const loadMore = document.querySelector('[data-cash-journal-load-more]');
               return Boolean(
-                query?.value === 'Smoke' &&
+                !filters &&
+                !reset &&
+                !toolbar &&
+                !activeFilters &&
                 document.querySelector('#cashboxJournalLedgerButton')?.getAttribute('aria-pressed') === 'true' &&
                 document.querySelector('#cashboxJournalStatsButton')?.getAttribute('aria-pressed') === 'false' &&
                 document.querySelector('.cashbox-journal-operation-head') &&
-                document.querySelector('[data-cash-journal-region="active-filters"]')?.textContent.includes('Период:') &&
-                document.querySelector('[data-cash-journal-reset]')?.textContent.trim() === 'Сбросить' &&
-                document.querySelector('[data-cash-journal-reset]')?.hidden === false &&
-                loadMore &&
-                !/из\\s+\\d+/.test(loadMore.textContent || '') &&
+                (!loadMore || !/из\\s+\\d+/.test(loadMore.textContent || '')) &&
                 !document.querySelector('#cashboxFinanceAuditButton') &&
                 !document.querySelector('#cashboxJournalAuditButton') &&
                 !document.body.textContent.includes('Финансовая сверка') &&
@@ -1028,14 +1021,12 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
             """() => Boolean(
               document.querySelector('#cashboxJournalLedgerButton')?.getAttribute('aria-pressed') === 'true' &&
               document.querySelector('#cashboxJournalStatsButton')?.getAttribute('aria-pressed') === 'false' &&
-              document.querySelector('[data-cash-journal-clear-filter="period"]') &&
-              document.querySelector('.cashbox-journal-operation-head')
+              !document.querySelector('.cashbox-journal-view--stats') &&
+              !document.querySelector('[data-cash-journal-clear-filter="period"]') &&
+              document.querySelector('.cashbox-journal-operation-head') &&
+              document.querySelectorAll('.cashbox-journal-operation-row').length >= 1
             )"""
         )
-    )
-    await page.click("[data-cash-journal-reset]")
-    await page.wait_for_function(
-        """() => document.querySelector('[data-cash-journal-filter="query"]')?.value === ''"""
     )
     await page.click('[data-close="cashbox-journal"]')
     await _wait_modal_closed(page, "#cashboxJournalModal")

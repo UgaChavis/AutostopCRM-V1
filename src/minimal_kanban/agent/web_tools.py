@@ -35,7 +35,7 @@ _MAX_BROWSER_LINKS = 30
 _MAX_SEARCH_RESPONSE_BYTES = 1_500_000
 _MAX_PAGE_RESPONSE_BYTES = 2_000_000
 _MAX_REDIRECTS = 5
-_SEARCH_PROVIDER_ORDER = ("brave", "tavily", "google_cse", "duckduckgo")
+_SEARCH_PROVIDER_ORDER = ("brave", "tavily", "google_cse", "searxng", "marginalia", "duckduckgo")
 _SEARCH_PROVIDER_ALIASES = {
     "brave_search": "brave",
     "brave": "brave",
@@ -43,12 +43,19 @@ _SEARCH_PROVIDER_ALIASES = {
     "google": "google_cse",
     "google_cse": "google_cse",
     "google_custom_search": "google_cse",
+    "searx": "searxng",
+    "searxng": "searxng",
+    "searx_ng": "searxng",
+    "marginalia": "marginalia",
+    "marginalia_search": "marginalia",
     "duckduckgo": "duckduckgo",
     "ddg": "duckduckgo",
 }
 _BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
 _TAVILY_SEARCH_URL = "https://api.tavily.com/search"
 _GOOGLE_CSE_SEARCH_URL = "https://www.googleapis.com/customsearch/v1"
+_MARGINALIA_SEARCH_URL = "https://api2.marginalia-search.com/search"
+_CRAWL4AI_MD_PATH = "/md"
 _BLOCKED_HOST_SUFFIXES = (".local", ".localhost", ".internal", ".lan", ".home", ".test", ".invalid")
 _BROWSER_USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
@@ -207,6 +214,18 @@ class DuckDuckGoSearchClient:
             default=_DEFAULT_PAGE_EXCERPT_CHARS,
             maximum=_MAX_PAGE_EXCERPT_CHARS,
         )
+        extractor_attempts: list[dict[str, Any]] = []
+        crawl_payload, crawl_attempt = self._try_crawl4ai_page_excerpt(
+            normalized_url,
+            max_chars=normalized_max_chars,
+        )
+        if crawl_attempt is not None:
+            extractor_attempts.append(crawl_attempt)
+        if crawl_payload is not None:
+            crawl_payload["extractors"] = extractor_attempts
+            crawl_payload["fallback_used"] = False
+            return crawl_payload
+
         try:
             with httpx.Client(
                 timeout=self._timeout_seconds, headers={"User-Agent": "Mozilla/5.0 AutoStopCRM/1.0"}
@@ -217,10 +236,20 @@ class DuckDuckGoSearchClient:
         except httpx.HTTPError as exc:
             raise InternetToolError(f"Page fetch failed: {exc}") from exc
         text = self._clean_html_text(html_text)
+        access_flags = _detect_access_flags(" ".join((response_url, text[:5000])))
         return {
-            "url": response_url,
+            "ok": True,
+            "url": normalized_url,
+            "final_url": response_url,
             "domain": self._url_hostname(response_url),
             "excerpt": text[:normalized_max_chars],
+            "format": "plain_text",
+            "access_flags": access_flags,
+            "requires_human": any(flag in _HUMAN_REQUIRED_FLAGS for flag in access_flags),
+            "engine": "httpx_html",
+            "mode": "http_excerpt",
+            "extractors": extractor_attempts + [_provider_attempt("httpx_html", "success")],
+            "fallback_used": bool(extractor_attempts),
         }
 
     def fetch_page_browser(
@@ -343,6 +372,74 @@ class DuckDuckGoSearchClient:
                 return str(response.url), text
         raise InternetToolError("Web redirect chain is too long.")
 
+    def _try_crawl4ai_page_excerpt(
+        self,
+        url: str,
+        *,
+        max_chars: int,
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        base_url = _first_env("AUTOSTOP_CRAWL4AI_BASE_URL", "CRAWL4AI_BASE_URL")
+        enabled_value = _first_env("AUTOSTOP_CRAWL4AI_ENABLED", "CRAWL4AI_ENABLED")
+        if enabled_value and not _truthy(enabled_value):
+            return None, None
+        if not base_url:
+            return None, None
+
+        try:
+            payload = self._fetch_crawl4ai_markdown(url, base_url=base_url)
+            markdown = _extract_crawl4ai_markdown(payload)
+            if not markdown:
+                raise InternetToolError("Crawl4AI response did not include markdown.")
+            final_url = self._validated_public_http_url(str(payload.get("url") or url))
+            access_flags = _detect_access_flags(" ".join((final_url, markdown[:5000])))
+            return {
+                "ok": True,
+                "url": url,
+                "final_url": final_url,
+                "domain": self._url_hostname(final_url),
+                "excerpt": markdown[:max_chars],
+                "format": "markdown",
+                "access_flags": access_flags,
+                "requires_human": any(flag in _HUMAN_REQUIRED_FLAGS for flag in access_flags),
+                "engine": "crawl4ai",
+                "mode": "markdown",
+            }, _provider_attempt("crawl4ai", "success")
+        except Exception as exc:
+            return None, _provider_attempt(
+                "crawl4ai",
+                "error",
+                reason="request_failed",
+                error=_provider_error_message(exc),
+            )
+
+    def _fetch_crawl4ai_markdown(self, url: str, *, base_url: str) -> dict[str, Any]:
+        endpoint = _crawl4ai_md_endpoint(base_url)
+        token = _first_env("AUTOSTOP_CRAWL4AI_API_TOKEN", "CRAWL4AI_API_TOKEN")
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": _BROWSER_USER_AGENT,
+        }
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        body = {
+            "url": url,
+            "f": _first_env("AUTOSTOP_CRAWL4AI_MARKDOWN_FILTER", "CRAWL4AI_MARKDOWN_FILTER")
+            or "fit",
+            "cache": "0",
+        }
+        with httpx.Client(
+            timeout=self._timeout_seconds, headers={"User-Agent": _BROWSER_USER_AGENT}
+        ) as client:
+            response = client.post(endpoint, json=body, headers=headers)
+            response.raise_for_status()
+            payload = response.json()
+        if not isinstance(payload, dict):
+            raise InternetToolError("Crawl4AI response was not a JSON object.")
+        if payload.get("success") is False:
+            raise InternetToolError("Crawl4AI reported an unsuccessful extraction.")
+        return payload
+
     def _validated_public_http_url(self, url: str) -> str:
         try:
             parsed = urlparse(url)
@@ -462,6 +559,33 @@ class DuckDuckGoSearchClient:
                     allowed_domains=allowed_domains,
                     api_key=api_key,
                     cx=cx,
+                ),
+            )
+        if provider == "searxng":
+            base_url = _first_env("AUTOSTOP_SEARXNG_BASE_URL", "SEARXNG_BASE_URL")
+            if not base_url:
+                return [], _provider_attempt(provider, "skipped", reason="missing_base_url")
+            return self._try_json_search_provider(
+                provider,
+                lambda: self._search_searxng(
+                    query=query,
+                    limit=limit,
+                    allowed_domains=allowed_domains,
+                    base_url=base_url,
+                ),
+            )
+        if provider == "marginalia":
+            api_key = _first_env("AUTOSTOP_MARGINALIA_API_KEY", "MARGINALIA_API_KEY")
+            enabled = api_key or _truthy(_first_env("AUTOSTOP_MARGINALIA_ENABLED"))
+            if not enabled:
+                return [], _provider_attempt(provider, "skipped", reason="disabled")
+            return self._try_json_search_provider(
+                provider,
+                lambda: self._search_marginalia(
+                    query=query,
+                    limit=limit,
+                    allowed_domains=allowed_domains,
+                    api_key=api_key or "public",
                 ),
             )
         if provider == "duckduckgo":
@@ -629,6 +753,87 @@ class DuckDuckGoSearchClient:
             )
             if result is not None:
                 results.append(result)
+        return results[:limit]
+
+    def _search_searxng(
+        self,
+        *,
+        query: str,
+        limit: int,
+        allowed_domains: list[str],
+        base_url: str,
+    ) -> list[SearchResult]:
+        params = {
+            "q": query,
+            "format": "json",
+            "categories": _first_env("AUTOSTOP_SEARXNG_CATEGORIES") or "general",
+            "safesearch": _first_env("AUTOSTOP_SEARCH_SAFESEARCH") or "0",
+        }
+        language = _first_env("AUTOSTOP_SEARCH_LANG")
+        if language:
+            params["language"] = language
+        endpoint = _searxng_search_endpoint(base_url)
+        with httpx.Client(
+            timeout=self._timeout_seconds, headers={"User-Agent": _BROWSER_USER_AGENT}
+        ) as client:
+            response = client.get(endpoint, params=params)
+            response.raise_for_status()
+            payload = response.json()
+        results: list[SearchResult] = []
+        for item in _as_list(payload, key="results"):
+            if not isinstance(item, dict):
+                continue
+            result = self._search_result_from_json(
+                provider="searxng",
+                title=item.get("title"),
+                url=item.get("url"),
+                snippet=item.get("content") or item.get("snippet") or item.get("description"),
+                allowed_domains=allowed_domains,
+            )
+            if result is not None:
+                results.append(result)
+            if len(results) >= limit:
+                break
+        return results[:limit]
+
+    def _search_marginalia(
+        self,
+        *,
+        query: str,
+        limit: int,
+        allowed_domains: list[str],
+        api_key: str,
+    ) -> list[SearchResult]:
+        params = {
+            "query": query,
+            "count": str(min(max(limit, 1), 10)),
+            "nsfw": _first_env("AUTOSTOP_MARGINALIA_NSFW") or "1",
+        }
+        with httpx.Client(
+            timeout=self._timeout_seconds, headers={"User-Agent": _BROWSER_USER_AGENT}
+        ) as client:
+            response = client.get(
+                _MARGINALIA_SEARCH_URL,
+                params=params,
+                headers={"API-Key": api_key},
+            )
+            response.raise_for_status()
+            payload = response.json()
+        results: list[SearchResult] = []
+        for item in _as_list(payload, key="results"):
+            if not isinstance(item, dict):
+                continue
+            result = self._search_result_from_json(
+                provider="marginalia",
+                title=item.get("title"),
+                url=item.get("url"),
+                snippet=item.get("description") or item.get("snippet"),
+                allowed_domains=allowed_domains,
+            )
+            if result is not None:
+                results.append(result)
+            if len(results) >= limit:
+                break
         return results[:limit]
 
     def _search_result_from_json(
@@ -847,6 +1052,12 @@ def _redact_configured_secrets(message: str) -> str:
         "TAVILY_API_KEY",
         "GOOGLE_CUSTOM_SEARCH_API_KEY",
         "GOOGLE_CSE_API_KEY",
+        "AUTOSTOP_MARGINALIA_API_KEY",
+        "MARGINALIA_API_KEY",
+        "AUTOSTOP_CRAWL4AI_API_TOKEN",
+        "CRAWL4AI_API_TOKEN",
+        "AUTOSTOP_CRAWL4AI_SECRET_KEY",
+        "CRAWL4AI_SECRET_KEY",
     ):
         secret = _first_env(env_name)
         if secret and len(secret) >= 4:
@@ -878,6 +1089,7 @@ def _provider_attempt(
 
 
 def _normalize_provider_order(value: Any) -> list[str]:
+    disabled = _disabled_search_providers()
     if value is None:
         configured = _first_env("AUTOSTOP_SEARCH_PROVIDER_ORDER")
         raw_items: list[Any] = re.split(r"[\s,]+", configured) if configured else []
@@ -891,14 +1103,61 @@ def _normalize_provider_order(value: Any) -> list[str]:
     seen: set[str] = set()
     for raw in raw_items:
         provider = _SEARCH_PROVIDER_ALIASES.get(str(raw or "").strip().casefold(), "")
-        if provider and provider not in seen:
+        if provider and provider not in disabled and provider not in seen:
             ordered.append(provider)
             seen.add(provider)
     for provider in _SEARCH_PROVIDER_ORDER:
-        if provider not in seen:
+        if provider not in disabled and provider not in seen:
             ordered.append(provider)
             seen.add(provider)
     return ordered
+
+
+def _disabled_search_providers() -> set[str]:
+    raw = _first_env("AUTOSTOP_SEARCH_DISABLED_PROVIDERS")
+    disabled: set[str] = set()
+    for item in re.split(r"[\s,]+", raw):
+        provider = _SEARCH_PROVIDER_ALIASES.get(str(item or "").strip().casefold(), "")
+        if provider:
+            disabled.add(provider)
+    return disabled
+
+
+def _searxng_search_endpoint(base_url: str) -> str:
+    url = str(base_url or "").strip().rstrip("/")
+    if not url:
+        return ""
+    parsed = urlparse(url)
+    if parsed.path.rstrip("/").endswith("/search"):
+        return url
+    return f"{url}/search"
+
+
+def _crawl4ai_md_endpoint(base_url: str) -> str:
+    url = str(base_url or "").strip().rstrip("/")
+    if not url:
+        return ""
+    parsed = urlparse(url)
+    if parsed.path.rstrip("/").endswith(_CRAWL4AI_MD_PATH):
+        return url
+    return f"{url}{_CRAWL4AI_MD_PATH}"
+
+
+def _extract_crawl4ai_markdown(payload: dict[str, Any]) -> str:
+    markdown = payload.get("markdown")
+    if isinstance(markdown, dict):
+        for key in ("fit_markdown", "raw_markdown", "markdown_with_citations", "markdown"):
+            value = markdown.get(key)
+            if str(value or "").strip():
+                markdown = value
+                break
+    text = str(markdown or "").replace("\x00", " ").strip()
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def _truthy(value: Any) -> bool:
+    return str(value or "").strip().casefold() in {"1", "true", "yes", "y", "on", "enabled"}
 
 
 def _domain_allowed(domain: str, allowed_domains: list[str]) -> bool:

@@ -498,7 +498,7 @@ class AgentToolExecutor:
             ),
             AgentToolDefinition(
                 "search_web_multi",
-                "Search the public web through configured providers: Brave, Tavily, Google CSE, then DuckDuckGo fallback.",
+                "Search the public web through configured providers: SearXNG, Marginalia, DuckDuckGo, and optional API providers.",
                 {
                     "query": "required string",
                     "limit": "optional int",
@@ -517,12 +517,12 @@ class AgentToolExecutor:
             ),
             AgentToolDefinition(
                 "fetch_page_excerpt",
-                "Fetch and clean a web page excerpt.",
+                "Fetch a public web page excerpt through Crawl4AI Markdown, with HTTP fallback.",
                 {"url": "required string", "max_chars": "optional int"},
             ),
             AgentToolDefinition(
                 "fetch_page_browser",
-                "Open a public web page with Chromium when the normal excerpt is blocked by JavaScript.",
+                "Open a public web page with Chromium when Crawl4AI/HTTP excerpt is blocked by JavaScript.",
                 {
                     "url": "required string",
                     "max_chars": "optional int",

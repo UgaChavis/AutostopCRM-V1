@@ -1,8 +1,58 @@
 services:
+  searxng:
+    container_name: autostop-searxng
+    image: docker.io/searxng/searxng:latest
+    restart: always
+    ports:
+      - "127.0.0.1:8890:8080"
+    environment:
+      SEARXNG_BASE_URL: "${AUTOSTOP_SEARXNG_PUBLIC_BASE_URL:-http://127.0.0.1:8890/}"
+    volumes:
+      - "${AUTOSTOP_SEARXNG_CONFIG_DIR:-./data/searxng/config}:/etc/searxng:ro"
+      - "${AUTOSTOP_SEARXNG_CACHE_DIR:-./data/searxng/cache}:/var/cache/searxng"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/search?q=health&format=json', timeout=5).read(1)",
+        ]
+      interval: 30s
+      timeout: 8s
+      retries: 5
+      start_period: 30s
+
+  crawl4ai:
+    container_name: autostop-crawl4ai
+    image: unclecode/crawl4ai:latest
+    restart: always
+    shm_size: "1gb"
+    ports:
+      - "127.0.0.1:11235:11235"
+    environment:
+      CRAWL4AI_API_TOKEN: "${AUTOSTOP_CRAWL4AI_API_TOKEN:-autostop-local-crawl4ai-token-change-me}"
+      SECRET_KEY: "${AUTOSTOP_CRAWL4AI_SECRET_KEY:-autostop-local-crawl4ai-secret-change-me}"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import os, urllib.request; req=urllib.request.Request('http://127.0.0.1:11235/health', headers={'Authorization': 'Bearer ' + os.environ.get('CRAWL4AI_API_TOKEN', '')}); urllib.request.urlopen(req, timeout=5).read(1)\"",
+        ]
+      interval: 30s
+      timeout: 8s
+      retries: 5
+      start_period: 90s
+
   autostopcrm:
     container_name: autostopcrm
     build: .
     restart: always
+    depends_on:
+      searxng:
+        condition: service_healthy
+      crawl4ai:
+        condition: service_healthy
     extra_hosts:
       - "crm.autostopcrm.ru:host-gateway"
     env_file:
@@ -23,6 +73,13 @@ services:
       MINIMAL_KANBAN_MCP_ALLOWED_HOSTS: "${AUTOSTOP_MCP_ALLOWED_HOSTS:-}"
       MINIMAL_KANBAN_MCP_ALLOWED_ORIGINS: "${AUTOSTOP_MCP_ALLOWED_ORIGINS:-}"
       AUTOSTOP_MANAGER_PATH: "${AUTOSTOP_MANAGER_CONTAINER_DIR:-/opt/AutostopManager}"
+      AUTOSTOP_SEARCH_DISABLED_PROVIDERS: "${AUTOSTOP_SEARCH_DISABLED_PROVIDERS:-brave,tavily,google_cse}"
+      AUTOSTOP_SEARCH_PROVIDER_ORDER: "${AUTOSTOP_SEARCH_PROVIDER_ORDER:-searxng,marginalia,duckduckgo}"
+      AUTOSTOP_SEARXNG_BASE_URL: "${AUTOSTOP_SEARXNG_CONTAINER_URL:-http://searxng:8080}"
+      AUTOSTOP_MARGINALIA_ENABLED: "${AUTOSTOP_MARGINALIA_ENABLED:-1}"
+      AUTOSTOP_CRAWL4AI_BASE_URL: "${AUTOSTOP_CRAWL4AI_CONTAINER_URL:-http://crawl4ai:11235}"
+      AUTOSTOP_CRAWL4AI_ENABLED: "${AUTOSTOP_CRAWL4AI_ENABLED:-1}"
+      AUTOSTOP_CRAWL4AI_API_TOKEN: "${AUTOSTOP_CRAWL4AI_API_TOKEN:-autostop-local-crawl4ai-token-change-me}"
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       OPENAI_MODEL: "${OPENAI_MODEL:-gpt-5.4-mini}"
     volumes:
@@ -34,4 +91,3 @@ services:
       timeout: 5s
       retries: 6
       start_period: 20s
-

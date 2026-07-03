@@ -277,11 +277,13 @@ class AgentWebToolsTests(unittest.TestCase):
 
         self.assertEqual(
             [item["provider"] for item in payload["providers"]],
-            ["brave", "tavily", "google_cse", "duckduckgo"],
+            ["brave", "tavily", "google_cse", "searxng", "marginalia", "duckduckgo"],
         )
         self.assertEqual(
             [item["status"] for item in payload["providers"][:3]], ["skipped", "skipped", "skipped"]
         )
+        self.assertEqual(payload["providers"][3]["reason"], "missing_base_url")
+        self.assertEqual(payload["providers"][4]["reason"], "disabled")
         self.assertEqual(payload["providers"][-1]["status"], "success")
         self.assertTrue(payload["fallback_used"])
         self.assertEqual(
@@ -429,6 +431,91 @@ class AgentWebToolsTests(unittest.TestCase):
         self.assertEqual(google_payload["results"][0]["provider"], "google_cse")
         self.assertEqual(google_payload["results"][0]["domain"], "catalog.example")
 
+    def test_search_multi_parses_searxng_and_marginalia_results(self) -> None:
+        class ProviderClient:
+            def __init__(self, *args, **kwargs) -> None:
+                _ = (args, kwargs)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+
+            def get(self, url: str, *, params=None, headers=None) -> _JsonResponse:  # noqa: ANN001
+                _ = (headers,)
+                if "marginalia" in url:
+                    self.marginalia_params = params or {}
+                    return _JsonResponse(
+                        {
+                            "results": [
+                                {
+                                    "title": "Marginalia",
+                                    "url": "https://oldweb.example/item",
+                                    "description": "Independent index result",
+                                }
+                            ]
+                        }
+                    )
+                self.searxng_params = params or {}
+                return _JsonResponse(
+                    {
+                        "results": [
+                            {
+                                "title": "SearXNG",
+                                "url": "https://manual.example/item",
+                                "content": "Aggregated result",
+                            }
+                        ]
+                    }
+                )
+
+        client = DuckDuckGoSearchClient()
+        with (
+            patch.dict(
+                os.environ, {"AUTOSTOP_SEARXNG_BASE_URL": "http://searxng:8080"}, clear=True
+            ),
+            patch("minimal_kanban.agent.web_tools.httpx.Client", ProviderClient),
+        ):
+            searxng_payload = client.search_multi("oil filter", limit=1, providers=["searxng"])
+        with (
+            patch.dict(os.environ, {"AUTOSTOP_MARGINALIA_ENABLED": "1"}, clear=True),
+            patch("minimal_kanban.agent.web_tools.httpx.Client", ProviderClient),
+        ):
+            marginalia_payload = client.search_multi(
+                "oil filter", limit=1, providers=["marginalia"]
+            )
+
+        self.assertEqual(searxng_payload["results"][0]["provider"], "searxng")
+        self.assertEqual(searxng_payload["results"][0]["domain"], "manual.example")
+        self.assertEqual(marginalia_payload["results"][0]["provider"], "marginalia")
+        self.assertEqual(marginalia_payload["results"][0]["domain"], "oldweb.example")
+
+    def test_search_multi_honors_disabled_provider_env(self) -> None:
+        client = DuckDuckGoSearchClient()
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "BRAVE_SEARCH_API_KEY": "brave-key",
+                    "GOOGLE_CUSTOM_SEARCH_API_KEY": "google-key",
+                    "GOOGLE_CUSTOM_SEARCH_CX": "cx",
+                    "AUTOSTOP_SEARCH_DISABLED_PROVIDERS": "brave, google_cse",
+                },
+                clear=True,
+            ),
+            patch(
+                "minimal_kanban.agent.web_tools.httpx.Client",
+                _client_factory(text=_result_html(1), url="https://html.duckduckgo.com/html/"),
+            ),
+        ):
+            payload = client.search_multi("oil filter", limit=1)
+
+        self.assertNotIn("brave", payload["provider_order"])
+        self.assertNotIn("google_cse", payload["provider_order"])
+        self.assertEqual(payload["results"][0]["provider"], "duckduckgo")
+
     def test_search_skips_non_public_result_urls(self) -> None:
         html_text = """
         <div class="result">
@@ -504,6 +591,105 @@ class AgentWebToolsTests(unittest.TestCase):
 
         self.assertEqual(len(payload["excerpt"]), 2500)
 
+    def test_fetch_page_excerpt_uses_crawl4ai_markdown_when_configured(self) -> None:
+        class CrawlClient:
+            calls: list[dict[str, object]] = []
+
+            def __init__(self, *args, **kwargs) -> None:
+                _ = (args, kwargs)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+
+            def post(self, url: str, *, json=None, headers=None) -> _JsonResponse:  # noqa: ANN001
+                self.calls.append({"url": url, "json": json or {}, "headers": headers or {}})
+                return _JsonResponse(
+                    {
+                        "success": True,
+                        "url": "https://example.com/specs",
+                        "markdown": "# Specs\n\nClean markdown text",
+                    }
+                )
+
+            def stream(self, *args, **kwargs):  # noqa: ANN001
+                _ = (args, kwargs)
+                raise AssertionError("HTTP fallback should not be used")
+
+        client = DuckDuckGoSearchClient()
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "AUTOSTOP_CRAWL4AI_BASE_URL": "http://crawl4ai:11235",
+                    "AUTOSTOP_CRAWL4AI_API_TOKEN": "crawl-secret-token",
+                },
+                clear=True,
+            ),
+            patch("minimal_kanban.agent.web_tools.httpx.Client", CrawlClient),
+        ):
+            payload = client.fetch_page_excerpt("https://example.com/specs", max_chars=12)
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["engine"], "crawl4ai")
+        self.assertEqual(payload["mode"], "markdown")
+        self.assertEqual(payload["format"], "markdown")
+        self.assertEqual(payload["excerpt"], "# Specs\n\nCle")
+        self.assertFalse(payload["fallback_used"])
+        self.assertEqual(payload["extractors"], [{"provider": "crawl4ai", "status": "success"}])
+        self.assertEqual(CrawlClient.calls[0]["url"], "http://crawl4ai:11235/md")
+        self.assertEqual(
+            CrawlClient.calls[0]["headers"]["Authorization"], "Bearer crawl-secret-token"
+        )
+        self.assertEqual(CrawlClient.calls[0]["json"]["url"], "https://example.com/specs")
+
+    def test_fetch_page_excerpt_falls_back_to_http_after_crawl4ai_error(self) -> None:
+        class FallbackClient:
+            def __init__(self, *args, **kwargs) -> None:
+                _ = (args, kwargs)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                _ = (exc_type, exc, tb)
+
+            def post(self, *args, **kwargs):  # noqa: ANN001
+                _ = (args, kwargs)
+                raise RuntimeError("crawl-secret-token should not leak")
+
+            def stream(self, *args, **kwargs):  # noqa: ANN001
+                _ = (args, kwargs)
+                return _client_factory(
+                    text="<html><body>Fallback text</body></html>",
+                    url="https://example.com/specs",
+                )().stream()
+
+        client = DuckDuckGoSearchClient()
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "AUTOSTOP_CRAWL4AI_BASE_URL": "http://crawl4ai:11235",
+                    "AUTOSTOP_CRAWL4AI_API_TOKEN": "crawl-secret-token",
+                },
+                clear=True,
+            ),
+            patch("minimal_kanban.agent.web_tools.httpx.Client", FallbackClient),
+        ):
+            payload = client.fetch_page_excerpt("https://example.com/specs")
+
+        self.assertEqual(payload["engine"], "httpx_html")
+        self.assertEqual(payload["excerpt"], "Fallback text")
+        self.assertTrue(payload["fallback_used"])
+        self.assertEqual(payload["extractors"][0]["provider"], "crawl4ai")
+        self.assertEqual(payload["extractors"][0]["status"], "error")
+        self.assertNotIn("crawl-secret-token", str(payload["extractors"][0]))
+
     def test_fetch_page_excerpt_rejects_local_and_private_urls_before_http_client(self) -> None:
         client = DuckDuckGoSearchClient()
         blocked_urls = [
@@ -516,7 +702,14 @@ class AgentWebToolsTests(unittest.TestCase):
             "https://printer.local/status",
         ]
 
-        with patch("minimal_kanban.agent.web_tools.httpx.Client") as http_client:
+        with (
+            patch.dict(
+                os.environ,
+                {"AUTOSTOP_CRAWL4AI_BASE_URL": "http://crawl4ai:11235"},
+                clear=True,
+            ),
+            patch("minimal_kanban.agent.web_tools.httpx.Client") as http_client,
+        ):
             for url in blocked_urls:
                 with self.subTest(url=url), self.assertRaises(InternetToolError):
                     client.fetch_page_excerpt(url)
