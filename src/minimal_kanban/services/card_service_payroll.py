@@ -2044,22 +2044,59 @@ class CardServicePayrollMixin:
         position = normalize_text(
             payload.get("position"), default=existing.get("position", ""), limit=80
         )
-        salary_mode = self._normalize_payroll_mode(
-            payload.get("salary_mode", existing.get("salary_mode"))
+        payroll_amount_fields = ("base_salary", "work_percent", "material_percent")
+        has_explicit_payroll_amount = any(
+            field in payload and normalize_text(payload.get(field), default="", limit=40)
+            for field in payroll_amount_fields
         )
+        salary_mode_payload = normalize_text(
+            payload.get("salary_mode"), default="", limit=32
+        ).lower()
+        preserve_existing_payroll = bool(existing) and (
+            not salary_mode_payload
+            or (
+                salary_mode_payload == PAYROLL_MODE_PERCENT_ONLY and not has_explicit_payroll_amount
+            )
+        )
+        salary_mode_source = (
+            existing.get("salary_mode")
+            if preserve_existing_payroll
+            else payload.get("salary_mode", existing.get("salary_mode"))
+        )
+        salary_mode = self._normalize_payroll_mode(salary_mode_source)
+
+        def payroll_value(field: str, *, default: Any = "", preserve_blank: bool = False) -> Any:
+            if field not in payload:
+                return existing.get(field, default)
+            value = payload.get(field)
+            if preserve_blank and normalize_text(value, default="", limit=40) == "":
+                return existing.get(field, default)
+            return value
+
         base_salary = self._format_payroll_decimal(
-            self._parse_payroll_decimal(payload.get("base_salary", existing.get("base_salary", "")))
+            self._parse_payroll_decimal(
+                payroll_value(
+                    "base_salary",
+                    preserve_blank=preserve_existing_payroll
+                    or salary_mode in {PAYROLL_MODE_SALARY_ONLY, PAYROLL_MODE_SALARY_PLUS_PERCENT},
+                )
+            )
         )
         work_percent = self._format_payroll_decimal(
             self._parse_payroll_decimal(
-                payload.get("work_percent", existing.get("work_percent", ""))
+                payroll_value(
+                    "work_percent",
+                    preserve_blank=preserve_existing_payroll
+                    or salary_mode in {PAYROLL_MODE_PERCENT_ONLY, PAYROLL_MODE_SALARY_PLUS_PERCENT},
+                )
             )
         )
         material_percent = self._format_payroll_decimal(
             self._parse_payroll_decimal(
-                payload.get(
+                payroll_value(
                     "material_percent",
-                    existing.get("material_percent", DEFAULT_MATERIAL_PERCENT),
+                    default=DEFAULT_MATERIAL_PERCENT,
+                    preserve_blank=bool(existing),
                 )
             )
         )

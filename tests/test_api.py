@@ -3499,6 +3499,43 @@ class ApiServerTests(unittest.TestCase):
             [item["name"] for item in listed["data"]["employees"]], ["Иван", "Пётр"]
         )
 
+    def test_save_employee_update_preserves_payroll_settings_from_blank_form_payload(
+        self,
+    ) -> None:
+        status, saved = self.request(
+            "/api/save_employee",
+            {
+                "name": "Сергей",
+                "position": "Мастер",
+                "salary_mode": "salary_plus_percent",
+                "base_salary": "30000",
+                "work_percent": "45",
+                "material_percent": "10",
+            },
+        )
+        self.assertEqual(status, 200)
+
+        status, updated = self.request(
+            "/api/save_employee",
+            {
+                "employee_id": saved["data"]["employee"]["id"],
+                "name": "Сергей Гелингер",
+                "position": "Старший мастер",
+                "salary_mode": "percent_only",
+                "base_salary": "",
+                "work_percent": "",
+                "material_percent": "",
+            },
+        )
+
+        self.assertEqual(status, 200)
+        employee = updated["data"]["employee"]
+        self.assertEqual(employee["name"], "Сергей Гелингер")
+        self.assertEqual(employee["salary_mode"], "salary_plus_percent")
+        self.assertEqual(employee["base_salary"], "30000")
+        self.assertEqual(employee["work_percent"], "45")
+        self.assertEqual(employee["material_percent"], "10")
+
     def test_save_employee_requires_name(self) -> None:
         status, response = self.request(
             "/api/save_employee",

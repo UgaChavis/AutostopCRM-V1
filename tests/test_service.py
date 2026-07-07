@@ -4846,6 +4846,66 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(listed_employee["salary_mode"], "none")
         self.assertEqual(listed_employee["balance_total"], "0")
 
+    def test_employee_update_preserves_payroll_settings_from_blank_form_payload(self) -> None:
+        employee = self.service.save_employee(
+            {
+                "name": "Сергей",
+                "position": "Мастер",
+                "salary_mode": "salary_plus_percent",
+                "base_salary": "30000",
+                "work_percent": "45",
+                "material_percent": "10",
+            }
+        )["employee"]
+
+        updated = self.service.save_employee(
+            {
+                "employee_id": employee["id"],
+                "name": "Сергей Гелингер",
+                "position": "Старший мастер",
+                "salary_mode": "percent_only",
+                "base_salary": "",
+                "work_percent": "",
+                "material_percent": "",
+            }
+        )["employee"]
+
+        self.assertEqual(updated["name"], "Сергей Гелингер")
+        self.assertEqual(updated["position"], "Старший мастер")
+        self.assertEqual(updated["salary_mode"], "salary_plus_percent")
+        self.assertEqual(updated["base_salary"], "30000")
+        self.assertEqual(updated["work_percent"], "45")
+        self.assertEqual(updated["material_percent"], "10")
+
+    def test_employee_update_can_explicitly_disable_payroll_settings(self) -> None:
+        employee = self.service.save_employee(
+            {
+                "name": "Сергей",
+                "position": "Мастер",
+                "salary_mode": "salary_plus_percent",
+                "base_salary": "30000",
+                "work_percent": "45",
+                "material_percent": "10",
+            }
+        )["employee"]
+
+        updated = self.service.save_employee(
+            {
+                "employee_id": employee["id"],
+                "name": "Сергей",
+                "position": "Мастер",
+                "salary_mode": "none",
+                "base_salary": "",
+                "work_percent": "",
+                "material_percent": "0",
+            }
+        )["employee"]
+
+        self.assertEqual(updated["salary_mode"], "none")
+        self.assertEqual(updated["base_salary"], "0")
+        self.assertEqual(updated["work_percent"], "0")
+        self.assertEqual(updated["material_percent"], "0")
+
     def test_employee_create_mode_ignores_stale_employee_id_and_creates_new_record(self) -> None:
         first = self.service.save_employee({"name": "Иван", "position": "Мастер"})["employee"]
         second = self.service.save_employee(
