@@ -51,6 +51,7 @@ from minimal_kanban.agent.config import get_agent_name
 from minimal_kanban.repair_order import RepairOrder
 from minimal_kanban.services.card_service import CardService, ServiceError
 from minimal_kanban.services.finance_read_core import FinanceReadCore
+from minimal_kanban.services.payroll_constants import EMPLOYEES_MAX_COUNT
 from minimal_kanban.storage.financial_history_cleanup import sanitize_financial_history_state
 from minimal_kanban.storage.json_store import JsonStore
 from minimal_kanban.vehicle_profile import VehicleProfile
@@ -4787,13 +4788,13 @@ class CardServiceTests(unittest.TestCase):
         listed_employee = next(item for item in listed["employees"] if item["id"] == employee["id"])
         self.assertEqual(listed_employee["balance_total"], "0")
 
-    def test_employee_supports_up_to_fifteen_records_without_overwrite(self) -> None:
-        checkpoints = {1, 2, 3, 10, 15}
+    def test_employee_supports_max_records_without_overwrite(self) -> None:
+        checkpoints = {1, 2, 3, 10, 15, EMPLOYEES_MAX_COUNT}
         created_ids: list[str] = []
         expected_modes: dict[str, tuple[str, str, str]] = {}
         modes = ("salary_only", "percent_only", "salary_plus_percent")
 
-        for index in range(15):
+        for index in range(EMPLOYEES_MAX_COUNT):
             result = self.service.save_employee(
                 {
                     "name": f"Сотрудник {index + 1}",
@@ -4815,7 +4816,7 @@ class CardServiceTests(unittest.TestCase):
                 self.assertEqual(len({item["id"] for item in listed}), index + 1)
 
         listed = self.service.list_employees()["employees"]
-        self.assertEqual(len(listed), 15)
+        self.assertEqual(len(listed), EMPLOYEES_MAX_COUNT)
         self.assertEqual(set(item["id"] for item in listed), set(created_ids))
         for item in listed:
             salary_mode, base_salary, work_percent = expected_modes[item["id"]]
@@ -5020,13 +5021,13 @@ class CardServiceTests(unittest.TestCase):
             2,
         )
 
-    def test_employee_creation_rejects_more_than_fifteen_records(self) -> None:
-        for index in range(15):
+    def test_employee_creation_rejects_more_than_max_records(self) -> None:
+        for index in range(EMPLOYEES_MAX_COUNT):
             self.service.save_employee({"name": f"Сотрудник {index + 1}"})
         with self.assertRaises(ServiceError) as ctx:
-            self.service.save_employee({"name": "Сотрудник 16"})
+            self.service.save_employee({"name": f"Сотрудник {EMPLOYEES_MAX_COUNT + 1}"})
         self.assertEqual(ctx.exception.code, "validation_error")
-        self.assertIn("15", str(ctx.exception))
+        self.assertIn(str(EMPLOYEES_MAX_COUNT), str(ctx.exception))
 
     def test_supports_large_card_description(self) -> None:
         large_description = "А" * 12000

@@ -32,6 +32,7 @@ from .payroll_active_periods import (
 )
 from .payroll_constants import (
     EMPLOYEE_SHIFT_ACCRUAL_NOTE,
+    EMPLOYEES_MAX_COUNT,
     PAYROLL_ALLOWED_MODES,
     PAYROLL_MODE_PERCENT_ONLY,
     PAYROLL_MODE_SALARY_ONLY,
@@ -41,7 +42,6 @@ from .payroll_snapshot_preservation import preserve_repair_order_payroll_snapsho
 
 EMPLOYEES_SETTING_KEY = "employees"
 EMPLOYEE_SHIFT_ACCRUALS_SETTING_KEY = "employee_shift_accruals"
-EMPLOYEES_MAX_COUNT = 15
 DEFAULT_MATERIAL_PERCENT = "10"
 PAYROLL_WEEKLY_BASE_SALARY_AT = {"weekday": 4, "hour": 20, "minute": 0}
 EMPLOYEE_SALARY_RECONCILIATION_DEFAULT_DAYS = 30
@@ -1529,12 +1529,8 @@ class CardServicePayrollMixin:
             )
             existing = next((item for item in employees if item["id"] == employee_id), None)
             created = existing is None
-            if created and len(employees) >= EMPLOYEES_MAX_COUNT:
-                self._fail(
-                    "validation_error",
-                    f"Можно сохранить не более {EMPLOYEES_MAX_COUNT} сотрудников.",
-                    details={"field": EMPLOYEES_SETTING_KEY, "max_count": EMPLOYEES_MAX_COUNT},
-                )
+            if created:
+                self._validate_employee_capacity_for_create(employees)
             employee = self._validated_employee_payload(payload, existing=existing)
             if existing is not None:
                 employee["active_periods"] = employee_active_periods_for_save(existing, employee)
@@ -2131,6 +2127,15 @@ class CardServicePayrollMixin:
             )
         employee["updated_at"] = model_helpers.utc_now_iso()
         return employee
+
+    def _validate_employee_capacity_for_create(self, employees: list[dict[str, Any]]) -> None:
+        if len(employees) < EMPLOYEES_MAX_COUNT:
+            return
+        self._fail(
+            "validation_error",
+            f"Можно сохранить не более {EMPLOYEES_MAX_COUNT} сотрудников.",
+            details={"field": EMPLOYEES_SETTING_KEY, "max_count": EMPLOYEES_MAX_COUNT},
+        )
 
     def _apply_repair_order_payroll_snapshot(
         self, order: RepairOrder, settings: dict[str, Any]

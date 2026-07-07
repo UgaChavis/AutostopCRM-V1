@@ -52,6 +52,7 @@ from minimal_kanban.operator_auth import (
     _verify_password,
 )
 from minimal_kanban.services.card_service import CardService, ServiceError
+from minimal_kanban.services.payroll_constants import EMPLOYEES_MAX_COUNT
 from minimal_kanban.storage.json_store import JsonStore
 from minimal_kanban.web_assets import BOARD_WEB_APP_HTML
 
@@ -3438,10 +3439,10 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(toggled_on["data"]["employee"]["is_active"])
 
-    def test_employee_routes_support_up_to_fifteen_and_reject_sixteenth(self) -> None:
-        checkpoints = {1, 2, 3, 10, 15}
+    def test_employee_routes_support_max_count_and_reject_overflow(self) -> None:
+        checkpoints = {1, 2, 3, 10, 15, EMPLOYEES_MAX_COUNT}
         seen_ids: set[str] = set()
-        for index in range(15):
+        for index in range(EMPLOYEES_MAX_COUNT):
             status, saved = self.request(
                 "/api/save_employee",
                 {
@@ -3464,13 +3465,15 @@ class ApiServerTests(unittest.TestCase):
 
         status, listed = self.request("/api/list_employees", method="GET")
         self.assertEqual(status, 200)
-        self.assertEqual(len(listed["data"]["employees"]), 15)
+        self.assertEqual(len(listed["data"]["employees"]), EMPLOYEES_MAX_COUNT)
         self.assertEqual({item["id"] for item in listed["data"]["employees"]}, seen_ids)
 
-        status, overflow = self.request("/api/save_employee", {"name": "Сотрудник 16"})
+        status, overflow = self.request(
+            "/api/save_employee", {"name": f"Сотрудник {EMPLOYEES_MAX_COUNT + 1}"}
+        )
         self.assertEqual(status, 400)
         self.assertEqual(overflow["error"]["code"], "validation_error")
-        self.assertIn("15", overflow["error"]["message"])
+        self.assertIn(str(EMPLOYEES_MAX_COUNT), overflow["error"]["message"])
 
     def test_save_employee_create_mode_ignores_stale_employee_id(self) -> None:
         status, first = self.request("/api/save_employee", {"name": "Иван", "position": "Мастер"})
