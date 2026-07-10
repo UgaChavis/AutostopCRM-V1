@@ -337,12 +337,18 @@ class ApiServerTests(unittest.TestCase):
         path: str,
         *,
         method: str = "GET",
+        payload: dict | list | None = None,
         headers: dict[str, str] | None = None,
         timeout: float = TEST_HTTP_TIMEOUT_SECONDS,
     ) -> tuple[int, dict[str, str], bytes]:
+        data = json.dumps(payload).encode("utf-8") if payload is not None else None
+        merged_headers = {"Content-Type": "application/json"}
+        if headers:
+            merged_headers.update(headers)
         request = urllib.request.Request(
             f"{self.base_url}{path}",
-            headers=headers or {},
+            data=data,
+            headers=merged_headers,
             method=method,
         )
         attempts = 2 if method.upper() == "GET" else 1
@@ -2896,10 +2902,46 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(headers.get("Content-Encoding"), "gzip")
         self.assertEqual(headers.get("Vary"), "Accept-Encoding")
         self.assertIn("Server-Timing", headers)
+        timing_names = {
+            item.split(";", 1)[0].strip() for item in headers["Server-Timing"].split(",")
+        }
+        self.assertEqual(
+            timing_names,
+            {
+                "app",
+                "total",
+                "lock",
+                "service_lock",
+                "store_lock",
+                "file_lock",
+                "normalize",
+                "serialize",
+                "write",
+                "storage",
+            },
+        )
         payload = json.loads(gzip.decompress(body).decode("utf-8"))
         self.assertTrue(payload["ok"])
         self.assertTrue(payload["data"]["meta"]["revision"])
         self.assertGreater(len(payload["data"]["cards"]), 0)
+
+    def test_write_response_exposes_storage_phase_timings(self) -> None:
+        status, headers, body = self.raw_request(
+            "/api/create_card",
+            method="POST",
+            payload={"title": "Timing contract", "deadline": {"hours": 2}},
+        )
+
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(body)["ok"])
+        metrics = {
+            item.split(";", 1)[0].strip(): float(item.rsplit("=", 1)[1])
+            for item in headers["Server-Timing"].split(",")
+        }
+        self.assertGreater(metrics["storage"], 0)
+        self.assertGreater(metrics["serialize"], 0)
+        self.assertGreater(metrics["write"], 0)
+        self.assertGreaterEqual(metrics["total"], metrics["storage"])
 
     def test_snapshot_without_archive_allows_zero_archive_limit(self) -> None:
         status, snapshot = self.request(

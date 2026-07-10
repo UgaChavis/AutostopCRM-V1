@@ -22,6 +22,7 @@ from minimal_kanban.config import (
     get_api_port,
     get_api_port_fallback_limit,
     get_board_api_url,
+    get_fast_state_writes_enabled,
     get_mcp_bearer_token,
     get_mcp_host,
     get_mcp_path,
@@ -33,6 +34,14 @@ from minimal_kanban.config import (
 
 
 class ConfigTests(unittest.TestCase):
+    def test_fast_state_writes_default_on_and_support_explicit_kill_switch(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertTrue(get_fast_state_writes_enabled())
+        with patch.dict(os.environ, {"MINIMAL_KANBAN_FAST_STATE_WRITES": "off"}, clear=False):
+            self.assertFalse(get_fast_state_writes_enabled())
+        with patch.dict(os.environ, {"MINIMAL_KANBAN_FAST_STATE_WRITES": "invalid"}, clear=False):
+            self.assertTrue(get_fast_state_writes_enabled())
+
     def test_reads_api_overrides_from_environment(self) -> None:
         with patch.dict(
             os.environ,

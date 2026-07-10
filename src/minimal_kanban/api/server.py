@@ -31,6 +31,7 @@ from ..config import (
 from ..json_safety import reject_deeply_nested_json
 from ..models import business_timezone, parse_datetime
 from ..operator_auth import OperatorAuthService
+from ..performance import request_performance_trace
 from ..services.card_service import CardService
 from ..services.errors import ServiceError
 from ..services.shared_files_service import SharedFilesService
@@ -1085,85 +1086,122 @@ class ApiServer:
 
             def _dispatch(self, route: str, request_id: str, payload: dict) -> None:
                 started_at = perf_counter()
-                try:
-                    payload = self._operator_context_payload(route, payload, request_id)
-                    if payload is None:
-                        return
-                    result = self.ROUTES[route](payload)
-                    body = _json_response(ok=True, data=result, error=None, request_id=request_id)
-                    app_duration_ms = max(perf_counter() - started_at, 0.0) * 1000
-                    response_body, extra_headers = self._prepare_response_body(
-                        body,
-                        content_type="application/json",
-                        server_timing=f"app;dur={app_duration_ms:.1f}",
-                    )
-                    self.send_response(HTTPStatus.OK)
-                    self._send_headers(
-                        "application/json",
-                        len(response_body),
-                        extra_headers=extra_headers,
-                    )
-                    if self._write_body(
-                        response_body,
-                        route=route,
-                        request_id=request_id,
-                        status_code=HTTPStatus.OK,
-                    ):
-                        logger.log(
-                            _success_log_level(route),
-                            "api_request route=%s request_id=%s status=ok duration_ms=%.1f body_bytes=%s encoded_bytes=%s gzip=%s",
+                with request_performance_trace() as performance_trace:
+                    try:
+                        payload = self._operator_context_payload(route, payload, request_id)
+                        if payload is None:
+                            return
+                        result = self.ROUTES[route](payload)
+                        body = _json_response(
+                            ok=True, data=result, error=None, request_id=request_id
+                        )
+                        app_duration_ms = max(perf_counter() - started_at, 0.0) * 1000
+                        server_timing = performance_trace.server_timing(
+                            app_duration_ms=app_duration_ms
+                        )
+                        response_body, extra_headers = self._prepare_response_body(
+                            body,
+                            content_type="application/json",
+                            server_timing=server_timing,
+                        )
+                        self.send_response(HTTPStatus.OK)
+                        self._send_headers(
+                            "application/json",
+                            len(response_body),
+                            extra_headers=extra_headers,
+                        )
+                        if self._write_body(
+                            response_body,
+                            route=route,
+                            request_id=request_id,
+                            status_code=HTTPStatus.OK,
+                        ):
+                            logger.log(
+                                _success_log_level(route),
+                                "api_request route=%s request_id=%s status=ok duration_ms=%.1f "
+                                "body_bytes=%s encoded_bytes=%s gzip=%s %s",
+                                route,
+                                request_id,
+                                app_duration_ms,
+                                len(body),
+                                len(response_body),
+                                bool(extra_headers.get("Content-Encoding") == "gzip"),
+                                performance_trace.log_fields(app_duration_ms=app_duration_ms),
+                            )
+                    except ServiceError as exc:
+                        app_duration_ms = max(perf_counter() - started_at, 0.0) * 1000
+                        logger.warning(
+                            "api_request route=%s request_id=%s status=error code=%s %s",
                             route,
                             request_id,
-                            app_duration_ms,
-                            len(body),
-                            len(response_body),
-                            bool(extra_headers.get("Content-Encoding") == "gzip"),
+                            exc.code,
+                            performance_trace.log_fields(app_duration_ms=app_duration_ms),
                         )
-                except ServiceError as exc:
-                    logger.warning(
-                        "api_request route=%s request_id=%s status=error code=%s",
-                        route,
-                        request_id,
-                        exc.code,
-                    )
-                    self._send_error_response(
-                        request_id, exc.status_code, exc.code, exc.message, exc.details
-                    )
-                except StateFileCorruptedError as exc:
-                    logger.error(
-                        "api_request route=%s request_id=%s status=error code=state_file_corrupted error=%s",
-                        route,
-                        request_id,
-                        exc,
-                    )
-                    self._send_error_response(
-                        request_id,
-                        HTTPStatus.SERVICE_UNAVAILABLE,
-                        "state_file_corrupted",
-                        "Файл состояния поврежден. Автоматический сброс отключен; восстановите данные из резервной копии.",
-                    )
-                except ValueError as exc:
-                    logger.warning(
-                        "api_request route=%s request_id=%s status=error code=validation_error",
-                        route,
-                        request_id,
-                    )
-                    self._send_error_response(
-                        request_id,
-                        HTTPStatus.BAD_REQUEST,
-                        "validation_error",
-                        str(exc) or "Request payload is invalid.",
-                    )
-                except Exception as exc:  # pragma: no cover
-                    logger.exception(
-                        "api_request_failed route=%s request_id=%s error=%s", route, request_id, exc
-                    )
-                    self._send_error_response(
-                        request_id,
-                        HTTPStatus.INTERNAL_SERVER_ERROR,
-                        "internal_error",
-                        "На сервере произошла непредвиденная ошибка.",
-                    )
+                        self._send_error_response(
+                            request_id,
+                            exc.status_code,
+                            exc.code,
+                            exc.message,
+                            exc.details,
+                            server_timing=performance_trace.server_timing(
+                                app_duration_ms=app_duration_ms
+                            ),
+                        )
+                    except StateFileCorruptedError as exc:
+                        app_duration_ms = max(perf_counter() - started_at, 0.0) * 1000
+                        logger.error(
+                            "api_request route=%s request_id=%s status=error "
+                            "code=state_file_corrupted error=%s %s",
+                            route,
+                            request_id,
+                            exc,
+                            performance_trace.log_fields(app_duration_ms=app_duration_ms),
+                        )
+                        self._send_error_response(
+                            request_id,
+                            HTTPStatus.SERVICE_UNAVAILABLE,
+                            "state_file_corrupted",
+                            "Файл состояния поврежден. Автоматический сброс отключен; восстановите данные из резервной копии.",
+                            server_timing=performance_trace.server_timing(
+                                app_duration_ms=app_duration_ms
+                            ),
+                        )
+                    except ValueError as exc:
+                        app_duration_ms = max(perf_counter() - started_at, 0.0) * 1000
+                        logger.warning(
+                            "api_request route=%s request_id=%s status=error "
+                            "code=validation_error %s",
+                            route,
+                            request_id,
+                            performance_trace.log_fields(app_duration_ms=app_duration_ms),
+                        )
+                        self._send_error_response(
+                            request_id,
+                            HTTPStatus.BAD_REQUEST,
+                            "validation_error",
+                            str(exc) or "Request payload is invalid.",
+                            server_timing=performance_trace.server_timing(
+                                app_duration_ms=app_duration_ms
+                            ),
+                        )
+                    except Exception as exc:  # pragma: no cover
+                        app_duration_ms = max(perf_counter() - started_at, 0.0) * 1000
+                        logger.exception(
+                            "api_request_failed route=%s request_id=%s error=%s %s",
+                            route,
+                            request_id,
+                            exc,
+                            performance_trace.log_fields(app_duration_ms=app_duration_ms),
+                        )
+                        self._send_error_response(
+                            request_id,
+                            HTTPStatus.INTERNAL_SERVER_ERROR,
+                            "internal_error",
+                            "На сервере произошла непредвиденная ошибка.",
+                            server_timing=performance_trace.server_timing(
+                                app_duration_ms=app_duration_ms
+                            ),
+                        )
 
             def _serve_employee_salary_reconciliation_print(
                 self, request_id: str, query: dict
@@ -1220,6 +1258,8 @@ class ApiServer:
                 code: str,
                 message: str,
                 details: dict | None = None,
+                *,
+                server_timing: str = "",
             ) -> None:
                 body = _json_response(
                     ok=False,
@@ -1231,6 +1271,7 @@ class ApiServer:
                     response_body, extra_headers = self._prepare_response_body(
                         body,
                         content_type="application/json",
+                        server_timing=server_timing,
                     )
                     self.send_response(status_code)
                     self._send_headers(

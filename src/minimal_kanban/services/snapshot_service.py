@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import math
+import time
 from collections.abc import Callable
+from copy import deepcopy
 from datetime import datetime
 from threading import RLock
 from typing import Any
@@ -24,6 +25,12 @@ from ..models import (
     utc_now_iso,
 )
 from ..storage.json_store import JsonStore
+from .snapshot_cache import (
+    COMPACT_SNAPSHOT_CACHE_TTL_SECONDS,
+    SnapshotResponseCache,
+    build_snapshot_meta,
+    build_snapshot_revision,
+)
 
 REVIEW_BOARD_STALE_HOURS_DEFAULT = 48
 REVIEW_BOARD_OVERLOAD_THRESHOLD_DEFAULT = 5
@@ -34,7 +41,6 @@ GPT_WALL_AGENT_EVENT_LIMIT = 20
 CARD_JOURNAL_COMPACT_DEFAULT_LIMIT = 50
 CARD_JOURNAL_COMPACT_TEXT_LIMIT = 1200
 CARD_JOURNAL_COUNT_MAX = 1_000_000_000
-
 CARD_JOURNAL_ACTION_LABELS = {
     "card_created": "Создана карточка",
     "card_moved": "Перемещена карточка",
@@ -317,6 +323,7 @@ class SnapshotService:
         self._events_for_card = events_for_card
         self._hydrate_event_details = hydrate_event_details
         self._fail = fail
+        self._snapshot_cache = SnapshotResponseCache()
 
     def _viewer_username(self, payload: dict | None) -> str | None:
         raw_value = (payload or {}).get("actor_name")
@@ -356,20 +363,6 @@ class SnapshotService:
             return {}, {}
         return self._column_labels(columns), self._event_counts(events)
 
-    def _snapshot_card_signature(
-        self,
-        *,
-        card: Card,
-        events_count: int,
-        viewer_username: str | None,
-    ) -> dict[str, Any]:
-        return {
-            "card": card.to_storage_dict(),
-            "events_count": events_count,
-            "viewer_seen_at": str(card.seen_by_users.get(str(viewer_username or "").strip()) or ""),
-            "has_unseen_update": card.has_unseen_update_for(viewer_username),
-        }
-
     def _snapshot_revision(
         self,
         *,
@@ -385,33 +378,19 @@ class SnapshotService:
         archive_limit: int,
     ) -> str:
         event_counts = self._event_counts(events) if cards or archive else {}
-        revision_payload = {
-            "columns": [column.to_dict() for column in columns],
-            "cards": [
-                self._snapshot_card_signature(
-                    card=card,
-                    events_count=event_counts.get(card.id, 0),
-                    viewer_username=viewer_username,
-                )
-                for card in cards
-            ],
-            "archive": [
-                self._snapshot_card_signature(
-                    card=card,
-                    events_count=event_counts.get(card.id, 0),
-                    viewer_username=viewer_username,
-                )
-                for card in archive
-            ],
-            "stickies": [sticky.to_storage_dict() for sticky in stickies],
-            "settings": dict(settings),
-            "viewer_username": str(viewer_username or ""),
-            "compact_cards": compact_cards,
-            "include_archive": include_archive,
-            "archive_limit": archive_limit,
-        }
-        serialized = _json_dumps(revision_payload, sort_keys=True, separators=(",", ":"))
-        return hashlib.sha1(serialized.encode("utf-8")).hexdigest()
+        return build_snapshot_revision(
+            columns=columns,
+            cards=cards,
+            archive=archive,
+            stickies=stickies,
+            settings=settings,
+            event_counts=event_counts,
+            viewer_username=viewer_username,
+            compact_cards=compact_cards,
+            include_archive=include_archive,
+            archive_limit=archive_limit,
+            json_dumps=_json_dumps,
+        )
 
     def _markdown_value(self, value: Any) -> str:
         if value is None or value == "":
@@ -674,7 +653,7 @@ class SnapshotService:
                 if include_archive
                 else 0
             )
-            bundle = self._store.read_bundle()
+            bundle, signature = self._store.read_bundle_with_signature()
             cards = self._visible_cards(bundle["cards"], include_archived=False)
             archived_cards_total = sum(1 for card in bundle["cards"] if card.archived)
             archive = (
@@ -684,23 +663,42 @@ class SnapshotService:
             )
             stickies = self._stickies(bundle["stickies"])
             viewer_username = self._viewer_username(payload)
-            column_labels, event_counts = self._card_serialization_context(
-                cards + archive,
-                columns=bundle["columns"],
-                events=bundle["events"],
-            )
-            revision = self._snapshot_revision(
-                columns=bundle["columns"],
-                cards=cards,
-                archive=archive,
-                stickies=stickies,
-                events=bundle["events"],
-                settings=bundle["settings"],
+            cache_key = self._snapshot_cache.key(
                 viewer_username=viewer_username,
                 compact_cards=compact_cards,
                 include_archive=include_archive,
                 archive_limit=archive_limit,
             )
+            cache_entry = self._snapshot_cache.get(signature, cache_key)
+            if compact_cards and cache_entry is not None:
+                cached_snapshot = cache_entry.get("snapshot")
+                cached_at = float(cache_entry.get("snapshot_cached_at") or 0.0)
+                if (
+                    isinstance(cached_snapshot, dict)
+                    and time.monotonic() - cached_at <= COMPACT_SNAPSHOT_CACHE_TTL_SECONDS
+                ):
+                    result = deepcopy(cached_snapshot)
+                    result["meta"]["generated_at"] = utc_now_iso()
+                    return result
+            column_labels, event_counts = self._card_serialization_context(
+                cards + archive,
+                columns=bundle["columns"],
+                events=bundle["events"],
+            )
+            revision = str((cache_entry or {}).get("revision") or "")
+            if not revision:
+                revision = self._snapshot_revision(
+                    columns=bundle["columns"],
+                    cards=cards,
+                    archive=archive,
+                    stickies=stickies,
+                    events=bundle["events"],
+                    settings=bundle["settings"],
+                    viewer_username=viewer_username,
+                    compact_cards=compact_cards,
+                    include_archive=include_archive,
+                    archive_limit=archive_limit,
+                )
             serialized_columns = [column.to_dict() for column in bundle["columns"]]
             serialized_cards = self._serialize_cards_payload(
                 cards,
@@ -720,27 +718,47 @@ class SnapshotService:
             )
             serialized_stickies = [self._serialize_sticky(sticky) for sticky in stickies]
             serialized_settings = dict(bundle["settings"])
-            return {
+            meta = build_snapshot_meta(
+                archive_limit=archive_limit,
+                compact_cards=compact_cards,
+                include_archive=include_archive,
+                archived_cards_total=archived_cards_total,
+                cards_returned=len(serialized_cards),
+                archive_returned=len(serialized_archive),
+                stickies_returned=len(serialized_stickies),
+                revision=revision,
+            )
+            meta["generated_at"] = utc_now_iso()
+            result = {
                 "columns": serialized_columns,
                 "cards": serialized_cards,
                 "archive": serialized_archive,
                 "stickies": serialized_stickies,
                 "settings": serialized_settings,
-                "meta": {
-                    "generated_at": utc_now_iso(),
-                    "archive_limit": archive_limit,
-                    "compact_cards": compact_cards,
-                    "include_archive": include_archive,
-                    "archived_cards_total": archived_cards_total,
-                    "cards_returned": len(serialized_cards),
-                    "archive_returned": len(serialized_archive),
-                    "has_more_archive": include_archive
-                    and archived_cards_total > len(serialized_archive),
-                    "stickies_returned": len(serialized_stickies),
-                    "stickies_total": len(stickies),
-                    "revision": revision,
-                },
+                "meta": meta,
             }
+            entry = cache_entry or {}
+            entry.update(
+                {
+                    "revision": revision,
+                    "counts": {
+                        "columns": len(bundle["columns"]),
+                        "cards": len(cards),
+                        "archive": len(archive),
+                        "archived_cards_total": archived_cards_total,
+                        "stickies": len(stickies),
+                    },
+                    "meta": {key: value for key, value in meta.items() if key != "generated_at"},
+                }
+            )
+            if compact_cards:
+                entry["snapshot"] = deepcopy(result)
+                entry["snapshot_cached_at"] = time.monotonic()
+            else:
+                entry.pop("snapshot", None)
+                entry.pop("snapshot_cached_at", None)
+            self._snapshot_cache.put(signature, cache_key, entry)
+            return result
 
     def get_board_revision(self, payload: dict | None = None) -> dict:
         with self._lock:
@@ -756,7 +774,7 @@ class SnapshotService:
                 if include_archive
                 else 0
             )
-            bundle = self._store.read_bundle()
+            bundle, signature = self._store.read_bundle_with_signature()
             cards = self._visible_cards(bundle["cards"], include_archived=False)
             archived_cards_total = sum(1 for card in bundle["cards"] if card.archived)
             archive = (
@@ -766,40 +784,56 @@ class SnapshotService:
             )
             stickies = self._stickies(bundle["stickies"])
             viewer_username = self._viewer_username(payload)
-            revision = self._snapshot_revision(
-                columns=bundle["columns"],
-                cards=cards,
-                archive=archive,
-                stickies=stickies,
-                events=bundle["events"],
-                settings=bundle["settings"],
+            cache_key = self._snapshot_cache.key(
                 viewer_username=viewer_username,
                 compact_cards=compact_cards,
                 include_archive=include_archive,
                 archive_limit=archive_limit,
             )
-            meta = {
-                "generated_at": utc_now_iso(),
-                "archive_limit": archive_limit,
-                "compact_cards": compact_cards,
-                "include_archive": include_archive,
-                "archived_cards_total": archived_cards_total,
-                "cards_returned": len(cards),
-                "archive_returned": len(archive),
-                "has_more_archive": include_archive and archived_cards_total > len(archive),
-                "stickies_returned": len(stickies),
-                "stickies_total": len(stickies),
-                "revision": revision,
-            }
-            return {
-                "revision": revision,
-                "counts": {
+            cache_entry = self._snapshot_cache.get(signature, cache_key)
+            if cache_entry is None or not cache_entry.get("revision"):
+                revision = self._snapshot_revision(
+                    columns=bundle["columns"],
+                    cards=cards,
+                    archive=archive,
+                    stickies=stickies,
+                    events=bundle["events"],
+                    settings=bundle["settings"],
+                    viewer_username=viewer_username,
+                    compact_cards=compact_cards,
+                    include_archive=include_archive,
+                    archive_limit=archive_limit,
+                )
+                counts = {
                     "columns": len(bundle["columns"]),
                     "cards": len(cards),
                     "archive": len(archive),
                     "archived_cards_total": archived_cards_total,
                     "stickies": len(stickies),
-                },
+                }
+                meta = build_snapshot_meta(
+                    archive_limit=archive_limit,
+                    compact_cards=compact_cards,
+                    include_archive=include_archive,
+                    archived_cards_total=archived_cards_total,
+                    cards_returned=len(cards),
+                    archive_returned=len(archive),
+                    stickies_returned=len(stickies),
+                    revision=revision,
+                )
+                cache_entry = {
+                    "revision": revision,
+                    "counts": counts,
+                    "meta": meta,
+                }
+                self._snapshot_cache.put(signature, cache_key, cache_entry)
+            revision = str(cache_entry["revision"])
+            counts = deepcopy(cache_entry["counts"])
+            meta = deepcopy(cache_entry["meta"])
+            meta["generated_at"] = utc_now_iso()
+            return {
+                "revision": revision,
+                "counts": counts,
                 "meta": meta,
             }
 

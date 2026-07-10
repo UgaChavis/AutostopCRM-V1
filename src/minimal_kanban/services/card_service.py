@@ -7,7 +7,6 @@ import json
 import math
 import re
 import shutil
-import threading
 import time
 import uuid
 import xml.etree.ElementTree as ET
@@ -20,7 +19,7 @@ from typing import Any
 
 from ..agent.knowledge import build_ai_chat_knowledge_packet
 from ..agent.openai_client import AgentModelError, OpenAIJsonAgentClient
-from ..config import ATTACHMENTS_DIR_NAME
+from ..config import ATTACHMENTS_DIR_NAME, get_fast_state_writes_enabled
 from ..demo_seed import build_demo_board
 from ..models import (
     CARD_BOARD_SUMMARY_LIMIT,
@@ -66,6 +65,7 @@ from ..models import (
     utc_now,
     utc_now_iso,
 )
+from ..performance import MeasuredRLock
 from ..printing.service import PrintModuleError, PrintModuleService
 from ..repair_order import (
     REPAIR_ORDER_COMMENT_LIMIT,
@@ -93,7 +93,7 @@ from ..storage.audit_archive import (
     details_need_archive,
     hydrate_audit_event_details,
 )
-from ..storage.json_store import JsonStore, default_columns
+from ..storage.json_store import JsonStore, StateWriteConflictError, default_columns
 from ..storage.limited_io import read_bytes_limited, read_text_limited
 from ..vehicle_profile import (
     VEHICLE_COMPACT_FIELDS,
@@ -543,7 +543,7 @@ class CardService(
     ) -> None:
         self._store = store
         self._logger = logger
-        self._lock = threading.RLock()
+        self._lock = MeasuredRLock("service_lock")
         self._agent_control: Any | None = None
         self._client_search_index_signature: tuple[Any, ...] | None = None
         self._client_search_index: dict[str, dict[str, Any]] = {}
@@ -5314,24 +5314,35 @@ class CardService(
         settings: dict[str, Any] | None = None,
         force_cleanup: bool = False,
     ) -> None:
-        written_bundle = self._store.write_bundle(
-            columns=columns,
-            cards=cards,
-            clients=bundle["clients"] if clients is None else clients,
-            stickies=bundle["stickies"] if stickies is None else stickies,
-            cashboxes=bundle["cashboxes"] if cashboxes is None else cashboxes,
-            cash_transactions=bundle["cash_transactions"]
+        write_arguments = {
+            "columns": columns,
+            "cards": cards,
+            "clients": bundle["clients"] if clients is None else clients,
+            "stickies": bundle["stickies"] if stickies is None else stickies,
+            "cashboxes": bundle["cashboxes"] if cashboxes is None else cashboxes,
+            "cash_transactions": bundle["cash_transactions"]
             if cash_transactions is None
             else cash_transactions,
-            inventory_items=bundle["inventory_items"]
+            "inventory_items": bundle["inventory_items"]
             if inventory_items is None
             else inventory_items,
-            inventory_movements=bundle["inventory_movements"]
+            "inventory_movements": bundle["inventory_movements"]
             if inventory_movements is None
             else inventory_movements,
-            events=events,
-            settings=bundle["settings"] if settings is None else settings,
-        )
+            "events": events,
+            "settings": bundle["settings"] if settings is None else settings,
+        }
+        try:
+            if get_fast_state_writes_enabled():
+                written_bundle = self._store.write_cached_bundle(bundle, **write_arguments)
+            else:
+                written_bundle = self._store.write_bundle(**write_arguments)
+        except StateWriteConflictError:
+            self._fail(
+                "state_write_conflict",
+                "Данные изменились параллельно. Обновите карточку и повторите действие.",
+                status_code=409,
+            )
         written_cards = written_bundle["cards"]
         self._cleanup_runtime_artifacts_if_due(written_cards, force=force_cleanup)
 

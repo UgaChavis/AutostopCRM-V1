@@ -107,6 +107,24 @@ def _read_env_int(
     return max(minimum, parsed)
 
 
+def _read_env_bool(name: str, default: bool) -> bool:
+    raw_value = os.environ.get(name)
+    if raw_value is None:
+        return default
+    normalized = raw_value.strip().casefold()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def get_fast_state_writes_enabled() -> bool:
+    """Return whether CardService may use the provenance-checked fast writer."""
+
+    return _read_env_bool("MINIMAL_KANBAN_FAST_STATE_WRITES", True)
+
+
 def get_api_host() -> str:
     return (
         os.environ.get("MINIMAL_KANBAN_API_HOST") or DEFAULT_API_HOST

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import math
-import threading
 import time
 from copy import deepcopy
 from datetime import timedelta
@@ -30,6 +29,7 @@ from ..models import (
     parse_datetime,
     utc_now,
 )
+from ..performance import MeasuredRLock, record_timing
 from ..services.ready_column import ensure_ready_column
 from ..texts import COLUMN_LABELS_RU
 from .file_lock import ProcessFileLock
@@ -108,14 +108,28 @@ class StateFileCorruptedError(RuntimeError):
     """Raised when state.json cannot be decoded without silently resetting data."""
 
 
+class StateWriteConflictError(RuntimeError):
+    """Raised when a cached bundle no longer matches the on-disk state."""
+
+
 class JsonStore:
     def __init__(self, state_file: Path | None = None, logger: Logger | None = None) -> None:
         self._state_file = state_file or get_state_file()
         self._logger = logger
-        self._lock = threading.RLock()
-        self._process_lock = ProcessFileLock(self._state_file.with_suffix(".lock"))
-        self._read_cache_signature: tuple[int, int] | None = None
+        self._lock = MeasuredRLock("store_lock")
+        self._process_lock = ProcessFileLock(
+            self._state_file.with_suffix(".lock"), metric_name="file_lock"
+        )
+        self._read_cache_signature: tuple[int, int, int, int] | None = None
         self._read_cache_bundle: dict[str, Any] | None = None
+        self._trusted_card_versions: dict[str, tuple[int, str]] = {}
+        self._trusted_client_versions: dict[str, tuple[int, str]] = {}
+        self._trusted_sticky_versions: dict[str, tuple[int, str]] = {}
+        self._trusted_cashbox_versions: dict[str, tuple[int, str]] = {}
+        self._trusted_cash_transaction_objects: set[int] = set()
+        self._trusted_inventory_item_versions: dict[str, tuple[int, str]] = {}
+        self._trusted_inventory_movement_objects: set[int] = set()
+        self._trusted_event_objects: set[int] = set()
         get_app_data_dir().mkdir(parents=True, exist_ok=True)
         self._state_file.parent.mkdir(parents=True, exist_ok=True)
         if not self._state_file.exists():
@@ -127,6 +141,11 @@ class JsonStore:
         return self._state_file.parent
 
     def read_bundle(self) -> dict[str, Any]:
+        return self.read_bundle_with_signature()[0]
+
+    def read_bundle_with_signature(
+        self,
+    ) -> tuple[dict[str, Any], tuple[int, int, int, int] | None]:
         started_at = time.perf_counter()
         with self._lock:
             with self._process_lock.acquire():
@@ -136,7 +155,7 @@ class JsonStore:
                     and signature == self._read_cache_signature
                     and self._read_cache_bundle is not None
                 ):
-                    return self._read_cache_bundle
+                    return self._read_cache_bundle, signature
                 state = self._read_state()
                 columns, columns_repaired = self._normalize_columns(state)
                 cards, cards_repaired = self._normalize_cards(state, columns)
@@ -197,10 +216,9 @@ class JsonStore:
                     "events": events,
                     "settings": settings,
                 }
-                self._read_cache_signature = self._state_signature()
-                self._read_cache_bundle = bundle
+                self._set_read_cache(bundle, self._state_signature())
                 self._log_slow_operation("read_bundle", started_at)
-                return bundle
+                return bundle, self._read_cache_signature
 
     def write_bundle(
         self,
@@ -219,6 +237,11 @@ class JsonStore:
         started_at = time.perf_counter()
         with self._lock:
             with self._process_lock.acquire():
+                # The caller may already have mutated the cached domain objects. Drop
+                # their provenance before any fallible normalization or I/O so a
+                # failed legacy write can never be observed as persisted state.
+                self._invalidate_read_cache()
+                normalize_started_at = time.perf_counter()
                 current_state: dict[str, Any] | None = None
                 if (
                     settings is None
@@ -271,26 +294,6 @@ class JsonStore:
                 )
                 normalized_events = self._normalize_events_payload(events)
                 normalized_settings = self._normalize_settings_payload(settings)
-                state = {
-                    "schema_version": DEFAULT_STATE["schema_version"],
-                    "columns": [column.to_dict() for column in normalized_columns],
-                    "cards": [card.to_storage_dict() for card in normalized_cards],
-                    "clients": [client.to_storage_dict() for client in normalized_clients],
-                    "stickies": [sticky.to_storage_dict() for sticky in normalized_stickies],
-                    "cashboxes": [cashbox.to_storage_dict() for cashbox in normalized_cashboxes],
-                    "cash_transactions": [
-                        transaction.to_storage_dict()
-                        for transaction in normalized_cash_transactions
-                    ],
-                    "inventory_items": [
-                        item.to_storage_dict() for item in normalized_inventory_items
-                    ],
-                    "inventory_movements": [
-                        movement.to_storage_dict() for movement in normalized_inventory_movements
-                    ],
-                    "events": [event.to_dict() for event in normalized_events],
-                    "settings": normalized_settings,
-                }
                 bundle = {
                     "columns": normalized_columns,
                     "cards": normalized_cards,
@@ -303,11 +306,94 @@ class JsonStore:
                     "events": normalized_events,
                     "settings": normalized_settings,
                 }
-                self._write_state(state)
-                self._read_cache_signature = self._state_signature()
-                self._read_cache_bundle = bundle
-                self._log_slow_operation("write_bundle", started_at)
+                normalize_ms = (time.perf_counter() - normalize_started_at) * 1000
+                record_timing("normalize", normalize_ms)
+                state_started_at = time.perf_counter()
+                state = self._state_from_bundle(bundle)
+                state_conversion_ms = (time.perf_counter() - state_started_at) * 1000
+                record_timing("serialize", state_conversion_ms)
+                json_serialize_ms, write_ms = self._write_state(state)
+                self._set_read_cache(bundle, self._state_signature())
+                total_ms = (time.perf_counter() - started_at) * 1000
+                record_timing("storage", total_ms)
+                self._log_write_metrics(
+                    mode="normalized",
+                    total_ms=total_ms,
+                    normalize_ms=normalize_ms,
+                    serialize_ms=state_conversion_ms + json_serialize_ms,
+                    write_ms=write_ms,
+                )
                 return bundle
+
+    def write_cached_bundle(
+        self,
+        source_bundle: dict[str, Any],
+        *,
+        columns: list[Column],
+        cards: list[Card],
+        clients: list[ClientProfile],
+        stickies: list[StickyNote],
+        cashboxes: list[CashBox],
+        cash_transactions: list[CashTransaction],
+        inventory_items: list[InventoryItem],
+        inventory_movements: list[InventoryMovement],
+        events: list[AuditEvent],
+        settings: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Persist a bundle already normalized by this store, failing closed on drift."""
+
+        started_at = time.perf_counter()
+        with self._lock:
+            with self._process_lock.acquire():
+                current_signature = self._state_signature()
+                if (
+                    source_bundle is not self._read_cache_bundle
+                    or current_signature is None
+                    or current_signature != self._read_cache_signature
+                ):
+                    self._invalidate_read_cache()
+                    record_timing("storage", (time.perf_counter() - started_at) * 1000)
+                    raise StateWriteConflictError(
+                        "Cached state no longer matches state.json; reload before writing."
+                    )
+                try:
+                    normalize_started_at = time.perf_counter()
+                    bundle = self._prepare_cached_bundle(
+                        columns=columns,
+                        cards=cards,
+                        clients=clients,
+                        stickies=stickies,
+                        cashboxes=cashboxes,
+                        cash_transactions=cash_transactions,
+                        inventory_items=inventory_items,
+                        inventory_movements=inventory_movements,
+                        events=events,
+                        settings=settings,
+                    )
+                    normalize_ms = (time.perf_counter() - normalize_started_at) * 1000
+                    record_timing("normalize", normalize_ms)
+                    state_started_at = time.perf_counter()
+                    state = self._state_from_bundle(bundle)
+                    state_conversion_ms = (time.perf_counter() - state_started_at) * 1000
+                    record_timing("serialize", state_conversion_ms)
+                    json_serialize_ms, write_ms = self._write_state(state, already_safe=True)
+                except Exception:
+                    self._invalidate_read_cache()
+                    record_timing("storage", (time.perf_counter() - started_at) * 1000)
+                    raise
+                source_bundle.clear()
+                source_bundle.update(bundle)
+                self._set_read_cache(source_bundle, self._state_signature())
+                total_ms = (time.perf_counter() - started_at) * 1000
+                record_timing("storage", total_ms)
+                self._log_write_metrics(
+                    mode="cached",
+                    total_ms=total_ms,
+                    normalize_ms=normalize_ms,
+                    serialize_ms=state_conversion_ms + json_serialize_ms,
+                    write_ms=write_ms,
+                )
+                return source_bundle
 
     def read_cards(self) -> list[Card]:
         return self.read_bundle()["cards"]
@@ -414,6 +500,184 @@ class JsonStore:
             settings=bundle["settings"],
         )
 
+    @staticmethod
+    def _validated_domain_list(values: list[Any], expected_type: type, label: str) -> list[Any]:
+        if not isinstance(values, list) or any(
+            not isinstance(item, expected_type) for item in values
+        ):
+            raise ValueError(f"Cached {label} bundle contains an invalid item type.")
+        return list(values)
+
+    @staticmethod
+    def _require_unique(values: list[Any], key, label: str) -> None:
+        seen: set[Any] = set()
+        for item in values:
+            marker = key(item)
+            if marker in seen:
+                raise ValueError(f"Cached {label} bundle contains a duplicate key.")
+            seen.add(marker)
+
+    def _prepare_cached_bundle(
+        self,
+        *,
+        columns: list[Column],
+        cards: list[Card],
+        clients: list[ClientProfile],
+        stickies: list[StickyNote],
+        cashboxes: list[CashBox],
+        cash_transactions: list[CashTransaction],
+        inventory_items: list[InventoryItem],
+        inventory_movements: list[InventoryMovement],
+        events: list[AuditEvent],
+        settings: dict[str, Any],
+    ) -> dict[str, Any]:
+        trusted_columns = self._validated_domain_list(columns, Column, "columns")
+        if not trusted_columns:
+            raise ValueError("Cached columns bundle cannot be empty.")
+        self._require_unique(trusted_columns, lambda item: item.id, "columns")
+        self._require_unique(trusted_columns, lambda item: item.label.casefold(), "column labels")
+        for position, column in enumerate(trusted_columns):
+            column.position = position
+        trusted_columns = self._normalize_columns_payload(trusted_columns)
+
+        trusted_cards = self._validated_domain_list(cards, Card, "cards")
+        self._require_unique(trusted_cards, lambda item: item.id, "cards")
+        valid_column_ids = {column.id for column in trusted_columns}
+        if any(card.column not in valid_column_ids for card in trusted_cards):
+            raise ValueError("Cached cards bundle references an unknown column.")
+        trusted_cards = [
+            card
+            if self._trusted_card_versions.get(card.id) == (id(card), card.updated_at)
+            else Card.from_dict(
+                card.to_storage_dict(),
+                valid_columns=valid_column_ids,
+                default_column=trusted_columns[0].id,
+                fallback_position=index,
+            )
+            for index, card in enumerate(trusted_cards)
+        ]
+        trusted_cards, _ = self._apply_card_retention(trusted_cards)
+        self._normalize_card_positions(trusted_cards)
+
+        trusted_clients = self._validated_domain_list(clients, ClientProfile, "clients")
+        self._require_unique(trusted_clients, lambda item: item.id, "clients")
+        trusted_clients = [
+            client
+            if self._trusted_client_versions.get(client.id) == (id(client), client.updated_at)
+            else ClientProfile.from_dict(client.to_storage_dict())
+            for client in trusted_clients
+        ]
+        trusted_clients.sort(key=lambda item: (item.name().casefold(), item.created_at, item.id))
+
+        trusted_stickies = self._validated_domain_list(stickies, StickyNote, "stickies")
+        self._require_unique(trusted_stickies, lambda item: item.id, "stickies")
+        trusted_stickies = [
+            sticky
+            if self._trusted_sticky_versions.get(sticky.id) == (id(sticky), sticky.updated_at)
+            else StickyNote.from_dict(sticky.to_storage_dict())
+            for sticky in trusted_stickies
+        ]
+
+        trusted_cashboxes = self._validated_domain_list(cashboxes, CashBox, "cashboxes")
+        self._require_unique(trusted_cashboxes, lambda item: item.id, "cashboxes")
+        self._require_unique(trusted_cashboxes, lambda item: item.name.casefold(), "cashbox names")
+        trusted_cashboxes = [
+            cashbox
+            if self._trusted_cashbox_versions.get(cashbox.id) == (id(cashbox), cashbox.updated_at)
+            else CashBox.from_dict(cashbox.to_storage_dict())
+            for cashbox in trusted_cashboxes
+        ]
+        trusted_cashboxes = self._normalize_cashboxes_payload(trusted_cashboxes)
+
+        trusted_cash_transactions = self._validated_domain_list(
+            cash_transactions, CashTransaction, "cash transactions"
+        )
+        self._require_unique(trusted_cash_transactions, lambda item: item.id, "cash transactions")
+        valid_cashbox_ids = {item.id for item in trusted_cashboxes}
+        if any(item.cashbox_id not in valid_cashbox_ids for item in trusted_cash_transactions):
+            raise ValueError("Cached cash transaction references an unknown cashbox.")
+        trusted_cash_transactions = [
+            transaction
+            if id(transaction) in self._trusted_cash_transaction_objects
+            else CashTransaction.from_dict(transaction.to_storage_dict())
+            for transaction in trusted_cash_transactions
+        ]
+        trusted_cash_transactions.sort(key=lambda item: (item.created_at, item.id))
+
+        trusted_inventory_items = self._validated_domain_list(
+            inventory_items, InventoryItem, "inventory items"
+        )
+        self._require_unique(trusted_inventory_items, lambda item: item.id, "inventory items")
+        trusted_inventory_items = [
+            item
+            if self._trusted_inventory_item_versions.get(item.id) == (id(item), item.updated_at)
+            else InventoryItem.from_dict(item.to_storage_dict())
+            for item in trusted_inventory_items
+        ]
+        trusted_inventory_items.sort(
+            key=lambda item: (item.name.casefold(), item.catalog_number.casefold(), item.id)
+        )
+
+        trusted_inventory_movements = self._validated_domain_list(
+            inventory_movements, InventoryMovement, "inventory movements"
+        )
+        self._require_unique(
+            trusted_inventory_movements, lambda item: item.id, "inventory movements"
+        )
+        valid_inventory_ids = {item.id for item in trusted_inventory_items}
+        if any(item.item_id not in valid_inventory_ids for item in trusted_inventory_movements):
+            raise ValueError("Cached inventory movement references an unknown item.")
+        trusted_inventory_movements = [
+            movement
+            if id(movement) in self._trusted_inventory_movement_objects
+            else InventoryMovement.from_dict(movement.to_storage_dict())
+            for movement in trusted_inventory_movements
+        ]
+        trusted_inventory_movements.sort(key=lambda item: (item.created_at, item.id))
+
+        trusted_events = self._validated_domain_list(events, AuditEvent, "events")
+        self._require_unique(trusted_events, lambda item: item.id, "events")
+        trusted_events = [
+            event
+            if id(event) in self._trusted_event_objects
+            else AuditEvent.from_dict(_json_safe_dict(event.to_dict()))
+            for event in trusted_events
+        ]
+        trusted_events, _ = self._apply_event_retention(trusted_events)
+        normalized_settings = self._normalize_settings_payload(settings)
+        return {
+            "columns": trusted_columns,
+            "cards": trusted_cards,
+            "clients": trusted_clients,
+            "stickies": trusted_stickies,
+            "cashboxes": trusted_cashboxes,
+            "cash_transactions": trusted_cash_transactions,
+            "inventory_items": trusted_inventory_items,
+            "inventory_movements": trusted_inventory_movements,
+            "events": trusted_events,
+            "settings": normalized_settings,
+        }
+
+    @staticmethod
+    def _state_from_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "schema_version": DEFAULT_STATE["schema_version"],
+            "columns": [column.to_dict() for column in bundle["columns"]],
+            "cards": [card.to_storage_dict() for card in bundle["cards"]],
+            "clients": [client.to_storage_dict() for client in bundle["clients"]],
+            "stickies": [sticky.to_storage_dict() for sticky in bundle["stickies"]],
+            "cashboxes": [cashbox.to_storage_dict() for cashbox in bundle["cashboxes"]],
+            "cash_transactions": [
+                transaction.to_storage_dict() for transaction in bundle["cash_transactions"]
+            ],
+            "inventory_items": [item.to_storage_dict() for item in bundle["inventory_items"]],
+            "inventory_movements": [
+                movement.to_storage_dict() for movement in bundle["inventory_movements"]
+            ],
+            "events": [event.to_dict() for event in bundle["events"]],
+            "settings": bundle["settings"],
+        }
+
     def _read_state(self) -> dict:
         if not self._state_file.exists():
             return deepcopy(DEFAULT_STATE)
@@ -464,33 +728,108 @@ class JsonStore:
                 return candidate
         return self._state_file.with_name(f"{stem}.corrupted-{time.time_ns()}.json")
 
-    def _write_state(self, state: dict) -> None:
-        safe_state = _json_safe_dict(state)
+    def _write_state(self, state: dict, *, already_safe: bool = False) -> tuple[float, float]:
+        serialize_started_at = time.perf_counter()
+        safe_state = state if already_safe else _json_safe_dict(state)
         payload = json.dumps(
             safe_state,
             ensure_ascii=False,
             separators=(",", ":"),
             allow_nan=False,
         )
-        if len(payload.encode("utf-8")) > JSON_STORE_STATE_MAX_BYTES:
+        payload_bytes = len(payload.encode("utf-8"))
+        if payload_bytes > JSON_STORE_STATE_MAX_BYTES:
             raise ValueError("state file is too large")
+        serialize_ms = (time.perf_counter() - serialize_started_at) * 1000
+        record_timing("serialize", serialize_ms)
         temp_file = self._state_file.with_name(f".{self._state_file.name}.{uuid4().hex}.tmp")
+        write_started_at = time.perf_counter()
         try:
             temp_file.write_text(payload, encoding="utf-8")
             temp_file.replace(self._state_file)
         finally:
             temp_file.unlink(missing_ok=True)
+            write_ms = (time.perf_counter() - write_started_at) * 1000
+            record_timing("write", write_ms)
+        written_signature = self._state_signature()
+        if written_signature is None or written_signature[3] != payload_bytes:
+            raise OSError("state file post-write verification failed")
+        return serialize_ms, write_ms
 
-    def _state_signature(self) -> tuple[int, int] | None:
+    def _state_signature(self) -> tuple[int, int, int, int] | None:
         try:
             stat = self._state_file.stat()
         except FileNotFoundError:
             return None
-        return stat.st_mtime_ns, stat.st_size
+        return stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_size
 
     def _invalidate_read_cache(self) -> None:
         self._read_cache_signature = None
         self._read_cache_bundle = None
+        self._trusted_card_versions.clear()
+        self._trusted_client_versions.clear()
+        self._trusted_sticky_versions.clear()
+        self._trusted_cashbox_versions.clear()
+        self._trusted_cash_transaction_objects.clear()
+        self._trusted_inventory_item_versions.clear()
+        self._trusted_inventory_movement_objects.clear()
+        self._trusted_event_objects.clear()
+
+    def _set_read_cache(
+        self,
+        bundle: dict[str, Any],
+        signature: tuple[int, int, int, int] | None,
+    ) -> None:
+        self._read_cache_signature = signature
+        self._read_cache_bundle = bundle
+        self._trusted_card_versions = {
+            card.id: (id(card), card.updated_at) for card in bundle["cards"]
+        }
+        self._trusted_client_versions = {
+            client.id: (id(client), client.updated_at) for client in bundle["clients"]
+        }
+        self._trusted_sticky_versions = {
+            sticky.id: (id(sticky), sticky.updated_at) for sticky in bundle["stickies"]
+        }
+        self._trusted_cashbox_versions = {
+            cashbox.id: (id(cashbox), cashbox.updated_at) for cashbox in bundle["cashboxes"]
+        }
+        self._trusted_cash_transaction_objects = {
+            id(transaction) for transaction in bundle["cash_transactions"]
+        }
+        self._trusted_inventory_item_versions = {
+            item.id: (id(item), item.updated_at) for item in bundle["inventory_items"]
+        }
+        self._trusted_inventory_movement_objects = {
+            id(movement) for movement in bundle["inventory_movements"]
+        }
+        self._trusted_event_objects = {id(event) for event in bundle["events"]}
+
+    def _log_write_metrics(
+        self,
+        *,
+        mode: str,
+        total_ms: float,
+        normalize_ms: float,
+        serialize_ms: float,
+        write_ms: float,
+    ) -> None:
+        if self._logger is None:
+            return
+        try:
+            state_size = self._state_file.stat().st_size
+        except OSError:
+            state_size = 0
+        self._logger.debug(
+            "json_store_write_metrics mode=%s total_ms=%.1f normalize_ms=%.1f "
+            "serialize_ms=%.1f write_ms=%.1f state_bytes=%s",
+            mode,
+            total_ms,
+            normalize_ms,
+            serialize_ms,
+            write_ms,
+            state_size,
+        )
 
     def _log_slow_operation(self, operation: str, started_at: float) -> None:
         duration_ms = (time.perf_counter() - started_at) * 1000
