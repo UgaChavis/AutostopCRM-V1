@@ -43,6 +43,14 @@ PLAYWRIGHT_CLOSE_TIMEOUT_SECONDS = 10.0
 BENIGN_UI_PERF_ERRORS = {"AbortError"}
 PERF_WORKFLOW_RESPONSE_MAX_BYTES = 4 * 1024 * 1024
 PERF_WORKFLOW_STATE_FILE_MAX_BYTES = 100 * 1024 * 1024
+SYNTHETIC_STATE_MIN_BYTES = 10 * 1024 * 1024
+SYNTHETIC_STATE_PROFILE = "current-production"
+SYNTHETIC_STATE_COUNTS = {
+    "cards": 620,
+    "clients": 4000,
+    "events": 5000,
+    "cash_transactions": 1500,
+}
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -236,14 +244,35 @@ def summarize_samples(samples: list[dict[str, Any]], *, scenario: str) -> dict[s
         for entry in (item.get("ui_perf_entries") or [])
         if isinstance(entry, dict)
     ]
+    phase_values: dict[str, list[float]] = {}
+    for item in samples:
+        phase_timings = item.get("phase_timings")
+        if not isinstance(phase_timings, dict):
+            continue
+        for name, value in phase_timings.items():
+            duration_ms = _safe_float(value, default=-1.0)
+            if duration_ms < 0:
+                continue
+            phase_values.setdefault(str(name), []).append(duration_ms)
     return {
         "scenario": scenario,
         "iterations": len(samples),
         "avg_ms": round(statistics.mean(durations), 1) if durations else 0.0,
         "min_ms": round(min(durations), 1) if durations else 0.0,
+        "p50_ms": round(percentile(durations, 0.50), 1),
         "max_ms": round(max(durations), 1) if durations else 0.0,
         "p95_ms": round(percentile(durations, 0.95), 1),
-        "server_timing": server_timings[-5:],
+        "server_timing": server_timings,
+        "phase_timings": {
+            name: {
+                "samples": len(values),
+                "avg_ms": round(statistics.mean(values), 1),
+                "p50_ms": round(percentile(values, 0.50), 1),
+                "p95_ms": round(percentile(values, 0.95), 1),
+                "max_ms": round(max(values), 1),
+            }
+            for name, values in sorted(phase_values.items())
+        },
         "request_count": round(statistics.mean(request_counts), 1) if request_counts else 0.0,
         "payload_bytes": round(statistics.mean(payload_sizes)) if payload_sizes else 0,
         "ui_perf_entries": ui_entries[-20:],
@@ -286,9 +315,11 @@ def skipped_row(scenario: str, reason: str) -> dict[str, Any]:
         "reason": reason,
         "avg_ms": 0.0,
         "min_ms": 0.0,
+        "p50_ms": 0.0,
         "max_ms": 0.0,
         "p95_ms": 0.0,
         "server_timing": [],
+        "phase_timings": {},
         "request_count": 0,
         "payload_bytes": 0,
         "ui_perf_entries": [],
@@ -1152,6 +1183,259 @@ def response_size(payload: dict[str, Any]) -> int:
     return len(_json_dumps(payload, separators=(",", ":")).encode("utf-8"))
 
 
+def build_synthetic_current_production_state() -> dict[str, Any]:
+    """Build deterministic, non-business data with the current production shape."""
+
+    timestamp = "2099-01-01T00:00:00+00:00"
+    columns = [
+        {"id": "inbox", "label": "ВХОДЯЩИЕ", "position": 0},
+        {"id": "diagnosis", "label": "ДИАГНОСТИКА", "position": 1},
+        {"id": "repair", "label": "РЕМОНТ", "position": 2},
+        {"id": "done", "label": "ГОТОВО", "position": 3},
+    ]
+    card_filler = "D" * 6900
+    cards = [
+        {
+            "id": f"perf-card-{index:04d}",
+            "vehicle": f"SYNTHETIC-{index:04d}",
+            "title": f"Performance card {index:04d}",
+            "description": f"Synthetic performance payload {index:04d} {card_filler}",
+            "column": columns[index % len(columns)]["id"],
+            "position": index // len(columns),
+            "archived": False,
+            "created_at": timestamp,
+            "updated_at": timestamp,
+            "notification_updated_at": timestamp,
+            "deadline_timestamp": timestamp,
+            "deadline_total_seconds": 173700,
+            "client_id": f"perf-client-{index % SYNTHETIC_STATE_COUNTS['clients']:04d}",
+            "vehicle_profile": {},
+            "repair_order": {},
+            "tags": [],
+            "attachments": [],
+            "seen_by_users": {},
+        }
+        for index in range(SYNTHETIC_STATE_COUNTS["cards"])
+    ]
+    client_filler = "C" * 850
+    clients = [
+        {
+            "id": f"perf-client-{index:04d}",
+            "client_type": "person",
+            "display_name": f"Synthetic client {index:04d}",
+            "comment": f"Synthetic profile {index:04d} {client_filler}",
+            "vehicles": [],
+            "created_at": timestamp,
+            "updated_at": timestamp,
+        }
+        for index in range(SYNTHETIC_STATE_COUNTS["clients"])
+    ]
+    event_filler = "E" * 300
+    events = [
+        {
+            "id": f"perf-event-{index:05d}",
+            "timestamp": timestamp,
+            "actor_name": "PERF",
+            "source": "system",
+            "action": "performance_event",
+            "message": f"Synthetic performance event {index:05d}",
+            "details": {"payload": event_filler, "sequence": index},
+            "card_id": f"perf-card-{index % SYNTHETIC_STATE_COUNTS['cards']:04d}",
+        }
+        for index in range(SYNTHETIC_STATE_COUNTS["events"])
+    ]
+    cashboxes = [
+        {
+            "id": f"perf-cashbox-{index}",
+            "name": f"PERF CASHBOX {index}",
+            "order": index,
+            "created_at": timestamp,
+            "updated_at": timestamp,
+        }
+        for index in range(5)
+    ]
+    transaction_filler = "T" * 180
+    cash_transactions = [
+        {
+            "id": f"perf-transaction-{index:05d}",
+            "cashbox_id": cashboxes[index % len(cashboxes)]["id"],
+            "direction": "income" if index % 2 == 0 else "expense",
+            "amount_minor": 10_000 + index,
+            "note": f"Perf {index:05d} {transaction_filler}",
+            "created_at": timestamp,
+            "actor_name": "PERF",
+            "source": "system",
+            "transaction_kind": "performance",
+        }
+        for index in range(SYNTHETIC_STATE_COUNTS["cash_transactions"])
+    ]
+    return {
+        "schema_version": 9,
+        "columns": columns,
+        "cards": cards,
+        "clients": clients,
+        "stickies": [],
+        "cashboxes": cashboxes,
+        "cash_transactions": cash_transactions,
+        "inventory_items": [],
+        "inventory_movements": [],
+        "events": events,
+        "settings": {
+            "has_seen_onboarding": True,
+            "board_scale": 1.0,
+            "ready_column_id": "done",
+            "ai_board_control": {
+                "enabled": False,
+                "interval_minutes": 20,
+                "cooldown_minutes": 60,
+            },
+        },
+    }
+
+
+def write_synthetic_current_production_state(state_file: Path) -> dict[str, Any]:
+    state = build_synthetic_current_production_state()
+    state_file.write_text(
+        _json_dumps(state, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    state_bytes = state_file.stat().st_size
+    if state_bytes < SYNTHETIC_STATE_MIN_BYTES:
+        raise ValueError(
+            f"synthetic state is too small: {state_bytes} < {SYNTHETIC_STATE_MIN_BYTES}"
+        )
+    return {
+        "profile": SYNTHETIC_STATE_PROFILE,
+        "state_bytes": state_bytes,
+        "counts": dict(SYNTHETIC_STATE_COUNTS),
+    }
+
+
+def _timed_with_phases(callable_obj: Callable[[], Any]) -> tuple[float, Any, dict[str, float]]:
+    from minimal_kanban.performance import request_performance_trace
+
+    with request_performance_trace() as trace:
+        started_at = time.perf_counter()
+        result = callable_obj()
+        duration_ms = (time.perf_counter() - started_at) * 1000
+    return duration_ms, result, dict(trace.durations_ms)
+
+
+def _cached_write_arguments(bundle: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "columns": bundle["columns"],
+        "cards": bundle["cards"],
+        "clients": bundle["clients"],
+        "stickies": bundle["stickies"],
+        "cashboxes": bundle["cashboxes"],
+        "cash_transactions": bundle["cash_transactions"],
+        "inventory_items": bundle["inventory_items"],
+        "inventory_movements": bundle["inventory_movements"],
+        "events": bundle["events"],
+        "settings": bundle["settings"],
+    }
+
+
+def _run_stage1_state_file_benchmark(
+    *,
+    args: argparse.Namespace,
+    source: Path,
+    state_file: Path,
+    store: Any,
+    service: Any,
+    card_id: str,
+) -> dict[str, Any]:
+    raw_samples: dict[str, list[dict[str, Any]]] = {
+        "backend.get_card": [],
+        "backend.get_board_revision_cached": [],
+        "backend.update_card": [],
+        "storage.write_cached_bundle": [],
+    }
+
+    def run_iteration(index: int, *, collect: bool) -> None:
+        duration_ms, result, phase_timings = _timed_with_phases(
+            lambda: service.get_card({"card_id": card_id})
+        )
+        if collect:
+            raw_samples["backend.get_card"].append(
+                {
+                    "duration_ms": duration_ms,
+                    "payload_bytes": response_size(result),
+                    "phase_timings": phase_timings,
+                }
+            )
+
+        revision_payload = {
+            "compact": True,
+            "include_archive": False,
+            "actor_name": "PERF",
+        }
+        service.get_board_revision(revision_payload)
+        duration_ms, result, phase_timings = _timed_with_phases(
+            lambda: service.get_board_revision(revision_payload)
+        )
+        if collect:
+            raw_samples["backend.get_board_revision_cached"].append(
+                {
+                    "duration_ms": duration_ms,
+                    "payload_bytes": response_size(result),
+                    "phase_timings": phase_timings,
+                }
+            )
+
+        duration_ms, result, phase_timings = _timed_with_phases(
+            lambda: service.update_card(
+                {
+                    "card_id": card_id,
+                    "description": f"Stage 1 performance update {index:04d}",
+                    "actor_name": "PERF",
+                    "source": "api",
+                }
+            )
+        )
+        if collect:
+            raw_samples["backend.update_card"].append(
+                {
+                    "duration_ms": duration_ms,
+                    "payload_bytes": response_size(result),
+                    "phase_timings": phase_timings,
+                }
+            )
+
+        bundle = store.read_bundle()
+        duration_ms, _, phase_timings = _timed_with_phases(
+            lambda: store.write_cached_bundle(
+                bundle,
+                **_cached_write_arguments(bundle),
+            )
+        )
+        if collect:
+            raw_samples["storage.write_cached_bundle"].append(
+                {
+                    "duration_ms": duration_ms,
+                    "payload_bytes": state_file.stat().st_size,
+                    "phase_timings": phase_timings,
+                }
+            )
+
+    for index in range(max(0, args.warmup_iterations)):
+        run_iteration(index, collect=False)
+    for index in range(max(1, args.iterations)):
+        run_iteration(args.warmup_iterations + index, collect=True)
+
+    rows = [
+        summarize_samples(samples, scenario=scenario) for scenario, samples in raw_samples.items()
+    ]
+    return {
+        "state_file": str(source),
+        "state_copy_bytes": state_file.stat().st_size,
+        "card_id": card_id,
+        "stage1_only": True,
+        "warmup_iterations": args.warmup_iterations,
+        "rows": rows,
+    }
+
+
 def run_state_file_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     from minimal_kanban.services.card_service import CardService
     from minimal_kanban.storage.json_store import JsonStore
@@ -1195,6 +1479,16 @@ def run_state_file_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             columns = list(bundle["columns"])
             if not any(column.id == str(created_column["id"]) for column in columns):
                 columns = list(bundle["columns"])
+
+        if args.stage1_only:
+            return _run_stage1_state_file_benchmark(
+                args=args,
+                source=source,
+                state_file=state_file,
+                store=store,
+                service=service,
+                card_id=card_id,
+            )
 
         def timed(callable_obj: Callable[[], Any]) -> tuple[float, Any]:
             started_at = time.perf_counter()
@@ -1329,6 +1623,9 @@ def evaluate_thresholds(
         "backend.move_card": args.max_backend_write_ms,
         "backend.mark_card_seen": args.max_backend_write_ms,
         "storage.write_bundle": args.max_backend_write_ms,
+        "storage.write_cached_bundle": getattr(args, "max_storage_write_ms", 0.0),
+        "backend.get_board_revision_cached": getattr(args, "max_revision_server_ms", 0.0),
+        "backend.get_card": getattr(args, "max_get_card_direct_ms", 0.0),
     }
     violations: list[dict[str, Any]] = []
     for row in rows:
@@ -1361,12 +1658,12 @@ def evaluate_thresholds(
             threshold = args.max_open_modal_ms
         if not threshold or threshold <= 0:
             continue
-        actual = _safe_float(row.get("avg_ms"))
+        actual = _safe_float(row.get("p95_ms"))
         if actual > threshold:
             violations.append(
                 {
                     "scenario": scenario,
-                    "metric": "avg_ms",
+                    "metric": "p95_ms",
                     "actual": round(actual, 1),
                     "max": float(threshold),
                 }
@@ -1381,12 +1678,19 @@ def main() -> int:
     )
     parser.add_argument("--base-url", default="https://crm.autostopcrm.ru")
     parser.add_argument("--iterations", default=3)
+    parser.add_argument("--warmup-iterations", default=0)
     parser.add_argument("--card-id", default="")
     parser.add_argument("--operator-token", default="")
     parser.add_argument("--operator-username", default="")
     parser.add_argument("--operator-password", default="")
     parser.add_argument("--state-file", default="")
+    parser.add_argument(
+        "--synthetic-state-profile",
+        default="",
+        choices=(SYNTHETIC_STATE_PROFILE,),
+    )
     parser.add_argument("--local-temp-server", action="store_true")
+    parser.add_argument("--stage1-only", action="store_true")
     parser.add_argument("--allow-write-workflows", action="store_true")
     parser.add_argument("--skip-browser", action="store_true")
     parser.add_argument("--headed", action="store_true")
@@ -1396,9 +1700,17 @@ def main() -> int:
     parser.add_argument("--max-move-card-ms", default=0.0)
     parser.add_argument("--max-open-modal-ms", default=0.0)
     parser.add_argument("--max-backend-write-ms", default=0.0)
+    parser.add_argument("--max-storage-write-ms", default=0.0)
+    parser.add_argument("--max-revision-server-ms", default=0.0)
+    parser.add_argument("--max-get-card-direct-ms", default=0.0)
     parser.add_argument("--browser-timeout-seconds", default=DEFAULT_BROWSER_TIMEOUT_SECONDS)
     args = parser.parse_args()
     args.iterations = _bounded_iterations(args.iterations)
+    args.warmup_iterations = _safe_int(
+        args.warmup_iterations,
+        default=0,
+        maximum=100,
+    )
     args.start_port = _bounded_port(args.start_port, default=42831)
     args.max_open_card_ms = _bounded_float(args.max_open_card_ms, default=0.0, maximum=3_600_000.0)
     args.max_save_card_ms = _bounded_float(args.max_save_card_ms, default=0.0, maximum=3_600_000.0)
@@ -1411,16 +1723,38 @@ def main() -> int:
         default=0.0,
         maximum=3_600_000.0,
     )
+    args.max_storage_write_ms = _bounded_float(
+        args.max_storage_write_ms,
+        default=0.0,
+        maximum=3_600_000.0,
+    )
+    args.max_revision_server_ms = _bounded_float(
+        args.max_revision_server_ms,
+        default=0.0,
+        maximum=3_600_000.0,
+    )
+    args.max_get_card_direct_ms = _bounded_float(
+        args.max_get_card_direct_ms,
+        default=0.0,
+        maximum=3_600_000.0,
+    )
     args.browser_timeout_seconds = browser_timeout_seconds(args)
+    if args.state_file and args.synthetic_state_profile:
+        parser.error("--state-file and --synthetic-state-profile are mutually exclusive")
+    if args.stage1_only and not args.state_file and not args.synthetic_state_profile:
+        args.synthetic_state_profile = SYNTHETIC_STATE_PROFILE
 
     output: dict[str, Any] = {
         "iterations": args.iterations,
+        "warmup_iterations": args.warmup_iterations,
         "safe_mode": {
             "local_temp_server": bool(args.local_temp_server),
             "allow_write_workflows": bool(args.allow_write_workflows),
             "external_write_workflows_enabled": bool(
                 args.allow_write_workflows and not args.local_temp_server
             ),
+            "stage1_only": bool(args.stage1_only),
+            "synthetic_state_profile": args.synthetic_state_profile,
         },
         "browser": None,
         "state_file_benchmark": None,
@@ -1437,6 +1771,15 @@ def main() -> int:
         state_result = run_state_file_benchmark(args)
         output["state_file_benchmark"] = state_result
         output["rows"].extend(state_result.get("rows") or [])
+    elif args.synthetic_state_profile:
+        with tempfile.TemporaryDirectory(prefix="autostop-perf-synthetic-") as temp_dir:
+            synthetic_state_file = Path(temp_dir) / "state.json"
+            synthetic_meta = write_synthetic_current_production_state(synthetic_state_file)
+            args.state_file = str(synthetic_state_file)
+            state_result = run_state_file_benchmark(args)
+            state_result["synthetic"] = synthetic_meta
+            output["state_file_benchmark"] = state_result
+            output["rows"].extend(state_result.get("rows") or [])
     output["ranked_findings"] = ranked_findings(output["rows"])
     output["violations"] = evaluate_thresholds(output["rows"], args)
     output["threshold_status"] = "failed" if output["violations"] else "passed"

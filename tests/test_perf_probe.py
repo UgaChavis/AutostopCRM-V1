@@ -94,6 +94,71 @@ class PerfProbeTests(unittest.TestCase):
         self.assertEqual(module._bounded_threshold(1e308), module.PERF_PROBE_MAX_THRESHOLD)
         self.assertEqual(module._bounded_threshold(-1), 0.0)
         self.assertEqual(module._bounded_threshold("bad"), 0.0)
+        self.assertEqual(module._bounded_warmup_iterations(1e308), 100)
+        self.assertEqual(module._bounded_warmup_iterations(-1), 0)
+        self.assertEqual(module._bounded_warmup_iterations(200), 100)
+
+    def test_measure_runs_warmups_without_including_them_in_samples(self) -> None:
+        module = load_perf_probe_module()
+        calls: list[int] = []
+
+        def fake_request(*_args, **_kwargs):
+            calls.append(len(calls))
+            return {"ok": True}, module.ProbeResult(
+                "raw", 200, float(len(calls)), 10, "", "app;dur=1"
+            )
+
+        with patch.object(module, "request_json", side_effect=fake_request):
+            _, results = module.measure(
+                "https://crm.autostopcrm.ru",
+                "revision",
+                "/api/get_board_revision",
+                iterations=3,
+                warmup_iterations=2,
+            )
+
+        self.assertEqual(len(calls), 5)
+        self.assertEqual(len(results), 3)
+        self.assertEqual([item.duration_ms for item in results], [3.0, 4.0, 5.0])
+
+    def test_summary_keeps_all_server_timing_samples_and_percentiles(self) -> None:
+        module = load_perf_probe_module()
+        results = [
+            module.ProbeResult(
+                "revision",
+                200,
+                duration,
+                100,
+                "",
+                f"app;dur={duration / 2}, lock;dur={index}",
+            )
+            for index, duration in enumerate((10.0, 20.0, 30.0, 40.0), start=1)
+        ]
+
+        summary = module.summarize(results)
+
+        self.assertEqual(summary["p50_ms"], 30.0)
+        self.assertEqual(summary["p95_ms"], 40.0)
+        self.assertEqual(len(summary["server_timing_samples"]), 4)
+        self.assertEqual(summary["server_timing_metrics"]["app"]["p95_ms"], 20.0)
+        self.assertEqual(summary["server_timing_metrics"]["lock"]["samples"], 4)
+
+    def test_nested_server_timing_threshold_uses_p95(self) -> None:
+        module = load_perf_probe_module()
+        row = {
+            "label": "revision",
+            "p95_ms": 120.0,
+            "server_timing_metrics": {"app": {"p95_ms": 21.0}},
+        }
+
+        violations = module.evaluate_thresholds(
+            [row],
+            {"revision.server_timing_metrics.app.p95_ms": 20.0},
+        )
+
+        self.assertEqual(violations[0]["label"], "revision")
+        self.assertEqual(violations[0]["metric"], "server_timing_metrics.app.p95_ms")
+        self.assertEqual(violations[0]["actual"], 21.0)
 
     def test_request_json_rejects_nonstandard_json_constants(self) -> None:
         module = load_perf_probe_module()
@@ -194,9 +259,25 @@ class PerfProbeTests(unittest.TestCase):
         module = load_perf_probe_module()
 
         def fake_measure(
-            base_url, label, path, *, iterations, method="GET", payload=None, gzip_ok=False
+            base_url,
+            label,
+            path,
+            *,
+            iterations,
+            warmup_iterations=0,
+            method="GET",
+            payload=None,
+            gzip_ok=False,
         ):
-            _ = (base_url, path, iterations, method, payload, gzip_ok)
+            _ = (
+                base_url,
+                path,
+                iterations,
+                warmup_iterations,
+                method,
+                payload,
+                gzip_ok,
+            )
             if label == "snapshot.identity":
                 return {"data": {"cards": [{"id": "card-1"}]}}, [
                     module.ProbeResult(label, 200, 600.0, 305_000, "", "app;dur=60")
@@ -244,9 +325,17 @@ class PerfProbeTests(unittest.TestCase):
         seen_base_urls: list[str] = []
 
         def fake_measure(
-            base_url, label, path, *, iterations, method="GET", payload=None, gzip_ok=False
+            base_url,
+            label,
+            path,
+            *,
+            iterations,
+            warmup_iterations=0,
+            method="GET",
+            payload=None,
+            gzip_ok=False,
         ):
-            _ = (path, iterations, method, payload, gzip_ok)
+            _ = (path, iterations, warmup_iterations, method, payload, gzip_ok)
             seen_base_urls.append(base_url)
             if label == "snapshot.identity":
                 return {"data": {"cards": [{"id": "card-1"}]}}, [

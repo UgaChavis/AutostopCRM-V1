@@ -194,23 +194,69 @@ token or key values.
 
 ## Performance Smoke
 
-Local temp server:
+Mandatory stage-1 storage/cache gate (synthetic production-sized state, no
+business data):
 
 ```powershell
-python scripts\perf_probe.py --local-temp-server --iterations 1 --max-snapshot-gzip-ms 1200 --max-snapshot-gzip-bytes 120000 --max-revision-ms 800 --max-get-card-ms 800
+python scripts\perf_workflows.py --synthetic-state-profile current-production --stage1-only --skip-browser --warmup-iterations 2 --iterations 20 --max-backend-write-ms 600 --max-storage-write-ms 550 --max-revision-server-ms 20 --max-get-card-direct-ms 20
+```
+
+The profile contains approximately 620 cards, 4000 clients, 5000 events, and
+1500 cash transactions and must remain at least 10 MB. Thresholds apply to p95,
+not the average. CI uploads `perf-stage1.json` even when the gate fails.
+
+Local temp server/read-only API:
+
+```powershell
+python scripts\perf_probe.py --local-temp-server --warmup-iterations 2 --iterations 5 --max-snapshot-gzip-ms 1200 --max-snapshot-gzip-bytes 120000 --max-revision-ms 800 --max-revision-server-ms 20 --max-get-card-ms 800
 python scripts\perf_mcp.py --local-temp-server --iterations 3
 python scripts\perf_workflows.py --local-temp-server --iterations 3
 ```
 
-Production read-only:
+Before deployment, the same write gate may use the exact production state. The
+script always benchmarks a temporary copy; it must never write to the supplied
+`state.json`:
+
+```bash
+cd /opt/autostopcrm
+.venv/bin/python scripts/perf_workflows.py \
+  --state-file data/state.json \
+  --stage1-only \
+  --skip-browser \
+  --warmup-iterations 2 \
+  --iterations 20 \
+  --max-backend-write-ms 600 \
+  --max-storage-write-ms 550 \
+  --max-revision-server-ms 20 \
+  --max-get-card-direct-ms 20
+```
+
+After deployment, run the public read-only gate. The revision limit uses the
+backend `Server-Timing: app` p95; public network/TLS latency is measured
+separately:
 
 ```powershell
-python scripts\perf_probe.py --base-url https://crm.autostopcrm.ru --iterations 5 --max-snapshot-gzip-ms 800 --max-snapshot-gzip-bytes 80000 --max-revision-ms 500 --max-get-card-ms 500
+python scripts\perf_probe.py --base-url https://crm.autostopcrm.ru --warmup-iterations 2 --iterations 20 --max-snapshot-gzip-ms 800 --max-snapshot-gzip-bytes 80000 --max-revision-ms 500 --max-revision-server-ms 20 --max-get-card-ms 150
 python scripts\perf_mcp.py --mcp-url https://crm.autostopcrm.ru/mcp --iterations 5
 ```
 
+API `Server-Timing` must contain finite, non-negative `app`, `total`, `lock`,
+`service_lock`, `store_lock`, `file_lock`, `normalize`, `serialize`, `write`,
+and `storage` values. Write logs include the same phase breakdown without
+payload data.
+
 Production MCP write scenarios stay disabled unless a separate owner approval
 explicitly allows live writes.
+
+Emergency fast-write rollback: set `MINIMAL_KANBAN_FAST_STATE_WRITES=0` in the
+server-local `.env`, recreate only the `autostopcrm` service, and rerun connector
+and performance smoke. This switches CardService to the legacy normalizing
+writer; it does not change state format. Remove the override only after the
+failed path is diagnosed and tested.
+
+```bash
+docker compose up -d --no-deps --force-recreate autostopcrm
+```
 
 ## Maintenance Safety
 

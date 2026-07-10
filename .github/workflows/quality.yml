@@ -87,7 +87,7 @@ jobs:
         run: python scripts/check_web_assets_js.py
 
       - name: Compile release probe scripts
-        run: python -m py_compile scripts/perf_probe.py scripts/finance_audit_report.py scripts/browser_smoke.py
+        run: python -m py_compile scripts/perf_probe.py scripts/perf_workflows.py scripts/finance_audit_report.py scripts/browser_smoke.py
 
       - name: Local temp performance probe
         run: |
@@ -98,6 +98,27 @@ jobs:
             --max-snapshot-gzip-bytes 120000 \
             --max-revision-ms 800 \
             --max-get-card-ms 800 | tee perf-probe-local.json
+
+      - name: Stage 1 production-scale performance gates
+        run: |
+          python scripts/perf_workflows.py \
+            --synthetic-state-profile current-production \
+            --stage1-only \
+            --skip-browser \
+            --warmup-iterations 2 \
+            --iterations 20 \
+            --max-backend-write-ms 600 \
+            --max-storage-write-ms 550 \
+            --max-revision-server-ms 20 \
+            --max-get-card-direct-ms 20 | tee perf-stage1.json
+
+      - name: Upload Stage 1 performance artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage1-performance-${{ github.sha }}
+          path: perf-stage1.json
+          if-no-files-found: warn
 
       - name: Optional browser smoke dependencies
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser_smoke == 'true' }}
