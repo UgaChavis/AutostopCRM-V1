@@ -114,7 +114,7 @@ jobs:
 
       - name: Upload Stage 1 performance artifact
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: stage1-performance-${{ github.sha }}
           path: perf-stage1.json
@@ -144,7 +144,7 @@ jobs:
 
       - name: Upload live probe artifacts
         if: ${{ always() && github.event_name == 'workflow_dispatch' && (inputs.live_probes == 'true' || inputs.browser_smoke == 'true') }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: optional-probes
           path: |
