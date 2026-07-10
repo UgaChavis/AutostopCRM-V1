@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -49,10 +50,16 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
         for flag in (
             "--base-url",
             "--iterations",
+            "--warmup-iterations",
             "--card-id",
             "--operator-token",
             "--state-file",
+            "--synthetic-state-profile",
+            "--stage1-only",
             "--allow-write-workflows",
+            "--max-storage-write-ms",
+            "--max-revision-server-ms",
+            "--max-get-card-direct-ms",
             "--browser-timeout-seconds",
         ):
             with self.subTest(flag=flag):
@@ -92,6 +99,7 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
                     "request_count": 2,
                     "payload_bytes": 1200,
                     "server_timing": ["app;dur=10.0"],
+                    "phase_timings": {"serialize": 60.0, "write": 20.0},
                     "ui_perf_entries": [{"name": "openCardWorkspace", "duration_ms": 90}],
                 },
                 {
@@ -99,6 +107,7 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
                     "request_count": 4,
                     "payload_bytes": 2400,
                     "server_timing": ["app;dur=20.0"],
+                    "phase_timings": {"serialize": 180.0, "write": 40.0},
                     "ui_perf_entries": [{"name": "api:/api/get_card", "duration_ms": 200}],
                 },
             ],
@@ -109,10 +118,13 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
         self.assertEqual(summary["avg_ms"], 200.0)
         self.assertEqual(summary["min_ms"], 100.0)
         self.assertEqual(summary["max_ms"], 300.0)
+        self.assertEqual(summary["p50_ms"], 100.0)
         self.assertEqual(summary["p95_ms"], 300.0)
         self.assertEqual(summary["request_count"], 3)
         self.assertEqual(summary["payload_bytes"], 1800)
         self.assertEqual(summary["server_timing"][-1], "app;dur=20.0")
+        self.assertEqual(len(summary["server_timing"]), 2)
+        self.assertEqual(summary["phase_timings"]["serialize"]["p95_ms"], 180.0)
         self.assertEqual(summary["ui_perf_entries"][-1]["name"], "api:/api/get_card")
 
     def test_summarize_and_thresholds_tolerate_invalid_numeric_values(self) -> None:
@@ -124,7 +136,7 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
             scenario="open_card",
         )
         args = SimpleNamespace(
-            max_open_card_ms=100,
+            max_open_card_ms=130,
             max_save_card_ms=0,
             max_move_card_ms=0,
             max_open_modal_ms=0,
@@ -137,9 +149,82 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
         )
 
         self.assertEqual(summary["avg_ms"], 62.8)
+        self.assertEqual(summary["p95_ms"], 125.5)
         self.assertEqual(summary["request_count"], 2)
         self.assertEqual(summary["payload_bytes"], 1024)
         self.assertEqual(violations, [])
+
+    def test_thresholds_use_p95_instead_of_average(self) -> None:
+        args = SimpleNamespace(
+            max_open_card_ms=100,
+            max_save_card_ms=0,
+            max_move_card_ms=0,
+            max_open_modal_ms=0,
+            max_backend_write_ms=0,
+        )
+
+        violations = self.module.evaluate_thresholds(
+            [{"scenario": "open_card", "avg_ms": 80.0, "p95_ms": 120.0}],
+            args,
+        )
+
+        self.assertEqual(
+            violations,
+            [
+                {
+                    "scenario": "open_card",
+                    "metric": "p95_ms",
+                    "actual": 120.0,
+                    "max": 100.0,
+                }
+            ],
+        )
+
+    def test_stage1_thresholds_are_independent(self) -> None:
+        args = SimpleNamespace(
+            max_open_card_ms=0,
+            max_save_card_ms=0,
+            max_move_card_ms=0,
+            max_open_modal_ms=0,
+            max_backend_write_ms=600,
+            max_storage_write_ms=550,
+            max_revision_server_ms=20,
+            max_get_card_direct_ms=20,
+        )
+        rows = [
+            {"scenario": "backend.update_card", "p95_ms": 601},
+            {"scenario": "storage.write_cached_bundle", "p95_ms": 551},
+            {"scenario": "backend.get_board_revision_cached", "p95_ms": 21},
+            {"scenario": "backend.get_card", "p95_ms": 19},
+        ]
+
+        violations = self.module.evaluate_thresholds(rows, args)
+
+        self.assertEqual(
+            [item["scenario"] for item in violations],
+            [
+                "backend.update_card",
+                "storage.write_cached_bundle",
+                "backend.get_board_revision_cached",
+            ],
+        )
+
+    def test_synthetic_profile_matches_current_production_scale(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_file = Path(temp_dir) / "state.json"
+            metadata = self.module.write_synthetic_current_production_state(state_file)
+
+            self.assertGreaterEqual(metadata["state_bytes"], self.module.SYNTHETIC_STATE_MIN_BYTES)
+            self.assertEqual(metadata["profile"], "current-production")
+            self.assertEqual(metadata["counts"]["cards"], 620)
+            self.assertEqual(metadata["counts"]["clients"], 4000)
+            self.assertEqual(metadata["counts"]["events"], 5000)
+            self.assertEqual(metadata["counts"]["cash_transactions"], 1500)
+            state = json.loads(state_file.read_text(encoding="utf-8"))
+            self.assertEqual(len(state["cards"]), 620)
+            self.assertEqual(len(state["clients"]), 4000)
+            self.assertEqual(len(state["events"]), 5000)
+            self.assertEqual(len(state["cash_transactions"]), 1500)
 
     def test_response_payload_bytes_ignores_invalid_values(self) -> None:
         self.assertEqual(

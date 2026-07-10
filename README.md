@@ -47,6 +47,13 @@ UI / MCP / API clients
 Business logic belongs in services. UI, MCP, API clients, and compatibility
 routes call the same backend API and storage.
 
+CardService writes use a provenance- and file-signature-checked fast path for
+the already normalized in-memory bundle; the legacy fully normalizing writer
+remains available as an emergency kill switch. Compact board snapshots and
+revision polling share a bounded, viewer-specific cache that is invalidated by
+the `state.json` signature. API responses expose request, lock, normalization,
+serialization, and write phases through `Server-Timing`.
+
 ## Code Map
 
 - `main.py` - desktop runtime.
