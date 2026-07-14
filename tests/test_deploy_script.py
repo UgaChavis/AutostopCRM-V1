@@ -75,6 +75,8 @@ class DeployScriptTests(unittest.TestCase):
             'MAINTENANCE_BUDGET_SECONDS="${AUTOSTOP_MAINTENANCE_BUDGET_SECONDS:-600}"', script
         )
         self.assertIn('docker build --tag "$release_image" "$ROOT_DIR"', script)
+        self.assertIn('MIN_FREE_DISK_BYTES="${AUTOSTOP_MIN_FREE_DISK_BYTES:-2147483648}"', script)
+        self.assertIn('df --output=avail -B1 "$ROOT_DIR"', script)
         self.assertIn('docker tag "$release_image" "$STABLE_IMAGE"', script)
         self.assertIn('docker tag "$rollback_image" "$STABLE_IMAGE"', script)
         self.assertIn("--no-deps --no-build --force-recreate", script)
@@ -94,6 +96,12 @@ class DeployScriptTests(unittest.TestCase):
         self.assertIn("run_release docker compose stop", script)
         self.assertIn("run_maintenance env AUTOSTOP_RELEASE_IMAGE", script)
         self.assertEqual(script.count('mkdir -p "$staging_dir/data"'), 2)
+        self.assertIn("--exclude '/data/'", script)
+        self.assertNotIn("--exclude 'data/'", script)
+        self.assertLess(
+            script.index('df --output=avail -B1 "$ROOT_DIR"'),
+            script.index('snapshot --backup-dir "$auth_backup_dir"'),
+        )
         self.assertNotIn("docker compose up -d --build --remove-orphans", script)
 
     def test_deploy_rotates_auth_at_cutover_and_restores_it_on_rollback(self) -> None:

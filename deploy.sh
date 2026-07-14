@@ -19,6 +19,7 @@ SKIP_GIT_SYNC="${AUTOSTOP_SKIP_GIT_SYNC:-0}"
 ALLOW_DIRTY_RELEASE="${AUTOSTOP_ALLOW_DIRTY_RELEASE:-0}"
 BUILD_RELEASE_IMAGE="${AUTOSTOP_BUILD_RELEASE_IMAGE:-1}"
 STABLE_IMAGE="${AUTOSTOP_STABLE_IMAGE:-autostopcrm-autostopcrm:latest}"
+MIN_FREE_DISK_BYTES="${AUTOSTOP_MIN_FREE_DISK_BYTES:-2147483648}"
 MAINTENANCE_BUDGET_SECONDS="${AUTOSTOP_MAINTENANCE_BUDGET_SECONDS:-600}"
 ROLLBACK_RESERVE_SECONDS="${AUTOSTOP_ROLLBACK_RESERVE_SECONDS:-120}"
 SMOKE_ATTEMPTS="${AUTOSTOP_SMOKE_ATTEMPTS:-20}"
@@ -59,6 +60,10 @@ if ! [[ "$SMOKE_ATTEMPTS" =~ ^[0-9]+$ ]] || (( SMOKE_ATTEMPTS < 1 || SMOKE_ATTEM
 fi
 if ! [[ "$SMOKE_DELAY_SECONDS" =~ ^[0-9]+$ ]] || (( SMOKE_DELAY_SECONDS > 30 )); then
   echo "ERROR: AUTOSTOP_SMOKE_DELAY_SECONDS must be between 0 and 30." >&2
+  exit 2
+fi
+if ! [[ "$MIN_FREE_DISK_BYTES" =~ ^[0-9]+$ ]] || (( MIN_FREE_DISK_BYTES < 1073741824 )); then
+  echo "ERROR: AUTOSTOP_MIN_FREE_DISK_BYTES must be at least 1073741824." >&2
   exit 2
 fi
 
@@ -146,7 +151,7 @@ snapshot_manager_tree() {
     --exclude '.venv/' \
     --exclude '.env' \
     --exclude '.env.*' \
-    --exclude 'data/' \
+    --exclude '/data/' \
     --exclude 'tests/' \
     --exclude '__pycache__/' \
     --exclude '.pytest_cache/' \
@@ -206,6 +211,13 @@ if [[ "$BUILD_RELEASE_IMAGE" == "1" ]]; then
 fi
 if ! docker image inspect "$release_image" >/dev/null 2>&1; then
   echo "ERROR: prebuilt release image is unavailable: $release_image" >&2
+  exit 2
+fi
+
+available_disk_bytes="$(df --output=avail -B1 "$ROOT_DIR" | tail -n 1 | tr -d '[:space:]')"
+if ! [[ "$available_disk_bytes" =~ ^[0-9]+$ ]] \
+  || (( available_disk_bytes < MIN_FREE_DISK_BYTES )); then
+  echo "ERROR: insufficient disk headroom for container replacement; need at least $MIN_FREE_DISK_BYTES bytes." >&2
   exit 2
 fi
 
