@@ -152,11 +152,13 @@ Local read/workflow checks:
 .\.venv\Scripts\python.exe scripts\perf_workflows.py --local-temp-server --iterations 3
 ```
 
-After deploy, run public read-only checks:
+After deploy, use `check_live_connector.py` below for public HTTPS and auth.
+Measure the production backends from inside the running container so no
+credential appears in a process argument:
 
-```powershell
-.\.venv\Scripts\python.exe scripts\perf_probe.py --base-url https://crm.autostopcrm.ru --warmup-iterations 2 --iterations 20 --max-snapshot-gzip-ms 800 --max-snapshot-gzip-bytes 80000 --max-revision-ms 500 --max-revision-server-ms 20 --max-get-card-ms 150
-.\.venv\Scripts\python.exe scripts\perf_mcp.py --mcp-url https://crm.autostopcrm.ru/mcp --iterations 5
+```bash
+docker exec autostopcrm python scripts/perf_probe.py --base-url http://127.0.0.1:41731 --warmup-iterations 2 --iterations 20 --max-snapshot-gzip-ms 800 --max-snapshot-gzip-bytes 80000 --max-revision-ms 500 --max-revision-server-ms 20 --max-get-card-ms 150
+docker exec autostopcrm python scripts/perf_mcp.py --mcp-url http://127.0.0.1:41831/mcp --token-env MINIMAL_KANBAN_MCP_BEARER_TOKEN --iterations 5
 ```
 
 Production MCP write benchmarks remain disabled without a separate owner
@@ -238,6 +240,9 @@ Validate before restart:
 
 ```bash
 cd /opt/autostopcrm
+set -a
+. ./.env
+set +a
 python3 scripts/validate_production_env.py --require-production
 ```
 

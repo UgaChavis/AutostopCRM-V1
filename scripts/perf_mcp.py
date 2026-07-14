@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import math
+import os
 import statistics
 import sys
 import time
@@ -416,9 +417,10 @@ async def run_mcp_perf(args: argparse.Namespace) -> dict[str, Any]:
         local_runtime = start_local_mcp_runtime(args)
         mcp_url = local_runtime.mcp_url
 
+    bearer_token = str(args.bearer_token or os.environ.get(args.token_env, "") or "").strip()
     headers: dict[str, str] = {}
-    if args.bearer_token:
-        headers["Authorization"] = f"Bearer {args.bearer_token}"
+    if bearer_token:
+        headers["Authorization"] = f"Bearer {bearer_token}"
 
     try:
         return await _run_mcp_perf_payload(mcp_url, headers, args, local_runtime)
@@ -433,6 +435,11 @@ def main() -> int:
     parser.add_argument("--iterations", default=3)
     parser.add_argument("--card-id", default="")
     parser.add_argument("--bearer-token", default="")
+    parser.add_argument(
+        "--token-env",
+        default="MINIMAL_KANBAN_MCP_BEARER_TOKEN",
+        help="Read the bearer from this environment variable instead of a process argument.",
+    )
     parser.add_argument("--local-temp-server", action="store_true")
     parser.add_argument("--allow-live-writes", action="store_true")
     parser.add_argument("--start-port", default=42731)

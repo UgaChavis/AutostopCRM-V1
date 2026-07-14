@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import io
 import json
@@ -7,6 +8,7 @@ import sys
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,6 +26,31 @@ def load_perf_mcp_module():
 
 
 class PerfMcpTests(unittest.TestCase):
+    def test_run_reads_bearer_from_environment_without_returning_it(self) -> None:
+        module = load_perf_mcp_module()
+        secret = "release-smoke-secret"
+        captured_headers: dict[str, str] = {}
+
+        async def fake_run(mcp_url, headers, args, local_runtime):
+            _ = (mcp_url, args, local_runtime)
+            captured_headers.update(headers)
+            return {"rows": []}
+
+        args = SimpleNamespace(
+            mcp_url="https://crm.autostopcrm.ru/mcp",
+            local_temp_server=False,
+            bearer_token="",
+            token_env="TEST_MCP_TOKEN",
+        )
+        with (
+            patch.dict(module.os.environ, {"TEST_MCP_TOKEN": secret}),
+            patch.object(module, "_run_mcp_perf_payload", side_effect=fake_run),
+        ):
+            result = asyncio.run(module.run_mcp_perf(args))
+
+        self.assertEqual(captured_headers, {"Authorization": f"Bearer {secret}"})
+        self.assertNotIn(secret, module._json_dumps(result))
+
     def test_payload_size_sanitizes_nonfinite_values(self) -> None:
         module = load_perf_mcp_module()
 

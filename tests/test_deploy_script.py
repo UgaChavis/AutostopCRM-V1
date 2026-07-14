@@ -263,6 +263,8 @@ class DeployScriptTests(unittest.TestCase):
         self.assertIn("Performance Smoke", runbook)
         self.assertIn("scripts\\finance_audit_report.py", runbook)
         self.assertIn("scripts\\perf_probe.py", runbook)
+        self.assertIn("--token-env MINIMAL_KANBAN_MCP_BEARER_TOKEN", runbook)
+        self.assertNotIn("scripts\\perf_probe.py --base-url https://crm.autostopcrm.ru", runbook)
         self.assertIn("AUTOSTOP_SMOKE_OPERATOR_USERNAME", runbook)
         self.assertIn("AUTOSTOP_SMOKE_OPERATOR_PASSWORD", runbook)
         self.assertNotIn("--operator-username admin --operator-password admin", runbook)
