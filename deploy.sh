@@ -485,7 +485,8 @@ run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_live_con
   --local-api-url http://127.0.0.1:41731 \
   --expect-admin
 run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_agent_gateway_v2.py \
-  --mcp-url "$PUBLIC_MCP_URL"
+  --mcp-url "$PUBLIC_MCP_URL" \
+  --exhaustive
 
 assert_release_budget
 run_release docker tag "$release_image" "$STABLE_IMAGE"
@@ -506,4 +507,4 @@ if [[ "$INSTALL_WATCHDOG" == "1" ]]; then
   fi
 fi
 
-echo "Deploy complete: $release_image passed read-only smoke in ${maintenance_elapsed}s."
+echo "Deploy complete: $release_image passed Gateway v2 smoke in ${maintenance_elapsed}s."

@@ -453,7 +453,7 @@ docker compose ps
 docker compose exec -T autostopcrm python scripts/validate_production_env.py --require-production
 docker compose exec -T autostopcrm python scripts/check_live_connector.py --strict --site-url https://crm.autostopcrm.ru --expect-https --local-api-url http://127.0.0.1:41731 --skip-mcp --expect-admin
 docker compose exec -T autostopcrm python scripts/check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp
-docker compose exec -T autostopcrm python scripts/check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp
+docker compose exec -T autostopcrm python scripts/check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --exhaustive
 docker compose exec -T autostopcrm python scripts/docs_audit.py --format text
 ```
 
@@ -461,7 +461,7 @@ From local machine:
 
 ```powershell
 $env:AUTOSTOPCRM_MCP_TOKEN = Get-Content -Raw C:\secure\autostopcrm-mcp-token.txt
-python scripts\check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --token-env AUTOSTOPCRM_MCP_TOKEN
+python scripts\check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --token-env AUTOSTOPCRM_MCP_TOKEN --exhaustive
 ```
 
 Manual UI smoke after UI changes:

@@ -264,6 +264,8 @@ class DocsAuditTests(unittest.TestCase):
                 "ChatGPT connector setup flow is not documented in MCP guide: ChatGPT Apps & Connectors",
                 "production MCP connector URL is not documented: https://crm.autostopcrm.ru/mcp",
                 "MCP security rule for public anonymous writes is not documented: Public anonymous writes must remain blocked",
+                "exact Gateway v2 production tool count is not documented: exactly 24 tools",
+                "safe exhaustive Gateway v2 release check is not documented: --exhaustive",
             },
             {issue.detail for issue in issues},
         )
@@ -312,6 +314,7 @@ class DocsAuditTests(unittest.TestCase):
         manager_tools = [f"manager_tool_{index}" for index in range(32)] + [
             "estimate_repair_work_cost"
         ]
+        gateway_tools = module.load_gateway_expected_tools(ROOT)
 
         with tempfile.TemporaryDirectory() as temp_dir:
             manager_root = Path(temp_dir)
@@ -355,11 +358,12 @@ class DocsAuditTests(unittest.TestCase):
                         json.dumps(
                             {
                                 "tool_counts": {
-                                    "crm_base_tools": 1,
-                                    "optional_autostop_manager_tools": len(manager_tools),
-                                    "production_tools_with_manager_mounted": len(manager_tools) + 1,
+                                    "crm_legacy_tools_hidden_by_gateway": 1,
+                                    "autostop_manager_tools_in_raw_registry": len(manager_tools),
+                                    "production_visible_agent_gateway_v2": len(gateway_tools),
+                                    "guarded_internal_api_write_routes_are_virtual_and_not_counted_as_tools": True,
                                 },
-                                "live_tools_verified": ["crm_tool", *manager_tools],
+                                "production_tools_verified": sorted(gateway_tools),
                                 "tool_families": {
                                     "optional_manager_memory_and_routing": manager_tools
                                 },
@@ -378,6 +382,36 @@ class DocsAuditTests(unittest.TestCase):
             )
 
         self.assertEqual([], issues)
+
+    def test_default_manager_root_prefers_sibling_checkout(self) -> None:
+        module = load_docs_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            parent = Path(temp_dir)
+            crm_root = parent / "autostopcrm"
+            manager_root = parent / "AutostopManager"
+            crm_root.mkdir()
+            manager_root.mkdir()
+
+            self.assertEqual(manager_root, module._default_manager_root(crm_root))
+
+    def test_manager_instruction_scan_rejects_v1_and_direct_legacy_commands(self) -> None:
+        module = load_docs_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manager_root = Path(temp_dir)
+            agents = manager_root / "AGENTS.md"
+            agents.write_text(
+                "Use start_manager_run, then bootstrap_context and get_card_context.\n",
+                encoding="utf-8",
+            )
+
+            issues = module._manager_gateway_instruction_issues(manager_root)
+
+        self.assertEqual(
+            {"retired_manager_lifecycle_tool", "direct_legacy_crm_instruction"},
+            {issue.code for issue in issues},
+        )
 
     def test_load_json_rejects_non_standard_constants(self) -> None:
         module = load_docs_audit_module()

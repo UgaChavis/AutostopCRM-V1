@@ -60,14 +60,54 @@ SCRIPT_INSTRUCTION_FILES = {
 }
 
 MANAGER_CANONICAL_DOCS = (
+    "AGENTS.md",
     "README.md",
     "docs/agent/autostop_manager_skill.md",
+    "docs/agent/board_cleanup_autopilot_playbook.md",
     "docs/agent/command_routes.json",
+    "docs/agent/crm_manager_data_playbook.md",
     "docs/agent/crm_mcp_catalog.json",
+    "docs/agent/deployment_runbook.md",
     "docs/agent/knowledge_base_index.md",
     "docs/agent/knowledge_map.json",
     "docs/agent/knowledge_shelves.md",
     "docs/agent/manager_mcp_catalog.json",
+    "docs/agent/manager_rules.json",
+    "docs/agent/phone_flow.json",
+    "docs/agent/service_management_sources.json",
+)
+
+MANAGER_GATEWAY_INSTRUCTION_DOCS = (
+    "AGENTS.md",
+    "README.md",
+    "docs/agent/autostop_manager_skill.md",
+    "docs/agent/board_cleanup_autopilot_playbook.md",
+    "docs/agent/command_routes.json",
+    "docs/agent/crm_manager_data_playbook.md",
+    "docs/agent/deployment_runbook.md",
+    "docs/agent/manager_rules.json",
+    "docs/agent/phone_flow.json",
+    "docs/agent/service_management_sources.json",
+)
+
+MANAGER_GATEWAY_FORBIDDEN_TEXT_PATTERNS = (
+    (
+        "retired_manager_lifecycle_tool",
+        re.compile(
+            r"\b(?:start_manager_run|record_manager_run_event|finish_manager_run|list_manager_runs)\b"
+        ),
+        "retired v1 manager lifecycle tool; use Gateway v2 workflow tools",
+    ),
+    (
+        "retired_manager_lifecycle_cli",
+        re.compile(r"\b(?:run-start|run-event|run-finish|run-list)\b"),
+        "retired v1 manager lifecycle CLI command",
+    ),
+    (
+        "direct_legacy_crm_instruction",
+        re.compile(r"\b(?:bootstrap_context|get_card_context)\b"),
+        "direct legacy CRM instruction; use Gateway v2 focused tools",
+    ),
 )
 
 RETIRED_DOC_GLOBS = (
@@ -223,6 +263,14 @@ MCP_GUIDE_REQUIRED_TEXT = (
     (
         "Public anonymous writes must remain blocked",
         "MCP security rule for public anonymous writes is not documented",
+    ),
+    (
+        "exactly 24 tools",
+        "exact Gateway v2 production tool count is not documented",
+    ),
+    (
+        "--exhaustive",
+        "safe exhaustive Gateway v2 release check is not documented",
     ),
 )
 
@@ -559,6 +607,7 @@ def _manager_catalog_issues(
     manager_catalog_path: Path,
     manager_tools: set[str],
     crm_tools: set[str],
+    gateway_tools: set[str],
 ) -> list[Issue]:
     issues: list[Issue] = []
     if manager_catalog_path.exists():
@@ -586,11 +635,11 @@ def _manager_catalog_issues(
     if crm_catalog_path.exists():
         crm_catalog = _load_json(crm_catalog_path)
         tool_counts = crm_catalog.get("tool_counts", {})
-        expected_live_tools = crm_tools | manager_tools
         expected_counts = {
-            "crm_base_tools": len(crm_tools),
-            "optional_autostop_manager_tools": len(manager_tools),
-            "production_tools_with_manager_mounted": len(expected_live_tools),
+            "crm_legacy_tools_hidden_by_gateway": len(crm_tools),
+            "autostop_manager_tools_in_raw_registry": len(manager_tools),
+            "production_visible_agent_gateway_v2": len(gateway_tools),
+            "guarded_internal_api_write_routes_are_virtual_and_not_counted_as_tools": True,
         }
         if tool_counts != expected_counts:
             issues.append(
@@ -601,13 +650,13 @@ def _manager_catalog_issues(
                 )
             )
 
-        live_tools = set(crm_catalog.get("live_tools_verified", []))
-        if live_tools != expected_live_tools:
+        production_tools = set(crm_catalog.get("production_tools_verified", []))
+        if production_tools != gateway_tools:
             issues.append(
                 Issue(
-                    "crm_catalog_live_tools_mismatch",
+                    "crm_catalog_production_tools_mismatch",
                     str(crm_catalog_path),
-                    _tool_set_delta(live_tools, expected_live_tools),
+                    _tool_set_delta(production_tools, gateway_tools),
                 )
             )
 
@@ -617,14 +666,28 @@ def _manager_catalog_issues(
                 [],
             )
         )
-        if optional_tools != manager_tools:
+        expected_optional_tools = manager_tools - gateway_tools
+        if optional_tools != expected_optional_tools:
             issues.append(
                 Issue(
                     "crm_catalog_optional_tools_mismatch",
                     str(crm_catalog_path),
-                    _tool_set_delta(optional_tools, manager_tools),
+                    _tool_set_delta(optional_tools, expected_optional_tools),
                 )
             )
+    return issues
+
+
+def _manager_gateway_instruction_issues(manager_root: Path) -> list[Issue]:
+    issues: list[Issue] = []
+    for relative_path in MANAGER_GATEWAY_INSTRUCTION_DOCS:
+        path = manager_root / relative_path
+        if not path.exists():
+            continue
+        text = _read_text(path)
+        for code, pattern, detail in MANAGER_GATEWAY_FORBIDDEN_TEXT_PATTERNS:
+            if pattern.search(text):
+                issues.append(Issue(code, _display_path(path, manager_root), detail))
     return issues
 
 
@@ -754,6 +817,25 @@ def load_crm_registry_tools(root: Path) -> set[str]:
     return {str(tool_name) for tools in groups.values() for tool_name in tools}
 
 
+def load_gateway_expected_tools(root: Path) -> set[str]:
+    path = root / "scripts" / "check_agent_gateway_v2.py"
+    tree = ast.parse(_read_text(path), filename=str(path))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(
+            isinstance(target, ast.Name) and target.id == "EXPECTED_TOOL_NAMES"
+            for target in node.targets
+        ):
+            continue
+        value = node.value
+        if isinstance(value, ast.Call) and isinstance(value.func, ast.Name):
+            if value.func.id == "frozenset" and len(value.args) == 1:
+                return {str(item) for item in ast.literal_eval(value.args[0])}
+        return {str(item) for item in ast.literal_eval(value)}
+    raise ValueError("EXPECTED_TOOL_NAMES assignment not found")
+
+
 def extract_decorated_tool_names(path: Path) -> set[str]:
     tree = ast.parse(_read_text(path), filename=str(path))
     tool_names: set[str] = set()
@@ -829,8 +911,11 @@ def _check_crm_mcp_surface(root: Path) -> list[Issue]:
 
 
 def _default_manager_root(root: Path) -> Path | None:
-    candidate = root.parent.parent / "AutostopManager"
-    return candidate if candidate.exists() else None
+    candidates = (
+        root.parent / "AutostopManager",
+        root.parent.parent / "AutostopManager",
+    )
+    return next((candidate for candidate in candidates if candidate.exists()), None)
 
 
 def _check_manager_docs_and_catalogs(
@@ -852,14 +937,17 @@ def _check_manager_docs_and_catalogs(
         ]
 
     manager_tools = extract_decorated_tool_names(manager_tools_path)
+    gateway_tools = load_gateway_expected_tools(root)
     issues.extend(
         _manager_catalog_issues(
             manager_root / "docs" / "agent" / "manager_mcp_catalog.json",
             manager_tools,
             crm_tools,
+            gateway_tools,
         )
     )
     issues.extend(_manager_doc_forbidden_issues(manager_root))
+    issues.extend(_manager_gateway_instruction_issues(manager_root))
     return issues
 
 

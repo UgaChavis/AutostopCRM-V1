@@ -129,6 +129,7 @@ class DeployScriptTests(unittest.TestCase):
         self.assertNotIn("VERIFY_PUBLIC_HTTPS", script)
         public_block = script[script.index('  --site-url "$PUBLIC_SITE_URL"') :]
         self.assertIn('  --mcp-url "$PUBLIC_MCP_URL"', public_block)
+        self.assertIn("  --exhaustive", public_block)
         self.assertNotIn("--skip-public-write-protection", public_block)
         self.assertIn("check_public_read_protection", connector)
         self.assertIn("check_public_write_protection", connector)

@@ -258,10 +258,11 @@ Saved settings live in the compatibility path
 override saved settings. Secrets are redacted in logs, but `settings.json` is
 not system-encrypted.
 
-Local API/MCP smoke:
+Local API and Gateway v2 smoke:
 
 ```powershell
-python scripts\check_live_connector.py --strict --skip-public-site --skip-public-write-protection --local-api-url http://127.0.0.1:41731 --mcp-url http://127.0.0.1:41831/mcp --operator-username $env:AUTOSTOP_SMOKE_OPERATOR_USERNAME --operator-password $env:AUTOSTOP_SMOKE_OPERATOR_PASSWORD --expect-admin
+python scripts\check_live_connector.py --strict --skip-public-site --skip-public-write-protection --local-api-url http://127.0.0.1:41731 --skip-mcp --operator-username $env:AUTOSTOP_SMOKE_OPERATOR_USERNAME --operator-password $env:AUTOSTOP_SMOKE_OPERATOR_PASSWORD --expect-admin
+python scripts\check_agent_gateway_v2.py --mcp-url http://127.0.0.1:41831/mcp --exhaustive
 ```
 
 Route behavior lives in `tests/test_api.py`, `tests/test_service.py`,

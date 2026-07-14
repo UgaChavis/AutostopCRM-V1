@@ -88,7 +88,7 @@ authorization in the MCP tool payload when bearer mode is enabled.
 Local connector smoke:
 
 ```powershell
-python scripts\check_live_connector.py --strict --skip-public-site --skip-public-write-protection --local-api-url http://127.0.0.1:41731 --mcp-url http://127.0.0.1:41831/mcp --operator-username $env:AUTOSTOP_SMOKE_OPERATOR_USERNAME --operator-password $env:AUTOSTOP_SMOKE_OPERATOR_PASSWORD --expect-admin
+python scripts\check_agent_gateway_v2.py --mcp-url http://127.0.0.1:41831/mcp --exhaustive
 ```
 
 Production deploy and public smoke live in `docs/OPERATIONS_RUNBOOK.md`.

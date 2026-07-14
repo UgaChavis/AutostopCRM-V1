@@ -51,6 +51,10 @@ DIAGNOSTIC_TOOL_NAMES = frozenset(
     {"ping_connector", "get_connector_identity", "get_runtime_status"}
 )
 
+PERMANENT_AGENT_GATEWAY_TOOL_NAMES = frozenset(
+    AGENT_GATEWAY_TOOL_NAMES | MANAGER_WORKFLOW_TOOL_NAMES | DIAGNOSTIC_TOOL_NAMES
+)
+
 DEFAULT_CARD_FIELDS = (
     "id",
     "short_id",
@@ -1688,7 +1692,7 @@ def register_agent_gateway_v2(
         normalized_query = str(query or "").strip().casefold()
         items: list[dict[str, Any]] = []
         for name, tool in sorted(raw_tools.items()):
-            if name in AGENT_GATEWAY_TOOL_NAMES:
+            if name in PERMANENT_AGENT_GATEWAY_TOOL_NAMES:
                 continue
             description = str(getattr(tool, "description", "") or "")
             if normalized_query and normalized_query not in f"{name} {description}".casefold():
@@ -1740,7 +1744,7 @@ def register_agent_gateway_v2(
     def get_raw_capability_schema(name: str) -> CallToolResult:
         tool = raw_tools.get(str(name or "").strip())
         virtual_route = _virtual_api_route(name)
-        if (tool is None and virtual_route is None) or name in AGENT_GATEWAY_TOOL_NAMES:
+        if (tool is None and virtual_route is None) or name in PERMANENT_AGENT_GATEWAY_TOOL_NAMES:
             return _tool_result(
                 _envelope(ok=False, status="failed", warnings=["capability_not_found"]),
                 label="get_raw_capability_schema",
@@ -1782,7 +1786,7 @@ def register_agent_gateway_v2(
             )
         tool = raw_tools.get(str(name or "").strip())
         virtual_route = _virtual_api_route(name)
-        if (tool is None and virtual_route is None) or name in AGENT_GATEWAY_TOOL_NAMES:
+        if (tool is None and virtual_route is None) or name in PERMANENT_AGENT_GATEWAY_TOOL_NAMES:
             return _tool_result(
                 _envelope(ok=False, status="failed", warnings=["capability_not_found"]),
                 label="call_raw_capability",
@@ -2001,7 +2005,7 @@ def register_agent_gateway_v2(
         )
         return _tool_result(payload, label="call_raw_capability")
 
-    keep = set(AGENT_GATEWAY_TOOL_NAMES | MANAGER_WORKFLOW_TOOL_NAMES | DIAGNOSTIC_TOOL_NAMES)
+    keep = set(PERMANENT_AGENT_GATEWAY_TOOL_NAMES)
     if not policy.mail_enabled:
         keep.difference_update(MAIL_CAPABILITY_NAMES)
     for name in list(tools):
@@ -2014,5 +2018,6 @@ __all__ = [
     "AGENT_GATEWAY_FORMAT",
     "AGENT_GATEWAY_TOOL_NAMES",
     "MANAGER_WORKFLOW_TOOL_NAMES",
+    "PERMANENT_AGENT_GATEWAY_TOOL_NAMES",
     "register_agent_gateway_v2",
 ]

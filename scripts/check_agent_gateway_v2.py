@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import os
+import uuid
 from typing import Any
 
 import httpx
@@ -109,6 +110,232 @@ def _tool_ok(result: Any) -> bool:
     return bool(structured.get("data") or structured.get("status"))
 
 
+def _structured(result: Any) -> dict[str, Any]:
+    payload = getattr(result, "structuredContent", None)
+    return payload if isinstance(payload, dict) else {}
+
+
+def _state_version(payload: dict[str, Any]) -> int:
+    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+    value = summary.get("state_version")
+    if not isinstance(value, int):
+        raise RuntimeError("workflow response is missing state_version")
+    return value
+
+
+async def _call(
+    session: ClientSession,
+    calls: dict[str, bool],
+    name: str,
+    arguments: dict[str, Any] | None = None,
+) -> Any:
+    result = await session.call_tool(name, arguments or {})
+    calls[name] = _tool_ok(result)
+    return result
+
+
+async def _run_exhaustive_checks(
+    session: ClientSession,
+    calls: dict[str, bool],
+) -> dict[str, Any]:
+    smoke_id = uuid.uuid4().hex
+
+    for name in ("ping_connector", "get_connector_identity", "get_runtime_status"):
+        await _call(session, calls, name)
+
+    await _call(
+        session,
+        calls,
+        "prepare_action_contract",
+        {
+            "domain": "inventory",
+            "action": "adjust",
+            "target_id": "synthetic-inventory-target",
+            "planned_changes": {"movement_type": "write_off", "quantity": 1},
+            "owner_intent": "safe exhaustive Gateway v2 release check",
+            "expected_revision": "synthetic-inventory-target@release-smoke",
+            "idempotency_key": f"gateway-v2-contract-{smoke_id}",
+            "dry_run": True,
+        },
+    )
+
+    domain_calls = (
+        (
+            "agent_board_workflow",
+            {
+                "operation": "manager_board_scan",
+                "payload": {},
+                "idempotency_key": f"gateway-v2-board-{smoke_id}",
+                "mode": "dry_run",
+            },
+        ),
+        (
+            "agent_finance_workflow",
+            {
+                "operation": "list_cashboxes",
+                "payload": {},
+                "idempotency_key": f"gateway-v2-finance-{smoke_id}",
+            },
+        ),
+        (
+            "agent_inventory_workflow",
+            {
+                "operation": "list_inventory_items",
+                "payload": {},
+                "idempotency_key": f"gateway-v2-inventory-{smoke_id}",
+            },
+        ),
+        (
+            "agent_document_workflow",
+            {
+                "operation": "list_shared_files",
+                "payload": {},
+                "idempotency_key": f"gateway-v2-document-{smoke_id}",
+                "allow_large_output": False,
+            },
+        ),
+    )
+    for name, arguments in domain_calls:
+        await _call(session, calls, name, arguments)
+
+    await _call(
+        session,
+        calls,
+        "discover_raw_capabilities",
+        {"query": "get_cards", "limit": 5},
+    )
+    schema_result = await _call(
+        session,
+        calls,
+        "get_raw_capability_schema",
+        {"name": "get_cards"},
+    )
+    schema_payload = _structured(schema_result)
+    schema_summary = (
+        schema_payload.get("summary") if isinstance(schema_payload.get("summary"), dict) else {}
+    )
+    schema_hash = str(schema_summary.get("schema_hash") or "")
+    if not schema_hash:
+        raise RuntimeError("get_cards schema hash is missing")
+    await _call(
+        session,
+        calls,
+        "call_raw_capability",
+        {
+            "name": "get_cards",
+            "arguments": {"include_archived": False, "compact": True},
+            "schema_hash": schema_hash,
+            "allow_large_output": False,
+        },
+    )
+
+    started = await _call(
+        session,
+        calls,
+        "start_workflow",
+        {
+            "workflow_id": "gateway_v2_release_smoke",
+            "intent": "gateway_v2_release_smoke",
+            "idempotency_key": f"gateway-v2-lifecycle-{smoke_id}",
+            "query": "safe synthetic lifecycle smoke",
+            "dry_run": True,
+            "source": "release-smoke",
+            "metadata": {"synthetic": True},
+        },
+    )
+    started_payload = _structured(started)
+    run_id = started_payload.get("run_id")
+    if not isinstance(run_id, int):
+        raise RuntimeError("start_workflow response is missing run_id")
+
+    status = await _call(
+        session,
+        calls,
+        "workflow_status",
+        {"run_id": run_id, "include_events": False, "include_external_steps": True},
+    )
+    version = _state_version(_structured(status))
+
+    checkpoint = await _call(
+        session,
+        calls,
+        "workflow_checkpoint",
+        {
+            "run_id": run_id,
+            "checkpoint": {"phase": "release_smoke", "next_action": "execute"},
+            "message": "synthetic release checkpoint",
+            "expected_state_version": version,
+        },
+    )
+    version = _state_version(_structured(checkpoint))
+
+    executing = await _call(
+        session,
+        calls,
+        "workflow_transition",
+        {
+            "run_id": run_id,
+            "status": "executing",
+            "message": "synthetic release execution",
+            "expected_state_version": version,
+        },
+    )
+    version = _state_version(_structured(executing))
+
+    step_id = f"release-smoke-{smoke_id}"
+    waiting = await _call(
+        session,
+        calls,
+        "workflow_wait_for_external",
+        {
+            "run_id": run_id,
+            "step_id": step_id,
+            "connector": "release-smoke",
+            "action": "refs-only-probe",
+            "request_refs": {"thread_id": step_id},
+            "expected_state_version": version,
+        },
+    )
+    version = _state_version(_structured(waiting))
+
+    completed_step = await _call(
+        session,
+        calls,
+        "complete_external_step",
+        {
+            "run_id": run_id,
+            "step_id": step_id,
+            "result_refs": {"message_id": step_id},
+            "expected_state_version": version,
+        },
+    )
+    version = _state_version(_structured(completed_step))
+
+    resumed = await _call(
+        session,
+        calls,
+        "workflow_resume",
+        {"run_id": run_id, "expected_state_version": version},
+    )
+    version = _state_version(_structured(resumed))
+
+    cancelled = await _call(
+        session,
+        calls,
+        "workflow_cancel",
+        {
+            "run_id": run_id,
+            "reason": "synthetic release smoke complete",
+            "expected_state_version": version,
+        },
+    )
+    cancelled_payload = _structured(cancelled)
+    return {
+        "synthetic_run_id": run_id,
+        "synthetic_terminal_status": cancelled_payload.get("status"),
+    }
+
+
 async def check_gateway(args: argparse.Namespace) -> dict[str, Any]:
     token = str(os.environ.get(args.token_env, "") or "").strip()
     if not token:
@@ -132,9 +359,11 @@ async def check_gateway(args: argparse.Namespace) -> dict[str, Any]:
                     search = None
                     entity_context = None
                     workflows = None
+                    calls: dict[str, bool] = {}
+                    exhaustive: dict[str, Any] = {}
                     if not missing:
-                        bootstrap = await session.call_tool("agent_bootstrap", {})
-                        digest = await session.call_tool("agent_board_digest", {"limit": 1})
+                        bootstrap = await _call(session, calls, "agent_bootstrap")
+                        digest = await _call(session, calls, "agent_board_digest", {"limit": 1})
                         digest_payload = getattr(digest, "structuredContent", None)
                         digest_cards = (
                             ((digest_payload or {}).get("data") or {}).get("cards") or []
@@ -156,7 +385,9 @@ async def check_gateway(args: argparse.Namespace) -> dict[str, Any]:
                             else ""
                         )
                         if digest_card_id:
-                            search = await session.call_tool(
+                            search = await _call(
+                                session,
+                                calls,
                                 "agent_search",
                                 {"entity": "card", "query": digest_search_query, "limit": 1},
                             )
@@ -172,11 +403,17 @@ async def check_gateway(args: argparse.Namespace) -> dict[str, Any]:
                             else ""
                         )
                         if card_id:
-                            entity_context = await session.call_tool(
+                            entity_context = await _call(
+                                session,
+                                calls,
                                 "agent_entity_context",
                                 {"entity": "card", "entity_id": card_id, "detail": "summary"},
                             )
-                        workflows = await session.call_tool("list_agent_workflows", {"limit": 50})
+                        workflows = await _call(
+                            session, calls, "list_agent_workflows", {"limit": 50}
+                        )
+                        if args.exhaustive:
+                            exhaustive = await _run_exhaustive_checks(session, calls)
                     bootstrap_bytes = _serialized_size(bootstrap) if bootstrap is not None else 0
                     digest_bytes = _serialized_size(digest) if digest is not None else 0
     except Exception:
@@ -202,6 +439,15 @@ async def check_gateway(args: argparse.Namespace) -> dict[str, Any]:
         "entity_context_ok": entity_context is not None and _tool_ok(entity_context),
         "workflow_registry_ok": workflows is not None and _tool_ok(workflows),
     }
+    if args.exhaustive:
+        checks.update(
+            {
+                "all_tools_invoked": set(calls) == set(EXPECTED_TOOL_NAMES),
+                "all_tool_invocations_ok": all(calls.values()),
+                "synthetic_workflow_terminal": exhaustive.get("synthetic_terminal_status")
+                == "cancelled",
+            }
+        )
     return {
         "ok": all(checks.values()),
         "checks": checks,
@@ -211,22 +457,31 @@ async def check_gateway(args: argparse.Namespace) -> dict[str, Any]:
             "bootstrap_bytes": bootstrap_bytes,
             "board_digest_bytes": digest_bytes,
             "anonymous_status_code": anonymous_status,
+            "invoked_tool_count": len(calls),
         },
         "missing_tools": missing,
         "unexpected_tools": unexpected,
         "legacy_tools_found": sorted(tool_names & FORBIDDEN_LEGACY_TOOL_NAMES),
+        "invoked_tools": sorted(calls),
+        "failed_invocations": sorted(name for name, ok in calls.items() if not ok),
+        "exhaustive": exhaustive,
         "data_included": False,
     }
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Read-only Agent Gateway v2 production smoke.")
+    parser = argparse.ArgumentParser(description="Safe Agent Gateway v2 production smoke.")
     parser.add_argument("--mcp-url", default=DEFAULT_MCP_URL)
     parser.add_argument("--token-env", default=DEFAULT_TOKEN_ENV)
     parser.add_argument("--max-tools", type=int, default=40)
     parser.add_argument("--max-tools-bytes", type=int, default=40 * 1024)
     parser.add_argument("--max-bootstrap-bytes", type=int, default=20 * 1024)
     parser.add_argument("--max-board-digest-bytes", type=int, default=50 * 1024)
+    parser.add_argument(
+        "--exhaustive",
+        action="store_true",
+        help="Invoke all 24 tools using read-only, dry-run, or synthetic terminal inputs.",
+    )
     return parser
 
 

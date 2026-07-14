@@ -235,6 +235,14 @@ class AgentGatewayV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(accepted.structuredContent["ok"])
         self.assertTrue(accepted.structuredContent["verification"]["schema_hash_verified"])
 
+    async def test_permanent_v2_tools_are_not_duplicated_through_raw_discovery(self) -> None:
+        discovered = await self._call("discover_raw_capabilities", {"query": "ping_connector"})
+        self.assertEqual([], discovered.structuredContent["data"]["capabilities"])
+
+        schema = await self._call("get_raw_capability_schema", {"name": "ping_connector"})
+        self.assertFalse(schema.structuredContent["ok"])
+        self.assertIn("capability_not_found", schema.structuredContent["warnings"])
+
     async def test_raw_write_requires_idempotency_key(self) -> None:
         discovered = await self._call("discover_raw_capabilities", {"query": "create_sticky"})
         capability = next(

@@ -82,8 +82,8 @@ serialization, and write phases through `Server-Timing`.
 - `docs/SERVER_MAP.md` - active server paths, Docker services, ports,
   watchdogs, cleanup automation, backup boundaries, and verification commands.
 - `API_GUIDE.md` - HTTP API route groups and safety-critical contracts.
-- `MCP_GUIDE.md` - MCP runtime, tool groups, optional manager layer, and write
-  rules.
+- `MCP_GUIDE.md` - exact Gateway v2 production surface, hidden raw capability
+  groups, mounted Manager layer, and write rules.
 - `CHATGPT_CONNECTOR_SETUP.md` - ChatGPT connector setup for
   `https://crm.autostopcrm.ru/mcp`.
 - `AUTOSTOPCRM_FULL_INSTRUCTION.txt` - short server/operator note copied by

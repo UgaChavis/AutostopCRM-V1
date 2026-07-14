@@ -129,21 +129,23 @@ The read-only v2 release check is:
 python scripts/check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --token-env AUTOSTOPCRM_MCP_TOKEN
 ```
 
-It verifies anonymous rejection, tool-count/tools-list budgets,
-`agent_bootstrap`, and `agent_board_digest(limit=1)` without printing board
-data or the token.
+It verifies anonymous rejection, the exact 24-tool production surface,
+tool-list payload budgets, compact board/search/context reads, and the workflow
+registry without printing board data or the token. Add `--exhaustive` to call
+all 24 tools with read-only, dry-run, or synthetic terminal workflow inputs.
 
-## Optional AutostopManager Layer
+## Mounted AutostopManager Layer
 
 When `AutostopManager` is mounted next to CRM or `AUTOSTOP_MANAGER_PATH` points
-to it, the same MCP endpoint can expose optional manager memory/source tools
-such as `estimate_repair_work_cost`, `lookup_original_parts`, `today_context`,
-`agent_brief`, `remember`, or `system_audit`.
+to it, its raw manager capabilities and v2 ledger implementation are loaded
+behind the gateway. Production still advertises exactly 24 tools. Manager
+memory/source capabilities such as `estimate_repair_work_cost`,
+`lookup_original_parts`, `today_context`, or `remember` are available only
+through schema-hashed raw discovery when no named workflow covers the request.
 
-Release checks must compare actual tool names and explain optional manager-layer
-differences. Do not treat a raw tool count mismatch as a CRM regression until
-names are compared. CRM remains the source of truth for cards, clients,
-vehicles, repair orders, inventory, files, payments, and cashboxes.
+Release checks compare the exact visible names and separately audit raw
+registry counts. CRM remains the source of truth for cards, clients, vehicles,
+repair orders, inventory, files, payments, and cashboxes.
 
 ## Recommended Call Order
 
@@ -194,9 +196,11 @@ For an actual repair-order payment, use
 cash transaction. It requires the exact card/cashbox, amount, payment method,
 and current `expected_updated_at`; it blocks stale revisions and overpayment,
 then verifies the payment row, linked cash transaction, and cash-journal entry.
-`download_repair_order_print_pdf` exports documents from an existing CRM card.
-`create_document_without_card_pdf` exports the same standard AutoStop templates
-without a card from `request_text` and/or `manual_document`; omit
+Use `agent_document_workflow(operation="download_repair_order_print_pdf")` for
+documents from an existing CRM card. Use
+`agent_document_workflow(operation="create_document_without_card_pdf")` for
+the same standard AutoStop templates without a card from `request_text` and/or
+`manual_document`; omit
 `document_type` to infer it from phrases such as `акт выполненных работ`,
 `дефектовка`, `заказ-наряд`, `счет-фактура`, `УПД`, or `продажа запчастей`.
 Pass `manual_document.tax_label` or a text line such as `НДС: Без НДС` when the
@@ -240,15 +244,17 @@ Not normal MCP runtime tools: `autofill_vehicle_data`,
 - Read live context before every write.
 - Patch only confirmed fields.
 - Read back the target and verify the result.
-- Use `response_mode=compact` on high-traffic write calls when the caller only
-  needs changed ids, updated timestamps, and verification metadata.
-- Use manager write operations in `dry_run` first for board-wide work; only call
-  `apply` with `actor_name` when the dry-run plan is safe.
+- Named Gateway v2 workflows return compact write and verification metadata by
+  default; allow large output only for an explicitly requested document/file.
+- Use `agent_board_workflow` in `mode="dry_run"` first for board-wide work;
+  switch to `mode="apply"` with a unique idempotency key only when the plan is
+  safe.
 - Do not move, archive, delete, or change money/client/file/order data without
   explicit owner intent.
 - For clients, search/suggest before create/link.
-- For documents, use CRM PDF export. For AutoStop documents with a card use
-  `download_repair_order_print_pdf`; for "Документ без карточки" use
+- For documents, use CRM PDF export through `agent_document_workflow`. For
+  AutoStop documents with a card use operation
+  `download_repair_order_print_pdf`; for "Документ без карточки" use operation
   `create_document_without_card_pdf`. Do not build independent PDF/HTML
   templates for invoices, acts, repair orders, invoice-facturas, UPD, defect
   reports, completion acts, or parts-sale documents.
@@ -286,7 +292,7 @@ python -m unittest tests.test_mcp tests.test_mcp_main tests.test_connection_card
 Connector smoke:
 
 ```powershell
-python scripts\check_live_connector.py --strict --skip-public-site --skip-public-write-protection --local-api-url http://127.0.0.1:41731 --mcp-url http://127.0.0.1:41831/mcp --operator-username $env:AUTOSTOP_SMOKE_OPERATOR_USERNAME --operator-password $env:AUTOSTOP_SMOKE_OPERATOR_PASSWORD --expect-admin
+python scripts\check_agent_gateway_v2.py --mcp-url http://127.0.0.1:41831/mcp --exhaustive
 ```
 
 Production deploy and public smoke live in `docs/OPERATIONS_RUNBOOK.md`.

@@ -113,9 +113,11 @@ Public anonymous writes must remain blocked.
 When using the AutoStop CRM MCP connector, scope is exactly one current CRM
 board at `https://crm.autostopcrm.ru/mcp`.
 
-- Begin with `ping_connector`, `get_connector_identity`, and
-  `bootstrap_context(compact=true)`.
+- Begin normal work with `agent_bootstrap`; use `agent_board_digest`,
+  `agent_search`, and `agent_entity_context` for live scope and exact targets.
 - Call `get_runtime_status` when auth, tunnel, or runtime state is unclear.
+- Use a named domain workflow before raw discovery. Never call hidden legacy
+  tools by name from an external agent.
 - Read live context before every write.
 - Write only by confirmed ids such as `card_id`, `sticky_id`, `column_id`,
   `client_id`, `repair_order` card id, or cashbox id.
@@ -138,8 +140,8 @@ Choose focused checks first, then broaden when shared behavior changes.
 - UI asset changes:
   `python scripts/check_web_assets_js.py` and relevant browser smoke coverage.
 - Connector/runtime changes:
-  `python scripts/check_live_connector.py` with the runbook's local or
-  production arguments.
+  `python scripts/check_agent_gateway_v2.py` with the runbook's local or
+  production arguments; add `--exhaustive` for a safe call of all 24 tools.
 - Production-impacting changes:
   follow `docs/OPERATIONS_RUNBOOK.md` release checklist.
 
