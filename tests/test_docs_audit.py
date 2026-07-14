@@ -42,7 +42,6 @@ class DocsAuditTests(unittest.TestCase):
         self.assertIn("!MCP_GUIDE.md", rules)
         self.assertIn("!CHATGPT_CONNECTOR_SETUP.md", rules)
         self.assertIn("!docs/OPERATIONS_RUNBOOK.md", rules)
-        self.assertIn("!docs/SERVER_MAP.md", rules)
 
     def test_docs_audit_detects_missing_dockerignore_canonical_markdown_keep_rule(self) -> None:
         module = load_docs_audit_module()
@@ -63,9 +62,27 @@ class DocsAuditTests(unittest.TestCase):
                 "Docker image excludes canonical documentation: !CHATGPT_CONNECTOR_SETUP.md",
                 "Docker image excludes canonical documentation: !MCP_GUIDE.md",
                 "Docker image excludes canonical documentation: !docs/OPERATIONS_RUNBOOK.md",
-                "Docker image excludes canonical documentation: !docs/SERVER_MAP.md",
             },
             {issue.detail for issue in issues},
+        )
+
+    def test_docs_audit_validates_local_markdown_links(self) -> None:
+        module = load_docs_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            (temp_root / "README.md").write_text(
+                "[valid](AGENTS.md)\n[missing](docs/missing.md)\n",
+                encoding="utf-8",
+            )
+            (temp_root / "AGENTS.md").write_text("agent rules\n", encoding="utf-8")
+
+            issues = module._check_canonical_local_links(temp_root)
+
+        self.assertEqual(["canonical_doc_link_missing"], [issue.code for issue in issues])
+        self.assertEqual(
+            "local documentation link target is missing: docs/missing.md",
+            issues[0].detail,
         )
 
     def test_scan_forbidden_text_detects_stale_references(self) -> None:
@@ -90,6 +107,25 @@ class DocsAuditTests(unittest.TestCase):
                 "stale_deploy_env",
                 "stale_smoke_credentials",
                 "stale_public_http",
+            },
+            {issue.code for issue in issues},
+        )
+
+    def test_scan_forbidden_text_detects_removed_docs_and_deploy_flags(self) -> None:
+        module = load_docs_audit_module()
+
+        issues = module.scan_forbidden_text(
+            ROOT / "sample.md",
+            "Read docs/SERVER_MAP.md, run AUTOSTOP_VERIFY_PUBLIC_HTTPS=1, "
+            "and remember that repair-order number corrections are maintenance-only.",
+            root=ROOT,
+        )
+
+        self.assertEqual(
+            {
+                "missing_doc_reference",
+                "stale_deploy_env",
+                "stale_repair_order_correction_contract",
             },
             {issue.code for issue in issues},
         )
@@ -134,9 +170,8 @@ class DocsAuditTests(unittest.TestCase):
             (temp_root / "requirements-runtime.txt").write_text(
                 "runtime manifest\n", encoding="utf-8"
             )
-            (temp_root / "docs").mkdir()
-            (temp_root / "docs" / "SERVER_MAP.md").write_text("server map\n", encoding="utf-8")
             (temp_root / "notes.md").write_text("unclassified\n", encoding="utf-8")
+            (temp_root / "removed.md").write_text("deleted before audit\n", encoding="utf-8")
             subprocess.run(["git", "init"], cwd=temp_root, check=True, capture_output=True)
             subprocess.run(
                 [
@@ -145,13 +180,14 @@ class DocsAuditTests(unittest.TestCase):
                     "README.md",
                     "requirements.txt",
                     "requirements-runtime.txt",
-                    "docs/SERVER_MAP.md",
                     "notes.md",
+                    "removed.md",
                 ],
                 cwd=temp_root,
                 check=True,
                 capture_output=True,
             )
+            (temp_root / "removed.md").unlink()
 
             issues = module._check_unclassified_tracked_docs(temp_root)
 
@@ -203,12 +239,13 @@ class DocsAuditTests(unittest.TestCase):
             {
                 "read-only finance audit API route is not documented: /api/finance_audit",
                 "read-only repair-order number audit API route is not documented: /api/repair_order_number_audit",
-                "repair-order number maintenance route is not documented: /api/correct_repair_order_number",
+                "blocked repair-order number compatibility route is not documented: /api/correct_repair_order_number",
                 "manual employee shift accrual route is not documented: /api/create_employee_shift_accrual",
                 "toolchain bootstrap script is not documented: bootstrap_tools.ps1",
                 "toolchain audit script is not documented: toolchain_doctor.ps1",
                 "card log archive hydration option is not documented: include_full_details",
                 "cashbox transaction pagination offset is not documented: transaction_offset",
+                "immutable repair-order number rejection is not documented: repair_order_number_immutable",
                 "state size diagnostics script is not documented: state_size_report.py",
                 "audit compaction maintenance script is not documented: compact_audit_events.py",
                 "audit archive data directory is not documented: audit-archive",
@@ -218,8 +255,9 @@ class DocsAuditTests(unittest.TestCase):
                 "deploy/watchdog lock path env var is not documented: AUTOSTOP_DEPLOY_LOCK_PATH",
                 "deploy smoke retry count env var is not documented: AUTOSTOP_SMOKE_ATTEMPTS",
                 "deploy smoke retry delay env var is not documented: AUTOSTOP_SMOKE_DELAY_SECONDS",
-                "manual shift salary accrual browser-smoke scenario is not documented: employee_shift_accrual_manual_salary",
-                "documentation cleanup loop is not documented: Documentation cleanup loop",
+                "production environment validator is not documented: validate_production_env.py",
+                "Gateway v2 release verifier is not documented: check_agent_gateway_v2.py",
+                "blocked repair-order correction contract is not documented: repair_order_number_immutable",
             },
             {issue.detail for issue in issues},
         )
@@ -266,9 +304,31 @@ class DocsAuditTests(unittest.TestCase):
                 "MCP security rule for public anonymous writes is not documented: Public anonymous writes must remain blocked",
                 "exact Gateway v2 production tool count is not documented: exactly 24 tools",
                 "safe exhaustive Gateway v2 release check is not documented: --exhaustive",
+                "ChatGPT authenticated-client compatibility is not documented: OAuth 2.1",
             },
             {issue.detail for issue in issues},
         )
+
+    def test_mcp_guide_lists_every_expected_gateway_tool(self) -> None:
+        module = load_docs_audit_module()
+
+        self.assertEqual([], module._check_mcp_guide_gateway_surface(ROOT))
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            (temp_root / "MCP_GUIDE.md").write_text(
+                "Production advertises exactly 2 tools: `agent_bootstrap`.\n",
+                encoding="utf-8",
+            )
+            with patch.object(
+                module,
+                "load_gateway_expected_tools",
+                return_value={"agent_bootstrap", "new_gateway_tool"},
+            ):
+                issues = module._check_mcp_guide_gateway_surface(temp_root)
+
+        self.assertEqual(["mcp_guide_gateway_tools_missing"], [issue.code for issue in issues])
+        self.assertIn("new_gateway_tool", issues[0].detail)
 
     def test_chatgpt_connector_setup_mentions_current_endpoint_and_safety(self) -> None:
         module = load_docs_audit_module()
@@ -290,6 +350,8 @@ class DocsAuditTests(unittest.TestCase):
                 "ChatGPT connector bootstrap call is not documented: agent_bootstrap",
                 "ChatGPT connector runtime diagnostic call is not documented: get_runtime_status",
                 "ChatGPT connector write-safety rule is not documented: Public anonymous writes must remain blocked",
+                "current direct ChatGPT app limitation is not documented: cannot be added directly",
+                "Responses API MCP authorization field is not documented: authorization",
             },
             {issue.detail for issue in issues},
         )
@@ -383,7 +445,7 @@ class DocsAuditTests(unittest.TestCase):
 
         self.assertEqual([], issues)
 
-    def test_default_manager_root_prefers_sibling_checkout(self) -> None:
+    def test_sibling_manager_checkout_is_not_audit_input_without_flag(self) -> None:
         module = load_docs_audit_module()
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -393,7 +455,39 @@ class DocsAuditTests(unittest.TestCase):
             crm_root.mkdir()
             manager_root.mkdir()
 
-            self.assertEqual(manager_root, module._default_manager_root(crm_root))
+            with patch.object(module, "_check_manager_docs_and_catalogs") as manager_audit:
+                module.audit(crm_root)
+
+        manager_audit.assert_not_called()
+
+    def test_manager_checkout_is_audited_when_explicit(self) -> None:
+        module = load_docs_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            parent = Path(temp_dir)
+            crm_root = parent / "autostopcrm"
+            manager_root = parent / "AutostopManager"
+            crm_root.mkdir()
+            manager_root.mkdir()
+
+            with patch.object(
+                module,
+                "_check_manager_docs_and_catalogs",
+                return_value=[],
+            ) as manager_audit:
+                module.audit(crm_root, manager_root=manager_root)
+
+        manager_audit.assert_called_once()
+
+    def test_user_skills_are_scanned_only_when_explicit(self) -> None:
+        module = load_docs_audit_module()
+
+        with patch.object(module, "_scan_user_skill_doc_issues", return_value=[]) as skill_audit:
+            module.audit(ROOT)
+            skill_audit.assert_not_called()
+            module.audit(ROOT, include_skills=True)
+
+        skill_audit.assert_called_once()
 
     def test_manager_instruction_scan_rejects_v1_and_direct_legacy_commands(self) -> None:
         module = load_docs_audit_module()

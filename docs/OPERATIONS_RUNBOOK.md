@@ -1,334 +1,249 @@
 # AutoStop CRM Operations Runbook
 
-This is the source of truth for local verification, GitHub/server sync,
-production deploy, live smoke, performance checks, watchdog, and maintenance
-safety.
+This is the operational source of truth for workstation checks, production
+parity, deployment, rollback, live verification, performance gates, and
+maintenance safety.
 
-## Current Runtime
+## Production Runtime
 
-- CRM: `https://crm.autostopcrm.ru`
-- MCP: `https://crm.autostopcrm.ru/mcp`
-- production repo: `/opt/autostopcrm`
-- branch: `autostopcrm-v1`
-- compose service: `autostopcrm`
-- canonical SSH identity: `autostopcrm_server_ed25519`
+| Item | Current value |
+| --- | --- |
+| Source branch | `origin/autostopcrm-v1` |
+| Server checkout | `/opt/autostopcrm` |
+| CRM | `https://crm.autostopcrm.ru` |
+| MCP | `https://crm.autostopcrm.ru/mcp` |
+| SSH host | `root@crm.autostopcrm.ru` |
+| Default SSH key | `~/.ssh/autostopcrm_server_ed25519` |
+| Host data | `/opt/autostopcrm/data` |
+| Container data | `/root/.minimal-kanban` |
 
-VPN monitoring files are not the active CRM deployment source of truth.
+`docker-compose.yml` defines three CRM-project services:
 
-## Production Server Map
+| Service/container | Purpose | Host binding |
+| --- | --- | --- |
+| `autostopcrm` | UI, API, MCP, agent runtime | `127.0.0.1:8000 -> 41731`, `127.0.0.1:8001 -> 41831` |
+| `autostop-searxng` | local search provider | `127.0.0.1:8890 -> 8080` |
+| `autostop-crawl4ai` | local browser/extraction provider | `127.0.0.1:11235 -> 11235` |
 
-Active checkouts and services on `crm.autostopcrm.ru`:
+The CRM service depends on healthy SearXNG and Crawl4AI. A normal release
+replaces only `autostopcrm`; it does not recreate those dependencies or
+unrelated host services.
 
-- `/opt/autostopcrm` - production AutoStop CRM checkout on branch
-  `autostopcrm-v1`. Docker Compose project `autostopcrm` runs container
-  `autostopcrm` from image `autostopcrm-autostopcrm`. Host ports are
-  `127.0.0.1:8000 -> 41731/tcp` for the API/UI and
-  `127.0.0.1:8001 -> 41831/tcp` for MCP. Nginx routes
-  `crm.autostopcrm.ru` to this project, including `/mcp`.
-- `/opt/autostop-app` - active public app/storefront checkout. Docker Compose
-  project `autostop-app` runs `autostop-app` and `autostop-db`; the app is
-  published as `127.0.0.1:8010 -> 8000/tcp`. Nginx routes
-  `autostop24.shop`, `autostop24.pro`, and the server `:8080` listener to
-  this app. Its active Docker volumes are `autostop-app_postgres_data` and
-  `autostop-app_uploads_data`.
-- `/opt/AutostopManager` - separate manager checkout. It is not the active CRM
-  production source and no active Docker container was tied to it in the
-  2026-06-02 server inventory. Treat local modifications there as parallel
-  work: inspect, document, or ask before reset/delete.
-- `/opt/crm-2.0` - separate development checkout. It is not the active CRM
-  production source and no active Docker container was tied to it in the
-  2026-06-02 server inventory.
-- `amnezia-awg2` - active Amnezia/WireGuard Docker container. It listens on
-  UDP `47895`; `autostopvpn-udp443-forward.service` is an active systemd
-  helper. Do not remove VPN containers, configs, or systemd units during CRM
-  cleanup.
+Do not put server-wide VPN, storefront, firewall, or unrelated checkout
+inventory in this repository. Inspect those systems live only when a task
+explicitly includes them.
 
-Expected active systemd services/timers:
+## Git Parity
 
-- `docker.service`, `nginx.service`, `autostopcrm-watchdog.timer`,
-  `autostopvpn-udp443-forward.service`, and `autostop-gmail-relay.service`
-  are active.
-- `autostopcrm-watchdog.service` is usually inactive/static between timer
-  runs.
-- Disabled Amnezia dashboard or traffic-collector units are not CRM runtime
-  blockers, but do not delete their files without a separate VPN maintenance
-  task.
-
-Server filesystem cleanup boundaries:
-
-- Safe candidates after read-only verification: Docker build cache, stopped
-  orphan containers, inactive volumes with obsolete compose project names,
-  old root-level release tarballs, old `/opt/autostop-app.previous-*` and
-  `/opt/autostop-app.backup-*` directories when a newer control copy remains,
-  old `/opt/autostop-app-backups` tar/tar.gz/dump copies older than 7 days
-  beyond the minimum retained recent set, empty accidental files, and data
-  directories from integrations that have already been removed from compose,
-  code, tests, and docs.
-- Always keep: `.env` files, credentials, production state, Postgres/upload
-  volumes, `/root/autostopcrm-backups`, audit archives, operator activity,
-  active nginx configs, active systemd files, active VPN configs, and dirty
-  checkouts belonging to parallel work.
-- Before cleanup, capture `df -hT /`, `du -hxd1 /opt /root /var`,
-  `docker system df`, `docker ps -a`, `docker volume ls`, `docker compose ls`,
-  nginx routes, systemd statuses, and git status for each checkout.
-- After cleanup, rerun the same disk/Docker checks plus `nginx -t`, CRM
-  health, MCP smoke, and VPN listener checks.
-
-## Begin And Parity
+On the workstation:
 
 ```powershell
 git status --short --branch
 git fetch origin autostopcrm-v1 --prune
-git rev-parse --short HEAD
-git rev-parse --short origin/autostopcrm-v1
+git rev-parse HEAD
+git rev-parse origin/autostopcrm-v1
 ```
 
-Server parity:
+Preserve every pre-existing user change. Before any production operation,
+compare the server:
 
 ```powershell
 if (-not $env:AUTOSTOPCRM_SSH_KEY) {
     $candidate = Join-Path $HOME ".ssh\autostopcrm_server_ed25519"
     if (Test-Path -LiteralPath $candidate) { $env:AUTOSTOPCRM_SSH_KEY = $candidate }
 }
-ssh -i $env:AUTOSTOPCRM_SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes root@crm.autostopcrm.ru "cd /opt/autostopcrm && git status --short --branch && git rev-parse --short HEAD && git rev-parse --short origin/autostopcrm-v1 && docker compose ps"
+ssh -i $env:AUTOSTOPCRM_SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes root@crm.autostopcrm.ru "cd /opt/autostopcrm && git status --short --branch && git rev-parse HEAD && git rev-parse origin/autostopcrm-v1 && docker compose ps"
 ```
 
-If the key is missing, use the local secret bundle. Do not try stale identity
-names, password auth, or ad-hoc keys.
+Stop if the production checkout is dirty or revisions do not match the
+intended release. Do not reset a dirty checkout.
 
-## Toolchain Baseline
+## Workstation Setup
 
-Windows workstation bootstrap:
+Initial setup:
+
+```powershell
+.\scripts\setup_dev.ps1 -InstallGitHooks
+```
+
+Optional convenience bootstrap:
 
 ```powershell
 .\scripts\bootstrap_tools.ps1
 ```
 
-The bootstrap installs missing user-level CLI tools into
-`%LOCALAPPDATA%\Programs\AutostopCRMTools\bin`, adds that directory to the user
-`PATH`, creates lightweight command shims in `%LOCALAPPDATA%\Microsoft\WindowsApps`
-for already-running shells, sets `AUTOSTOPCRM_SSH_KEY` when
-`%USERPROFILE%\.ssh\autostopcrm_server_ed25519` exists, installs Python
-dependencies, installs the git `pre-commit` hook, and verifies Playwright
-Chromium.
+`bootstrap_tools.ps1` installs portable `gh`, `jq`, and `7z`, adds their local
+bin directory to user PATH, sets `AUTOSTOPCRM_SSH_KEY` when the default key
+exists, runs project setup, installs Playwright Chromium, and runs the
+toolchain doctor. It installs Docker Desktop only with
+`-InstallDockerDesktop`; GitHub login is explicit with `-GithubLogin`.
 
-Read-only toolchain audit:
-
-```powershell
-.\scripts\toolchain_doctor.ps1
-.\scripts\toolchain_doctor.ps1 -Format json
-```
-
-Required local tools for fast maintenance are `git`, Python `.venv`, `gh`,
-`jq`, `7z`, PowerShell 7, Node/npm, SSH, Playwright Chromium, and the
-AutostopCRM MCP connector. `gh auth status` may warn until the operator runs
-`gh auth login`; do not store GitHub tokens in the repository.
-
-Expected current workstation status after bootstrap:
-
-- `toolchain_doctor.ps1 -SkipServer -Strict` exits cleanly;
-- `github:auth` is `PASS` for account `UgaChavis`;
-- `docker` may be `SKIP` locally because server-side Docker Compose is the
-  production deploy path.
-
-Docker Desktop is optional locally. The normal production deploy path uses
-server-side Docker Compose in `/opt/autostopcrm`. Install Docker Desktop only
-with an explicit local-container need:
-
-```powershell
-.\scripts\bootstrap_tools.ps1 -InstallDockerDesktop
-```
-
-Server tooling stays minimal. Do not install `gh`, Node/npm, or archive tools on
-the server unless a concrete maintenance task needs them.
-
-Server checkout hygiene:
-
-- `/opt/autostopcrm` should contain tracked CRM files plus required untracked
-  runtime files only, such as `.env`, data, and backups.
-- AutostopVPN source copies and duplicate VPN docs do not belong in the CRM
-  checkout. If they reappear, first confirm active services reference
-  `/usr/local/bin`, `/usr/local/sbin`, or `/etc/systemd/system`, then archive
-  the untracked copies outside `/opt/autostopcrm` before deleting them.
-- Never delete server-local credentials, production data, audit archives,
-  operator activity, or compose env files during checkout cleanup.
-
-## Release Checklist
-
-Before pushing code or docs that affect runtime, deploy, contracts, UI, or
-operator instructions:
+Read-only audit:
 
 ```powershell
 .\scripts\doctor.ps1
 .\scripts\toolchain_doctor.ps1
-.\scripts\run_checks.ps1
-.\.venv\Scripts\python.exe -m ruff format --check .
-.\.venv\Scripts\python.exe -m ruff check .
-.\.venv\Scripts\python.exe -m unittest discover -s .\tests -v
-python scripts\docs_audit.py --format text
-python scripts\code_health_audit.py --format text
-python scripts\audit_localization.py
-python scripts\check_web_assets_js.py
-python scripts\browser_smoke.py
+.\scripts\toolchain_doctor.ps1 -Format json
 ```
+
+The toolchain doctor requires Git, `gh`, `jq`, `7z`, the project venv, and the
+SSH key. Node/npm, PowerShell 7, and local Docker are optional checks. GitHub
+CLI authentication may be a warning until a GitHub operation needs it; never
+store a GitHub token in the repository.
+
+## Release Checklist
 
 Documentation-only minimum:
 
 ```powershell
 .\.venv\Scripts\python.exe -m ruff format --check scripts\docs_audit.py tests\test_docs_audit.py
 .\.venv\Scripts\python.exe -m ruff check scripts\docs_audit.py tests\test_docs_audit.py
-python -m unittest tests.test_docs_audit -v
-python scripts\docs_audit.py --format text
-python scripts\audit_localization.py
+.\.venv\Scripts\python.exe -m unittest tests.test_docs_audit -v
+.\.venv\Scripts\python.exe scripts\docs_audit.py --format text
+.\.venv\Scripts\python.exe scripts\audit_localization.py
 ```
 
-Optional secret/access bundle scan:
+`docs_audit.py` audits this repository only by default. Cross-repository and
+local-environment scans are opt-in:
 
 ```powershell
-$env:AUTOSTOPCRM_SECRET_BUNDLE = "C:\path\to\КЛЮЧЕВАЯ ДОКУМЕНТАЦИЯ CRM VPN Сервер"
-python scripts\docs_audit.py --format text --secret-bundle $env:AUTOSTOPCRM_SECRET_BUNDLE
+.\.venv\Scripts\python.exe scripts\docs_audit.py --format text --manager-root C:\path\to\AutostopManager
+.\.venv\Scripts\python.exe scripts\docs_audit.py --format text --include-skills
+.\.venv\Scripts\python.exe scripts\docs_audit.py --format text --secret-bundle C:\path\to\private-access-bundle
 ```
 
-The scan reports stale instruction classes and paths only; it must not print
-token or key values.
+The secret-bundle scan reports stale instruction classes, never secret values.
+
+For shared Python/service/API/MCP behavior:
+
+```powershell
+.\scripts\run_checks.ps1
+.\.venv\Scripts\python.exe -m ruff format --check .
+.\.venv\Scripts\python.exe -m ruff check .
+.\.venv\Scripts\python.exe -m unittest discover -s .\tests -v
+```
+
+Add the smallest relevant checks:
+
+- UI assets:
+  `.\.venv\Scripts\python.exe scripts\check_web_assets_js.py` and
+  `.\.venv\Scripts\python.exe scripts\browser_smoke.py`;
+- MCP/runtime:
+  `.\.venv\Scripts\python.exe scripts\check_agent_gateway_v2.py`;
+- localization:
+  `.\.venv\Scripts\python.exe scripts\audit_localization.py`;
+- repository health:
+  `.\.venv\Scripts\python.exe scripts\code_health_audit.py --format text`.
 
 ## Performance Smoke
 
-Mandatory stage-1 storage/cache gate (synthetic production-sized state, no
-business data):
+The mandatory stage-1 gate uses synthetic production-sized state and does not
+touch business data:
 
 ```powershell
-python scripts\perf_workflows.py --synthetic-state-profile current-production --stage1-only --skip-browser --warmup-iterations 2 --iterations 20 --max-backend-write-ms 600 --max-storage-write-ms 550 --max-revision-server-ms 20 --max-get-card-direct-ms 20
+.\.venv\Scripts\python.exe scripts\perf_workflows.py --synthetic-state-profile current-production --stage1-only --skip-browser --warmup-iterations 2 --iterations 20 --max-backend-write-ms 600 --max-storage-write-ms 550 --max-revision-server-ms 20 --max-get-card-direct-ms 20
 ```
 
-The profile contains approximately 620 cards, 4000 clients, 5000 events, and
-1500 cash transactions and must remain at least 10 MB. Thresholds apply to p95,
-not the average. CI uploads `perf-stage1.json` even when the gate fails.
-
-Local temp server/read-only API:
+Local read/workflow checks:
 
 ```powershell
-python scripts\perf_probe.py --local-temp-server --warmup-iterations 2 --iterations 5 --max-snapshot-gzip-ms 1200 --max-snapshot-gzip-bytes 120000 --max-revision-ms 800 --max-revision-server-ms 20 --max-get-card-ms 800
-python scripts\perf_mcp.py --local-temp-server --iterations 3
-python scripts\perf_workflows.py --local-temp-server --iterations 3
+.\.venv\Scripts\python.exe scripts\perf_probe.py --local-temp-server --warmup-iterations 2 --iterations 5 --max-snapshot-gzip-ms 1200 --max-snapshot-gzip-bytes 120000 --max-revision-ms 800 --max-revision-server-ms 20 --max-get-card-ms 800
+.\.venv\Scripts\python.exe scripts\perf_mcp.py --local-temp-server --iterations 3
+.\.venv\Scripts\python.exe scripts\perf_workflows.py --local-temp-server --iterations 3
 ```
 
-Before deployment, the same write gate may use the exact production state. The
-script always benchmarks a temporary copy; it must never write to the supplied
-`state.json`:
-
-```bash
-cd /opt/autostopcrm
-.venv/bin/python scripts/perf_workflows.py \
-  --state-file data/state.json \
-  --stage1-only \
-  --skip-browser \
-  --warmup-iterations 2 \
-  --iterations 20 \
-  --max-backend-write-ms 600 \
-  --max-storage-write-ms 550 \
-  --max-revision-server-ms 20 \
-  --max-get-card-direct-ms 20
-```
-
-After deployment, run the public read-only gate. The revision limit uses the
-backend `Server-Timing: app` p95; public network/TLS latency is measured
-separately:
+After deploy, run public read-only checks:
 
 ```powershell
-python scripts\perf_probe.py --base-url https://crm.autostopcrm.ru --warmup-iterations 2 --iterations 20 --max-snapshot-gzip-ms 800 --max-snapshot-gzip-bytes 80000 --max-revision-ms 500 --max-revision-server-ms 20 --max-get-card-ms 150
-python scripts\perf_mcp.py --mcp-url https://crm.autostopcrm.ru/mcp --iterations 5
+.\.venv\Scripts\python.exe scripts\perf_probe.py --base-url https://crm.autostopcrm.ru --warmup-iterations 2 --iterations 20 --max-snapshot-gzip-ms 800 --max-snapshot-gzip-bytes 80000 --max-revision-ms 500 --max-revision-server-ms 20 --max-get-card-ms 150
+.\.venv\Scripts\python.exe scripts\perf_mcp.py --mcp-url https://crm.autostopcrm.ru/mcp --iterations 5
 ```
 
-API `Server-Timing` must contain finite, non-negative `app`, `total`, `lock`,
-`service_lock`, `store_lock`, `file_lock`, `normalize`, `serialize`, `write`,
-and `storage` values. Write logs include the same phase breakdown without
-payload data.
+Production MCP write benchmarks remain disabled without a separate owner
+approval. A pre-release state benchmark must use the script's temporary copy;
+never point a write workflow at the live state file.
 
-Production MCP write scenarios stay disabled unless a separate owner approval
-explicitly allows live writes.
-
-Emergency fast-write rollback: set `MINIMAL_KANBAN_FAST_STATE_WRITES=0` in the
-server-local `.env`, recreate only the `autostopcrm` service, and rerun connector
-and performance smoke. This switches CardService to the legacy normalizing
-writer; it does not change state format. Remove the override only after the
-failed path is diagnosed and tested.
-
-```bash
-docker compose up -d --no-deps --force-recreate autostopcrm
-```
+Emergency fast-writer rollback is
+`MINIMAL_KANBAN_FAST_STATE_WRITES=0` in server-local `.env`, followed by
+recreating only `autostopcrm` and rerunning connector/performance smoke. This
+is a temporary kill switch, not a state migration.
 
 ## Maintenance Safety
 
-State diagnostics are read-only first:
+Read first:
 
 ```powershell
-python scripts\state_size_report.py --json
-python scripts\state_size_report.py --benchmark-iterations 3 --json
-python scripts\compact_audit_events.py --dry-run --json
+.\.venv\Scripts\python.exe scripts\state_size_report.py --json
+.\.venv\Scripts\python.exe scripts\state_size_report.py --benchmark-iterations 3 --json
+.\.venv\Scripts\python.exe scripts\compact_audit_events.py --dry-run --json
 ```
 
-Heavy audit events keep compact details in active `state.json`; full
-`before/after` values live in append-only `audit-archive`. Do not edit
-`state.json` or `audit-archive` manually. Run
-`compact_audit_events.py --apply --backup` only after dry-run review and backup
-approval.
+Active `state.json` keeps compact audit details; full large `before`/`after`
+payloads live in append-only `audit-archive`. Never edit either manually. Run
+`compact_audit_events.py --apply --backup` only after reviewing a non-zero
+dry-run result and approving a verified backup.
 
-Operator activity lives under:
-
-```text
-operator-activity/current
-operator-activity/details
-operator-activity/aggregates
-```
-
-Use `scripts/operator_activity_maintenance.py --dry-run --json` before cleanup;
-apply only with `--apply --backup`.
+Operator activity lives under `operator-activity/current`,
+`operator-activity/details`, and `operator-activity/aggregates`. Use
+`scripts/operator_activity_maintenance.py --dry-run --json` first; apply only
+with `--apply --backup`.
 
 ### Finance Audit-First
 
 Finance audit is read-only first:
 
 ```powershell
-python scripts\finance_audit_report.py --base-url https://crm.autostopcrm.ru --format text --issue-limit 50
+.\.venv\Scripts\python.exe scripts\finance_audit_report.py --base-url https://crm.autostopcrm.ru --format text --issue-limit 50
 ```
 
-`/api/finance_audit/apply_safe_fixes` and repair-order number corrections are
-maintenance-only. Use owner-reviewed reports, backup decisions, dry-run checks,
-and explicit approval. Do not edit cashbox data manually. Operator cashbox UI is
-journal-first and must not expose finance-audit/reconciliation entrypoints.
-
-Historical financial cleanup is a destructive state-sanitization helper, not a
-normal repair flow. Run it in read-only mode first:
+`/api/finance_audit/apply_safe_fixes` is maintenance-only. Historical finance
+cleanup is destructive and must start with:
 
 ```powershell
-python scripts\clear_financial_history.py --dry-run --state-file .\path\to\state.json
+.\.venv\Scripts\python.exe scripts\clear_financial_history.py --dry-run --state-file .\path\to\state.json
 ```
 
-Apply only after reviewing the dry-run summary and only with a backup:
+Apply only under a separate owner-reviewed plan with a verified backup, using
+the script's explicit `--apply --backup` mode. Never edit cashbox or payroll
+ledgers by hand.
+
+Repair-order number audit is also read-only:
 
 ```powershell
-python scripts\clear_financial_history.py --apply --backup --state-file .\path\to\state.json
+.\.venv\Scripts\python.exe scripts\repair_order_number_audit.py --base-url https://crm.autostopcrm.ru --format text --issue-limit 50
 ```
 
-Do not run it against production `state.json` without a separate owner-reviewed
-maintenance plan and verified backup.
+Numbers are immutable. `/api/correct_repair_order_number` is a blocking
+compatibility endpoint that always returns
+`repair_order_number_immutable`; no supported maintenance correction tool
+exists.
 
-Repair-order number audit:
+## Production Authentication
 
-```powershell
-python scripts\repair_order_number_audit.py --base-url https://crm.autostopcrm.ru --format text --issue-limit 50
+Production MCP is bearer-only. Keep
+`AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED=0`. The current endpoint supports clients
+that can supply the bearer and is not a direct ChatGPT app until a real OAuth
+2.1 flow is implemented.
+
+All Gateway switches must be present in `.env` as `0` or `1`:
+
+- `AUTOSTOP_AGENT_GATEWAY_ENABLED`
+- `AUTOSTOP_AGENT_GATEWAY_WRITES_ENABLED`
+- `AUTOSTOP_AGENT_GATEWAY_FINANCE_ENABLED`
+- `AUTOSTOP_AGENT_GATEWAY_MAIL_ENABLED`
+- `AUTOSTOP_AGENT_GATEWAY_DESTRUCTIVE_ENABLED`
+- `AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED`
+
+Validate before restart:
+
+```bash
+cd /opt/autostopcrm
+python3 scripts/validate_production_env.py --require-production
 ```
 
-## Deploy
-
-Production deploy uses a bounded Agent Gateway v2 replacement. The image is
-built before CRM enters maintenance; the critical window stops and replaces
-only `autostopcrm`. SearXNG, Crawl4AI, nginx, VPN, and unrelated compose
-services are not recreated.
-
-One-time production auth setup or rotation (never pass the token on the command
-line):
+`deploy.sh` snapshots then rotates the CRM/Codex bearer after the image and
+rollback source are ready. For manual repair or initial provisioning, use the
+same helper and never pass a token on the command line:
 
 ```bash
 cd /opt/autostopcrm
@@ -339,159 +254,110 @@ set +a
 python3 scripts/configure_codex_mcp_auth.py check
 ```
 
-The helper atomically updates server `.env`, configures
-`bearer_token_env_var = "AUTOSTOPCRM_MCP_TOKEN"` in
-`/root/.codex/config.toml`, adds a static Authorization-header fallback for the
-already-running Codex app server, writes a mode-`0600` runtime env file, and
-never prints the token. All three files remain mode `0600`; restart Codex when
-practical so the environment-backed path becomes primary. Deploy CRM with the
-same credential. To use a prepared secret, put only the
-token (or `AUTOSTOPCRM_MCP_TOKEN=...`) in a mode-`0600` file and pass
-`rotate --token-file /secure/path/token`.
+The helper updates server `.env`, the Codex MCP entry, and a mode-`0600`
+runtime env without printing the token. Never dump `.env`, container
+`.Config.Env`, a full process environment, or credential-bearing config into a
+tool transcript. Report only allowlisted non-secret settings and boolean
+credential checks.
 
-Never dump `.env`, `docker inspect ... .Config.Env`, or a complete process
-environment into an agent/tool transcript. Query an explicit allowlist of
-non-secret variable names; for secrets report only presence, file mode, match,
-entropy, or authentication-test booleans.
+## Deploy
 
-Normal path:
+Deploy only with explicit owner intent. Normal sequence:
 
-1. Commit intended local changes.
-2. Push to `origin/autostopcrm-v1`.
-3. Deploy from `/opt/autostopcrm`.
-4. Verify local/GitHub/server `HEAD`.
-5. Run live smoke and performance checks.
+1. Verify and commit only intended changes.
+2. Push the commit to `origin/autostopcrm-v1`.
+3. Confirm `/opt/autostopcrm` is clean and fast-forward it to that commit.
+4. Run `deploy.sh`.
+5. Compare workstation, remote, and server revisions.
+6. Run live, UI-if-relevant, and performance smoke.
 
-Server command after the intended commit is checked out and `.env` contains the
-MCP token and smoke operator credentials:
+On the server, before `deploy.sh`:
+
+```bash
+cd /opt/autostopcrm
+git status --short --branch
+git fetch origin autostopcrm-v1
+git merge --ff-only origin/autostopcrm-v1
+```
+
+Run the release from a workstation after the intended commit is checked out on
+the server:
 
 ```powershell
 ssh -i $env:AUTOSTOPCRM_SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes root@crm.autostopcrm.ru "cd /opt/autostopcrm && AUTOSTOP_DEPLOY_BRANCH=autostopcrm-v1 ./deploy.sh"
 ```
 
-Useful deploy variables:
+Prerequisites in server `.env` include the six Gateway switches and
+`AUTOSTOP_SMOKE_OPERATOR_USERNAME` /
+`AUTOSTOP_SMOKE_OPERATOR_PASSWORD`. Public HTTPS/API/MCP auth smoke is
+mandatory; there is no skip flag.
 
-- `AUTOSTOP_DEPLOY_BRANCH` - branch whose remote HEAD must match local HEAD;
-  default `autostopcrm-v1`. Deploy never resets a dirty checkout.
-- `AUTOSTOP_DEPLOY_REMOTE` - git remote; default `origin`.
-- `AUTOSTOP_SKIP_GIT_SYNC=1` - skip remote parity verification.
-- `AUTOSTOP_RELEASE_IMAGE` - exact prebuilt image tag to switch to.
-- `AUTOSTOP_STABLE_IMAGE` - last known-good tag used by watchdog recovery;
-  default `autostopcrm-autostopcrm:latest`.
-- `AUTOSTOP_BUILD_RELEASE_IMAGE=0` - require that exact image to already exist;
-  by default it is built before maintenance.
-- `AUTOSTOP_MAINTENANCE_BUDGET_SECONDS` - stop/backup/switch/smoke budget;
-  default and maximum are 600 seconds.
-- `AUTOSTOP_RELEASE_BACKUP_ROOT` - completed atomic backups; default
-  `/root/autostopcrm-backups/agent-gateway-v2`.
-- `AUTOSTOP_MANAGER_DB` - manager SQLite included in every release backup;
-  default `/opt/AutostopManager/data/autostop_manager.sqlite3`.
-- `AUTOSTOP_COMPOSE_SERVICE` - compose service; default `autostopcrm`.
-- `AUTOSTOP_PUBLIC_SITE_URL`, `AUTOSTOP_PUBLIC_MCP_URL` - public smoke URLs.
-- `AUTOSTOP_SMOKE_OPERATOR_USERNAME`, `AUTOSTOP_SMOKE_OPERATOR_PASSWORD` -
-  smoke credentials.
-- `AUTOSTOP_SMOKE_ATTEMPTS`, `AUTOSTOP_SMOKE_DELAY_SECONDS` - deploy smoke
-  retry budget; defaults are 20 attempts and 3 seconds.
-- `AUTOSTOP_DESKTOP_INSTRUCTION_PATH` - server copy target for
-  `AUTOSTOPCRM_FULL_INSTRUCTION.txt`.
-- `AUTOSTOP_DEPLOY_LOCK_PATH` - deploy/watchdog lock path; default
-  `.autostop-deploy.lock`.
-- `AUTOSTOP_INSTALL_WATCHDOG=0` - skip watchdog install.
+The bounded release flow:
 
-Public HTTPS/API/MCP authentication smoke is mandatory and has no skip switch.
-The six `AUTOSTOP_AGENT_GATEWAY_*` values must already be explicitly set to
-`0` or `1` in `.env` before Compose or deploy validation.
+1. verifies branch/remote parity, a clean checkout, free space, Compose
+   configuration, and production auth;
+2. snapshots the mounted Manager code and prebuilds an immutable CRM image
+   before maintenance;
+3. snapshots and rotates auth with a private rollback copy;
+4. creates the maintenance marker and stops only `autostopcrm`;
+5. creates and verifies an atomic backup of CRM state/audit data and Manager
+   SQLite;
+6. starts the prebuilt image and runs internal authenticated smoke;
+7. removes maintenance mode and runs mandatory public API plus exhaustive
+   24-tool Gateway smoke;
+8. tags the healthy release as stable and installs the watchdog.
 
-`deploy.sh` loads server-local `.env`, validates fail-closed auth and kill
-switches, verifies git parity, and prebuilds the release image before the timer
-starts. Inside the window it creates a maintenance marker, stops only
-`autostopcrm`, atomically backs up and verifies `state.json`, `audit-archive`,
-and manager SQLite, switches to the prebuilt image, and runs read-only
-API/operator and Agent Gateway v2 smoke. Any error or budget overrun restores
-changed protected state/manager SQLite and starts the tagged previous image.
-The marker is removed only after a healthy release or healthy rollback.
+Any failure or maintenance-budget overrun attempts a bounded rollback of
+changed protected data, Manager release, auth configuration, and the previous
+image. The marker remains if rollback cannot prove a healthy recovery.
 
-Do not use `docker compose up -d --build --remove-orphans` as a production
-shortcut. It has no verified data checkpoint and may recreate unrelated
-services.
+Commonly reviewed overrides:
 
-Agent capability kill switches are runtime `0`/`1` settings:
+- `AUTOSTOP_DEPLOY_BRANCH` / `AUTOSTOP_DEPLOY_REMOTE`
+- `AUTOSTOP_RELEASE_IMAGE` / `AUTOSTOP_STABLE_IMAGE`
+- `AUTOSTOP_BUILD_RELEASE_IMAGE`
+- `AUTOSTOP_MAINTENANCE_BUDGET_SECONDS`
+- `AUTOSTOP_RELEASE_BACKUP_ROOT`
+- `AUTOSTOP_DEPLOY_LOCK_PATH`
+- `AUTOSTOP_SMOKE_ATTEMPTS` / `AUTOSTOP_SMOKE_DELAY_SECONDS`
+- `AUTOSTOP_INSTALL_WATCHDOG`
 
-- `AUTOSTOP_AGENT_GATEWAY_ENABLED` - all Agent Gateway tools;
-- `AUTOSTOP_AGENT_GATEWAY_WRITES_ENABLED` - every agent write;
-- `AUTOSTOP_AGENT_GATEWAY_FINANCE_ENABLED` - payments/cashboxes/payroll;
-- `AUTOSTOP_AGENT_GATEWAY_MAIL_ENABLED` - cross-system mail steps;
-- `AUTOSTOP_AGENT_GATEWAY_DESTRUCTIVE_ENABLED` - delete/archive/cancel flows;
-- `AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED` - lazy raw escape hatch.
-
-Production has no switch defaults: all six values must exist explicitly in
-`.env`, and a change takes effect when the CRM container is recreated. Setting
-the master switch to `0` leaves diagnostics only; it never restores the legacy
-write surface. The mail switch controls refs-only manager workflow steps, not
-the separately authenticated Gmail connector. Run
-`python3 scripts/validate_production_env.py --require-production` before restart.
-`AUTOSTOP_AGENT_SERVICE_IDENTITY` defaults to the audited identity
-`codex-owner-agent`. Raw operator-admin calls are accepted only from the local
-MCP service identity with the matching bearer token; public proxy requests
-cannot claim this identity.
-
-Production auth is bearer-only. Keep
-`AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED=0`; the embedded OAuth/DCR provider
-auto-approves compatible redirect clients and is therefore local-development
-compatibility, not an owner-authentication boundary.
+Defaults and validation live in `deploy.sh`. Do not use
+`docker compose up -d --build --remove-orphans` as a production shortcut: it
+does not provide the release checkpoint or bounded rollback.
 
 ## Production Verification
 
-From server:
+From the server:
 
 ```bash
 cd /opt/autostopcrm
 git status --short --branch
-git rev-parse --short HEAD
-git rev-parse --short origin/autostopcrm-v1
+git rev-parse HEAD
+git rev-parse origin/autostopcrm-v1
 docker compose ps
 docker compose exec -T autostopcrm python scripts/validate_production_env.py --require-production
 docker compose exec -T autostopcrm python scripts/check_live_connector.py --strict --site-url https://crm.autostopcrm.ru --expect-https --local-api-url http://127.0.0.1:41731 --skip-mcp --expect-admin
-docker compose exec -T autostopcrm python scripts/check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp
 docker compose exec -T autostopcrm python scripts/check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --exhaustive
 docker compose exec -T autostopcrm python scripts/docs_audit.py --format text
 ```
 
-From local machine:
+From a client with the current credential:
 
 ```powershell
-$env:AUTOSTOPCRM_MCP_TOKEN = Get-Content -Raw C:\secure\autostopcrm-mcp-token.txt
-python scripts\check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --token-env AUTOSTOPCRM_MCP_TOKEN --exhaustive
+.\.venv\Scripts\python.exe scripts\check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --token-env AUTOSTOPCRM_MCP_TOKEN --exhaustive
 ```
 
-Manual UI smoke after UI changes:
-
-- board loads after operator login;
-- topbar modules open;
-- card open/save/move and card journal work;
-- clients, repair orders, cashboxes, employees, files, and archive modals open;
-- repair-order executor salary gear calculates `5000 + 45% = 11750`, preserves
-  `0%`, and reset clears row override;
-- employee `+ СМЕНЫ` accrual appears as `ВЫПЛАТА ЗА СМЕНЫ`;
-- employee salary ledger and `ОТЧЕТ` printable reconciliation act open without
-  CRM chrome;
-- nested modals close one level at a time;
-- cashbox journal shows compact operation rows and `from -> to` transfer pairs;
-- public anonymous writes remain blocked.
-
-The automated `browser_smoke.py` includes
-`employee_shift_accrual_manual_salary`, operator-to-employee material executor
-defaults, modal ladder checks, and payroll report/reconciliation coverage.
+After UI changes, run
+`.\.venv\Scripts\python.exe scripts\browser_smoke.py` and manually verify
+operator login, board/card changes, clients, repair orders and PDF export,
+inventory, cashboxes, payroll, files, archive, nested modal behavior, and
+anonymous write rejection.
 
 ## Watchdog
 
-`deploy.sh` installs `autostopcrm-watchdog.timer` by default. It checks:
-
-- local host API upstream: `http://127.0.0.1:8000/api/health`;
-- local host MCP upstream: `http://127.0.0.1:8001/mcp`;
-- public CRM page: `https://crm.autostopcrm.ru`.
-
-Useful commands:
+`deploy.sh` installs `autostopcrm-watchdog.timer` by default. It checks the
+container, host API/MCP upstreams, and public CRM. Diagnostics:
 
 ```bash
 systemctl status autostopcrm-watchdog.timer
@@ -499,23 +365,21 @@ systemctl status autostopcrm-watchdog.service
 journalctl -u autostopcrm-watchdog.service -n 100 --no-pager
 ```
 
-## Production Cautions
+## Non-Negotiable Boundaries
 
-- GitHub branch `autostopcrm-v1` is the tracked production source of truth.
-- Server mirror is disposable for tracked files but may contain required
-  untracked runtime/local files.
-- Untracked AutostopVPN source/docs under `/opt/autostopcrm` are not required
-  CRM runtime files after they have been archived and active service paths have
-  been checked.
-- Do not delete server-local `.env`, data, or secret files.
-- Do not edit production state, audit archives, operator activity, or cashbox
-  data manually.
-- Do not trust stale docs over code, tests, or live `HEAD`.
-- Always use GitHub-first change, then deploy.
+- Keep server `.env`, `/opt/autostopcrm/data`,
+  `/root/autostopcrm-backups`, active volumes, and required local runtime
+  files.
+- Never manually edit production state, audit archives, operator activity,
+  repair-order numbers, cashboxes, or payroll ledgers.
+- Never reset or delete a dirty parallel checkout.
+- Never trust a copied release document over current code, tests, Git HEAD,
+  Compose, or live health.
+- Use GitHub-first changes and the bounded deploy path.
 
 ## Documentation Policy
 
-Canonical active docs:
+Canonical active documents:
 
 - `AGENTS.md`
 - `README.md`
@@ -525,16 +389,16 @@ Canonical active docs:
 - `CHATGPT_CONNECTOR_SETUP.md`
 - `AUTOSTOPCRM_FULL_INSTRUCTION.txt`
 
-`requirements.txt` and `requirements-dev.txt` are manifests. Release copies and
-secret-bundle copies must either match canonical docs or be clearly historical.
-Do not add one-off plans or frozen reports to active docs.
+`requirements.txt`, `requirements-dev.txt`, and
+`requirements-runtime.txt` are dependency manifests. Do not add one-off plans,
+frozen audit reports, release copies, or secret-access notes as active project
+documentation. Delete obsolete material instead of maintaining parallel
+sources of truth.
 
-Documentation cleanup loop:
+When an active document is added, deleted, or renamed, update
+`scripts/docs_audit.py`, `README.md`, this section, and `.dockerignore`
+together, then run:
 
-1. Inventory tracked `*.md` and `*.txt` files before editing.
-2. Delete or archive duplicate, historical, or one-off docs instead of keeping
-   parallel sources of truth.
-3. Update every kept document, then run `python scripts\docs_audit.py --format text`.
-4. Keep `AGENTS.md` as the agent-only startup file, `README.md` as the short
-   project map, this runbook as the operational source of truth, and
-   API/MCP/ChatGPT docs as narrow contract references.
+```powershell
+.\.venv\Scripts\python.exe scripts\docs_audit.py --format text
+```

@@ -29,7 +29,6 @@ CRM_CANONICAL_DOCS = (
     "MCP_GUIDE.md",
     "README.md",
     "docs/OPERATIONS_RUNBOOK.md",
-    "docs/SERVER_MAP.md",
 )
 
 CRM_DOCUMENTATION_MANIFESTS = (
@@ -39,6 +38,8 @@ CRM_DOCUMENTATION_MANIFESTS = (
 )
 
 DOCUMENTATION_SUFFIXES = (".md", ".txt", ".rst", ".adoc")
+
+MARKDOWN_LINK_PATTERN = re.compile(r"!?\[[^\]]*\]\((?P<target><[^>]+>|[^)\s]+)")
 
 SCRIPT_INSTRUCTION_SUFFIXES = (
     ".ps1",
@@ -148,6 +149,11 @@ FORBIDDEN_TEXT_PATTERNS = (
         "reference to removed docs/PROJECT_MEMORY.md",
     ),
     (
+        "missing_doc_reference",
+        re.compile(r"\bdocs[/\\]SERVER_MAP\.md\b"),
+        "reference to removed docs/SERVER_MAP.md",
+    ),
+    (
         "stale_workspace_path",
         re.compile(r"C:\\Users\\User\\Desktop\\AutostopCRM-V1"),
         "old local checkout path",
@@ -166,6 +172,21 @@ FORBIDDEN_TEXT_PATTERNS = (
         "stale_deploy_env",
         re.compile(r"\bAUTOSTOP_GIT_BRANCH\b"),
         "old deploy env var; use AUTOSTOP_DEPLOY_BRANCH",
+    ),
+    (
+        "stale_deploy_env",
+        re.compile(r"\bAUTOSTOP_VERIFY_PUBLIC_HTTPS\b"),
+        "removed deploy env var; public HTTPS smoke is mandatory",
+    ),
+    (
+        "stale_repair_order_correction_contract",
+        re.compile(
+            r"(?:maintenance-only\s*:\s*`?/api/correct_repair_order_number|"
+            r"repair-order number corrections?\s+(?:are|is)\s+maintenance(?:-only)?|"
+            r"repair-order number correction\s+is\s+a\s+maintenance\s+flow)",
+            re.IGNORECASE,
+        ),
+        "repair-order number correction is blocked, not a maintenance writer",
     ),
     (
         "stale_smoke_credentials",
@@ -224,7 +245,7 @@ API_GUIDE_REQUIRED_ROUTE_TEXT = (
     ),
     (
         "/api/correct_repair_order_number",
-        "repair-order number maintenance route is not documented",
+        "blocked repair-order number compatibility route is not documented",
     ),
     (
         "/api/create_employee_shift_accrual",
@@ -240,6 +261,10 @@ API_GUIDE_REQUIRED_TEXT = (
     (
         "transaction_offset",
         "cashbox transaction pagination offset is not documented",
+    ),
+    (
+        "repair_order_number_immutable",
+        "immutable repair-order number rejection is not documented",
     ),
 )
 
@@ -272,6 +297,10 @@ MCP_GUIDE_REQUIRED_TEXT = (
         "--exhaustive",
         "safe exhaustive Gateway v2 release check is not documented",
     ),
+    (
+        "OAuth 2.1",
+        "ChatGPT authenticated-client compatibility is not documented",
+    ),
 )
 
 CHATGPT_CONNECTOR_REQUIRED_TEXT = (
@@ -290,6 +319,14 @@ CHATGPT_CONNECTOR_REQUIRED_TEXT = (
     (
         "Public anonymous writes must remain blocked",
         "ChatGPT connector write-safety rule is not documented",
+    ),
+    (
+        "cannot be added directly",
+        "current direct ChatGPT app limitation is not documented",
+    ),
+    (
+        "authorization",
+        "Responses API MCP authorization field is not documented",
     ),
 )
 
@@ -339,12 +376,16 @@ RUNBOOK_REQUIRED_TEXT = (
         "deploy smoke retry delay env var is not documented",
     ),
     (
-        "employee_shift_accrual_manual_salary",
-        "manual shift salary accrual browser-smoke scenario is not documented",
+        "validate_production_env.py",
+        "production environment validator is not documented",
     ),
     (
-        "Documentation cleanup loop",
-        "documentation cleanup loop is not documented",
+        "check_agent_gateway_v2.py",
+        "Gateway v2 release verifier is not documented",
+    ),
+    (
+        "repair_order_number_immutable",
+        "blocked repair-order correction contract is not documented",
     ),
 )
 
@@ -411,7 +452,7 @@ def _check_unclassified_tracked_docs(root: Path) -> list[Issue]:
     issues: list[Issue] = []
 
     for path in _iter_git_tracked_files(root):
-        if _is_skipped_path(path):
+        if not path.exists() or _is_skipped_path(path):
             continue
         relative_path = _display_path(path, root)
         if path.suffix.lower() not in DOCUMENTATION_SUFFIXES:
@@ -454,6 +495,47 @@ def _check_dockerignore_keeps_canonical_markdown(root: Path) -> list[Issue]:
                     f"Docker image excludes canonical documentation: {keep_rule}",
                 )
             )
+    return issues
+
+
+def _check_canonical_local_links(root: Path) -> list[Issue]:
+    root = root.resolve()
+    issues: list[Issue] = []
+    for relative_path in CRM_CANONICAL_DOCS:
+        path = root / relative_path
+        if path.suffix.lower() != ".md" or not path.exists():
+            continue
+        for match in MARKDOWN_LINK_PATTERN.finditer(_read_text(path)):
+            target = match.group("target").strip().strip("<>")
+            if (
+                not target
+                or target.startswith(("#", "//"))
+                or re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", target)
+            ):
+                continue
+            target_path = target.split("#", 1)[0].split("?", 1)[0]
+            if not target_path:
+                continue
+            resolved = (path.parent / target_path).resolve()
+            try:
+                resolved.relative_to(root)
+            except ValueError:
+                issues.append(
+                    Issue(
+                        "canonical_doc_link_outside_root",
+                        _display_path(path, root),
+                        f"local documentation link leaves repository: {target}",
+                    )
+                )
+                continue
+            if not resolved.exists():
+                issues.append(
+                    Issue(
+                        "canonical_doc_link_missing",
+                        _display_path(path, root),
+                        f"local documentation link target is missing: {target}",
+                    )
+                )
     return issues
 
 
@@ -836,6 +918,36 @@ def load_gateway_expected_tools(root: Path) -> set[str]:
     raise ValueError("EXPECTED_TOOL_NAMES assignment not found")
 
 
+def _check_mcp_guide_gateway_surface(root: Path) -> list[Issue]:
+    path = root / "MCP_GUIDE.md"
+    if not path.exists():
+        return []
+    text = _read_text(path)
+    expected_tools = load_gateway_expected_tools(root)
+    missing_tools = sorted(
+        tool_name for tool_name in expected_tools if f"`{tool_name}`" not in text
+    )
+    issues: list[Issue] = []
+    if missing_tools:
+        issues.append(
+            Issue(
+                "mcp_guide_gateway_tools_missing",
+                _display_path(path, root),
+                f"missing visible Gateway v2 tools: {missing_tools}",
+            )
+        )
+    expected_count_text = f"exactly {len(expected_tools)} tools"
+    if expected_count_text not in text:
+        issues.append(
+            Issue(
+                "mcp_guide_gateway_count_stale",
+                _display_path(path, root),
+                f"expected current visible-tool count text: {expected_count_text}",
+            )
+        )
+    return issues
+
+
 def extract_decorated_tool_names(path: Path) -> set[str]:
     tree = ast.parse(_read_text(path), filename=str(path))
     tool_names: set[str] = set()
@@ -910,14 +1022,6 @@ def _check_crm_mcp_surface(root: Path) -> list[Issue]:
     return issues
 
 
-def _default_manager_root(root: Path) -> Path | None:
-    candidates = (
-        root.parent / "AutostopManager",
-        root.parent.parent / "AutostopManager",
-    )
-    return next((candidate for candidate in candidates if candidate.exists()), None)
-
-
 def _check_manager_docs_and_catalogs(
     root: Path,
     manager_root: Path,
@@ -961,7 +1065,7 @@ def audit(
     root: Path = ROOT,
     *,
     manager_root: Path | None = None,
-    include_skills: bool = True,
+    include_skills: bool = False,
     secret_bundle: Path | None = None,
 ) -> list[Issue]:
     root = root.resolve()
@@ -970,6 +1074,7 @@ def audit(
     issues.extend(_check_required(CRM_CANONICAL_DOCS, root, "CRM"))
     issues.extend(_check_unclassified_tracked_docs(root))
     issues.extend(_check_dockerignore_keeps_canonical_markdown(root))
+    issues.extend(_check_canonical_local_links(root))
     issues.extend(_scan_existing_canonical_docs_for_forbidden_text(root))
 
     issues.extend(_check_script_instruction_text(root))
@@ -980,17 +1085,17 @@ def audit(
     try:
         crm_tools = load_crm_registry_tools(root)
         issues.extend(_check_crm_mcp_surface(root))
+        issues.extend(_check_mcp_guide_gateway_surface(root))
     except (OSError, SyntaxError, ValueError) as exc:
         crm_tools = set()
         issues.append(Issue("crm_mcp_audit_error", str(root), str(exc)))
 
-    resolved_manager_root = manager_root or _default_manager_root(root)
-    if resolved_manager_root is not None:
-        if resolved_manager_root.exists():
+    if manager_root is not None:
+        if manager_root.exists():
             issues.extend(
                 _check_manager_docs_and_catalogs(
                     root,
-                    resolved_manager_root.resolve(),
+                    manager_root.resolve(),
                     crm_tools,
                 )
             )
@@ -998,7 +1103,7 @@ def audit(
             issues.append(
                 Issue(
                     "missing_manager_root",
-                    str(resolved_manager_root),
+                    str(manager_root),
                     "explicit AutostopManager root does not exist",
                 )
             )
@@ -1036,7 +1141,17 @@ def main(argv: list[str] | None = None) -> int:
         description="Read-only documentation and MCP catalog drift audit."
     )
     parser.add_argument("--format", choices=("text", "json"), default="text")
-    parser.add_argument("--manager-root", type=Path, default=None)
+    parser.add_argument(
+        "--manager-root",
+        type=Path,
+        default=None,
+        help="Optional AutostopManager checkout to audit explicitly.",
+    )
+    parser.add_argument(
+        "--include-skills",
+        action="store_true",
+        help="Also scan local user skill documentation for stale instructions.",
+    )
     parser.add_argument(
         "--secret-bundle",
         type=Path,
@@ -1045,7 +1160,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    issues = audit(ROOT, manager_root=args.manager_root, secret_bundle=args.secret_bundle)
+    issues = audit(
+        ROOT,
+        manager_root=args.manager_root,
+        include_skills=args.include_skills,
+        secret_bundle=args.secret_bundle,
+    )
     if args.format == "json":
         print(
             json.dumps(

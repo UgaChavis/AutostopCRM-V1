@@ -22,10 +22,6 @@ tmp
 tests
 data
 scripts/*.example
-ACCESS_AND_DOCS.md
-CODEX_PROJECT_MAP.md
-LOCAL_INSTALL.md
-MAINTENANCE.md
 amnezia*
 audit_autostopvpn.ps1
 check_autostopvpn_network.ps1
@@ -40,6 +36,5 @@ start_autostopvpn.ps1
 !MCP_GUIDE.md
 !CHATGPT_CONNECTOR_SETUP.md
 !docs/OPERATIONS_RUNBOOK.md
-!docs/SERVER_MAP.md
 *.png
 *.spec

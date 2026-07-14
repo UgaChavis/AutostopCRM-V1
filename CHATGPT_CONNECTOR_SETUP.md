@@ -1,94 +1,81 @@
-# AutoStop CRM ChatGPT Connector Setup
+# AutoStop CRM: ChatGPT And Responses MCP Access
 
-This is the single role-specific setup note for the ChatGPT connector. The MCP
-tool contract remains in `MCP_GUIDE.md`; route behavior remains in
-`API_GUIDE.md` and the application code.
+This note records the current client compatibility for
+`https://crm.autostopcrm.ru/mcp`. Tool behavior is defined in
+[MCP_GUIDE.md](MCP_GUIDE.md); deploy and credential rotation are in
+[the operations runbook](docs/OPERATIONS_RUNBOOK.md).
 
-## Endpoint
+## Current Status
 
-- Connector URL: `https://crm.autostopcrm.ru/mcp`
-- Scope: one current AutoStop CRM board only.
-- Name: `AutoStop CRM`
-- Description: `Auto service CRM with board, clients, repair orders, cashboxes, and files`
+Production AutoStop CRM is owner-controlled, bearer-only, and fail-closed:
 
-Use the production HTTPS endpoint above when it is healthy. Do not use stale
-tunnel URLs for ChatGPT connector setup.
+- anonymous reads and writes are rejected;
+- `AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED=0`;
+- the deploy flow rotates the bearer credential;
+- scope is one current AutoStop CRM board.
 
-## CRM Settings
+An authenticated custom ChatGPT app must use the MCP OAuth 2.1 authorization
+flow. ChatGPT does not support presenting a custom API key supplied by the app
+owner. Therefore the current bearer-only endpoint cannot be added directly as
+a working ChatGPT app/connector. Do not enable anonymous access or the
+auto-approved embedded development OAuth provider to work around this.
 
-In CRM integration settings, enable:
+To support direct ChatGPT linking in the future, implement and review a real
+OAuth 2.1 resource/authorization server, protected-resource metadata, PKCE,
+token audience/scope validation, and per-tool security schemes. See OpenAI's
+[Apps SDK authentication guide](https://developers.openai.com/apps-sdk/build/auth).
 
-- integration;
-- local API;
-- MCP;
-- public HTTPS base or full MCP URL;
-- MCP bearer mode. Production is fail-closed and will not start without a
-  non-placeholder bearer token.
+## Supported Clients
 
-The final connector URL must begin with `https://` and end with `/mcp`.
-Production does not expose the embedded auto-approved OAuth/DCR flow. It uses
-owner-controlled bearer-only auth; keep
-`AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED=0`.
+The endpoint is supported by:
 
-On the production Codex host, configure the shared service credential with the
-rotation helper instead of copying a token into this document or
-`config.toml`:
+- Codex and other MCP clients that can set
+  `Authorization: Bearer <token>`;
+- Responses API remote MCP tools using `server_url` and the tool-level
+  `authorization` field.
 
-```bash
-cd /opt/autostopcrm
-python3 scripts/configure_codex_mcp_auth.py rotate --generate
-set -a
-. /root/.config/autostopcrm/codex-mcp.env
-set +a
-python3 scripts/configure_codex_mcp_auth.py check
+Responses API shape:
+
+```json
+{
+  "type": "mcp",
+  "server_label": "autostop_crm",
+  "server_url": "https://crm.autostopcrm.ru/mcp",
+  "authorization": "<current bearer token>"
+}
 ```
 
-The resulting Codex entry uses
-`bearer_token_env_var = "AUTOSTOPCRM_MCP_TOKEN"` plus a mode-`0600` static
-Authorization fallback so the desktop app can reconnect before a process
-restart. Restart Codex after loading the environment when practical. Normal
-agent activity is audited as service identity `codex-owner-agent`.
+Send `authorization` on every Responses API creation request; OpenAI does not
+store it in the Response object. Keep normal tool approvals enabled for
+sensitive actions. The authoritative API behavior is documented in OpenAI's
+[MCP and Connectors guide](https://developers.openai.com/api/docs/guides/tools-connectors-mcp).
 
-## ChatGPT Setup
+Never put the real token in source, documentation, shell history, logs, or
+ordinary chat. Provision it through the client secret/environment mechanism.
 
-1. Open ChatGPT Apps & Connectors settings.
-2. Add a custom MCP connector named `AutoStop CRM`.
-3. Set the URL to `https://crm.autostopcrm.ru/mcp`.
-4. Production does not expose embedded OAuth/DCR. Connect only from a client
-   that can supply the owner bearer credential; otherwise keep this connector
-   disabled rather than reopening anonymous or auto-approved access.
-5. In a clean chat, enable only this connector while validating it.
-
-First calls:
+## First Calls
 
 1. `agent_bootstrap`
-2. `agent_board_digest(limit=100)`
-3. `agent_search` and `agent_entity_context` for focused detail
+2. `agent_board_digest`
+3. `agent_search` and `agent_entity_context`
+4. a named workflow after exact-target confirmation
 
-Use `get_runtime_status` only for transport/runtime diagnostics; normal work
-starts with `agent_bootstrap`.
-
-For Responses API clients, use the same `server_url` and pass bearer
-authorization in the MCP tool payload when bearer mode is enabled.
+Use `get_runtime_status` only for runtime/auth diagnostics.
 
 ## Safety
 
 - Public anonymous writes must remain blocked.
-- Public anonymous reads must also be blocked in production.
+- Public anonymous reads must remain blocked in production.
 - Read live context before every write.
-- Write only after `agent_bootstrap`, exact-target identification, and an
-  action contract or named workflow dry-run.
-- Read back changed cards, files, clients, repair orders, or cashboxes.
+- Use a unique idempotency key and an action contract for mutations.
+- Read back every changed entity and inspect workflow status.
 - Do not move, archive, delete, or change money/client/file/order data without
   explicit owner intent.
-- Do not paste bearer tokens into ordinary docs or chats.
 
 ## Verification
 
-Local connector smoke:
-
 ```powershell
-python scripts\check_agent_gateway_v2.py --mcp-url http://127.0.0.1:41831/mcp --exhaustive
+.\.venv\Scripts\python.exe scripts\check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --token-env AUTOSTOPCRM_MCP_TOKEN --exhaustive
 ```
 
-Production deploy and public smoke live in `docs/OPERATIONS_RUNBOOK.md`.
+This is a safe read-only/dry-run/synthetic check of all 24 visible tools.

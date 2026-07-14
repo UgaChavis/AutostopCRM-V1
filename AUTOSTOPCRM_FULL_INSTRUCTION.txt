@@ -1,58 +1,42 @@
 AUTOSTOP CRM
-Server operator note
+Short server operator note
 
-This file is copied by deploy.sh to the server desktop when possible.
-Keep it short. The canonical runbook is docs/OPERATIONS_RUNBOOK.md.
+Canonical runbook: docs/OPERATIONS_RUNBOOK.md
 
-Current:
-- repo: /opt/autostopcrm
+Runtime:
+- checkout: /opt/autostopcrm
 - branch: autostopcrm-v1
-- service: autostopcrm
-- data: /root/.minimal-kanban
-- CRM: https://crm.autostopcrm.ru
-- MCP: https://crm.autostopcrm.ru/mcp
-- agent web research: search_web_multi -> excerpt -> fetch_page_browser; never bypass CAPTCHA/login/paywall/IP blocks
-- active server projects:
-  - /opt/autostopcrm -> autostopcrm container, 127.0.0.1:8000/8001
-  - /opt/autostop-app -> autostop-app + autostop-db, 127.0.0.1:8010
-  - /opt/AutostopManager and /opt/crm-2.0 are separate checkouts; do not reset/delete dirty work without review
-  - amnezia-awg2 is active VPN, UDP 47895
+- public CRM: https://crm.autostopcrm.ru
+- public MCP: https://crm.autostopcrm.ru/mcp
+- compose services: autostopcrm, searxng, crawl4ai
+- host data: /opt/autostopcrm/data
+- container data: /root/.minimal-kanban
+- host upstreams: 127.0.0.1:8000 -> API 41731; 127.0.0.1:8001 -> MCP 41831
 
-Deploy:
+Deploy only after the intended commit is on origin/autostopcrm-v1:
 cd /opt/autostopcrm
-AUTOSTOP_DEPLOY_BRANCH=autostopcrm-v1 AUTOSTOP_VERIFY_PUBLIC_HTTPS=1 ./deploy.sh
-docker compose ps
+AUTOSTOP_DEPLOY_BRANCH=autostopcrm-v1 ./deploy.sh
 
-Live check:
-cd /opt/autostopcrm
-docker compose exec -T autostopcrm python scripts/check_live_connector.py --strict --site-url https://crm.autostopcrm.ru --expect-https --local-api-url http://127.0.0.1:41731 --skip-mcp --operator-username "${AUTOSTOP_SMOKE_OPERATOR_USERNAME:?set smoke username}" --operator-password "${AUTOSTOP_SMOKE_OPERATOR_PASSWORD:?set smoke password}" --expect-admin
-docker compose exec -T autostopcrm python scripts/check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --exhaustive
-docker compose exec -T autostopcrm python scripts/docs_audit.py --format text
-
-Money logic:
-- cashless repair-order payments are gross incoming amounts
-- 15% of each cashless payment is withheld as taxes/fees; 85% covers the order
-- cashless amount due is cash_due / 0.85, so paying it closes the order
-- invoice "Всего к оплате" is gross cashless invoice total minus all prepayments
-
-Diagnostics:
+Verify:
 git status --short --branch
 git rev-parse --short HEAD
 git rev-parse --short origin/autostopcrm-v1
+docker compose ps
+docker compose exec -T autostopcrm python scripts/validate_production_env.py --require-production
+docker compose exec -T autostopcrm python scripts/check_live_connector.py --strict --site-url https://crm.autostopcrm.ru --expect-https --local-api-url http://127.0.0.1:41731 --skip-mcp --expect-admin
+docker compose exec -T autostopcrm python scripts/check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --exhaustive
+docker compose exec -T autostopcrm python scripts/docs_audit.py --format text
+
+Diagnostics:
 docker compose logs --tail=200 autostopcrm
-curl -sS http://127.0.0.1:41731/api/health
-python scripts/state_size_report.py --benchmark-iterations 3 --json
-python scripts/compact_audit_events.py --dry-run --json
+curl -fsS http://127.0.0.1:8000/api/health
+python3 scripts/state_size_report.py --json
+python3 scripts/compact_audit_events.py --dry-run --json
 
 Safety:
-- GitHub branch autostopcrm-v1 is production source of truth
-- verify local, GitHub, and server HEAD before and after deploy
-- keep /opt/autostopcrm free of duplicate AutostopVPN source/docs; archive exact untracked copies before cleanup
-- safe cleanup candidates are verified Docker build cache, inactive obsolete volumes, old release tarballs, old superseded app rollback backups, and data directories from removed integrations
-- keep /root/autostopcrm-backups, /opt/autostop-app-backups recent control copies, active Docker volumes, active nginx/systemd/VPN files, and dirty parallel checkouts
-- do not edit JSON state, audit-archive, operator-activity, or cashbox data manually
-- run compact_audit_events with --dry-run first; use --apply --backup only after review
-- keep server-local .env
-- do not commit credentials
-- public anonymous writes must stay blocked
-- before release from a workstation, run browser_smoke.py and perf_workflows.py --local-temp-server --iterations 3
+- keep .env, data, backups, active volumes, and dirty parallel checkouts
+- never print tokens or full environment dumps
+- never edit state.json, audit-archive, operator-activity, repair-order, or cashbox ledgers manually
+- repair-order numbers are immutable; the compatibility correction route is blocked
+- use dry-run and a verified backup before any approved maintenance write
+- public anonymous API/MCP reads and all writes must stay blocked

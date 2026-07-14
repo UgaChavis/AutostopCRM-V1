@@ -1,136 +1,109 @@
 # AutoStop CRM
 
-AutoStop CRM is the active workshop CRM on branch `autostopcrm-v1`. It includes
-the board, clients, vehicles, repair orders, warehouse, cashboxes, employee payroll,
-shared files, MCP access, and ChatGPT/Responses API integrations.
+AutoStop CRM is the active workshop CRM on branch `autostopcrm-v1`. It covers
+the board, clients and vehicles, repair orders and printing, warehouse,
+cashboxes, payroll, shared files, and API/MCP integrations.
 
-Historical names such as `minimal_kanban`, `%APPDATA%\Minimal Kanban`, and
-`Start Kanban.exe` are compatibility names, not a separate product.
+`minimal_kanban`, `%APPDATA%\Minimal Kanban`, and `Start Kanban.exe` are
+compatibility names for this product, not separate applications.
 
 ## Source Of Truth
 
-Use this order when checking project facts:
+Use current code and tests first. The maintained documentation is:
 
-1. Code and tests in this repository.
-2. Live server checkout `/opt/autostopcrm` on branch `autostopcrm-v1`.
-3. Canonical docs listed below.
-4. Local Codex skill/access notes and secret bundle for private access details.
+- `README.md` — this project map and contributor entrypoint;
+- [AGENTS.md](AGENTS.md) — short rules for coding agents;
+- [operations runbook](docs/OPERATIONS_RUNBOOK.md) — local checks, production
+  layout, deploy, rollback, and maintenance;
+- [API guide](API_GUIDE.md) — HTTP transport and safety-critical contracts;
+- [MCP guide](MCP_GUIDE.md) — Gateway v2 surface and write rules;
+- [ChatGPT/Responses compatibility note](CHATGPT_CONNECTOR_SETUP.md) —
+  supported client authentication and the current ChatGPT limitation;
+- `AUTOSTOPCRM_FULL_INSTRUCTION.txt` — short server-side operator note.
 
-Do not treat `release/`, `build/`, `dist/`, `.venv/`, local screenshots, old
-plans, or copied secret-bundle docs as source of truth unless the runbook says
-so.
+For a deployed system, verify the local, remote, and server Git revisions plus
+live health as described in the runbook. Generated builds, release copies,
+screenshots, private access bundles, and old plans are not sources of truth.
 
-## Product Map
-
-- Board: columns, cards, archive, tags, deadlines, attachments, notes, compact
-  snapshots, and audit log.
-- Clients: people, companies, phones, requisites, vehicles, and card links.
-- Repair orders: immutable numbers, works, materials, statuses, payments,
-  print templates, and PDF export.
-- Warehouse: minimal stock positions, fractional oils, replenishment,
-  write-off into repair-order materials, return of write-offs, and technical
-  movement journal.
-- Cashboxes/payroll: money movements, transfers, journal, employee salary
-  ledger, reports, and reconciliation print.
-- Integrations: local HTTP API, MCP endpoint, ChatGPT/Responses API clients,
-  and operator-facing browser tools.
-
-## Runtime Architecture
+## Product And Architecture
 
 ```text
-UI / MCP / API clients
+Browser UI / MCP / API clients
   -> local HTTP API
   -> CardService and domain services
   -> JsonStore
 ```
 
-Business logic belongs in services. UI, MCP, API clients, and compatibility
-routes call the same backend API and storage.
+- Board: columns, cards, deadlines, tags, notes, archive, attachments, and
+  audit history.
+- CRM: clients, companies, contacts, vehicles, and card links.
+- Repair: immutable order numbers, works, materials, payments, standard print
+  templates, and PDF export.
+- Operations: inventory movements, cashboxes, transfers, payroll, reports,
+  shared files, and operator activity.
+- Integrations: local HTTP API, streamable HTTP MCP, Agent Gateway v2,
+  Responses API clients, and automotive/web research helpers.
 
-CardService writes use a provenance- and file-signature-checked fast path for
-the already normalized in-memory bundle; the legacy fully normalizing writer
-remains available as an emergency kill switch. Compact board snapshots and
-revision polling share a bounded, viewer-specific cache that is invalidated by
-the `state.json` signature. API responses expose request, lock, normalization,
-serialization, and write phases through `Server-Timing`.
+Business rules belong in `src/minimal_kanban/services/`. API, MCP, UI, smoke
+scripts, and compatibility routes must call the same services instead of
+reimplementing those rules.
 
 ## Code Map
 
-- `main.py` - desktop runtime.
-- `main_mcp.py` - API + MCP production/runtime entrypoint.
-- `src/minimal_kanban/api/server.py` - HTTP API routes.
-- `src/minimal_kanban/services/card_service.py` - main business service.
-- `src/minimal_kanban/services/card_service_*.py` - domain mixins for clients,
-  finance, inventory, and payroll.
-- `src/minimal_kanban/storage/json_store.py` - JSON storage.
-- `src/minimal_kanban/mcp/server.py` - MCP transport and raw tool
-  implementation.
-- `src/minimal_kanban/mcp/agent_gateway_v2.py` - compact Codex-first tool
-  surface and lazy raw discovery.
-- `src/minimal_kanban/deployment_security.py` - production auth, service
-  identity, kill-switch, and maintenance policy.
-- `src/minimal_kanban/web_app_assets/assembler.py` - browser UI chunk assembly.
-- `src/minimal_kanban/web_app_assets/source/` - HTML/CSS/JS browser UI chunks.
-- `deploy.sh`, `docker-compose.yml`, `Dockerfile` - production deployment.
-
-## Documentation Map
-
-- `AGENTS.md` - agent-only startup instructions for AI coding agents.
-- `README.md` - short project map and contributor entrypoint.
-- `docs/OPERATIONS_RUNBOOK.md` - release gates, GitHub/server sync, deploy,
-  production smoke, performance checks, watchdog, and maintenance safety.
-- `docs/SERVER_MAP.md` - active server paths, Docker services, ports,
-  watchdogs, cleanup automation, backup boundaries, and verification commands.
-- `API_GUIDE.md` - HTTP API route groups and safety-critical contracts.
-- `MCP_GUIDE.md` - exact Gateway v2 production surface, hidden raw capability
-  groups, mounted Manager layer, and write rules.
-- `CHATGPT_CONNECTOR_SETUP.md` - ChatGPT connector setup for
-  `https://crm.autostopcrm.ru/mcp`.
-- `AUTOSTOPCRM_FULL_INSTRUCTION.txt` - short server/operator note copied by
-  `deploy.sh`.
-
-`requirements.txt` and `requirements-dev.txt` are dependency manifests, not
-operator documentation.
+- `main.py` — desktop entrypoint.
+- `main_mcp.py` — API/MCP runtime entrypoint.
+- `src/minimal_kanban/api/server.py` and `api/route_registry.py` — HTTP
+  transport and route registry.
+- `src/minimal_kanban/services/` — business services.
+- `src/minimal_kanban/storage/json_store.py` — state normalization and
+  persistence.
+- `src/minimal_kanban/mcp/server.py`, `mcp/tool_registry.py`, and
+  `mcp/agent_gateway_v2.py` — raw MCP implementation and the production
+  Gateway v2 surface.
+- `src/minimal_kanban/deployment_security.py` — production auth, maintenance,
+  identity, and kill-switch validation.
+- `src/minimal_kanban/web_app_assets/source/` and
+  `web_app_assets/assembler.py` — browser UI sources and assembly.
+- `docker-compose.yml`, `Dockerfile`, and `deploy.sh` — production runtime and
+  bounded release flow.
 
 ## Local Development
 
 ```powershell
 .\scripts\setup_dev.ps1 -InstallGitHooks
 .\scripts\doctor.ps1
-.\scripts\toolchain_doctor.ps1
 .\scripts\run_checks.ps1
 ```
 
-Run the desktop app or headless API/MCP:
+Run the desktop application or the headless API/MCP runtime:
 
 ```powershell
 .\scripts\run_dev.ps1
 .\scripts\run_mcp_server.ps1
 ```
 
-Use [docs/OPERATIONS_RUNBOOK.md](docs/OPERATIONS_RUNBOOK.md) for deploy,
-production verification, toolchain bootstrap, performance baselines, and
-release gates.
+Default local endpoints:
 
-## Current Endpoints
+- API/UI: `http://127.0.0.1:41731`
+- MCP: `http://127.0.0.1:41831/mcp`
 
-- Local API: `http://127.0.0.1:41731`
-- Local MCP: `http://127.0.0.1:41831/mcp`
-- Production CRM: `https://crm.autostopcrm.ru`
-- Production MCP: `https://crm.autostopcrm.ru/mcp`
+Production endpoints:
 
-Route and tool lists are dynamic. Verify v2 with code, `tools/list`, tests, and
-`scripts/check_agent_gateway_v2.py`; production MCP is bearer-only and rejects
-anonymous reads and writes.
+- CRM: `https://crm.autostopcrm.ru`
+- MCP: `https://crm.autostopcrm.ru/mcp`
+
+The production Compose project contains `autostopcrm`, `searxng`, and
+`crawl4ai`. Only the CRM service is replaced during a normal deploy.
 
 ## Safety
 
-- Never commit runtime state, production snapshots, attachments, cashbox data,
-  logs, tokens, `.env`, or secret-bundle contents.
-- Do not edit production `state.json`, `audit-archive`, operator activity, or
-  cashbox ledgers manually.
-- Finance audit and repair-order number correction are maintenance flows, not
-  normal UI/MCP actions.
-- Historical plans and one-off reports stay outside active docs.
-- Server-local AutostopVPN copies do not belong in this CRM checkout; archive
-  them outside `/opt/autostopcrm` before cleanup if they ever reappear.
+- Never commit `.env`, credentials, runtime state, production snapshots,
+  attachments, shared files, logs, audit archives, or financial ledgers.
+- Never edit production `state.json`, `audit-archive`, `operator-activity`, or
+  cashbox data manually.
+- Repair-order numbers are immutable. The compatibility route
+  `/api/correct_repair_order_number` is deliberately blocked.
+- Finance safe fixes and destructive historical cleanup are explicit
+  owner-approved maintenance procedures, never routine UI/MCP work.
+- Public anonymous API/MCP reads and all writes must remain blocked in
+  production.
