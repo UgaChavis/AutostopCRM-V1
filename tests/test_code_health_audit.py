@@ -53,6 +53,10 @@ class CodeHealthAuditTests(unittest.TestCase):
             "src/minimal_kanban/services/card_service.py:CardService",
             module.ALLOWED_LARGE_CLASSES,
         )
+        self.assertIn(
+            "src/minimal_kanban/mcp/agent_gateway_v2.py:register_agent_gateway_v2",
+            module.ALLOWED_LARGE_FUNCTIONS,
+        )
 
     def test_untracked_files_are_opt_in_for_server_local_safety(self) -> None:
         module = load_code_health_audit_module()

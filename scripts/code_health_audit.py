@@ -57,6 +57,7 @@ ALLOWED_LARGE_FUNCTIONS = {
     "scripts/browser_smoke.py:_desktop_scenarios": "browser smoke scenario split target",
     "src/minimal_kanban/api/server.py:_make_handler": "API handler split target",
     "src/minimal_kanban/demo_seed.py:_demo_specs": "demo seed data split target",
+    "src/minimal_kanban/mcp/agent_gateway_v2.py:register_agent_gateway_v2": "Gateway v2 registry split target",
     "src/minimal_kanban/mcp/server.py:create_mcp_server": "MCP registry split target",
     "src/minimal_kanban/printing/defaults.py:builtin_template_records": "print template data split target",
     "tests/test_mcp.py:test_mcp_tools_reach_backend": "MCP contract test split target",
