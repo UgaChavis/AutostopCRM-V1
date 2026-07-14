@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import math
+import os
 import sys
 import urllib.error
 import urllib.request
@@ -21,7 +22,11 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from minimal_kanban.config import get_settings_file
+from minimal_kanban.config import (
+    get_api_bearer_token,
+    get_mcp_bearer_token,
+    get_settings_file,
+)
 from minimal_kanban.json_safety import reject_deeply_nested_json
 from minimal_kanban.mcp.client import discover_board_api
 from minimal_kanban.settings_models import IntegrationSettings
@@ -162,6 +167,7 @@ def _resolve_local_api_token(settings: IntegrationSettings, override: str | None
         settings.auth.local_api_bearer_token
         or settings.local_api.local_api_bearer_token
         or settings.auth.access_token
+        or get_api_bearer_token()
         or ""
     ).strip()
 
@@ -179,6 +185,7 @@ def _resolve_mcp_token(settings: IntegrationSettings, override: str | None) -> s
         settings.auth.mcp_bearer_token
         or settings.mcp.mcp_bearer_token
         or settings.auth.access_token
+        or get_mcp_bearer_token()
         or ""
     ).strip()
 
@@ -520,7 +527,52 @@ def check_operator_auth(
         return result
 
 
-def check_public_write_protection(site_url: str) -> dict[str, Any]:
+def check_public_read_protection(site_url: str, *, require_https: bool = False) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "checked": bool(site_url),
+        "ok": False,
+        "site_url": site_url,
+        "status_code": 0,
+        "error_code": "",
+        "probe_url": site_url,
+        "error": None,
+    }
+    if not site_url:
+        result["error"] = "site_url_not_configured"
+        return result
+    parsed = _urlsplit_clean(site_url)
+    if parsed is None or (require_https and parsed.scheme.lower() != "https"):
+        result["error"] = "public_read_probe_requires_https"
+        return result
+    candidate_urls = [_clean_url(site_url)]
+    if not require_https:
+        fallback_http = _fallback_http_url(site_url)
+        if fallback_http:
+            candidate_urls.append(_clean_url(fallback_http))
+    last_error = ""
+    for candidate in candidate_urls:
+        try:
+            status, payload = _api_request(candidate, "/api/get_cards", method="GET")
+        except urllib.error.URLError as exc:
+            last_error = f"public_read_probe_unreachable: {exc}"
+            continue
+        except Exception as exc:  # pragma: no cover
+            last_error = str(exc)
+            continue
+        result["probe_url"] = candidate
+        result["status_code"] = status
+        error_payload = payload.get("error") or {} if isinstance(payload, dict) else {}
+        result["error_code"] = str(error_payload.get("code") or "")
+        if status in {401, 403} and result["error_code"] in {"unauthorized", "forbidden"}:
+            result["ok"] = True
+            return result
+        result["error"] = "anonymous_public_read_not_blocked"
+        return result
+    result["error"] = last_error or "public_read_probe_failed"
+    return result
+
+
+def check_public_write_protection(site_url: str, *, require_https: bool = False) -> dict[str, Any]:
     result: dict[str, Any] = {
         "checked": bool(site_url),
         "ok": False,
@@ -538,10 +590,15 @@ def check_public_write_protection(site_url: str) -> dict[str, Any]:
         return result
 
     marker = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+    parsed = _urlsplit_clean(site_url)
+    if parsed is None or (require_https and parsed.scheme.lower() != "https"):
+        result["error"] = "public_write_probe_requires_https"
+        return result
     candidate_urls = [_clean_url(site_url)]
-    fallback_http = _fallback_http_url(site_url)
-    if fallback_http:
-        candidate_urls.append(_clean_url(fallback_http))
+    if not require_https:
+        fallback_http = _fallback_http_url(site_url)
+        if fallback_http:
+            candidate_urls.append(_clean_url(fallback_http))
     last_error = ""
     create_status = 0
     create_payload: dict[str, Any] | None = None
@@ -603,20 +660,20 @@ async def check_mcp(mcp_url: str, *, bearer_token: str | None = None) -> dict[st
         "mcp_url": mcp_url,
         "tool_count": 0,
         "has_ping_connector": False,
-        "has_bootstrap_context": False,
+        "has_agent_bootstrap": False,
+        "has_agent_board_digest": False,
         "has_get_runtime_status": False,
         "has_get_connector_identity": False,
-        "has_review_board": False,
         "ping_ok": False,
         "bootstrap_ok": False,
+        "digest_ok": False,
         "runtime_ok": False,
         "identity_ok": False,
-        "review_ok": False,
         "ping_data": None,
         "bootstrap_data": None,
+        "digest_data": None,
         "runtime_data": None,
         "identity_data": None,
-        "review_data": None,
         "error": None,
     }
     if not mcp_url:
@@ -657,17 +714,22 @@ async def _collect_mcp_probe_result(
     tool_names = {tool.name for tool in tools.tools}
     result["tool_count"] = len(tool_names)
     result["has_ping_connector"] = "ping_connector" in tool_names
-    result["has_bootstrap_context"] = "bootstrap_context" in tool_names
+    result["has_agent_bootstrap"] = "agent_bootstrap" in tool_names
+    result["has_agent_board_digest"] = "agent_board_digest" in tool_names
     result["has_get_runtime_status"] = "get_runtime_status" in tool_names
     result["has_get_connector_identity"] = "get_connector_identity" in tool_names
-    result["has_review_board"] = "review_board" in tool_names
 
     if result["has_ping_connector"]:
         await _capture_mcp_tool_result(session, result, "ping_connector", "ping_ok", "ping_data")
 
-    if result["has_bootstrap_context"]:
+    if result["has_agent_bootstrap"]:
         await _capture_mcp_tool_result(
-            session, result, "bootstrap_context", "bootstrap_ok", "bootstrap_data"
+            session, result, "agent_bootstrap", "bootstrap_ok", "bootstrap_data"
+        )
+
+    if result["has_agent_board_digest"]:
+        await _capture_mcp_tool_result(
+            session, result, "agent_board_digest", "digest_ok", "digest_data"
         )
 
     if result["has_get_runtime_status"]:
@@ -680,21 +742,18 @@ async def _collect_mcp_probe_result(
             session, result, "get_connector_identity", "identity_ok", "identity_data"
         )
 
-    if result["has_review_board"]:
-        await _capture_mcp_tool_result(session, result, "review_board", "review_ok", "review_data")
-
     result["ok"] = all(
         [
             result["has_ping_connector"],
-            result["has_bootstrap_context"],
+            result["has_agent_bootstrap"],
+            result["has_agent_board_digest"],
             result["has_get_runtime_status"],
             result["has_get_connector_identity"],
-            result["has_review_board"],
             result["ping_ok"],
             result["bootstrap_ok"],
+            result["digest_ok"],
             result["runtime_ok"],
             result["identity_ok"],
-            result["review_ok"],
         ]
     )
     if not result["ok"]:
@@ -716,7 +775,7 @@ async def _capture_mcp_tool_result(
         and tool_result.structuredContent.get("ok")
     )
     if isinstance(tool_result.structuredContent, dict):
-        result[data_key] = tool_result.structuredContent.get("data")
+        result[data_key] = dict(tool_result.structuredContent)
 
 
 def _print_api_surface(report: dict[str, Any]) -> None:
@@ -804,21 +863,35 @@ def _print_public_write_protection(report: dict[str, Any]) -> None:
             print(f"cleanup_ok: {report.get('cleanup_ok')}")
 
 
+def _print_public_read_protection(report: dict[str, Any]) -> None:
+    print_section("PUBLIC READ PROTECTION")
+    print(f"site_url: {report.get('site_url') or '<not configured>'}")
+    if not report.get("checked"):
+        print("status: skipped")
+        print("reason: site url was not provided")
+        return
+    if report.get("ok"):
+        print("status: ok")
+        print("anonymous reads: blocked")
+        print(f"status_code: {report.get('status_code')}")
+    else:
+        print("status: failed")
+        print(f"error: {report.get('error')}")
+        print(f"status_code: {report.get('status_code')}")
+
+
 def _print_mcp(report: dict[str, Any]) -> None:
     print_section("MCP")
     print(f"mcp_url: {report.get('mcp_url') or '<not configured>'}")
     if report.get("ok"):
-        ping_data = report.get("ping_data") or {}
+        ping_payload = report.get("ping_data") or {}
         bootstrap_data = report.get("bootstrap_data") or {}
-        runtime_data = report.get("runtime_data") or {}
-        identity_data = report.get("identity_data") or {}
-        review_data = report.get("review_data") or {}
-        board_context = bootstrap_data.get("board_context") or {}
-        board_name = (
-            ((board_context.get("context") or {}).get("board_name"))
-            or board_context.get("board_name")
-            or "<unknown>"
-        )
+        runtime_payload = report.get("runtime_data") or {}
+        identity_payload_root = report.get("identity_data") or {}
+        digest_data = report.get("digest_data") or {}
+        ping_data = ping_payload.get("data") or ping_payload
+        runtime_data = runtime_payload.get("data") or runtime_payload
+        identity_data = identity_payload_root.get("data") or identity_payload_root
         runtime_status = runtime_data.get("runtime_status") or {}
         runtime_api_status = (
             ((runtime_status.get("api_health") or {}).get("status"))
@@ -837,11 +910,10 @@ def _print_mcp(report: dict[str, Any]) -> None:
             or "<unknown>"
         )
         print(f"connector_scope: {connector_scope}")
-        print(f"board_name: {board_name}")
         print(f"runtime_status: {runtime_api_status}")
-        summary = review_data.get("summary") or {}
-        print(f"review_active_cards: {summary.get('active_cards', 0)}")
-        print(f"review_alerts: {len(review_data.get('alerts') or [])}")
+        print(f"gateway_format: {bootstrap_data.get('format', '<unknown>')}")
+        summary = digest_data.get("summary") or {}
+        print(f"digest_cards: {summary.get('returned', 0)}")
     else:
         print("status: failed")
         print(f"error: {report.get('error')}")
@@ -872,7 +944,7 @@ def main() -> int:
     parser.add_argument(
         "--skip-public-write-protection",
         action="store_true",
-        help="Skip the anonymous public write-protection probe.",
+        help="Skip the anonymous public read/write protection probes.",
     )
     parser.add_argument(
         "--expect-https",
@@ -887,6 +959,11 @@ def main() -> int:
     parser.add_argument("--local-api-token", default=None, help="Optional local API bearer token.")
     parser.add_argument(
         "--mcp-url", default="", help="Explicit MCP URL, for example http://127.0.0.1:41831/mcp."
+    )
+    parser.add_argument(
+        "--skip-mcp",
+        action="store_true",
+        help="Skip legacy MCP tool checks when Agent Gateway v2 is verified separately.",
     )
     parser.add_argument("--mcp-token", default=None, help="Optional MCP bearer token.")
     parser.add_argument(
@@ -906,8 +983,14 @@ def main() -> int:
     site_url = "" if args.skip_public_site else _resolve_site_url(settings, args.site_url)
     local_api_token = _resolve_local_api_token(settings, args.local_api_token)
     local_api_url = _resolve_local_api_url(settings, args.local_api_url, local_api_token)
-    mcp_url = _resolve_mcp_url(settings, args.mcp_url)
+    mcp_url = "" if args.skip_mcp else _resolve_mcp_url(settings, args.mcp_url)
     mcp_token = _resolve_mcp_token(settings, args.mcp_token)
+    operator_username = args.operator_username or os.environ.get(
+        "AUTOSTOP_SMOKE_OPERATOR_USERNAME", ""
+    )
+    operator_password = args.operator_password or os.environ.get(
+        "AUTOSTOP_SMOKE_OPERATOR_PASSWORD", ""
+    )
     api_probe_url = local_api_url or site_url
     explicit_local_api = bool(_clean_url(args.local_api_url))
     if (
@@ -925,14 +1008,19 @@ def main() -> int:
     api_surface["surface_kind"] = api_probe_kind
     operator_auth = check_operator_auth(
         api_probe_url,
-        username=args.operator_username,
-        password=args.operator_password,
+        username=operator_username,
+        password=operator_password,
         bearer_token=local_api_token or None,
         expect_admin=args.expect_admin,
     )
     operator_auth["surface_kind"] = api_probe_kind
-    public_write_site_url = "" if args.skip_public_write_protection else site_url
-    public_write_protection = check_public_write_protection(public_write_site_url)
+    public_auth_site_url = "" if args.skip_public_write_protection else site_url
+    public_read_protection = check_public_read_protection(
+        public_auth_site_url, require_https=args.expect_https
+    )
+    public_write_protection = check_public_write_protection(
+        public_auth_site_url, require_https=args.expect_https
+    )
     mcp_surface = asyncio.run(check_mcp(mcp_url, bearer_token=mcp_token or None))
 
     report = {
@@ -940,6 +1028,7 @@ def main() -> int:
         "site_surface": site_surface,
         "api_surface": api_surface,
         "operator_auth": operator_auth,
+        "public_read_protection": public_read_protection,
         "public_write_protection": public_write_protection,
         "mcp_surface": mcp_surface,
     }
@@ -952,6 +1041,7 @@ def main() -> int:
         _print_site(site_surface)
         _print_api_surface(api_surface)
         _print_operator_auth(operator_auth)
+        _print_public_read_protection(public_read_protection)
         _print_public_write_protection(public_write_protection)
         _print_mcp(mcp_surface)
 
@@ -962,6 +1052,11 @@ def main() -> int:
         ("site_surface", site_surface.get("checked"), site_surface.get("ok")),
         ("api_surface", api_surface.get("checked"), api_surface.get("ok")),
         ("operator_auth", operator_auth.get("checked"), operator_auth.get("ok")),
+        (
+            "public_read_protection",
+            public_read_protection.get("checked"),
+            public_read_protection.get("ok"),
+        ),
         (
             "public_write_protection",
             public_write_protection.get("checked"),

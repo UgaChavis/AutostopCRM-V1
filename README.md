@@ -63,7 +63,12 @@ serialization, and write phases through `Server-Timing`.
 - `src/minimal_kanban/services/card_service_*.py` - domain mixins for clients,
   finance, inventory, and payroll.
 - `src/minimal_kanban/storage/json_store.py` - JSON storage.
-- `src/minimal_kanban/mcp/server.py` - MCP tools and optional manager mount.
+- `src/minimal_kanban/mcp/server.py` - MCP transport and raw tool
+  implementation.
+- `src/minimal_kanban/mcp/agent_gateway_v2.py` - compact Codex-first tool
+  surface and lazy raw discovery.
+- `src/minimal_kanban/deployment_security.py` - production auth, service
+  identity, kill-switch, and maintenance policy.
 - `src/minimal_kanban/web_app_assets/assembler.py` - browser UI chunk assembly.
 - `src/minimal_kanban/web_app_assets/source/` - HTML/CSS/JS browser UI chunks.
 - `deploy.sh`, `docker-compose.yml`, `Dockerfile` - production deployment.
@@ -114,8 +119,9 @@ release gates.
 - Production CRM: `https://crm.autostopcrm.ru`
 - Production MCP: `https://crm.autostopcrm.ru/mcp`
 
-Route and tool lists are dynamic. Verify with code, `tools/list`, tests, and
-`scripts/check_live_connector.py`, not stale copied docs.
+Route and tool lists are dynamic. Verify v2 with code, `tools/list`, tests, and
+`scripts/check_agent_gateway_v2.py`; production MCP is bearer-only and rejects
+anonymous reads and writes.
 
 ## Safety
 

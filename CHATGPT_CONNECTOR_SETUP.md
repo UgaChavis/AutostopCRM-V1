@@ -22,25 +22,51 @@ In CRM integration settings, enable:
 - local API;
 - MCP;
 - public HTTPS base or full MCP URL;
-- MCP bearer mode and token only when the endpoint is protected.
+- MCP bearer mode. Production is fail-closed and will not start without a
+  non-placeholder bearer token.
 
 The final connector URL must begin with `https://` and end with `/mcp`.
-Production may expose embedded OAuth/DCR metadata for ChatGPT linking when
-bearer mode is enabled.
+Production does not expose the embedded auto-approved OAuth/DCR flow. It uses
+owner-controlled bearer-only auth; keep
+`AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED=0`.
+
+On the production Codex host, configure the shared service credential with the
+rotation helper instead of copying a token into this document or
+`config.toml`:
+
+```bash
+cd /opt/autostopcrm
+python3 scripts/configure_codex_mcp_auth.py rotate --generate
+set -a
+. /root/.config/autostopcrm/codex-mcp.env
+set +a
+python3 scripts/configure_codex_mcp_auth.py check
+```
+
+The resulting Codex entry uses
+`bearer_token_env_var = "AUTOSTOPCRM_MCP_TOKEN"` plus a mode-`0600` static
+Authorization fallback so the desktop app can reconnect before a process
+restart. Restart Codex after loading the environment when practical. Normal
+agent activity is audited as service identity `codex-owner-agent`.
 
 ## ChatGPT Setup
 
 1. Open ChatGPT Apps & Connectors settings.
 2. Add a custom MCP connector named `AutoStop CRM`.
 3. Set the URL to `https://crm.autostopcrm.ru/mcp`.
-4. Complete the embedded OAuth flow if ChatGPT asks for linking.
+4. Production does not expose embedded OAuth/DCR. Connect only from a client
+   that can supply the owner bearer credential; otherwise keep this connector
+   disabled rather than reopening anonymous or auto-approved access.
 5. In a clean chat, enable only this connector while validating it.
 
 First calls:
 
-1. `ping_connector`
-2. `bootstrap_context(compact=true)`
-3. `get_runtime_status` when auth, tunnel, or runtime state is unclear
+1. `agent_bootstrap`
+2. `agent_board_digest(limit=100)`
+3. `agent_search` and `agent_entity_context` for focused detail
+
+Use `get_runtime_status` only for transport/runtime diagnostics; normal work
+starts with `agent_bootstrap`.
 
 For Responses API clients, use the same `server_url` and pass bearer
 authorization in the MCP tool payload when bearer mode is enabled.
@@ -48,8 +74,10 @@ authorization in the MCP tool payload when bearer mode is enabled.
 ## Safety
 
 - Public anonymous writes must remain blocked.
+- Public anonymous reads must also be blocked in production.
 - Read live context before every write.
-- Write only after `bootstrap_context(compact=true)` and target identification.
+- Write only after `agent_bootstrap`, exact-target identification, and an
+  action contract or named workflow dry-run.
 - Read back changed cards, files, clients, repair orders, or cashboxes.
 - Do not move, archive, delete, or change money/client/file/order data without
   explicit owner intent.

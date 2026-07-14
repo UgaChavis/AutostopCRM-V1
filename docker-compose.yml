@@ -46,6 +46,7 @@ services:
 
   autostopcrm:
     container_name: autostopcrm
+    image: "${AUTOSTOP_RELEASE_IMAGE:-autostopcrm-autostopcrm:latest}"
     build: .
     restart: always
     depends_on:
@@ -61,6 +62,16 @@ services:
       - "127.0.0.1:8000:41731"
       - "127.0.0.1:8001:41831"
     environment:
+      AUTOSTOP_DEPLOYMENT_ENV: "production"
+      AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED: "0"
+      AUTOSTOP_AGENT_SERVICE_IDENTITY: "${AUTOSTOP_AGENT_SERVICE_IDENTITY:-codex-owner-agent}"
+      AUTOSTOP_AGENT_GATEWAY_ENABLED: "${AUTOSTOP_AGENT_GATEWAY_ENABLED:?set explicitly to 0 or 1}"
+      AUTOSTOP_AGENT_GATEWAY_WRITES_ENABLED: "${AUTOSTOP_AGENT_GATEWAY_WRITES_ENABLED:?set explicitly to 0 or 1}"
+      AUTOSTOP_AGENT_GATEWAY_FINANCE_ENABLED: "${AUTOSTOP_AGENT_GATEWAY_FINANCE_ENABLED:?set explicitly to 0 or 1}"
+      AUTOSTOP_AGENT_GATEWAY_MAIL_ENABLED: "${AUTOSTOP_AGENT_GATEWAY_MAIL_ENABLED:?set explicitly to 0 or 1}"
+      AUTOSTOP_AGENT_GATEWAY_DESTRUCTIVE_ENABLED: "${AUTOSTOP_AGENT_GATEWAY_DESTRUCTIVE_ENABLED:?set explicitly to 0 or 1}"
+      AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED: "${AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED:?set explicitly to 0 or 1}"
+      AUTOSTOP_MAINTENANCE_MARKER: "/root/.minimal-kanban/.agent-gateway-maintenance"
       MINIMAL_KANBAN_API_HOST: "0.0.0.0"
       MINIMAL_KANBAN_API_PORT: "41731"
       MINIMAL_KANBAN_MCP_HOST: "0.0.0.0"
@@ -68,8 +79,9 @@ services:
       MINIMAL_KANBAN_AGENT_ENABLED: "${MINIMAL_KANBAN_AGENT_ENABLED:-1}"
       MINIMAL_KANBAN_AGENT_BOARD_API_URL: "${MINIMAL_KANBAN_AGENT_BOARD_API_URL:-http://127.0.0.1:41731}"
       MINIMAL_KANBAN_MCP_PATH: "/mcp"
-      MINIMAL_KANBAN_MCP_PUBLIC_BASE_URL: "${AUTOSTOP_PUBLIC_BASE_URL:-https://crm.autostopcrm.ru}"
+      MINIMAL_KANBAN_MCP_PUBLIC_BASE_URL: "${AUTOSTOP_PUBLIC_SITE_URL:-https://crm.autostopcrm.ru}"
       MINIMAL_KANBAN_MCP_PUBLIC_ENDPOINT_URL: "${AUTOSTOP_PUBLIC_MCP_URL:-https://crm.autostopcrm.ru/mcp}"
+      MINIMAL_KANBAN_MCP_BEARER_TOKEN: "${MINIMAL_KANBAN_MCP_BEARER_TOKEN:-}"
       MINIMAL_KANBAN_MCP_ALLOWED_HOSTS: "${AUTOSTOP_MCP_ALLOWED_HOSTS:-}"
       MINIMAL_KANBAN_MCP_ALLOWED_ORIGINS: "${AUTOSTOP_MCP_ALLOWED_ORIGINS:-}"
       AUTOSTOP_MANAGER_PATH: "${AUTOSTOP_MANAGER_CONTAINER_DIR:-/opt/AutostopManager}"
@@ -84,7 +96,8 @@ services:
       OPENAI_MODEL: "${OPENAI_MODEL:-gpt-5.4-mini}"
     volumes:
       - "${AUTOSTOP_DATA_DIR:-./data}:/root/.minimal-kanban"
-      - "${AUTOSTOP_MANAGER_HOST_DIR:-../AutostopManager}:${AUTOSTOP_MANAGER_CONTAINER_DIR:-/opt/AutostopManager}"
+      - "${AUTOSTOP_MANAGER_HOST_DIR:-/opt/autostop-manager-releases/current}:${AUTOSTOP_MANAGER_CONTAINER_DIR:-/opt/AutostopManager}:ro"
+      - "${AUTOSTOP_MANAGER_DATA_HOST_DIR:-../AutostopManager/data}:${AUTOSTOP_MANAGER_CONTAINER_DIR:-/opt/AutostopManager}/data"
     healthcheck:
       test: ["CMD", "python", "scripts/container_healthcheck.py"]
       interval: 20s

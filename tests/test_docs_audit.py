@@ -285,7 +285,7 @@ class DocsAuditTests(unittest.TestCase):
         self.assertEqual(
             {
                 "production ChatGPT connector URL is not documented: https://crm.autostopcrm.ru/mcp",
-                "ChatGPT connector bootstrap call is not documented: bootstrap_context(compact=true)",
+                "ChatGPT connector bootstrap call is not documented: agent_bootstrap",
                 "ChatGPT connector runtime diagnostic call is not documented: get_runtime_status",
                 "ChatGPT connector write-safety rule is not documented: Public anonymous writes must remain blocked",
             },

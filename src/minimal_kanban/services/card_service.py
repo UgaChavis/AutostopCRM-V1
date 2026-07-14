@@ -2823,6 +2823,20 @@ class CardService(
             card = self._find_card(cards, payload.get("card_id"))
             self._ensure_repair_order_state_supported(card)
             self._ensure_not_archived(card)
+            expected_updated_at = normalize_text(
+                payload.get("expected_updated_at"), default="", limit=80
+            )
+            if expected_updated_at and expected_updated_at != card.updated_at:
+                self._fail(
+                    "card_update_conflict",
+                    "Карточка уже изменена другим оператором. Обновите карточку и повторите правку.",
+                    status_code=409,
+                    details={
+                        "card_id": card.id,
+                        "expected_updated_at": expected_updated_at,
+                        "current_updated_at": card.updated_at,
+                    },
+                )
             self._ensure_repair_order_can_change_status(card, status)
             actor_name, source = self._audit_identity(payload, default_source="api")
             next_payload = card.repair_order.to_storage_dict()

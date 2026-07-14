@@ -27,7 +27,9 @@ from ..config import (
     get_api_host,
     get_api_port,
     get_api_port_fallback_limit,
+    get_mcp_bearer_token,
 )
+from ..deployment_security import is_maintenance_mode, load_agent_gateway_security_policy
 from ..json_safety import reject_deeply_nested_json
 from ..models import business_timezone, parse_datetime
 from ..operator_auth import OperatorAuthService
@@ -749,6 +751,7 @@ class ApiServer:
                             "base_url": api_server.base_url,
                             "bind_host": self.server.server_address[0],
                             "auth_required": bool(bearer_token),
+                            "maintenance_mode": is_maintenance_mode(),
                         },
                         error=None,
                         request_id=request_id,
@@ -833,6 +836,15 @@ class ApiServer:
                     return
                 if not self._authenticate(request_id):
                     self._drain_request_body(content_length)
+                    return
+                if route in proxied_write_routes and is_maintenance_mode():
+                    self._drain_request_body(content_length)
+                    self._send_error_response(
+                        request_id,
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                        "maintenance_mode",
+                        "Запись временно остановлена на время безопасного обслуживания CRM.",
+                    )
                     return
                 raw_body = self.rfile.read(content_length) if content_length > 0 else b"{}"
                 try:
@@ -1429,6 +1441,7 @@ class ApiServer:
                             "base_url": api_server.base_url,
                             "bind_host": self.server.server_address[0],
                             "auth_required": bool(bearer_token),
+                            "maintenance_mode": is_maintenance_mode(),
                         },
                         error=None,
                         request_id=request_id,
@@ -1470,6 +1483,18 @@ class ApiServer:
             def _serve_readonly_get_route(self, route: str, request_id: str, query: dict) -> bool:
                 if route not in readonly_routes:
                     return False
+                if self._is_proxied_request() and operator_service is not None:
+                    session = operator_service.resolve_session(
+                        self.headers.get("X-Operator-Session", "")
+                    )
+                    if session is None:
+                        self._operator_context_payload_reject(
+                            request_id,
+                            status=HTTPStatus.UNAUTHORIZED,
+                            code="unauthorized",
+                            message="Для чтения рабочей CRM нужен вход оператора.",
+                        )
+                        return True
                 if not self._authenticate(request_id, query):
                     return True
                 self._dispatch(route, request_id, query)
@@ -1484,6 +1509,35 @@ class ApiServer:
                     if route not in operator_session_routes and route not in admin_only_routes:
                         next_payload["actor_name"] = session["username"]
                 return next_payload
+
+            def _trusted_agent_session(self, payload: dict) -> dict | None:
+                """Authorize the local MCP service identity without impersonating a human."""
+
+                if self._is_proxied_request():
+                    return None
+                if str(payload.get("source") or "").strip() != "mcp_agent_gateway_v2":
+                    return None
+                try:
+                    policy = load_agent_gateway_security_policy()
+                except Exception:
+                    return None
+                if not (policy.gateway_enabled and policy.writes_enabled and policy.raw_enabled):
+                    return None
+                identity = str(self.headers.get("X-Autostop-Agent-Identity", "") or "").strip()
+                supplied_token = str(self.headers.get("X-Autostop-Agent-Token", "") or "").strip()
+                expected_token = str(get_mcp_bearer_token() or "").strip()
+                if not identity or not hmac.compare_digest(identity, policy.service_identity):
+                    return None
+                if not expected_token or not hmac.compare_digest(supplied_token, expected_token):
+                    return None
+                return {
+                    "token": "service-identity",
+                    "username": policy.service_identity,
+                    "role": "admin",
+                    "is_admin": True,
+                    "employee_id": "",
+                    "service_identity": True,
+                }
 
             def _operator_context_payload_reject(
                 self,
@@ -1509,6 +1563,8 @@ class ApiServer:
                 session = operator_service.resolve_session(
                     self.headers.get("X-Operator-Session", "")
                 )
+                if session is None:
+                    session = self._trusted_agent_session(payload)
                 next_payload = self._operator_context_payload_with_session(route, payload, session)
                 if route in admin_only_routes:
                     if session is None:

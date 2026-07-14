@@ -8,6 +8,7 @@ MCP tool call -> MCP adapter -> local HTTP API -> CardService -> JsonStore
 ```
 
 Source of truth: `src/minimal_kanban/mcp/server.py`,
+`src/minimal_kanban/mcp/agent_gateway_v2.py`,
 `src/minimal_kanban/mcp/tool_registry.py`, and live `tools/list`.
 
 ## Runtime And Auth
@@ -46,10 +47,60 @@ Saved settings live in the compatibility path
 `MINIMAL_KANBAN_MCP_ALLOWED_ORIGINS` add comma/newline-separated transport
 security allowlist entries.
 
-Production can publish embedded OAuth/DCR metadata for ChatGPT linking when
-bearer mode is enabled. Embedded OAuth registration accepts ChatGPT connector
-redirect URIs; manual MCP clients and Responses API integrations may pass bearer
-auth directly.
+Production uses owner-controlled bearer-only auth. Embedded OAuth/DCR remains a
+local compatibility option, but its auto-approved connector flow is not an
+owner-authentication boundary and must stay disabled in production with
+`AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED=0`. Manual Codex/MCP clients pass bearer
+auth through `AUTOSTOPCRM_MCP_TOKEN`.
+
+Production is fail-closed: `scripts/container_entrypoint.py` validates
+bearer-only mode, a
+non-placeholder `MINIMAL_KANBAN_MCP_BEARER_TOKEN`, HTTPS public URLs, stable
+`AUTOSTOP_AGENT_SERVICE_IDENTITY`, an absolute maintenance marker, and every
+Agent Gateway kill switch before starting `main_mcp.py`. Anonymous reads and
+writes are not a supported production mode.
+
+Agent Gateway v2 is the Codex-first production surface. It keeps the permanent
+tool list compact (`agent_bootstrap`, board/search/context and domain workflows,
+workflow ledger controls, diagnostics, and three lazy raw-discovery tools).
+Low-level CRM capabilities remain implemented but are available only behind
+`discover_raw_capabilities` -> `get_raw_capability_schema` ->
+`call_raw_capability`. The last call requires the current schema hash. Missing
+UI/API reads and mutations are exposed lazily as guarded `api:/api/...`
+capabilities; they are never added to the permanent tool list. Writes still
+require the durable workflow ledger, idempotency fingerprint,
+finance/destructive kill switches, and a route-bound schema hash. Mutating
+calls force the audited `codex-owner-agent` identity; caller-supplied human
+actor names are ignored. Operator-administration routes additionally require
+local service-identity headers and the MCP bearer token and never accept this
+identity through the public reverse proxy.
+
+Every applied write is reread. If the executor applied a change but its
+readback cannot be proven, the workflow remains non-terminal in
+`compensating`; it is never reported as a clean failure that may be retried
+blindly. Workflow lifecycle writes use state-version compare-and-swap.
+
+Runtime kill switches are:
+
+- `AUTOSTOP_AGENT_GATEWAY_ENABLED`;
+- `AUTOSTOP_AGENT_GATEWAY_WRITES_ENABLED`;
+- `AUTOSTOP_AGENT_GATEWAY_FINANCE_ENABLED`;
+- `AUTOSTOP_AGENT_GATEWAY_MAIL_ENABLED`;
+- `AUTOSTOP_AGENT_GATEWAY_DESTRUCTIVE_ENABLED`;
+- `AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED`.
+
+All six switches must be explicitly provisioned as `0` or `1` in production;
+there are no production defaults. With the master switch off, production
+exposes diagnostics only, not the low-level write surface. A switch change takes
+effect when the CRM container is recreated. The mail switch controls the
+refs-only CRM/manager bridge, not the separately authenticated Gmail
+connector; Gmail mutations keep their own exact-target workflow controls.
+
+`AUTOSTOP_MAINTENANCE_MARKER` blocks API write routes with `503
+maintenance_mode` while read/health routes remain available. The production
+deploy additionally stops the old CRM process before its atomic release backup,
+so first-time upgrades are protected even when the old image predates the
+marker contract.
 
 ## ChatGPT Connector
 
@@ -72,6 +123,16 @@ Responses API clients use the same `server_url`. Do not rely on a static JSON
 tool list; fetch live tools or use connector discovery. In bearer mode, pass
 authorization in the MCP tool payload.
 
+The read-only v2 release check is:
+
+```bash
+python scripts/check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --token-env AUTOSTOPCRM_MCP_TOKEN
+```
+
+It verifies anonymous rejection, tool-count/tools-list budgets,
+`agent_bootstrap`, and `agent_board_digest(limit=1)` without printing board
+data or the token.
+
 ## Optional AutostopManager Layer
 
 When `AutostopManager` is mounted next to CRM or `AUTOSTOP_MANAGER_PATH` points
@@ -86,28 +147,28 @@ vehicles, repair orders, inventory, files, payments, and cashboxes.
 
 ## Recommended Call Order
 
-Begin each connector session with short read calls:
+Begin each Codex session with the compact v2 surface:
 
-1. `ping_connector`
-2. `get_connector_identity`
-3. `bootstrap_context(compact=true)`
-4. `manager_board_scan` for operational board triage
-5. `get_runtime_status` when auth, tunnel, or runtime is unclear
-6. focused search/read tools
-7. write only after target is identified
-8. read-back verification
+1. `agent_bootstrap`
+2. `agent_board_digest` for board-wide scope
+3. `agent_search` and `agent_entity_context` for exact targets
+4. `list_agent_workflows` / `prepare_action_contract` for a managed operation
+5. the narrow board, finance, inventory, or document workflow
+6. `workflow_status` plus read-back verification
+7. raw discovery only when no workflow covers the owner request
 
-Prefer compact reads: `manager_board_scan`, `review_board`,
-`get_cards(compact=true)`,
-`search_cards`, `suggest_clients_for_card`, `get_card_context`, and
-`get_card_log(compact=true, limit=50)`. Use
-`get_card_log(include_full_details=true)` only for maintenance/debug recovery
-from `audit-archive`.
+`ping_connector`, `get_connector_identity`, and `get_runtime_status` remain
+small diagnostics. Lower-level card, board, and manager capabilities are never
+advertised directly; discover and invoke them only through the schema-hashed
+raw escape hatch when no named v2 workflow covers the request.
 
-## Tool Groups
+## Hidden Raw Capability Groups
 
-Diagnostics: `ping_connector`, `get_connector_identity`, `bootstrap_context`,
-`get_runtime_status`.
+These groups describe capabilities behind lazy discovery; they are not all
+advertised in production `tools/list`.
+
+Diagnostics: `ping_connector`, `get_connector_identity`, and
+`get_runtime_status` are visible; deeper board diagnostics are raw-only.
 
 Board/cards: column CRUD, `get_cards`, `get_card`, `get_card_context`,
 `get_card_log`, board snapshot/context/review/content/events/wall reads,
@@ -128,6 +189,11 @@ vehicle upsert/delete.
 
 Repair orders/PDF: list/get/text/PDF download, document-without-card PDF
 creation, update, status change, replace works/materials.
+For an actual repair-order payment, use
+`agent_finance_workflow(operation="record_repair_order_payment")`, not a manual
+cash transaction. It requires the exact card/cashbox, amount, payment method,
+and current `expected_updated_at`; it blocks stale revisions and overpayment,
+then verifies the payment row, linked cash transaction, and cash-journal entry.
 `download_repair_order_print_pdf` exports documents from an existing CRM card.
 `create_document_without_card_pdf` exports the same standard AutoStop templates
 without a card from `request_text` and/or `manual_document`; omit
@@ -154,6 +220,9 @@ reserves. Write-off is explicit and creates a repair-order material row with
 snapshot prices; manual material edits do not affect stock.
 
 Cashboxes: list/get/journal, create/delete, and `create_cash_transaction`.
+The finance workflow also covers cashbox transfer/reorder, salary payout/shift
+accrual, transaction cancellation, and finance safe-fix actions through the
+guarded internal API fallback.
 Manual expense transactions require a `note` with at least 10 visible
 characters. `get_cashbox` supports `transaction_limit` and
 `transaction_offset`.

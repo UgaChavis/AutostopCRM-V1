@@ -2,7 +2,8 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    MINIMAL_KANBAN_SUPPRESS_ERROR_DIALOGS=1
+    MINIMAL_KANBAN_SUPPRESS_ERROR_DIALOGS=1 \
+    AUTOSTOP_DEPLOYMENT_ENV=production
 
 WORKDIR /app
 
@@ -56,4 +57,4 @@ COPY . .
 
 EXPOSE 41731 41831
 
-CMD ["python", "main_mcp.py"]
+CMD ["python", "scripts/container_entrypoint.py"]

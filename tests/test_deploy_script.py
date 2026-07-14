@@ -5,13 +5,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 class DeployScriptTests(unittest.TestCase):
-    def test_deploy_script_syncs_active_v1_branch_by_default(self) -> None:
+    def test_deploy_script_verifies_active_v1_branch_without_destructive_reset(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
 
         self.assertIn('DEPLOY_BRANCH="${AUTOSTOP_DEPLOY_BRANCH:-autostopcrm-v1}"', script)
         self.assertIn('DEPLOY_REMOTE="${AUTOSTOP_DEPLOY_REMOTE:-origin}"', script)
         self.assertIn('git fetch "$DEPLOY_REMOTE" "$DEPLOY_BRANCH"', script)
-        self.assertIn("git reset --hard FETCH_HEAD", script)
+        self.assertIn('remote_head="$(git rev-parse FETCH_HEAD)"', script)
+        self.assertNotIn("git reset --hard", script)
 
     def test_deploy_loads_server_local_env_before_smoke_credentials(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
@@ -19,14 +20,14 @@ class DeployScriptTests(unittest.TestCase):
         self.assertIn('if [[ -f "$ROOT_DIR/.env" ]]; then', script)
         self.assertLess(
             script.index('if [[ -f "$ROOT_DIR/.env" ]]; then'),
-            script.index('SMOKE_OPERATOR_USERNAME="${AUTOSTOP_SMOKE_OPERATOR_USERNAME:?'),
+            script.index(': "${AUTOSTOP_SMOKE_OPERATOR_USERNAME:?'),
         )
         self.assertIn(
-            'SMOKE_OPERATOR_USERNAME="${AUTOSTOP_SMOKE_OPERATOR_USERNAME:?set smoke username}"',
+            ': "${AUTOSTOP_SMOKE_OPERATOR_USERNAME:?set smoke username}"',
             script,
         )
         self.assertIn(
-            'SMOKE_OPERATOR_PASSWORD="${AUTOSTOP_SMOKE_OPERATOR_PASSWORD:?set smoke password}"',
+            ': "${AUTOSTOP_SMOKE_OPERATOR_PASSWORD:?set smoke password}"',
             script,
         )
         self.assertNotIn("MINIMAL_KANBAN_DEFAULT_ADMIN_USERNAME:-admin", script)
@@ -66,6 +67,104 @@ class DeployScriptTests(unittest.TestCase):
         self.assertIn('exec {DEPLOY_LOCK_FD}>"$DEPLOY_LOCK_PATH"', script)
         self.assertIn('flock -n "$DEPLOY_LOCK_FD"', script)
         self.assertNotIn("eval ", script)
+
+    def test_deploy_prebuilds_then_replaces_only_crm_with_bounded_rollback(self) -> None:
+        script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+
+        self.assertIn(
+            'MAINTENANCE_BUDGET_SECONDS="${AUTOSTOP_MAINTENANCE_BUDGET_SECONDS:-600}"', script
+        )
+        self.assertIn('docker build --tag "$release_image" "$ROOT_DIR"', script)
+        self.assertIn('docker tag "$release_image" "$STABLE_IMAGE"', script)
+        self.assertIn('docker tag "$rollback_image" "$STABLE_IMAGE"', script)
+        self.assertIn("--no-deps --no-build --force-recreate", script)
+        self.assertIn("scripts/agent_release_backup.py create", script)
+        self.assertIn("restore-changed --backup-dir", script)
+        self.assertIn("rollback_release", script)
+        self.assertIn("umask 077", script)
+        self.assertIn(
+            'ROLLBACK_RESERVE_SECONDS="${AUTOSTOP_ROLLBACK_RESERVE_SECONDS:-120}"', script
+        )
+        self.assertEqual(
+            script.count(
+                'timeout --signal=TERM --kill-after=5 "${command_budget}s" "$@" </dev/null'
+            ),
+            2,
+        )
+        self.assertIn("run_release docker compose stop", script)
+        self.assertIn("run_maintenance env AUTOSTOP_RELEASE_IMAGE", script)
+        self.assertEqual(script.count('mkdir -p "$staging_dir/data"'), 2)
+        self.assertNotIn("docker compose up -d --build --remove-orphans", script)
+
+    def test_deploy_rotates_auth_at_cutover_and_restores_it_on_rollback(self) -> None:
+        script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+
+        build_index = script.index('docker tag "$previous_image_id" "$rollback_image"')
+        snapshot_index = script.index('snapshot --backup-dir "$auth_backup_dir"')
+        rotate_index = script.index('rotate --generate --mcp-url "$PUBLIC_MCP_URL"')
+        maintenance_index = script.index("maintenance_started=1", rotate_index)
+        self.assertLess(build_index, snapshot_index)
+        self.assertLess(snapshot_index, rotate_index)
+        self.assertLess(rotate_index, maintenance_index)
+        self.assertIn('restore --backup-dir "$auth_backup_dir"', script)
+        self.assertIn('check --mcp-url "$PUBLIC_MCP_URL"', script)
+
+    def test_deploy_makes_public_auth_smoke_mandatory_for_reads_and_writes(self) -> None:
+        script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+        connector = (PROJECT_ROOT / "scripts" / "check_live_connector.py").read_text(
+            encoding="utf-8"
+        )
+        gateway_check = (PROJECT_ROOT / "scripts" / "check_agent_gateway_v2.py").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertNotIn("VERIFY_PUBLIC_HTTPS", script)
+        public_block = script[script.index('  --site-url "$PUBLIC_SITE_URL"') :]
+        self.assertIn('  --mcp-url "$PUBLIC_MCP_URL"', public_block)
+        self.assertNotIn("--skip-public-write-protection", public_block)
+        self.assertIn("check_public_read_protection", connector)
+        self.assertIn("check_public_write_protection", connector)
+        self.assertNotIn("skip-anonymous-check", gateway_check)
+        self.assertIn("response.status_code in {401, 403}", gateway_check)
+
+    def test_deploy_removes_maintenance_before_public_auth_smoke(self) -> None:
+        script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+
+        internal_connector_index = script.index("  --skip-public-site")
+        internal_gateway_index = script.index("  --mcp-url http://127.0.0.1:41831/mcp")
+        marker_removal = script.index('run_release rm -f "$MAINTENANCE_MARKER_HOST"')
+        public_connector_index = script.index('  --site-url "$PUBLIC_SITE_URL"')
+        public_gateway_index = script.index('  --mcp-url "$PUBLIC_MCP_URL"', public_connector_index)
+
+        self.assertLess(internal_connector_index, marker_removal)
+        self.assertLess(internal_gateway_index, marker_removal)
+        self.assertLess(marker_removal, public_connector_index)
+        self.assertLess(marker_removal, public_gateway_index)
+        self.assertEqual(script.count('run_release rm -f "$MAINTENANCE_MARKER_HOST"'), 1)
+        self.assertNotIn(
+            'run_release rm -f "$MAINTENANCE_MARKER_HOST"',
+            script[public_connector_index:],
+        )
+
+    def test_production_compose_is_fail_closed_and_exposes_kill_switches(self) -> None:
+        compose = (PROJECT_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+        dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
+
+        self.assertIn('AUTOSTOP_DEPLOYMENT_ENV: "production"', compose)
+        self.assertIn('AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED: "0"', compose)
+        self.assertNotIn('AUTOSTOP_DEPLOYMENT_ENV: "${', compose)
+        self.assertIn("MINIMAL_KANBAN_MCP_BEARER_TOKEN", compose)
+        self.assertIn("AUTOSTOP_AGENT_GATEWAY_FINANCE_ENABLED", compose)
+        self.assertIn("AUTOSTOP_AGENT_GATEWAY_DESTRUCTIVE_ENABLED", compose)
+        self.assertIn("AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED", compose)
+        self.assertNotIn("AUTOSTOP_AGENT_GATEWAY_ENABLED:-1", compose)
+        self.assertNotIn("AUTOSTOP_AGENT_GATEWAY_WRITES_ENABLED:-1", compose)
+        self.assertIn("${AUTOSTOP_AGENT_GATEWAY_ENABLED:?set explicitly to 0 or 1}", compose)
+        self.assertIn("validate_gateway_switches", (PROJECT_ROOT / "deploy.sh").read_text())
+        self.assertIn("/opt/autostop-manager-releases/current", compose)
+        self.assertIn("/opt/AutostopManager}:ro", compose)
+        self.assertIn("/opt/AutostopManager}/data", compose)
+        self.assertIn("scripts/container_entrypoint.py", dockerfile)
 
     def test_deploy_lock_file_is_ignored(self) -> None:
         gitignore = (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8")

@@ -7,6 +7,7 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Mapping
 from logging import Logger
 
 from ..config import get_api_port, get_api_port_fallback_limit
@@ -1093,9 +1094,12 @@ class BoardApiClient:
         *,
         card_id: str,
         repair_order: dict[str, object],
+        expected_updated_at: str | None = None,
         actor_name: str | None = None,
     ) -> dict:
         payload: dict[str, object] = {"card_id": card_id, "repair_order": repair_order}
+        if expected_updated_at:
+            payload["expected_updated_at"] = expected_updated_at
         return self._request_with_identity(
             "/api/update_repair_order", payload, actor_name=actor_name
         )
@@ -1105,9 +1109,12 @@ class BoardApiClient:
         *,
         card_id: str,
         status: str,
+        expected_updated_at: str | None = None,
         actor_name: str | None = None,
     ) -> dict:
         payload: dict[str, object] = {"card_id": card_id, "status": status}
+        if expected_updated_at:
+            payload["expected_updated_at"] = expected_updated_at
         return self._request_with_identity(
             "/api/set_repair_order_status", payload, actor_name=actor_name
         )
@@ -1439,6 +1446,7 @@ class BoardApiClient:
         payload: dict | None = None,
         *,
         method: str = "POST",
+        extra_headers: Mapping[str, str] | None = None,
         _allow_retry: bool = True,
     ) -> dict:
         data = None
@@ -1452,6 +1460,19 @@ class BoardApiClient:
         authorization_header = _authorization_bearer_header(self._bearer_token)
         if authorization_header:
             headers["Authorization"] = authorization_header
+        if extra_headers:
+            for name, value in extra_headers.items():
+                normalized_name = str(name or "").strip()
+                normalized_value = str(value or "").strip()
+                if (
+                    normalized_name
+                    in {
+                        "X-Autostop-Agent-Identity",
+                        "X-Autostop-Agent-Token",
+                    }
+                    and normalized_value
+                ):
+                    headers[normalized_name] = normalized_value
         try:
             request = urllib.request.Request(
                 self._compose_url(path),
@@ -1489,7 +1510,13 @@ class BoardApiClient:
         except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:
             if str(method or "POST").strip().upper() == "GET" and _allow_retry:
                 self._log("board_api_request path=%s retry_after_transport_error=%s", path, exc)
-                return self._request(path, payload, method=method, _allow_retry=False)
+                return self._request(
+                    path,
+                    payload,
+                    method=method,
+                    extra_headers=extra_headers,
+                    _allow_retry=False,
+                )
             message = f"Не удалось подключиться к локальному API по адресу {self.base_url}."
             raise BoardApiTransportError(message) from exc
 

@@ -25,9 +25,11 @@ from ..config import (
     get_mcp_port,
     get_mcp_public_base_url,
 )
+from ..deployment_security import load_agent_gateway_security_policy
 from ..services.snapshot_service import GPT_WALL_AGENT_EVENT_LIMIT
 from ..settings_models import derive_allowed_hosts, derive_allowed_origins
-from .auth import build_auth_settings
+from .agent_gateway_v2 import register_agent_gateway_v2
+from .auth import StaticBearerTokenVerifier, build_auth_settings
 from .client import BoardApiClient, BoardApiTransportError
 from .oauth_provider import EmbeddedOAuthAuthorizationServerProvider
 from .tool_registry import MCP_TOOL_GROUPS, PUBLIC_MCP_TOOL_NAMES
@@ -565,6 +567,13 @@ def create_mcp_server(
         or f"http://{resolved_host}:{resolved_port}"
     ).rstrip("/")
     effective_resource_url = resource_url or f"{server_base_url}{resolved_path}"
+    gateway_policy = load_agent_gateway_security_policy()
+    raw_embedded_oauth = os.environ.get("AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED", "").strip()
+    embedded_oauth_enabled = (
+        raw_embedded_oauth.casefold() in {"1", "true", "yes", "on"}
+        if raw_embedded_oauth
+        else not gateway_policy.production
+    )
     connector_name_url = (
         raw_resource_url if raw_resource_url and not resource_url else effective_resource_url
     )
@@ -581,7 +590,13 @@ def create_mcp_server(
         "streamable_http_path": resolved_path,
         "local_bind": f"http://{resolved_host}:{resolved_port}{resolved_path}",
         "board_api_base_url": board_api.base_url,
-        "auth_mode": "oauth_embedded" if resolved_token else "none",
+        "auth_mode": (
+            "oauth_embedded"
+            if resolved_token and embedded_oauth_enabled
+            else "bearer_only"
+            if resolved_token
+            else "none"
+        ),
         "host": resolved_host,
         "port": resolved_port,
     }
@@ -614,17 +629,28 @@ def create_mcp_server(
 
     auth_settings = None
     auth_server_provider = None
+    token_verifier = None
     if resolved_token:
         auth_settings = build_auth_settings(
-            server_base_url, path=resolved_path, resource_url=effective_resource_url
-        )
-        auth_server_provider = EmbeddedOAuthAuthorizationServerProvider(
-            issuer_url=server_base_url,
+            server_base_url,
+            path=resolved_path,
             resource_url=effective_resource_url,
-            legacy_bearer_token=resolved_token,
-            state_file=oauth_state_file,
-            logger=logger,
+            embedded_oauth_enabled=embedded_oauth_enabled,
         )
+        if embedded_oauth_enabled:
+            auth_server_provider = EmbeddedOAuthAuthorizationServerProvider(
+                issuer_url=server_base_url,
+                resource_url=effective_resource_url,
+                legacy_bearer_token=resolved_token,
+                state_file=oauth_state_file,
+                logger=logger,
+            )
+        else:
+            token_verifier = StaticBearerTokenVerifier(
+                resolved_token,
+                resource_url=effective_resource_url,
+                client_id=gateway_policy.service_identity,
+            )
 
     server = FastMCP(
         name=connector_name,
@@ -651,6 +677,7 @@ def create_mcp_server(
         stateless_http=True,
         auth=auth_settings,
         auth_server_provider=auth_server_provider,
+        token_verifier=token_verifier,
         transport_security=transport_security,
         log_level="WARNING",
     )
@@ -3476,6 +3503,7 @@ def create_mcp_server(
     def update_repair_order(
         card_id: str,
         repair_order: RepairOrderPatchPayload,
+        expected_updated_at: str | None = None,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
         repair_order_payload = (
@@ -3488,6 +3516,7 @@ def create_mcp_server(
             lambda: board_api.update_repair_order(
                 card_id=card_id,
                 repair_order=repair_order_payload.model_dump(exclude_none=True),
+                expected_updated_at=expected_updated_at,
                 actor_name=actor_name,
             ),
         )
@@ -3503,12 +3532,16 @@ def create_mcp_server(
     def set_repair_order_status(
         card_id: str,
         status: Literal["open", "ready", "closed"],
+        expected_updated_at: str | None = None,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
         return _relay_board_call(
             "set_repair_order_status",
             lambda: board_api.set_repair_order_status(
-                card_id=card_id, status=status, actor_name=actor_name
+                card_id=card_id,
+                status=status,
+                expected_updated_at=expected_updated_at,
+                actor_name=actor_name,
             ),
         )
 
@@ -3761,6 +3794,18 @@ def create_mcp_server(
         return _relay_board_call(
             "list_overdue_cards",
             lambda: board_api.list_overdue_cards(include_archived=include_archived),
+        )
+
+    registered_gateway_tools = register_agent_gateway_v2(
+        server,
+        board_api,
+        connector_identity=connector_identity,
+        agent_bearer_token=resolved_token,
+    )
+    if registered_gateway_tools:
+        logger.info(
+            "mcp.agent_gateway_v2 enabled tools=%s",
+            ",".join(sorted(registered_gateway_tools)),
         )
 
     return server

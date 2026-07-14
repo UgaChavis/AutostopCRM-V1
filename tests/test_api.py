@@ -103,6 +103,24 @@ class ApiServerTests(unittest.TestCase):
         finally:
             connection.close()
 
+    def test_maintenance_marker_blocks_writes_but_keeps_reads_available(self) -> None:
+        marker = Path(self.temp_dir.name) / ".agent-gateway-maintenance"
+        marker.touch()
+        with patch.dict(os.environ, {"AUTOSTOP_MAINTENANCE_MARKER": str(marker)}):
+            status, blocked = self.request(
+                "/api/create_card",
+                {"title": "Must not be created", "deadline": {"hours": 2}},
+            )
+            health_status, health = self.request("/api/health", method="GET")
+            read_status, cards = self.request("/api/get_cards", {})
+
+        self.assertEqual(status, 503)
+        self.assertEqual(blocked["error"]["code"], "maintenance_mode")
+        self.assertEqual(health_status, 200)
+        self.assertTrue(health["data"]["maintenance_mode"])
+        self.assertEqual(read_status, 200)
+        self.assertEqual(cards["data"]["cards"], [])
+
     def test_api_cors_allows_same_host_origin_only(self) -> None:
         status, headers, _ = self.raw_request("/api/health", headers={"Origin": self.base_url})
         self.assertEqual(status, 200)
@@ -897,6 +915,50 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(deleted["data"]["deleted"])
 
+    def test_local_agent_service_identity_can_use_admin_route_without_human_session(self) -> None:
+        token = "agent-service-token-with-strong-test-entropy-0123456789"
+        gateway_env = {
+            "AUTOSTOP_DEPLOYMENT_ENV": "development",
+            "AUTOSTOP_AGENT_GATEWAY_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_WRITES_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_FINANCE_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_MAIL_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_DESTRUCTIVE_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED": "1",
+            "AUTOSTOP_AGENT_SERVICE_IDENTITY": "codex-owner-agent",
+            "MINIMAL_KANBAN_MCP_BEARER_TOKEN": token,
+        }
+        payload = {
+            "username": "agentmade",
+            "password": "1234",
+            "source": "mcp_agent_gateway_v2",
+        }
+        headers = {
+            "X-Autostop-Agent-Identity": "codex-owner-agent",
+            "X-Autostop-Agent-Token": token,
+        }
+        with patch.dict("os.environ", gateway_env, clear=False):
+            wrong_status, _ = self.request(
+                "/api/save_operator_user",
+                payload,
+                headers={**headers, "X-Autostop-Agent-Token": "wrong"},
+            )
+            proxied_status, _ = self.request(
+                "/api/save_operator_user",
+                payload,
+                headers={**headers, "X-Forwarded-For": "203.0.113.10"},
+            )
+            status, saved = self.request(
+                "/api/save_operator_user",
+                payload,
+                headers=headers,
+            )
+
+        self.assertEqual(wrong_status, 401)
+        self.assertEqual(proxied_status, 401)
+        self.assertEqual(status, 200)
+        self.assertEqual(saved["data"]["user"]["username"], "AGENTMADE")
+
     def test_operator_password_update_revokes_existing_sessions(self) -> None:
         status, admin_login = self.request(
             "/api/login_operator",
@@ -1267,6 +1329,36 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(
             blocked_employee_delete["error"]["details"]["auth_type"], "operator_session"
         )
+
+    def test_proxied_read_routes_require_operator_session(self) -> None:
+        proxy_headers = {"X-Forwarded-For": "203.0.113.10"}
+
+        status, blocked = self.request(
+            "/api/get_cards",
+            method="GET",
+            headers=proxy_headers,
+        )
+        self.assertEqual(status, 401)
+        self.assertEqual(blocked["error"]["details"]["auth_type"], "operator_session")
+
+        status, logged_in = self.request(
+            "/api/login_operator",
+            {"username": "admin", "password": "admin"},
+        )
+        self.assertEqual(status, 200)
+        token = logged_in["data"]["session"]["token"]
+
+        status, allowed = self.request(
+            "/api/get_cards",
+            method="GET",
+            headers={**proxy_headers, "X-Operator-Session": token},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(allowed["ok"])
+
+        status, local_allowed = self.request("/api/get_cards", method="GET")
+        self.assertEqual(status, 200)
+        self.assertTrue(local_allowed["ok"])
 
         status, card = self.request(
             "/api/create_card",

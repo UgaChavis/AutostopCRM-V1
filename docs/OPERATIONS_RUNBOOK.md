@@ -322,6 +322,38 @@ python scripts\repair_order_number_audit.py --base-url https://crm.autostopcrm.r
 
 ## Deploy
 
+Production deploy uses a bounded Agent Gateway v2 replacement. The image is
+built before CRM enters maintenance; the critical window stops and replaces
+only `autostopcrm`. SearXNG, Crawl4AI, nginx, VPN, and unrelated compose
+services are not recreated.
+
+One-time production auth setup or rotation (never pass the token on the command
+line):
+
+```bash
+cd /opt/autostopcrm
+python3 scripts/configure_codex_mcp_auth.py rotate --generate
+set -a
+. /root/.config/autostopcrm/codex-mcp.env
+set +a
+python3 scripts/configure_codex_mcp_auth.py check
+```
+
+The helper atomically updates server `.env`, configures
+`bearer_token_env_var = "AUTOSTOPCRM_MCP_TOKEN"` in
+`/root/.codex/config.toml`, adds a static Authorization-header fallback for the
+already-running Codex app server, writes a mode-`0600` runtime env file, and
+never prints the token. All three files remain mode `0600`; restart Codex when
+practical so the environment-backed path becomes primary. Deploy CRM with the
+same credential. To use a prepared secret, put only the
+token (or `AUTOSTOPCRM_MCP_TOKEN=...`) in a mode-`0600` file and pass
+`rotate --token-file /secure/path/token`.
+
+Never dump `.env`, `docker inspect ... .Config.Env`, or a complete process
+environment into an agent/tool transcript. Query an explicit allowlist of
+non-secret variable names; for secrets report only presence, file mode, match,
+entropy, or authentication-test booleans.
+
 Normal path:
 
 1. Commit intended local changes.
@@ -330,19 +362,31 @@ Normal path:
 4. Verify local/GitHub/server `HEAD`.
 5. Run live smoke and performance checks.
 
-Server command:
+Server command after the intended commit is checked out and `.env` contains the
+MCP token and smoke operator credentials:
 
 ```powershell
-ssh -i $env:AUTOSTOPCRM_SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes root@crm.autostopcrm.ru "cd /opt/autostopcrm && AUTOSTOP_DEPLOY_BRANCH=autostopcrm-v1 AUTOSTOP_VERIFY_PUBLIC_HTTPS=1 ./deploy.sh"
+ssh -i $env:AUTOSTOPCRM_SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes root@crm.autostopcrm.ru "cd /opt/autostopcrm && AUTOSTOP_DEPLOY_BRANCH=autostopcrm-v1 ./deploy.sh"
 ```
 
 Useful deploy variables:
 
-- `AUTOSTOP_DEPLOY_BRANCH` - branch to fetch/reset; default `autostopcrm-v1`.
+- `AUTOSTOP_DEPLOY_BRANCH` - branch whose remote HEAD must match local HEAD;
+  default `autostopcrm-v1`. Deploy never resets a dirty checkout.
 - `AUTOSTOP_DEPLOY_REMOTE` - git remote; default `origin`.
-- `AUTOSTOP_SKIP_GIT_SYNC=1` - rebuild current checkout without fetch/reset.
+- `AUTOSTOP_SKIP_GIT_SYNC=1` - skip remote parity verification.
+- `AUTOSTOP_RELEASE_IMAGE` - exact prebuilt image tag to switch to.
+- `AUTOSTOP_STABLE_IMAGE` - last known-good tag used by watchdog recovery;
+  default `autostopcrm-autostopcrm:latest`.
+- `AUTOSTOP_BUILD_RELEASE_IMAGE=0` - require that exact image to already exist;
+  by default it is built before maintenance.
+- `AUTOSTOP_MAINTENANCE_BUDGET_SECONDS` - stop/backup/switch/smoke budget;
+  default and maximum are 600 seconds.
+- `AUTOSTOP_RELEASE_BACKUP_ROOT` - completed atomic backups; default
+  `/root/autostopcrm-backups/agent-gateway-v2`.
+- `AUTOSTOP_MANAGER_DB` - manager SQLite included in every release backup;
+  default `/opt/AutostopManager/data/autostop_manager.sqlite3`.
 - `AUTOSTOP_COMPOSE_SERVICE` - compose service; default `autostopcrm`.
-- `AUTOSTOP_VERIFY_PUBLIC_HTTPS=1` - run public HTTPS smoke.
 - `AUTOSTOP_PUBLIC_SITE_URL`, `AUTOSTOP_PUBLIC_MCP_URL` - public smoke URLs.
 - `AUTOSTOP_SMOKE_OPERATOR_USERNAME`, `AUTOSTOP_SMOKE_OPERATOR_PASSWORD` -
   smoke credentials.
@@ -354,10 +398,47 @@ Useful deploy variables:
   `.autostop-deploy.lock`.
 - `AUTOSTOP_INSTALL_WATCHDOG=0` - skip watchdog install.
 
-`deploy.sh` loads server-local `.env` before resolving smoke credentials,
-then fetches and resets tracked files, builds containers, waits for
-health, runs local connector smoke, optionally runs public HTTPS smoke, copies
-the short server instruction, and installs the watchdog timer on systemd hosts.
+Public HTTPS/API/MCP authentication smoke is mandatory and has no skip switch.
+The six `AUTOSTOP_AGENT_GATEWAY_*` values must already be explicitly set to
+`0` or `1` in `.env` before Compose or deploy validation.
+
+`deploy.sh` loads server-local `.env`, validates fail-closed auth and kill
+switches, verifies git parity, and prebuilds the release image before the timer
+starts. Inside the window it creates a maintenance marker, stops only
+`autostopcrm`, atomically backs up and verifies `state.json`, `audit-archive`,
+and manager SQLite, switches to the prebuilt image, and runs read-only
+API/operator and Agent Gateway v2 smoke. Any error or budget overrun restores
+changed protected state/manager SQLite and starts the tagged previous image.
+The marker is removed only after a healthy release or healthy rollback.
+
+Do not use `docker compose up -d --build --remove-orphans` as a production
+shortcut. It has no verified data checkpoint and may recreate unrelated
+services.
+
+Agent capability kill switches are runtime `0`/`1` settings:
+
+- `AUTOSTOP_AGENT_GATEWAY_ENABLED` - all Agent Gateway tools;
+- `AUTOSTOP_AGENT_GATEWAY_WRITES_ENABLED` - every agent write;
+- `AUTOSTOP_AGENT_GATEWAY_FINANCE_ENABLED` - payments/cashboxes/payroll;
+- `AUTOSTOP_AGENT_GATEWAY_MAIL_ENABLED` - cross-system mail steps;
+- `AUTOSTOP_AGENT_GATEWAY_DESTRUCTIVE_ENABLED` - delete/archive/cancel flows;
+- `AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED` - lazy raw escape hatch.
+
+Production has no switch defaults: all six values must exist explicitly in
+`.env`, and a change takes effect when the CRM container is recreated. Setting
+the master switch to `0` leaves diagnostics only; it never restores the legacy
+write surface. The mail switch controls refs-only manager workflow steps, not
+the separately authenticated Gmail connector. Run
+`python3 scripts/validate_production_env.py --require-production` before restart.
+`AUTOSTOP_AGENT_SERVICE_IDENTITY` defaults to the audited identity
+`codex-owner-agent`. Raw operator-admin calls are accepted only from the local
+MCP service identity with the matching bearer token; public proxy requests
+cannot claim this identity.
+
+Production auth is bearer-only. Keep
+`AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED=0`; the embedded OAuth/DCR provider
+auto-approves compatible redirect clients and is therefore local-development
+compatibility, not an owner-authentication boundary.
 
 ## Production Verification
 
@@ -369,14 +450,18 @@ git status --short --branch
 git rev-parse --short HEAD
 git rev-parse --short origin/autostopcrm-v1
 docker compose ps
-docker compose exec -T autostopcrm python scripts/check_live_connector.py --strict --site-url https://crm.autostopcrm.ru --expect-https --local-api-url http://127.0.0.1:41731 --mcp-url https://crm.autostopcrm.ru/mcp --operator-username "${AUTOSTOP_SMOKE_OPERATOR_USERNAME:?set smoke username}" --operator-password "${AUTOSTOP_SMOKE_OPERATOR_PASSWORD:?set smoke password}" --expect-admin
+docker compose exec -T autostopcrm python scripts/validate_production_env.py --require-production
+docker compose exec -T autostopcrm python scripts/check_live_connector.py --strict --site-url https://crm.autostopcrm.ru --expect-https --local-api-url http://127.0.0.1:41731 --skip-mcp --expect-admin
+docker compose exec -T autostopcrm python scripts/check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp
+docker compose exec -T autostopcrm python scripts/check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp
 docker compose exec -T autostopcrm python scripts/docs_audit.py --format text
 ```
 
 From local machine:
 
 ```powershell
-python scripts\check_live_connector.py --strict --site-url https://crm.autostopcrm.ru --expect-https --local-api-url https://crm.autostopcrm.ru --mcp-url https://crm.autostopcrm.ru/mcp --operator-username $env:AUTOSTOP_SMOKE_OPERATOR_USERNAME --operator-password $env:AUTOSTOP_SMOKE_OPERATOR_PASSWORD --expect-admin
+$env:AUTOSTOPCRM_MCP_TOKEN = Get-Content -Raw C:\secure\autostopcrm-mcp-token.txt
+python scripts\check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --token-env AUTOSTOPCRM_MCP_TOKEN
 ```
 
 Manual UI smoke after UI changes:

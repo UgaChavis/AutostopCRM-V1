@@ -232,7 +232,7 @@ CHATGPT_CONNECTOR_REQUIRED_TEXT = (
         "production ChatGPT connector URL is not documented",
     ),
     (
-        "bootstrap_context(compact=true)",
+        "agent_bootstrap",
         "ChatGPT connector bootstrap call is not documented",
     ),
     (
