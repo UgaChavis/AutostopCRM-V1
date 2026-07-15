@@ -341,6 +341,20 @@ class McpOAuthProviderStateTests(unittest.TestCase):
             self.assertIsNotNone(stored)
             self.assertEqual(stored.client_id, "client-1")
 
+    def test_register_client_accepts_codex_versioned_loopback_callback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            provider = self._provider(Path(temp_dir) / "mcp-oauth-state.json")
+            client = OAuthClientInformationFull(
+                client_id="codex-cli",
+                redirect_uris=["http://127.0.0.1:49152/callback/Abcdef01_-XY"],
+                token_endpoint_auth_method="none",
+                scope="kanban:read kanban:write",
+            )
+
+            asyncio.run(provider.register_client(client))
+
+            self.assertIsNotNone(asyncio.run(provider.get_client("codex-cli")))
+
     def test_authorization_requires_exact_audience_scopes_and_owner_approval(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             provider = self._provider(Path(temp_dir) / "mcp-oauth-state.json")
@@ -424,6 +438,9 @@ class McpOAuthProviderStateTests(unittest.TestCase):
             "https://chatgpt.com.evil.example/connector/oauth/test-callback",
             "http://chatgpt.com/connector/oauth/test-callback",
             "https://chatgpt.com/not-connector/oauth/test-callback",
+            "http://127.0.0.1:49152/callback/too-short",
+            "http://127.0.0.1:49152/callback/Abcdef01_-XY/extra",
+            "http://127.0.0.1:49152/callback/Abcdef01_-XY?redirect=evil",
         ]
         for redirect_uri in blocked_redirects:
             with self.subTest(redirect_uri=redirect_uri):

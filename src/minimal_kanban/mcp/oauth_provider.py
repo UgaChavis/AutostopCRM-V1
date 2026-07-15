@@ -513,6 +513,8 @@ class ProductionOAuthAuthorizationServerProvider(
             return False
         if parsed.username or parsed.password or parsed.fragment:
             return False
+        if parsed.query:
+            return False
         hostname = (parsed.hostname or "").casefold()
         if parsed.scheme.casefold() == "https" and hostname == "chatgpt.com" and port is None:
             return parsed.path == CHATGPT_LEGACY_OAUTH_REDIRECT_PATH or parsed.path.startswith(
@@ -524,7 +526,19 @@ class ProductionOAuthAuthorizationServerProvider(
             "localhost",
         }:
             return False
-        return port is not None and 1024 <= port <= 65535 and parsed.path == "/callback"
+        if port is None or not 1024 <= port <= 65535:
+            return False
+        if parsed.path == "/callback":
+            return True
+        callback_id = parsed.path.removeprefix("/callback/")
+        return (
+            parsed.path.startswith("/callback/")
+            and len(callback_id) == 12
+            and all(
+                character.isascii() and (character.isalnum() or character in "-_")
+                for character in callback_id
+            )
+        )
 
     def _load_stored_authorization_code(
         self, state: dict[str, object], code: str

@@ -33,7 +33,8 @@ The endpoint is supported by:
 
 - ChatGPT Apps/Connectors through the public OAuth flow;
 - Codex through `codex mcp login autostopcrm` after configuring only the public
-  MCP URL (no bearer/static headers);
+  MCP URL (no bearer/static headers); current Codex uses a per-server
+  `/callback/<12-character-id>` loopback redirect on a high local port;
 - Responses API remote MCP tools using `server_url` and the tool-level
   `authorization` field.
 
