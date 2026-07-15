@@ -194,6 +194,21 @@ def _refresh(client: httpx.Client, state: dict[str, str]) -> tuple[dict[str, str
     return updated, replay.status_code == 400 and replay.json().get("error") == "invalid_grant"
 
 
+def _revoke(client: httpx.Client, state: dict[str, str]) -> bool:
+    response = client.post(
+        f"{_origin(state['mcp_url'])}/revoke",
+        data={
+            "client_id": state["client_id"],
+            # MCP SDK 1.26 models this optional RFC 7009 field as
+            # nullable-but-required. Public clients send it empty.
+            "client_secret": "",
+            "token": state["refresh_token"],
+            "token_type_hint": "refresh_token",
+        },
+    )
+    return response.status_code == 200
+
+
 async def _check_gateway(state: dict[str, str]) -> dict[str, bool | int]:
     headers = {"Authorization": f"Bearer {state['access_token']}"}
     timeout = httpx.Timeout(45.0, connect=10.0, read=45.0, write=45.0, pool=45.0)
@@ -253,15 +268,7 @@ async def run(args: argparse.Namespace) -> dict[str, object]:
         _write_state(args.state_out, state)
     else:
         with httpx.Client(timeout=20.0, follow_redirects=False) as client:
-            revoke = client.post(
-                f"{_origin(state['mcp_url'])}/revoke",
-                data={
-                    "client_id": state["client_id"],
-                    "token": state["refresh_token"],
-                    "token_type_hint": "refresh_token",
-                },
-            )
-            revoked = revoke.status_code == 200
+            revoked = _revoke(client, state)
     ok = bool(
         replay_blocked
         and clear_unauthorized
