@@ -42,6 +42,16 @@ class AgentGatewayV2SmokeScriptTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "state_version"):
             module._state_version({"summary": {}})
 
+    def test_exhaustive_inventory_contract_includes_required_card_target(self) -> None:
+        module = load_script_module()
+
+        arguments = module._safe_inventory_contract_arguments("case-id")
+
+        self.assertEqual("write_off", arguments["planned_changes"]["movement_type"])
+        self.assertEqual("synthetic-card-target", arguments["planned_changes"]["card_id"])
+        self.assertEqual("gateway-v2-contract-case-id", arguments["idempotency_key"])
+        self.assertTrue(arguments["dry_run"])
+
 
 if __name__ == "__main__":
     unittest.main()

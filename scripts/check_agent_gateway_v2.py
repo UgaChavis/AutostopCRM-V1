@@ -134,6 +134,23 @@ async def _call(
     return result
 
 
+def _safe_inventory_contract_arguments(smoke_id: str) -> dict[str, Any]:
+    return {
+        "domain": "inventory",
+        "action": "adjust",
+        "target_id": "synthetic-inventory-target",
+        "planned_changes": {
+            "movement_type": "write_off",
+            "quantity": 1,
+            "card_id": "synthetic-card-target",
+        },
+        "owner_intent": "safe exhaustive Gateway v2 release check",
+        "expected_revision": "synthetic-inventory-target@release-smoke",
+        "idempotency_key": f"gateway-v2-contract-{smoke_id}",
+        "dry_run": True,
+    }
+
+
 async def _run_exhaustive_checks(
     session: ClientSession,
     calls: dict[str, bool],
@@ -147,16 +164,7 @@ async def _run_exhaustive_checks(
         session,
         calls,
         "prepare_action_contract",
-        {
-            "domain": "inventory",
-            "action": "adjust",
-            "target_id": "synthetic-inventory-target",
-            "planned_changes": {"movement_type": "write_off", "quantity": 1},
-            "owner_intent": "safe exhaustive Gateway v2 release check",
-            "expected_revision": "synthetic-inventory-target@release-smoke",
-            "idempotency_key": f"gateway-v2-contract-{smoke_id}",
-            "dry_run": True,
-        },
+        _safe_inventory_contract_arguments(smoke_id),
     )
 
     domain_calls = (
