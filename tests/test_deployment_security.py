@@ -19,12 +19,15 @@ from minimal_kanban.deployment_security import (
 )
 
 STRONG_TOKEN = "aB3_dE5-fG7.hJ9~kL2_mN4-pQ6.rS8~tU1_vW3-xY5.zA7~bC9_dF2-gH4.jK6~mP8"
+VALID_OAUTH_STATE_KEY = "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
 
 
 def valid_production_env(marker: Path) -> dict[str, str]:
     return {
         "AUTOSTOP_DEPLOYMENT_ENV": "production",
+        "AUTOSTOP_MCP_OAUTH_ENABLED": "1",
         "AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED": "0",
+        "AUTOSTOP_MCP_OAUTH_STATE_KEY": VALID_OAUTH_STATE_KEY,
         "AUTOSTOP_AGENT_SERVICE_IDENTITY": "codex-owner-agent",
         "AUTOSTOP_AGENT_GATEWAY_ENABLED": "1",
         "AUTOSTOP_AGENT_GATEWAY_WRITES_ENABLED": "1",
@@ -89,6 +92,19 @@ class DeploymentSecurityTests(unittest.TestCase):
             errors = validate_production_environment(env)
 
         self.assertTrue(any("estimated entropy" in item for item in errors))
+
+    def test_production_requires_stable_oauth_and_rejects_development_oauth(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env = valid_production_env(Path(temp_dir) / "maintenance")
+            env["AUTOSTOP_MCP_OAUTH_ENABLED"] = "0"
+            env["AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED"] = "1"
+            env["AUTOSTOP_MCP_OAUTH_STATE_KEY"] = "invalid"
+
+            errors = validate_production_environment(env)
+
+        self.assertTrue(any("AUTOSTOP_MCP_OAUTH_ENABLED" in item for item in errors))
+        self.assertTrue(any("AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED" in item for item in errors))
+        self.assertTrue(any("AUTOSTOP_MCP_OAUTH_STATE_KEY" in item for item in errors))
 
     def test_production_requires_public_endpoint_to_match_public_base(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

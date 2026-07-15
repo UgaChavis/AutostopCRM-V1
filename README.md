@@ -18,7 +18,7 @@ Use current code and tests first. The maintained documentation is:
 - [API guide](API_GUIDE.md) — HTTP transport and safety-critical contracts;
 - [MCP guide](MCP_GUIDE.md) — Gateway v2 surface and write rules;
 - [ChatGPT/Responses compatibility note](CHATGPT_CONNECTOR_SETUP.md) —
-  supported client authentication and the current ChatGPT limitation;
+  supported OAuth/Codex/ChatGPT/Responses authentication;
 - `AUTOSTOPCRM_FULL_INSTRUCTION.txt` — short server-side operator note.
 
 For a deployed system, verify the local, remote, and server Git revisions plus
@@ -43,6 +43,19 @@ Browser UI / MCP / API clients
   shared files, and operator activity.
 - Integrations: local HTTP API, streamable HTTP MCP, Agent Gateway v2,
   Responses API clients, and automotive/web research helpers.
+
+Production MCP exposes exactly 24 Gateway v2 tools. Codex and ChatGPT Apps use
+owner-approved OAuth 2.1 with PKCE S256, rotating refresh tokens, exact
+audience/scope checks, and encrypted persistent authorization state. The
+deployment-rotated bearer remains only for internal release checks and
+Responses API calls that explicitly supply it; it is not Codex/App state.
+
+The only supported agent sequence is `agent_bootstrap` ->
+`agent_board_digest` -> `agent_search`/`agent_entity_context` ->
+`prepare_action_contract` -> named workflow `dry_run`/`apply` -> exact-target
+reread and verification. Guarded raw capability discovery is an escape hatch
+only when no named workflow exists; hidden low-level tools are never called
+directly.
 
 Business rules belong in `src/minimal_kanban/services/`. API, MCP, UI, smoke
 scripts, and compatibility routes must call the same services instead of

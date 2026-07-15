@@ -29,6 +29,7 @@ from minimal_kanban.config import (
 )
 from minimal_kanban.json_safety import reject_deeply_nested_json
 from minimal_kanban.mcp.client import discover_board_api
+from minimal_kanban.mcp.oauth_provider import DEFAULT_KANBAN_SCOPES
 from minimal_kanban.settings_models import IntegrationSettings
 
 LIVE_CONNECTOR_RESPONSE_MAX_BYTES = 4 * 1024 * 1024
@@ -674,10 +675,22 @@ async def check_mcp(mcp_url: str, *, bearer_token: str | None = None) -> dict[st
         "digest_data": None,
         "runtime_data": None,
         "identity_data": None,
+        "oauth_protected_resource_ok": False,
+        "oauth_authorization_server_ok": False,
+        "oauth_pkce_s256": False,
+        "oauth_refresh_supported": False,
+        "oauth_security_schemes_ok": False,
+        "legacy_tools_absent": False,
         "error": None,
     }
     if not mcp_url:
         result["error"] = "mcp_url_not_configured"
+        return result
+
+    metadata = await _check_oauth_metadata(mcp_url)
+    result.update(metadata)
+    if not all(metadata.values()):
+        result["error"] = "mcp_oauth_metadata_incomplete"
         return result
 
     headers: dict[str, str] = {}
@@ -707,6 +720,50 @@ async def check_mcp(mcp_url: str, *, bearer_token: str | None = None) -> dict[st
     return result
 
 
+async def _check_oauth_metadata(mcp_url: str) -> dict[str, bool]:
+    parsed = urlsplit(mcp_url)
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    protected_path = parsed.path or "/mcp"
+    protected_url = f"{origin}/.well-known/oauth-protected-resource{protected_path}"
+    authorization_url = f"{origin}/.well-known/oauth-authorization-server"
+    result = {
+        "oauth_protected_resource_ok": False,
+        "oauth_authorization_server_ok": False,
+        "oauth_pkce_s256": False,
+        "oauth_refresh_supported": False,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
+            protected_response = await client.get(protected_url)
+            authorization_response = await client.get(authorization_url)
+        protected = protected_response.json() if protected_response.status_code == 200 else {}
+        authorization = (
+            authorization_response.json() if authorization_response.status_code == 200 else {}
+        )
+    except (httpx.HTTPError, ValueError):
+        return result
+    expected_resource = mcp_url.rstrip("/")
+    result["oauth_protected_resource_ok"] = bool(
+        str(protected.get("resource") or "").rstrip("/") == expected_resource
+        and origin
+        in [str(item).rstrip("/") for item in protected.get("authorization_servers") or []]
+        and set(DEFAULT_KANBAN_SCOPES).issubset(set(protected.get("scopes_supported") or []))
+    )
+    result["oauth_authorization_server_ok"] = bool(
+        str(authorization.get("issuer") or "").rstrip("/") == origin
+        and str(authorization.get("authorization_endpoint") or "").startswith(origin)
+        and str(authorization.get("token_endpoint") or "").startswith(origin)
+        and str(authorization.get("registration_endpoint") or "").startswith(origin)
+    )
+    result["oauth_pkce_s256"] = "S256" in (
+        authorization.get("code_challenge_methods_supported") or []
+    )
+    result["oauth_refresh_supported"] = "refresh_token" in (
+        authorization.get("grant_types_supported") or []
+    )
+    return result
+
+
 async def _collect_mcp_probe_result(
     session: ClientSession, result: dict[str, Any]
 ) -> dict[str, Any]:
@@ -718,6 +775,18 @@ async def _collect_mcp_probe_result(
     result["has_agent_board_digest"] = "agent_board_digest" in tool_names
     result["has_get_runtime_status"] = "get_runtime_status" in tool_names
     result["has_get_connector_identity"] = "get_connector_identity" in tool_names
+    result["legacy_tools_absent"] = not bool(
+        tool_names.intersection({"get_cards", "search_cards", "bootstrap_context", "update_card"})
+    )
+    result["oauth_security_schemes_ok"] = bool(tools.tools) and all(
+        any(
+            scheme.get("type") == "oauth2"
+            and set(DEFAULT_KANBAN_SCOPES).issubset(set(scheme.get("scopes") or []))
+            for scheme in ((tool.meta or {}).get("securitySchemes") or [])
+            if isinstance(scheme, dict)
+        )
+        for tool in tools.tools
+    )
 
     if result["has_ping_connector"]:
         await _capture_mcp_tool_result(session, result, "ping_connector", "ping_ok", "ping_data")
@@ -754,6 +823,9 @@ async def _collect_mcp_probe_result(
             result["digest_ok"],
             result["runtime_ok"],
             result["identity_ok"],
+            result["tool_count"] == 24,
+            result["legacy_tools_absent"],
+            result["oauth_security_schemes_ok"],
         ]
     )
     if not result["ok"]:
@@ -900,6 +972,11 @@ def _print_mcp(report: dict[str, Any]) -> None:
         )
         print("status: ok")
         print(f"tool_count: {report.get('tool_count')}")
+        print("legacy_tools_absent: True")
+        print("oauth_metadata: ok")
+        print("oauth_pkce_s256: True")
+        print("oauth_refresh_supported: True")
+        print("oauth_security_schemes: ok")
         print(f"connector_name: {ping_data.get('connector_name', '<unknown>')}")
         print(f"resource_url: {ping_data.get('resource_url', '<unknown>')}")
         identity_payload = identity_data.get("identity") or {}

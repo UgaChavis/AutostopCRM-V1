@@ -160,6 +160,8 @@ class DeployScriptTests(unittest.TestCase):
         dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
 
         self.assertIn('AUTOSTOP_DEPLOYMENT_ENV: "production"', compose)
+        self.assertIn("AUTOSTOP_MCP_OAUTH_ENABLED", compose)
+        self.assertIn("AUTOSTOP_MCP_OAUTH_STATE_KEY", compose)
         self.assertIn('AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED: "0"', compose)
         self.assertNotIn('AUTOSTOP_DEPLOYMENT_ENV: "${', compose)
         self.assertIn("MINIMAL_KANBAN_MCP_BEARER_TOKEN", compose)
@@ -174,6 +176,18 @@ class DeployScriptTests(unittest.TestCase):
         self.assertIn("/opt/AutostopManager}:ro", compose)
         self.assertIn("/opt/AutostopManager}/data", compose)
         self.assertIn("scripts/container_entrypoint.py", dockerfile)
+
+    def test_deploy_provisions_and_verifies_owner_approved_oauth(self) -> None:
+        script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+
+        self.assertIn("scripts/configure_mcp_oauth.py ensure", script)
+        self.assertIn("scripts/check_mcp_oauth.py", script)
+        self.assertIn('export AUTOSTOP_MCP_OAUTH_ENABLED="1"', script)
+        self.assertIn('export AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED="0"', script)
+        self.assertLess(
+            script.index("scripts/configure_mcp_oauth.py ensure"),
+            script.index("docker compose config --quiet"),
+        )
 
     def test_deploy_lock_file_is_ignored(self) -> None:
         gitignore = (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8")

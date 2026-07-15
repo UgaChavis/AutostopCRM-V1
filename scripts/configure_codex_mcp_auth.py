@@ -154,7 +154,7 @@ def _upsert_env(path: Path, key: str, value: str) -> None:
     _atomic_write_private(path, "\n".join(updated).rstrip() + "\n")
 
 
-def _upsert_codex_bearer_config(path: Path, *, mcp_url: str, token: str) -> None:
+def _upsert_codex_oauth_config(path: Path, *, mcp_url: str) -> None:
     normalized_mcp_url = _normalized_mcp_url(mcp_url)
     lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
     section_start: int | None = None
@@ -170,8 +170,6 @@ def _upsert_codex_bearer_config(path: Path, *, mcp_url: str, token: str) -> None
             section_end = index
             break
 
-    bearer_line = f'bearer_token_env_var = "{CODEX_TOKEN_ENV_KEY}"'
-    static_header_line = f'http_headers = {{ Authorization = "Bearer {token}" }}'
     url_line = f'url = "{normalized_mcp_url}"'
     if section_start is None:
         if lines and lines[-1].strip():
@@ -180,30 +178,22 @@ def _upsert_codex_bearer_config(path: Path, *, mcp_url: str, token: str) -> None
             [
                 f"[{CODEX_SECTION}]",
                 url_line,
-                bearer_line,
-                static_header_line,
             ]
         )
     else:
-        for key, replacement in (
-            ("url", url_line),
-            ("bearer_token_env_var", bearer_line),
-            ("http_headers", static_header_line),
-        ):
-            key_re = re.compile(rf"^\s*{re.escape(key)}\s*=")
-            replacement_index = next(
-                (
-                    index
-                    for index in range(section_start + 1, section_end)
-                    if key_re.match(lines[index])
-                ),
-                None,
-            )
-            if replacement_index is None:
-                lines.insert(section_end, replacement)
-                section_end += 1
-            else:
-                lines[replacement_index] = replacement
+        removable = re.compile(r"^\s*(?:bearer_token_env_var|http_headers|env_http_headers)\s*=")
+        kept_section = [
+            line for line in lines[section_start + 1 : section_end] if not removable.match(line)
+        ]
+        url_re = re.compile(r"^\s*url\s*=")
+        url_index = next(
+            (index for index, line in enumerate(kept_section) if url_re.match(line)), None
+        )
+        if url_index is None:
+            kept_section.insert(0, url_line)
+        else:
+            kept_section[url_index] = url_line
+        lines[section_start + 1 : section_end] = kept_section
     _atomic_write_private(path, "\n".join(lines).rstrip() + "\n")
 
 
@@ -322,7 +312,7 @@ def rotate(
     try:
         _upsert_env(server_env, SERVER_TOKEN_KEY, token)
         _upsert_env(runtime_env, CODEX_TOKEN_ENV_KEY, token)
-        _upsert_codex_bearer_config(codex_config, mcp_url=normalized_mcp_url, token=token)
+        _upsert_codex_oauth_config(codex_config, mcp_url=normalized_mcp_url)
     except Exception:
         _restore_auth_state(previous_state)
         raise
@@ -373,12 +363,9 @@ def check(
             flags=re.MULTILINE,
         )
     )
-    static_header_match = re.search(
-        r'^\s*http_headers\s*=\s*\{\s*Authorization\s*=\s*"Bearer ([A-Za-z0-9._~-]+)"\s*}\s*$',
-        section_text,
-        flags=re.MULTILINE,
+    has_static_headers = bool(
+        re.search(r"^\s*(?:http_headers|env_http_headers)\s*=", section_text, flags=re.MULTILINE)
     )
-    static_header_token = static_header_match.group(1) if static_header_match else ""
     url_match = re.search(r'^\s*url\s*=\s*"([^"\r\n]+)"\s*$', section_text, flags=re.MULTILINE)
     configured_url = url_match.group(1) if url_match else ""
     try:
@@ -392,11 +379,7 @@ def check(
         for path in (server_env, codex_config, runtime_env)
     )
     matches = bool(server_token and secrets.compare_digest(server_token, runtime_token))
-    static_header_matches = bool(
-        server_token
-        and static_header_token
-        and secrets.compare_digest(server_token, static_header_token)
-    )
+    codex_oauth_ready = not has_bearer_reference and not has_static_headers
     token_is_strong = False
     try:
         _validate_token(server_token)
@@ -405,16 +388,12 @@ def check(
         pass
     return {
         "ok": bool(
-            matches
-            and static_header_matches
-            and has_bearer_reference
-            and secure_modes
-            and url_matches
-            and token_is_strong
+            matches and codex_oauth_ready and secure_modes and url_matches and token_is_strong
         ),
         "tokens_match": matches,
+        "codex_uses_oauth": codex_oauth_ready,
         "codex_uses_bearer_env": has_bearer_reference,
-        "codex_has_static_auth_fallback": static_header_matches,
+        "codex_has_static_auth_fallback": has_static_headers,
         "private_file_modes": secure_modes,
         "mcp_url_matches": url_matches,
         "token_entropy_valid": token_is_strong,
@@ -424,7 +403,7 @@ def check(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Rotate AutoStop CRM MCP auth without printing the bearer token."
+        description=("Rotate the internal AutoStop CRM bearer while keeping Codex on stable OAuth.")
     )
     parser.add_argument("--server-env", type=Path, default=DEFAULT_SERVER_ENV)
     parser.add_argument("--codex-config", type=Path, default=DEFAULT_CODEX_CONFIG)

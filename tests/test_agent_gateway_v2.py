@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -11,7 +12,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from minimal_kanban.mcp.auth import StaticBearerTokenVerifier
+from minimal_kanban.mcp.oauth_provider import ProductionOAuthAuthorizationServerProvider
 from minimal_kanban.mcp.server import create_mcp_server
 
 GATEWAY_ENV = {
@@ -685,30 +686,39 @@ class AgentGatewayV2Tests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(len(board_api.cash_transactions), 1)
 
-    async def test_production_bearer_mode_exposes_no_embedded_oauth_provider(self) -> None:
-        with patch.dict(
-            "os.environ",
-            {
-                **GATEWAY_ENV,
-                "AUTOSTOP_DEPLOYMENT_ENV": "production",
-                "AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED": "0",
-                "AUTOSTOP_AGENT_SERVICE_IDENTITY": "codex-owner-agent",
-            },
-            clear=False,
-        ):
-            server = create_mcp_server(
-                FakeBoardApi(),
-                self.logger,
-                host="127.0.0.1",
-                port=41832,
-                path="/mcp",
-                bearer_token="a" * 48,
-                public_endpoint_url="https://crm.example/mcp",
-            )
-        self.assertIsNone(server._auth_server_provider)
-        self.assertIsInstance(server._token_verifier, StaticBearerTokenVerifier)
-        self.assertIsNotNone(await server._token_verifier.verify_token("a" * 48))
-        self.assertIsNone(await server._token_verifier.verify_token("wrong"))
+    async def test_production_uses_owner_approved_oauth_with_internal_bearer_compatibility(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.dict(
+                "os.environ",
+                {
+                    **GATEWAY_ENV,
+                    "AUTOSTOP_DEPLOYMENT_ENV": "production",
+                    "AUTOSTOP_MCP_OAUTH_ENABLED": "1",
+                    "AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED": "0",
+                    "AUTOSTOP_MCP_OAUTH_STATE_KEY": (
+                        "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
+                    ),
+                    "AUTOSTOP_AGENT_SERVICE_IDENTITY": "codex-owner-agent",
+                },
+                clear=False,
+            ):
+                server = create_mcp_server(
+                    FakeBoardApi(),
+                    self.logger,
+                    host="127.0.0.1",
+                    port=41832,
+                    path="/mcp",
+                    bearer_token="a" * 48,
+                    public_endpoint_url="https://crm.example/mcp",
+                    oauth_state_file=Path(temp_dir) / "oauth-state.json",
+                )
+        provider = server._auth_server_provider
+        self.assertIsInstance(provider, ProductionOAuthAuthorizationServerProvider)
+        self.assertIsNotNone(server._token_verifier)
+        self.assertIsNotNone(await provider.load_access_token("a" * 48))
+        self.assertIsNone(await provider.load_access_token("wrong"))
 
 
 if __name__ == "__main__":

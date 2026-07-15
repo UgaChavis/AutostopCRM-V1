@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import os
 import re
 from collections import Counter
@@ -59,6 +61,16 @@ def bearer_token_is_strong(token: str) -> bool:
         and len(set(token)) >= 20
         and bearer_token_entropy_bits(token) >= 200.0
     )
+
+
+def oauth_state_key_is_valid(value: str) -> bool:
+    """Validate a 32-byte URL-safe base64 state-encryption key without exposing it."""
+
+    try:
+        decoded = base64.urlsafe_b64decode(str(value or "").encode("ascii"))
+    except (binascii.Error, UnicodeEncodeError, ValueError):
+        return False
+    return len(decoded) == 32 and len(str(value or "")) == 44
 
 
 @dataclass(frozen=True)
@@ -182,6 +194,14 @@ def validate_production_environment(
     )
     if embedded_oauth not in {"0", "false", "no", "off"}:
         errors.append("AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED must be explicitly 0 in production")
+    production_oauth = str(source.get("AUTOSTOP_MCP_OAUTH_ENABLED", "") or "").strip().lower()
+    if production_oauth not in {"1", "true", "yes", "on"}:
+        errors.append("AUTOSTOP_MCP_OAUTH_ENABLED must be explicitly 1 in production")
+    oauth_state_key = str(source.get("AUTOSTOP_MCP_OAUTH_STATE_KEY", "") or "").strip()
+    if not oauth_state_key:
+        errors.append("AUTOSTOP_MCP_OAUTH_STATE_KEY is required in production")
+    elif not oauth_state_key_is_valid(oauth_state_key):
+        errors.append("AUTOSTOP_MCP_OAUTH_STATE_KEY must be a valid 32-byte Fernet key")
     token = str(source.get("MINIMAL_KANBAN_MCP_BEARER_TOKEN", "") or "").strip()
     token_lower = token.lower()
     if not token:

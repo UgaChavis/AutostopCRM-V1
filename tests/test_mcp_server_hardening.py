@@ -158,7 +158,7 @@ class McpServerHardeningTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.data.identity.connector_name, "autostopcrm-this-board-only-local")
         self.assertEqual(result.data.identity.server_base_url, "http://127.0.0.1:41893")
         self.assertEqual(result.data.identity.resource_url, "http://127.0.0.1:41893/mcp")
-        self.assertEqual(result.data.identity.auth_mode, "oauth_embedded")
+        self.assertEqual(result.data.identity.auth_mode, "oauth_2_1_pkce")
 
     async def test_invalid_port_public_endpoint_falls_back_to_local_identity(self) -> None:
         server = create_mcp_server(

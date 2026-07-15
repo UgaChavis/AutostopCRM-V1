@@ -1,22 +1,28 @@
 from __future__ import annotations
 
+import html
 import json
 import math
 import os
 import sys
+import threading
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from logging import Logger
 from pathlib import Path
 from time import perf_counter
 from typing import Annotated, Any, Literal
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
+from mcp.server.auth.provider import AuthorizeError
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from starlette.requests import Request
+from starlette.responses import HTMLResponse, RedirectResponse, Response
 
 from ..config import (
     get_mcp_bearer_token,
@@ -31,7 +37,11 @@ from ..settings_models import derive_allowed_hosts, derive_allowed_origins
 from .agent_gateway_v2 import register_agent_gateway_v2
 from .auth import StaticBearerTokenVerifier, build_auth_settings
 from .client import BoardApiClient, BoardApiTransportError
-from .oauth_provider import EmbeddedOAuthAuthorizationServerProvider
+from .oauth_provider import (
+    DEFAULT_KANBAN_SCOPES,
+    OAUTH_CONSENT_PATH,
+    ProductionOAuthAuthorizationServerProvider,
+)
 from .tool_registry import MCP_TOOL_GROUPS, PUBLIC_MCP_TOOL_NAMES
 
 _AUTOSTOP_MANAGER_READ_ONLY_TOOLS = frozenset(
@@ -539,6 +549,124 @@ def _annotate_autostop_manager_tools(server: FastMCP, logger: Logger) -> None:
         logger.info("autostop_manager.memory_tools annotations updated: %s", updated)
 
 
+_OAUTH_CONSENT_HEADERS = {
+    "Cache-Control": "no-store",
+    "Pragma": "no-cache",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Content-Security-Policy": (
+        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; "
+        "base-uri 'none'; frame-ancestors 'none'"
+    ),
+}
+
+
+def _oauth_consent_page(
+    request_id: str,
+    *,
+    client_name: str,
+    scopes: list[str],
+    error: str = "",
+) -> str:
+    safe_request_id = html.escape(str(request_id or ""), quote=True)
+    safe_client_name = html.escape(str(client_name or "Codex / ChatGPT")[:120])
+    safe_scopes = html.escape(", ".join(scopes))
+    error_block = (
+        '<p class="error" role="alert">Не удалось подтвердить вход администратора.</p>'
+        if error
+        else ""
+    )
+    return f"""<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Подключение AutoStop CRM</title>
+  <style>
+    body {{ font: 16px/1.45 system-ui, sans-serif; margin: 0; background: #f4f6f8; color: #17202a; }}
+    main {{ max-width: 440px; margin: 8vh auto; background: white; padding: 28px; border-radius: 14px; box-shadow: 0 12px 40px #18223022; }}
+    h1 {{ font-size: 24px; margin: 0 0 10px; }}
+    p {{ color: #52606d; }}
+    label {{ display: block; margin: 16px 0 6px; font-weight: 650; }}
+    input {{ box-sizing: border-box; width: 100%; padding: 11px 12px; border: 1px solid #b7c2cc; border-radius: 8px; font: inherit; }}
+    button {{ width: 100%; margin-top: 22px; padding: 12px; border: 0; border-radius: 8px; background: #1261a0; color: white; font: inherit; font-weight: 700; cursor: pointer; }}
+    .meta {{ font-size: 14px; }} .error {{ color: #b42318; font-weight: 650; }}
+  </style>
+</head>
+<body><main>
+  <h1>Подключить AutoStop CRM</h1>
+  <p>Клиент <strong>{safe_client_name}</strong> запрашивает доступ к текущей CRM.</p>
+  <p class="meta">Разрешения: {safe_scopes}</p>
+  {error_block}
+  <form method="post" action="{OAUTH_CONSENT_PATH}" autocomplete="on">
+    <input type="hidden" name="request_id" value="{safe_request_id}">
+    <label for="username">Логин администратора CRM</label>
+    <input id="username" name="username" type="text" autocomplete="username" required maxlength="120">
+    <label for="password">Пароль</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required maxlength="512">
+    <button type="submit">Подтвердить подключение</button>
+  </form>
+</main></body></html>"""
+
+
+def _nested_oauth_value(value: object, key: str, *, depth: int = 0) -> object:
+    if depth > 5:
+        return None
+    if isinstance(value, dict):
+        candidate = value.get(key)
+        if candidate not in (None, "", [], {}):
+            return candidate
+        for item in value.values():
+            found = _nested_oauth_value(item, key, depth=depth + 1)
+            if found not in (None, "", [], {}):
+                return found
+    elif isinstance(value, list):
+        for item in value[:25]:
+            found = _nested_oauth_value(item, key, depth=depth + 1)
+            if found not in (None, "", [], {}):
+                return found
+    return None
+
+
+def _authenticate_oauth_owner(
+    board_api: BoardApiClient, username: str, password: str
+) -> str | None:
+    response = board_api._request(
+        "/api/login_operator",
+        {
+            "username": username,
+            "password": password,
+            "source": "mcp_oauth_consent",
+        },
+        method="POST",
+    )
+    if not bool(response.get("ok")):
+        return None
+    data = response.get("data")
+    session_token = str(_nested_oauth_value(data, "token") or "").strip()
+    resolved_username = str(_nested_oauth_value(data, "username") or username).strip()
+    is_admin = _nested_oauth_value(data, "is_admin") is True
+    try:
+        if session_token:
+            board_api._request(
+                "/api/logout_operator",
+                {"source": "mcp_oauth_consent"},
+                method="POST",
+                extra_headers={"X-Operator-Session": session_token},
+            )
+    except BoardApiTransportError:
+        pass
+    return resolved_username if is_admin and session_token else None
+
+
+def _truthy_environment(name: str, *, default: bool = False) -> bool:
+    raw = str(os.environ.get(name) or "").strip().casefold()
+    if not raw:
+        return default
+    return raw in {"1", "true", "yes", "on"}
+
+
 def create_mcp_server(
     board_api: BoardApiClient,
     logger: Logger,
@@ -568,11 +696,8 @@ def create_mcp_server(
     ).rstrip("/")
     effective_resource_url = resource_url or f"{server_base_url}{resolved_path}"
     gateway_policy = load_agent_gateway_security_policy()
-    raw_embedded_oauth = os.environ.get("AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED", "").strip()
-    embedded_oauth_enabled = (
-        raw_embedded_oauth.casefold() in {"1", "true", "yes", "on"}
-        if raw_embedded_oauth
-        else not gateway_policy.production
+    oauth_enabled = _truthy_environment(
+        "AUTOSTOP_MCP_OAUTH_ENABLED", default=not gateway_policy.production
     )
     connector_name_url = (
         raw_resource_url if raw_resource_url and not resource_url else effective_resource_url
@@ -591,8 +716,8 @@ def create_mcp_server(
         "local_bind": f"http://{resolved_host}:{resolved_port}{resolved_path}",
         "board_api_base_url": board_api.base_url,
         "auth_mode": (
-            "oauth_embedded"
-            if resolved_token and embedded_oauth_enabled
+            "oauth_2_1_pkce"
+            if resolved_token and oauth_enabled
             else "bearer_only"
             if resolved_token
             else "none"
@@ -635,10 +760,10 @@ def create_mcp_server(
             server_base_url,
             path=resolved_path,
             resource_url=effective_resource_url,
-            embedded_oauth_enabled=embedded_oauth_enabled,
+            oauth_enabled=oauth_enabled,
         )
-        if embedded_oauth_enabled:
-            auth_server_provider = EmbeddedOAuthAuthorizationServerProvider(
+        if oauth_enabled:
+            auth_server_provider = ProductionOAuthAuthorizationServerProvider(
                 issuer_url=server_base_url,
                 resource_url=effective_resource_url,
                 legacy_bearer_token=resolved_token,
@@ -660,10 +785,11 @@ def create_mcp_server(
             )
             + " "
             f"{_single_board_rule_text()} "
-            "Before any write operation, first call bootstrap_context. "
-            "If bootstrap_context is unavailable, call get_connector_identity, then get_board_content, then get_board_events. "
-            "If there is any doubt about tunnels, auth, or runtime state, call get_runtime_status. "
-            "After the board and target are known, perform writes by card_id, sticky_id, and column id. "
+            "Use one protocol: agent_bootstrap, then agent_board_digest, then agent_search or "
+            "agent_entity_context, then prepare_action_contract, then a named workflow in dry_run "
+            "and apply modes, followed by an exact target reread. Use raw discovery only when no "
+            "named workflow covers the request. If auth or runtime state is unclear, call "
+            "get_runtime_status. "
             "If the user asks about some other kanban product or board, do not use this connector."
         ),
         host=resolved_host,
@@ -681,6 +807,92 @@ def create_mcp_server(
         transport_security=transport_security,
         log_level="WARNING",
     )
+    if isinstance(auth_server_provider, ProductionOAuthAuthorizationServerProvider):
+        failed_attempts: dict[str, list[float]] = {}
+        failed_attempts_lock = threading.Lock()
+
+        @server.custom_route(OAUTH_CONSENT_PATH, methods=["GET", "POST"])
+        async def oauth_consent(request: Request) -> Response:
+            request_id = str(request.query_params.get("request_id") or "").strip()
+            form: dict[str, list[str]] = {}
+            if request.method == "POST":
+                content_type = request.headers.get("content-type", "").split(";", 1)[0].strip()
+                if content_type != "application/x-www-form-urlencoded":
+                    return HTMLResponse(
+                        "Unsupported request.", status_code=415, headers=_OAUTH_CONSENT_HEADERS
+                    )
+                body = await request.body()
+                if len(body) > 8192:
+                    return HTMLResponse(
+                        "Request is too large.", status_code=413, headers=_OAUTH_CONSENT_HEADERS
+                    )
+                form = parse_qs(body.decode("utf-8", errors="strict"), keep_blank_values=True)
+                request_id = str((form.get("request_id") or [""])[0]).strip()
+
+            pending = auth_server_provider.get_pending_authorization(request_id)
+            if pending is None:
+                return HTMLResponse(
+                    "Authorization request is missing or expired.",
+                    status_code=400,
+                    headers=_OAUTH_CONSENT_HEADERS,
+                )
+            client_name = str(pending.get("client_name") or "Codex / ChatGPT")
+            scopes = [str(item) for item in pending.get("scopes") or []]
+            if request.method == "GET":
+                return HTMLResponse(
+                    _oauth_consent_page(request_id, client_name=client_name, scopes=scopes),
+                    headers=_OAUTH_CONSENT_HEADERS,
+                )
+
+            client_host = str(request.client.host if request.client else "unknown")
+            now = time.monotonic()
+            with failed_attempts_lock:
+                recent = [item for item in failed_attempts.get(client_host, []) if now - item < 300]
+                failed_attempts[client_host] = recent
+                rate_limited = len(recent) >= 5
+            if rate_limited:
+                return HTMLResponse(
+                    "Too many failed attempts. Try again later.",
+                    status_code=429,
+                    headers={**_OAUTH_CONSENT_HEADERS, "Retry-After": "300"},
+                )
+
+            username = str((form.get("username") or [""])[0]).strip()
+            password = str((form.get("password") or [""])[0])
+            owner = None
+            try:
+                owner = _authenticate_oauth_owner(board_api, username, password)
+            except (BoardApiTransportError, UnicodeError, ValueError):
+                owner = None
+            if owner is None:
+                with failed_attempts_lock:
+                    failed_attempts.setdefault(client_host, []).append(now)
+                return HTMLResponse(
+                    _oauth_consent_page(
+                        request_id,
+                        client_name=client_name,
+                        scopes=scopes,
+                        error="invalid_credentials",
+                    ),
+                    status_code=401,
+                    headers=_OAUTH_CONSENT_HEADERS,
+                )
+            with failed_attempts_lock:
+                failed_attempts.pop(client_host, None)
+            try:
+                callback_url = auth_server_provider.approve_authorization(request_id, subject=owner)
+            except AuthorizeError:
+                return HTMLResponse(
+                    "Authorization request is missing or expired.",
+                    status_code=400,
+                    headers=_OAUTH_CONSENT_HEADERS,
+                )
+            return RedirectResponse(
+                callback_url,
+                status_code=302,
+                headers=_OAUTH_CONSENT_HEADERS,
+            )
+
     logger.info(
         "mcp.transport_security hosts=%s origins=%s",
         transport_security.allowed_hosts,
@@ -3807,5 +4019,12 @@ def create_mcp_server(
             "mcp.agent_gateway_v2 enabled tools=%s",
             ",".join(sorted(registered_gateway_tools)),
         )
+    if oauth_enabled:
+        security_schemes = [{"type": "oauth2", "scopes": list(DEFAULT_KANBAN_SCOPES)}]
+        for tool in server._tool_manager.list_tools():
+            tool.meta = {
+                **(dict(tool.meta) if isinstance(tool.meta, dict) else {}),
+                "securitySchemes": security_schemes,
+            }
 
     return server

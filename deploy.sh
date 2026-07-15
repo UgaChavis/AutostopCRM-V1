@@ -39,6 +39,12 @@ DESKTOP_INSTRUCTION_PATH="${AUTOSTOP_DESKTOP_INSTRUCTION_PATH:-/root/Desktop/AUT
 INSTALL_WATCHDOG="${AUTOSTOP_INSTALL_WATCHDOG:-1}"
 PYTHON_BIN="${AUTOSTOP_RELEASE_PYTHON:-python3}"
 
+"$PYTHON_BIN" scripts/configure_mcp_oauth.py ensure --env-file "$ROOT_DIR/.env"
+set -a
+# shellcheck disable=SC1091
+. "$ROOT_DIR/.env"
+set +a
+
 : "${AUTOSTOP_SMOKE_OPERATOR_USERNAME:?set smoke username}"
 : "${AUTOSTOP_SMOKE_OPERATOR_PASSWORD:?set smoke password}"
 export AUTOSTOP_SMOKE_OPERATOR_USERNAME AUTOSTOP_SMOKE_OPERATOR_PASSWORD
@@ -69,6 +75,7 @@ fi
 
 export AUTOSTOP_DEPLOYMENT_ENV="production"
 export AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED="0"
+export AUTOSTOP_MCP_OAUTH_ENABLED="1"
 export AUTOSTOP_AGENT_SERVICE_IDENTITY="${AUTOSTOP_AGENT_SERVICE_IDENTITY:-codex-owner-agent}"
 validate_gateway_switches() {
   local switch_name switch_value
@@ -322,6 +329,7 @@ reload_deploy_environment() {
   fi
   export AUTOSTOP_DEPLOYMENT_ENV="production"
   export AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED="0"
+  export AUTOSTOP_MCP_OAUTH_ENABLED="1"
   validate_gateway_switches
   export MINIMAL_KANBAN_MCP_PUBLIC_BASE_URL="$PUBLIC_SITE_URL"
   export MINIMAL_KANBAN_MCP_PUBLIC_ENDPOINT_URL="$PUBLIC_MCP_URL"
@@ -487,6 +495,8 @@ run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_live_con
 run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_agent_gateway_v2.py \
   --mcp-url "$PUBLIC_MCP_URL" \
   --exhaustive
+run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_mcp_oauth.py \
+  --mcp-url "$PUBLIC_MCP_URL"
 
 assert_release_budget
 run_release docker tag "$release_image" "$STABLE_IMAGE"

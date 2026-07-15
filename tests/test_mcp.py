@@ -2466,7 +2466,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
             if runtime is not None:
                 runtime.stop()
 
-    async def test_mcp_embedded_oauth_flow_registers_client_and_issues_access_token(self) -> None:
+    async def test_mcp_production_oauth_requires_owner_approval_and_issues_tokens(self) -> None:
         auth_base = self.runtime.base_url.removesuffix("/bridge")
         redirect_uri = "https://chatgpt.com/connector/oauth/test"
         verifier = "kanban-oauth-verifier"
@@ -2500,13 +2500,15 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                     "redirect_uris": [redirect_uri],
                     "grant_types": ["authorization_code", "refresh_token"],
                     "response_types": ["code"],
+                    "token_endpoint_auth_method": "none",
                     "client_name": "Minimal Kanban Test Connector",
+                    "scope": "kanban:read kanban:write",
                 },
             )
             self.assertEqual(registration.status_code, 201)
             client_info = registration.json()
             self.assertTrue(client_info["client_id"])
-            self.assertTrue(client_info["client_secret"])
+            self.assertEqual(client_info["token_endpoint_auth_method"], "none")
 
             authorize = await client.get(
                 f"{auth_base}/authorize",
@@ -2521,7 +2523,30 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 },
             )
             self.assertEqual(authorize.status_code, 302)
-            query = parse_qs(urlsplit(authorize.headers["location"]).query)
+            consent_url = authorize.headers["location"]
+            self.assertEqual(urlsplit(consent_url).path, "/oauth/authorize")
+            request_id = parse_qs(urlsplit(consent_url).query)["request_id"][0]
+
+            consent = await client.get(
+                f"{auth_base}/oauth/authorize", params={"request_id": request_id}
+            )
+            self.assertEqual(consent.status_code, 200)
+            self.assertIn("Подключить AutoStop CRM", consent.text)
+
+            with patch(
+                "minimal_kanban.mcp.server._authenticate_oauth_owner",
+                return_value="admin",
+            ):
+                approved = await client.post(
+                    f"{auth_base}/oauth/authorize",
+                    data={
+                        "request_id": request_id,
+                        "username": "admin",
+                        "password": "not-persisted",
+                    },
+                )
+            self.assertEqual(approved.status_code, 302)
+            query = parse_qs(urlsplit(approved.headers["location"]).query)
             self.assertEqual(query["state"][0], "demo-state")
             code = query["code"][0]
 
@@ -2532,7 +2557,6 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                     "code": code,
                     "redirect_uri": redirect_uri,
                     "client_id": client_info["client_id"],
-                    "client_secret": client_info["client_secret"],
                     "code_verifier": verifier,
                     "resource": "https://agent.example/bridge",
                 },

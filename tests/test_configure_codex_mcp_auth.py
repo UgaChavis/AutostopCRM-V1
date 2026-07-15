@@ -59,9 +59,13 @@ class ConfigureCodexMcpAuthTests(unittest.TestCase):
             self.assertTrue(checked["ok"])
             self.assertTrue(checked["mcp_url_matches"])
             self.assertTrue(checked["token_entropy_valid"])
-            self.assertTrue(checked["codex_has_static_auth_fallback"])
-            self.assertIn("bearer_token_env_var", codex_config.read_text(encoding="utf-8"))
-            self.assertIn("http_headers", codex_config.read_text(encoding="utf-8"))
+            self.assertTrue(checked["codex_uses_oauth"])
+            self.assertFalse(checked["codex_uses_bearer_env"])
+            self.assertFalse(checked["codex_has_static_auth_fallback"])
+            config_text = codex_config.read_text(encoding="utf-8")
+            self.assertNotIn("bearer_token_env_var", config_text)
+            self.assertNotIn("http_headers", config_text)
+            self.assertNotIn(token, config_text)
             for path in (server_env, codex_config, runtime_env):
                 self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
 
@@ -83,8 +87,12 @@ class ConfigureCodexMcpAuthTests(unittest.TestCase):
                 )
 
             self.assertEqual(server_env.read_text().count("MINIMAL_KANBAN_MCP_BEARER_TOKEN="), 1)
-            self.assertEqual(codex_config.read_text().count("bearer_token_env_var ="), 1)
-            self.assertEqual(codex_config.read_text().count("http_headers ="), 1)
+            self.assertEqual(codex_config.read_text().count("bearer_token_env_var ="), 0)
+            self.assertEqual(codex_config.read_text().count("http_headers ="), 0)
+            self.assertEqual(
+                codex_config.read_text().count('url = "https://crm.autostopcrm.ru/mcp"'),
+                1,
+            )
 
     def test_rotate_rejects_shell_metacharacters_in_token_file_value(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -218,7 +226,7 @@ class ConfigureCodexMcpAuthTests(unittest.TestCase):
 
             with patch.object(
                 self.module,
-                "_upsert_codex_bearer_config",
+                "_upsert_codex_oauth_config",
                 side_effect=OSError("simulated late failure"),
             ):
                 with self.assertRaises(OSError):

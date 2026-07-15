@@ -23,8 +23,9 @@ git rev-parse --short HEAD
 git rev-parse --short origin/autostopcrm-v1
 docker compose ps
 docker compose exec -T autostopcrm python scripts/validate_production_env.py --require-production
-docker compose exec -T autostopcrm python scripts/check_live_connector.py --strict --site-url https://crm.autostopcrm.ru --expect-https --local-api-url http://127.0.0.1:41731 --skip-mcp --expect-admin
+docker compose exec -T autostopcrm python scripts/check_live_connector.py --strict --site-url https://crm.autostopcrm.ru --expect-https --local-api-url http://127.0.0.1:41731 --expect-admin
 docker compose exec -T autostopcrm python scripts/check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --exhaustive
+docker compose exec -T autostopcrm python scripts/check_mcp_oauth.py --mcp-url https://crm.autostopcrm.ru/mcp
 docker compose exec -T autostopcrm python scripts/docs_audit.py --format text
 
 Diagnostics:
@@ -40,3 +41,5 @@ Safety:
 - repair-order numbers are immutable; the compatibility correction route is blocked
 - use dry-run and a verified backup before any approved maintenance write
 - public anonymous API/MCP reads and all writes must stay blocked
+- keep production OAuth enabled, development OAuth disabled, and the encrypted OAuth state key stable
+- public clients must see exactly 24 Gateway v2 tools; use agent_bootstrap -> digest -> focused read -> action contract -> named dry_run/apply -> reread

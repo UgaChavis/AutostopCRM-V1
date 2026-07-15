@@ -278,8 +278,8 @@ MCP_GUIDE_REQUIRED_TEXT = (
         "MCP allowed-origin transport security override is not documented",
     ),
     (
-        "ChatGPT Apps & Connectors",
-        "ChatGPT connector setup flow is not documented in MCP guide",
+        "owner-approved OAuth 2.1",
+        "production ChatGPT/Codex OAuth setup flow is not documented in MCP guide",
     ),
     (
         "https://crm.autostopcrm.ru/mcp",
@@ -321,8 +321,8 @@ CHATGPT_CONNECTOR_REQUIRED_TEXT = (
         "ChatGPT connector write-safety rule is not documented",
     ),
     (
-        "cannot be added directly",
-        "current direct ChatGPT app limitation is not documented",
+        "owner-approved OAuth 2.1",
+        "current direct ChatGPT/Codex OAuth flow is not documented",
     ),
     (
         "authorization",

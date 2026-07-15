@@ -476,7 +476,7 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
             )
             self.window._on_settings_saved(saved)
 
-        self.assertEqual(write_files.call_args.kwargs["auth_mode"], "oauth_embedded")
+        self.assertEqual(write_files.call_args.kwargs["auth_mode"], "oauth_2_1_pkce")
 
     def test_connect_to_chatgpt_wizard_shows_warning_and_copies_payload(self) -> None:
         dialog = SettingsWindow(
@@ -502,7 +502,10 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
         self.assertIn("effective_mcp_url = http://127.0.0.1:41831/mcp", clipboard)
         self.assertIn("local_mcp_url = http://127.0.0.1:41831/mcp", clipboard)
         self.assertIn("effective_local_api_url = http://127.0.0.1:41731", clipboard)
-        self.assertIn("- list_columns", clipboard)
+        self.assertIn("- agent_bootstrap", clipboard)
+        self.assertIn("- agent_board_digest", clipboard)
+        self.assertIn("- prepare_action_contract", clipboard)
+        self.assertNotIn("- list_columns", clipboard)
 
         wizard.close()
         dialog.close()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import stat
 import sys
 import tempfile
 import time
@@ -10,12 +11,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from mcp.server.auth.provider import (
-    AuthorizationCode,
-    RefreshToken,
+    AuthorizationParams,
+    AuthorizeError,
     RegistrationError,
     TokenError,
 )
 from mcp.shared.auth import OAuthClientInformationFull
+from pydantic import AnyUrl
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -24,6 +26,8 @@ if str(SRC) not in sys.path:
 
 from minimal_kanban.mcp.oauth_provider import (  # noqa: E402
     EmbeddedOAuthAuthorizationServerProvider,
+    OwnerAuthorizationCode,
+    OwnerRefreshToken,
 )
 
 
@@ -34,6 +38,10 @@ class McpOAuthProviderStateTests(unittest.TestCase):
             resource_url="https://agent.example/mcp",
             state_file=state_file,
         )
+
+    def _decrypted_state(self, provider, state_file: Path) -> dict:
+        raw = provider._cipher.decrypt(state_file.read_bytes()).decode("utf-8")
+        return json.loads(raw)
 
     def test_corrupted_state_backup_does_not_overwrite_previous_backup(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -147,15 +155,7 @@ class McpOAuthProviderStateTests(unittest.TestCase):
 
             state = provider._read_state()
 
-            self.assertEqual(
-                {
-                    "clients": {},
-                    "authorization_codes": {},
-                    "access_tokens": {},
-                    "refresh_tokens": {},
-                },
-                state,
-            )
+            self.assertEqual(provider._default_state(), state)
             backups = sorted(state_file.parent.glob("mcp-oauth-state.corrupted*.json"))
             self.assertTrue(any("NaN" in path.read_text(encoding="utf-8") for path in backups))
 
@@ -168,15 +168,7 @@ class McpOAuthProviderStateTests(unittest.TestCase):
             with patch("minimal_kanban.mcp.oauth_provider.OAUTH_STATE_MAX_BYTES", 8):
                 state = provider._read_state()
 
-            self.assertEqual(
-                {
-                    "clients": {},
-                    "authorization_codes": {},
-                    "access_tokens": {},
-                    "refresh_tokens": {},
-                },
-                state,
-            )
+            self.assertEqual(provider._default_state(), state)
             backups = sorted(state_file.parent.glob("mcp-oauth-state.corrupted*.json"))
             self.assertTrue(any("padding" in path.read_text(encoding="utf-8") for path in backups))
 
@@ -213,7 +205,7 @@ class McpOAuthProviderStateTests(unittest.TestCase):
                 }
             )
 
-            raw = state_file.read_text(encoding="utf-8")
+            raw = provider._cipher.decrypt(state_file.read_bytes()).decode("utf-8")
             payload = json.loads(raw)
             self.assertNotIn("NaN", raw)
             self.assertIsNone(payload["clients"]["client-1"]["bad"])
@@ -271,7 +263,7 @@ class McpOAuthProviderStateTests(unittest.TestCase):
                 }
             )
 
-            payload = json.loads(state_file.read_text(encoding="utf-8"))
+            payload = self._decrypted_state(provider, state_file)
             node = payload["clients"]["client-1"]
             for _ in range(6):
                 node = node["self"]
@@ -319,28 +311,18 @@ class McpOAuthProviderStateTests(unittest.TestCase):
             self.assertIsNone(asyncio.run(provider.load_access_token("bad-access")))
             self.assertIsNone(asyncio.run(provider.load_refresh_token(client, "bad-refresh")))
 
-    def test_scope_normalization_filters_invalid_values_and_accepts_strings(self) -> None:
+    def test_scope_validation_requires_complete_exact_scope_set(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             provider = self._provider(Path(temp_dir) / "mcp-oauth-state.json")
-            client = OAuthClientInformationFull(
-                client_id="client-1",
-                redirect_uris=["https://chatgpt.com/callback"],
-                scope="kanban:write invalid kanban:read kanban:write",
-            )
 
             self.assertEqual(
                 ["kanban:read", "kanban:write"],
-                provider._normalize_scopes("kanban:read invalid,kanban:write", client),
+                provider._validated_complete_scopes("kanban:write kanban:read"),
             )
-            self.assertEqual(
-                ["kanban:write", "kanban:read"],
-                provider._normalize_scopes(["invalid"], client),
-            )
-            client.scope = "invalid"
-            self.assertEqual(
-                ["kanban:read", "kanban:write"],
-                provider._normalize_scopes(["invalid"], client),
-            )
+            with self.assertRaises(AuthorizeError):
+                provider._validated_complete_scopes("kanban:read invalid kanban:write")
+            with self.assertRaises(TokenError):
+                provider._validated_complete_scopes(["kanban:read"], token_error=True)
 
     def test_register_client_accepts_chatgpt_connector_redirects(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -358,6 +340,83 @@ class McpOAuthProviderStateTests(unittest.TestCase):
             stored = asyncio.run(provider.get_client("client-1"))
             self.assertIsNotNone(stored)
             self.assertEqual(stored.client_id, "client-1")
+
+    def test_authorization_requires_exact_audience_scopes_and_owner_approval(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            provider = self._provider(Path(temp_dir) / "mcp-oauth-state.json")
+            client = OAuthClientInformationFull(
+                client_id="client-1",
+                client_name="Codex Test",
+                redirect_uris=["http://127.0.0.1:18765/callback"],
+                scope="kanban:read kanban:write",
+            )
+            base_params = {
+                "state": "state-1",
+                "scopes": ["kanban:read", "kanban:write"],
+                "code_challenge": "pkce-challenge",
+                "redirect_uri": AnyUrl("http://127.0.0.1:18765/callback"),
+                "redirect_uri_provided_explicitly": True,
+            }
+
+            consent_url = asyncio.run(
+                provider.authorize(
+                    client,
+                    AuthorizationParams(
+                        **base_params,
+                        resource="https://agent.example/mcp",
+                    ),
+                )
+            )
+            request_id = consent_url.rsplit("request_id=", 1)[1]
+            self.assertIn("/oauth/authorize?", consent_url)
+            self.assertEqual(
+                provider.get_pending_authorization(request_id)["client_name"], "Codex Test"
+            )
+            callback_url = provider.approve_authorization(request_id, subject="admin")
+            self.assertIn("code=", callback_url)
+            self.assertIn("state=state-1", callback_url)
+            self.assertIsNone(provider.get_pending_authorization(request_id))
+
+            with self.assertRaises(AuthorizeError):
+                asyncio.run(
+                    provider.authorize(
+                        client,
+                        AuthorizationParams(
+                            **base_params,
+                            resource="https://wrong.example/mcp",
+                        ),
+                    )
+                )
+            with self.assertRaises(AuthorizeError):
+                asyncio.run(
+                    provider.authorize(
+                        client,
+                        AuthorizationParams(
+                            **{**base_params, "scopes": ["kanban:read"]},
+                            resource="https://agent.example/mcp",
+                        ),
+                    )
+                )
+
+    def test_state_file_is_private_and_encrypted_at_rest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_file = Path(temp_dir) / "mcp-oauth-state.json"
+            provider = self._provider(state_file)
+            client = OAuthClientInformationFull(
+                client_id="client-1",
+                client_secret="private-client-secret",
+                redirect_uris=["https://chatgpt.com/connector/oauth/test-callback"],
+                scope="kanban:read kanban:write",
+            )
+
+            asyncio.run(provider.register_client(client))
+
+            ciphertext = state_file.read_bytes()
+            self.assertNotIn(b"private-client-secret", ciphertext)
+            self.assertNotIn(b"client-1", ciphertext)
+            self.assertEqual(stat.S_IMODE(state_file.stat().st_mode), 0o600)
+            decrypted = self._decrypted_state(provider, state_file)
+            self.assertEqual(decrypted["clients"]["client-1"]["client_id"], "client-1")
 
     def test_register_client_rejects_non_chatgpt_redirects(self) -> None:
         blocked_redirects = [
@@ -384,12 +443,12 @@ class McpOAuthProviderStateTests(unittest.TestCase):
             provider = self._provider(Path(temp_dir) / "mcp-oauth-state.json")
 
             self.assertFalse(
-                provider._is_allowed_chatgpt_redirect_uri(
+                provider._is_allowed_redirect_uri(
                     "https://chatgpt.com:bad/connector/oauth/test-callback"
                 )
             )
             self.assertFalse(
-                provider._is_allowed_chatgpt_redirect_uri(
+                provider._is_allowed_redirect_uri(
                     "https://chatgpt.com:99999/connector/oauth/test-callback"
                 )
             )
@@ -401,7 +460,7 @@ class McpOAuthProviderStateTests(unittest.TestCase):
                 client_id="client-1",
                 redirect_uris=["https://chatgpt.com/callback"],
             )
-            code = AuthorizationCode(
+            code = OwnerAuthorizationCode(
                 code="code-1",
                 scopes=["kanban:read", "kanban:write"],
                 expires_at=time.time() + 300,
@@ -410,12 +469,14 @@ class McpOAuthProviderStateTests(unittest.TestCase):
                 redirect_uri="https://chatgpt.com/callback",
                 redirect_uri_provided_explicitly=True,
                 resource="https://agent.example/mcp",
+                subject="admin",
             )
             provider._write_state_unlocked(
                 {
                     "clients": {},
+                    "pending_authorizations": {},
                     "authorization_codes": {
-                        code.code: code.model_dump(mode="json", exclude_none=True)
+                        provider._token_digest(code.code): provider._stored_secret_model(code)
                     },
                     "access_tokens": {},
                     "refresh_tokens": {},
@@ -440,19 +501,25 @@ class McpOAuthProviderStateTests(unittest.TestCase):
                 client_id="client-1",
                 redirect_uris=["https://chatgpt.com/callback"],
             )
-            refresh = RefreshToken(
+            refresh = OwnerRefreshToken(
                 token="refresh-1",
                 client_id="client-1",
-                scopes=["kanban:read"],
+                scopes=["kanban:read", "kanban:write"],
                 expires_at=int(time.time()) + 300,
+                subject="admin",
+                family_id="family-1",
+                resource="https://agent.example/mcp",
             )
             provider._write_state_unlocked(
                 {
                     "clients": {},
+                    "pending_authorizations": {},
                     "authorization_codes": {},
                     "access_tokens": {},
                     "refresh_tokens": {
-                        refresh.token: refresh.model_dump(mode="json", exclude_none=True)
+                        provider._token_digest(refresh.token): provider._stored_secret_model(
+                            refresh
+                        )
                     },
                 }
             )
@@ -461,11 +528,11 @@ class McpOAuthProviderStateTests(unittest.TestCase):
 
             self.assertTrue(token.access_token.startswith("mkat_"))
             self.assertTrue(token.refresh_token.startswith("mkrt_"))
-            self.assertEqual("kanban:read", token.scope)
+            self.assertEqual("kanban:read kanban:write", token.scope)
             with self.assertRaises(TokenError):
                 asyncio.run(provider.exchange_refresh_token(client, refresh, []))
             state = provider._read_state()
-            self.assertNotIn("refresh-1", state["refresh_tokens"])
+            self.assertNotIn(provider._token_digest("refresh-1"), state["refresh_tokens"])
             self.assertEqual(1, len(state["access_tokens"]))
             self.assertEqual(1, len(state["refresh_tokens"]))
 
@@ -476,27 +543,33 @@ class McpOAuthProviderStateTests(unittest.TestCase):
                 client_id="client-1",
                 redirect_uris=["https://chatgpt.com/callback"],
             )
-            refresh = RefreshToken(
+            refresh = OwnerRefreshToken(
                 token="refresh-1",
                 client_id="client-1",
-                scopes=["kanban:read"],
+                scopes=["kanban:read", "kanban:write"],
                 expires_at=int(time.time()) + 300,
+                subject="admin",
+                family_id="family-1",
+                resource="https://agent.example/mcp",
             )
             provider._write_state_unlocked(
                 {
                     "clients": {},
+                    "pending_authorizations": {},
                     "authorization_codes": {},
                     "access_tokens": {},
                     "refresh_tokens": {
-                        refresh.token: refresh.model_dump(mode="json", exclude_none=True)
+                        provider._token_digest(refresh.token): provider._stored_secret_model(
+                            refresh
+                        )
                     },
                 }
             )
 
             with self.assertRaises(TokenError):
-                asyncio.run(provider.exchange_refresh_token(client, refresh, ["kanban:write"]))
+                asyncio.run(provider.exchange_refresh_token(client, refresh, ["kanban:read"]))
             state = provider._read_state()
-            self.assertIn("refresh-1", state["refresh_tokens"])
+            self.assertIn(provider._token_digest("refresh-1"), state["refresh_tokens"])
             self.assertEqual({}, state["access_tokens"])
 
 

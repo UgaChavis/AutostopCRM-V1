@@ -11,7 +11,9 @@ from .integration_runtime import McpRuntimeState
 from .models import utc_now_iso
 from .settings_models import IntegrationSettings
 
-MCP_TOOL_NAMES = [
+# Low-level registry retained for local implementation diagnostics only. It is
+# never advertised to Codex, ChatGPT, or Responses API clients.
+_HIDDEN_RAW_MCP_TOOL_NAMES = [
     "get_connector_identity",
     "ping_connector",
     "bootstrap_context",
@@ -129,7 +131,7 @@ def _json_dumps(payload: object, *, indent: int = 2) -> str:
     return json.dumps(_json_safe_value(payload), ensure_ascii=False, indent=indent, allow_nan=False)
 
 
-OPTIONAL_MANAGER_MCP_TOOL_NAMES = [
+_HIDDEN_MANAGER_CAPABILITY_NAMES = [
     "remember",
     "recall",
     "learn_from_feedback",
@@ -165,7 +167,7 @@ OPTIONAL_MANAGER_MCP_TOOL_NAMES = [
     "recommend_service_management_actions",
 ]
 
-GPT_CONNECTOR_REQUIRED_TOOL_NAMES = [
+_HISTORICAL_CONNECTOR_TOOL_NAMES = [
     "ping_connector",
     "bootstrap_context",
     "get_connector_identity",
@@ -254,6 +256,38 @@ GPT_CONNECTOR_REQUIRED_TOOL_NAMES = [
     "set_card_indicator",
 ]
 
+# This is the sole external tool manifest. Low-level CRM and Manager
+# capabilities remain available only through named workflows or guarded raw
+# discovery and therefore cannot leak into a stale connector manifest.
+MCP_TOOL_NAMES = [
+    "agent_board_digest",
+    "agent_board_workflow",
+    "agent_bootstrap",
+    "agent_document_workflow",
+    "agent_entity_context",
+    "agent_finance_workflow",
+    "agent_inventory_workflow",
+    "agent_search",
+    "call_raw_capability",
+    "complete_external_step",
+    "discover_raw_capabilities",
+    "get_connector_identity",
+    "get_raw_capability_schema",
+    "get_runtime_status",
+    "list_agent_workflows",
+    "ping_connector",
+    "prepare_action_contract",
+    "start_workflow",
+    "workflow_cancel",
+    "workflow_checkpoint",
+    "workflow_resume",
+    "workflow_status",
+    "workflow_transition",
+    "workflow_wait_for_external",
+]
+GPT_CONNECTOR_REQUIRED_TOOL_NAMES = list(MCP_TOOL_NAMES)
+OPTIONAL_MANAGER_MCP_TOOL_NAMES: list[str] = []
+
 CHATGPT_HOME_URL = "https://chatgpt.com/"
 OPENAI_MCP_CONNECTORS_GUIDE_URL = (
     "https://developers.openai.com/api/docs/guides/tools-connectors-mcp"
@@ -267,7 +301,7 @@ def resolve_connector_auth_mode(settings: IntegrationSettings) -> str:
     bearer_enabled = settings.mcp.mcp_auth_mode == "bearer" and bool(
         resolve_mcp_bearer_token(settings)
     )
-    return "oauth_embedded" if bearer_enabled else "none"
+    return "oauth_2_1_pkce" if bearer_enabled else "none"
 
 
 def resolve_mcp_bearer_token(settings: IntegrationSettings) -> str:
@@ -358,30 +392,22 @@ def build_chatgpt_connect_payload(
         "2. Open a new clean chat in ChatGPT and, when possible, enable only this connector for the session.",
         "3. В ChatGPT откройте настройки, раздел Apps & Connectors, и создайте connector.",
         "4. Add an MCP Server and paste effective_mcp_url.",
-        "5. First call inside ChatGPT should be ping_connector.",
-        "6. Second call inside ChatGPT should be bootstrap_context(compact=true).",
-        "7. If diagnostics are needed, call get_runtime_status before any write operation.",
-        "7a. Use MCP tool names directly, not resource URLs. If metadata shows /AutoStopCRM/link_.../tool_name, normalize it internally to /AutoStopCRM/tool_name.",
-        "8. If the task is about operational load, overdue work, stale cards, ready unpaid vehicles, inbox triage, or manager control, call manager_board_scan before reading the full wall.",
-        "8a. If the task is about a vehicle card, call get_card_context first for the focused read; if the exact card_id is still unclear or get_card_context misses the target, escalate to get_board_snapshot(compact=true) or get_board_content(view_mode=agent) before retrying. Use get_board_events(event_limit=100) for the latest journal, or get_gpt_wall(view_mode=full) only when both hidden machine wall sections are needed in a heavy response.",
-        "8b. For wide board scans prefer get_cards(compact=true) or get_board_snapshot(compact=true) before switching to full/export tools.",
-        "8c. For client work, call suggest_clients_for_card(card_id) or search_clients before create_client. Clients support up to 3 phone numbers in phones[]; phone is always the first/main one, and search_clients matches any saved phone. Choose a concrete vehicles_preview[].id when known and pass it as client_vehicle_id to link_card_to_client; use upsert_client_vehicle to add or correct a client's car; use delete_client_vehicle only when the operator wants to remove a car from the client profile without deleting cards. Cards may stay unlinked when the customer is a one-off manual entry. delete_client is destructive and rejects linked cards unless allow_linked=true is explicitly confirmed.",
-        "8d. To improve the five-line board preview for a card, first read get_card_context(card_id), then call set_card_board_summary(card_id, summary). Keep summary under 5 lines, focus on what to do now, and do not copy VIN, phone numbers, or raw technical dumps into the board preview.",
-        "8e. If AutostopManager tools are visible, use today_context/recall/remember for durable manager memory; do not copy CRM cards, payments, clients, or repair orders into memory.",
-        "9. The compact 1.1 vehicle profile for GPT should focus on make_display, model_display, production_year, vin, engine_model, gearbox_model, drivetrain, and oem_notes.",
-        "10. Do not ask GPT to edit cards until it confirms connector_name, resource_url, board_name, and scope_rule.",
-        "11. For mass column migrations, use bulk_move_cards instead of many sequential move_card calls.",
-        "11b. If the operator says a vehicle is ready, call mark_card_ready; do not close the repair order unless payment/closure is explicitly requested.",
-        "11a. create_column accepts label, and the name alias is also supported for compatibility.",
-        "12. rename_column changes only the label and keeps the same column id.",
-        "13. delete_column can remove only an empty column; if cards still point to it, clear that column first.",
+        "5. Complete the CRM administrator approval page; credentials are checked by CRM and are not stored by the connector.",
+        "6. First call agent_bootstrap, then agent_board_digest.",
+        "7. Use agent_search and agent_entity_context to confirm the exact target.",
+        "8. Before writes, call prepare_action_contract, then a named workflow in dry_run and apply modes.",
+        "9. Reread the exact target and verify the applied result before reporting success.",
+        "10. Use discover_raw_capabilities -> get_raw_capability_schema -> call_raw_capability only when no named workflow covers the task.",
+        "11. Never invoke or expect a hidden low-level CRM/Manager tool directly; the public manifest must contain exactly 24 Gateway v2 tools.",
+        "12. Use get_runtime_status only for auth/runtime diagnostics.",
+        "13. Do not move, archive, delete, or change finance/order/file state without exact owner intent.",
     ]
-    if connector_auth_mode == "oauth_embedded":
+    if connector_auth_mode == "oauth_2_1_pkce":
         lines.extend(
             [
-                "17. For the ChatGPT connector you normally do not need to paste a bearer token manually: the server exposes embedded OAuth / DCR metadata.",
-                "18. If ChatGPT asks for linking, complete the embedded OAuth flow.",
-                "19. Legacy bearer token is not included in this ChatGPT copy payload; export the Responses API JSON for manual MCP clients.",
+                "17. OAuth 2.1 uses PKCE S256, owner approval, rotating refresh tokens, and exact audience/scopes.",
+                "18. ChatGPT/Codex refresh access automatically; relink only after explicit revocation or an unrecoverable client-store loss.",
+                "19. Internal bearer compatibility is not included in this ChatGPT payload.",
             ]
         )
     else:
@@ -412,11 +438,10 @@ def build_chatgpt_connect_payload(
         [
             "",
             "[RECOMMENDED FIRST PROMPT]",
-            "First call ping_connector. "
-            "Then call bootstrap_context. "
-            "If there is any doubt about the tunnel, auth, or runtime state, call get_runtime_status. "
-            "Briefly confirm connector_name, resource_url, board_name, and scope_rule. "
-            "Do not modify any data until that confirmation is complete.",
+            "Call agent_bootstrap, then agent_board_digest. Use agent_search and "
+            "agent_entity_context for the exact target. Before writes call "
+            "prepare_action_contract, then the named workflow in dry_run and apply "
+            "modes, and finally reread the exact target. Never call hidden legacy tools.",
             "",
             "[MCP TOOLS]",
         ]
@@ -425,8 +450,8 @@ def build_chatgpt_connect_payload(
     lines.extend(
         [
             "",
-            "[OPTIONAL AUTOSTOPMANAGER TOOLS]",
-            "These appear in the same endpoint only when the AutostopManager project is mounted next to the CRM.",
+            "[HIDDEN CAPABILITIES]",
+            "AutostopManager and low-level CRM capabilities are routed behind named workflows or guarded raw discovery; they are not extra visible tools.",
         ]
     )
     lines.extend(f"- {tool}" for tool in OPTIONAL_MANAGER_MCP_TOOL_NAMES)
@@ -444,31 +469,16 @@ def build_chatgpt_connector_payload(settings: IntegrationSettings) -> str:
         "auth_mode": resolve_connector_auth_mode(settings),
         "notes": [
             "Use the public HTTPS /mcp URL.",
-            "Open a new clean chat when validating this connector.",
-            "First call should be ping_connector.",
-            "Second call should be bootstrap_context(compact=true).",
-            "Use MCP tool names directly, not resource URLs. If metadata shows /AutoStopCRM/link_.../tool_name, normalize it internally to /AutoStopCRM/tool_name.",
-            "For vehicle cards, call get_board_snapshot first when you need a quick board-wide fallback, or get_board_content when broad context or recent history matters; use get_gpt_wall only when you need both hidden machine wall sections in one response and a compact agent dump is acceptable.",
-            "For vehicle cards, call get_board_events when you need the latest change journal in Markdown.",
-            "For one card's routine recovery journal, call get_card_log(compact=true, limit=50); call get_card_log(compact=false) only when full raw before/after values and Markdown are needed.",
-            "If AutostopManager tools are visible, use today_context/recall/remember only for durable non-CRM manager memory.",
-            "When creating or updating a card, keep vehicle limited to make/model only, and keep title limited to the short essence of the issue, task, or result.",
-            "The 1.1 compact vehicle profile should focus on make_display, model_display, production_year, vin, engine_model, gearbox_model, drivetrain, and oem_notes.",
-            "For client work, use suggest_clients_for_card or search_clients before create_client; clients can store up to 3 phones in phones[] with phone as the first/main number; select a concrete client vehicle when possible; use upsert_client_vehicle for a new or corrected vehicle of an existing client; use delete_client_vehicle to remove a car from the client profile without deleting cards; link_card_to_client should not overwrite manual client fields unless the operator confirms it; delete_client is destructive and should not be used on linked clients without explicit confirmation.",
-            "For board-preview wording, use set_card_board_summary after reading get_card_context; this hidden summary may drive the visible card preview, but it must not replace title or description.",
-            "For board-wide manager work, use manager_board_scan before low-level reads; route ready unpaid checks through list_ready_unpaid_cards/apply_ready_unpaid_followups, inbox triage through triage_inbox_cards, and timer floors through bulk_set_deadline_if_below.",
-            "Manager write operations default to dry_run; apply requires actor_name and returns compact scanned/eligible/changed/skipped/errors/verification.",
-            "rename_column changes only the label and keeps the same column id.",
-            "delete_column removes only empty columns; if a column still contains cards, move or archive them first.",
-            "vehicle_profile supports manual fields, source_summary, source_confidence, source_links_or_refs, data_completion_state, OCR traces, and per-field provenance.",
-            "Manual vehicle profile corrections must not be silently overwritten by later enrichment attempts.",
-            "An image payload remains an optional fallback for external clients, but the main 1.1 UI flow is card_content_first.",
-            "Use get_runtime_status when the tunnel, auth, or runtime state is unclear.",
-            "For mass card migrations prefer bulk_move_cards over many sequential move_card calls.",
-            "If the operator says a vehicle is ready, call mark_card_ready; do not close the repair order unless payment/closure is explicitly requested.",
-            "oauth_embedded means built-in OAuth/DCR for the ChatGPT connector.",
-            "none means an open MCP endpoint without auth.",
-            "After MCP schema, tool, or metadata changes, delete and recreate the ChatGPT connector to refresh the manifest safely.",
+            "Complete the owner-approved OAuth 2.1 authorization flow with PKCE S256.",
+            "The public manifest contains exactly 24 Gateway v2 tools and no low-level legacy tools.",
+            "Call agent_bootstrap, then agent_board_digest.",
+            "Use agent_search and agent_entity_context for the exact live target.",
+            "Before a write, call prepare_action_contract and the applicable named workflow in dry_run mode, then apply.",
+            "Reread the exact target and verify the result after apply.",
+            "Use guarded raw discovery only when no named workflow covers the operation.",
+            "Use get_runtime_status only when authentication or runtime state is unclear.",
+            "oauth_2_1_pkce uses owner approval and rotating refresh tokens; it is not the old development OAuth mode.",
+            "After a schema/manifest change, reconnect the app only if the client does not refresh its cached tool surface.",
         ],
     }
     return _json_dumps(payload) + "\n"
@@ -488,7 +498,7 @@ def build_responses_api_payload(
         "require_approval": "never",
     }
     bearer_token = resolve_mcp_bearer_token(settings)
-    if resolve_connector_auth_mode(settings) == "oauth_embedded" and bearer_token:
+    if resolve_connector_auth_mode(settings) == "oauth_2_1_pkce" and bearer_token:
         tool_payload["authorization"] = bearer_token
 
     payload = {
@@ -703,12 +713,12 @@ def build_connection_card(
             "7. Проверить внешний endpoint MCP.",
             "8. Скопировать effective_mcp_url.",
             "9. Открыть новый чистый чат в ChatGPT и подключить только этот коннектор, если это возможно.",
-            "10. Первый вызов: bootstrap_context.",
-            "11. Если есть сомнения по tunnel/auth/runtime, вызвать get_runtime_status.",
-            "12. Только после подтверждения identity/scope просить GPT менять данные.",
-            "13. Для ChatGPT connector при connector_auth_mode = oauth_embedded bearer token вручную обычно не нужен.",
-            "14. Для Responses API или ручных MCP клиентов можно использовать mcp_bearer_token.",
-            "15. После изменения набора MCP tools безопаснее удалить приложение в ChatGPT и создать его заново.",
+            "10. Вызвать agent_bootstrap, затем agent_board_digest.",
+            "11. Найти и перечитать точную цель через agent_search/agent_entity_context.",
+            "12. Перед записью: prepare_action_contract и named workflow dry_run/apply.",
+            "13. После apply обязательно перечитать цель и проверить результат.",
+            "14. ChatGPT/Codex используют OAuth 2.1 PKCE; внутренний bearer в connector payload не передаётся.",
+            "15. Внешняя поверхность должна содержать ровно 24 Gateway v2 tools без legacy names.",
             "",
             "[WARNINGS]",
         ]

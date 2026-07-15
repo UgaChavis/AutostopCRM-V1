@@ -253,7 +253,21 @@ def run() -> int:
             mcp_public_base_url,
             mcp_public_endpoint_url,
         ) = _resolve_mcp_runtime_config(settings)
-        resolved_auth_mode = "bearer" if mcp_bearer_token else "none"
+        oauth_enabled = str(
+            os.environ.get("AUTOSTOP_MCP_OAUTH_ENABLED") or ""
+        ).strip().casefold() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        resolved_auth_mode = (
+            "oauth_2_1_pkce"
+            if mcp_bearer_token and oauth_enabled
+            else "bearer"
+            if mcp_bearer_token
+            else "none"
+        )
         logger.info(
             "mcp.main.config board_api_url=%s host=%s port=%s path=%s auth_mode=%s public_base_url=%s public_endpoint_url=%s",
             api_base_url,

@@ -299,7 +299,7 @@ class DocsAuditTests(unittest.TestCase):
             {
                 "MCP allowed-host transport security override is not documented: MINIMAL_KANBAN_MCP_ALLOWED_HOSTS",
                 "MCP allowed-origin transport security override is not documented: MINIMAL_KANBAN_MCP_ALLOWED_ORIGINS",
-                "ChatGPT connector setup flow is not documented in MCP guide: ChatGPT Apps & Connectors",
+                "production ChatGPT/Codex OAuth setup flow is not documented in MCP guide: owner-approved OAuth 2.1",
                 "production MCP connector URL is not documented: https://crm.autostopcrm.ru/mcp",
                 "MCP security rule for public anonymous writes is not documented: Public anonymous writes must remain blocked",
                 "exact Gateway v2 production tool count is not documented: exactly 24 tools",
@@ -350,7 +350,7 @@ class DocsAuditTests(unittest.TestCase):
                 "ChatGPT connector bootstrap call is not documented: agent_bootstrap",
                 "ChatGPT connector runtime diagnostic call is not documented: get_runtime_status",
                 "ChatGPT connector write-safety rule is not documented: Public anonymous writes must remain blocked",
-                "current direct ChatGPT app limitation is not documented: cannot be added directly",
+                "current direct ChatGPT/Codex OAuth flow is not documented: owner-approved OAuth 2.1",
                 "Responses API MCP authorization field is not documented: authorization",
             },
             {issue.detail for issue in issues},

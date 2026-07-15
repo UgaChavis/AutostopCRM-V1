@@ -87,7 +87,10 @@ The production connector is scoped to one current CRM board.
 - Start normal work with `agent_bootstrap`.
 - Use `agent_board_digest`, `agent_search`, and `agent_entity_context` to
   identify current scope and exact targets.
-- Use a named domain workflow and an action contract before raw discovery.
+- Before every write, build `prepare_action_contract`, run the applicable
+  named workflow in `dry_run`, then `apply`, and reread the exact target.
+- Use `discover_raw_capabilities` -> `get_raw_capability_schema` ->
+  `call_raw_capability` only when no named workflow covers the operation.
 - Call `get_runtime_status` only when runtime or auth is unclear.
 - Read live context before every write and use confirmed IDs.
 - Use a unique idempotency key for an applied workflow.
@@ -96,6 +99,8 @@ The production connector is scoped to one current CRM board.
 - Do not move, archive, delete, or change money/client/file/order data without
   explicit owner intent.
 - Never call hidden legacy tools directly from an external agent.
+- Production clients authenticate through owner-approved OAuth 2.1 with PKCE
+  and refresh tokens. The rotating bearer is internal compatibility only.
 
 ## Verification
 

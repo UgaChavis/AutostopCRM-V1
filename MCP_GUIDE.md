@@ -30,16 +30,21 @@ Relevant transport settings include `MINIMAL_KANBAN_MCP_HOST`,
 `MINIMAL_KANBAN_MCP_ALLOWED_ORIGINS`. The last two extend the transport host
 and origin allowlists; they do not replace authentication.
 
-Production is bearer-only and fail-closed. Embedded OAuth/DCR must remain off
-with `AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED=0`; anonymous reads and writes are
-rejected. The container validates the token, HTTPS public URLs, service
-identity, maintenance marker, and all Gateway switches before startup.
+Production is fail-closed and uses owner-approved OAuth 2.1 authorization code
+flow with PKCE S256, dynamic client registration, short-lived access tokens,
+rotating refresh tokens, exact `https://crm.autostopcrm.ru/mcp` audience, and
+the complete `kanban:read kanban:write` scope set. OAuth client/token state is
+encrypted at rest and persists in the CRM data volume; the encryption key is a
+protected deployment setting. Anonymous reads and writes are rejected.
 
-ChatGPT Apps & Connectors require OAuth 2.1 for an authenticated custom MCP and
-cannot present an arbitrary owner API key. The current bearer-only production
-endpoint therefore is not directly linkable as a ChatGPT app. Codex/manual MCP
-clients that can set an Authorization header and Responses API clients remain
-supported. See [the client compatibility note](CHATGPT_CONNECTOR_SETUP.md).
+`AUTOSTOP_MCP_OAUTH_ENABLED=1` is mandatory in production and the former
+auto-approved development mode remains explicitly disabled with
+`AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED=0`. The deployment-rotated bearer is
+accepted only for internal release checks and explicitly authorized Responses
+API calls; Codex and Apps do not store or depend on it. A standards-compliant
+401 includes protected-resource metadata so clients can authorize or refresh
+instead of surfacing a generic MCP internal error. See
+[the client setup](CHATGPT_CONNECTOR_SETUP.md).
 
 ## Permanent Production Surface
 
@@ -102,9 +107,10 @@ recreating the CRM container.
 1. `agent_bootstrap`
 2. `agent_board_digest` for board-wide scope
 3. `agent_search` and `agent_entity_context` for exact targets
-4. `list_agent_workflows` and `prepare_action_contract` for managed work
-5. the narrow board, finance, inventory, or document workflow
-6. `workflow_status` and target readback
+4. `prepare_action_contract` for every intended mutation
+5. the narrow board, finance, inventory, or document workflow in `dry_run`,
+   then `apply`
+6. exact-target reread plus `workflow_status`/verification evidence
 7. raw discovery only when no named workflow covers the request
 
 Use `get_runtime_status` for runtime/auth diagnostics, not as the normal
@@ -135,10 +141,15 @@ short board summary, and reread. It does not imply move, archive, or delete.
 
 ## Client Notes
 
-Responses API remote MCP tools use the production URL as `server_url` and send
-the current bearer value in the tool's `authorization` field on every response
-creation request. The Responses API does not store that value. Never paste a
-token into source, docs, logs, or ordinary chat.
+Codex registers the URL without bearer/static headers and links once with
+`codex mcp login autostopcrm`; its protected credential store retains the
+refresh session and renews short-lived access automatically. ChatGPT Apps use
+the same public OAuth discovery and owner approval flow.
+
+Responses API remote MCP tools may continue to use the production URL as
+`server_url` and send the current internal bearer in the tool's `authorization`
+field on every response creation request. The Responses API does not store that
+value. Never paste a token into source, docs, logs, or ordinary chat.
 
 Public anonymous writes must remain blocked. Public anonymous reads are also
 blocked in production.
@@ -157,6 +168,7 @@ Release verification:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --token-env AUTOSTOPCRM_MCP_TOKEN --exhaustive
+.\.venv\Scripts\python.exe scripts\check_mcp_oauth.py --mcp-url https://crm.autostopcrm.ru/mcp
 ```
 
 The script verifies anonymous rejection, the exact tool set, payload budgets,

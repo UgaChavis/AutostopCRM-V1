@@ -222,10 +222,23 @@ exists.
 
 ## Production Authentication
 
-Production MCP is bearer-only. Keep
-`AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED=0`. The current endpoint supports clients
-that can supply the bearer and is not a direct ChatGPT app until a real OAuth
-2.1 flow is implemented.
+Production MCP uses owner-approved OAuth 2.1 authorization code flow with PKCE
+S256 and rotating refresh tokens. Keep `AUTOSTOP_MCP_OAUTH_ENABLED=1` and
+`AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED=0`. `AUTOSTOP_MCP_OAUTH_STATE_KEY` must be
+a stable protected Fernet key; encrypted client/token state is stored in the
+mounted CRM data directory and survives container replacement. Never rotate
+the state key as part of a routine deploy.
+
+The normal deploy may still rotate `MINIMAL_KANBAN_MCP_BEARER_TOKEN` for
+internal smoke and Responses API compatibility. Codex/ChatGPT OAuth sessions
+must not depend on that bearer. Provision/check OAuth settings without printing
+the key:
+
+```bash
+cd /opt/autostopcrm
+python3 scripts/configure_mcp_oauth.py ensure --env-file .env
+python3 scripts/configure_mcp_oauth.py check --env-file .env
+```
 
 All Gateway switches must be present in `.env` as `0` or `1`:
 
@@ -246,9 +259,10 @@ set +a
 python3 scripts/validate_production_env.py --require-production
 ```
 
-`deploy.sh` snapshots then rotates the CRM/Codex bearer after the image and
-rollback source are ready. For manual repair or initial provisioning, use the
-same helper and never pass a token on the command line:
+`deploy.sh` snapshots auth state, keeps Codex configured for URL-only OAuth,
+then rotates only the internal CRM/runtime bearer after the image and rollback
+source are ready. For manual repair or initial provisioning, use the same
+helper and never pass a token on the command line:
 
 ```bash
 cd /opt/autostopcrm
@@ -259,8 +273,10 @@ set +a
 python3 scripts/configure_codex_mcp_auth.py check
 ```
 
-The helper updates server `.env`, the Codex MCP entry, and a mode-`0600`
-runtime env without printing the token. Never dump `.env`, container
+The helper updates server `.env`, removes bearer/static headers from the Codex
+MCP entry, and maintains a mode-`0600` internal runtime env without printing
+the token. Link Codex once with `codex mcp login autostopcrm`; automatic refresh
+then survives normal deploys. Never dump `.env`, container
 `.Config.Env`, a full process environment, or credential-bearing config into a
 tool transcript. Report only allowlisted non-secret settings and boolean
 credential checks.
@@ -303,13 +319,15 @@ The bounded release flow:
    configuration, and production auth;
 2. snapshots the mounted Manager code and prebuilds an immutable CRM image
    before maintenance;
-3. snapshots and rotates auth with a private rollback copy;
+3. provisions stable encrypted OAuth, snapshots auth, removes Codex bearer
+   config, and rotates the internal compatibility bearer with a private
+   rollback copy;
 4. creates the maintenance marker and stops only `autostopcrm`;
 5. creates and verifies an atomic backup of CRM state/audit data and Manager
    SQLite;
 6. starts the prebuilt image and runs internal authenticated smoke;
-7. removes maintenance mode and runs mandatory public API plus exhaustive
-   24-tool Gateway smoke;
+7. removes maintenance mode and runs mandatory public API, OAuth discovery,
+   owner-approved OAuth flow, and exhaustive 24-tool Gateway smoke;
 8. tags the healthy release as stable and installs the watchdog.
 
 Any failure or maintenance-budget overrun attempts a bounded rollback of
@@ -342,10 +360,16 @@ git rev-parse HEAD
 git rev-parse origin/autostopcrm-v1
 docker compose ps
 docker compose exec -T autostopcrm python scripts/validate_production_env.py --require-production
-docker compose exec -T autostopcrm python scripts/check_live_connector.py --strict --site-url https://crm.autostopcrm.ru --expect-https --local-api-url http://127.0.0.1:41731 --skip-mcp --expect-admin
+docker compose exec -T autostopcrm python scripts/check_live_connector.py --strict --site-url https://crm.autostopcrm.ru --expect-https --local-api-url http://127.0.0.1:41731 --expect-admin
 docker compose exec -T autostopcrm python scripts/check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --exhaustive
+docker compose exec -T autostopcrm python scripts/check_mcp_oauth.py --mcp-url https://crm.autostopcrm.ru/mcp
 docker compose exec -T autostopcrm python scripts/docs_audit.py --format text
 ```
+
+For deploy-persistence proof, save the smoke refresh state in a private
+mode-`0600` file with `--state-out`, redeploy, then pass the same path with
+`--refresh-from`. Omit `--state-out` on the last run so the smoke token family
+is revoked. Delete the private smoke file afterward.
 
 From a client with the current credential:
 
