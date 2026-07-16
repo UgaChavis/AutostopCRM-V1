@@ -76,6 +76,11 @@ Gateway responses use `agent_envelope_v2` and compact verification evidence.
   call with the route-bound `schema_hash`.
 - Writes require the applicable policy switch, a unique idempotency key, and a
   durable workflow ledger. A missing ledger fails closed.
+- Named workflows own and close that ledger automatically. Do not wrap one
+  `agent_board_workflow` call in a second manual `start_workflow`; use a parent
+  workflow only for a genuinely multi-operation or cross-system request.
+- Named workflow records and responses preserve the requested `mode` and
+  `dry_run` value so `workflow_status` cannot describe a preview as an apply.
 - Applied writes are reread. If the change occurred but verification is
   uncertain, the workflow enters `compensating`; it is not reported as a clean
   retryable failure.
@@ -112,6 +117,14 @@ recreating the CRM container.
    then `apply`
 6. exact-target reread plus `workflow_status`/verification evidence
 7. raw discovery only when no named workflow covers the request
+
+For the active-card timer floor, use `domain="board"`,
+`action="bulk_set_deadline_if_below"`, `target_id="active_cards"`, and planned
+changes `include_archived=false`, `min_total_seconds=172800`,
+`target_total_seconds=173700`. This collection-scoped contract does not require
+a synthetic `expected_revision`. Run the named board workflow once in
+`dry_run`, then once in `apply` with a new idempotency key; separate run ids are
+expected and both records state their mode.
 
 Use `get_runtime_status` for runtime/auth diagnostics, not as the normal
 bootstrap. When the optional AutostopManager package is mounted, its memory,

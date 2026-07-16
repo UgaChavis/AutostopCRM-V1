@@ -762,7 +762,13 @@ def register_agent_gateway_v2(
             }
 
     async def _start_idempotent_workflow(
-        *, workflow_id: str, intent: str, idempotency_key: str, payload: dict[str, Any]
+        *,
+        workflow_id: str,
+        intent: str,
+        idempotency_key: str,
+        payload: dict[str, Any],
+        mode: str | None = None,
+        dry_run: bool = False,
     ) -> tuple[int | None, dict[str, Any], bool]:
         if "start_workflow" not in raw_tools:
             return (
@@ -784,9 +790,11 @@ def register_agent_gateway_v2(
                 "actor": load_agent_gateway_security_policy().service_identity,
                 "scope": {
                     "operation": payload.get("operation"),
+                    "mode": mode,
                     "request_fingerprint": payload.get("request_fingerprint"),
                 },
-                "metadata": {"gateway": "v2"},
+                "metadata": {"gateway": "v2", "mode": mode, "dry_run": bool(dry_run)},
+                "dry_run": bool(dry_run),
             },
         )
         run_id = started.get("run_id")
@@ -1258,6 +1266,8 @@ def register_agent_gateway_v2(
                 "operation": operation,
                 "request_fingerprint": request_fingerprint,
             },
+            mode=mode,
+            dry_run=mode == "dry_run",
         )
         if started and not bool(started.get("ok")):
             return _tool_result(
@@ -1401,6 +1411,7 @@ def register_agent_gateway_v2(
                 summary={
                     "workflow_id": workflow_id,
                     "operation": operation,
+                    "mode": mode or "apply",
                     "executor": target_tool,
                     "risk": risk,
                 },
@@ -1422,7 +1433,12 @@ def register_agent_gateway_v2(
                 next_actions=[]
                 if overall_ok
                 else [f"workflow_status(run_id={run_id}) and reconcile exact target"],
-                meta={"ledger_error": _compact_object(ledger_error) if ledger_error else None},
+                meta={
+                    "mode": mode or "apply",
+                    "dry_run": mode == "dry_run",
+                    "ledger_owned_by_named_workflow": True,
+                    "ledger_error": _compact_object(ledger_error) if ledger_error else None,
+                },
             ),
             label=workflow_id,
         )

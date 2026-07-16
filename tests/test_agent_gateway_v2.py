@@ -77,6 +77,26 @@ class FakeBoardApi:
     def get_card(self, card_id: str) -> dict:
         return {"ok": True, "data": {"card": {"id": card_id, "title": "Task"}}}
 
+    def run_manager_operation(
+        self,
+        *,
+        operation: str,
+        payload: dict | None = None,
+        mode: str = "dry_run",
+        actor_name: str | None = None,
+        limit: int | None = None,
+    ) -> dict:
+        del actor_name, limit
+        return {
+            "ok": True,
+            "data": {
+                "operation": operation,
+                "payload": dict(payload or {}),
+                "run": {"mode": mode},
+                "verification": {"mode": mode, "checked": 3, "passed": True},
+            },
+        }
+
     def get_repair_order(self, card_id: str) -> dict:
         return {
             "ok": True,
@@ -448,8 +468,9 @@ class AgentGatewayV2Tests(unittest.IsolatedAsyncioTestCase):
                 actor: str = "",
                 scope: dict | None = None,
                 metadata: dict | None = None,
+                dry_run: bool = False,
             ) -> dict:
-                del workflow_id, intent, idempotency_key, query, actor, metadata
+                del workflow_id, intent, idempotency_key, query, actor, metadata, dry_run
                 if state["started"] and scope != state["scope"]:
                     return {
                         "ok": False,
@@ -538,6 +559,85 @@ class AgentGatewayV2Tests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(len(board_api.raw_requests), 1)
 
+    async def test_named_board_dry_run_is_recorded_and_reported_without_parent_ledger(self) -> None:
+        state = {"status": "planned", "start_arguments": None}
+
+        def register_fake_ledger(server, _logger) -> None:
+            @server.tool(name="start_workflow")
+            def start_workflow(
+                workflow_id: str,
+                intent: str,
+                idempotency_key: str,
+                query: str = "",
+                actor: str = "",
+                scope: dict | None = None,
+                metadata: dict | None = None,
+                dry_run: bool = False,
+            ) -> dict:
+                state["start_arguments"] = {
+                    "workflow_id": workflow_id,
+                    "intent": intent,
+                    "idempotency_key": idempotency_key,
+                    "query": query,
+                    "actor": actor,
+                    "scope": scope,
+                    "metadata": metadata,
+                    "dry_run": dry_run,
+                }
+                return {
+                    "ok": True,
+                    "run_id": 91,
+                    "status": state["status"],
+                    "summary": {"id": 91, "deduplicated": False},
+                }
+
+            @server.tool(name="workflow_transition")
+            def workflow_transition(
+                run_id: int,
+                status: str,
+                message: str = "",
+                verification: dict | None = None,
+                summary: str = "",
+                expected_state_version: int | None = None,
+            ) -> dict:
+                del run_id, message, verification, summary, expected_state_version
+                state["status"] = status
+                return {"ok": True, "run_id": 91, "status": status, "summary": {}}
+
+        self.manager_register.side_effect = register_fake_ledger
+        server = create_mcp_server(
+            FakeBoardApi(),
+            self.logger,
+            host="127.0.0.1",
+            port=41838,
+            path="/mcp",
+            public_endpoint_url="https://crm.example/mcp",
+        )
+
+        result = await server._tool_manager.get_tool("agent_board_workflow").run(
+            {
+                "operation": "bulk_set_deadline_if_below",
+                "payload": {
+                    "include_archived": False,
+                    "min_total_seconds": 172800,
+                    "target_total_seconds": 173700,
+                },
+                "idempotency_key": "timer-floor-dry-run-v1",
+                "mode": "dry_run",
+            },
+            convert_result=False,
+        )
+
+        self.assertTrue(result.structuredContent["ok"])
+        self.assertEqual(result.structuredContent["run_id"], 91)
+        self.assertEqual(result.structuredContent["summary"]["mode"], "dry_run")
+        self.assertTrue(result.structuredContent["meta"]["dry_run"])
+        self.assertTrue(result.structuredContent["meta"]["ledger_owned_by_named_workflow"])
+        self.assertTrue(state["start_arguments"]["dry_run"])
+        self.assertEqual(state["start_arguments"]["scope"]["mode"], "dry_run")
+        self.assertEqual(state["start_arguments"]["metadata"]["mode"], "dry_run")
+        self.assertTrue(state["start_arguments"]["metadata"]["dry_run"])
+
     async def test_named_repair_order_payment_reconciles_order_and_cash_journal(self) -> None:
         state = {"started": False, "status": "planned"}
 
@@ -551,8 +651,9 @@ class AgentGatewayV2Tests(unittest.IsolatedAsyncioTestCase):
                 actor: str = "",
                 scope: dict | None = None,
                 metadata: dict | None = None,
+                dry_run: bool = False,
             ) -> dict:
-                del workflow_id, intent, idempotency_key, query, actor, scope, metadata
+                del workflow_id, intent, idempotency_key, query, actor, scope, metadata, dry_run
                 state["started"] = True
                 return {
                     "ok": True,
@@ -621,8 +722,9 @@ class AgentGatewayV2Tests(unittest.IsolatedAsyncioTestCase):
                 actor: str = "",
                 scope: dict | None = None,
                 metadata: dict | None = None,
+                dry_run: bool = False,
             ) -> dict:
-                del workflow_id, intent, idempotency_key, query, actor, scope, metadata
+                del workflow_id, intent, idempotency_key, query, actor, scope, metadata, dry_run
                 return {
                     "ok": True,
                     "run_id": 89,
