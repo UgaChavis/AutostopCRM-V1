@@ -2229,6 +2229,10 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
             def system_audit() -> dict[str, bool]:
                 return {"ok": True}
 
+            @server.tool(name="get_store_analytics_report")
+            def get_store_analytics_report(period: str = "today") -> dict[str, str]:
+                return {"period": period}
+
             @server.tool(name="remember")
             def remember(content: str) -> dict[str, bool]:
                 return {"ok": bool(content)}
@@ -2263,6 +2267,8 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(tools["recall"].annotations.destructiveHint)
         self.assertTrue(tools["system_audit"].annotations.readOnlyHint)
         self.assertFalse(tools["system_audit"].annotations.destructiveHint)
+        self.assertTrue(tools["get_store_analytics_report"].annotations.readOnlyHint)
+        self.assertFalse(tools["get_store_analytics_report"].annotations.destructiveHint)
         self.assertFalse(tools["remember"].annotations.readOnlyHint)
         self.assertFalse(tools["remember"].annotations.destructiveHint)
         self.assertFalse(tools["curate_memory"].annotations.readOnlyHint)
