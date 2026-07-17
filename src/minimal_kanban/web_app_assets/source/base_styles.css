@@ -1268,6 +1268,11 @@
       text-transform: uppercase;
       overflow-wrap: anywhere;
     }
+    .employees-row__formula {
+      color: var(--accent);
+      font-size: 10.5px;
+      line-height: 1.35;
+    }
     .mobile-employees-layout,
     .mobile-employees-list,
     .mobile-employee-detail,

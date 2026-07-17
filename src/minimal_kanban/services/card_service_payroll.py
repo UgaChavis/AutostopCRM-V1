@@ -61,7 +61,7 @@ PAYROLL_POLICY_2026_07_13_WORK_NAMES = (
     "Кирилл Лещенко",
     "Константин Гришкявичус",
     "Курсевич Максим",
-    "Максим",
+    "Максим Андрианов",
     "Сергей Котлобулатов",
     "Сергей Рубан",
     "Слава Орехов",
@@ -130,8 +130,10 @@ class CardServicePayrollMixin:
                 raise RuntimeError("Payroll policy cutoff is invalid")
             changed_employee_ids: list[str] = []
             for name, employee in resolved.items():
-                current = self._employee_payroll_term_at(employee, cutoff)
-                desired = dict(current)
+                baseline = self._employee_payroll_term_at(
+                    employee, cutoff - timedelta(microseconds=1)
+                )
+                desired = dict(baseline)
                 if name in PAYROLL_POLICY_2026_07_13_WORK_NAMES:
                     desired["work_percent"] = "50"
                     if desired["salary_mode"] == PAYROLL_MODE_SALARY_ONLY:
@@ -148,10 +150,11 @@ class CardServicePayrollMixin:
                             "repair_order_percent": "4",
                         }
                     )
+                existing_terms = self._employee_payroll_terms(employee)
                 existing_cutoff = next(
                     (
                         term
-                        for term in employee.get("payroll_terms", [])
+                        for term in existing_terms
                         if parse_business_datetime(term.get("effective_from")) == cutoff
                     ),
                     None,
@@ -163,20 +166,47 @@ class CardServicePayrollMixin:
                     "material_percent",
                     "repair_order_percent",
                 )
-                already_applied = existing_cutoff is not None and all(
-                    normalize_text(existing_cutoff.get(key), default="", limit=40)
-                    == normalize_text(desired.get(key), default="", limit=40)
-                    for key in comparable_keys
+                terms_from_cutoff = [
+                    term
+                    for term in existing_terms
+                    if (parse_business_datetime(term.get("effective_from")) or cutoff) >= cutoff
+                ]
+                already_applied = (
+                    len(terms_from_cutoff) == 1
+                    and existing_cutoff is not None
+                    and all(
+                        normalize_text(existing_cutoff.get(key), default="", limit=40)
+                        == normalize_text(desired.get(key), default="", limit=40)
+                        for key in comparable_keys
+                    )
+                    and all(
+                        normalize_text(employee.get(key), default="", limit=40)
+                        == normalize_text(desired.get(key), default="", limit=40)
+                        for key in comparable_keys
+                    )
                 )
                 if not already_applied:
-                    next_employee = self._append_employee_payroll_term(
-                        employee,
-                        effective_from=cutoff,
-                        salary_mode=desired["salary_mode"],
-                        base_salary=desired["base_salary"],
-                        work_percent=desired["work_percent"],
-                        material_percent=desired["material_percent"],
-                        repair_order_percent=desired["repair_order_percent"],
+                    preserved_terms = [
+                        dict(term)
+                        for term in existing_terms
+                        if (parse_business_datetime(term.get("effective_from")) or cutoff) < cutoff
+                    ]
+                    desired_term = self._normalized_payroll_term(
+                        {
+                            "id": existing_cutoff.get("id") if existing_cutoff else "",
+                            "effective_from": cutoff.isoformat(),
+                            **{key: desired[key] for key in comparable_keys},
+                        },
+                        effective_from=cutoff.isoformat(),
+                    )
+                    if desired_term is None:
+                        raise RuntimeError("Payroll policy term is invalid")
+                    next_employee = dict(employee)
+                    next_employee.update({key: desired[key] for key in comparable_keys})
+                    next_employee["payroll_terms"] = self._normalized_payroll_terms(
+                        [*preserved_terms, desired_term],
+                        fallback=desired,
+                        created_at=employee.get("created_at") or cutoff.isoformat(),
                     )
                     employee.clear()
                     employee.update(next_employee)
@@ -186,7 +216,9 @@ class CardServicePayrollMixin:
             target_work_ids = {
                 resolved[name]["id"] for name in PAYROLL_POLICY_2026_07_13_WORK_NAMES
             }
-            sergey_id = resolved["Сергей Гелингер"]["id"]
+            order_percent_ids = {
+                resolved[name]["id"] for name in PAYROLL_POLICY_2026_07_13_ORDER_PERCENT_NAMES
+            }
             affected_cards: list[dict[str, Any]] = []
             employee_deltas_minor: dict[str, int] = {
                 employee["id"]: 0 for employee in resolved.values()
@@ -225,10 +257,10 @@ class CardServicePayrollMixin:
                         and not self._work_salary_override_enabled(row)
                         and self._parse_payroll_decimal(row.work_percent_snapshot) != Decimal("50")
                     )
-                    sergey_snapshot = employee_id == sergey_id and self._work_has_salary_snapshot(
-                        row
+                    order_percent_snapshot = (
+                        employee_id in order_percent_ids and self._work_has_salary_snapshot(row)
                     )
-                    if ordinary_target or sergey_snapshot:
+                    if ordinary_target or order_percent_snapshot:
                         self._clear_work_salary_snapshot(row)
                         recalculation_needed = True
                     work_rows.append(row.to_dict())
@@ -237,7 +269,7 @@ class CardServicePayrollMixin:
                     row = RepairOrderRow.from_dict(source_row.to_dict())
                     if self._material_salary_employee_id(
                         row
-                    ) == sergey_id and self._material_has_salary_snapshot(row):
+                    ) in order_percent_ids and self._material_has_salary_snapshot(row):
                         self._clear_material_salary_snapshot(row)
                         recalculation_needed = True
                     material_rows.append(row.to_dict())
@@ -2078,10 +2110,12 @@ class CardServicePayrollMixin:
                 for employee in employees
             }
             employees = [
-                {
-                    **employee,
-                    "balance_total": employee_balances.get(employee["id"], "0"),
-                }
+                self._employee_with_current_payroll_term(
+                    {
+                        **employee,
+                        "balance_total": employee_balances.get(employee["id"], "0"),
+                    }
+                )
                 for employee in employees
             ]
             return {
@@ -2139,7 +2173,13 @@ class CardServicePayrollMixin:
                 events=bundle["events"],
                 settings=settings,
             )
-            return {"employee": employee, "employees": next_employees, "created": created}
+            return {
+                "employee": self._employee_with_current_payroll_term(employee),
+                "employees": [
+                    self._employee_with_current_payroll_term(item) for item in next_employees
+                ],
+                "created": created,
+            }
 
     def toggle_employee(self, payload: dict | None = None) -> dict:
         with self._lock:
@@ -2191,7 +2231,10 @@ class CardServicePayrollMixin:
                 events=bundle["events"],
                 settings=settings,
             )
-            return {"employee": target, "employees": employees}
+            return {
+                "employee": self._employee_with_current_payroll_term(target),
+                "employees": [self._employee_with_current_payroll_term(item) for item in employees],
+            }
 
     def delete_employee(self, payload: dict | None = None) -> dict:
         with self._lock:
@@ -2242,7 +2285,13 @@ class CardServicePayrollMixin:
                 events=bundle["events"],
                 settings=settings,
             )
-            return {"deleted": True, "employee_id": employee_id, "employees": next_employees}
+            return {
+                "deleted": True,
+                "employee_id": employee_id,
+                "employees": [
+                    self._employee_with_current_payroll_term(item) for item in next_employees
+                ],
+            }
 
     def _employee_delete_usage_counts(
         self, bundle: dict[str, Any], employee_id: str
@@ -2473,6 +2522,16 @@ class CardServicePayrollMixin:
                 continue
             selected = term
         return dict(selected)
+
+    def _employee_with_current_payroll_term(
+        self, employee: dict[str, Any], *, moment: datetime | str | None = None
+    ) -> dict[str, Any]:
+        current_term = self._employee_payroll_term_at(employee, moment)
+        return {
+            **employee,
+            "current_payroll_term": current_term,
+            "payroll_effective_from": current_term.get("effective_from", ""),
+        }
 
     def _append_employee_payroll_term(
         self,

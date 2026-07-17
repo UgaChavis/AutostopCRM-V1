@@ -5585,6 +5585,40 @@
       return parsed === null ? '' : repairOrderNumberToRaw(parsed);
     }
 
+    function employeeCurrentPayrollTerm(employee) {
+      if (!employee || typeof employee !== 'object') return {};
+      if (employee.current_payroll_term && typeof employee.current_payroll_term === 'object') {
+        return { ...employee, ...employee.current_payroll_term };
+      }
+      const now = Date.now();
+      const terms = (Array.isArray(employee.payroll_terms) ? employee.payroll_terms : [])
+        .map((term) => ({
+          term,
+          startsAt: Date.parse(String(term?.effective_from || '')),
+          endsAt: term?.effective_to ? Date.parse(String(term.effective_to)) : Number.POSITIVE_INFINITY,
+        }))
+        .filter((item) => Number.isFinite(item.startsAt))
+        .sort((left, right) => left.startsAt - right.startsAt);
+      const current = terms.slice().reverse().find(
+        (item) => item.startsAt <= now && now < item.endsAt
+      )?.term;
+      return current ? { ...employee, ...current } : employee;
+    }
+
+    function employeePayrollFormulaLabel(employee) {
+      const current = employeeCurrentPayrollTerm(employee);
+      const parts = [];
+      const baseSalary = normalizeEmployeeComparableNumber(current.base_salary);
+      const workPercent = normalizeEmployeeComparableNumber(current.work_percent);
+      const materialPercent = normalizeEmployeeComparableNumber(current.material_percent);
+      const repairOrderPercent = normalizeEmployeeComparableNumber(current.repair_order_percent);
+      if (baseSalary && baseSalary !== '0') parts.push('Оклад ' + baseSalary + ' ₽/нед.');
+      if (workPercent && workPercent !== '0') parts.push(workPercent + '% с работ');
+      if (materialPercent && materialPercent !== '0') parts.push(materialPercent + '% с прибыли материалов');
+      if (repairOrderPercent && repairOrderPercent !== '0') parts.push(repairOrderPercent + '% от заказ-наряда');
+      return parts.length ? parts.join(' + ') : 'Без начислений';
+    }
+
     function employeeSalaryModeFromIncentives(flags) {
       const hasBase = Boolean(flags?.base_salary);
       const hasWork = Boolean(flags?.work_percent);
@@ -5622,17 +5656,17 @@
     }
 
     function employeeIncentiveSummaryLabel(employee) {
+      const current = employeeCurrentPayrollTerm(employee);
       const flags = employeeIncentiveFlagsFromValues(
-        employee?.salary_mode,
-        employee?.base_salary,
-        employee?.work_percent,
-        employee?.material_percent,
-        employee?.repair_order_percent,
+        current?.salary_mode,
+        current?.base_salary,
+        current?.work_percent,
+        current?.material_percent,
+        current?.repair_order_percent,
       );
-      const labels = EMPLOYEE_INCENTIVE_DEFINITIONS
-        .filter((item) => Boolean(flags[item.kind]))
-        .map((item) => item.shortLabel);
-      return labels.length ? labels.join(' + ') : 'БЕЗ НАЧИСЛЕНИЙ';
+      return Object.values(flags).some(Boolean)
+        ? employeePayrollFormulaLabel(current)
+        : 'БЕЗ НАЧИСЛЕНИЙ';
     }
 
     function currentEmployeeIncentiveFlags() {
@@ -5748,14 +5782,15 @@
     }
 
     function employeeComparableSnapshot(employee = null) {
+      const current = employeeCurrentPayrollTerm(employee);
       return {
         name: normalizeEmployeeComparableText(employee?.name),
         position: normalizeEmployeeComparableText(employee?.position),
-        salary_mode: normalizeEmployeeComparableText(employee?.salary_mode || 'percent_only'),
-        base_salary: normalizeEmployeeComparableNumber(employee?.base_salary),
-        work_percent: normalizeEmployeeComparableNumber(employee?.work_percent),
-        material_percent: normalizeEmployeeComparableNumber(employee?.material_percent),
-        repair_order_percent: normalizeEmployeeComparableNumber(employee?.repair_order_percent),
+        salary_mode: normalizeEmployeeComparableText(current?.salary_mode || 'percent_only'),
+        base_salary: normalizeEmployeeComparableNumber(current?.base_salary),
+        work_percent: normalizeEmployeeComparableNumber(current?.work_percent),
+        material_percent: normalizeEmployeeComparableNumber(current?.material_percent),
+        repair_order_percent: normalizeEmployeeComparableNumber(current?.repair_order_percent),
         is_active: employee ? Boolean(employee.is_active) : true,
       };
     }
@@ -5961,7 +5996,8 @@
     function renderEmployeeProfileMeta() {
       if (!els.employeesMeta) return;
       const selectedEmployee = selectedEmployeeRecord();
-      const mode = String(els.employeeSalaryModeInput?.value || selectedEmployee?.salary_mode || 'salary_plus_percent').trim();
+      const currentTerm = employeeCurrentPayrollTerm(selectedEmployee);
+      const mode = String(els.employeeSalaryModeInput?.value || currentTerm?.salary_mode || 'salary_plus_percent').trim();
       const parts = [];
       if (selectedEmployee) {
         parts.push(selectedEmployee.is_active ? 'АКТИВЕН' : 'ВЫКЛ');
@@ -5973,8 +6009,6 @@
         .filter((item) => Boolean(flags[item.kind]))
         .map((item) => item.shortLabel);
       parts.push(incentiveLabels.length ? incentiveLabels.join(' + ') : employeeSalaryModeLabel(mode));
-      const payrollTerms = Array.isArray(selectedEmployee?.payroll_terms) ? selectedEmployee.payroll_terms : [];
-      const currentTerm = payrollTerms.length ? payrollTerms[payrollTerms.length - 1] : null;
       if (currentTerm?.effective_from) {
         parts.push('УСЛОВИЯ С ' + formatDateTime(currentTerm.effective_from));
       }
@@ -6000,7 +6034,7 @@
     }
 
     function fillEmployeeForm(employee) {
-      const current = employee || null;
+      const current = employee ? employeeCurrentPayrollTerm(employee) : null;
       if (els.employeesCardMode) {
         els.employeesCardMode.textContent = current ? String(current.name || 'СОТРУДНИК').toUpperCase() : 'НОВЫЙ СОТРУДНИК';
       }
@@ -6060,6 +6094,7 @@
           + '<button class="employees-row__body" type="button" data-employee-id="' + escapeHtml(employee.id) + '" aria-label="Сотрудник ' + escapeHtml(rowLabel) + '" title="' + escapeHtml(rowLabel) + '">'
             + '<div class="employees-row__top"><div class="employees-row__title">' + escapeHtml(employee.name) + '</div></div>'
             + '<div class="employees-row__meta">' + escapeHtml(employee.position || 'Без должности') + '</div>'
+            + '<div class="employees-row__formula">' + escapeHtml(employeePayrollFormulaLabel(employee)) + '</div>'
             + '<div class="employees-row__summary"><span class="employees-row__summary-label">' + escapeHtml(summaryLabel) + '</span><strong>' + escapeHtml(summaryValue) + '</strong></div>'
           + '</button>'
           + '<div class="employees-row__actions">'

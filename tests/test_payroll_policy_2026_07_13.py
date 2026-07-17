@@ -123,6 +123,7 @@ class PayrollPolicyMigrationTests(unittest.TestCase):
                 employee["payroll_terms"][-1]["effective_from"],
                 "2026-07-13T00:00:00+07:00",
             )
+            self.assertEqual(employee["current_payroll_term"]["repair_order_percent"], "4")
         sergey_terms = self.service._employee_weekly_base_salary_accruals(
             employees["Сергей Гелингер"],
             period_start=datetime.fromisoformat("2026-07-01T00:00:00+07:00"),
@@ -170,6 +171,125 @@ class PayrollPolicyMigrationTests(unittest.TestCase):
             ),
             2,
         )
+
+    def test_reapply_replaces_later_overrides_and_recalculates_week(self) -> None:
+        self.service.migrate_payroll_policy_2026_07_13(
+            apply=True, expected_employee_ids=self.expected_ids
+        )
+        maxim = self.employees["Максим Андрианов"]
+        alexey = self.employees["Алексей Мацурко"]
+        self.service.save_employee(
+            {
+                "employee_id": maxim["id"],
+                "name": maxim["name"],
+                "salary_mode": "percent_only",
+                "base_salary": "0",
+                "work_percent": "45",
+                "material_percent": "0",
+                "repair_order_percent": "0",
+                "payroll_effective_from": "2026-07-14T00:00:00+07:00",
+            }
+        )
+        self.service.save_employee(
+            {
+                "employee_id": alexey["id"],
+                "name": alexey["name"],
+                "salary_mode": "percent_only",
+                "base_salary": "0",
+                "work_percent": "45",
+                "material_percent": "10",
+                "repair_order_percent": "0",
+                "payroll_effective_from": "2026-07-17T00:00:00+07:00",
+            }
+        )
+        card = self.service.create_card(
+            {"vehicle": "Lada", "title": "Позднее переопределение", "deadline": {"hours": 2}}
+        )["card"]
+        self.service.update_card(
+            {
+                "card_id": card["id"],
+                "repair_order": {
+                    "works": [
+                        {
+                            "name": "Работа Максима",
+                            "quantity": "1",
+                            "price": "1000",
+                            "executor_id": maxim["id"],
+                        },
+                        {
+                            "name": "Работа Алексея",
+                            "quantity": "1",
+                            "price": "500",
+                            "executor_id": alexey["id"],
+                        },
+                    ],
+                    "materials": [
+                        {
+                            "name": "Материал Алексея",
+                            "quantity": "1",
+                            "price": "1000",
+                            "cost_price": "500",
+                            "executor_id": alexey["id"],
+                        }
+                    ],
+                    "payments": [{"amount": "2500", "paid_at": "17.07.2026 12:00"}],
+                },
+            }
+        )
+        self.service.set_repair_order_status({"card_id": card["id"], "status": "closed"})
+        before = self.service.get_card({"card_id": card["id"]})["card"]["repair_order"]
+        self.assertEqual(before["works"][0]["work_percent_snapshot"], "45")
+        self.assertEqual(before["works"][1]["salary_amount"], "225")
+        self.assertEqual(before["materials"][0]["material_salary_amount"], "50")
+
+        preview = self.service.migrate_payroll_policy_2026_07_13(apply=False)
+        self.assertEqual(preview["employees_changed"], 2)
+        self.assertEqual(preview["affected_repair_orders_count"], 1)
+        applied = self.service.migrate_payroll_policy_2026_07_13(
+            apply=True, expected_employee_ids=self.expected_ids
+        )
+        self.assertEqual(applied["employees_changed"], 2)
+        self.assertEqual(applied["affected_repair_orders_count"], 1)
+
+        employees = {item["name"]: item for item in self.service.list_employees()["employees"]}
+        self.assertEqual(
+            employees["Максим Андрианов"]["current_payroll_term"]["work_percent"], "50"
+        )
+        self.assertEqual(
+            employees["Алексей Мацурко"]["current_payroll_term"]["repair_order_percent"],
+            "4",
+        )
+        cutoff = datetime.fromisoformat("2026-07-13T00:00:00+07:00")
+        for name in ("Максим Андрианов", "Алексей Мацурко"):
+            terms = employees[name]["payroll_terms"]
+            self.assertEqual(
+                len(
+                    [
+                        term
+                        for term in terms
+                        if datetime.fromisoformat(term["effective_from"]) >= cutoff
+                    ]
+                ),
+                1,
+            )
+
+        after = self.service.get_card({"card_id": card["id"]})["card"]["repair_order"]
+        self.assertEqual(after["works"][0]["work_percent_snapshot"], "50")
+        self.assertEqual(after["works"][0]["salary_amount"], "500")
+        self.assertEqual(after["works"][1]["salary_amount"], "")
+        self.assertEqual(after["materials"][0]["material_salary_amount"], "")
+        report = self.service.get_payroll_report({"month": "2026-07"})
+        alexey_order_accruals = [
+            row
+            for row in report["detail_rows"]
+            if row["employee_id"] == alexey["id"] and row["row_type"] == "repair_order_accrual"
+        ]
+        self.assertEqual([row["salary_amount"] for row in alexey_order_accruals], ["100"])
+
+        final_preview = self.service.migrate_payroll_policy_2026_07_13(apply=False)
+        self.assertEqual(final_preview["employees_changed"], 0)
+        self.assertEqual(final_preview["affected_repair_orders_count"], 0)
+        self.assertEqual(final_preview["financial_effect_minor"], 0)
 
 
 if __name__ == "__main__":
