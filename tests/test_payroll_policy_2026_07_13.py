@@ -144,6 +144,16 @@ class PayrollPolicyMigrationTests(unittest.TestCase):
         self.assertEqual(len(order_accruals), 2)
         self.assertEqual({row["salary_amount"] for row in order_accruals}, {"80"})
 
+        bundle = self.store.read_bundle()
+        migrated_card = next(item for item in bundle["cards"] if item.id == card_id)
+        migrated_card.repair_order.works[0].work_percent_snapshot = "50.0"
+        self.service._save_bundle(
+            bundle,
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            events=bundle["events"],
+        )
+
         second = self.service.migrate_payroll_policy_2026_07_13(
             apply=True, expected_employee_ids=self.expected_ids
         )

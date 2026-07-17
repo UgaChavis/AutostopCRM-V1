@@ -213,6 +213,7 @@ class CardServicePayrollMixin:
                 qualified_at = self._repair_order_payroll_qualified_at(order)
                 if qualified_at is None or qualified_at < cutoff:
                     continue
+                original_order_storage = order.to_storage_dict()
                 old_amounts = snapshot_amounts(order)
                 work_rows: list[dict[str, str]] = []
                 recalculation_needed = False
@@ -222,7 +223,7 @@ class CardServicePayrollMixin:
                     ordinary_target = (
                         employee_id in target_work_ids
                         and not self._work_salary_override_enabled(row)
-                        and normalize_text(row.work_percent_snapshot, default="", limit=40) != "50"
+                        and self._parse_payroll_decimal(row.work_percent_snapshot) != Decimal("50")
                     )
                     sergey_snapshot = employee_id == sergey_id and self._work_has_salary_snapshot(
                         row
@@ -288,7 +289,8 @@ class CardServicePayrollMixin:
                     if old_total or new_total:
                         card_old_amounts[employee_id] = old_total
                         card_new_amounts[employee_id] = new_total
-                if recalculation_needed or payroll_sync["changed"]:
+                order_changed = card.repair_order.to_storage_dict() != original_order_storage
+                if order_changed or payroll_sync["changed"]:
                     affected_cards.append(
                         {
                             "card_id": card.id,
