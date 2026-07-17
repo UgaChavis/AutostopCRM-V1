@@ -5997,11 +5997,22 @@ class CardService(
                 actor_name,
                 source,
             )
+        payroll_sync: dict[str, Any] = {"changed": False, "entries": []}
         if settings is not None:
             order = self._preserve_repair_order_payroll_snapshots(previous_order, order)
             order = self._apply_repair_order_payroll_snapshot(order, settings)
         self._ensure_closed_repair_order_payment_state_valid(card, previous_order, order)
-        if order.to_storage_dict() == previous_order.to_storage_dict():
+        if settings is not None:
+            payroll_sync = self._sync_employee_repair_order_accruals(
+                card_id=card.id,
+                order=order,
+                settings=settings,
+                actor_name=actor_name,
+                source=source,
+            )
+        if order.to_storage_dict() == previous_order.to_storage_dict() and not payroll_sync.get(
+            "changed"
+        ):
             return False
         card.repair_order = order
         self._append_event(
@@ -6021,8 +6032,35 @@ class CardService(
                 "payments": len(order.payments),
                 "paid_total": order.prepayment_amount(),
                 "payment_status": order.payment_status(),
+                "payroll_repair_order_entries": len(payroll_sync.get("entries") or []),
             },
         )
+        for payroll_entry in payroll_sync.get("entries") or []:
+            self._append_event(
+                events,
+                actor_name=actor_name,
+                source=source,
+                action=(
+                    "employee_repair_order_accrual_reversed"
+                    if payroll_entry.get("kind") == "reversal"
+                    else "employee_repair_order_accrual_created"
+                ),
+                message=(
+                    f"{actor_name} отменил начисление от заказ-наряда"
+                    if payroll_entry.get("kind") == "reversal"
+                    else f"{actor_name} начислил процент от заказ-наряда"
+                ),
+                card_id=card.id,
+                details={
+                    "employee_id": payroll_entry.get("employee_id"),
+                    "employee_name": payroll_entry.get("employee_name"),
+                    "repair_order_number": payroll_entry.get("repair_order_number"),
+                    "base_amount_minor": payroll_entry.get("base_amount_minor"),
+                    "percent": payroll_entry.get("percent"),
+                    "amount_minor": payroll_entry.get("amount_minor"),
+                    "related_accrual_id": payroll_entry.get("related_accrual_id"),
+                },
+            )
         return True
 
     def _repair_order_payload_with_immutable_number(self, card: Card, value: Any) -> Any:

@@ -24,6 +24,7 @@ from ..models import (
 from ..repair_order import (
     REPAIR_ORDER_STATUS_CLOSED,
     REPAIR_ORDER_STATUS_OPEN,
+    RepairOrder,
     RepairOrderPayment,
 )
 from .card_service_cashbox_cancellation import (
@@ -772,6 +773,13 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 ]
                 if not next_order_payload["payments"]:
                     next_order_payload["prepayment"] = ""
+                candidate_order = RepairOrder.from_dict(next_order_payload)
+                if (
+                    linked_card.repair_order.status == REPAIR_ORDER_STATUS_CLOSED
+                    and not candidate_order.is_paid()
+                ):
+                    next_order_payload["status"] = REPAIR_ORDER_STATUS_OPEN
+                    next_order_payload["closed_at"] = ""
                 changed = self._update_repair_order(
                     linked_card,
                     cards,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
@@ -42,14 +43,365 @@ from .payroll_snapshot_preservation import preserve_repair_order_payroll_snapsho
 
 EMPLOYEES_SETTING_KEY = "employees"
 EMPLOYEE_SHIFT_ACCRUALS_SETTING_KEY = "employee_shift_accruals"
+EMPLOYEE_REPAIR_ORDER_ACCRUALS_SETTING_KEY = "employee_repair_order_accruals"
 DEFAULT_MATERIAL_PERCENT = "10"
 PAYROLL_WEEKLY_BASE_SALARY_AT = {"weekday": 4, "hour": 20, "minute": 0}
 EMPLOYEE_SALARY_RECONCILIATION_DEFAULT_DAYS = 30
 EMPLOYEE_SALARY_RECONCILIATION_MAX_DAYS = 366
 PAYROLL_DECIMAL_ABS_MAX = Decimal("1000000000000")
+PAYROLL_TERMS_LIMIT = 50
+PAYROLL_POLICY_2026_07_13_CUTOFF = "2026-07-13T00:00:00+07:00"
+PAYROLL_POLICY_2026_07_13_WORK_NAMES = (
+    "Александр Баландин",
+    "Алексей Чупров",
+    "Болгов Артем",
+    "Валерий Аникин",
+    "Иван Сысоев",
+    "Иван Шеховцев",
+    "Кирилл Лещенко",
+    "Константин Гришкявичус",
+    "Курсевич Максим",
+    "Максим",
+    "Сергей Котлобулатов",
+    "Сергей Рубан",
+    "Слава Орехов",
+)
+PAYROLL_POLICY_2026_07_13_ORDER_PERCENT_NAMES = (
+    "Сергей Гелингер",
+    "Алексей Мацурко",
+)
 
 
 class CardServicePayrollMixin:
+    def migrate_payroll_policy_2026_07_13(
+        self,
+        *,
+        apply: bool = False,
+        expected_employee_ids: dict[str, str] | None = None,
+        actor_name: str = "Служебная миграция зарплаты",
+        source: str = "maintenance",
+    ) -> dict[str, Any]:
+        """Build or apply the dated payroll policy without rewriting payouts."""
+        with self._lock:
+            original_bundle = self._store.read_bundle()
+            bundle = deepcopy(original_bundle)
+            settings = dict(bundle["settings"])
+            employees = self._employees_from_settings(settings)
+            original_employees_by_id = {item["id"]: deepcopy(item) for item in employees}
+            expected_ids = {
+                normalize_text(name, default="", limit=120): normalize_text(
+                    employee_id, default="", limit=64
+                )
+                for name, employee_id in (expected_employee_ids or {}).items()
+            }
+            target_names = (
+                *PAYROLL_POLICY_2026_07_13_WORK_NAMES,
+                *PAYROLL_POLICY_2026_07_13_ORDER_PERCENT_NAMES,
+            )
+            employees_by_name: dict[str, list[dict[str, Any]]] = {}
+            for employee in employees:
+                employees_by_name.setdefault(employee["name"].casefold(), []).append(employee)
+            resolved: dict[str, dict[str, Any]] = {}
+            errors: list[str] = []
+            for name in target_names:
+                matches = employees_by_name.get(name.casefold(), [])
+                if len(matches) != 1:
+                    errors.append(f"{name}: найдено сотрудников {len(matches)}, ожидался один")
+                    continue
+                employee = matches[0]
+                expected_id = expected_ids.get(name, "")
+                if expected_id and employee["id"] != expected_id:
+                    errors.append(f"{name}: подтвержденный ID не совпадает")
+                    continue
+                if apply and not expected_id:
+                    errors.append(f"{name}: для apply не передан подтвержденный ID")
+                    continue
+                resolved[name] = employee
+            if errors:
+                self._fail(
+                    "payroll_policy_employee_mismatch",
+                    "Миграция остановлена: не пройдена сверка сотрудников.",
+                    status_code=409,
+                    details={"errors": errors},
+                )
+
+            cutoff = parse_business_datetime(PAYROLL_POLICY_2026_07_13_CUTOFF)
+            if cutoff is None:
+                raise RuntimeError("Payroll policy cutoff is invalid")
+            changed_employee_ids: list[str] = []
+            for name, employee in resolved.items():
+                current = self._employee_payroll_term_at(employee, cutoff)
+                desired = dict(current)
+                if name in PAYROLL_POLICY_2026_07_13_WORK_NAMES:
+                    desired["work_percent"] = "50"
+                    if desired["salary_mode"] == PAYROLL_MODE_SALARY_ONLY:
+                        desired["salary_mode"] = PAYROLL_MODE_SALARY_PLUS_PERCENT
+                    elif desired["salary_mode"] == "none":
+                        desired["salary_mode"] = PAYROLL_MODE_PERCENT_ONLY
+                else:
+                    desired.update(
+                        {
+                            "salary_mode": "none",
+                            "base_salary": "0",
+                            "work_percent": "0",
+                            "material_percent": "0",
+                            "repair_order_percent": "4",
+                        }
+                    )
+                existing_cutoff = next(
+                    (
+                        term
+                        for term in employee.get("payroll_terms", [])
+                        if parse_business_datetime(term.get("effective_from")) == cutoff
+                    ),
+                    None,
+                )
+                comparable_keys = (
+                    "salary_mode",
+                    "base_salary",
+                    "work_percent",
+                    "material_percent",
+                    "repair_order_percent",
+                )
+                already_applied = existing_cutoff is not None and all(
+                    normalize_text(existing_cutoff.get(key), default="", limit=40)
+                    == normalize_text(desired.get(key), default="", limit=40)
+                    for key in comparable_keys
+                )
+                if not already_applied:
+                    next_employee = self._append_employee_payroll_term(
+                        employee,
+                        effective_from=cutoff,
+                        salary_mode=desired["salary_mode"],
+                        base_salary=desired["base_salary"],
+                        work_percent=desired["work_percent"],
+                        material_percent=desired["material_percent"],
+                        repair_order_percent=desired["repair_order_percent"],
+                    )
+                    employee.clear()
+                    employee.update(next_employee)
+                    changed_employee_ids.append(employee["id"])
+
+            settings[EMPLOYEES_SETTING_KEY] = employees
+            target_work_ids = {
+                resolved[name]["id"] for name in PAYROLL_POLICY_2026_07_13_WORK_NAMES
+            }
+            sergey_id = resolved["Сергей Гелингер"]["id"]
+            affected_cards: list[dict[str, Any]] = []
+            employee_deltas_minor: dict[str, int] = {
+                employee["id"]: 0 for employee in resolved.values()
+            }
+
+            def snapshot_amounts(order: RepairOrder) -> dict[str, int]:
+                amounts = {employee_id: 0 for employee_id in employee_deltas_minor}
+                for row in order.works:
+                    employee_id = self._work_salary_employee_id(row)
+                    if employee_id in amounts:
+                        amounts[employee_id] += self._employee_salary_report_decimal_minor(
+                            self._parse_payroll_decimal(row.salary_amount)
+                        )
+                for row in order.materials:
+                    employee_id = self._material_salary_employee_id(row)
+                    if employee_id in amounts:
+                        amounts[employee_id] += self._employee_salary_report_decimal_minor(
+                            self._parse_payroll_decimal(row.material_salary_amount)
+                        )
+                return amounts
+
+            for card in bundle["cards"]:
+                order = card.repair_order
+                qualified_at = self._repair_order_payroll_qualified_at(order)
+                if qualified_at is None or qualified_at < cutoff:
+                    continue
+                old_amounts = snapshot_amounts(order)
+                work_rows: list[dict[str, str]] = []
+                recalculation_needed = False
+                for source_row in order.works:
+                    row = RepairOrderRow.from_dict(source_row.to_dict())
+                    employee_id = self._work_salary_employee_id(row)
+                    ordinary_target = (
+                        employee_id in target_work_ids
+                        and not self._work_salary_override_enabled(row)
+                        and normalize_text(row.work_percent_snapshot, default="", limit=40) != "50"
+                    )
+                    sergey_snapshot = employee_id == sergey_id and self._work_has_salary_snapshot(
+                        row
+                    )
+                    if ordinary_target or sergey_snapshot:
+                        self._clear_work_salary_snapshot(row)
+                        recalculation_needed = True
+                    work_rows.append(row.to_dict())
+                material_rows: list[dict[str, str]] = []
+                for source_row in order.materials:
+                    row = RepairOrderRow.from_dict(source_row.to_dict())
+                    if self._material_salary_employee_id(
+                        row
+                    ) == sergey_id and self._material_has_salary_snapshot(row):
+                        self._clear_material_salary_snapshot(row)
+                        recalculation_needed = True
+                    material_rows.append(row.to_dict())
+                if recalculation_needed:
+                    order = RepairOrder.from_dict(
+                        {
+                            **order.to_storage_dict(),
+                            "works": work_rows,
+                            "materials": material_rows,
+                        }
+                    )
+                    order = self._apply_repair_order_payroll_snapshot(order, settings)
+                    card.repair_order = order
+                ledger_before = self._employee_repair_order_accruals_from_settings(
+                    settings, employees_by_id={item["id"]: item for item in employees}
+                )
+                payroll_sync = self._sync_employee_repair_order_accruals(
+                    card_id=card.id,
+                    order=card.repair_order,
+                    settings=settings,
+                    actor_name=actor_name,
+                    source=source,
+                    created_at=qualified_at,
+                )
+                ledger_after = self._employee_repair_order_accruals_from_settings(
+                    settings, employees_by_id={item["id"]: item for item in employees}
+                )
+                new_amounts = snapshot_amounts(card.repair_order)
+                card_delta: dict[str, int] = {}
+                card_old_amounts: dict[str, int] = {}
+                card_new_amounts: dict[str, int] = {}
+                for employee_id in employee_deltas_minor:
+                    old_ledger = sum(
+                        (-1 if item["kind"] == "reversal" else 1) * item["amount_minor"]
+                        for item in ledger_before
+                        if item["card_id"] == card.id and item["employee_id"] == employee_id
+                    )
+                    new_ledger = sum(
+                        (-1 if item["kind"] == "reversal" else 1) * item["amount_minor"]
+                        for item in ledger_after
+                        if item["card_id"] == card.id and item["employee_id"] == employee_id
+                    )
+                    old_total = old_amounts[employee_id] + old_ledger
+                    new_total = new_amounts[employee_id] + new_ledger
+                    delta = new_total - old_total
+                    if delta:
+                        card_delta[employee_id] = delta
+                        employee_deltas_minor[employee_id] += delta
+                    if old_total or new_total:
+                        card_old_amounts[employee_id] = old_total
+                        card_new_amounts[employee_id] = new_total
+                if recalculation_needed or payroll_sync["changed"]:
+                    affected_cards.append(
+                        {
+                            "card_id": card.id,
+                            "repair_order_number": card.repair_order.number,
+                            "qualified_at": qualified_at.isoformat(),
+                            "base_amount_minor": self._employee_salary_report_decimal_minor(
+                                card.repair_order.subtotal_value()
+                            ),
+                            "old_amounts_minor": card_old_amounts,
+                            "new_amounts_minor": card_new_amounts,
+                            "employee_deltas_minor": card_delta,
+                        }
+                    )
+
+            weekly_base_salary_deltas_minor: dict[str, int] = {}
+            payroll_as_of = model_helpers.utc_now()
+            for employee in resolved.values():
+                original_employee = original_employees_by_id[employee["id"]]
+                old_weekly = sum(
+                    (
+                        item["amount"]
+                        for item in self._employee_weekly_base_salary_accruals(
+                            original_employee,
+                            period_start=cutoff,
+                            period_end=payroll_as_of + timedelta(seconds=1),
+                            as_of=payroll_as_of,
+                        )
+                    ),
+                    Decimal("0"),
+                )
+                new_weekly = sum(
+                    (
+                        item["amount"]
+                        for item in self._employee_weekly_base_salary_accruals(
+                            employee,
+                            period_start=cutoff,
+                            period_end=payroll_as_of + timedelta(seconds=1),
+                            as_of=payroll_as_of,
+                        )
+                    ),
+                    Decimal("0"),
+                )
+                delta_minor = self._employee_salary_report_decimal_minor(new_weekly - old_weekly)
+                if delta_minor:
+                    weekly_base_salary_deltas_minor[employee["id"]] = delta_minor
+                    employee_deltas_minor[employee["id"]] += delta_minor
+
+            employees_by_id = {item["id"]: item for item in employees}
+            negative_balances: list[dict[str, Any]] = []
+            repair_order_accruals = self._employee_repair_order_accruals_from_settings(
+                settings, employees_by_id=employees_by_id
+            )
+            shift_accruals = self._employee_shift_accruals_from_settings(
+                settings, employees_by_id=employees_by_id
+            )
+            for employee in resolved.values():
+                ledger = self._build_employee_salary_ledger(
+                    bundle["cards"],
+                    bundle["cashboxes"],
+                    bundle["cash_transactions"],
+                    employee,
+                    shift_accruals=shift_accruals,
+                    repair_order_accruals=repair_order_accruals,
+                    months=12,
+                )
+                balance_minor = self._employee_salary_report_decimal_minor(
+                    self._parse_payroll_decimal(ledger["balance_total"])
+                )
+                if balance_minor < 0:
+                    negative_balances.append(
+                        {
+                            "employee_id": employee["id"],
+                            "employee_name": employee["name"],
+                            "balance_minor": balance_minor,
+                        }
+                    )
+
+            result = {
+                "mode": "apply" if apply else "dry-run",
+                "cutoff": PAYROLL_POLICY_2026_07_13_CUTOFF,
+                "employees_checked": len(resolved),
+                "employees_changed": len(changed_employee_ids),
+                "affected_repair_orders": affected_cards,
+                "affected_repair_orders_count": len(affected_cards),
+                "employee_deltas_minor": employee_deltas_minor,
+                "weekly_base_salary_deltas_minor": weekly_base_salary_deltas_minor,
+                "financial_effect_minor": sum(employee_deltas_minor.values()),
+                "negative_balances": negative_balances,
+            }
+            if apply and (changed_employee_ids or affected_cards):
+                events = bundle["events"]
+                self._append_event(
+                    events,
+                    actor_name=actor_name,
+                    source=source,
+                    action="payroll_policy_2026_07_13_applied",
+                    message="Применена миграция условий зарплаты с 13.07.2026",
+                    card_id=None,
+                    details={
+                        "employees_changed": len(changed_employee_ids),
+                        "repair_orders_changed": len(affected_cards),
+                        "financial_effect_minor": result["financial_effect_minor"],
+                    },
+                )
+                self._save_bundle(
+                    original_bundle,
+                    columns=bundle["columns"],
+                    cards=bundle["cards"],
+                    events=events,
+                    settings=settings,
+                )
+            return result
+
     def get_payroll_report(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
@@ -59,12 +411,16 @@ class CardServicePayrollMixin:
             shift_accruals = self._employee_shift_accruals_from_settings(
                 bundle["settings"], employees_by_id=employees_by_id
             )
+            repair_order_accruals = self._employee_repair_order_accruals_from_settings(
+                bundle["settings"], employees_by_id=employees_by_id
+            )
             month = self._validated_payroll_month(payload.get("month"))
             employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
             report = self._build_payroll_report(
                 bundle["cards"],
                 employees,
                 shift_accruals=shift_accruals,
+                repair_order_accruals=repair_order_accruals,
                 month=month,
                 employee_id=employee_id or None,
             )
@@ -82,6 +438,7 @@ class CardServicePayrollMixin:
         employee: dict[str, Any],
         *,
         shift_accruals: list[dict[str, Any]] | None = None,
+        repair_order_accruals: list[dict[str, Any]] | None = None,
         months: int = 6,
         period_only_totals: bool = False,
     ) -> dict[str, Any]:
@@ -168,6 +525,52 @@ class CardServicePayrollMixin:
                     ),
                     "source_label": "ручное начисление",
                     "note": shift_accrual.get("note") or EMPLOYEE_SHIFT_ACCRUAL_NOTE,
+                }
+            )
+
+        for order_accrual in repair_order_accruals or []:
+            if order_accrual.get("employee_id") != employee_id:
+                continue
+            created_at = parse_business_datetime(order_accrual.get("created_at"))
+            if created_at is None:
+                continue
+            sign = -1 if order_accrual.get("kind") == "reversal" else 1
+            amount_minor = sign * int(normalize_money_minor(order_accrual.get("amount_minor")))
+            amount = Decimal(amount_minor) / Decimal("100")
+            is_recent = created_at.astimezone(UTC) >= period_start
+            if period_only_totals:
+                if not is_recent:
+                    continue
+                accrual_total += amount
+            else:
+                accrual_total += amount
+                if not is_recent:
+                    continue
+            base_minor = int(normalize_money_minor(order_accrual.get("base_amount_minor")))
+            percent = order_accrual.get("percent") or "0"
+            journal_rows.append(
+                {
+                    "kind": (
+                        "repair_order_accrual_reversal" if sign < 0 else "repair_order_accrual"
+                    ),
+                    "kind_label": "ОТМЕНА % ЗН" if sign < 0 else "% ОТ ЗАКАЗ-НАРЯДА",
+                    "created_at": created_at.astimezone(business_timezone()).strftime(
+                        "%d.%m.%Y %H:%M"
+                    ),
+                    "closed_at": order_accrual.get("qualified_at") or "",
+                    "repair_order_number": order_accrual.get("repair_order_number") or "",
+                    "card_id": order_accrual.get("card_id") or "",
+                    "vehicle": "",
+                    "work_name": f"{percent}% от заказ-наряда",
+                    "accrual_id": order_accrual.get("id") or "",
+                    "related_accrual_id": order_accrual.get("related_accrual_id") or "",
+                    "base_amount_minor": base_minor,
+                    "base_amount_display": format_money_minor(base_minor),
+                    "percent": percent,
+                    "amount_minor": amount_minor,
+                    "amount_display": format_money_minor(amount_minor),
+                    "source_label": "заказ-наряд",
+                    "scheme": f"{percent}% от заказ-наряда",
                 }
             )
 
@@ -329,6 +732,9 @@ class CardServicePayrollMixin:
             shift_accruals = self._employee_shift_accruals_from_settings(
                 bundle["settings"], employees_by_id=employees_by_id
             )
+            repair_order_accruals = self._employee_repair_order_accruals_from_settings(
+                bundle["settings"], employees_by_id=employees_by_id
+            )
             employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
             if not employee_id:
                 self._fail(
@@ -351,6 +757,7 @@ class CardServicePayrollMixin:
                 bundle["cash_transactions"],
                 employee,
                 shift_accruals=shift_accruals,
+                repair_order_accruals=repair_order_accruals,
                 months=months,
             )
             return ledger
@@ -389,6 +796,7 @@ class CardServicePayrollMixin:
         employee: dict[str, Any],
         *,
         shift_accruals: list[dict[str, Any]] | None = None,
+        repair_order_accruals: list[dict[str, Any]] | None = None,
         period_start: datetime,
         period_end: datetime,
     ) -> dict[str, Any]:
@@ -466,6 +874,45 @@ class CardServicePayrollMixin:
                     "scheme": "Смены за неделю",
                     "accrual_id": shift_accrual.get("id") or "",
                     "note": note,
+                    **self._employee_salary_reconciliation_amount_fields(
+                        accrued=amount, show_accrued=True
+                    ),
+                },
+            )
+
+        for order_accrual in repair_order_accruals or []:
+            if order_accrual.get("employee_id") != employee_id:
+                continue
+            created_at = parse_business_datetime(order_accrual.get("created_at"))
+            if created_at is None:
+                continue
+            created_at_utc = created_at.astimezone(UTC)
+            if created_at_utc < period_start or created_at_utc > period_end:
+                continue
+            sign = -1 if order_accrual.get("kind") == "reversal" else 1
+            amount_minor = sign * int(normalize_money_minor(order_accrual.get("amount_minor")))
+            amount = Decimal(amount_minor) / Decimal("100")
+            base_minor = int(normalize_money_minor(order_accrual.get("base_amount_minor")))
+            base = Decimal(base_minor) / Decimal("100")
+            percent = order_accrual.get("percent") or "0"
+            accrued_total += amount
+            add_row(
+                created_at,
+                {
+                    "kind": (
+                        "repair_order_accrual_reversal" if sign < 0 else "repair_order_accrual"
+                    ),
+                    "kind_label": "ОТМЕНА % ЗН" if sign < 0 else "% ОТ ЗН",
+                    "repair_order_number": order_accrual.get("repair_order_number") or "-",
+                    "card_id": order_accrual.get("card_id") or "",
+                    "vehicle": "",
+                    "license_plate": "",
+                    "item": f"{percent}% от заказ-наряда",
+                    "calculation_base": money_base("Стоимость работ и материалов", base),
+                    "scheme": f"{percent}% от заказ-наряда",
+                    "accrual_id": order_accrual.get("id") or "",
+                    "related_accrual_id": order_accrual.get("related_accrual_id") or "",
+                    "note": "Реверс начисления" if sign < 0 else "",
                     **self._employee_salary_reconciliation_amount_fields(
                         accrued=amount, show_accrued=True
                     ),
@@ -747,6 +1194,9 @@ class CardServicePayrollMixin:
             shift_accruals = self._employee_shift_accruals_from_settings(
                 bundle["settings"], employees_by_id=employees_by_id
             )
+            repair_order_accruals = self._employee_repair_order_accruals_from_settings(
+                bundle["settings"], employees_by_id=employees_by_id
+            )
             employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
             if not employee_id:
                 self._fail(
@@ -774,6 +1224,7 @@ class CardServicePayrollMixin:
                 bundle["cash_transactions"],
                 employee,
                 shift_accruals=shift_accruals,
+                repair_order_accruals=repair_order_accruals,
                 period_start=period_start,
                 period_end=period_end,
             )
@@ -796,6 +1247,8 @@ class CardServicePayrollMixin:
                     "base_salary": employee.get("base_salary", ""),
                     "work_percent": employee.get("work_percent", ""),
                     "material_percent": employee.get("material_percent", ""),
+                    "repair_order_percent": employee.get("repair_order_percent", ""),
+                    "payroll_terms": employee.get("payroll_terms", []),
                 },
                 "period": period,
                 "rows": report["rows"],
@@ -851,6 +1304,9 @@ class CardServicePayrollMixin:
         material_accrued_total: Decimal = Decimal("0"),
         shift_accrual_count: int = 0,
         shift_accrual_total: Decimal = Decimal("0"),
+        repair_order_accrual_count: int = 0,
+        repair_order_accrual_reversal_count: int = 0,
+        repair_order_accrual_total: Decimal = Decimal("0"),
         accrued_total: Decimal | None = None,
     ) -> dict[str, object]:
         resolved_work_accrued_total = (
@@ -868,6 +1324,7 @@ class CardServicePayrollMixin:
                 + shift_accrual_total
                 + resolved_work_accrued_total
                 + material_accrued_total
+                + repair_order_accrual_total
             )
         )
         base_salary_money = self._employee_salary_report_money(base_salary_total)
@@ -878,6 +1335,7 @@ class CardServicePayrollMixin:
         material_cost_money = self._employee_salary_report_money(material_cost_total)
         material_profit_money = self._employee_salary_report_money(material_profit_total)
         material_accrued_money = self._employee_salary_report_money(material_accrued_total)
+        repair_order_accrual_money = self._employee_salary_report_money(repair_order_accrual_total)
         accrued_money = self._employee_salary_report_money(resolved_accrued_total)
         return {
             "repair_order_count": repair_order_count,
@@ -909,6 +1367,11 @@ class CardServicePayrollMixin:
             "material_accrued_total": material_accrued_money["raw"],
             "material_accrued_total_minor": material_accrued_money["minor"],
             "material_accrued_total_display": material_accrued_money["display"],
+            "repair_order_accrual_count": repair_order_accrual_count,
+            "repair_order_accrual_reversal_count": repair_order_accrual_reversal_count,
+            "repair_order_accrual_total": repair_order_accrual_money["raw"],
+            "repair_order_accrual_total_minor": repair_order_accrual_money["minor"],
+            "repair_order_accrual_total_display": repair_order_accrual_money["display"],
             "accrued_total": accrued_money["raw"],
             "accrued_total_minor": accrued_money["minor"],
             "accrued_total_display": accrued_money["display"],
@@ -928,6 +1391,9 @@ class CardServicePayrollMixin:
             f"Прибыль материалов:   {totals['material_profit_total_display']}",
             f"Начислено с работ:    {totals['work_accrued_total_display']}",
             f"Начислено с мат.:     {totals['material_accrued_total_display']}",
+            f"Начислений от ЗН:     {totals['repair_order_accrual_count']}",
+            f"Отмен начислений ЗН:  {totals['repair_order_accrual_reversal_count']}",
+            f"Начислено от ЗН:      {totals['repair_order_accrual_total_display']}",
             f"Начислено:            {totals['accrued_total_display']}",
         ]
 
@@ -997,6 +1463,14 @@ class CardServicePayrollMixin:
             lines.extend(self._employee_salary_report_base_salary_lines(salary))
         for shift in day.get("shift_accruals", []):
             lines.extend(self._employee_salary_report_shift_lines(shift))
+        for accrual in day.get("repair_order_accruals", []):
+            label = "Отмена" if accrual.get("kind") == "reversal" else "Начисление"
+            lines.append(
+                f"{label} от ЗН {accrual['repair_order_number']} | "
+                + f"база: {accrual['base_amount_display']} | "
+                + f"схема: {accrual['scheme']} | "
+                + f"начислено: {accrual['amount_display']}"
+            )
         for order in day["repair_orders"]:
             lines.extend(self._employee_salary_report_order_lines(order))
         day_totals = day["totals"]
@@ -1007,6 +1481,8 @@ class CardServicePayrollMixin:
             + f"смен {day_totals['shift_accrual_count']}, "
             + f"работ {day_totals['work_count']}, "
             + f"материалов {day_totals['material_count']}, "
+            + f"начислений от ЗН {day_totals['repair_order_accrual_count']}, "
+            + f"отмен ЗН {day_totals['repair_order_accrual_reversal_count']}, "
             + f"стоимость {day_totals['work_total_display']}, "
             + f"прибыль материалов {day_totals['material_profit_total_display']}, "
             + f"начислено {day_totals['accrued_total_display']}"
@@ -1037,6 +1513,68 @@ class CardServicePayrollMixin:
             lines.extend(self._employee_salary_report_day_lines(day))
         return "\n".join(lines).strip()
 
+    def _group_employee_repair_order_accruals_for_salary_report(
+        self,
+        grouped_days: dict[str, dict[str, Any]],
+        repair_order_accruals: list[dict[str, Any]],
+        *,
+        employee_id: str,
+        period_start: datetime,
+        period_end: datetime,
+    ) -> None:
+        for order_accrual in repair_order_accruals:
+            if order_accrual.get("employee_id") != employee_id:
+                continue
+            created_at = parse_business_datetime(order_accrual.get("created_at"))
+            if created_at is None:
+                continue
+            created_at = created_at.astimezone(business_timezone())
+            if created_at < period_start or created_at >= period_end:
+                continue
+            sign = -1 if order_accrual.get("kind") == "reversal" else 1
+            amount_minor = sign * int(normalize_money_minor(order_accrual.get("amount_minor")))
+            amount = Decimal(amount_minor) / Decimal("100")
+            base_minor = int(normalize_money_minor(order_accrual.get("base_amount_minor")))
+            percent = order_accrual.get("percent") or "0"
+            day_key = created_at.date().isoformat()
+            day_payload = grouped_days.setdefault(
+                day_key,
+                {
+                    "date": day_key,
+                    "label": created_at.strftime("%d.%m.%Y"),
+                    "base_salary_accruals": [],
+                    "shift_accruals": [],
+                    "repair_orders": [],
+                    "_base_salary_total": Decimal("0"),
+                    "_shift_accrual_total": Decimal("0"),
+                    "_work_total": Decimal("0"),
+                    "_work_accrued_total": Decimal("0"),
+                    "_material_total": Decimal("0"),
+                    "_material_cost_total": Decimal("0"),
+                    "_material_profit_total": Decimal("0"),
+                    "_material_accrued_total": Decimal("0"),
+                },
+            )
+            day_payload.setdefault("repair_order_accruals", []).append(
+                {
+                    "kind": order_accrual.get("kind") or "accrual",
+                    "created_at": created_at.strftime("%d.%m.%Y %H:%M"),
+                    "created_at_iso": created_at.isoformat(),
+                    "repair_order_number": order_accrual.get("repair_order_number") or "-",
+                    "card_id": order_accrual.get("card_id") or "",
+                    "base_amount_minor": base_minor,
+                    "base_amount_display": format_money_minor(base_minor),
+                    "percent": percent,
+                    "scheme": f"{percent}% от заказ-наряда",
+                    "amount_minor": amount_minor,
+                    "amount_display": format_money_minor(amount_minor),
+                    "related_accrual_id": order_accrual.get("related_accrual_id") or "",
+                }
+            )
+            day_payload["_repair_order_accrual_total"] = (
+                day_payload.get("_repair_order_accrual_total", Decimal("0")) + amount
+            )
+
     def _build_employee_salary_report(
         self,
         cards: list[Card],
@@ -1044,6 +1582,7 @@ class CardServicePayrollMixin:
         *,
         month: str,
         shift_accruals: list[dict[str, Any]] | None = None,
+        repair_order_accruals: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         employee_id = employee["id"]
         period = self._employee_salary_report_period(month)
@@ -1326,6 +1865,14 @@ class CardServicePayrollMixin:
             day_payload["_material_profit_total"] += material_profit_total
             day_payload["_material_accrued_total"] += material_accrued_total
 
+        self._group_employee_repair_order_accruals_for_salary_report(
+            grouped_days,
+            repair_order_accruals or [],
+            employee_id=employee_id,
+            period_start=period_start,
+            period_end=period_end,
+        )
+
         days: list[dict[str, Any]] = []
         total_base_salary_total = Decimal("0")
         total_base_salary_count = 0
@@ -1337,6 +1884,9 @@ class CardServicePayrollMixin:
         total_material_cost_total = Decimal("0")
         total_material_profit_total = Decimal("0")
         total_material_accrued_total = Decimal("0")
+        total_repair_order_accrual_count = 0
+        total_repair_order_accrual_reversal_count = 0
+        total_repair_order_accrual_total = Decimal("0")
         total_repair_orders = 0
         total_works = 0
         total_materials = 0
@@ -1359,6 +1909,13 @@ class CardServicePayrollMixin:
             day_material_cost_total = day.pop("_material_cost_total")
             day_material_profit_total = day.pop("_material_profit_total")
             day_material_accrued_total = day.pop("_material_accrued_total")
+            day_repair_order_accrual_total = day.pop("_repair_order_accrual_total", Decimal("0"))
+            day_repair_order_accrual_count = sum(
+                item.get("kind") != "reversal" for item in day.get("repair_order_accruals", [])
+            )
+            day_repair_order_accrual_reversal_count = sum(
+                item.get("kind") == "reversal" for item in day.get("repair_order_accruals", [])
+            )
             day["totals"] = self._employee_salary_report_totals_payload(
                 repair_order_count=day_order_count,
                 work_count=day_work_count,
@@ -1373,6 +1930,9 @@ class CardServicePayrollMixin:
                 material_cost_total=day_material_cost_total,
                 material_profit_total=day_material_profit_total,
                 material_accrued_total=day_material_accrued_total,
+                repair_order_accrual_count=day_repair_order_accrual_count,
+                repair_order_accrual_reversal_count=day_repair_order_accrual_reversal_count,
+                repair_order_accrual_total=day_repair_order_accrual_total,
             )
             days.append(day)
             total_base_salary_count += day_base_salary_count
@@ -1388,6 +1948,9 @@ class CardServicePayrollMixin:
             total_material_cost_total += day_material_cost_total
             total_material_profit_total += day_material_profit_total
             total_material_accrued_total += day_material_accrued_total
+            total_repair_order_accrual_count += day_repair_order_accrual_count
+            total_repair_order_accrual_reversal_count += day_repair_order_accrual_reversal_count
+            total_repair_order_accrual_total += day_repair_order_accrual_total
 
         totals = self._employee_salary_report_totals_payload(
             repair_order_count=total_repair_orders,
@@ -1403,6 +1966,9 @@ class CardServicePayrollMixin:
             material_cost_total=total_material_cost_total,
             material_profit_total=total_material_profit_total,
             material_accrued_total=total_material_accrued_total,
+            repair_order_accrual_count=total_repair_order_accrual_count,
+            repair_order_accrual_reversal_count=total_repair_order_accrual_reversal_count,
+            repair_order_accrual_total=total_repair_order_accrual_total,
         )
         text = self._employee_salary_report_text(
             employee=employee,
@@ -1427,6 +1993,9 @@ class CardServicePayrollMixin:
             shift_accruals = self._employee_shift_accruals_from_settings(
                 bundle["settings"], employees_by_id=employees_by_id
             )
+            repair_order_accruals = self._employee_repair_order_accruals_from_settings(
+                bundle["settings"], employees_by_id=employees_by_id
+            )
             employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
             if not employee_id:
                 self._fail(
@@ -1444,7 +2013,11 @@ class CardServicePayrollMixin:
                     details={"employee_id": employee_id},
                 )
             report = self._build_employee_salary_report(
-                bundle["cards"], employee, month=month, shift_accruals=shift_accruals
+                bundle["cards"],
+                employee,
+                month=month,
+                shift_accruals=shift_accruals,
+                repair_order_accruals=repair_order_accruals,
             )
             return {
                 "employee_id": employee_id,
@@ -1463,6 +2036,7 @@ class CardServicePayrollMixin:
                     "days_total": len(report["days"]),
                     "repair_order_total": report["totals"]["repair_order_count"],
                     "work_count": report["totals"]["work_count"],
+                    "repair_order_accrual_count": report["totals"]["repair_order_accrual_count"],
                     "accrued_total": report["totals"]["accrued_total"],
                 },
             }
@@ -1476,11 +2050,15 @@ class CardServicePayrollMixin:
             shift_accruals = self._employee_shift_accruals_from_settings(
                 bundle["settings"], employees_by_id=employees_by_id
             )
+            repair_order_accruals = self._employee_repair_order_accruals_from_settings(
+                bundle["settings"], employees_by_id=employees_by_id
+            )
             month = self._validated_payroll_month(payload.get("month"))
             report = self._build_payroll_report(
                 bundle["cards"],
                 employees,
                 shift_accruals=shift_accruals,
+                repair_order_accruals=repair_order_accruals,
                 month=month,
             )
             cashboxes = bundle["cashboxes"]
@@ -1492,6 +2070,7 @@ class CardServicePayrollMixin:
                     cash_transactions,
                     employee,
                     shift_accruals=shift_accruals,
+                    repair_order_accruals=repair_order_accruals,
                     months=6,
                 )["balance_total"]
                 for employee in employees
@@ -1702,6 +2281,11 @@ class CardServicePayrollMixin:
         for accrual in self._employee_shift_accruals_from_settings(bundle.get("settings", {})):
             if normalize_text(accrual.get("employee_id"), default="", limit=64) == employee_id:
                 usage["shift_accruals"] += 1
+        for accrual in self._employee_repair_order_accruals_from_settings(
+            bundle.get("settings", {})
+        ):
+            if normalize_text(accrual.get("employee_id"), default="", limit=64) == employee_id:
+                usage["repair_order_accruals"] = usage.get("repair_order_accruals", 0) + 1
         return usage
 
     def _parse_payroll_decimal(self, value, *, default: Decimal = Decimal("0")) -> Decimal:
@@ -1722,6 +2306,238 @@ class CardServicePayrollMixin:
         if "." in text:
             text = text.rstrip("0").rstrip(".")
         return text or "0"
+
+    def _normalized_payroll_term(
+        self,
+        payload: Any,
+        *,
+        fallback: dict[str, Any] | None = None,
+        effective_from: str = "",
+    ) -> dict[str, str] | None:
+        if not isinstance(payload, dict):
+            return None
+        fallback = fallback or {}
+        starts_at = normalize_text(
+            payload.get("effective_from"),
+            default=effective_from or fallback.get("effective_from", ""),
+            limit=64,
+        )
+        parsed_start = parse_datetime(starts_at)
+        if parsed_start is None:
+            return None
+        ends_at = normalize_text(
+            payload.get("effective_to"),
+            default=fallback.get("effective_to", ""),
+            limit=64,
+        )
+        parsed_end = parse_datetime(ends_at) if ends_at else None
+        if parsed_end is not None and parsed_end <= parsed_start:
+            ends_at = ""
+        return {
+            "id": normalize_text(
+                payload.get("id") or fallback.get("id") or str(uuid.uuid4()),
+                default="",
+                limit=64,
+            )
+            or str(uuid.uuid4()),
+            "effective_from": parsed_start.isoformat(),
+            "effective_to": parsed_end.isoformat() if parsed_end is not None else "",
+            "salary_mode": self._normalize_payroll_mode(
+                payload.get("salary_mode", fallback.get("salary_mode"))
+            ),
+            "base_salary": self._format_payroll_decimal(
+                self._parse_payroll_decimal(
+                    payload.get("base_salary", fallback.get("base_salary", "0"))
+                )
+            ),
+            "work_percent": self._format_payroll_decimal(
+                self._parse_payroll_decimal(
+                    payload.get("work_percent", fallback.get("work_percent", "0"))
+                )
+            ),
+            "material_percent": self._format_payroll_decimal(
+                self._parse_payroll_decimal(
+                    payload.get(
+                        "material_percent",
+                        fallback.get("material_percent", DEFAULT_MATERIAL_PERCENT),
+                    )
+                )
+            ),
+            "repair_order_percent": self._format_payroll_decimal(
+                min(
+                    max(
+                        self._parse_payroll_decimal(
+                            payload.get(
+                                "repair_order_percent",
+                                fallback.get("repair_order_percent", "0"),
+                            )
+                        ),
+                        Decimal("0"),
+                    ),
+                    Decimal("100"),
+                )
+            ),
+        }
+
+    def _normalized_payroll_terms(
+        self,
+        value: Any,
+        *,
+        fallback: dict[str, Any],
+        created_at: str,
+    ) -> list[dict[str, str]]:
+        terms: list[dict[str, str]] = []
+        if isinstance(value, list):
+            for item in value:
+                term = self._normalized_payroll_term(
+                    item,
+                    fallback=fallback,
+                    effective_from=created_at,
+                )
+                if term is None:
+                    continue
+                terms.append(term)
+                if len(terms) >= PAYROLL_TERMS_LIMIT:
+                    break
+        if not terms:
+            term = self._normalized_payroll_term(
+                {**fallback, "effective_from": created_at},
+                fallback=fallback,
+                effective_from=created_at,
+            )
+            if term is not None:
+                terms.append(term)
+        terms.sort(
+            key=lambda item: (
+                parse_datetime(item.get("effective_from")) or datetime.min.replace(tzinfo=UTC)
+            )
+        )
+        normalized: list[dict[str, str]] = []
+        for index, term in enumerate(terms):
+            next_start = (
+                parse_datetime(terms[index + 1].get("effective_from"))
+                if index + 1 < len(terms)
+                else None
+            )
+            current = dict(term)
+            if next_start is not None:
+                current["effective_to"] = next_start.isoformat()
+            normalized.append(current)
+        if normalized:
+            normalized[-1]["effective_to"] = ""
+        return normalized
+
+    def _employee_payroll_terms(self, employee: dict[str, Any]) -> list[dict[str, str]]:
+        fallback = {
+            "salary_mode": employee.get("salary_mode", PAYROLL_MODE_PERCENT_ONLY),
+            "base_salary": employee.get("base_salary", "0"),
+            "work_percent": employee.get("work_percent", "0"),
+            "material_percent": employee.get("material_percent", DEFAULT_MATERIAL_PERCENT),
+            "repair_order_percent": employee.get("repair_order_percent", "0"),
+        }
+        return self._normalized_payroll_terms(
+            employee.get("payroll_terms"),
+            fallback=fallback,
+            created_at=employee.get("created_at") or model_helpers.utc_now_iso(),
+        )
+
+    def _employee_payroll_term_at(
+        self, employee: dict[str, Any], moment: datetime | str | None
+    ) -> dict[str, str]:
+        requested = (
+            parse_datetime(moment) if isinstance(moment, str) else moment
+        ) or model_helpers.utc_now()
+        requested = requested.astimezone(UTC)
+        terms = self._employee_payroll_terms(employee)
+        selected = (
+            terms[0]
+            if terms
+            else {
+                "salary_mode": employee.get("salary_mode", PAYROLL_MODE_PERCENT_ONLY),
+                "base_salary": employee.get("base_salary", "0"),
+                "work_percent": employee.get("work_percent", "0"),
+                "material_percent": employee.get("material_percent", DEFAULT_MATERIAL_PERCENT),
+                "repair_order_percent": employee.get("repair_order_percent", "0"),
+                "effective_from": employee.get("created_at") or model_helpers.utc_now_iso(),
+                "effective_to": "",
+            }
+        )
+        for term in terms:
+            starts_at = parse_datetime(term.get("effective_from"))
+            ends_at = parse_datetime(term.get("effective_to"))
+            if starts_at is None or requested < starts_at.astimezone(UTC):
+                continue
+            if ends_at is not None and requested >= ends_at.astimezone(UTC):
+                continue
+            selected = term
+        return dict(selected)
+
+    def _append_employee_payroll_term(
+        self,
+        employee: dict[str, Any],
+        *,
+        effective_from: str,
+        salary_mode: str,
+        base_salary: str,
+        work_percent: str,
+        material_percent: str,
+        repair_order_percent: str,
+    ) -> dict[str, Any]:
+        starts_at = parse_datetime(effective_from)
+        if starts_at is None:
+            self._fail(
+                "validation_error",
+                "Дата начала условий зарплаты некорректна.",
+                details={"field": "payroll_effective_from"},
+            )
+        terms = [dict(item) for item in self._employee_payroll_terms(employee)]
+        terms = [item for item in terms if parse_datetime(item.get("effective_from")) != starts_at]
+        for item in terms:
+            item_start = parse_datetime(item.get("effective_from"))
+            if item_start is not None and item_start < starts_at:
+                item["effective_to"] = starts_at.isoformat()
+        new_term = self._normalized_payroll_term(
+            {
+                "effective_from": starts_at.isoformat(),
+                "salary_mode": salary_mode,
+                "base_salary": base_salary,
+                "work_percent": work_percent,
+                "material_percent": material_percent,
+                "repair_order_percent": repair_order_percent,
+            },
+            effective_from=starts_at.isoformat(),
+        )
+        if new_term is not None:
+            terms.append(new_term)
+        terms.sort(
+            key=lambda item: (
+                parse_datetime(item.get("effective_from")) or datetime.min.replace(tzinfo=UTC)
+            )
+        )
+        for index, item in enumerate(terms):
+            item["effective_to"] = (
+                terms[index + 1]["effective_from"] if index + 1 < len(terms) else ""
+            )
+        next_employee = dict(employee)
+        next_employee.update(
+            {
+                "salary_mode": self._normalize_payroll_mode(salary_mode),
+                "base_salary": self._format_payroll_decimal(
+                    self._parse_payroll_decimal(base_salary)
+                ),
+                "work_percent": self._format_payroll_decimal(
+                    self._parse_payroll_decimal(work_percent)
+                ),
+                "material_percent": self._format_payroll_decimal(
+                    self._parse_payroll_decimal(material_percent)
+                ),
+                "repair_order_percent": self._format_payroll_decimal(
+                    self._parse_payroll_decimal(repair_order_percent)
+                ),
+                "payroll_terms": terms[-PAYROLL_TERMS_LIMIT:],
+            }
+        )
+        return next_employee
 
     def _repair_order_row_decimal_or_none(self, value: object) -> Decimal | None:
         text = normalize_text(value, default="", limit=40)
@@ -1920,16 +2736,29 @@ class CardServicePayrollMixin:
         period_end: datetime,
         as_of: datetime | None = None,
     ) -> list[dict[str, Any]]:
-        if not self._employee_has_weekly_base_salary(employee):
-            return []
-        return employee_weekly_base_salary_accruals(
-            employee,
-            amount=self._parse_payroll_decimal(employee.get("base_salary", "")),
-            period_start=period_start,
-            period_end=period_end,
-            as_of=as_of or model_helpers.utc_now(),
-            **PAYROLL_WEEKLY_BASE_SALARY_AT,
-        )
+        accruals: list[dict[str, Any]] = []
+        for term in self._employee_payroll_terms(employee):
+            term_employee = {**employee, **term}
+            if not self._employee_has_weekly_base_salary(term_employee):
+                continue
+            starts_at = parse_datetime(term.get("effective_from")) or period_start
+            ends_at = parse_datetime(term.get("effective_to")) or period_end
+            term_start = max(period_start, starts_at)
+            term_end = min(period_end, ends_at)
+            if term_end <= term_start:
+                continue
+            accruals.extend(
+                employee_weekly_base_salary_accruals(
+                    term_employee,
+                    amount=self._parse_payroll_decimal(term.get("base_salary", "")),
+                    period_start=term_start,
+                    period_end=term_end,
+                    as_of=as_of or model_helpers.utc_now(),
+                    **PAYROLL_WEEKLY_BASE_SALARY_AT,
+                )
+            )
+        accruals.sort(key=lambda item: item["accrued_at"])
+        return accruals
 
     def _normalized_employee_shift_accrual(
         self,
@@ -2023,6 +2852,194 @@ class CardServicePayrollMixin:
         )
         return accruals
 
+    def _normalized_employee_repair_order_accrual(self, payload: Any) -> dict[str, Any] | None:
+        if not isinstance(payload, dict):
+            return None
+        employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
+        card_id = normalize_text(payload.get("card_id"), default="", limit=128)
+        if not employee_id or not card_id:
+            return None
+        kind = normalize_text(payload.get("kind"), default="accrual", limit=32).casefold()
+        if kind not in {"accrual", "reversal"}:
+            return None
+        amount_minor = normalize_money_minor(payload.get("amount_minor"), default=0)
+        if amount_minor < 1:
+            return None
+        base_amount_minor = normalize_money_minor(payload.get("base_amount_minor"), default=0)
+        created_at = parse_business_datetime(payload.get("created_at"))
+        if created_at is None:
+            return None
+        return {
+            "id": normalize_text(payload.get("id") or str(uuid.uuid4()), default="", limit=64)
+            or str(uuid.uuid4()),
+            "kind": kind,
+            "employee_id": employee_id,
+            "employee_name": normalize_text(payload.get("employee_name"), default="", limit=80),
+            "card_id": card_id,
+            "repair_order_number": normalize_text(
+                payload.get("repair_order_number"), default="", limit=40
+            ),
+            "base_amount_minor": base_amount_minor,
+            "percent": self._format_payroll_decimal(
+                min(
+                    max(
+                        self._parse_payroll_decimal(payload.get("percent")),
+                        Decimal("0"),
+                    ),
+                    Decimal("100"),
+                )
+            ),
+            "amount_minor": amount_minor,
+            "created_at": created_at.isoformat(),
+            "qualified_at": (
+                parse_business_datetime(payload.get("qualified_at")) or created_at
+            ).isoformat(),
+            "related_accrual_id": normalize_text(
+                payload.get("related_accrual_id"), default="", limit=64
+            ),
+            "actor_name": normalize_actor_name(payload.get("actor_name")),
+            "source": normalize_source(payload.get("source"), default="system"),
+        }
+
+    def _employee_repair_order_accruals_from_settings(
+        self,
+        settings: dict[str, Any],
+        *,
+        employees_by_id: dict[str, dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
+        raw_items = settings.get(EMPLOYEE_REPAIR_ORDER_ACCRUALS_SETTING_KEY)
+        if not isinstance(raw_items, list):
+            return []
+        items: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        for raw in raw_items:
+            item = self._normalized_employee_repair_order_accrual(raw)
+            if item is None or item["id"] in seen_ids:
+                continue
+            employee = (employees_by_id or {}).get(item["employee_id"])
+            if employee is not None and not item.get("employee_name"):
+                item["employee_name"] = employee.get("name", "")
+            seen_ids.add(item["id"])
+            items.append(item)
+        items.sort(
+            key=lambda item: (
+                self._repair_order_sortable_datetime(item.get("created_at")),
+                item.get("id") or "",
+            )
+        )
+        return items
+
+    def _employee_repair_order_accrual_storage_payload(
+        self, item: dict[str, Any]
+    ) -> dict[str, Any]:
+        normalized = self._normalized_employee_repair_order_accrual(item)
+        return normalized or {}
+
+    def _active_employee_repair_order_accruals(
+        self, entries: list[dict[str, Any]], *, card_id: str
+    ) -> list[dict[str, Any]]:
+        reversed_ids = {
+            item.get("related_accrual_id")
+            for item in entries
+            if item.get("kind") == "reversal" and item.get("related_accrual_id")
+        }
+        return [
+            item
+            for item in entries
+            if item.get("kind") == "accrual"
+            and item.get("card_id") == card_id
+            and item.get("id") not in reversed_ids
+        ]
+
+    def _sync_employee_repair_order_accruals(
+        self,
+        *,
+        card_id: str,
+        order: RepairOrder,
+        settings: dict[str, Any],
+        actor_name: str,
+        source: str,
+        created_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        entries = self._employee_repair_order_accruals_from_settings(settings)
+        active_entries = self._active_employee_repair_order_accruals(entries, card_id=card_id)
+        qualified_at = self._repair_order_payroll_qualified_at(order)
+        employees = self._employees_from_settings(settings)
+        desired: dict[str, tuple[dict[str, Any], dict[str, str], Decimal]] = {}
+        if qualified_at is not None:
+            for employee in employees:
+                term = self._employee_payroll_term_at(employee, qualified_at)
+                percent = self._parse_payroll_decimal(term.get("repair_order_percent"))
+                if percent > Decimal("0"):
+                    desired[employee["id"]] = (employee, term, percent)
+        operation_at = created_at or model_helpers.utc_now()
+        appended: list[dict[str, Any]] = []
+        active_by_employee = {item["employee_id"]: item for item in active_entries}
+        for employee_id, active in active_by_employee.items():
+            if employee_id in desired:
+                continue
+            reversal = {
+                "id": str(uuid.uuid4()),
+                "kind": "reversal",
+                "employee_id": active["employee_id"],
+                "employee_name": active.get("employee_name", ""),
+                "card_id": card_id,
+                "repair_order_number": active.get("repair_order_number") or order.number,
+                "base_amount_minor": active.get("base_amount_minor", 0),
+                "percent": active.get("percent", "0"),
+                "amount_minor": active["amount_minor"],
+                "created_at": operation_at.isoformat(),
+                "qualified_at": active.get("qualified_at") or operation_at.isoformat(),
+                "related_accrual_id": active["id"],
+                "actor_name": actor_name,
+                "source": source,
+            }
+            entries.append(reversal)
+            appended.append(reversal)
+        if qualified_at is not None:
+            base_amount = order.subtotal_value()
+            base_amount_minor = int(
+                (base_amount * Decimal("100")).to_integral_value(rounding=ROUND_HALF_UP)
+            )
+            for employee_id, (employee, _term, percent) in desired.items():
+                if employee_id in active_by_employee or base_amount_minor <= 0:
+                    continue
+                amount = base_amount * percent / Decimal("100")
+                amount_minor = int(
+                    (amount * Decimal("100")).to_integral_value(rounding=ROUND_HALF_UP)
+                )
+                if amount_minor <= 0:
+                    continue
+                accrual = {
+                    "id": str(uuid.uuid4()),
+                    "kind": "accrual",
+                    "employee_id": employee_id,
+                    "employee_name": employee["name"],
+                    "card_id": card_id,
+                    "repair_order_number": order.number,
+                    "base_amount_minor": base_amount_minor,
+                    "percent": self._format_payroll_decimal(percent),
+                    "amount_minor": amount_minor,
+                    "created_at": qualified_at.isoformat(),
+                    "qualified_at": qualified_at.isoformat(),
+                    "related_accrual_id": "",
+                    "actor_name": actor_name,
+                    "source": source,
+                }
+                entries.append(accrual)
+                appended.append(accrual)
+        if appended:
+            entries.sort(
+                key=lambda item: (
+                    self._repair_order_sortable_datetime(item.get("created_at")),
+                    item.get("id") or "",
+                )
+            )
+            settings[EMPLOYEE_REPAIR_ORDER_ACCRUALS_SETTING_KEY] = [
+                self._employee_repair_order_accrual_storage_payload(item) for item in entries
+            ]
+        return {"changed": bool(appended), "entries": appended}
+
     def _normalized_employee_record(
         self, payload: Any, *, existing: dict[str, Any] | None = None
     ) -> dict[str, Any] | None:
@@ -2044,7 +3061,12 @@ class CardServicePayrollMixin:
         position = normalize_text(
             payload.get("position"), default=existing.get("position", ""), limit=80
         )
-        payroll_amount_fields = ("base_salary", "work_percent", "material_percent")
+        payroll_amount_fields = (
+            "base_salary",
+            "work_percent",
+            "material_percent",
+            "repair_order_percent",
+        )
         has_explicit_payroll_amount = any(
             field in payload and normalize_text(payload.get(field), default="", limit=40)
             for field in payroll_amount_fields
@@ -2100,6 +3122,15 @@ class CardServicePayrollMixin:
                 )
             )
         )
+        repair_order_percent = self._format_payroll_decimal(
+            min(
+                max(
+                    self._parse_payroll_decimal(payroll_value("repair_order_percent", default="0")),
+                    Decimal("0"),
+                ),
+                Decimal("100"),
+            )
+        )
         note = normalize_text(payload.get("note"), default=existing.get("note", ""), limit=240)
         is_active = normalize_bool(
             payload.get("is_active"),
@@ -2119,7 +3150,7 @@ class CardServicePayrollMixin:
             )
             or now_iso
         )
-        return {
+        employee = {
             "id": employee_id,
             "name": name,
             "position": position,
@@ -2127,6 +3158,7 @@ class CardServicePayrollMixin:
             "base_salary": base_salary,
             "work_percent": work_percent,
             "material_percent": material_percent,
+            "repair_order_percent": repair_order_percent,
             "is_active": is_active,
             "active_periods": normalized_employee_active_periods(
                 payload.get("active_periods", existing.get("active_periods")),
@@ -2138,6 +3170,66 @@ class CardServicePayrollMixin:
             "created_at": created_at,
             "updated_at": updated_at,
         }
+        fallback_terms = {
+            "salary_mode": salary_mode,
+            "base_salary": base_salary,
+            "work_percent": work_percent,
+            "material_percent": material_percent,
+            "repair_order_percent": repair_order_percent,
+        }
+        if isinstance(payload.get("payroll_terms"), list):
+            employee["payroll_terms"] = self._normalized_payroll_terms(
+                payload.get("payroll_terms"),
+                fallback=fallback_terms,
+                created_at=created_at,
+            )
+        elif existing:
+            employee["payroll_terms"] = self._normalized_payroll_terms(
+                existing.get("payroll_terms"),
+                fallback={
+                    "salary_mode": existing.get("salary_mode", salary_mode),
+                    "base_salary": existing.get("base_salary", base_salary),
+                    "work_percent": existing.get("work_percent", work_percent),
+                    "material_percent": existing.get("material_percent", material_percent),
+                    "repair_order_percent": existing.get("repair_order_percent", "0"),
+                },
+                created_at=created_at,
+            )
+            previous_values = (
+                existing.get("salary_mode", PAYROLL_MODE_PERCENT_ONLY),
+                existing.get("base_salary", "0"),
+                existing.get("work_percent", "0"),
+                existing.get("material_percent", DEFAULT_MATERIAL_PERCENT),
+                existing.get("repair_order_percent", "0"),
+            )
+            next_values = (
+                salary_mode,
+                base_salary,
+                work_percent,
+                material_percent,
+                repair_order_percent,
+            )
+            if previous_values != next_values:
+                employee = self._append_employee_payroll_term(
+                    employee,
+                    effective_from=normalize_text(
+                        payload.get("payroll_effective_from"),
+                        default=now_iso,
+                        limit=64,
+                    ),
+                    salary_mode=salary_mode,
+                    base_salary=base_salary,
+                    work_percent=work_percent,
+                    material_percent=material_percent,
+                    repair_order_percent=repair_order_percent,
+                )
+        else:
+            employee["payroll_terms"] = self._normalized_payroll_terms(
+                None,
+                fallback=fallback_terms,
+                created_at=created_at,
+            )
+        return employee
 
     def _employees_from_settings(self, settings: dict[str, Any]) -> list[dict[str, Any]]:
         raw_items = settings.get(EMPLOYEES_SETTING_KEY)
@@ -2174,6 +3266,27 @@ class CardServicePayrollMixin:
             details={"field": EMPLOYEES_SETTING_KEY, "max_count": EMPLOYEES_MAX_COUNT},
         )
 
+    def _repair_order_payroll_qualified_at(self, order: RepairOrder) -> datetime | None:
+        if order.status != REPAIR_ORDER_STATUS_CLOSED or not order.is_paid():
+            return None
+        closed_at = self._parse_repair_order_datetime(order.closed_at) or model_helpers.utc_now()
+        ordered_payments = sorted(
+            order.payments,
+            key=lambda item: parse_business_datetime(item.paid_at) or closed_at,
+        )
+        paid_at: datetime | None = None
+        for index, payment in enumerate(ordered_payments, start=1):
+            candidate = RepairOrder.from_dict(
+                {
+                    **order.to_storage_dict(),
+                    "payments": [item.to_storage_dict() for item in ordered_payments[:index]],
+                }
+            )
+            if candidate.is_paid():
+                paid_at = parse_business_datetime(payment.paid_at) or closed_at
+                break
+        return max(closed_at, paid_at or closed_at)
+
     def _apply_repair_order_payroll_snapshot(
         self, order: RepairOrder, settings: dict[str, Any]
     ) -> RepairOrder:
@@ -2203,7 +3316,9 @@ class CardServicePayrollMixin:
             )
         employees_by_id = {item["id"]: item for item in self._employees_from_settings(settings)}
         order_is_paid = order.is_paid()
-        accrued_at = order.closed_at or self._repair_order_now()
+        accrued_at = self._repair_order_payroll_qualified_at(order) or (
+            order.closed_at or self._repair_order_now()
+        )
         next_work_rows, work_rows_changed = self._apply_repair_order_payroll_snapshot_work_rows(
             order,
             employees_by_id=employees_by_id,
@@ -2267,33 +3382,40 @@ class CardServicePayrollMixin:
                 self._clear_work_salary_snapshot(row)
                 next_rows.append(row.to_dict())
                 continue
+            payroll_term = self._employee_payroll_term_at(employee, accrued_at)
+            if payroll_term["salary_mode"] == "none" and self._parse_payroll_decimal(
+                payroll_term.get("repair_order_percent", "0")
+            ) > Decimal("0"):
+                self._clear_work_salary_snapshot(row)
+                next_rows.append(row.to_dict())
+                continue
             row.executor_name = employee["name"]
             row.work_executor_id_snapshot = employee["id"]
             row.work_executor_name_snapshot = employee["name"]
             row.work_quantity_snapshot = row.quantity
             row.work_price_snapshot = row.price
             row.work_total_snapshot = row.total
-            row.salary_mode_snapshot = employee["salary_mode"]
-            row.base_salary_snapshot = employee["base_salary"]
+            row.salary_mode_snapshot = payroll_term["salary_mode"]
+            row.base_salary_snapshot = payroll_term["base_salary"]
             salary_amount = Decimal("0")
             if self._work_salary_override_enabled(row):
                 salary_amount, applied_percent = self._work_salary_override_amount(row)
                 row.work_percent_snapshot = self._format_payroll_decimal(applied_percent)
-            elif employee["salary_mode"] in {
+            elif payroll_term["salary_mode"] in {
                 PAYROLL_MODE_PERCENT_ONLY,
                 PAYROLL_MODE_SALARY_PLUS_PERCENT,
             }:
-                row.work_percent_snapshot = employee["work_percent"]
+                row.work_percent_snapshot = payroll_term["work_percent"]
                 work_salary_base = self._work_salary_percent_base(row, Decimal("0"))
                 salary_amount = (
                     work_salary_base
-                    * self._parse_payroll_decimal(employee["work_percent"])
+                    * self._parse_payroll_decimal(payroll_term["work_percent"])
                     / Decimal("100")
                 )
             else:
-                row.work_percent_snapshot = employee["work_percent"]
+                row.work_percent_snapshot = payroll_term["work_percent"]
             row.salary_amount = self._format_payroll_decimal(salary_amount)
-            row.salary_accrued_at = accrued_at
+            row.salary_accrued_at = order.closed_at or accrued_at
             next_rows.append(row.to_dict())
         return next_rows, changed
 
@@ -2333,7 +3455,16 @@ class CardServicePayrollMixin:
                 self._clear_material_salary_snapshot(row)
                 next_rows.append(row.to_dict())
                 continue
-            material_percent = self._parse_payroll_decimal(employee.get("material_percent", ""))
+            payroll_term = self._employee_payroll_term_at(employee, accrued_at)
+            if self._parse_payroll_decimal(payroll_term.get("repair_order_percent", "0")) > Decimal(
+                "0"
+            ) and self._parse_payroll_decimal(payroll_term.get("material_percent", "0")) == Decimal(
+                "0"
+            ):
+                self._clear_material_salary_snapshot(row)
+                next_rows.append(row.to_dict())
+                continue
+            material_percent = self._parse_payroll_decimal(payroll_term.get("material_percent", ""))
             profit = max(row.total_value() - cost_total, Decimal("0"))
             salary_amount = profit * material_percent / Decimal("100")
             row.executor_name = employee["name"]
@@ -2345,9 +3476,80 @@ class CardServicePayrollMixin:
             row.material_percent_snapshot = self._format_payroll_decimal(material_percent)
             row.material_profit = self._format_payroll_decimal(profit)
             row.material_salary_amount = self._format_payroll_decimal(salary_amount)
-            row.material_salary_accrued_at = accrued_at
+            row.material_salary_accrued_at = order.closed_at or accrued_at
             next_rows.append(row.to_dict())
         return next_rows, changed
+
+    def _repair_order_accrual_payroll_report_rows(
+        self,
+        repair_order_accruals: list[dict[str, Any]],
+        *,
+        selected_employee_id: str,
+        period_start: datetime,
+        period_end: datetime,
+        employees_by_id: dict[str, dict[str, Any]],
+        summaries: dict[str, dict[str, Any]],
+        empty_summary: Any,
+    ) -> list[dict[str, Any]]:
+        detail_rows: list[dict[str, Any]] = []
+        for order_accrual in repair_order_accruals:
+            employee_id = normalize_text(order_accrual.get("employee_id"), default="", limit=64)
+            if not employee_id or (selected_employee_id and employee_id != selected_employee_id):
+                continue
+            created_at = parse_business_datetime(order_accrual.get("created_at"))
+            if created_at is None:
+                continue
+            created_at = created_at.astimezone(business_timezone())
+            if created_at < period_start or created_at >= period_end:
+                continue
+            employee = employees_by_id.get(employee_id)
+            if employee_id not in summaries:
+                if employee is None:
+                    continue
+                summaries[employee_id] = empty_summary(employee)
+            summary = summaries[employee_id]
+            sign = -1 if order_accrual.get("kind") == "reversal" else 1
+            amount = Decimal(
+                sign * int(normalize_money_minor(order_accrual.get("amount_minor")))
+            ) / Decimal("100")
+            base = Decimal(
+                int(normalize_money_minor(order_accrual.get("base_amount_minor")))
+            ) / Decimal("100")
+            count_key = (
+                "repair_order_accrual_reversals_count"
+                if sign < 0
+                else "repair_order_accruals_count"
+            )
+            summary[count_key] = summary.get(count_key, 0) + 1
+            summary["repair_order_accrued_total"] += amount
+            detail_rows.append(
+                {
+                    "row_type": (
+                        "repair_order_accrual_reversal" if sign < 0 else "repair_order_accrual"
+                    ),
+                    "type_label": "Отмена % от ЗН" if sign < 0 else "% от заказ-наряда",
+                    "employee_id": employee_id,
+                    "employee_name": summary["employee_name"],
+                    "closed_at": created_at.strftime("%d.%m.%Y %H:%M"),
+                    "repair_order_number": order_accrual.get("repair_order_number") or "",
+                    "card_id": order_accrual.get("card_id") or "",
+                    "vehicle": "",
+                    "works_count": 0,
+                    "work_total": base,
+                    "materials_count": 0,
+                    "material_name": f"{order_accrual.get('percent') or '0'}% от заказ-наряда",
+                    "material_total": Decimal("0"),
+                    "material_cost_total": Decimal("0"),
+                    "material_profit": Decimal("0"),
+                    "material_percent": "",
+                    "salary_amount": amount,
+                    "base_amount": base,
+                    "repair_order_percent": order_accrual.get("percent") or "",
+                    "accrual_id": order_accrual.get("id") or "",
+                    "related_accrual_id": order_accrual.get("related_accrual_id") or "",
+                }
+            )
+        return detail_rows
 
     def _build_payroll_report(
         self,
@@ -2355,6 +3557,7 @@ class CardServicePayrollMixin:
         employees: list[dict[str, Any]],
         *,
         shift_accruals: list[dict[str, Any]] | None = None,
+        repair_order_accruals: list[dict[str, Any]] | None = None,
         month: str,
         employee_id: str | None = None,
     ) -> dict[str, list[dict[str, Any]]]:
@@ -2372,6 +3575,7 @@ class CardServicePayrollMixin:
                 "salary_mode": employee.get("salary_mode", ""),
                 "work_percent": employee.get("work_percent", ""),
                 "material_percent": employee.get("material_percent", DEFAULT_MATERIAL_PERCENT),
+                "repair_order_percent": employee.get("repair_order_percent", "0"),
                 "base_salary": self._format_payroll_decimal(base_salary),
                 "base_salary_accruals_count": 0,
                 "base_salary_accrued_total": Decimal("0"),
@@ -2385,6 +3589,9 @@ class CardServicePayrollMixin:
                 "materials_cost_total": Decimal("0"),
                 "materials_profit_total": Decimal("0"),
                 "materials_accrued_total": Decimal("0"),
+                "repair_order_accruals_count": 0,
+                "repair_order_accrual_reversals_count": 0,
+                "repair_order_accrued_total": Decimal("0"),
             }
 
         summaries: dict[str, dict[str, Any]] = {}
@@ -2635,6 +3842,16 @@ class CardServicePayrollMixin:
                         "salary_amount": accrued_total,
                     }
                 )
+        repair_order_detail_rows = self._repair_order_accrual_payroll_report_rows(
+            repair_order_accruals or [],
+            selected_employee_id=selected_employee_id,
+            period_start=period_start,
+            period_end=period_end,
+            employees_by_id=employees_by_id,
+            summaries=summaries,
+            empty_summary=empty_summary,
+        )
+
         summary_rows: list[dict[str, Any]] = []
         for item in summaries.values():
             base_salary = self._parse_payroll_decimal(item["base_salary"])
@@ -2646,11 +3863,13 @@ class CardServicePayrollMixin:
             materials_cost_total = item["materials_cost_total"]
             materials_profit_total = item["materials_profit_total"]
             materials_accrued_total = item["materials_accrued_total"]
+            repair_order_accrued_total = item.get("repair_order_accrued_total", Decimal("0"))
             accrued_total = (
                 base_salary_accrued_total
                 + shift_accrued_total
                 + work_accrued_total
                 + materials_accrued_total
+                + repair_order_accrued_total
             )
             total_salary = accrued_total
             summary_rows.append(
@@ -2661,6 +3880,7 @@ class CardServicePayrollMixin:
                     "salary_mode": item["salary_mode"],
                     "work_percent": item["work_percent"],
                     "material_percent": item["material_percent"],
+                    "repair_order_percent": item.get("repair_order_percent", "0"),
                     "base_salary": self._format_payroll_decimal(base_salary),
                     "base_salary_accruals_count": item["base_salary_accruals_count"],
                     "base_salary_accrued_total": self._format_payroll_decimal(
@@ -2678,6 +3898,13 @@ class CardServicePayrollMixin:
                     "materials_accrued_total": self._format_payroll_decimal(
                         materials_accrued_total
                     ),
+                    "repair_order_accruals_count": item.get("repair_order_accruals_count", 0),
+                    "repair_order_accrual_reversals_count": item.get(
+                        "repair_order_accrual_reversals_count", 0
+                    ),
+                    "repair_order_accrued_total": self._format_payroll_decimal(
+                        repair_order_accrued_total
+                    ),
                     "accrued_total": self._format_payroll_decimal(accrued_total),
                     "total_salary": self._format_payroll_decimal(total_salary),
                 }
@@ -2692,6 +3919,7 @@ class CardServicePayrollMixin:
             + shift_detail_rows
             + list(detail_rows_by_order.values())
             + material_detail_rows
+            + repair_order_detail_rows
         ):
             detail_rows.append(
                 {
@@ -2714,6 +3942,12 @@ class CardServicePayrollMixin:
                     "material_profit": self._format_payroll_decimal(item["material_profit"]),
                     "material_percent": item["material_percent"],
                     "salary_amount": self._format_payroll_decimal(item["salary_amount"]),
+                    "base_amount": self._format_payroll_decimal(
+                        item.get("base_amount", Decimal("0"))
+                    ),
+                    "repair_order_percent": item.get("repair_order_percent", ""),
+                    "accrual_id": item.get("accrual_id", ""),
+                    "related_accrual_id": item.get("related_accrual_id", ""),
                 }
             )
         detail_rows.sort(

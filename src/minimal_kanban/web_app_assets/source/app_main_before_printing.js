@@ -588,6 +588,7 @@
                       + '<input id="employeeBaseSalaryInput" type="hidden" value="">'
                       + '<input id="employeeWorkPercentInput" type="hidden" value="">'
                       + '<input id="employeeMaterialPercentInput" type="hidden" value="">'
+                      + '<input id="employeeRepairOrderPercentInput" type="hidden" value="">'
                       + '<div class="employees-incentives" id="employeeIncentivesPanel">'
                         + '<div class="employees-incentives__head">'
                           + '<div class="panel-title">НАЧИСЛЕНИЯ</div>'
@@ -1010,6 +1011,7 @@
       employeeBaseSalaryInput: document.getElementById('employeeBaseSalaryInput'),
       employeeWorkPercentInput: document.getElementById('employeeWorkPercentInput'),
       employeeMaterialPercentInput: document.getElementById('employeeMaterialPercentInput'),
+      employeeRepairOrderPercentInput: document.getElementById('employeeRepairOrderPercentInput'),
       employeeIncentivesList: document.getElementById('employeeIncentivesList'),
       employeeIncentiveAddChoices: document.getElementById('employeeIncentiveAddChoices'),
       employeeShiftAccrualButton: document.getElementById('employeeShiftAccrualButton'),
@@ -1572,6 +1574,7 @@
       els.employeeBaseSalaryInput = document.getElementById('employeeBaseSalaryInput');
       els.employeeWorkPercentInput = document.getElementById('employeeWorkPercentInput');
       els.employeeMaterialPercentInput = document.getElementById('employeeMaterialPercentInput');
+      els.employeeRepairOrderPercentInput = document.getElementById('employeeRepairOrderPercentInput');
       els.employeeIncentivesList = document.getElementById('employeeIncentivesList');
       els.employeeIncentiveAddChoices = document.getElementById('employeeIncentiveAddChoices');
       els.employeeShiftAccrualButton = document.getElementById('employeeShiftAccrualButton');
@@ -5552,6 +5555,18 @@
         inactiveValue: '0',
         activeModes: [],
       },
+      {
+        kind: 'repair_order_percent',
+        inputKey: 'employeeRepairOrderPercentInput',
+        label: 'Заказ-наряды',
+        shortLabel: '% от заказ-наряда',
+        hint: 'Процент от стоимости работ и материалов закрытого и полностью оплаченного заказ-наряда.',
+        valueLabel: 'Процент',
+        placeholder: '0',
+        defaultValue: '0',
+        inactiveValue: '0',
+        activeModes: [],
+      },
     ];
 
     function employeeSalaryModeLabel(mode) {
@@ -5589,12 +5604,13 @@
       return inputKey ? els[inputKey] : null;
     }
 
-    function employeeIncentiveFlagsFromValues(mode, baseSalary, workPercent, materialPercent) {
+    function employeeIncentiveFlagsFromValues(mode, baseSalary, workPercent, materialPercent, repairOrderPercent) {
       const normalizedMode = normalizeEmployeeComparableText(mode || 'percent_only');
       const rawValues = {
         base_salary: baseSalary,
         work_percent: workPercent,
         material_percent: materialPercent,
+        repair_order_percent: repairOrderPercent,
       };
       return EMPLOYEE_INCENTIVE_DEFINITIONS.reduce((flags, item) => {
         const normalizedValue = normalizeEmployeeComparableNumber(rawValues[item.kind]);
@@ -5611,6 +5627,7 @@
         employee?.base_salary,
         employee?.work_percent,
         employee?.material_percent,
+        employee?.repair_order_percent,
       );
       const labels = EMPLOYEE_INCENTIVE_DEFINITIONS
         .filter((item) => Boolean(flags[item.kind]))
@@ -5624,6 +5641,7 @@
         els.employeeBaseSalaryInput?.value,
         els.employeeWorkPercentInput?.value,
         els.employeeMaterialPercentInput?.value,
+        els.employeeRepairOrderPercentInput?.value,
       );
     }
 
@@ -5737,6 +5755,7 @@
         base_salary: normalizeEmployeeComparableNumber(employee?.base_salary),
         work_percent: normalizeEmployeeComparableNumber(employee?.work_percent),
         material_percent: normalizeEmployeeComparableNumber(employee?.material_percent),
+        repair_order_percent: normalizeEmployeeComparableNumber(employee?.repair_order_percent),
         is_active: employee ? Boolean(employee.is_active) : true,
       };
     }
@@ -5756,6 +5775,7 @@
         base_salary: normalizeEmployeeComparableNumber(els.employeeBaseSalaryInput?.value),
         work_percent: normalizeEmployeeComparableNumber(els.employeeWorkPercentInput?.value),
         material_percent: normalizeEmployeeComparableNumber(els.employeeMaterialPercentInput?.value),
+        repair_order_percent: normalizeEmployeeComparableNumber(els.employeeRepairOrderPercentInput?.value),
         is_active: Boolean(selectedEmployeeRecord()?.is_active ?? true),
       };
     }
@@ -5953,6 +5973,11 @@
         .filter((item) => Boolean(flags[item.kind]))
         .map((item) => item.shortLabel);
       parts.push(incentiveLabels.length ? incentiveLabels.join(' + ') : employeeSalaryModeLabel(mode));
+      const payrollTerms = Array.isArray(selectedEmployee?.payroll_terms) ? selectedEmployee.payroll_terms : [];
+      const currentTerm = payrollTerms.length ? payrollTerms[payrollTerms.length - 1] : null;
+      if (currentTerm?.effective_from) {
+        parts.push('УСЛОВИЯ С ' + formatDateTime(currentTerm.effective_from));
+      }
       if (employeeFormHasUnsavedChanges()) parts.push('ИЗМЕНЕНО');
       els.employeesMeta.textContent = parts.join(' · ');
     }
@@ -5986,6 +6011,7 @@
       els.employeeBaseSalaryInput.value = current?.base_salary || '';
       els.employeeWorkPercentInput.value = current?.work_percent || '';
       els.employeeMaterialPercentInput.value = current?.material_percent || '';
+      els.employeeRepairOrderPercentInput.value = current?.repair_order_percent || '';
       if (els.employeeDeleteButton) {
         els.employeeDeleteButton.disabled = !current;
       }
@@ -6004,6 +6030,7 @@
         base_salary: els.employeeBaseSalaryInput.value,
         work_percent: els.employeeWorkPercentInput.value,
         material_percent: els.employeeMaterialPercentInput.value,
+        repair_order_percent: els.employeeRepairOrderPercentInput.value,
         is_active: selectedEmployee ? Boolean(selectedEmployee.is_active) : true,
         actor_name: state.actor,
         source: 'ui',
@@ -6071,10 +6098,11 @@
         const isMaterial = rowType === 'material';
         const isBaseSalary = rowType === 'base_salary';
         const isShiftAccrual = rowType === 'shift_accrual';
-        const positionName = (isBaseSalary || isShiftAccrual) ? (row.material_name || (isBaseSalary ? 'Недельный оклад' : 'Выплата за смены за текущую неделю')) : (isMaterial ? (row.material_name || '-') : ((row.works_count || '0') + ' раб.'));
-        const saleTotal = (isBaseSalary || isShiftAccrual) ? '-' : (isMaterial ? (row.material_total || '0') : (row.work_total || '0'));
-        const costTotal = (isBaseSalary || isShiftAccrual) ? '-' : (isMaterial ? (row.material_cost_total || '0') : '-');
-        const profitTotal = (isBaseSalary || isShiftAccrual) ? '-' : (isMaterial ? (row.material_profit || '0') : '-');
+        const isRepairOrderAccrual = rowType === 'repair_order_accrual' || rowType === 'repair_order_accrual_reversal';
+        const positionName = isRepairOrderAccrual ? (row.material_name || '% от заказ-наряда') : ((isBaseSalary || isShiftAccrual) ? (row.material_name || (isBaseSalary ? 'Недельный оклад' : 'Выплата за смены за текущую неделю')) : (isMaterial ? (row.material_name || '-') : ((row.works_count || '0') + ' раб.')));
+        const saleTotal = isRepairOrderAccrual ? (row.base_amount || row.work_total || '0') : ((isBaseSalary || isShiftAccrual) ? '-' : (isMaterial ? (row.material_total || '0') : (row.work_total || '0')));
+        const costTotal = (isBaseSalary || isShiftAccrual || isRepairOrderAccrual) ? '-' : (isMaterial ? (row.material_cost_total || '0') : '-');
+        const profitTotal = (isBaseSalary || isShiftAccrual || isRepairOrderAccrual) ? '-' : (isMaterial ? (row.material_profit || '0') : '-');
         return '<tr data-card-id="' + escapeHtml(row.card_id || '') + '" data-open-repair-order="' + (row.repair_order_number ? '1' : '') + '">' +
           '<td>' + escapeHtml(row.closed_at || '-') + '</td>' +
           '<td>' + escapeHtml(row.repair_order_number || '-') + '</td>' +
@@ -7058,6 +7086,7 @@
         || target === els.employeeBaseSalaryInput
         || target === els.employeeWorkPercentInput
         || target === els.employeeMaterialPercentInput
+        || target === els.employeeRepairOrderPercentInput
       ) {
         renderEmployeeProfileMeta();
         renderEmployeeShiftAccrualDialog();

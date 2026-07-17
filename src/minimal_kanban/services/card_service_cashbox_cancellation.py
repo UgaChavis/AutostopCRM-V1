@@ -10,7 +10,7 @@ from ..models import (
     format_money_minor,
     normalize_text,
 )
-from ..repair_order import repair_order_payment_method_from_payments
+from ..repair_order import REPAIR_ORDER_STATUS_CLOSED, REPAIR_ORDER_STATUS_OPEN, RepairOrder
 
 _CASH_CANCEL_REASON_MIN_CHARS = 10
 _CASH_TRANSACTION_KIND_CANCELLED = "cashbox_cancelled"
@@ -26,6 +26,7 @@ class CardServiceCashboxCancellationMixin:
             cashboxes = bundle["cashboxes"]
             transactions = bundle["cash_transactions"]
             events = bundle["events"]
+            settings = bundle["settings"]
             actor_name, source = self._audit_identity(payload, default_source="ui")
             transaction = self._find_cash_transaction(transactions, payload.get("transaction_id"))
             if transaction is None:
@@ -109,19 +110,29 @@ class CardServiceCashboxCancellationMixin:
                 "repair_order_card_id": linked_card.id if linked_card is not None else None,
             }
             if linked_card is not None and linked_payment is not None:
-                linked_card.repair_order.payments = [
-                    payment
+                next_order_payload = linked_card.repair_order.to_storage_dict()
+                next_order_payload["payments"] = [
+                    payment.to_storage_dict()
                     for payment in linked_card.repair_order.payments
                     if payment.id != linked_payment.id
                 ]
-                linked_card.repair_order.payment_method = repair_order_payment_method_from_payments(
-                    linked_card.repair_order.payments,
-                    default=linked_card.repair_order.payment_method,
-                )
-                linked_card.repair_order.prepayment = (
-                    linked_card.repair_order.prepayment_amount()
-                    if linked_card.repair_order.payments
-                    else ""
+                if not next_order_payload["payments"]:
+                    next_order_payload["prepayment"] = ""
+                candidate_order = RepairOrder.from_dict(next_order_payload)
+                if (
+                    linked_card.repair_order.status == REPAIR_ORDER_STATUS_CLOSED
+                    and not candidate_order.is_paid()
+                ):
+                    next_order_payload["status"] = REPAIR_ORDER_STATUS_OPEN
+                    next_order_payload["closed_at"] = ""
+                self._update_repair_order(
+                    linked_card,
+                    cards,
+                    next_order_payload,
+                    events,
+                    actor_name,
+                    source,
+                    settings=settings,
                 )
                 self._touch_card(linked_card, actor_name)
                 self._refresh_card_ai_fingerprint_if_agent_changed(linked_card, actor_name, source)
@@ -156,6 +167,7 @@ class CardServiceCashboxCancellationMixin:
                 cashboxes=cashboxes,
                 cash_transactions=transactions,
                 events=events,
+                settings=settings,
             )
             return {
                 "cashbox": self._serialize_cashbox(cashbox, transactions),

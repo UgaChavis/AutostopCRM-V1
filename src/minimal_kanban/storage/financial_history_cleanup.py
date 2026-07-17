@@ -8,16 +8,29 @@ FINANCIAL_EVENT_ACTIONS = {
     "cash_transaction_deleted",
     "cashbox_transfer_created",
     "employee_salary_transaction_created",
+    "employee_repair_order_accrual_created",
+    "employee_repair_order_accrual_reversed",
+    "payroll_policy_2026_07_13_applied",
 }
 
 
 def sanitize_financial_history_state(state: dict[str, Any]) -> dict[str, Any]:
     sanitized = deepcopy(state)
     _clear_cash_transactions(sanitized)
+    _clear_payroll_accrual_ledgers(sanitized)
     _clear_card_payroll_history(sanitized)
     _clear_cashbox_statistics(sanitized)
     _clear_financial_events(sanitized)
     return sanitized
+
+
+def _clear_payroll_accrual_ledgers(state: dict[str, Any]) -> None:
+    settings = state.get("settings")
+    if not isinstance(settings, dict):
+        return
+    for key in ("employee_shift_accruals", "employee_repair_order_accruals"):
+        if isinstance(settings.get(key), list):
+            settings[key] = []
 
 
 def _clear_cash_transactions(state: dict[str, Any]) -> None:

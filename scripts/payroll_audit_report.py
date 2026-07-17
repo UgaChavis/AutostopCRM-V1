@@ -302,6 +302,7 @@ def _detail_duplicate_key(row: dict[str, Any]) -> tuple[str, ...]:
         str(row.get("vehicle") or ""),
         str(row.get("material_name") or ""),
         str(row.get("salary_amount") or ""),
+        str(row.get("accrual_id") or ""),
     )
 
 
@@ -334,6 +335,8 @@ def _detail_totals_by_employee(report: dict[str, Any]) -> dict[str, dict[str, De
             detail_totals[employee_id]["work_accrued_total"] += amount
         elif row_type == "material":
             detail_totals[employee_id]["materials_accrued_total"] += amount
+        elif row_type in {"repair_order_accrual", "repair_order_accrual_reversal"}:
+            detail_totals[employee_id]["repair_order_accrued_total"] += amount
     return detail_totals
 
 
@@ -375,6 +378,45 @@ def _audit_report_material_formula_issues(
     return issues
 
 
+def _audit_report_repair_order_formula_issues(
+    report: dict[str, Any], *, month: str
+) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    for row in _items(report.get("detail_rows")):
+        row_type = str(row.get("row_type") or "")
+        if row_type not in {"repair_order_accrual", "repair_order_accrual_reversal"}:
+            continue
+        amount = _money(row.get("salary_amount"))
+        base = _money(row.get("base_amount") or row.get("work_total"))
+        percent = _percent(row.get("repair_order_percent"))
+        expected = _round_money(base * percent / Decimal("100"))
+        if row_type == "repair_order_accrual_reversal":
+            expected = -expected
+        if _round_money(amount) == expected:
+            continue
+        issues.append(
+            _issue(
+                code="payroll_repair_order_salary_formula_mismatch",
+                severity="error",
+                message="Начисление от заказ-наряда не равно зафиксированная база * процент.",
+                employee_id=str(row.get("employee_id") or ""),
+                employee_name=str(row.get("employee_name") or ""),
+                month=month,
+                data={
+                    "card_id": row.get("card_id"),
+                    "repair_order_number": row.get("repair_order_number"),
+                    "base_amount": _format_money(base),
+                    "percent": _format_money(percent),
+                    "expected_salary_amount": _format_money(expected),
+                    "salary_amount": _format_money(amount),
+                    "accrual_id": row.get("accrual_id"),
+                    "related_accrual_id": row.get("related_accrual_id"),
+                },
+            )
+        )
+    return issues
+
+
 def _audit_report_summary_issues(
     report: dict[str, Any], *, month: str, detail_totals: dict[str, dict[str, Decimal]]
 ) -> list[dict[str, Any]]:
@@ -386,6 +428,7 @@ def _audit_report_summary_issues(
             + _money(summary.get("shift_accrued_total"))
             + _money(summary.get("work_accrued_total"))
             + _money(summary.get("materials_accrued_total"))
+            + _money(summary.get("repair_order_accrued_total"))
         )
         accrued_total = _money(summary.get("accrued_total"))
         if component_total != accrued_total:
@@ -448,6 +491,7 @@ def _audit_report_totals(report: dict[str, Any], *, month: str) -> list[dict[str
     detail_totals = _detail_totals_by_employee(report)
     issues: list[dict[str, Any]] = []
     issues.extend(_audit_report_material_formula_issues(report, month=month))
+    issues.extend(_audit_report_repair_order_formula_issues(report, month=month))
     issues.extend(_audit_report_summary_issues(report, month=month, detail_totals=detail_totals))
     issues.extend(_audit_report_duplicate_issues(report, month=month))
     return issues
