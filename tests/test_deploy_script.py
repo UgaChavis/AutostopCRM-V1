@@ -44,6 +44,21 @@ class DeployScriptTests(unittest.TestCase):
         self.assertNotIn(retired_entrypoint, compose)
         self.assertNotIn(retired_env, compose)
 
+    def test_compose_uses_separate_precreated_internal_store_network_without_database(
+        self,
+    ) -> None:
+        compose = (PROJECT_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+
+        self.assertIn("autostop-store-agent:", compose)
+        self.assertIn("name: autostop-store-agent", compose)
+        self.assertIn("external: true", compose)
+        self.assertIn(
+            'AUTOSTOP_STORE_API_URL: "${AUTOSTOP_STORE_API_URL:-http://autostop-app:8000}"', compose
+        )
+        self.assertIn('AUTOSTOP_STORE_READ_TOKEN: "${AUTOSTOP_STORE_READ_TOKEN:-}"', compose)
+        self.assertIn('AUTOSTOP_STORE_MANAGE_TOKEN: "${AUTOSTOP_STORE_MANAGE_TOKEN:-}"', compose)
+        self.assertNotIn("autostop-db:", compose)
+
     def test_deploy_installs_production_watchdog_timer_by_default(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
         installer = (PROJECT_ROOT / "scripts" / "install_production_watchdog.sh").read_text(
@@ -97,12 +112,34 @@ class DeployScriptTests(unittest.TestCase):
         self.assertIn("run_maintenance env AUTOSTOP_RELEASE_IMAGE", script)
         self.assertEqual(script.count('mkdir -p "$staging_dir/data"'), 2)
         self.assertIn("--exclude '/data/'", script)
+        self.assertIn("--exclude '/out/'", script)
+        self.assertIn("--exclude '/tmp/'", script)
+        self.assertIn("--exclude '.coverage'", script)
+        self.assertIn("--exclude '.mypy_cache/'", script)
         self.assertNotIn("--exclude 'data/'", script)
         self.assertLess(
             script.index('df --output=avail -B1 "$ROOT_DIR"'),
             script.index('snapshot --backup-dir "$auth_backup_dir"'),
         )
         self.assertNotIn("docker compose up -d --build --remove-orphans", script)
+
+    def test_deploy_requires_scoped_store_identity_and_safe_network_membership(self) -> None:
+        script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+
+        self.assertIn(
+            ': "${AUTOSTOP_STORE_READ_TOKEN:?provision store read service token}"', script
+        )
+        self.assertIn(
+            ': "${AUTOSTOP_STORE_MANAGE_TOKEN:?provision store manage service token}"', script
+        )
+        self.assertIn("validate_store_network 0", script)
+        self.assertIn("validate_store_network 1", script)
+        self.assertIn("docker network inspect --format '{{.Internal}}'", script)
+        self.assertIn('grep -Fxq "$STORE_APP_CONTAINER"', script)
+        self.assertIn('grep -Fxq "$STORE_DB_CONTAINER"', script)
+        self.assertIn("unexpected container is attached", script)
+        self.assertIn("--require-production --require-store", script)
+        self.assertEqual(3, script.count("--require-store"))
 
     def test_deploy_rotates_auth_at_cutover_and_restores_it_on_rollback(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")

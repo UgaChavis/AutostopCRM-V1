@@ -14,6 +14,7 @@ from minimal_kanban.deployment_security import (  # noqa: E402
     assert_production_environment,
     load_agent_gateway_security_policy,
     validate_production_environment,
+    validate_store_integration_environment,
 )
 
 
@@ -27,12 +28,19 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Fail when AUTOSTOP_DEPLOYMENT_ENV is not production.",
     )
+    parser.add_argument(
+        "--require-store",
+        action="store_true",
+        help="Fail unless the internal Store URL and scoped service identities are provisioned.",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     errors = validate_production_environment()
+    if args.require_store:
+        errors.extend(validate_store_integration_environment())
     if args.require_production:
         try:
             assert_production_environment(require_production=True)

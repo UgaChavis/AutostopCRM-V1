@@ -31,6 +31,14 @@ class DocsAuditTests(unittest.TestCase):
 
         self.assertEqual([], issues)
 
+    def test_manager_audit_does_not_restore_intentionally_removed_legacy_maps(self) -> None:
+        module = load_docs_audit_module()
+
+        removed = {"docs/agent/knowledge_base_index.md", "docs/agent/phone_flow.json"}
+
+        self.assertTrue(removed.isdisjoint(module.MANAGER_CANONICAL_DOCS))
+        self.assertTrue(removed.isdisjoint(module.MANAGER_GATEWAY_INSTRUCTION_DOCS))
+
     def test_docker_image_keeps_canonical_root_docs_for_server_audit(self) -> None:
         dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
         rules = {line.strip() for line in dockerignore if line.strip() and not line.startswith("#")}

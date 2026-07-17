@@ -68,6 +68,39 @@ Low-level board, client, repair-order, inventory, finance, file, operator, and
 manager functions remain in the raw registry but are not advertised directly.
 Do not call a hidden legacy name from an external agent.
 
+The mounted Manager contributes five `INTERNAL_ONLY` store adapter tools:
+`store_runtime_status`, `store_digest`, `store_search`,
+`store_entity_context`, and `store_management_action`. Gateway captures all
+five before hiding the raw registry. They are deliberately absent from raw
+discovery/schema/call: store reads use the named context tools and store writes
+use only `agent_inventory_workflow`.
+
+Store coverage is additive to the existing schemas:
+
+- `agent_bootstrap` includes compact Store health and a separate
+  `store_bootstrap` digest stream; continue it with optional
+  `store_cursor`/`store_ack_token`;
+- `agent_board_digest(scope="store")` uses the durable `store_digest` stream
+  and accepts the returned `cursor`/`ack_token` pair;
+- `agent_search` supports `store_part`, `store_order`,
+  `store_quote_request`, `store_supplier`, `store_batch`,
+  `store_warehouse_operation`, `store_marketplace_listing`, and
+  `store_state`;
+- `agent_entity_context` reads one exact Store entity with `detail="summary"`
+  or `detail="full"`; Store PII remains redacted because the service identity
+  has no contact scope;
+- `get_runtime_status` performs a live Store health probe. Store failure makes
+  the Store section `degraded` while a healthy CRM remains usable;
+- `agent_inventory_workflow` keeps its old CRM default (`mode` omitted means
+  apply) but requires explicit `dry_run` or `apply` for Store actions.
+
+Every non-empty Store digest page, including the final source page, has
+`page.ack_required=true`. Pass its exact opaque Manager cursor and ACK token to
+the same public tool. Intermediate ACK returns the next page; final ACK returns
+an empty terminal page with `next_cursor=null` and only then commits durable
+high-water. Repeating an unacknowledged page or final ACK is idempotent. Raw App
+checkpoint/replay cursors are never public.
+
 ## Gateway Guarantees
 
 Gateway responses use `agent_envelope_v2` and compact verification evidence.
@@ -93,6 +126,11 @@ Gateway responses use `agent_envelope_v2` and compact verification evidence.
   and matching bearer token; public proxy traffic cannot claim that identity.
 - During maintenance, write routes return `503 maintenance_mode` while
   diagnostics and reads remain available.
+- The five Store adapter tools cannot be invoked through the raw escape hatch;
+  attempts return `named_operation_required` or `named_workflow_required`.
+- Store outage, missing credentials, or malformed Store configuration degrades
+  only Store context. CRM startup, board reads, and CRM workflows remain
+  independent.
 
 Production kill switches are:
 
@@ -118,6 +156,40 @@ recreating the CRM container.
 6. exact-target reread plus `workflow_status`/verification evidence
 7. raw discovery only when no named workflow covers the request
 
+For a Store digest, finish the cursor/ACK loop before treating “what is new” as
+consumed. `agent_bootstrap` and `agent_board_digest(scope="store")` use separate
+streams and their continuation field names are intentionally different.
+
+For Store writes, `agent_inventory_workflow` permits exactly:
+`assign_quote_request`, `set_quote_request_status`,
+`update_quote_request_comment`, `set_batch_storage_location`, and
+`mark_order_ready`. Supply exact `target_id`, current `expected_updated_at`,
+`owner_intent`, `planned_changes`, a unique idempotency key, and explicit
+`mode`. Dry-run and apply use different idempotency keys but the same stable
+`correlation_id`. If omitted, Gateway derives it from operation, exact target,
+effective revision, and canonical changes; mode, key, and owner wording do not
+affect it. An explicit value is preserved only when it passes the Store format
+validation.
+
+Gateway creates a compact ledger run with `scope.domain=store` and
+`scope.source=store`, then performs the exact revision preflight and closes a
+failed preflight without invoking Store. Successful actions are reread through
+the App-shaped DTO: assignments verify `assigned_user_id`; comments verify
+`has_internal_comment` plus the canonical `internal_comment_sha256`, never raw
+comment text; comment and READY actions retain their two-field change
+envelopes. READY closes only when its notifier state is `SENT` or
+`NOT_APPLICABLE`; `CLAIMED` and `FAILED` keep the core-applied run in
+`compensating`.
+
+Gateway does not automatically retry a Store POST after an uncertain result.
+If the caller repeats the exact same apply request and idempotency key for a
+`compensating` run, Gateway explicitly asks Store for the existing receipt,
+requires `idempotency_replay=true`, rereads the exact target, and may then close
+the ledger. READY dry-runs report bounded notification effects plus
+`external_effect_state`, `idempotency_replay`, and `correlation_id`. Gateway
+never forwards Store `owner_intent`, idempotency keys, credentials, raw comment
+text, or raw metadata in public data.
+
 For the active-card timer floor, use `domain="board"`,
 `action="bulk_set_deadline_if_below"`, `target_id="active_cards"`, and planned
 changes `include_archived=false`, `min_total_seconds=172800`,
@@ -129,7 +201,9 @@ expected and both records state their mode.
 Use `get_runtime_status` for runtime/auth diagnostics, not as the normal
 bootstrap. When the optional AutostopManager package is mounted, its memory,
 routing, and ledger capabilities remain behind the same Gateway and raw
-discovery; the visible count stays 24.
+discovery; the visible count stays 24. Store traffic uses
+`AUTOSTOP_STORE_API_URL` plus separate read/manage service tokens over the
+internal `autostop-store-agent` network. Never print these settings' values.
 
 ## Write Rules
 
@@ -185,6 +259,10 @@ Release verification:
 .\.venv\Scripts\python.exe scripts\check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --token-env AUTOSTOPCRM_MCP_TOKEN --exhaustive
 .\.venv\Scripts\python.exe scripts\check_mcp_oauth.py --mcp-url https://crm.autostopcrm.ru/mcp
 ```
+
+For a Store-enabled release, add `--require-store`. This performs a live
+adapter health probe and one bounded `store_state` search without advancing the
+owner's `store_digest` cursor, while retaining the exact 24-tool assertion.
 
 The script verifies anonymous rejection, the exact tool set, payload budgets,
 all 24 calls with read-only/dry-run/synthetic inputs, and does not print board

@@ -16,6 +16,11 @@ from .config import get_app_data_dir
 PRODUCTION_ENVIRONMENTS = frozenset({"prod", "production"})
 DEFAULT_SERVICE_IDENTITY = "codex-owner-agent"
 DEFAULT_MAINTENANCE_MARKER_NAME = ".agent-gateway-maintenance"
+EXPECTED_STORE_API_URL = "http://autostop-app:8000"
+STORE_TOKEN_ENV_NAMES = (
+    "AUTOSTOP_STORE_READ_TOKEN",
+    "AUTOSTOP_STORE_MANAGE_TOKEN",
+)
 
 GATEWAY_SWITCH_ENV_NAMES = (
     "AUTOSTOP_AGENT_GATEWAY_ENABLED",
@@ -177,6 +182,31 @@ def _validate_https_url(name: str, value: str, *, expected_path: str | None = No
     if expected_path and parsed.path.rstrip("/") != expected_path.rstrip("/"):
         return f"{name} must use the {expected_path} path"
     return None
+
+
+def validate_store_integration_environment(
+    environ: Mapping[str, str] | None = None,
+) -> list[str]:
+    """Validate the optional Store adapter release gate without making CRM startup depend on it."""
+
+    source = _clean_environment(environ)
+    errors: list[str] = []
+    store_api_url = str(source.get("AUTOSTOP_STORE_API_URL", "") or "").strip().rstrip("/")
+    if store_api_url != EXPECTED_STORE_API_URL:
+        errors.append(
+            f"AUTOSTOP_STORE_API_URL must be the internal service URL {EXPECTED_STORE_API_URL}"
+        )
+    store_tokens: dict[str, str] = {}
+    for name in STORE_TOKEN_ENV_NAMES:
+        store_token = str(source.get(name, "") or "").strip()
+        store_tokens[name] = store_token
+        if not store_token:
+            errors.append(f"{name} is required for a Store-enabled release")
+        elif not bearer_token_is_strong(store_token):
+            errors.append(f"{name} must be a strong URL-safe service token")
+    if all(store_tokens.values()) and len(set(store_tokens.values())) != len(store_tokens):
+        errors.append("AUTOSTOP_STORE_READ_TOKEN and AUTOSTOP_STORE_MANAGE_TOKEN must be distinct")
+    return errors
 
 
 def validate_production_environment(

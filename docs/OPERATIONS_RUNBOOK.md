@@ -29,6 +29,14 @@ The CRM service depends on healthy SearXNG and Crawl4AI. A normal release
 replaces only `autostopcrm`; it does not recreate those dependencies or
 unrelated host services.
 
+Store access uses a separate precreated external network named
+`autostop-store-agent`, created with `internal=true`. Its only allowed members
+are `autostop-app` and `autostopcrm`; `autostop-db` and all other containers
+must remain absent. Both applications retain their normal default networks.
+CRM calls the mounted Manager adapter, which uses
+`http://autostop-app:8000/internal/agent/v1/...`; CRM never connects directly
+to the Store PostgreSQL database.
+
 Do not put server-wide VPN, storefront, firewall, or unrelated checkout
 inventory in this repository. Inspect those systems live only when a task
 explicitly includes them.
@@ -249,6 +257,17 @@ All Gateway switches must be present in `.env` as `0` or `1`:
 - `AUTOSTOP_AGENT_GATEWAY_DESTRUCTIVE_ENABLED`
 - `AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED`
 
+A Store-enabled release additionally provisions these server-local values:
+
+- `AUTOSTOP_STORE_API_URL=http://autostop-app:8000`;
+- `AUTOSTOP_STORE_READ_TOKEN` for pure reads;
+- `AUTOSTOP_STORE_MANAGE_TOKEN` for the five allowlisted actions.
+
+The two scoped tokens must be strong and distinct. Never display their values.
+Missing or invalid Store configuration is nonfatal to normal CRM container
+startup and is reported as `store_degraded`; `deploy.sh` nevertheless requires
+valid Store settings before publishing a Store-enabled release.
+
 Validate before restart:
 
 ```bash
@@ -256,7 +275,7 @@ cd /opt/autostopcrm
 set -a
 . ./.env
 set +a
-python3 scripts/validate_production_env.py --require-production
+python3 scripts/validate_production_env.py --require-production --require-store
 ```
 
 `deploy.sh` snapshots auth state, keeps Codex configured for URL-only OAuth,
@@ -299,7 +318,15 @@ cd /opt/autostopcrm
 git status --short --branch
 git fetch origin autostopcrm-v1
 git merge --ff-only origin/autostopcrm-v1
+docker network inspect --format '{{.Internal}}' autostop-store-agent
+docker network inspect --format '{{range .Containers}}{{println .Name}}{{end}}' autostop-store-agent
 ```
+
+Initial infrastructure provisioning creates the network once with
+`docker network create --driver bridge --internal autostop-store-agent`; the
+Store deployment attaches `autostop-app`. Do not attach the database. CRM
+deploy refuses a missing/non-internal network, a missing App member, the
+database, or any unexpected member.
 
 Run the release from a workstation after the intended commit is checked out on
 the server:
@@ -308,7 +335,8 @@ the server:
 ssh -i $env:AUTOSTOPCRM_SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes root@crm.autostopcrm.ru "cd /opt/autostopcrm && AUTOSTOP_DEPLOY_BRANCH=autostopcrm-v1 ./deploy.sh"
 ```
 
-Prerequisites in server `.env` include the six Gateway switches and
+Prerequisites in server `.env` include the six Gateway switches, the three
+Store adapter settings, and
 `AUTOSTOP_SMOKE_OPERATOR_USERNAME` /
 `AUTOSTOP_SMOKE_OPERATOR_PASSWORD`. Public HTTPS/API/MCP auth smoke is
 mandatory; there is no skip flag.
@@ -316,7 +344,8 @@ mandatory; there is no skip flag.
 The bounded release flow:
 
 1. verifies branch/remote parity, a clean checkout, free space, Compose
-   configuration, and production auth;
+   configuration, production auth, scoped Store identity, and the isolated
+   Store network;
 2. snapshots the mounted Manager code and prebuilds an immutable CRM image
    before maintenance;
 3. provisions stable encrypted OAuth, snapshots auth, removes Codex bearer
@@ -325,7 +354,8 @@ The bounded release flow:
 4. creates the maintenance marker and stops only `autostopcrm`;
 5. creates and verifies an atomic backup of CRM state/audit data and Manager
    SQLite;
-6. starts the prebuilt image and runs internal authenticated smoke;
+6. starts the prebuilt image, proves only CRM and App share the Store network,
+   and runs internal authenticated CRM plus Store-read smoke;
 7. removes maintenance mode and runs mandatory public API, OAuth discovery,
    owner-approved OAuth flow, and exhaustive 24-tool Gateway smoke;
 8. tags the healthy release as stable and installs the watchdog.
@@ -359,9 +389,9 @@ git status --short --branch
 git rev-parse HEAD
 git rev-parse origin/autostopcrm-v1
 docker compose ps
-docker compose exec -T autostopcrm python scripts/validate_production_env.py --require-production
+docker compose exec -T autostopcrm python scripts/validate_production_env.py --require-production --require-store
 docker compose exec -T autostopcrm python scripts/check_live_connector.py --strict --site-url https://crm.autostopcrm.ru --expect-https --local-api-url http://127.0.0.1:41731 --expect-admin
-docker compose exec -T autostopcrm python scripts/check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --exhaustive
+docker compose exec -T autostopcrm python scripts/check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --exhaustive --require-store
 docker compose exec -T autostopcrm python scripts/check_mcp_oauth.py --mcp-url https://crm.autostopcrm.ru/mcp
 docker compose exec -T autostopcrm python scripts/docs_audit.py --format text
 ```
@@ -376,6 +406,15 @@ From a client with the current credential:
 ```powershell
 .\.venv\Scripts\python.exe scripts\check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --token-env AUTOSTOPCRM_MCP_TOKEN --exhaustive
 ```
+
+The recurring `--require-store` probe uses `store_state` search and does not
+advance the owner's durable `store_digest` cursor. After the first coordinated
+Store release, separately perform one intentional
+`agent_board_digest(scope="store", limit=1)` traversal. ACK every non-empty
+page with its exact `cursor`/`ack_token` through the terminal page before
+recording only compact health/count evidence; never leave a pending delivery
+and never record raw orders or customer data. Verify the independent
+`agent_bootstrap` stream the same way with `store_cursor`/`store_ack_token`.
 
 After UI changes, run
 `.\.venv\Scripts\python.exe scripts\browser_smoke.py` and manually verify

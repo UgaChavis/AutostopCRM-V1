@@ -69,12 +69,10 @@ MANAGER_CANONICAL_DOCS = (
     "docs/agent/crm_manager_data_playbook.md",
     "docs/agent/crm_mcp_catalog.json",
     "docs/agent/deployment_runbook.md",
-    "docs/agent/knowledge_base_index.md",
     "docs/agent/knowledge_map.json",
     "docs/agent/knowledge_shelves.md",
     "docs/agent/manager_mcp_catalog.json",
     "docs/agent/manager_rules.json",
-    "docs/agent/phone_flow.json",
     "docs/agent/service_management_sources.json",
 )
 
@@ -87,7 +85,6 @@ MANAGER_GATEWAY_INSTRUCTION_DOCS = (
     "docs/agent/crm_manager_data_playbook.md",
     "docs/agent/deployment_runbook.md",
     "docs/agent/manager_rules.json",
-    "docs/agent/phone_flow.json",
     "docs/agent/service_management_sources.json",
 )
 

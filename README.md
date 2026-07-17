@@ -32,6 +32,9 @@ Browser UI / MCP / API clients
   -> local HTTP API
   -> CardService and domain services
   -> JsonStore
+
+Owner MCP client -> 24-tool Gateway v2 -> mounted AutostopManager adapter
+  -> isolated internal Docker network -> AutoStop App agent API
 ```
 
 - Board: columns, cards, deadlines, tags, notes, archive, attachments, and
@@ -42,7 +45,8 @@ Browser UI / MCP / API clients
 - Operations: inventory movements, cashboxes, transfers, payroll, reports,
   shared files, and operator activity.
 - Integrations: local HTTP API, streamable HTTP MCP, Agent Gateway v2,
-  Responses API clients, and automotive/web research helpers.
+  Responses API clients, AutoStop App store context, and automotive/web
+  research helpers.
 
 Production MCP exposes exactly 24 Gateway v2 tools. Codex and ChatGPT Apps use
 owner-approved OAuth 2.1 with PKCE S256, rotating refresh tokens, exact
@@ -56,6 +60,20 @@ The only supported agent sequence is `agent_bootstrap` ->
 reread and verification. Guarded raw capability discovery is an escape hatch
 only when no named workflow exists; hidden low-level tools are never called
 directly.
+
+AutoStop CRM remains the source of truth for workshop cards, repair orders,
+payments, cashboxes, files, and board state. AutoStop App owns store catalog,
+stock, batches, suppliers, quote requests, online orders, and marketplace
+state. AutostopManager owns only routing, compact cursors, action contracts,
+and workflow checkpoints. Gateway store reads never access the App database.
+Store digest pages use at-least-once delivery: every non-empty page carries an
+opaque Manager cursor/ACK pair, and durable high-water advances only after the
+final ACK; bootstrap and owner digest remain separate streams.
+Store writes require a matching dry-run and apply with distinct idempotency
+keys but one stable action correlation. Gateway verifies only App-safe DTO
+fields and keeps READY runs compensating until the notifier is `SENT` or
+`NOT_APPLICABLE`; an exact repeated compensating request reconciles through a
+Store receipt replay instead of an automatic POST retry.
 
 Business rules belong in `src/minimal_kanban/services/`. API, MCP, UI, smoke
 scripts, and compatibility routes must call the same services instead of
@@ -106,7 +124,9 @@ Production endpoints:
 - MCP: `https://crm.autostopcrm.ru/mcp`
 
 The production Compose project contains `autostopcrm`, `searxng`, and
-`crawl4ai`. Only the CRM service is replaced during a normal deploy.
+`crawl4ai`. The CRM container also joins the precreated internal-only
+`autostop-store-agent` network with `autostop-app`; the PostgreSQL container is
+never attached. Only the CRM service is replaced during a normal deploy.
 
 ## Safety
 

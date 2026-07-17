@@ -87,6 +87,9 @@ services:
       MINIMAL_KANBAN_MCP_ALLOWED_HOSTS: "${AUTOSTOP_MCP_ALLOWED_HOSTS:-}"
       MINIMAL_KANBAN_MCP_ALLOWED_ORIGINS: "${AUTOSTOP_MCP_ALLOWED_ORIGINS:-}"
       AUTOSTOP_MANAGER_PATH: "${AUTOSTOP_MANAGER_CONTAINER_DIR:-/opt/AutostopManager}"
+      AUTOSTOP_STORE_API_URL: "${AUTOSTOP_STORE_API_URL:-http://autostop-app:8000}"
+      AUTOSTOP_STORE_READ_TOKEN: "${AUTOSTOP_STORE_READ_TOKEN:-}"
+      AUTOSTOP_STORE_MANAGE_TOKEN: "${AUTOSTOP_STORE_MANAGE_TOKEN:-}"
       AUTOSTOP_SEARCH_DISABLED_PROVIDERS: "${AUTOSTOP_SEARCH_DISABLED_PROVIDERS:-brave,tavily,google_cse}"
       AUTOSTOP_SEARCH_PROVIDER_ORDER: "${AUTOSTOP_SEARCH_PROVIDER_ORDER:-searxng,marginalia,duckduckgo}"
       AUTOSTOP_SEARXNG_BASE_URL: "${AUTOSTOP_SEARXNG_CONTAINER_URL:-http://searxng:8080}"
@@ -100,9 +103,17 @@ services:
       - "${AUTOSTOP_DATA_DIR:-./data}:/root/.minimal-kanban"
       - "${AUTOSTOP_MANAGER_HOST_DIR:-/opt/autostop-manager-releases/current}:${AUTOSTOP_MANAGER_CONTAINER_DIR:-/opt/AutostopManager}:ro"
       - "${AUTOSTOP_MANAGER_DATA_HOST_DIR:-../AutostopManager/data}:${AUTOSTOP_MANAGER_CONTAINER_DIR:-/opt/AutostopManager}/data"
+    networks:
+      - default
+      - autostop-store-agent
     healthcheck:
       test: ["CMD", "python", "scripts/container_healthcheck.py"]
       interval: 20s
       timeout: 5s
       retries: 6
       start_period: 20s
+
+networks:
+  autostop-store-agent:
+    name: autostop-store-agent
+    external: true

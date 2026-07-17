@@ -16,9 +16,12 @@ from minimal_kanban.deployment_security import (
     is_maintenance_mode,
     load_agent_gateway_security_policy,
     validate_production_environment,
+    validate_store_integration_environment,
 )
 
 STRONG_TOKEN = "aB3_dE5-fG7.hJ9~kL2_mN4-pQ6.rS8~tU1_vW3-xY5.zA7~bC9_dF2-gH4.jK6~mP8"
+STRONG_STORE_READ_TOKEN = "rB4_eF6-gH8.jK1~mN3_pQ5-rS7.tU9~vW2_xY4-zA6.bC8~dE1_fG3-hJ5.kL7~mP9"
+STRONG_STORE_MANAGE_TOKEN = "mC5_fG7-hJ9.kL2~nP4_qR6-sT8.uV1~wX3_yZ5-aB7.cD9~eF2_gH4-jK6.lM8~pQ1"
 VALID_OAUTH_STATE_KEY = "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
 
 
@@ -35,6 +38,9 @@ def valid_production_env(marker: Path) -> dict[str, str]:
         "AUTOSTOP_AGENT_GATEWAY_MAIL_ENABLED": "1",
         "AUTOSTOP_AGENT_GATEWAY_DESTRUCTIVE_ENABLED": "1",
         "AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED": "1",
+        "AUTOSTOP_STORE_API_URL": "http://autostop-app:8000",
+        "AUTOSTOP_STORE_READ_TOKEN": STRONG_STORE_READ_TOKEN,
+        "AUTOSTOP_STORE_MANAGE_TOKEN": STRONG_STORE_MANAGE_TOKEN,
         "AUTOSTOP_MAINTENANCE_MARKER": str(marker),
         "MINIMAL_KANBAN_MCP_BEARER_TOKEN": STRONG_TOKEN,
         "MINIMAL_KANBAN_MCP_PUBLIC_BASE_URL": "https://crm.autostopcrm.ru",
@@ -114,6 +120,43 @@ class DeploymentSecurityTests(unittest.TestCase):
             errors = validate_production_environment(env)
 
         self.assertTrue(any("public base authority" in item for item in errors))
+
+    def test_production_store_identity_is_internal_strong_and_split_by_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env = valid_production_env(Path(temp_dir) / "maintenance")
+            env["AUTOSTOP_STORE_API_URL"] = "https://autostop24.shop"
+            env["AUTOSTOP_STORE_READ_TOKEN"] = STRONG_STORE_MANAGE_TOKEN
+
+            errors = validate_store_integration_environment(env)
+
+        self.assertTrue(any("AUTOSTOP_STORE_API_URL" in item for item in errors))
+        self.assertTrue(any("must be distinct" in item for item in errors))
+
+    def test_production_requires_both_store_tokens_without_exposing_values(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env = valid_production_env(Path(temp_dir) / "maintenance")
+            env.pop("AUTOSTOP_STORE_READ_TOKEN")
+            env["AUTOSTOP_STORE_MANAGE_TOKEN"] = "weak"
+
+            errors = validate_store_integration_environment(env)
+
+        self.assertTrue(any("AUTOSTOP_STORE_READ_TOKEN is required for" in item for item in errors))
+        self.assertTrue(
+            any("AUTOSTOP_STORE_MANAGE_TOKEN must be a strong" in item for item in errors)
+        )
+        self.assertFalse(any(STRONG_STORE_MANAGE_TOKEN in item for item in errors))
+
+    def test_store_misconfiguration_does_not_block_crm_production_startup(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env = valid_production_env(Path(temp_dir) / "maintenance")
+            env.pop("AUTOSTOP_STORE_READ_TOKEN")
+            env.pop("AUTOSTOP_STORE_MANAGE_TOKEN")
+
+            crm_errors = validate_production_environment(env)
+            store_errors = validate_store_integration_environment(env)
+
+        self.assertEqual([], crm_errors)
+        self.assertTrue(store_errors)
 
     def test_maintenance_marker_is_checked_dynamically(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

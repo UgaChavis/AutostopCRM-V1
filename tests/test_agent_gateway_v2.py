@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import copy
+import hashlib
+import json
 import logging
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+from mcp.types import ToolAnnotations
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -14,6 +19,12 @@ if str(SRC) not in sys.path:
 
 from minimal_kanban.mcp.oauth_provider import ProductionOAuthAuthorizationServerProvider
 from minimal_kanban.mcp.server import create_mcp_server
+from minimal_kanban.mcp.store_gateway import (
+    INTERNAL_ONLY_CAPABILITY_NAMES,
+    STORE_MANAGEMENT_CAPABILITY_NAME,
+    STORE_READ_CAPABILITY_NAMES,
+    verify_store_readback,
+)
 
 GATEWAY_ENV = {
     "AUTOSTOP_DEPLOYMENT_ENV": "development",
@@ -48,6 +59,9 @@ class FakeBoardApi:
             },
         }
 
+    def health(self) -> dict:
+        return {"ok": True, "data": {"status": "healthy"}}
+
     def get_cards(self, *, include_archived: bool = False, compact: bool = True) -> dict:
         cards = [
             {
@@ -73,6 +87,9 @@ class FakeBoardApi:
 
     def search_cards(self, **_: object) -> dict:
         return self.get_cards()
+
+    def list_inventory_items(self, **_: object) -> dict:
+        return {"ok": True, "data": {"items": [{"id": "inventory-1", "name": "Filter"}]}}
 
     def get_card(self, card_id: str) -> dict:
         return {"ok": True, "data": {"card": {"id": card_id, "title": "Task"}}}
@@ -183,6 +200,720 @@ class FakeBoardApi:
         }
 
 
+def _fake_digest(value: object) -> str:
+    canonical = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def _fake_comment_hash(value: object) -> str:
+    normalized = str(value or "").strip()
+    canonical = "none:" if not normalized else f"comment:{normalized}"
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def _fake_store_error(code: str, *, correlation_id: str = "") -> dict:
+    return {
+        "ok": False,
+        "format": "store_agent_v1",
+        "status": "conflict",
+        "summary": {"error_code": code},
+        "items": [],
+        "changes": [],
+        "page": {"has_more": False, "next_cursor": None, "limit": 0},
+        "warnings": [code],
+        "meta": {
+            "correlation_id": correlation_id,
+            "external_effect_state": "NOT_APPLICABLE",
+        },
+    }
+
+
+def _fake_store_unavailable() -> dict:
+    return {
+        "ok": False,
+        "format": "store_agent_v1",
+        "status": "degraded",
+        "summary": {},
+        "items": [],
+        "page": {},
+        "warnings": ["store_unavailable"],
+        "meta": {},
+    }
+
+
+def _fake_store_management_action(state: dict, arguments: dict) -> dict:
+    domain = arguments["domain"]
+    action = arguments["action"]
+    target_id = arguments["target_id"]
+    planned_changes = arguments["planned_changes"]
+    owner_intent = arguments["owner_intent"]
+    expected_updated_at = arguments["expected_updated_at"]
+    idempotency_key = arguments["idempotency_key"]
+    correlation_id = arguments["correlation_id"]
+    mode = arguments["mode"]
+    item = state["entities"].get((domain, target_id))
+    if not state["store_available"] or item is None:
+        return _fake_store_unavailable()
+
+    principal = str(state["store_principal"])
+    request_hash = _fake_digest({"operation": action, **arguments})
+    receipt_key = (principal, idempotency_key)
+    existing_receipt = state["store_receipts"].get(receipt_key)
+    if existing_receipt is not None:
+        if existing_receipt["request_hash"] != request_hash:
+            return _fake_store_error("AGENT_IDEMPOTENCY_CONFLICT", correlation_id=correlation_id)
+        replay = copy.deepcopy(existing_receipt["response"])
+        replay["meta"]["idempotency_replay"] = True
+        replay["meta"]["external_effect_state"] = existing_receipt["external_effect_state"]
+        return replay
+
+    plan_hash = _fake_digest(
+        {
+            "operation": action,
+            "target_id": target_id,
+            "expected_updated_at": expected_updated_at,
+            "correlation_id": correlation_id,
+            "planned_changes": planned_changes,
+        }
+    )
+    if mode == "apply":
+        proof = next(
+            (
+                candidate
+                for candidate in reversed(state["store_dry_run_proofs"])
+                if candidate["principal"] == principal
+                and candidate["correlation_id"] == correlation_id
+                and candidate["plan_hash"] == plan_hash
+                and state["store_clock"] - candidate["created_at"] <= 1800
+            ),
+            None,
+        )
+        if proof is None:
+            return _fake_store_error("AGENT_DRY_RUN_REQUIRED", correlation_id=correlation_id)
+    if str(item.get("updated_at") or "") != expected_updated_at:
+        return _fake_store_error("AGENT_REVISION_CONFLICT", correlation_id=correlation_id)
+
+    before = dict(item)
+    prospective = dict(item)
+    effects: list[dict] = []
+    if action == "assign_quote_request":
+        changes = [
+            {
+                "field": "assigned_user_id",
+                "before": item.get("assigned_user_id"),
+                "after": planned_changes.get("assignee_id"),
+            }
+        ]
+        prospective["assigned_user_id"] = planned_changes.get("assignee_id")
+    elif action == "set_quote_request_status":
+        changes = [
+            {
+                "field": "status",
+                "before": item.get("status"),
+                "after": planned_changes.get("status"),
+            }
+        ]
+        prospective["status"] = planned_changes.get("status")
+    elif action == "update_quote_request_comment":
+        normalized_comment = str(planned_changes.get("internal_comment") or "").strip() or None
+        changes = [
+            {
+                "field": "has_internal_comment",
+                "before": bool(before.get("has_internal_comment")),
+                "after": bool(normalized_comment),
+            },
+            {
+                "field": "internal_comment_sha256",
+                "before": before.get("internal_comment_sha256"),
+                "after": _fake_comment_hash(normalized_comment),
+            },
+        ]
+        prospective["has_internal_comment"] = bool(normalized_comment)
+        prospective["internal_comment_sha256"] = _fake_comment_hash(normalized_comment)
+    elif action == "set_batch_storage_location":
+        changes = [
+            {
+                "field": "storage_location",
+                "before": item.get("storage_location"),
+                "after": planned_changes.get("storage_location"),
+            }
+        ]
+        prospective["storage_location"] = planned_changes.get("storage_location")
+    elif action == "mark_order_ready":
+        changes = [
+            {"field": "status", "before": item.get("status"), "after": "READY"},
+            {
+                "field": "ready_at",
+                "before": item.get("ready_at"),
+                "after": "generated_on_apply",
+            },
+        ]
+        prospective["status"] = "READY"
+        prospective["ready_at"] = "generated_on_apply"
+        effects = [
+            {"effect": "set_order_status", "status": "READY"},
+            {"effect": "set_ready_at"},
+            {"effect": "sync_shipment_draft", "applies": False, "local_items": 0},
+            {"effect": "create_internal_order_ready_notification", "applies": True},
+            {
+                "effect": "attempt_external_customer_notifier_after_commit",
+                "applies": True,
+                "best_effort": True,
+                "configured": False,
+                "customer_linked": True,
+                "cached_chat_available": False,
+                "deliverability": "FAILED",
+            },
+        ]
+    else:
+        return _fake_store_error("AGENT_OPERATION_NOT_FOUND", correlation_id=correlation_id)
+
+    external_effect_state = "NOT_APPLICABLE"
+    if mode == "apply" and action == "mark_order_ready":
+        external_effect_state = str(state.get("external_effect_state") or "SENT")
+    if mode == "apply" and not state.get("skip_apply"):
+        item.update(prospective)
+        if action == "update_quote_request_comment":
+            state["comment_values"][target_id] = normalized_comment
+        state["store_apply_sequence"] += 1
+        item["updated_at"] = f"2026-07-16T10:{state['store_apply_sequence']:02d}:00+00:00"
+        prospective = dict(item)
+    elif mode == "dry_run":
+        prospective["updated_at"] = item["updated_at"]
+
+    response = {
+        "ok": True,
+        "format": "store_agent_v1",
+        "status": "dry_run" if mode == "dry_run" else "applied",
+        "summary": {
+            "operation": action,
+            "mode": mode,
+            "target_id": target_id,
+            "changed": any(change["before"] != change["after"] for change in changes),
+            "result": prospective,
+        },
+        "items": [],
+        "changes": changes,
+        "page": {"has_more": False, "next_cursor": None, "limit": 0},
+        "verification": {"passed": not state.get("manager_verification_failed", False)},
+        "warnings": [
+            *(["external_notifier_is_best_effort"] if action == "mark_order_ready" else []),
+            *(["dry_run_proof_expires_in_30_minutes"] if mode == "dry_run" else []),
+        ],
+        "meta": {
+            "correlation_id": correlation_id,
+            "idempotency_key": idempotency_key,
+            "idempotency_replay": False,
+            "owner_intent_present": bool(owner_intent.strip()),
+            "owner_intent_sha256": hashlib.sha256(
+                f"intent:{owner_intent.strip()}".encode()
+            ).hexdigest(),
+            "effects": effects,
+            "external_effect_state": external_effect_state,
+            "dry_run_proof_ttl_seconds": 1800,
+        },
+    }
+    state["store_receipts"][receipt_key] = {
+        "request_hash": request_hash,
+        "response": copy.deepcopy(response),
+        "external_effect_state": external_effect_state,
+    }
+    if mode == "dry_run":
+        state["store_dry_run_proofs"].append(
+            {
+                "principal": principal,
+                "correlation_id": correlation_id,
+                "plan_hash": plan_hash,
+                "created_at": state["store_clock"],
+                "idempotency_key": idempotency_key,
+            }
+        )
+
+    if mode == "apply" and (
+        state.get("manager_compensating") or state.pop("manager_compensating_once", False)
+    ):
+        return {
+            "ok": False,
+            "format": "store_agent_v1",
+            "status": "compensating",
+            "summary": {"write_applied_unverified": True},
+            "items": [],
+            "changes": changes,
+            "page": {},
+            "verification": {"passed": False},
+            "warnings": ["store_apply_readback_failed"],
+            "meta": {
+                "correlation_id": correlation_id,
+                "external_effect_state": external_effect_state,
+            },
+        }
+    return response
+
+
+def _prepare_fake_store_state(state: dict) -> None:
+    state.setdefault("store_available", True)
+    state.setdefault("calls", [])
+    state.setdefault("store_clock", 0)
+    state.setdefault("store_principal", "store-manager-principal")
+    state.setdefault("store_receipts", {})
+    state.setdefault("store_dry_run_proofs", [])
+    state.setdefault("store_apply_sequence", 0)
+    state.setdefault("store_post_count", 0)
+    state.setdefault("workflow_runs", {})
+    state.setdefault("workflow_keys", {})
+    state.setdefault("next_run_id", 501)
+    state.setdefault("comment_values", {"quote-1": ""})
+    state.setdefault(
+        "entities",
+        {
+            ("store_quote_request", "quote-1"): {
+                "id": "quote-1",
+                "entity_type": "store_quote_request",
+                "entity_id": "quote-1",
+                "request_number": "QR-1",
+                "updated_at": "2026-07-16T10:00:00+00:00",
+                "status": "NEW",
+                "assigned_user_id": None,
+                "has_internal_comment": False,
+                "internal_comment_sha256": hashlib.sha256(b"none:").hexdigest(),
+            },
+            ("store_batch", "batch-1"): {
+                "id": "batch-1",
+                "entity_type": "store_batch",
+                "entity_id": "batch-1",
+                "part_id": "part-1",
+                "updated_at": "2026-07-16T10:00:00+00:00",
+                "storage_location": "A-1",
+            },
+            ("store_order", "order-1"): {
+                "id": "order-1",
+                "entity_type": "store_order",
+                "entity_id": "order-1",
+                "order_number": "SO-1",
+                "updated_at": "2026-07-16T10:00:00+00:00",
+                "status": "IN_PROGRESS",
+                "ready_at": None,
+            },
+        },
+    )
+
+
+def register_fake_store_manager_tools(server, _logger, state: dict) -> None:
+    _prepare_fake_store_state(state)
+
+    @server.tool(name="store_runtime_status", description="INTERNAL_ONLY store runtime")
+    def store_runtime_status(live: bool = False) -> dict:
+        state["calls"].append(("store_runtime_status", {"live": live}))
+        if not state["store_available"]:
+            return _fake_store_unavailable()
+        return {
+            "ok": True,
+            "format": "store_agent_v1",
+            "status": "ready",
+            "summary": {"adapter": "ready"},
+            "items": [],
+            "page": {},
+            "warnings": [],
+            "meta": {},
+        }
+
+    @server.tool(name="store_digest", description="INTERNAL_ONLY store digest")
+    def store_digest(
+        baseline: bool = False,
+        since: str | None = None,
+        cursor: str | None = None,
+        ack_token: str | None = None,
+        limit: int = 25,
+        stream: str = "store_digest",
+    ) -> dict:
+        state["calls"].append(
+            (
+                "store_digest",
+                {
+                    "baseline": baseline,
+                    "since": since,
+                    "cursor": cursor,
+                    "ack_token": ack_token,
+                    "limit": limit,
+                    "stream": stream,
+                },
+            )
+        )
+        if not state["store_available"]:
+            return _fake_store_unavailable()
+        if state.get("store_digest_ack_mode"):
+            suffix = "bootstrap" if stream == "store_bootstrap" else "digest"
+            first_cursor = f"manager-{suffix}-page-1"
+            final_cursor = f"manager-{suffix}-final-ack"
+            if cursor is None and ack_token is None:
+                items = [{"id": f"{suffix}-order-1", "status": "IN_PROGRESS"}]
+                page = {
+                    "next_cursor": first_cursor,
+                    "has_more": True,
+                    "ack_required": True,
+                    "ack_token": f"{suffix}-ack-1",
+                }
+            elif cursor == first_cursor and ack_token == f"{suffix}-ack-1":
+                items = [{"id": f"{suffix}-order-2", "status": "READY"}]
+                page = {
+                    "next_cursor": final_cursor,
+                    "has_more": True,
+                    "ack_required": True,
+                    "ack_token": f"{suffix}-ack-2",
+                }
+            elif cursor == final_cursor and ack_token == f"{suffix}-ack-2":
+                items = []
+                page = {
+                    "next_cursor": None,
+                    "has_more": False,
+                    "ack_required": False,
+                    "ack_token": None,
+                }
+            else:
+                return {
+                    **_fake_store_unavailable(),
+                    "status": "conflict",
+                    "warnings": ["store_digest_ack_stale_or_foreign"],
+                }
+            return {
+                "ok": True,
+                "format": "store_agent_v1",
+                "status": "completed",
+                "summary": {"new_orders": len(items), "stream": stream},
+                "items": items,
+                "page": page,
+                "warnings": [],
+                "meta": {},
+            }
+        return {
+            "ok": True,
+            "format": "store_agent_v1",
+            "status": "completed",
+            "summary": {"new_orders": 1, "stream": stream},
+            "items": [{"id": "order-1", "status": "IN_PROGRESS"}],
+            "page": {"cursor": cursor, "next_cursor": "opaque-2", "has_more": False},
+            "warnings": [],
+            "meta": {},
+        }
+
+    @server.tool(name="store_search", description="INTERNAL_ONLY store search")
+    def store_search(
+        entity: str,
+        query: str = "",
+        filters: dict | None = None,
+        cursor: str | None = None,
+        limit: int = 25,
+    ) -> dict:
+        arguments = {
+            "entity": entity,
+            "query": query,
+            "filters": dict(filters or {}),
+            "cursor": cursor,
+            "limit": limit,
+        }
+        state["calls"].append(("store_search", arguments))
+        if not state["store_available"]:
+            return _fake_store_unavailable()
+        items = [
+            dict(value)
+            for (candidate_entity, _), value in state["entities"].items()
+            if candidate_entity == entity
+        ][:limit]
+        return {
+            "ok": True,
+            "format": "store_agent_v1",
+            "status": "completed",
+            "summary": {"entity": entity, "returned": len(items)},
+            "items": items,
+            "page": {"cursor": cursor, "next_cursor": None, "has_more": False},
+            "warnings": [],
+            "meta": {},
+        }
+
+    @server.tool(name="store_entity_context", description="INTERNAL_ONLY store context")
+    def store_entity_context(entity: str, entity_id: str, detail: str = "summary") -> dict:
+        state["calls"].append(
+            (
+                "store_entity_context",
+                {"entity": entity, "entity_id": entity_id, "detail": detail},
+            )
+        )
+        if not state["store_available"]:
+            return _fake_store_unavailable()
+        item = state["entities"].get((entity, entity_id))
+        return {
+            "ok": item is not None,
+            "format": "store_agent_v1",
+            "status": "completed" if item is not None else "failed",
+            "summary": {"entity": entity, "entity_id": entity_id},
+            "items": [dict(item)] if item is not None else [],
+            "page": {},
+            "warnings": [] if item is not None else ["store_entity_not_found"],
+            "meta": {},
+        }
+
+    @server.tool(
+        name="get_store_analytics_report",
+        description="Read-only storefront analytics report",
+        annotations=ToolAnnotations(
+            title="Store Analytics Report",
+            readOnlyHint=True,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=False,
+        ),
+    )
+    def get_store_analytics_report(period: str = "today") -> dict:
+        state["calls"].append(("get_store_analytics_report", {"period": period}))
+        return {"ok": True, "data": {"period": period, "orders_count": 3}}
+
+    @server.tool(name="store_management_action", description="INTERNAL_ONLY store write")
+    def store_management_action(
+        domain: str,
+        action: str,
+        target_id: str,
+        planned_changes: dict,
+        owner_intent: str,
+        expected_updated_at: str,
+        idempotency_key: str,
+        correlation_id: str,
+        mode: str = "dry_run",
+    ) -> dict:
+        arguments = {
+            "domain": domain,
+            "action": action,
+            "target_id": target_id,
+            "planned_changes": dict(planned_changes),
+            "owner_intent": owner_intent,
+            "expected_updated_at": expected_updated_at,
+            "idempotency_key": idempotency_key,
+            "correlation_id": correlation_id,
+            "mode": mode,
+        }
+        state["calls"].append(("store_management_action", arguments))
+        state["store_post_count"] += 1
+        return _fake_store_management_action(state, arguments)
+
+    @server.tool(name="start_workflow")
+    def start_workflow(
+        workflow_id: str,
+        intent: str,
+        idempotency_key: str,
+        query: str = "",
+        actor: str = "",
+        correlation_id: str = "",
+        scope: dict | None = None,
+        metadata: dict | None = None,
+        dry_run: bool = False,
+    ) -> dict:
+        state["calls"].append(
+            (
+                "start_workflow",
+                {
+                    "workflow_id": workflow_id,
+                    "intent": intent,
+                    "idempotency_key": idempotency_key,
+                    "query": query,
+                    "actor": actor,
+                    "correlation_id": correlation_id,
+                    "scope": scope,
+                    "metadata": metadata,
+                    "dry_run": dry_run,
+                },
+            )
+        )
+        existing_run_id = state["workflow_keys"].get(idempotency_key)
+        if existing_run_id is not None:
+            run = state["workflow_runs"][existing_run_id]
+            if (
+                run["workflow_id"] != workflow_id
+                or run["intent"] != intent
+                or run["scope"] != dict(scope or {})
+                or run["dry_run"] != dry_run
+            ):
+                return {
+                    "ok": False,
+                    "status": run["status"],
+                    "run_id": existing_run_id,
+                    "summary": {
+                        "id": existing_run_id,
+                        "deduplicated": False,
+                        "state_version": run["state_version"],
+                    },
+                    "warnings": ["idempotency_key_conflict"],
+                }
+            return {
+                "ok": True,
+                "run_id": existing_run_id,
+                "status": run["status"],
+                "summary": {
+                    "id": existing_run_id,
+                    "deduplicated": True,
+                    "state_version": run["state_version"],
+                },
+            }
+        run_id = state["next_run_id"]
+        state["next_run_id"] += 1
+        run = {
+            "workflow_id": workflow_id,
+            "intent": intent,
+            "scope": dict(scope or {}),
+            "dry_run": dry_run,
+            "status": "planned",
+            "state_version": 1,
+        }
+        state["workflow_runs"][run_id] = run
+        state["workflow_keys"][idempotency_key] = run_id
+        return {
+            "ok": True,
+            "run_id": run_id,
+            "status": run["status"],
+            "summary": {
+                "id": run_id,
+                "deduplicated": False,
+                "state_version": run["state_version"],
+            },
+        }
+
+    @server.tool(name="workflow_transition")
+    def workflow_transition(
+        run_id: int,
+        status: str,
+        message: str = "",
+        verification: dict | None = None,
+        summary: str = "",
+        expected_state_version: int | None = None,
+    ) -> dict:
+        state["calls"].append(
+            (
+                "workflow_transition",
+                {
+                    "run_id": run_id,
+                    "status": status,
+                    "message": message,
+                    "verification": verification,
+                    "summary": summary,
+                    "expected_state_version": expected_state_version,
+                },
+            )
+        )
+        run = state["workflow_runs"].get(run_id)
+        if run is None:
+            return {"ok": False, "status": "failed", "warnings": ["run_not_found"]}
+        if expected_state_version is not None and expected_state_version != run["state_version"]:
+            return {
+                "ok": False,
+                "run_id": run_id,
+                "status": run["status"],
+                "summary": {"state_version": run["state_version"]},
+                "warnings": ["state_version_conflict"],
+            }
+        run["status"] = status
+        run["state_version"] += 1
+        return {
+            "ok": True,
+            "run_id": run_id,
+            "status": status,
+            "summary": {"state_version": run["state_version"]},
+        }
+
+    @server.tool(name="list_agent_workflows")
+    def list_agent_workflows(query: str = "", intent: str | None = None, limit: int = 50) -> dict:
+        del query, intent, limit
+        return {"ok": True, "summary": {"items": []}}
+
+    @server.tool(name="prepare_action_contract")
+    def prepare_action_contract(
+        domain: str,
+        action: str,
+        target_id: str = "",
+        planned_changes: dict | None = None,
+        owner_intent: str = "",
+        expected_revision: str | None = None,
+        idempotency_key: str = "",
+        run_id: int | None = None,
+        actor: str = "codex-owner-agent",
+        dry_run: bool = True,
+    ) -> dict:
+        del (
+            domain,
+            action,
+            target_id,
+            planned_changes,
+            owner_intent,
+            expected_revision,
+            idempotency_key,
+            run_id,
+            actor,
+            dry_run,
+        )
+        return {"ok": True, "summary": {}}
+
+    @server.tool(name="workflow_status")
+    def workflow_status(
+        run_id: int, include_events: bool = False, include_external_steps: bool = True
+    ) -> dict:
+        del include_events, include_external_steps
+        run = state["workflow_runs"].get(run_id)
+        return {
+            "ok": run is not None,
+            "run_id": run_id,
+            "status": run["status"] if run is not None else "failed",
+            "summary": {"state_version": run["state_version"]} if run is not None else {},
+        }
+
+    @server.tool(name="workflow_checkpoint")
+    def workflow_checkpoint(
+        run_id: int,
+        checkpoint: dict,
+        selected_ids: list[str] | None = None,
+        message: str = "",
+        expected_state_version: int | None = None,
+    ) -> dict:
+        del checkpoint, selected_ids, message, expected_state_version
+        run = state["workflow_runs"].get(run_id)
+        return {
+            "ok": run is not None,
+            "run_id": run_id,
+            "status": run["status"] if run is not None else "failed",
+            "summary": {},
+        }
+
+    @server.tool(name="workflow_wait_for_external")
+    def workflow_wait_for_external(
+        run_id: int,
+        step_id: str,
+        connector: str,
+        action: str,
+        request_refs: dict | None = None,
+        expected_state_version: int | None = None,
+    ) -> dict:
+        del step_id, connector, action, request_refs, expected_state_version
+        return {"ok": True, "run_id": run_id, "status": "external_wait", "summary": {}}
+
+    @server.tool(name="complete_external_step")
+    def complete_external_step(
+        run_id: int,
+        step_id: str,
+        result_refs: dict | None = None,
+        expected_state_version: int | None = None,
+    ) -> dict:
+        del step_id, result_refs, expected_state_version
+        return {"ok": True, "run_id": run_id, "status": "external_wait", "summary": {}}
+
+    @server.tool(name="workflow_resume")
+    def workflow_resume(run_id: int, expected_state_version: int | None = None) -> dict:
+        del expected_state_version
+        return {"ok": True, "run_id": run_id, "status": "executing", "summary": {}}
+
+    @server.tool(name="workflow_cancel")
+    def workflow_cancel(
+        run_id: int, reason: str = "", expected_state_version: int | None = None
+    ) -> dict:
+        del reason, expected_state_version
+        return {"ok": True, "run_id": run_id, "status": "cancelled", "summary": {}}
+
+
 class AgentGatewayV2Tests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.logger = logging.getLogger(self._testMethodName)
@@ -210,6 +941,64 @@ class AgentGatewayV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(tool)
         return await tool.run(arguments or {}, convert_result=False)
 
+    def _create_store_server(self, state: dict | None = None):
+        store_state = state if state is not None else {}
+        self.manager_register.side_effect = lambda server, logger: (
+            register_fake_store_manager_tools(server, logger, store_state)
+        )
+        server = create_mcp_server(
+            FakeBoardApi(),
+            self.logger,
+            host="127.0.0.1",
+            port=41839,
+            path="/mcp",
+            public_endpoint_url="https://crm.example/mcp",
+        )
+        return server, store_state
+
+    async def _store_write(
+        self,
+        server,
+        *,
+        operation: str,
+        payload: dict,
+        idempotency_key: str,
+        mode: str,
+    ):
+        return await server._tool_manager.get_tool("agent_inventory_workflow").run(
+            {
+                "operation": operation,
+                "payload": payload,
+                "idempotency_key": idempotency_key,
+                "mode": mode,
+            },
+            convert_result=False,
+        )
+
+    async def _store_dry_apply(
+        self,
+        server,
+        *,
+        operation: str,
+        payload: dict,
+        key_prefix: str,
+    ):
+        dry_run = await self._store_write(
+            server,
+            operation=operation,
+            payload={**payload, "owner_intent": f"Preview {key_prefix}"},
+            idempotency_key=f"{key_prefix}-dry-run",
+            mode="dry_run",
+        )
+        apply = await self._store_write(
+            server,
+            operation=operation,
+            payload={**payload, "owner_intent": f"Apply {key_prefix}"},
+            idempotency_key=f"{key_prefix}-apply",
+            mode="apply",
+        )
+        return dry_run, apply
+
     async def test_v2_replaces_full_surface_with_compact_tools(self) -> None:
         names = {tool.name for tool in self.server._tool_manager.list_tools()}
         self.assertLessEqual(len(names), 25)
@@ -219,6 +1008,892 @@ class AgentGatewayV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("ping_connector", names)
         self.assertNotIn("get_cards", names)
         self.assertNotIn("create_cash_transaction", names)
+
+    async def test_store_enabled_surface_remains_exactly_24_tools(self) -> None:
+        server, _state = self._create_store_server()
+
+        names = {tool.name for tool in server._tool_manager.list_tools()}
+
+        self.assertEqual(24, len(names))
+        self.assertEqual(4, len(STORE_READ_CAPABILITY_NAMES))
+        self.assertEqual(
+            {*STORE_READ_CAPABILITY_NAMES, STORE_MANAGEMENT_CAPABILITY_NAME},
+            set(INTERNAL_ONLY_CAPABILITY_NAMES),
+        )
+        self.assertNotIn("store_digest", names)
+        self.assertNotIn("store_management_action", names)
+
+    async def test_store_analytics_remains_raw_discoverable_and_read_only(self) -> None:
+        server, _state = self._create_store_server()
+        names = {tool.name for tool in server._tool_manager.list_tools()}
+        discovered = await server._tool_manager.get_tool("discover_raw_capabilities").run(
+            {"query": "get_store_analytics_report"}, convert_result=False
+        )
+
+        self.assertEqual(24, len(names))
+        self.assertNotIn("get_store_analytics_report", names)
+        self.assertEqual(
+            [
+                {
+                    "name": "get_store_analytics_report",
+                    "description": "Read-only storefront analytics report",
+                    "risk": "read",
+                    "schema_hash": discovered.structuredContent["data"]["capabilities"][0][
+                        "schema_hash"
+                    ],
+                }
+            ],
+            discovered.structuredContent["data"]["capabilities"],
+        )
+
+    async def test_existing_crm_tool_schemas_remain_backward_compatible(self) -> None:
+        bootstrap_schema = self.server._tool_manager.get_tool("agent_bootstrap").parameters
+        board_schema = self.server._tool_manager.get_tool("agent_board_digest").parameters
+        search_schema = self.server._tool_manager.get_tool("agent_search").parameters
+        context_schema = self.server._tool_manager.get_tool("agent_entity_context").parameters
+        inventory_schema = self.server._tool_manager.get_tool("agent_inventory_workflow").parameters
+
+        self.assertEqual("crm", board_schema["properties"]["scope"]["default"])
+        self.assertTrue(
+            {"include_archived", "cursor", "limit", "fields"} <= set(board_schema["properties"])
+        )
+        self.assertIn("ack_token", board_schema["properties"])
+        self.assertTrue({"store_cursor", "store_ack_token"} <= set(bootstrap_schema["properties"]))
+        self.assertNotIn("store_cursor", bootstrap_schema.get("required", []))
+        self.assertNotIn("ack_token", board_schema.get("required", []))
+        self.assertTrue(
+            {"card", "client", "repair_order", "inventory", "cashbox", "file"}
+            <= set(search_schema["properties"]["entity"]["enum"])
+        )
+        self.assertTrue(
+            {"card", "client", "repair_order", "cashbox", "inventory", "file"}
+            <= set(context_schema["properties"]["entity"]["enum"])
+        )
+        self.assertEqual({"summary", "full"}, set(context_schema["properties"]["detail"]["enum"]))
+        self.assertEqual(
+            {"operation", "payload", "idempotency_key"},
+            set(inventory_schema["required"]),
+        )
+        self.assertIsNone(inventory_schema["properties"]["mode"]["default"])
+
+    async def test_store_digest_normalizes_top_level_items_and_uses_separate_streams(
+        self,
+    ) -> None:
+        server, state = self._create_store_server()
+
+        bootstrap = await server._tool_manager.get_tool("agent_bootstrap").run(
+            {}, convert_result=False
+        )
+        digest = await server._tool_manager.get_tool("agent_board_digest").run(
+            {"scope": "store", "cursor": "opaque-1", "limit": 3},
+            convert_result=False,
+        )
+
+        self.assertTrue(bootstrap.structuredContent["ok"])
+        self.assertTrue(bootstrap.structuredContent["summary"]["store"]["ok"])
+        self.assertEqual("order-1", digest.structuredContent["data"]["items"][0]["id"])
+        self.assertEqual("opaque-2", digest.structuredContent["page"]["next_cursor"])
+        digest_calls = [arguments for name, arguments in state["calls"] if name == "store_digest"]
+        self.assertEqual("store_bootstrap", digest_calls[0]["stream"])
+        self.assertEqual("store_digest", digest_calls[-1]["stream"])
+
+    async def test_store_digest_ack_traverses_first_next_and_final_without_new_tool(self) -> None:
+        server, state = self._create_store_server({"store_digest_ack_mode": True})
+        tool = server._tool_manager.get_tool("agent_board_digest")
+
+        first = await tool.run({"scope": "store", "limit": 1}, convert_result=False)
+        first_page = first.structuredContent["page"]
+        second = await tool.run(
+            {
+                "scope": "store",
+                "cursor": first_page["next_cursor"],
+                "ack_token": first_page["ack_token"],
+                "limit": 1,
+            },
+            convert_result=False,
+        )
+        second_page = second.structuredContent["page"]
+        final = await tool.run(
+            {
+                "scope": "store",
+                "cursor": second_page["next_cursor"],
+                "ack_token": second_page["ack_token"],
+                "limit": 1,
+            },
+            convert_result=False,
+        )
+
+        self.assertEqual("digest-order-1", first.structuredContent["data"]["items"][0]["id"])
+        self.assertEqual("digest-order-2", second.structuredContent["data"]["items"][0]["id"])
+        self.assertFalse(final.structuredContent["page"]["has_more"])
+        self.assertIsNone(final.structuredContent["page"]["next_cursor"])
+        calls = [arguments for name, arguments in state["calls"] if name == "store_digest"]
+        self.assertEqual("digest-ack-1", calls[1]["ack_token"])
+        self.assertEqual("digest-ack-2", calls[2]["ack_token"])
+
+    async def test_store_bootstrap_ack_has_an_independent_stream(self) -> None:
+        server, state = self._create_store_server({"store_digest_ack_mode": True})
+        tool = server._tool_manager.get_tool("agent_bootstrap")
+
+        first = await tool.run({}, convert_result=False)
+        first_page = first.structuredContent["summary"]["store"]["digest"]["page"]
+        second = await tool.run(
+            {
+                "store_cursor": first_page["next_cursor"],
+                "store_ack_token": first_page["ack_token"],
+            },
+            convert_result=False,
+        )
+        second_page = second.structuredContent["summary"]["store"]["digest"]["page"]
+        final = await tool.run(
+            {
+                "store_cursor": second_page["next_cursor"],
+                "store_ack_token": second_page["ack_token"],
+            },
+            convert_result=False,
+        )
+        final_page = final.structuredContent["summary"]["store"]["digest"]["page"]
+
+        self.assertFalse(final_page["has_more"])
+        self.assertIsNone(final_page["next_cursor"])
+        calls = [arguments for name, arguments in state["calls"] if name == "store_digest"]
+        self.assertTrue(all(call["stream"] == "store_bootstrap" for call in calls))
+        self.assertEqual("bootstrap-ack-1", calls[1]["ack_token"])
+        self.assertEqual("bootstrap-ack-2", calls[2]["ack_token"])
+
+    async def test_store_search_and_exact_context_use_existing_public_tools(self) -> None:
+        server, state = self._create_store_server()
+
+        search = await server._tool_manager.get_tool("agent_search").run(
+            {
+                "entity": "store_order",
+                "query": "order-1",
+                "filters": {"status": "IN_PROGRESS"},
+                "cursor": "opaque-search",
+                "limit": 5,
+            },
+            convert_result=False,
+        )
+        context = await server._tool_manager.get_tool("agent_entity_context").run(
+            {"entity": "store_order", "entity_id": "order-1", "detail": "full"},
+            convert_result=False,
+        )
+
+        self.assertEqual("order-1", search.structuredContent["data"]["items"][0]["id"])
+        self.assertEqual("order-1", context.structuredContent["data"]["items"][0]["id"])
+        search_call = next(
+            arguments for name, arguments in state["calls"] if name == "store_search"
+        )
+        self.assertEqual({"status": "IN_PROGRESS"}, search_call["filters"])
+        self.assertEqual("opaque-search", search_call["cursor"])
+
+    async def test_store_outage_degrades_store_without_breaking_crm(self) -> None:
+        server, state = self._create_store_server({"store_available": False})
+
+        bootstrap = await server._tool_manager.get_tool("agent_bootstrap").run(
+            {}, convert_result=False
+        )
+        runtime = await server._tool_manager.get_tool("get_runtime_status").run(
+            {}, convert_result=False
+        )
+        crm_digest = await server._tool_manager.get_tool("agent_board_digest").run(
+            {"scope": "crm", "limit": 1}, convert_result=False
+        )
+
+        self.assertTrue(bootstrap.structuredContent["ok"])
+        self.assertEqual("degraded", bootstrap.structuredContent["status"])
+        self.assertIn("store_adapter_degraded", bootstrap.structuredContent["warnings"])
+        self.assertTrue(runtime.structuredContent["ok"])
+        self.assertEqual("degraded", runtime.structuredContent["status"])
+        self.assertFalse(runtime.structuredContent["data"]["store"]["ok"])
+        self.assertTrue(crm_digest.structuredContent["ok"])
+        runtime_calls = [
+            arguments for name, arguments in state["calls"] if name == "store_runtime_status"
+        ]
+        self.assertTrue(runtime_calls[-1]["live"])
+
+    async def test_all_store_hidden_tools_are_excluded_from_raw_escape(self) -> None:
+        server, _state = self._create_store_server()
+        discover = server._tool_manager.get_tool("discover_raw_capabilities")
+        schema = server._tool_manager.get_tool("get_raw_capability_schema")
+        raw_call = server._tool_manager.get_tool("call_raw_capability")
+
+        for name in (
+            "store_runtime_status",
+            "store_digest",
+            "store_search",
+            "store_entity_context",
+            "store_management_action",
+        ):
+            with self.subTest(name=name):
+                discovered = await discover.run({"query": name}, convert_result=False)
+                self.assertEqual([], discovered.structuredContent["data"]["capabilities"])
+                blocked_schema = await schema.run({"name": name}, convert_result=False)
+                blocked_call = await raw_call.run(
+                    {"name": name, "arguments": {}, "schema_hash": "irrelevant"},
+                    convert_result=False,
+                )
+                expected = (
+                    "named_workflow_required"
+                    if name == "store_management_action"
+                    else "named_operation_required"
+                )
+                self.assertIn(expected, blocked_schema.structuredContent["warnings"])
+                self.assertIn(expected, blocked_call.structuredContent["warnings"])
+
+                disguised = f" \t{name}\n"
+                disguised_schema = await schema.run({"name": disguised}, convert_result=False)
+                disguised_call = await raw_call.run(
+                    {
+                        "name": disguised,
+                        "arguments": {},
+                        "schema_hash": "irrelevant",
+                    },
+                    convert_result=False,
+                )
+                self.assertIn(expected, disguised_schema.structuredContent["warnings"])
+                self.assertIn(expected, disguised_call.structuredContent["warnings"])
+
+    async def test_store_write_requires_explicit_mode_and_owner_intent_before_ledger(
+        self,
+    ) -> None:
+        server, state = self._create_store_server()
+        tool = server._tool_manager.get_tool("agent_inventory_workflow")
+        base_payload = {
+            "target_id": "order-1",
+            "expected_updated_at": "2026-07-16T10:00:00+00:00",
+            "owner_intent": "Mark this exact store order ready",
+            "planned_changes": {"status": "READY"},
+        }
+
+        missing_mode = await tool.run(
+            {
+                "operation": "mark_order_ready",
+                "payload": base_payload,
+                "idempotency_key": "store-order-ready-1",
+            },
+            convert_result=False,
+        )
+        missing_owner_intent = await tool.run(
+            {
+                "operation": "mark_order_ready",
+                "payload": {**base_payload, "owner_intent": ""},
+                "idempotency_key": "store-order-ready-2",
+                "mode": "dry_run",
+            },
+            convert_result=False,
+        )
+
+        self.assertIn(
+            "store_mode_required_explicit_dry_run_or_apply",
+            missing_mode.structuredContent["warnings"],
+        )
+        self.assertIn(
+            "store_write_exact_target_revision_owner_intent_and_idempotency_required",
+            missing_owner_intent.structuredContent["warnings"],
+        )
+        self.assertFalse(any(name == "start_workflow" for name, _ in state["calls"]))
+
+    async def test_store_write_revision_conflict_closes_ledger_before_executor(self) -> None:
+        server, state = self._create_store_server()
+
+        result = await server._tool_manager.get_tool("agent_inventory_workflow").run(
+            {
+                "operation": "mark_order_ready",
+                "payload": {
+                    "target_id": "order-1",
+                    "expected_updated_at": "stale-revision",
+                    "owner_intent": "Mark this exact store order ready",
+                    "planned_changes": {"status": "READY"},
+                },
+                "idempotency_key": "store-order-ready-conflict",
+                "mode": "apply",
+            },
+            convert_result=False,
+        )
+
+        self.assertFalse(result.structuredContent["ok"])
+        self.assertIn(
+            "store_preflight_exact_target_or_revision_failed",
+            result.structuredContent["warnings"],
+        )
+        start_call = next(
+            arguments for name, arguments in state["calls"] if name == "start_workflow"
+        )
+        self.assertEqual("store", start_call["scope"]["domain"])
+        self.assertEqual("store", start_call["scope"]["source"])
+        self.assertFalse(
+            any(name == "store_management_action" for name, _arguments in state["calls"])
+        )
+        self.assertEqual(
+            ["failed"],
+            [
+                arguments["status"]
+                for name, arguments in state["calls"]
+                if name == "workflow_transition"
+            ],
+        )
+        failed_transition = next(
+            arguments for name, arguments in state["calls"] if name == "workflow_transition"
+        )
+        self.assertEqual("failed mark_order_ready", failed_transition["message"])
+        self.assertTrue(
+            all(isinstance(value, bool) for value in failed_transition["verification"].values())
+        )
+
+    async def test_store_all_real_shaped_actions_share_plan_correlation_and_verify(self) -> None:
+        pii_comment = (
+            "Иван Петров, +7 999 111-22-33, ivan@example.com, XTA210990Y1234567, token-secret"
+        )
+        cases = (
+            (
+                "assign_quote_request",
+                "quote-1",
+                {"assignee_id": "user-1"},
+                ["assigned_user_id"],
+                ("assigned_user_id", "user-1"),
+            ),
+            (
+                "set_quote_request_status",
+                "quote-1",
+                {"status": "IN_PROGRESS"},
+                ["status"],
+                ("status", "IN_PROGRESS"),
+            ),
+            (
+                "update_quote_request_comment",
+                "quote-1",
+                {"internal_comment": pii_comment},
+                ["has_internal_comment", "internal_comment_sha256"],
+                (
+                    "internal_comment_sha256",
+                    hashlib.sha256(f"comment:{pii_comment}".encode()).hexdigest(),
+                ),
+            ),
+            (
+                "set_batch_storage_location",
+                "batch-1",
+                {"storage_location": "B-22"},
+                ["storage_location"],
+                ("storage_location", "B-22"),
+            ),
+            (
+                "mark_order_ready",
+                "order-1",
+                {"status": "READY"},
+                ["status", "ready_at"],
+                ("status", "READY"),
+            ),
+        )
+
+        for index, (operation, target_id, changes, change_fields, result_pair) in enumerate(cases):
+            with self.subTest(operation=operation):
+                server, state = self._create_store_server()
+                dry_run, apply = await self._store_dry_apply(
+                    server,
+                    operation=operation,
+                    payload={
+                        "target_id": target_id,
+                        "expected_updated_at": "2026-07-16T10:00:00+00:00",
+                        "planned_changes": changes,
+                    },
+                    key_prefix=f"store-real-{index}",
+                )
+
+                self.assertTrue(dry_run.structuredContent["ok"])
+                self.assertTrue(apply.structuredContent["ok"])
+                self.assertEqual("completed", apply.structuredContent["status"])
+                self.assertEqual(
+                    change_fields,
+                    [item["field"] for item in apply.structuredContent["data"]["changes"]],
+                )
+                self.assertEqual(
+                    result_pair[1],
+                    apply.structuredContent["data"]["result"][result_pair[0]],
+                )
+                management_calls = [
+                    arguments
+                    for name, arguments in state["calls"]
+                    if name == "store_management_action"
+                ]
+                self.assertEqual(2, len(management_calls))
+                self.assertNotEqual(
+                    management_calls[0]["idempotency_key"],
+                    management_calls[1]["idempotency_key"],
+                )
+                self.assertEqual(
+                    management_calls[0]["correlation_id"],
+                    management_calls[1]["correlation_id"],
+                )
+                self.assertTrue(management_calls[0]["correlation_id"].startswith("store-action-"))
+                ledger_scopes = [
+                    arguments["scope"]
+                    for name, arguments in state["calls"]
+                    if name == "start_workflow"
+                ]
+                self.assertEqual(["store", "store"], [scope["domain"] for scope in ledger_scopes])
+                self.assertEqual(["store", "store"], [scope["source"] for scope in ledger_scopes])
+                ledger_starts = [
+                    arguments for name, arguments in state["calls"] if name == "start_workflow"
+                ]
+                for start in ledger_starts:
+                    self.assertEqual("", start["query"])
+                    self.assertIsNone(start["metadata"])
+                    self.assertEqual(
+                        {"operation", "mode", "request_fingerprint", "domain", "source"},
+                        set(start["scope"]),
+                    )
+                ledger_transitions = [
+                    arguments for name, arguments in state["calls"] if name == "workflow_transition"
+                ]
+                self.assertEqual(
+                    ["executing", "verifying", "completed"] * 2,
+                    [transition["status"] for transition in ledger_transitions],
+                )
+                for transition in ledger_transitions:
+                    verification = transition["verification"]
+                    if verification is not None:
+                        self.assertTrue(verification)
+                        self.assertTrue(
+                            all(isinstance(value, bool) for value in verification.values())
+                        )
+                        self.assertFalse(
+                            any(isinstance(value, (dict, list)) for value in verification.values())
+                        )
+                if operation == "update_quote_request_comment":
+                    public_payload = json.dumps(
+                        apply.structuredContent, ensure_ascii=False, sort_keys=True
+                    )
+                    self.assertNotIn(pii_comment, public_payload)
+                    self.assertNotIn(
+                        "internal_comment", state["entities"][("store_quote_request", target_id)]
+                    )
+
+    async def test_store_ready_dry_run_discloses_possible_customer_notification(self) -> None:
+        server, _state = self._create_store_server()
+
+        result = await server._tool_manager.get_tool("agent_inventory_workflow").run(
+            {
+                "operation": "mark_order_ready",
+                "payload": {
+                    "target_id": "order-1",
+                    "expected_updated_at": "2026-07-16T10:00:00+00:00",
+                    "owner_intent": "Preview marking this exact store order ready",
+                    "planned_changes": {"status": "READY"},
+                },
+                "idempotency_key": "store-order-ready-dry-run",
+                "mode": "dry_run",
+            },
+            convert_result=False,
+        )
+
+        self.assertTrue(result.structuredContent["ok"])
+        self.assertIn(
+            "external_notifier_is_best_effort",
+            result.structuredContent["warnings"],
+        )
+        self.assertIn(
+            "attempt_external_customer_notifier_after_commit",
+            {item["effect"] for item in result.structuredContent["data"]["effects"]},
+        )
+        self.assertEqual(
+            "NOT_APPLICABLE",
+            result.structuredContent["data"]["external_effect_state"],
+        )
+        self.assertFalse(result.structuredContent["data"]["idempotency_replay"])
+        self.assertTrue(result.structuredContent["data"]["correlation_id"])
+        self.assertEqual(1800, result.structuredContent["data"]["dry_run_proof_ttl_seconds"])
+        notifier = next(
+            effect
+            for effect in result.structuredContent["data"]["effects"]
+            if effect["effect"] == "attempt_external_customer_notifier_after_commit"
+        )
+        self.assertEqual(
+            {
+                "configured": False,
+                "customer_linked": True,
+                "cached_chat_available": False,
+                "deliverability": "FAILED",
+            },
+            {
+                key: notifier[key]
+                for key in (
+                    "configured",
+                    "customer_linked",
+                    "cached_chat_available",
+                    "deliverability",
+                )
+            },
+        )
+        self.assertNotIn("owner_intent", result.structuredContent["data"])
+        self.assertNotIn("idempotency_key", result.structuredContent["data"])
+
+    async def test_store_comment_clear_is_canonical_and_verified_in_both_modes(self) -> None:
+        server, state = self._create_store_server()
+        dry_run, apply = await self._store_dry_apply(
+            server,
+            operation="update_quote_request_comment",
+            payload={
+                "target_id": "quote-1",
+                "expected_updated_at": "2026-07-16T10:00:00+00:00",
+                "planned_changes": {"internal_comment": "   "},
+            },
+            key_prefix="store-comment-clear",
+        )
+
+        self.assertTrue(dry_run.structuredContent["ok"])
+        self.assertTrue(apply.structuredContent["ok"])
+        self.assertTrue(dry_run.structuredContent["verification"]["passed"])
+        self.assertTrue(apply.structuredContent["verification"]["passed"])
+        management_calls = [
+            arguments for name, arguments in state["calls"] if name == "store_management_action"
+        ]
+        self.assertEqual(
+            [{"internal_comment": None}, {"internal_comment": None}],
+            [call["planned_changes"] for call in management_calls],
+        )
+        quote = state["entities"][("store_quote_request", "quote-1")]
+        self.assertFalse(quote["has_internal_comment"])
+        self.assertEqual(hashlib.sha256(b"none:").hexdigest(), quote["internal_comment_sha256"])
+
+    async def test_store_direct_apply_is_blocked_without_fresh_matching_dry_run(self) -> None:
+        server, state = self._create_store_server()
+
+        result = await self._store_write(
+            server,
+            operation="mark_order_ready",
+            payload={
+                "target_id": "order-1",
+                "expected_updated_at": "2026-07-16T10:00:00+00:00",
+                "owner_intent": "Apply without proof",
+                "planned_changes": {"status": "READY"},
+            },
+            idempotency_key="store-direct-apply",
+            mode="apply",
+        )
+
+        self.assertFalse(result.structuredContent["ok"])
+        self.assertIn("AGENT_DRY_RUN_REQUIRED", result.structuredContent["warnings"])
+        self.assertEqual(1, state["store_post_count"])
+        self.assertEqual("IN_PROGRESS", state["entities"][("store_order", "order-1")]["status"])
+
+    async def test_store_proof_requires_same_principal_plan_distinct_key_and_ttl(self) -> None:
+        base_payload = {
+            "target_id": "batch-1",
+            "expected_updated_at": "2026-07-16T10:00:00+00:00",
+            "planned_changes": {"storage_location": "B-22"},
+            "correlation_id": "store-proof-correlation",
+        }
+
+        for mismatch in ("principal", "plan", "same_key", "expired"):
+            with self.subTest(mismatch=mismatch):
+                server, state = self._create_store_server()
+                dry_key = f"store-proof-{mismatch}-dry"
+                dry_run = await self._store_write(
+                    server,
+                    operation="set_batch_storage_location",
+                    payload={**base_payload, "owner_intent": "Preview exact plan"},
+                    idempotency_key=dry_key,
+                    mode="dry_run",
+                )
+                self.assertTrue(dry_run.structuredContent["ok"])
+                apply_payload = {**base_payload, "owner_intent": "Apply exact plan"}
+                apply_key = f"store-proof-{mismatch}-apply"
+                if mismatch == "principal":
+                    state["store_principal"] = "different-principal"
+                elif mismatch == "plan":
+                    apply_payload["planned_changes"] = {"storage_location": "C-33"}
+                elif mismatch == "same_key":
+                    apply_key = dry_key
+                    apply_payload["owner_intent"] = "Preview exact plan"
+                elif mismatch == "expired":
+                    state["store_clock"] = 1801
+
+                apply = await self._store_write(
+                    server,
+                    operation="set_batch_storage_location",
+                    payload=apply_payload,
+                    idempotency_key=apply_key,
+                    mode="apply",
+                )
+
+                self.assertFalse(apply.structuredContent["ok"])
+                expected = (
+                    "idempotency_key_conflict"
+                    if mismatch == "same_key"
+                    else "AGENT_DRY_RUN_REQUIRED"
+                )
+                self.assertIn(expected, apply.structuredContent["warnings"])
+
+    async def test_store_explicit_correlation_is_preserved_and_invalid_value_blocked(self) -> None:
+        server, state = self._create_store_server()
+        explicit = "store-explicit-correlation-123"
+        dry_run, apply = await self._store_dry_apply(
+            server,
+            operation="set_batch_storage_location",
+            payload={
+                "target_id": "batch-1",
+                "expected_updated_at": "2026-07-16T10:00:00+00:00",
+                "planned_changes": {"storage_location": "B-22"},
+                "correlation_id": explicit,
+            },
+            key_prefix="store-explicit",
+        )
+        invalid = await self._store_write(
+            server,
+            operation="set_batch_storage_location",
+            payload={
+                "target_id": "batch-1",
+                "expected_updated_at": "2026-07-16T10:01:00+00:00",
+                "owner_intent": "Invalid correlation must not execute",
+                "planned_changes": {"storage_location": "C-33"},
+                "correlation_id": "bad correlation with spaces",
+            },
+            idempotency_key="store-invalid-correlation",
+            mode="dry_run",
+        )
+
+        self.assertTrue(dry_run.structuredContent["ok"])
+        self.assertTrue(apply.structuredContent["ok"])
+        self.assertEqual(
+            [explicit, explicit],
+            [
+                arguments["correlation_id"]
+                for name, arguments in state["calls"]
+                if name == "store_management_action"
+            ],
+        )
+        self.assertFalse(invalid.structuredContent["ok"])
+        self.assertIn("store_correlation_id_invalid", invalid.structuredContent["warnings"])
+        self.assertEqual(
+            2,
+            sum(1 for name, _arguments in state["calls"] if name == "store_management_action"),
+        )
+
+    async def test_store_correlation_contract_accepts_160_and_rejects_161_characters(
+        self,
+    ) -> None:
+        server, state = self._create_store_server()
+        maximum = "s" + ("x" * 159)
+        accepted = await self._store_write(
+            server,
+            operation="set_batch_storage_location",
+            payload={
+                "target_id": "batch-1",
+                "expected_updated_at": "2026-07-16T10:00:00+00:00",
+                "owner_intent": "Validate maximum correlation length",
+                "planned_changes": {"storage_location": "B-22"},
+                "correlation_id": maximum,
+            },
+            idempotency_key="store-max-correlation",
+            mode="dry_run",
+        )
+        rejected = await self._store_write(
+            server,
+            operation="set_batch_storage_location",
+            payload={
+                "target_id": "batch-1",
+                "expected_updated_at": "2026-07-16T10:00:00+00:00",
+                "owner_intent": "Reject overlong correlation",
+                "planned_changes": {"storage_location": "B-22"},
+                "correlation_id": maximum + "x",
+            },
+            idempotency_key="store-overlong-correlation",
+            mode="dry_run",
+        )
+
+        self.assertTrue(accepted.structuredContent["ok"])
+        self.assertEqual(maximum, accepted.structuredContent["data"]["correlation_id"])
+        self.assertFalse(rejected.structuredContent["ok"])
+        self.assertIn("store_correlation_id_invalid", rejected.structuredContent["warnings"])
+        self.assertEqual(
+            [maximum],
+            [
+                arguments["correlation_id"]
+                for name, arguments in state["calls"]
+                if name == "store_management_action"
+            ],
+        )
+
+    def test_store_readback_requires_exact_correlation_and_advanced_apply_revision(
+        self,
+    ) -> None:
+        payload = {
+            "target_id": "batch-1",
+            "expected_updated_at": "2026-07-16T10:00:00+00:00",
+            "planned_changes": {"storage_location": "B-22"},
+            "correlation_id": "expected-correlation-123",
+        }
+        result = {
+            "ok": True,
+            "changes": [{"field": "storage_location"}],
+            "verification": {"passed": True},
+            "meta": {"correlation_id": "different-correlation-123"},
+        }
+        readback = {
+            "ok": True,
+            "data": {
+                "item": {
+                    "id": "batch-1",
+                    "updated_at": "2026-07-16T10:00:00+00:00",
+                    "storage_location": "B-22",
+                }
+            },
+        }
+        verification = verify_store_readback(
+            "set_batch_storage_location",
+            payload,
+            result,
+            mode="apply",
+            preflight={"actual_updated_at": "2026-07-16T10:00:00+00:00"},
+            readback=readback,
+        )
+
+        self.assertFalse(verification["passed"])
+        checks = verification["evidence"]["checks"]
+        self.assertFalse(checks["correlation_id_exact"])
+        self.assertFalse(checks["revision_advanced"])
+
+        result["meta"]["correlation_id"] = payload["correlation_id"]
+        readback["data"]["item"]["updated_at"] = "2026-07-16T10:01:00+00:00"
+        accepted = verify_store_readback(
+            "set_batch_storage_location",
+            payload,
+            result,
+            mode="apply",
+            preflight={"actual_updated_at": "2026-07-16T10:00:00+00:00"},
+            readback=readback,
+        )
+        self.assertTrue(accepted["passed"])
+
+    async def test_store_ready_external_effect_requires_terminal_success_state(self) -> None:
+        for external_state, expected_status in (
+            ("SENT", "completed"),
+            ("NOT_APPLICABLE", "completed"),
+            ("CLAIMED", "compensating"),
+            ("FAILED", "compensating"),
+        ):
+            with self.subTest(external_state=external_state):
+                server, _state = self._create_store_server(
+                    {"external_effect_state": external_state}
+                )
+                _dry_run, apply = await self._store_dry_apply(
+                    server,
+                    operation="mark_order_ready",
+                    payload={
+                        "target_id": "order-1",
+                        "expected_updated_at": "2026-07-16T10:00:00+00:00",
+                        "planned_changes": {"status": "READY"},
+                    },
+                    key_prefix=f"store-notifier-{external_state.lower()}",
+                )
+
+                self.assertEqual(expected_status, apply.structuredContent["status"])
+                checks = apply.structuredContent["verification"]["evidence"]["checks"]
+                self.assertTrue(checks["status_ready"])
+                self.assertEqual(
+                    external_state in {"SENT", "NOT_APPLICABLE"},
+                    checks["external_effect_terminal"],
+                )
+
+    async def test_store_compensating_exact_retry_replays_receipt_and_closes(self) -> None:
+        server, state = self._create_store_server({"manager_compensating_once": True})
+        payload = {
+            "target_id": "order-1",
+            "expected_updated_at": "2026-07-16T10:00:00+00:00",
+            "planned_changes": {"status": "READY"},
+        }
+        _dry_run, first_apply = await self._store_dry_apply(
+            server,
+            operation="mark_order_ready",
+            payload=payload,
+            key_prefix="store-reconcile",
+        )
+
+        self.assertEqual("compensating", first_apply.structuredContent["status"])
+        self.assertEqual(2, state["store_post_count"])
+        replay = await self._store_write(
+            server,
+            operation="mark_order_ready",
+            payload={**payload, "owner_intent": "Apply store-reconcile"},
+            idempotency_key="store-reconcile-apply",
+            mode="apply",
+        )
+
+        self.assertTrue(replay.structuredContent["ok"])
+        self.assertEqual("completed", replay.structuredContent["status"])
+        self.assertTrue(replay.structuredContent["data"]["idempotency_replay"])
+        self.assertEqual(3, state["store_post_count"])
+        self.assertIn("store_receipt_replayed_and_reconciled", replay.structuredContent["warnings"])
+        final_transition = [
+            arguments
+            for name, arguments in state["calls"]
+            if name == "workflow_transition" and arguments["status"] == "completed"
+        ][-1]
+        self.assertEqual("completed mark_order_ready", final_transition["message"])
+        self.assertEqual("store:mark_order_ready", final_transition["summary"])
+        self.assertTrue(final_transition["verification"]["idempotency_replay"])
+        self.assertTrue(
+            all(isinstance(value, bool) for value in final_transition["verification"].values())
+        )
+
+    async def test_store_applied_but_unverified_enters_compensating(self) -> None:
+        server, state = self._create_store_server({"skip_apply": True})
+
+        _dry_run, result = await self._store_dry_apply(
+            server,
+            operation="mark_order_ready",
+            payload={
+                "target_id": "order-1",
+                "expected_updated_at": "2026-07-16T10:00:00+00:00",
+                "planned_changes": {"status": "READY"},
+            },
+            key_prefix="store-order-ready-unverified",
+        )
+
+        self.assertFalse(result.structuredContent["ok"])
+        self.assertEqual("compensating", result.structuredContent["status"])
+        self.assertTrue(result.structuredContent["verification"]["executor_ok"])
+        self.assertFalse(result.structuredContent["verification"]["passed"])
+        self.assertIn(
+            "verification_failed_compensation_required",
+            result.structuredContent["warnings"],
+        )
+
+    async def test_manager_write_applied_unverified_signal_enters_compensating(self) -> None:
+        server, _state = self._create_store_server({"manager_compensating": True})
+
+        _dry_run, result = await self._store_dry_apply(
+            server,
+            operation="mark_order_ready",
+            payload={
+                "target_id": "order-1",
+                "expected_updated_at": "2026-07-16T10:00:00+00:00",
+                "planned_changes": {"status": "READY"},
+            },
+            key_prefix="store-order-ready-manager-unverified",
+        )
+
+        self.assertFalse(result.structuredContent["ok"])
+        self.assertEqual("compensating", result.structuredContent["status"])
+        self.assertTrue(result.structuredContent["verification"]["executor_ok"])
+        self.assertIn("store_apply_readback_failed", result.structuredContent["warnings"])
+
+    async def test_legacy_crm_inventory_call_without_mode_keeps_apply_behavior(self) -> None:
+        server, state = self._create_store_server()
+
+        result = await server._tool_manager.get_tool("agent_inventory_workflow").run(
+            {
+                "operation": "list_inventory_items",
+                "payload": {},
+                "idempotency_key": "legacy-inventory-read",
+            },
+            convert_result=False,
+        )
+
+        self.assertTrue(result.structuredContent["ok"])
+        self.assertEqual("apply", result.structuredContent["summary"]["mode"])
+        self.assertFalse(any(name == "store_management_action" for name, _ in state["calls"]))
 
     async def test_board_digest_is_paginated_and_omits_ui_fields(self) -> None:
         result = await self._call("agent_board_digest", {"limit": 2})

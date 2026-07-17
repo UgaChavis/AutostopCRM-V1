@@ -35,6 +35,21 @@ class AgentGatewayV2SmokeScriptTests(unittest.TestCase):
         self.assertFalse(standard.exhaustive)
         self.assertTrue(exhaustive.exhaustive)
 
+    def test_store_readiness_gate_is_explicit(self) -> None:
+        module = load_script_module()
+
+        standard = module.build_parser().parse_args([])
+        required = module.build_parser().parse_args(["--require-store"])
+
+        self.assertFalse(standard.require_store)
+        self.assertTrue(required.require_store)
+
+    def test_store_readiness_gate_does_not_advance_digest_cursor(self) -> None:
+        source = SCRIPT_PATH.read_text(encoding="utf-8")
+
+        self.assertIn('"entity": "store_state"', source)
+        self.assertNotIn('{"scope": "store"', source)
+
     def test_state_version_requires_integer_summary_value(self) -> None:
         module = load_script_module()
 

@@ -38,6 +38,10 @@ CODEX_RUNTIME_ENV_PATH="${AUTOSTOP_CODEX_RUNTIME_ENV_PATH:-/root/.config/autosto
 DESKTOP_INSTRUCTION_PATH="${AUTOSTOP_DESKTOP_INSTRUCTION_PATH:-/root/Desktop/AUTOSTOPCRM_FULL_INSTRUCTION.txt}"
 INSTALL_WATCHDOG="${AUTOSTOP_INSTALL_WATCHDOG:-1}"
 PYTHON_BIN="${AUTOSTOP_RELEASE_PYTHON:-python3}"
+STORE_NETWORK="${AUTOSTOP_STORE_NETWORK:-autostop-store-agent}"
+STORE_APP_CONTAINER="${AUTOSTOP_STORE_APP_CONTAINER:-autostop-app}"
+STORE_DB_CONTAINER="${AUTOSTOP_STORE_DB_CONTAINER:-autostop-db}"
+CRM_CONTAINER="${AUTOSTOP_CRM_CONTAINER:-autostopcrm}"
 
 "$PYTHON_BIN" scripts/configure_mcp_oauth.py ensure --env-file "$ROOT_DIR/.env"
 set -a
@@ -47,7 +51,11 @@ set +a
 
 : "${AUTOSTOP_SMOKE_OPERATOR_USERNAME:?set smoke username}"
 : "${AUTOSTOP_SMOKE_OPERATOR_PASSWORD:?set smoke password}"
+: "${AUTOSTOP_STORE_READ_TOKEN:?provision store read service token}"
+: "${AUTOSTOP_STORE_MANAGE_TOKEN:?provision store manage service token}"
 export AUTOSTOP_SMOKE_OPERATOR_USERNAME AUTOSTOP_SMOKE_OPERATOR_PASSWORD
+export AUTOSTOP_STORE_API_URL="${AUTOSTOP_STORE_API_URL:-http://autostop-app:8000}"
+export AUTOSTOP_STORE_READ_TOKEN AUTOSTOP_STORE_MANAGE_TOKEN
 
 if ! [[ "$MAINTENANCE_BUDGET_SECONDS" =~ ^[0-9]+$ ]] \
   || (( MAINTENANCE_BUDGET_SECONDS < 60 || MAINTENANCE_BUDGET_SECONDS > 600 )); then
@@ -100,6 +108,39 @@ export MINIMAL_KANBAN_MCP_PUBLIC_BASE_URL="$PUBLIC_SITE_URL"
 export MINIMAL_KANBAN_MCP_PUBLIC_ENDPOINT_URL="$PUBLIC_MCP_URL"
 export AUTOSTOP_MANAGER_HOST_DIR="$MANAGER_CURRENT_LINK"
 
+validate_store_network() {
+  local require_crm="${1:-0}"
+  local internal network_members member
+  if ! docker network inspect "$STORE_NETWORK" >/dev/null 2>&1; then
+    echo "ERROR: precreated internal Docker network is unavailable: $STORE_NETWORK" >&2
+    return 2
+  fi
+  internal="$(docker network inspect --format '{{.Internal}}' "$STORE_NETWORK")"
+  if [[ "$internal" != "true" ]]; then
+    echo "ERROR: $STORE_NETWORK must be created with Docker internal=true." >&2
+    return 2
+  fi
+  network_members="$(docker network inspect --format '{{range .Containers}}{{println .Name}}{{end}}' "$STORE_NETWORK")"
+  if ! grep -Fxq "$STORE_APP_CONTAINER" <<<"$network_members"; then
+    echo "ERROR: AutoStop App is not attached to $STORE_NETWORK." >&2
+    return 2
+  fi
+  if grep -Fxq "$STORE_DB_CONTAINER" <<<"$network_members"; then
+    echo "ERROR: the store database must never be attached to $STORE_NETWORK." >&2
+    return 2
+  fi
+  while IFS= read -r member; do
+    if [[ -n "$member" && "$member" != "$STORE_APP_CONTAINER" && "$member" != "$CRM_CONTAINER" ]]; then
+      echo "ERROR: unexpected container is attached to the isolated Store agent network." >&2
+      return 2
+    fi
+  done <<<"$network_members"
+  if [[ "$require_crm" == "1" ]] && ! grep -Fxq "$CRM_CONTAINER" <<<"$network_members"; then
+    echo "ERROR: AutoStop CRM is not attached to $STORE_NETWORK after replacement." >&2
+    return 2
+  fi
+}
+
 DEPLOY_LOCK_PATH="${AUTOSTOP_DEPLOY_LOCK_PATH:-$ROOT_DIR/.autostop-deploy.lock}"
 if ! command -v flock >/dev/null 2>&1; then
   echo "ERROR: flock is required for coordinated production replacement." >&2
@@ -133,6 +174,7 @@ if [[ "$ALLOW_DIRTY_RELEASE" != "1" ]] && [[ -n "$(git status --short)" ]]; then
   exit 2
 fi
 
+validate_store_network 0
 docker compose config --quiet
 
 release_timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -159,8 +201,13 @@ snapshot_manager_tree() {
     --exclude '.env' \
     --exclude '.env.*' \
     --exclude '/data/' \
+    --exclude '/out/' \
+    --exclude '/tmp/' \
     --exclude 'tests/' \
     --exclude '__pycache__/' \
+    --exclude '.coverage' \
+    --exclude 'htmlcov/' \
+    --exclude '.mypy_cache/' \
     --exclude '.pytest_cache/' \
     --exclude '.ruff_cache/' \
     "$source_dir/" "$staging_dir/"
@@ -334,6 +381,8 @@ reload_deploy_environment() {
   export MINIMAL_KANBAN_MCP_PUBLIC_BASE_URL="$PUBLIC_SITE_URL"
   export MINIMAL_KANBAN_MCP_PUBLIC_ENDPOINT_URL="$PUBLIC_MCP_URL"
   export AUTOSTOP_MANAGER_HOST_DIR="$MANAGER_CURRENT_LINK"
+  export AUTOSTOP_STORE_API_URL="${AUTOSTOP_STORE_API_URL:-http://autostop-app:8000}"
+  export AUTOSTOP_STORE_READ_TOKEN AUTOSTOP_STORE_MANAGE_TOKEN
 }
 
 restore_auth_configuration() {
@@ -440,7 +489,7 @@ reload_deploy_environment
   --codex-config "$CODEX_CONFIG_PATH" \
   --runtime-env "$CODEX_RUNTIME_ENV_PATH" \
   check --mcp-url "$PUBLIC_MCP_URL"
-"$PYTHON_BIN" scripts/validate_production_env.py --require-production
+"$PYTHON_BIN" scripts/validate_production_env.py --require-production --require-store
 docker compose config --quiet
 
 maintenance_started=1
@@ -468,6 +517,8 @@ if ! wait_for_health "$release_image"; then
   echo "ERROR: release container did not become healthy." >&2
   exit 1
 fi
+assert_release_budget
+validate_store_network 1
 
 run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_live_connector.py \
   --strict \
@@ -478,7 +529,8 @@ run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_live_con
   --expect-admin
 
 run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_agent_gateway_v2.py \
-  --mcp-url http://127.0.0.1:41831/mcp
+  --mcp-url http://127.0.0.1:41831/mcp \
+  --require-store
 
 # Internal authenticated smoke has passed. Remove maintenance mode before the
 # public probes so they verify the real anonymous auth boundary (401/403).
@@ -494,7 +546,8 @@ run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_live_con
   --expect-admin
 run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_agent_gateway_v2.py \
   --mcp-url "$PUBLIC_MCP_URL" \
-  --exhaustive
+  --exhaustive \
+  --require-store
 run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_mcp_oauth.py \
   --mcp-url "$PUBLIC_MCP_URL"
 

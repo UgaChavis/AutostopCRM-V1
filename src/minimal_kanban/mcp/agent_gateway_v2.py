@@ -14,6 +14,26 @@ from ..api.route_registry import PROXIED_WRITE_ROUTES
 from ..deployment_security import load_agent_gateway_security_policy
 from ..repair_order import repair_order_payment_method_from_cashbox_name
 from .client import BoardApiClient
+from .store_gateway import (
+    INTERNAL_ONLY_CAPABILITY_NAMES,
+    STORE_MANAGEMENT_CAPABILITY_NAME,
+    STORE_MANAGEMENT_OPERATIONS,
+    STORE_SEARCH_ENTITIES,
+    compatible_arguments,
+    internal_only_capability_warning,
+    normalized_store_data,
+    preflight_store_write,
+    reconcile_store_receipt,
+    store_action_arguments,
+    store_gateway_envelope,
+    store_ledger_verification,
+    store_reconciliation_envelope,
+    validate_store_workflow_request,
+    verify_store_operation,
+)
+from .store_gateway import (
+    workflow_state_version as _workflow_state_version,
+)
 
 AGENT_GATEWAY_FORMAT = "agent_envelope_v2"
 AGENT_GATEWAY_TOOL_NAMES = frozenset(
@@ -31,7 +51,6 @@ AGENT_GATEWAY_TOOL_NAMES = frozenset(
         "call_raw_capability",
     }
 )
-
 MANAGER_WORKFLOW_TOOL_NAMES = frozenset(
     {
         "list_agent_workflows",
@@ -46,15 +65,12 @@ MANAGER_WORKFLOW_TOOL_NAMES = frozenset(
         "workflow_cancel",
     }
 )
-
 DIAGNOSTIC_TOOL_NAMES = frozenset(
     {"ping_connector", "get_connector_identity", "get_runtime_status"}
 )
-
 PERMANENT_AGENT_GATEWAY_TOOL_NAMES = frozenset(
     AGENT_GATEWAY_TOOL_NAMES | MANAGER_WORKFLOW_TOOL_NAMES | DIAGNOSTIC_TOOL_NAMES
 )
-
 DEFAULT_CARD_FIELDS = (
     "id",
     "short_id",
@@ -71,7 +87,6 @@ DEFAULT_CARD_FIELDS = (
     "board_summary",
     "updated_at",
 )
-
 CARD_FIELD_ALLOWLIST = frozenset(
     {
         *DEFAULT_CARD_FIELDS,
@@ -259,6 +274,10 @@ def _write_annotations(title: str, *, destructive: bool = False) -> ToolAnnotati
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, CallToolResult):
+        structured = value.structuredContent
+        if isinstance(structured, dict):
+            return dict(structured)
     if isinstance(value, BaseModel):
         return value.model_dump(mode="json", by_alias=True)
     if isinstance(value, dict):
@@ -564,16 +583,6 @@ def _request_fingerprint(value: Any) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def _workflow_state_version(value: Mapping[str, Any] | None) -> int | None:
-    if not isinstance(value, Mapping):
-        return None
-    candidate = value.get("state_version")
-    if not isinstance(candidate, int):
-        summary = value.get("summary")
-        candidate = summary.get("state_version") if isinstance(summary, Mapping) else None
-    return candidate if isinstance(candidate, int) and candidate > 0 else None
-
-
 def _virtual_api_route(name: str) -> str | None:
     normalized = str(name or "").strip()
     if not normalized.startswith(RAW_API_PREFIX):
@@ -714,6 +723,9 @@ def register_agent_gateway_v2(
     manager_bootstrap_tool = raw_tools.get("agent_bootstrap")
     if "agent_bootstrap" in tools:
         tool_manager.remove_tool("agent_bootstrap")
+    crm_runtime_status_tool = raw_tools.get("get_runtime_status")
+    if "get_runtime_status" in tools:
+        tool_manager.remove_tool("get_runtime_status")
 
     async def _invoke(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         virtual_route = _virtual_api_route(name)
@@ -761,6 +773,22 @@ def register_agent_gateway_v2(
                 "error": {"code": "capability_failed", "message": str(exc), "tool": name},
             }
 
+    async def _invoke_store(name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
+        if name not in raw_tools:
+            return {
+                "ok": False,
+                "status": "degraded",
+                "error": {"code": "store_capability_unavailable", "capability": name},
+                "warnings": ["store_capability_unavailable"],
+            }
+        return await _invoke(name, compatible_arguments(raw_tools, name, arguments))
+
+    async def _read_store_target(entity: str, target_id: str) -> dict[str, Any]:
+        return await _invoke_store(
+            "store_entity_context",
+            {"entity": entity, "entity_id": target_id, "detail": "full"},
+        )
+
     async def _start_idempotent_workflow(
         *,
         workflow_id: str,
@@ -769,6 +797,9 @@ def register_agent_gateway_v2(
         payload: dict[str, Any],
         mode: str | None = None,
         dry_run: bool = False,
+        correlation_id: str = "",
+        scope_overrides: Mapping[str, Any] | None = None,
+        refs_only: bool = False,
     ) -> tuple[int | None, dict[str, Any], bool]:
         if "start_workflow" not in raw_tools:
             return (
@@ -780,23 +811,31 @@ def register_agent_gateway_v2(
                 },
                 False,
             )
-        started = await _invoke(
-            "start_workflow",
-            {
-                "workflow_id": workflow_id,
-                "intent": intent,
-                "idempotency_key": idempotency_key,
-                "query": intent,
-                "actor": load_agent_gateway_security_policy().service_identity,
-                "scope": {
-                    "operation": payload.get("operation"),
-                    "mode": mode,
-                    "request_fingerprint": payload.get("request_fingerprint"),
-                },
-                "metadata": {"gateway": "v2", "mode": mode, "dry_run": bool(dry_run)},
+        workflow_scope = {
+            "operation": payload.get("operation"),
+            "mode": mode,
+            "request_fingerprint": payload.get("request_fingerprint"),
+        }
+        if isinstance(scope_overrides, Mapping):
+            workflow_scope.update(scope_overrides)
+        start_arguments = {
+            "workflow_id": workflow_id,
+            "intent": intent,
+            "idempotency_key": idempotency_key,
+            "actor": load_agent_gateway_security_policy().service_identity,
+            "scope": workflow_scope,
+            "dry_run": bool(dry_run),
+        }
+        if not refs_only:
+            start_arguments["query"] = intent
+            start_arguments["metadata"] = {
+                "gateway": "v2",
+                "mode": mode,
                 "dry_run": bool(dry_run),
-            },
-        )
+            }
+        if correlation_id:
+            start_arguments["correlation_id"] = correlation_id
+        started = await _invoke("start_workflow", start_arguments)
         run_id = started.get("run_id")
         summary = started.get("summary") if isinstance(started.get("summary"), dict) else {}
         if not isinstance(run_id, int):
@@ -861,6 +900,44 @@ def register_agent_gateway_v2(
             ),
             label=label,
         )
+
+    async def _reconcile_deduplicated_store_workflow(
+        *,
+        label: str,
+        operation: str,
+        payload: Mapping[str, Any],
+        idempotency_key: str,
+        correlation_id: str,
+        run_id: int | None,
+        started: dict[str, Any],
+    ) -> CallToolResult:
+        outcome = await reconcile_store_receipt(
+            operation,
+            payload,
+            arguments=store_action_arguments(
+                raw_tools,
+                operation,
+                payload,
+                idempotency_key=idempotency_key,
+                mode="apply",
+                correlation_id=correlation_id,
+            ),
+            run_id=run_id,
+            started=started,
+            invoke_action=_invoke_store,
+            read_target=_read_store_target,
+            transition=_transition,
+            state_version=_workflow_state_version,
+        )
+        envelope = store_reconciliation_envelope(
+            outcome,
+            label=label,
+            operation=operation,
+            run_id=run_id,
+            envelope_factory=_envelope,
+            compact=_compact_object,
+        )
+        return _tool_result(envelope, label=label)
 
     async def _record_repair_order_payment(
         payload: dict[str, Any], *, idempotency_key: str
@@ -1213,6 +1290,34 @@ def register_agent_gateway_v2(
                 _envelope(ok=False, status="failed", warnings=["idempotency_key_required"]),
                 label=workflow_id,
             )
+        store_operation = workflow_id == "inventory" and operation in STORE_MANAGEMENT_OPERATIONS
+        store_preflight: dict[str, Any] = {}
+        store_correlation = ""
+        if store_operation:
+            request_validation = validate_store_workflow_request(
+                operation,
+                payload,
+                idempotency_key=idempotency_key,
+                mode=mode,
+            )
+            if not request_validation["passed"]:
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        summary={
+                            "workflow_id": workflow_id,
+                            "operation": operation,
+                            "missing_fields": request_validation.get("missing_fields", []),
+                        },
+                        warnings=[str(request_validation["warning"])],
+                        next_actions=["agent_entity_context for the exact store target"]
+                        if request_validation.get("missing_fields")
+                        else [],
+                    ),
+                    label=workflow_id,
+                )
+            store_correlation = str(request_validation["correlation_id"])
         if (
             operation in {"update_repair_order", "set_repair_order_status"}
             and not str(payload.get("expected_updated_at") or "").strip()
@@ -1228,7 +1333,9 @@ def register_agent_gateway_v2(
                 label=workflow_id,
             )
         logical_payment = workflow_id == "finance" and operation == "record_repair_order_payment"
-        if workflow_id == "board":
+        if store_operation:
+            target_tool = STORE_MANAGEMENT_CAPABILITY_NAME
+        elif workflow_id == "board":
             target_tool = "run_manager_operation"
         elif workflow_id == "finance" and operation in FINANCE_VIRTUAL_OPERATIONS:
             target_tool = _virtual_api_name(FINANCE_VIRTUAL_OPERATIONS[operation])
@@ -1243,7 +1350,7 @@ def register_agent_gateway_v2(
             )
         risk = (
             "write"
-            if logical_payment
+            if logical_payment or store_operation
             else "destructive"
             if virtual_route is not None and _is_destructive_capability(target_tool, "write")
             else "write"
@@ -1268,6 +1375,9 @@ def register_agent_gateway_v2(
             },
             mode=mode,
             dry_run=mode == "dry_run",
+            correlation_id=store_correlation if store_operation else "",
+            scope_overrides={"domain": "store", "source": "store"} if store_operation else None,
+            refs_only=store_operation,
         )
         if started and not bool(started.get("ok")):
             return _tool_result(
@@ -1281,6 +1391,20 @@ def register_agent_gateway_v2(
                 label=workflow_id,
             )
         if deduplicated:
+            if (
+                store_operation
+                and str(mode) == "apply"
+                and str(started.get("status") or "") == "compensating"
+            ):
+                return await _reconcile_deduplicated_store_workflow(
+                    label=workflow_id,
+                    operation=operation,
+                    payload=payload,
+                    idempotency_key=idempotency_key,
+                    correlation_id=store_correlation,
+                    run_id=run_id,
+                    started=started,
+                )
             return _deduplicated_workflow_result(
                 label=workflow_id,
                 operation=operation,
@@ -1296,6 +1420,54 @@ def register_agent_gateway_v2(
                 ),
                 label=workflow_id,
             )
+        if store_operation:
+            _context, store_preflight = await preflight_store_write(
+                operation, payload, _read_store_target
+            )
+            if not bool(store_preflight.get("passed")):
+                preflight_checks = (
+                    store_preflight.get("checks")
+                    if isinstance(store_preflight.get("checks"), Mapping)
+                    else {}
+                )
+                failed = await _transition(
+                    run_id,
+                    "failed",
+                    expected_state_version=_workflow_state_version(started),
+                    message=f"failed {operation}",
+                    verification={
+                        "executor_ok": False,
+                        "verification_passed": False,
+                        "context_read_ok": bool(preflight_checks.get("context_read_ok")),
+                        "target_id_exact": bool(preflight_checks.get("target_id_exact")),
+                        "revision_exact": bool(preflight_checks.get("expected_updated_at_exact")),
+                    },
+                )
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        run_id=run_id,
+                        summary={
+                            "workflow_id": workflow_id,
+                            "operation": operation,
+                            "entity": store_preflight.get("entity"),
+                            "target_id": str(payload.get("target_id") or "").strip(),
+                        },
+                        verification={
+                            "required": True,
+                            "passed": False,
+                            "ledger_closed": bool(failed.get("ok")),
+                            "check": "store_entity_context_preflight",
+                            "evidence": _compact_object(store_preflight, item_limit=10),
+                        },
+                        warnings=["store_preflight_exact_target_or_revision_failed"],
+                        next_actions=[
+                            "reread the exact store target and rebuild the action contract"
+                        ],
+                    ),
+                    label=workflow_id,
+                )
         executing = await _transition(
             run_id,
             "executing",
@@ -1314,7 +1486,16 @@ def register_agent_gateway_v2(
                 label=workflow_id,
             )
         arguments = dict(payload)
-        if workflow_id == "board":
+        if store_operation:
+            arguments = store_action_arguments(
+                raw_tools,
+                operation,
+                payload,
+                idempotency_key=idempotency_key,
+                mode=str(mode),
+                correlation_id=store_correlation,
+            )
+        elif workflow_id == "board":
             arguments = {
                 "operation": operation,
                 "payload": payload,
@@ -1337,8 +1518,24 @@ def register_agent_gateway_v2(
             if logical_payment
             else await _invoke(target_tool, arguments)
         )
-        verification = await _verify_operation(operation, arguments, result, risk)
-        executor_ok = bool(result.get("ok")) or bool(result.get("executor_applied"))
+        verification = (
+            await verify_store_operation(
+                operation,
+                payload,
+                result,
+                mode=str(mode),
+                preflight=store_preflight,
+                read_target=_read_store_target,
+            )
+            if store_operation
+            else await _verify_operation(operation, arguments, result, risk)
+        )
+        executor_ok = bool(result.get("ok")) or bool(
+            _find_value(
+                result,
+                frozenset({"executor_applied", "applied", "write_applied_unverified"}),
+            )
+        )
         verification_passed = bool(verification.get("passed"))
         result_ok = executor_ok and verification_passed
         ledger_closed = False
@@ -1358,7 +1555,11 @@ def register_agent_gateway_v2(
                     "completed",
                     expected_state_version=_workflow_state_version(verifying),
                     message=f"completed {operation}",
-                    verification={"executor_ok": True, **verification},
+                    verification=(
+                        store_ledger_verification(verification, executor_ok=True)
+                        if store_operation
+                        else {"executor_ok": True, **verification}
+                    ),
                     summary=f"{workflow_id}:{operation}",
                 )
                 ledger_closed = (
@@ -1385,7 +1586,11 @@ def register_agent_gateway_v2(
                 "compensating",
                 expected_state_version=executing_version,
                 message=f"verification failed after executor applied {operation}",
-                verification={"executor_ok": True, **verification},
+                verification=(
+                    store_ledger_verification(verification, executor_ok=True)
+                    if store_operation
+                    else {"executor_ok": True, **verification}
+                ),
             )
             workflow_status = "compensating" if bool(compensation.get("ok")) else "executing"
             if not bool(compensation.get("ok")):
@@ -1402,7 +1607,22 @@ def register_agent_gateway_v2(
             if not ledger_closed:
                 ledger_error = failed
         overall_ok = result_ok and ledger_closed
-        safe_result = result if allow_large_output else _compact_object(result)
+        result_data = normalized_store_data(result) if store_operation else result
+        safe_result = result_data if allow_large_output else _compact_object(result_data)
+        source_warnings = (
+            [str(item) for item in result.get("warnings") or [] if str(item).strip()]
+            if store_operation
+            else []
+        )
+        workflow_warnings = (
+            []
+            if overall_ok
+            else ["verification_failed_compensation_required"]
+            if executor_ok and not verification_passed
+            else ["workflow_ledger_close_failed"]
+            if result_ok
+            else ["executor_failed"]
+        )
         return _tool_result(
             _envelope(
                 ok=overall_ok,
@@ -1421,15 +1641,7 @@ def register_agent_gateway_v2(
                     "ledger_closed": ledger_closed,
                     **verification,
                 },
-                warnings=(
-                    []
-                    if overall_ok
-                    else ["verification_failed_compensation_required"]
-                    if executor_ok and not verification_passed
-                    else ["workflow_ledger_close_failed"]
-                    if result_ok
-                    else ["executor_failed"]
-                ),
+                warnings=[*source_warnings, *workflow_warnings],
                 next_actions=[]
                 if overall_ok
                 else [f"workflow_status(run_id={run_id}) and reconcile exact target"],
@@ -1444,12 +1656,66 @@ def register_agent_gateway_v2(
         )
 
     @server.tool(
+        name="get_runtime_status",
+        description=(
+            "Return CRM runtime diagnostics plus the independently degraded AutoStop App "
+            "adapter status without exposing credentials."
+        ),
+        annotations=_read_annotations("Runtime Status"),
+    )
+    async def get_runtime_status() -> CallToolResult:
+        crm_payload = (
+            _as_dict(await crm_runtime_status_tool.run({}, convert_result=False))
+            if crm_runtime_status_tool is not None
+            else {
+                "ok": False,
+                "error": {"code": "crm_runtime_status_unavailable"},
+            }
+        )
+        store_payload = await _invoke_store("store_runtime_status", {"live": True})
+        crm_ok = bool(crm_payload.get("ok"))
+        store_ok = bool(store_payload.get("ok"))
+        data = (
+            dict(crm_payload.get("data") or {}) if isinstance(crm_payload.get("data"), dict) else {}
+        )
+        data["store"] = {
+            "ok": store_ok,
+            "status": str(store_payload.get("status") or ("ready" if store_ok else "degraded")),
+            "summary": _compact_object(store_payload.get("summary") or {}, item_limit=10),
+            "data": _compact_object(store_payload.get("data"), item_limit=10, key_limit=40),
+            "warnings": [str(item) for item in store_payload.get("warnings") or []][:10],
+        }
+        warnings = [str(item) for item in crm_payload.get("warnings") or []]
+        if not store_ok:
+            warnings.append("store_adapter_degraded")
+        payload = dict(crm_payload)
+        payload.update(
+            {
+                "ok": crm_ok,
+                "status": "ready" if crm_ok and store_ok else "degraded" if crm_ok else "failed",
+                "data": data,
+                "warnings": list(dict.fromkeys(warnings)),
+            }
+        )
+        payload.setdefault("format", AGENT_GATEWAY_FORMAT)
+        payload.setdefault("summary", {})
+        payload.setdefault("next_actions", [])
+        payload.setdefault("verification", {})
+        payload.setdefault("page", {})
+        payload.setdefault("meta", {})
+        return _tool_result(payload, label="get_runtime_status")
+
+    @server.tool(
         name="agent_bootstrap",
         description="Return one compact Codex startup package: manager route, CRM board digest, security policy, and unfinished workflows.",
         annotations=_read_annotations("Agent Bootstrap v2"),
     )
     async def agent_bootstrap(
-        query: str = "", intent: str | None = None, sample_limit: int = 8
+        query: str = "",
+        intent: str | None = None,
+        sample_limit: int = 8,
+        store_cursor: str | None = None,
+        store_ack_token: str | None = None,
     ) -> CallToolResult:
         manager_payload: dict[str, Any] = {}
         if manager_bootstrap_tool is not None:
@@ -1461,6 +1727,18 @@ def register_agent_gateway_v2(
                 )
             except Exception as exc:  # pragma: no cover
                 manager_payload = {"ok": False, "error": str(exc)}
+        store_runtime = await _invoke_store("store_runtime_status", {})
+        store_digest = await _invoke_store(
+            "store_digest",
+            {
+                "baseline": False,
+                "since": None,
+                "cursor": store_cursor,
+                "ack_token": store_ack_token,
+                "limit": 5,
+                "stream": "store_bootstrap",
+            },
+        )
         context_ok, context_data, _context_meta, context_error = _response_data(
             board_api.get_board_context()
         )
@@ -1476,9 +1754,13 @@ def register_agent_gateway_v2(
             context_data.get("context", context_data) if isinstance(context_data, dict) else {}
         )
         ok = context_ok and cards_ok
+        store_ok = bool(store_runtime.get("ok")) and bool(store_digest.get("ok"))
+        warnings = [] if ok else [str(context_error or cards_error or "bootstrap_degraded")]
+        if not store_ok:
+            warnings.append("store_adapter_degraded")
         payload = _envelope(
             ok=ok,
-            status="ready" if ok else "degraded",
+            status="ready" if ok and store_ok else "degraded",
             summary={
                 "connector": dict(connector_identity),
                 "board": {
@@ -1488,10 +1770,31 @@ def register_agent_gateway_v2(
                     "stickies": context.get("stickies_total"),
                 },
                 "manager": manager_payload.get("summary", manager_payload),
+                "store": {
+                    "ok": store_ok,
+                    "status": str(
+                        store_runtime.get("status")
+                        or ("ready" if bool(store_runtime.get("ok")) else "degraded")
+                    ),
+                    "runtime": _compact_object(
+                        store_runtime.get("summary") or store_runtime.get("data") or {},
+                        item_limit=10,
+                        key_limit=30,
+                    ),
+                    "digest": _compact_object(
+                        {
+                            "summary": store_digest.get("summary") or {},
+                            "items": store_digest.get("items") or [],
+                            "page": store_digest.get("page") or {},
+                        },
+                        item_limit=5,
+                        key_limit=40,
+                    ),
+                },
                 "security_policy": load_agent_gateway_security_policy().public_dict(),
                 "card_sample": sample,
             },
-            warnings=[] if ok else [str(context_error or cards_error or "bootstrap_degraded")],
+            warnings=warnings,
             next_actions=["agent_board_digest or agent_search", "use named workflow before raw"],
             meta={"tool_count": len(getattr(tool_manager, "_tools", {}))},
         )
@@ -1499,21 +1802,46 @@ def register_agent_gateway_v2(
 
     @server.tool(
         name="agent_board_digest",
-        description="Return a paginated field-selected digest of active or archived CRM cards without UI-only fields.",
+        description="Return a compact CRM or AutoStop App store digest; CRM remains the default.",
         annotations=_read_annotations("Agent Board Digest"),
     )
-    def agent_board_digest(
+    async def agent_board_digest(
         include_archived: bool = False,
         cursor: str | None = None,
         limit: int = 50,
         fields: list[str] | None = None,
+        scope: Literal["crm", "store"] = "crm",
+        since: str | None = None,
+        ack_token: str | None = None,
     ) -> CallToolResult:
+        effective_limit = _normalize_limit(limit, default=50, maximum=100)
+        if scope == "store":
+            result = await _invoke_store(
+                "store_digest",
+                {
+                    "baseline": False,
+                    "since": since,
+                    "cursor": cursor,
+                    "ack_token": ack_token,
+                    "limit": effective_limit,
+                    "stream": "store_digest",
+                },
+            )
+            return _tool_result(
+                store_gateway_envelope(
+                    result,
+                    summary={"scope": "store"},
+                    item_limit=effective_limit,
+                    envelope_factory=_envelope,
+                    compact=_compact_object,
+                ),
+                label="agent_board_digest",
+            )
         ok, data, meta, error = _response_data(
             board_api.get_cards(include_archived=include_archived, compact=True)
         )
         cards = _items_from_data(data, "cards")
         offset = _cursor_offset(cursor)
-        effective_limit = _normalize_limit(limit, default=50, maximum=100)
         selected = _selected_fields(fields)
         page_items = [
             _slim_card(card, selected) for card in cards[offset : offset + effective_limit]
@@ -1523,7 +1851,12 @@ def register_agent_gateway_v2(
         payload = _envelope(
             ok=ok,
             status="completed" if ok else "failed",
-            summary={"total": len(cards), "returned": len(page_items), "fields": list(selected)},
+            summary={
+                "scope": "crm",
+                "total": len(cards),
+                "returned": len(page_items),
+                "fields": list(selected),
+            },
             data={"cards": page_items},
             warnings=[] if ok else [str(error or "board_digest_failed")],
             page={
@@ -1538,16 +1871,57 @@ def register_agent_gateway_v2(
 
     @server.tool(
         name="agent_search",
-        description="Search CRM cards, clients, repair orders, inventory, cashboxes, or shared files and return compact results.",
+        description=(
+            "Search compact CRM or AutoStop App entities; store results are paginated and "
+            "redacted by the Manager adapter."
+        ),
         annotations=_read_annotations("Agent Search"),
     )
-    def agent_search(
-        entity: Literal["card", "client", "repair_order", "inventory", "cashbox", "file"],
+    async def agent_search(
+        entity: Literal[
+            "card",
+            "client",
+            "repair_order",
+            "inventory",
+            "cashbox",
+            "file",
+            "store_part",
+            "store_order",
+            "store_quote_request",
+            "store_supplier",
+            "store_batch",
+            "store_warehouse_operation",
+            "store_marketplace_listing",
+            "store_state",
+        ],
         query: str = "",
         include_archived: bool = False,
         limit: int = 20,
+        filters: dict[str, Any] | None = None,
+        cursor: str | None = None,
     ) -> CallToolResult:
         effective_limit = _normalize_limit(limit, default=20, maximum=50)
+        if entity in STORE_SEARCH_ENTITIES:
+            result = await _invoke_store(
+                "store_search",
+                {
+                    "entity": entity,
+                    "query": query,
+                    "filters": dict(filters or {}),
+                    "cursor": cursor,
+                    "limit": effective_limit,
+                },
+            )
+            return _tool_result(
+                store_gateway_envelope(
+                    result,
+                    summary={"entity": entity, "query": query, "scope": "store"},
+                    item_limit=effective_limit,
+                    envelope_factory=_envelope,
+                    compact=_compact_object,
+                ),
+                label="agent_search",
+            )
         if entity == "card":
             response = board_api.search_cards(
                 query=query, include_archived=include_archived, limit=effective_limit
@@ -1578,7 +1952,12 @@ def register_agent_gateway_v2(
             items = _compact_object(items, item_limit=effective_limit)
         payload = _envelope(
             ok=ok,
-            summary={"entity": entity, "query": query, "returned": len(items)},
+            summary={
+                "entity": entity,
+                "query": query,
+                "returned": len(items),
+                "scope": "crm",
+            },
             data={"items": items},
             warnings=[] if ok else [str(error or "search_failed")],
             page={"limit": effective_limit, "has_more": False},
@@ -1588,14 +1967,52 @@ def register_agent_gateway_v2(
 
     @server.tool(
         name="agent_entity_context",
-        description="Read focused context for one exact CRM card, client, repair order, cashbox, inventory item, or shared file.",
+        description=(
+            "Read focused context for one exact CRM or AutoStop App entity without storing "
+            "the source payload in Gateway state."
+        ),
         annotations=_read_annotations("Agent Entity Context"),
     )
-    def agent_entity_context(
-        entity: Literal["card", "client", "repair_order", "cashbox", "inventory", "file"],
+    async def agent_entity_context(
+        entity: Literal[
+            "card",
+            "client",
+            "repair_order",
+            "cashbox",
+            "inventory",
+            "file",
+            "store_part",
+            "store_order",
+            "store_quote_request",
+            "store_supplier",
+            "store_batch",
+            "store_warehouse_operation",
+            "store_marketplace_listing",
+            "store_state",
+        ],
         entity_id: str,
         detail: Literal["summary", "full"] = "summary",
     ) -> CallToolResult:
+        if entity in STORE_SEARCH_ENTITIES:
+            result = await _invoke_store(
+                "store_entity_context",
+                {"entity": entity, "entity_id": entity_id, "detail": detail},
+            )
+            return _tool_result(
+                store_gateway_envelope(
+                    result,
+                    summary={
+                        "entity": entity,
+                        "entity_id": entity_id,
+                        "detail": detail,
+                        "scope": "store",
+                    },
+                    item_limit=50 if detail == "full" else 15,
+                    envelope_factory=_envelope,
+                    compact=_compact_object,
+                ),
+                label="agent_entity_context",
+            )
         if entity == "card":
             response = (
                 board_api.get_card_context(
@@ -1619,7 +2036,12 @@ def register_agent_gateway_v2(
         ok, data, meta, error = _response_data(response)
         payload = _envelope(
             ok=ok,
-            summary={"entity": entity, "entity_id": entity_id, "detail": detail},
+            summary={
+                "entity": entity,
+                "entity_id": entity_id,
+                "detail": detail,
+                "scope": "crm",
+            },
             data=_compact_object(data, item_limit=50 if detail == "full" else 15),
             warnings=[] if ok else [str(error or "entity_read_failed")],
             meta={"source_meta": _compact_object(meta)},
@@ -1664,18 +2086,25 @@ def register_agent_gateway_v2(
 
     @server.tool(
         name="agent_inventory_workflow",
-        description="Execute an inventory operation with idempotency, policy gates, and compact result evidence.",
+        description=(
+            "Execute a CRM inventory operation or an allowlisted AutoStop App management "
+            "action. Existing CRM calls default to apply; store calls require explicit mode."
+        ),
         annotations=_write_annotations("Agent Inventory Workflow"),
     )
     async def agent_inventory_workflow(
-        operation: str, payload: dict[str, Any] | None, idempotency_key: str
+        operation: str,
+        payload: dict[str, Any] | None,
+        idempotency_key: str,
+        mode: Literal["dry_run", "apply"] | None = None,
     ) -> CallToolResult:
         return await _execute_workflow(
             workflow_id="inventory",
             operation=operation,
             payload=dict(payload or {}),
             idempotency_key=idempotency_key,
-            allowed=INVENTORY_WORKFLOW_OPERATIONS,
+            allowed=INVENTORY_WORKFLOW_OPERATIONS | STORE_MANAGEMENT_OPERATIONS,
+            mode=mode,
         )
 
     @server.tool(
@@ -1708,7 +2137,7 @@ def register_agent_gateway_v2(
         normalized_query = str(query or "").strip().casefold()
         items: list[dict[str, Any]] = []
         for name, tool in sorted(raw_tools.items()):
-            if name in PERMANENT_AGENT_GATEWAY_TOOL_NAMES:
+            if name in PERMANENT_AGENT_GATEWAY_TOOL_NAMES or name in INTERNAL_ONLY_CAPABILITY_NAMES:
                 continue
             description = str(getattr(tool, "description", "") or "")
             if normalized_query and normalized_query not in f"{name} {description}".casefold():
@@ -1758,9 +2187,21 @@ def register_agent_gateway_v2(
         annotations=_read_annotations("Raw Capability Schema"),
     )
     def get_raw_capability_schema(name: str) -> CallToolResult:
-        tool = raw_tools.get(str(name or "").strip())
-        virtual_route = _virtual_api_route(name)
-        if (tool is None and virtual_route is None) or name in PERMANENT_AGENT_GATEWAY_TOOL_NAMES:
+        normalized_name = str(name or "").strip()
+        if normalized_name in INTERNAL_ONLY_CAPABILITY_NAMES:
+            return _tool_result(
+                _envelope(
+                    ok=False,
+                    status="blocked",
+                    warnings=[internal_only_capability_warning(normalized_name)],
+                ),
+                label="get_raw_capability_schema",
+            )
+        tool = raw_tools.get(normalized_name)
+        virtual_route = _virtual_api_route(normalized_name)
+        if (
+            tool is None and virtual_route is None
+        ) or normalized_name in PERMANENT_AGENT_GATEWAY_TOOL_NAMES:
             return _tool_result(
                 _envelope(ok=False, status="failed", warnings=["capability_not_found"]),
                 label="get_raw_capability_schema",
@@ -1771,13 +2212,17 @@ def register_agent_gateway_v2(
             else getattr(tool, "parameters", {}) or {}
         )
         risk = (
-            _virtual_api_risk(virtual_route, name)
+            _virtual_api_risk(virtual_route, normalized_name)
             if virtual_route is not None
             else _tool_risk(tool)
         )
         payload = _envelope(
             ok=True,
-            summary={"name": name, "risk": risk, "schema_hash": _schema_hash(schema)},
+            summary={
+                "name": normalized_name,
+                "risk": risk,
+                "schema_hash": _schema_hash(schema),
+            },
             data={"input_schema": schema},
         )
         return _tool_result(payload, label="get_raw_capability_schema")
@@ -1800,9 +2245,21 @@ def register_agent_gateway_v2(
                 _envelope(ok=False, status="blocked", warnings=["agent_gateway_raw_disabled"]),
                 label="call_raw_capability",
             )
-        tool = raw_tools.get(str(name or "").strip())
-        virtual_route = _virtual_api_route(name)
-        if (tool is None and virtual_route is None) or name in PERMANENT_AGENT_GATEWAY_TOOL_NAMES:
+        normalized_name = str(name or "").strip()
+        if normalized_name in INTERNAL_ONLY_CAPABILITY_NAMES:
+            return _tool_result(
+                _envelope(
+                    ok=False,
+                    status="blocked",
+                    warnings=[internal_only_capability_warning(normalized_name)],
+                ),
+                label="call_raw_capability",
+            )
+        tool = raw_tools.get(normalized_name)
+        virtual_route = _virtual_api_route(normalized_name)
+        if (
+            tool is None and virtual_route is None
+        ) or normalized_name in PERMANENT_AGENT_GATEWAY_TOOL_NAMES:
             return _tool_result(
                 _envelope(ok=False, status="failed", warnings=["capability_not_found"]),
                 label="call_raw_capability",
@@ -1818,18 +2275,18 @@ def register_agent_gateway_v2(
                 _envelope(
                     ok=False,
                     status="blocked",
-                    summary={"name": name, "current_schema_hash": current_hash},
+                    summary={"name": normalized_name, "current_schema_hash": current_hash},
                     warnings=["schema_hash_mismatch_rediscover_capability"],
                 ),
                 label="call_raw_capability",
             )
         risk = (
-            _virtual_api_risk(virtual_route, name)
+            _virtual_api_risk(virtual_route, normalized_name)
             if virtual_route is not None
             else _tool_risk(tool)
         )
         policy_error = _policy_error(
-            tool_name=name,
+            tool_name=normalized_name,
             risk=risk,
             arguments=arguments or {},
         )
@@ -1839,7 +2296,7 @@ def register_agent_gateway_v2(
                 label="call_raw_capability",
             )
         if (
-            name in OPTIMISTIC_WRITE_NAMES
+            normalized_name in OPTIMISTIC_WRITE_NAMES
             and not str((arguments or {}).get("expected_updated_at") or "").strip()
         ):
             return _tool_result(
@@ -1862,14 +2319,14 @@ def register_agent_gateway_v2(
                     label="call_raw_capability",
                 )
             request_fingerprint = _request_fingerprint(
-                {"capability": name, "arguments": arguments or {}}
+                {"capability": normalized_name, "arguments": arguments or {}}
             )
             run_id, started, deduplicated = await _start_idempotent_workflow(
-                workflow_id=f"raw:{name}",
-                intent=f"raw_{name}",
+                workflow_id=f"raw:{normalized_name}",
+                intent=f"raw_{normalized_name}",
                 idempotency_key=idempotency_key,
                 payload={
-                    "operation": name,
+                    "operation": normalized_name,
                     "request_fingerprint": request_fingerprint,
                 },
             )
@@ -1886,7 +2343,7 @@ def register_agent_gateway_v2(
             if deduplicated:
                 return _deduplicated_workflow_result(
                     label="call_raw_capability",
-                    operation=name,
+                    operation=normalized_name,
                     run_id=run_id,
                     started=started,
                 )
@@ -1903,7 +2360,7 @@ def register_agent_gateway_v2(
                 run_id,
                 "executing",
                 expected_state_version=_workflow_state_version(started),
-                message=f"raw execute {name}",
+                message=f"raw execute {normalized_name}",
             )
             if not bool(executing.get("ok")):
                 return _tool_result(
@@ -1917,8 +2374,8 @@ def register_agent_gateway_v2(
                     label="call_raw_capability",
                 )
         effective_arguments = dict(arguments or {})
-        result = await _invoke(name, effective_arguments)
-        verification = await _verify_operation(name, effective_arguments, result, risk)
+        result = await _invoke(normalized_name, effective_arguments)
+        verification = await _verify_operation(normalized_name, effective_arguments, result, risk)
         executor_ok = bool(result.get("ok")) or bool(result.get("executor_applied"))
         verification_passed = bool(verification.get("passed"))
         ok = executor_ok and verification_passed
@@ -1932,20 +2389,20 @@ def register_agent_gateway_v2(
                     run_id,
                     "verifying",
                     expected_state_version=executing_version,
-                    message=f"raw verify {name}",
+                    message=f"raw verify {normalized_name}",
                 )
                 if bool(verifying.get("ok")):
                     completed = await _transition(
                         run_id,
                         "completed",
                         expected_state_version=_workflow_state_version(verifying),
-                        message=f"raw completed {name}",
+                        message=f"raw completed {normalized_name}",
                         verification={
                             "executor_ok": True,
                             "schema_hash_verified": True,
                             **verification,
                         },
-                        summary=f"raw:{name}",
+                        summary=f"raw:{normalized_name}",
                     )
                     ledger_closed = (
                         bool(completed.get("ok")) and str(completed.get("status")) == "completed"
@@ -1959,7 +2416,7 @@ def register_agent_gateway_v2(
                         run_id,
                         "compensating",
                         expected_state_version=executing_version,
-                        message=f"raw ledger close reconciliation required for {name}",
+                        message=(f"raw ledger close reconciliation required for {normalized_name}"),
                     )
                     if bool(compensation.get("ok")):
                         workflow_status = "compensating"
@@ -1970,7 +2427,7 @@ def register_agent_gateway_v2(
                     run_id,
                     "compensating",
                     expected_state_version=executing_version,
-                    message=f"raw verification failed after executor applied {name}",
+                    message=(f"raw verification failed after executor applied {normalized_name}"),
                     verification={
                         "executor_ok": True,
                         "schema_hash_verified": True,
@@ -1985,7 +2442,7 @@ def register_agent_gateway_v2(
                     run_id,
                     "failed",
                     expected_state_version=executing_version,
-                    message=f"raw failed {name}",
+                    message=f"raw failed {normalized_name}",
                 )
                 ledger_closed = bool(failed.get("ok")) and str(failed.get("status")) == "failed"
                 workflow_status = "failed"
@@ -1997,7 +2454,11 @@ def register_agent_gateway_v2(
             ok=overall_ok,
             status=workflow_status,
             run_id=run_id,
-            summary={"name": name, "risk": risk, "schema_hash": current_hash},
+            summary={
+                "name": normalized_name,
+                "risk": risk,
+                "schema_hash": current_hash,
+            },
             data=data,
             warnings=(
                 []

@@ -366,6 +366,8 @@ async def check_gateway(args: argparse.Namespace) -> dict[str, Any]:
                     digest = None
                     search = None
                     entity_context = None
+                    store_runtime = None
+                    store_probe = None
                     workflows = None
                     calls: dict[str, bool] = {}
                     exhaustive: dict[str, Any] = {}
@@ -420,6 +422,18 @@ async def check_gateway(args: argparse.Namespace) -> dict[str, Any]:
                         workflows = await _call(
                             session, calls, "list_agent_workflows", {"limit": 50}
                         )
+                        if args.require_store:
+                            store_runtime = await _call(session, calls, "get_runtime_status")
+                            store_probe = await _call(
+                                session,
+                                calls,
+                                "agent_search",
+                                {
+                                    "entity": "store_state",
+                                    "query": "state",
+                                    "limit": 1,
+                                },
+                            )
                         if args.exhaustive:
                             exhaustive = await _run_exhaustive_checks(session, calls)
                     bootstrap_bytes = _serialized_size(bootstrap) if bootstrap is not None else 0
@@ -437,6 +451,7 @@ async def check_gateway(args: argparse.Namespace) -> dict[str, Any]:
         "required_tools_present": not missing,
         "unexpected_tools_absent": not unexpected,
         "legacy_tools_absent": not (tool_names & FORBIDDEN_LEGACY_TOOL_NAMES),
+        "tool_count_exactly_24": len(tool_names) == 24,
         "tool_count_within_budget": len(tool_names) <= args.max_tools,
         "tools_payload_within_budget": tools_bytes <= args.max_tools_bytes,
         "bootstrap_ok": bootstrap is not None and _tool_ok(bootstrap),
@@ -447,6 +462,20 @@ async def check_gateway(args: argparse.Namespace) -> dict[str, Any]:
         "entity_context_ok": entity_context is not None and _tool_ok(entity_context),
         "workflow_registry_ok": workflows is not None and _tool_ok(workflows),
     }
+    if args.require_store:
+        runtime_payload = _structured(store_runtime)
+        runtime_data = (
+            runtime_payload.get("data") if isinstance(runtime_payload.get("data"), dict) else {}
+        )
+        store_status = (
+            runtime_data.get("store") if isinstance(runtime_data.get("store"), dict) else {}
+        )
+        checks.update(
+            {
+                "store_runtime_ready": bool(store_status.get("ok")),
+                "store_state_read_ok": store_probe is not None and _tool_ok(store_probe),
+            }
+        )
     if args.exhaustive:
         checks.update(
             {
@@ -489,6 +518,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--exhaustive",
         action="store_true",
         help="Invoke all 24 tools using read-only, dry-run, or synthetic terminal inputs.",
+    )
+    parser.add_argument(
+        "--require-store",
+        action="store_true",
+        help="Require live AutoStop App health and a non-cursor-consuming store state read.",
     )
     return parser
 

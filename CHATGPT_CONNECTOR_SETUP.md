@@ -74,14 +74,33 @@ Use guarded raw discovery only when no named workflow covers the required
 operation. The client must see exactly 24 Gateway v2 tools and no low-level
 legacy names.
 
-Use `get_runtime_status` only for runtime/auth diagnostics.
+Store context is additive to those same tools: use
+`agent_board_digest(scope="store")`, Store entities in `agent_search` and
+`agent_entity_context` (`summary` or `full`, always PII-redacted), and the five
+allowlisted Store actions only through
+`agent_inventory_workflow` with explicit `dry_run`/`apply`. The five mounted
+`store_*` adapter tools are internal-only and unavailable through raw
+discovery. Use `get_runtime_status` for live CRM/Store runtime diagnostics;
+Store degradation does not make a healthy CRM unusable.
+
+For Store digest delivery, every non-empty page must be acknowledged. Pass its
+exact `page.next_cursor` and `page.ack_token` back as `cursor`/`ack_token` on
+`agent_board_digest`; for the independent bootstrap stream use
+`store_cursor`/`store_ack_token` on `agent_bootstrap`. The terminal ACK page has
+`next_cursor=null`. Do not substitute or decode these opaque values.
+
+For one Store mutation, reuse the same stable correlation across dry-run and
+apply but use a different unique idempotency key for each mode. READY is not
+closed while its external notifier is `CLAIMED` or `FAILED`. If an apply is
+already `compensating`, repeat only the exact same request/key to reconcile the
+Store receipt; clients must not invent a new retry request.
 
 ## Safety
 
 - Public anonymous writes must remain blocked.
 - Public anonymous reads must remain blocked in production.
 - Read live context before every write.
-- Use a unique idempotency key and an action contract for mutations.
+- Use a unique idempotency key per mode and an action contract for mutations.
 - Read back every changed entity and inspect workflow status.
 - Do not move, archive, delete, or change money/client/file/order data without
   explicit owner intent.
@@ -89,7 +108,7 @@ Use `get_runtime_status` only for runtime/auth diagnostics.
 ## Verification
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --token-env AUTOSTOPCRM_MCP_TOKEN --exhaustive
+.\.venv\Scripts\python.exe scripts\check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --token-env AUTOSTOPCRM_MCP_TOKEN --exhaustive --require-store
 .\.venv\Scripts\python.exe scripts\check_mcp_oauth.py --mcp-url https://crm.autostopcrm.ru/mcp
 ```
 
