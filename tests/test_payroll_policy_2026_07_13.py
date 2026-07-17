@@ -12,11 +12,9 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from minimal_kanban.repair_order import RepairOrder
 from minimal_kanban.services.card_service import CardService
-from minimal_kanban.services.card_service_payroll import (
-    PAYROLL_POLICY_2026_07_13_ORDER_PERCENT_NAMES,
-    PAYROLL_POLICY_2026_07_13_WORK_NAMES,
-)
+from minimal_kanban.services.card_service_payroll import PAYROLL_POLICY_2026_07_13_TERMS
 from minimal_kanban.storage.json_store import JsonStore
 
 
@@ -30,10 +28,7 @@ class PayrollPolicyMigrationTests(unittest.TestCase):
         self.store = JsonStore(state_file=self.state_file, logger=self.logger)
         self.service = CardService(self.store, self.logger)
         self.employees: dict[str, dict] = {}
-        for name in (
-            *PAYROLL_POLICY_2026_07_13_WORK_NAMES,
-            *PAYROLL_POLICY_2026_07_13_ORDER_PERCENT_NAMES,
-        ):
+        for name in PAYROLL_POLICY_2026_07_13_TERMS:
             payload = {
                 "name": name,
                 "created_at": "2026-01-01T00:00:00+07:00",
@@ -51,6 +46,17 @@ class PayrollPolicyMigrationTests(unittest.TestCase):
                     }
                 )
             self.employees[name] = self.service.save_employee(payload)["employee"]
+        self.unlisted_employee = self.service.save_employee(
+            {
+                "name": "Сергей Зазнобин",
+                "created_at": "2026-01-01T00:00:00+07:00",
+                "salary_mode": "none",
+                "base_salary": "0",
+                "work_percent": "0",
+                "material_percent": "10",
+                "repair_order_percent": "0",
+            }
+        )["employee"]
         self.expected_ids = {name: employee["id"] for name, employee in self.employees.items()}
 
     def tearDown(self) -> None:
@@ -96,6 +102,52 @@ class PayrollPolicyMigrationTests(unittest.TestCase):
         self.service.set_repair_order_status({"card_id": card["id"], "status": "closed"})
         return card["id"]
 
+    def test_qualification_boundary_uses_later_of_full_payment_and_closure(self) -> None:
+        def qualified_at(closed_at: str, paid_at: str) -> datetime:
+            order = RepairOrder.from_dict(
+                {
+                    "status": "closed",
+                    "closed_at": closed_at,
+                    "works": [{"name": "Работа", "quantity": "1", "price": "100"}],
+                    "payments": [{"amount": "100", "paid_at": paid_at}],
+                }
+            )
+            result = self.service._repair_order_payroll_qualified_at(order)
+            self.assertIsNotNone(result)
+            return result
+
+        before = qualified_at(
+            "2026-07-12T23:59:59+07:00",
+            "2026-07-12T23:59:59+07:00",
+        )
+        paid_after_closure = qualified_at(
+            "2026-07-12T23:00:00+07:00",
+            "2026-07-13T00:00:00+07:00",
+        )
+        closed_after_payment = qualified_at(
+            "2026-07-13T00:00:00+07:00",
+            "2026-07-12T23:00:00+07:00",
+        )
+        self.assertEqual(before, datetime.fromisoformat("2026-07-12T23:59:59+07:00"))
+        self.assertEqual(paid_after_closure, datetime.fromisoformat("2026-07-13T00:00:00+07:00"))
+        self.assertEqual(closed_after_payment, datetime.fromisoformat("2026-07-13T00:00:00+07:00"))
+
+        self.service.migrate_payroll_policy_2026_07_13(
+            apply=True, expected_employee_ids=self.expected_ids
+        )
+        employee = next(
+            item
+            for item in self.service.list_employees()["employees"]
+            if item["name"] == "Александр Баландин"
+        )
+        self.assertEqual(
+            self.service._employee_payroll_term_at(employee, before)["work_percent"], "45"
+        )
+        self.assertEqual(
+            self.service._employee_payroll_term_at(employee, paid_after_closure)["work_percent"],
+            "50",
+        )
+
     def test_dry_run_apply_and_second_apply_are_idempotent(self) -> None:
         card_id = self._qualified_order()
         before = self.state_file.read_bytes()
@@ -107,23 +159,29 @@ class PayrollPolicyMigrationTests(unittest.TestCase):
         applied = self.service.migrate_payroll_policy_2026_07_13(
             apply=True, expected_employee_ids=self.expected_ids
         )
-        self.assertEqual(applied["employees_checked"], 15)
+        self.assertEqual(applied["employees_checked"], 18)
         self.assertEqual(applied["affected_repair_orders_count"], 1)
         employees = {item["name"]: item for item in self.service.list_employees()["employees"]}
-        for name in PAYROLL_POLICY_2026_07_13_WORK_NAMES:
-            self.assertEqual(employees[name]["work_percent"], "50")
-        for name in PAYROLL_POLICY_2026_07_13_ORDER_PERCENT_NAMES:
+        for name, expected in PAYROLL_POLICY_2026_07_13_TERMS.items():
             employee = employees[name]
-            self.assertEqual(employee["salary_mode"], "none")
-            self.assertEqual(employee["base_salary"], "0")
-            self.assertEqual(employee["work_percent"], "0")
-            self.assertEqual(employee["material_percent"], "0")
-            self.assertEqual(employee["repair_order_percent"], "4")
+            for key, value in expected.items():
+                self.assertEqual(employee[key], value, f"{name}: {key}")
             self.assertEqual(
                 employee["payroll_terms"][-1]["effective_from"],
                 "2026-07-13T00:00:00+07:00",
             )
-            self.assertEqual(employee["current_payroll_term"]["repair_order_percent"], "4")
+            for key, value in expected.items():
+                self.assertEqual(employee["current_payroll_term"][key], value, f"{name}: {key}")
+        unlisted = employees["Сергей Зазнобин"]
+        for key in (
+            "salary_mode",
+            "base_salary",
+            "work_percent",
+            "material_percent",
+            "repair_order_percent",
+        ):
+            self.assertEqual(unlisted[key], self.unlisted_employee[key], key)
+        self.assertEqual(unlisted["payroll_terms"], self.unlisted_employee["payroll_terms"])
         sergey_terms = self.service._employee_weekly_base_salary_accruals(
             employees["Сергей Гелингер"],
             period_start=datetime.fromisoformat("2026-07-01T00:00:00+07:00"),
@@ -171,6 +229,79 @@ class PayrollPolicyMigrationTests(unittest.TestCase):
             ),
             2,
         )
+
+    def test_exact_matrix_recalculates_historical_rows_from_cutoff(self) -> None:
+        card = self.service.create_card(
+            {"vehicle": "Mazda", "title": "Точная матрица", "deadline": {"hours": 2}}
+        )["card"]
+        work_prices = {
+            "Алексей Чупров": "1000",
+            "Иван Сысоев": "2000",
+            "Дмитрий Ляхов": "300",
+            "Екатерина Игнатьева": "400",
+            "Мария Чупрова": "500",
+        }
+        material_values = {
+            "Алексей Чупров": ("500", "300"),
+            "Иван Сысоев": ("1000", "500"),
+            "Дмитрий Ляхов": ("200", "100"),
+            "Екатерина Игнатьева": ("600", "400"),
+            "Мария Чупрова": ("800", "500"),
+        }
+        self.service.update_card(
+            {
+                "card_id": card["id"],
+                "repair_order": {
+                    "works": [
+                        {
+                            "name": f"Работа: {name}",
+                            "quantity": "1",
+                            "price": price,
+                            "executor_id": self.employees[name]["id"],
+                        }
+                        for name, price in work_prices.items()
+                    ],
+                    "materials": [
+                        {
+                            "name": f"Материал: {name}",
+                            "quantity": "1",
+                            "price": price,
+                            "cost_price": cost,
+                            "executor_id": self.employees[name]["id"],
+                        }
+                        for name, (price, cost) in material_values.items()
+                    ],
+                    "payments": [{"amount": "7300", "paid_at": "13.07.2026 12:00"}],
+                },
+            }
+        )
+        self.service.set_repair_order_status({"card_id": card["id"], "status": "closed"})
+
+        applied = self.service.migrate_payroll_policy_2026_07_13(
+            apply=True, expected_employee_ids=self.expected_ids
+        )
+
+        self.assertEqual(applied["employees_changed"], 18)
+        order = self.service.get_card({"card_id": card["id"]})["card"]["repair_order"]
+        works = {row["executor_name"]: row for row in order["works"]}
+        materials = {row["executor_name"]: row for row in order["materials"]}
+        self.assertEqual(works["Алексей Чупров"]["work_percent_snapshot"], "100")
+        self.assertEqual(works["Алексей Чупров"]["salary_amount"], "1000")
+        self.assertEqual(works["Иван Сысоев"]["work_percent_snapshot"], "100")
+        self.assertEqual(works["Иван Сысоев"]["salary_amount"], "2000")
+        self.assertEqual(materials["Алексей Чупров"]["material_percent_snapshot"], "10")
+        self.assertEqual(materials["Алексей Чупров"]["material_salary_amount"], "20")
+        self.assertEqual(materials["Иван Сысоев"]["material_percent_snapshot"], "10")
+        self.assertEqual(materials["Иван Сысоев"]["material_salary_amount"], "50")
+        self.assertEqual(works["Дмитрий Ляхов"]["salary_amount"], "")
+        self.assertEqual(materials["Дмитрий Ляхов"]["material_salary_amount"], "")
+        for name, expected_material_amount in (
+            ("Екатерина Игнатьева", "20"),
+            ("Мария Чупрова", "30"),
+        ):
+            self.assertEqual(works[name]["salary_amount"], "")
+            self.assertEqual(materials[name]["material_percent_snapshot"], "10")
+            self.assertEqual(materials[name]["material_salary_amount"], expected_material_amount)
 
     def test_reapply_replaces_later_overrides_and_recalculates_week(self) -> None:
         self.service.migrate_payroll_policy_2026_07_13(

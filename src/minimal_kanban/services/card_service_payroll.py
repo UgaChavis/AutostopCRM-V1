@@ -51,25 +51,146 @@ EMPLOYEE_SALARY_RECONCILIATION_MAX_DAYS = 366
 PAYROLL_DECIMAL_ABS_MAX = Decimal("1000000000000")
 PAYROLL_TERMS_LIMIT = 50
 PAYROLL_POLICY_2026_07_13_CUTOFF = "2026-07-13T00:00:00+07:00"
-PAYROLL_POLICY_2026_07_13_WORK_NAMES = (
-    "Александр Баландин",
-    "Алексей Чупров",
-    "Болгов Артем",
-    "Валерий Аникин",
-    "Иван Сысоев",
-    "Иван Шеховцев",
-    "Кирилл Лещенко",
-    "Константин Гришкявичус",
-    "Курсевич Максим",
-    "Максим Андрианов",
-    "Сергей Котлобулатов",
-    "Сергей Рубан",
-    "Слава Орехов",
+PAYROLL_POLICY_2026_07_13_TERMS: dict[str, dict[str, str]] = {
+    "Александр Баландин": {
+        "salary_mode": "percent_only",
+        "base_salary": "0",
+        "work_percent": "50",
+        "material_percent": "0",
+        "repair_order_percent": "0",
+    },
+    "Алексей Мацурко": {
+        "salary_mode": "none",
+        "base_salary": "0",
+        "work_percent": "0",
+        "material_percent": "0",
+        "repair_order_percent": "4",
+    },
+    "Алексей Чупров": {
+        "salary_mode": "percent_only",
+        "base_salary": "0",
+        "work_percent": "100",
+        "material_percent": "10",
+        "repair_order_percent": "0",
+    },
+    "Болгов Артем": {
+        "salary_mode": "percent_only",
+        "base_salary": "0",
+        "work_percent": "50",
+        "material_percent": "0",
+        "repair_order_percent": "0",
+    },
+    "Валерий Аникин": {
+        "salary_mode": "percent_only",
+        "base_salary": "0",
+        "work_percent": "50",
+        "material_percent": "0",
+        "repair_order_percent": "0",
+    },
+    "Дмитрий Ляхов": {
+        "salary_mode": "none",
+        "base_salary": "0",
+        "work_percent": "0",
+        "material_percent": "0",
+        "repair_order_percent": "0",
+    },
+    "Екатерина Игнатьева": {
+        "salary_mode": "none",
+        "base_salary": "0",
+        "work_percent": "0",
+        "material_percent": "10",
+        "repair_order_percent": "0",
+    },
+    "Иван Сысоев": {
+        "salary_mode": "percent_only",
+        "base_salary": "0",
+        "work_percent": "100",
+        "material_percent": "10",
+        "repair_order_percent": "0",
+    },
+    "Иван Шеховцев": {
+        "salary_mode": "percent_only",
+        "base_salary": "0",
+        "work_percent": "50",
+        "material_percent": "0",
+        "repair_order_percent": "0",
+    },
+    "Кирилл Лещенко": {
+        "salary_mode": "percent_only",
+        "base_salary": "0",
+        "work_percent": "50",
+        "material_percent": "0",
+        "repair_order_percent": "0",
+    },
+    "Константин Гришкявичус": {
+        "salary_mode": "percent_only",
+        "base_salary": "0",
+        "work_percent": "50",
+        "material_percent": "10",
+        "repair_order_percent": "0",
+    },
+    "Курсевич Максим": {
+        "salary_mode": "percent_only",
+        "base_salary": "0",
+        "work_percent": "50",
+        "material_percent": "0",
+        "repair_order_percent": "0",
+    },
+    "Максим Андрианов": {
+        "salary_mode": "percent_only",
+        "base_salary": "0",
+        "work_percent": "50",
+        "material_percent": "0",
+        "repair_order_percent": "0",
+    },
+    "Мария Чупрова": {
+        "salary_mode": "none",
+        "base_salary": "0",
+        "work_percent": "0",
+        "material_percent": "10",
+        "repair_order_percent": "0",
+    },
+    "Сергей Гелингер": {
+        "salary_mode": "none",
+        "base_salary": "0",
+        "work_percent": "0",
+        "material_percent": "0",
+        "repair_order_percent": "4",
+    },
+    "Сергей Котлобулатов": {
+        "salary_mode": "percent_only",
+        "base_salary": "0",
+        "work_percent": "50",
+        "material_percent": "0",
+        "repair_order_percent": "0",
+    },
+    "Сергей Рубан": {
+        "salary_mode": "percent_only",
+        "base_salary": "0",
+        "work_percent": "50",
+        "material_percent": "0",
+        "repair_order_percent": "0",
+    },
+    "Слава Орехов": {
+        "salary_mode": "percent_only",
+        "base_salary": "0",
+        "work_percent": "50",
+        "material_percent": "0",
+        "repair_order_percent": "0",
+    },
+}
+PAYROLL_POLICY_2026_07_13_WORK_NAMES = tuple(
+    name for name, term in PAYROLL_POLICY_2026_07_13_TERMS.items() if term["work_percent"] != "0"
 )
-PAYROLL_POLICY_2026_07_13_ORDER_PERCENT_NAMES = (
-    "Сергей Гелингер",
-    "Алексей Мацурко",
+PAYROLL_POLICY_2026_07_13_ORDER_PERCENT_NAMES = tuple(
+    name
+    for name, term in PAYROLL_POLICY_2026_07_13_TERMS.items()
+    if term["repair_order_percent"] != "0"
 )
+
+
+def _repair_order_payroll_scheme(percent: object) -> str:
+    return f"{percent}% от стоимости заказ-наряда за наличный расчёт"
 
 
 class CardServicePayrollMixin:
@@ -94,10 +215,7 @@ class CardServicePayrollMixin:
                 )
                 for name, employee_id in (expected_employee_ids or {}).items()
             }
-            target_names = (
-                *PAYROLL_POLICY_2026_07_13_WORK_NAMES,
-                *PAYROLL_POLICY_2026_07_13_ORDER_PERCENT_NAMES,
-            )
+            target_names = tuple(PAYROLL_POLICY_2026_07_13_TERMS)
             employees_by_name: dict[str, list[dict[str, Any]]] = {}
             for employee in employees:
                 employees_by_name.setdefault(employee["name"].casefold(), []).append(employee)
@@ -130,26 +248,7 @@ class CardServicePayrollMixin:
                 raise RuntimeError("Payroll policy cutoff is invalid")
             changed_employee_ids: list[str] = []
             for name, employee in resolved.items():
-                baseline = self._employee_payroll_term_at(
-                    employee, cutoff - timedelta(microseconds=1)
-                )
-                desired = dict(baseline)
-                if name in PAYROLL_POLICY_2026_07_13_WORK_NAMES:
-                    desired["work_percent"] = "50"
-                    if desired["salary_mode"] == PAYROLL_MODE_SALARY_ONLY:
-                        desired["salary_mode"] = PAYROLL_MODE_SALARY_PLUS_PERCENT
-                    elif desired["salary_mode"] == "none":
-                        desired["salary_mode"] = PAYROLL_MODE_PERCENT_ONLY
-                else:
-                    desired.update(
-                        {
-                            "salary_mode": "none",
-                            "base_salary": "0",
-                            "work_percent": "0",
-                            "material_percent": "0",
-                            "repair_order_percent": "4",
-                        }
-                    )
+                desired = dict(PAYROLL_POLICY_2026_07_13_TERMS[name])
                 existing_terms = self._employee_payroll_terms(employee)
                 existing_cutoff = next(
                     (
@@ -213,8 +312,8 @@ class CardServicePayrollMixin:
                     changed_employee_ids.append(employee["id"])
 
             settings[EMPLOYEES_SETTING_KEY] = employees
-            target_work_ids = {
-                resolved[name]["id"] for name in PAYROLL_POLICY_2026_07_13_WORK_NAMES
+            target_terms_by_id = {
+                resolved[name]["id"]: PAYROLL_POLICY_2026_07_13_TERMS[name] for name in target_names
             }
             order_percent_ids = {
                 resolved[name]["id"] for name in PAYROLL_POLICY_2026_07_13_ORDER_PERCENT_NAMES
@@ -252,24 +351,42 @@ class CardServicePayrollMixin:
                 for source_row in order.works:
                     row = RepairOrderRow.from_dict(source_row.to_dict())
                     employee_id = self._work_salary_employee_id(row)
-                    ordinary_target = (
-                        employee_id in target_work_ids
-                        and not self._work_salary_override_enabled(row)
-                        and self._parse_payroll_decimal(row.work_percent_snapshot) != Decimal("50")
-                    )
-                    order_percent_snapshot = (
-                        employee_id in order_percent_ids and self._work_has_salary_snapshot(row)
-                    )
-                    if ordinary_target or order_percent_snapshot:
+                    target_term = target_terms_by_id.get(employee_id)
+                    work_snapshot_refresh = False
+                    if target_term is not None:
+                        desired_percent = self._parse_payroll_decimal(target_term["work_percent"])
+                        has_snapshot = self._work_has_salary_snapshot(row)
+                        if employee_id in order_percent_ids:
+                            work_snapshot_refresh = has_snapshot
+                        elif not self._work_salary_override_enabled(row):
+                            work_snapshot_refresh = (
+                                has_snapshot
+                                if desired_percent <= Decimal("0")
+                                else self._parse_payroll_decimal(row.work_percent_snapshot)
+                                != desired_percent
+                            )
+                    if work_snapshot_refresh:
                         self._clear_work_salary_snapshot(row)
                         recalculation_needed = True
                     work_rows.append(row.to_dict())
                 material_rows: list[dict[str, str]] = []
                 for source_row in order.materials:
                     row = RepairOrderRow.from_dict(source_row.to_dict())
-                    if self._material_salary_employee_id(
-                        row
-                    ) in order_percent_ids and self._material_has_salary_snapshot(row):
+                    employee_id = self._material_salary_employee_id(row)
+                    target_term = target_terms_by_id.get(employee_id)
+                    material_snapshot_refresh = False
+                    if target_term is not None:
+                        desired_percent = self._parse_payroll_decimal(
+                            target_term["material_percent"]
+                        )
+                        has_snapshot = self._material_has_salary_snapshot(row)
+                        material_snapshot_refresh = (
+                            has_snapshot
+                            if desired_percent <= Decimal("0")
+                            else self._parse_payroll_decimal(row.material_percent_snapshot)
+                            != desired_percent
+                        )
+                    if material_snapshot_refresh:
                         self._clear_material_salary_snapshot(row)
                         recalculation_needed = True
                     material_rows.append(row.to_dict())
@@ -595,7 +712,7 @@ class CardServicePayrollMixin:
                     "repair_order_number": order_accrual.get("repair_order_number") or "",
                     "card_id": order_accrual.get("card_id") or "",
                     "vehicle": "",
-                    "work_name": f"{percent}% от заказ-наряда",
+                    "work_name": _repair_order_payroll_scheme(percent),
                     "accrual_id": order_accrual.get("id") or "",
                     "related_accrual_id": order_accrual.get("related_accrual_id") or "",
                     "base_amount_minor": base_minor,
@@ -603,8 +720,8 @@ class CardServicePayrollMixin:
                     "percent": percent,
                     "amount_minor": amount_minor,
                     "amount_display": format_money_minor(amount_minor),
-                    "source_label": "заказ-наряд",
-                    "scheme": f"{percent}% от заказ-наряда",
+                    "source_label": "заказ-наряд, стоимость за наличный расчёт",
+                    "scheme": _repair_order_payroll_scheme(percent),
                 }
             )
 
@@ -941,9 +1058,11 @@ class CardServicePayrollMixin:
                     "card_id": order_accrual.get("card_id") or "",
                     "vehicle": "",
                     "license_plate": "",
-                    "item": f"{percent}% от заказ-наряда",
-                    "calculation_base": money_base("Стоимость работ и материалов", base),
-                    "scheme": f"{percent}% от заказ-наряда",
+                    "item": _repair_order_payroll_scheme(percent),
+                    "calculation_base": money_base(
+                        "Стоимость заказ-наряда за наличный расчёт", base
+                    ),
+                    "scheme": _repair_order_payroll_scheme(percent),
                     "accrual_id": order_accrual.get("id") or "",
                     "related_accrual_id": order_accrual.get("related_accrual_id") or "",
                     "note": "Реверс начисления" if sign < 0 else "",
@@ -1599,7 +1718,7 @@ class CardServicePayrollMixin:
                     "base_amount_minor": base_minor,
                     "base_amount_display": format_money_minor(base_minor),
                     "percent": percent,
-                    "scheme": f"{percent}% от заказ-наряда",
+                    "scheme": _repair_order_payroll_scheme(percent),
                     "amount_minor": amount_minor,
                     "amount_display": format_money_minor(amount_minor),
                     "related_accrual_id": order_accrual.get("related_accrual_id") or "",
@@ -3033,37 +3152,59 @@ class CardServicePayrollMixin:
                 percent = self._parse_payroll_decimal(term.get("repair_order_percent"))
                 if percent > Decimal("0"):
                     desired[employee["id"]] = (employee, term, percent)
+        base_amount = order.subtotal_value() if qualified_at is not None else Decimal("0")
+        base_amount_minor = int(
+            (base_amount * Decimal("100")).to_integral_value(rounding=ROUND_HALF_UP)
+        )
         operation_at = created_at or model_helpers.utc_now()
         appended: list[dict[str, Any]] = []
-        active_by_employee = {item["employee_id"]: item for item in active_entries}
-        for employee_id, active in active_by_employee.items():
-            if employee_id in desired:
+        active_by_employee: dict[str, list[dict[str, Any]]] = {}
+        for item in active_entries:
+            active_by_employee.setdefault(item["employee_id"], []).append(item)
+        matching_employee_ids: set[str] = set()
+        for employee_id, active_items in active_by_employee.items():
+            desired_item = desired.get(employee_id)
+            matching_active = False
+            if desired_item is not None and len(active_items) == 1 and base_amount_minor > 0:
+                _employee, _term, desired_percent = desired_item
+                active = active_items[0]
+                expected_amount_minor = int(
+                    (base_amount * desired_percent).to_integral_value(rounding=ROUND_HALF_UP)
+                )
+                active_qualified_at = parse_business_datetime(active.get("qualified_at"))
+                matching_active = (
+                    int(active.get("base_amount_minor") or 0) == base_amount_minor
+                    and self._parse_payroll_decimal(active.get("percent")) == desired_percent
+                    and int(active.get("amount_minor") or 0) == expected_amount_minor
+                    and normalize_text(active.get("repair_order_number"), default="", limit=40)
+                    == normalize_text(order.number, default="", limit=40)
+                    and active_qualified_at == qualified_at
+                )
+            if matching_active:
+                matching_employee_ids.add(employee_id)
                 continue
-            reversal = {
-                "id": str(uuid.uuid4()),
-                "kind": "reversal",
-                "employee_id": active["employee_id"],
-                "employee_name": active.get("employee_name", ""),
-                "card_id": card_id,
-                "repair_order_number": active.get("repair_order_number") or order.number,
-                "base_amount_minor": active.get("base_amount_minor", 0),
-                "percent": active.get("percent", "0"),
-                "amount_minor": active["amount_minor"],
-                "created_at": operation_at.isoformat(),
-                "qualified_at": active.get("qualified_at") or operation_at.isoformat(),
-                "related_accrual_id": active["id"],
-                "actor_name": actor_name,
-                "source": source,
-            }
-            entries.append(reversal)
-            appended.append(reversal)
+            for active in active_items:
+                reversal = {
+                    "id": str(uuid.uuid4()),
+                    "kind": "reversal",
+                    "employee_id": active["employee_id"],
+                    "employee_name": active.get("employee_name", ""),
+                    "card_id": card_id,
+                    "repair_order_number": active.get("repair_order_number") or order.number,
+                    "base_amount_minor": active.get("base_amount_minor", 0),
+                    "percent": active.get("percent", "0"),
+                    "amount_minor": active["amount_minor"],
+                    "created_at": operation_at.isoformat(),
+                    "qualified_at": active.get("qualified_at") or operation_at.isoformat(),
+                    "related_accrual_id": active["id"],
+                    "actor_name": actor_name,
+                    "source": source,
+                }
+                entries.append(reversal)
+                appended.append(reversal)
         if qualified_at is not None:
-            base_amount = order.subtotal_value()
-            base_amount_minor = int(
-                (base_amount * Decimal("100")).to_integral_value(rounding=ROUND_HALF_UP)
-            )
             for employee_id, (employee, _term, percent) in desired.items():
-                if employee_id in active_by_employee or base_amount_minor <= 0:
+                if employee_id in matching_employee_ids or base_amount_minor <= 0:
                     continue
                 amount = base_amount * percent / Decimal("100")
                 amount_minor = int(
@@ -3444,9 +3585,11 @@ class CardServicePayrollMixin:
                 next_rows.append(row.to_dict())
                 continue
             payroll_term = self._employee_payroll_term_at(employee, accrued_at)
-            if payroll_term["salary_mode"] == "none" and self._parse_payroll_decimal(
-                payroll_term.get("repair_order_percent", "0")
-            ) > Decimal("0"):
+            if payroll_term["salary_mode"] == "none" and (
+                self._parse_payroll_decimal(payroll_term.get("repair_order_percent", "0"))
+                > Decimal("0")
+                or not self._work_salary_override_enabled(row)
+            ):
                 self._clear_work_salary_snapshot(row)
                 next_rows.append(row.to_dict())
                 continue
@@ -3517,15 +3660,11 @@ class CardServicePayrollMixin:
                 next_rows.append(row.to_dict())
                 continue
             payroll_term = self._employee_payroll_term_at(employee, accrued_at)
-            if self._parse_payroll_decimal(payroll_term.get("repair_order_percent", "0")) > Decimal(
-                "0"
-            ) and self._parse_payroll_decimal(payroll_term.get("material_percent", "0")) == Decimal(
-                "0"
-            ):
+            material_percent = self._parse_payroll_decimal(payroll_term.get("material_percent", ""))
+            if material_percent <= Decimal("0"):
                 self._clear_material_salary_snapshot(row)
                 next_rows.append(row.to_dict())
                 continue
-            material_percent = self._parse_payroll_decimal(payroll_term.get("material_percent", ""))
             profit = max(row.total_value() - cost_total, Decimal("0"))
             salary_amount = profit * material_percent / Decimal("100")
             row.executor_name = employee["name"]
@@ -3588,7 +3727,9 @@ class CardServicePayrollMixin:
                     "row_type": (
                         "repair_order_accrual_reversal" if sign < 0 else "repair_order_accrual"
                     ),
-                    "type_label": "Отмена % от ЗН" if sign < 0 else "% от заказ-наряда",
+                    "type_label": (
+                        "Отмена % от ЗН" if sign < 0 else "% от ЗН по стоимости за наличный расчёт"
+                    ),
                     "employee_id": employee_id,
                     "employee_name": summary["employee_name"],
                     "closed_at": created_at.strftime("%d.%m.%Y %H:%M"),
@@ -3598,7 +3739,9 @@ class CardServicePayrollMixin:
                     "works_count": 0,
                     "work_total": base,
                     "materials_count": 0,
-                    "material_name": f"{order_accrual.get('percent') or '0'}% от заказ-наряда",
+                    "material_name": _repair_order_payroll_scheme(
+                        order_accrual.get("percent") or "0"
+                    ),
                     "material_total": Decimal("0"),
                     "material_cost_total": Decimal("0"),
                     "material_profit": Decimal("0"),

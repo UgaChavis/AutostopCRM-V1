@@ -22,7 +22,7 @@ if str(SRC) not in sys.path:
 from minimal_kanban.json_safety import reject_deeply_nested_json  # noqa: E402
 
 UrlOpen = Callable[[urllib.request.Request, float], Any]
-AUDIT_RESPONSE_MAX_BYTES = 4 * 1024 * 1024
+AUDIT_RESPONSE_MAX_BYTES = 32 * 1024 * 1024
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -548,7 +548,9 @@ def _work_detail_card_ids(report: dict[str, Any]) -> set[str]:
     return {
         str(row.get("card_id") or "")
         for row in _items(report.get("detail_rows"))
-        if str(row.get("row_type") or "") == "work" and str(row.get("card_id") or "")
+        if str(row.get("row_type") or "")
+        in {"work", "repair_order_accrual", "repair_order_accrual_reversal"}
+        and str(row.get("card_id") or "")
     }
 
 
@@ -666,6 +668,7 @@ def _audit_work_card_formulas(
     *,
     month: str,
     cards_by_id: dict[str, dict[str, Any]],
+    audit_current_order_accruals: bool,
 ) -> list[dict[str, Any]]:
     reported_totals = _reported_work_card_totals(report)
     stored_totals, formula_issues = _stored_work_card_totals(
@@ -682,6 +685,87 @@ def _audit_work_card_formulas(
             month=month,
         )
     )
+    if audit_current_order_accruals:
+        issues.extend(
+            _audit_repair_order_cash_base_issues(
+                report,
+                cards_by_id=cards_by_id,
+                month=month,
+            )
+        )
+    return issues
+
+
+def _audit_repair_order_cash_base_issues(
+    report: dict[str, Any],
+    *,
+    cards_by_id: dict[str, dict[str, Any]],
+    month: str,
+) -> list[dict[str, Any]]:
+    rows = _items(report.get("detail_rows"))
+    reversed_accrual_ids = {
+        str(row.get("related_accrual_id") or "")
+        for row in rows
+        if str(row.get("row_type") or "") == "repair_order_accrual_reversal"
+        and str(row.get("related_accrual_id") or "")
+    }
+    issues: list[dict[str, Any]] = []
+    for row in rows:
+        if str(row.get("row_type") or "") != "repair_order_accrual":
+            continue
+        accrual_id = str(row.get("accrual_id") or "")
+        if accrual_id and accrual_id in reversed_accrual_ids:
+            continue
+        card_id = str(row.get("card_id") or "")
+        card = cards_by_id.get(card_id)
+        repair_order = card.get("repair_order") if isinstance(card, dict) else None
+        if not isinstance(repair_order, dict):
+            continue
+        recorded_base = _money(row.get("base_amount") or row.get("work_total"))
+        cash_price = _money(repair_order.get("subtotal_total"))
+        if _round_money(recorded_base) != _round_money(cash_price):
+            issues.append(
+                _issue(
+                    code="payroll_repair_order_cash_base_mismatch",
+                    severity="error",
+                    message=(
+                        "База начисления от заказ-наряда не равна его стоимости за наличный расчёт."
+                    ),
+                    employee_id=str(row.get("employee_id") or ""),
+                    employee_name=str(row.get("employee_name") or ""),
+                    month=month,
+                    data={
+                        "card_id": card_id,
+                        "repair_order_number": row.get("repair_order_number"),
+                        "recorded_base": _format_money(recorded_base),
+                        "cash_price_subtotal_total": _format_money(cash_price),
+                        "accrual_id": accrual_id,
+                    },
+                )
+            )
+        if str(repair_order.get("status") or "").casefold() != "closed" or not _bool_text(
+            repair_order.get("is_paid")
+        ):
+            issues.append(
+                _issue(
+                    code="payroll_repair_order_accrual_not_qualified",
+                    severity="error",
+                    message=(
+                        "Активное начисление от заказ-наряда относится к наряду, который "
+                        "сейчас не закрыт или не полностью оплачен."
+                    ),
+                    employee_id=str(row.get("employee_id") or ""),
+                    employee_name=str(row.get("employee_name") or ""),
+                    month=month,
+                    data={
+                        "card_id": card_id,
+                        "repair_order_number": row.get("repair_order_number"),
+                        "status": repair_order.get("status"),
+                        "is_paid": repair_order.get("is_paid"),
+                        "accrual_id": accrual_id,
+                    },
+                )
+            )
     return issues
 
 
@@ -760,7 +844,8 @@ def build_payroll_audit(
     employees = _items(_data(employees_payload).get("employees"))
     employee_ids = {str(employee.get("id") or "") for employee in employees}
     all_cards_by_id: dict[str, dict[str, Any]] | None = None
-    for month in _month_keys(months_back, reference=reference):
+    month_keys = _month_keys(months_back, reference=reference)
+    for month_index, month in enumerate(month_keys):
         report_payload = _fetch_json(
             base_url,
             "/api/get_payroll_report",
@@ -802,7 +887,14 @@ def build_payroll_audit(
             )
         )
         issues.extend(_audit_report_totals(report, month=month))
-        issues.extend(_audit_work_card_formulas(report, month=month, cards_by_id=cards_by_id))
+        issues.extend(
+            _audit_work_card_formulas(
+                report,
+                month=month,
+                cards_by_id=cards_by_id,
+                audit_current_order_accruals=month_index == 0,
+            )
+        )
     for employee in employees:
         employee_id = str(employee.get("id") or "")
         if not employee_id:

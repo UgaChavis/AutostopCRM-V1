@@ -438,6 +438,98 @@ class PayrollAuditReportTests(unittest.TestCase):
         self.assertEqual(issue["data"]["expected_salary_amount"], "100")
         self.assertEqual(issue["data"]["salary_amount"], "500")
 
+    def test_build_payroll_audit_compares_order_accrual_with_cash_price(self) -> None:
+        module = load_payroll_audit_report_module()
+        employee = {"id": "emp-1", "name": "Сергей Мастер"}
+        responses = {
+            "/api/list_employees": _ok({"employees": [employee]}),
+            "/api/get_payroll_report": _ok(
+                {
+                    "summary": [
+                        {
+                            "employee_id": "emp-1",
+                            "employee_name": "Сергей Мастер",
+                            "base_salary_accrued_total": "0",
+                            "shift_accrued_total": "0",
+                            "work_accrued_total": "0",
+                            "materials_accrued_total": "0",
+                            "repair_order_accrued_total": "60",
+                            "accrued_total": "60",
+                        }
+                    ],
+                    "detail_rows": [
+                        {
+                            "row_type": "repair_order_accrual",
+                            "employee_id": "emp-1",
+                            "employee_name": "Сергей Мастер",
+                            "card_id": "card-1",
+                            "repair_order_number": "75",
+                            "base_amount": "1500",
+                            "repair_order_percent": "4",
+                            "salary_amount": "60",
+                            "accrual_id": "accrual-1",
+                        }
+                    ],
+                }
+            ),
+            "/api/get_cards": _ok(
+                {
+                    "cards": [
+                        {
+                            "id": "card-1",
+                            "repair_order": {
+                                "number": "75",
+                                "status": "closed",
+                                "is_paid": True,
+                                "subtotal_total": "2000",
+                                "works": [],
+                            },
+                        }
+                    ]
+                }
+            ),
+            "/api/get_employee_salary_ledger": _ok(
+                {
+                    "employee_id": "emp-1",
+                    "employee_name": "Сергей Мастер",
+                    "accrued_total": "60",
+                    "payout_total": "0",
+                    "advance_total": "0",
+                    "balance_total": "60",
+                    "journal_total": 1,
+                    "journal_rows": [
+                        {
+                            "kind": "repair_order_accrual",
+                            "employee_id": "emp-1",
+                            "card_id": "card-1",
+                            "repair_order_number": "75",
+                            "amount": "60",
+                        }
+                    ],
+                }
+            ),
+        }
+
+        def fake_urlopen(request, timeout):
+            _ = timeout
+            return FakeResponse(responses[urlparse(request.full_url).path])
+
+        result = module.build_payroll_audit(
+            "https://crm.autostopcrm.ru",
+            months_back=1,
+            ledger_months=6,
+            urlopen=fake_urlopen,
+            reference=datetime(2026, 5, 29),
+        )
+
+        issue = next(
+            item
+            for item in result["issues"]
+            if item["code"] == "payroll_repair_order_cash_base_mismatch"
+        )
+        self.assertEqual(issue["data"]["recorded_base"], "1500")
+        self.assertEqual(issue["data"]["cash_price_subtotal_total"], "2000")
+
     def test_build_payroll_audit_reports_accrual_for_missing_employee(self) -> None:
         module = load_payroll_audit_report_module()
         responses = {

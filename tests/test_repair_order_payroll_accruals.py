@@ -62,7 +62,7 @@ class RepairOrderPayrollAccrualTests(unittest.TestCase):
                         {
                             "amount": "1764.71",
                             "paid_at": "17.07.2026 12:00",
-                            "payment_method": "cash",
+                            "payment_method": "cashless",
                             "cashbox_id": cashbox["id"],
                             "actor_name": "ADMIN",
                         }
@@ -83,6 +83,7 @@ class RepairOrderPayrollAccrualTests(unittest.TestCase):
         order = card["repair_order"]
         self.assertEqual(order["subtotal_total"], "1500")
         self.assertGreater(float(order["taxes_total"]), 0)
+        self.assertEqual(order["payments"][0]["payment_method"], "cashless")
         self.assertEqual(order["works"][0]["salary_amount"], "500")
 
         report = self.service.get_payroll_report({"month": "2026-07"})
@@ -105,7 +106,7 @@ class RepairOrderPayrollAccrualTests(unittest.TestCase):
         )
         self.assertEqual(salary_report["totals"]["repair_order_accrual_count"], 1)
         self.assertEqual(salary_report["totals"]["repair_order_accrual_total"], "60")
-        self.assertIn("4% от заказ-наряда", salary_report["text"])
+        self.assertIn("4% от стоимости заказ-наряда за наличный расчёт", salary_report["text"])
         reconciliation = self.service.get_employee_salary_reconciliation(
             {
                 "employee_id": sergey["id"],
@@ -116,7 +117,14 @@ class RepairOrderPayrollAccrualTests(unittest.TestCase):
         order_reconciliation = next(
             row for row in reconciliation["rows"] if row["kind"] == "repair_order_accrual"
         )
-        self.assertEqual(order_reconciliation["scheme"], "4% от заказ-наряда")
+        self.assertEqual(
+            order_reconciliation["scheme"],
+            "4% от стоимости заказ-наряда за наличный расчёт",
+        )
+        self.assertIn(
+            "Стоимость заказ-наряда за наличный расчёт",
+            order_reconciliation["calculation_base"],
+        )
         self.assertIn("1 500,00", order_reconciliation["calculation_base"])
         self.assertEqual(order_reconciliation["accrued"], "60")
 
@@ -134,6 +142,32 @@ class RepairOrderPayrollAccrualTests(unittest.TestCase):
             ),
             2,
         )
+
+    def test_four_percent_rounds_each_employee_half_up_to_kopecks(self) -> None:
+        self._employee("Сергей Гелингер", repair_order_percent="4")
+        self._employee("Алексей Мацурко", repair_order_percent="4")
+        card = self.service.create_card(
+            {"vehicle": "Lada", "title": "Округление 4%", "deadline": {"hours": 2}}
+        )["card"]
+        self.service.update_card(
+            {
+                "card_id": card["id"],
+                "repair_order": {
+                    "works": [{"name": "Работа", "quantity": "1", "price": "312.63"}],
+                    "payments": [{"amount": "312.63", "paid_at": "17.07.2026 12:00"}],
+                },
+            }
+        )
+        self.service.set_repair_order_status({"card_id": card["id"], "status": "closed"})
+
+        rows = [
+            row
+            for row in self.service.get_payroll_report({"month": "2026-07"})["detail_rows"]
+            if row["row_type"] == "repair_order_accrual"
+        ]
+        self.assertEqual(len(rows), 2)
+        self.assertEqual({row["base_amount"] for row in rows}, {"312.63"})
+        self.assertEqual({row["salary_amount"] for row in rows}, {"12.51"})
 
     def test_reopen_reverses_and_reclose_creates_new_accrual(self) -> None:
         employee = self._employee("Сергей Гелингер", repair_order_percent="4")
@@ -154,6 +188,41 @@ class RepairOrderPayrollAccrualTests(unittest.TestCase):
             sum(row["kind"] == "repair_order_accrual" for row in reclosed["journal_rows"]),
             2,
         )
+
+    def test_stale_active_percent_is_reversed_without_reopening_order(self) -> None:
+        employee = self._employee("Сергей Гелингер", repair_order_percent="3")
+        card = self._close_cashless_order()
+        initial = self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
+        self.assertEqual(initial["accrued_total"], "45")
+
+        self.service.save_employee(
+            {
+                "employee_id": employee["id"],
+                "name": employee["name"],
+                "salary_mode": "none",
+                "base_salary": "0",
+                "work_percent": "0",
+                "material_percent": "0",
+                "repair_order_percent": "4",
+                "payroll_effective_from": "2026-07-13T00:00:00+07:00",
+            }
+        )
+        self.service.update_repair_order(
+            {"card_id": card["id"], "repair_order": {"comment": "Сверка процента"}}
+        )
+
+        corrected = self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
+        self.assertEqual(corrected["accrued_total"], "60")
+        journal = corrected["journal_rows"]
+        self.assertEqual(
+            sum(row["kind"] == "repair_order_accrual" for row in journal),
+            2,
+        )
+        self.assertEqual(
+            sum(row["kind"] == "repair_order_accrual_reversal" for row in journal),
+            1,
+        )
+        self.assertEqual(sorted(row["percent"] for row in journal), ["3", "3", "4"])
 
     def test_lost_full_payment_reverses_order_accrual(self) -> None:
         employee = self._employee("Алексей Мацурко", repair_order_percent="4")

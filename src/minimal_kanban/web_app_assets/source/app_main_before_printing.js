@@ -5559,8 +5559,8 @@
         kind: 'repair_order_percent',
         inputKey: 'employeeRepairOrderPercentInput',
         label: 'Заказ-наряды',
-        shortLabel: '% от заказ-наряда',
-        hint: 'Процент от стоимости работ и материалов закрытого и полностью оплаченного заказ-наряда.',
+        shortLabel: '% от наличной стоимости ЗН',
+        hint: 'Процент от стоимости заказ-наряда за наличный расчёт: работы плюс материалы без безналичной надбавки, независимо от способа оплаты.',
         valueLabel: 'Процент',
         placeholder: '0',
         defaultValue: '0',
@@ -5615,7 +5615,7 @@
       if (baseSalary && baseSalary !== '0') parts.push('Оклад ' + baseSalary + ' ₽/нед.');
       if (workPercent && workPercent !== '0') parts.push(workPercent + '% с работ');
       if (materialPercent && materialPercent !== '0') parts.push(materialPercent + '% с прибыли материалов');
-      if (repairOrderPercent && repairOrderPercent !== '0') parts.push(repairOrderPercent + '% от заказ-наряда');
+      if (repairOrderPercent && repairOrderPercent !== '0') parts.push(repairOrderPercent + '% от стоимости заказ-наряда за наличный расчёт');
       return parts.length ? parts.join(' + ') : 'Без начислений';
     }
 
@@ -6134,7 +6134,7 @@
         const isBaseSalary = rowType === 'base_salary';
         const isShiftAccrual = rowType === 'shift_accrual';
         const isRepairOrderAccrual = rowType === 'repair_order_accrual' || rowType === 'repair_order_accrual_reversal';
-        const positionName = isRepairOrderAccrual ? (row.material_name || '% от заказ-наряда') : ((isBaseSalary || isShiftAccrual) ? (row.material_name || (isBaseSalary ? 'Недельный оклад' : 'Выплата за смены за текущую неделю')) : (isMaterial ? (row.material_name || '-') : ((row.works_count || '0') + ' раб.')));
+        const positionName = isRepairOrderAccrual ? (row.material_name || '% от стоимости ЗН за наличный расчёт') : ((isBaseSalary || isShiftAccrual) ? (row.material_name || (isBaseSalary ? 'Недельный оклад' : 'Выплата за смены за текущую неделю')) : (isMaterial ? (row.material_name || '-') : ((row.works_count || '0') + ' раб.')));
         const saleTotal = isRepairOrderAccrual ? (row.base_amount || row.work_total || '0') : ((isBaseSalary || isShiftAccrual) ? '-' : (isMaterial ? (row.material_total || '0') : (row.work_total || '0')));
         const costTotal = (isBaseSalary || isShiftAccrual || isRepairOrderAccrual) ? '-' : (isMaterial ? (row.material_cost_total || '0') : '-');
         const profitTotal = (isBaseSalary || isShiftAccrual || isRepairOrderAccrual) ? '-' : (isMaterial ? (row.material_profit || '0') : '-');
