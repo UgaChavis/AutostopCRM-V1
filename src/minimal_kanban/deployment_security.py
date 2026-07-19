@@ -19,6 +19,7 @@ DEFAULT_MAINTENANCE_MARKER_NAME = ".agent-gateway-maintenance"
 EXPECTED_STORE_API_URL = "http://autostop-app:8000"
 STORE_TOKEN_ENV_NAMES = (
     "AUTOSTOP_STORE_READ_TOKEN",
+    "AUTOSTOP_STORE_QUOTE_TOKEN",
     "AUTOSTOP_STORE_MANAGE_TOKEN",
 )
 
@@ -205,7 +206,7 @@ def validate_store_integration_environment(
         elif not bearer_token_is_strong(store_token):
             errors.append(f"{name} must be a strong URL-safe service token")
     if all(store_tokens.values()) and len(set(store_tokens.values())) != len(store_tokens):
-        errors.append("AUTOSTOP_STORE_READ_TOKEN and AUTOSTOP_STORE_MANAGE_TOKEN must be distinct")
+        errors.append("Store read, quote, and manage service tokens must be pairwise distinct")
     return errors
 
 

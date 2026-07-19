@@ -318,12 +318,13 @@ def _compact_object(
     depth: int = 0,
     item_limit: int = 25,
     key_limit: int = 100,
+    max_depth: int = 5,
     _budget: list[int] | None = None,
 ) -> Any:
     budget = _budget if _budget is not None else [100_000]
     if budget[0] <= 0:
         return "<payload-budget-exhausted>"
-    if depth >= 5:
+    if depth >= max_depth:
         return "<max-depth>"
     if isinstance(value, BaseModel):
         value = value.model_dump(mode="json", by_alias=True)
@@ -345,6 +346,7 @@ def _compact_object(
                 item_limit=item_limit,
                 key_limit=key_limit,
                 _budget=budget,
+                max_depth=max_depth,
             )
         if len(safe_items) > key_limit:
             compact["truncated_keys"] = len(safe_items) - key_limit
@@ -359,6 +361,7 @@ def _compact_object(
                 item_limit=item_limit,
                 key_limit=key_limit,
                 _budget=budget,
+                max_depth=max_depth,
             )
             for item in value[:item_limit]
             if budget[0] > 0
@@ -1822,6 +1825,7 @@ def register_agent_gateway_v2(
             "store_warehouse_operation",
             "store_marketplace_listing",
             "store_state",
+            "store_sourcing_offer",
         ],
         query: str = "",
         include_archived: bool = False,
@@ -1927,6 +1931,11 @@ def register_agent_gateway_v2(
                 "store_entity_context",
                 {"entity": entity, "entity_id": entity_id, "detail": detail},
             )
+            compact_store = (
+                (lambda value, **kwargs: _compact_object(value, max_depth=8, **kwargs))
+                if entity == "store_quote_request" and detail == "full"
+                else _compact_object
+            )
             return _tool_result(
                 store_gateway_envelope(
                     result,
@@ -1938,7 +1947,7 @@ def register_agent_gateway_v2(
                     },
                     item_limit=50 if detail == "full" else 15,
                     envelope_factory=_envelope,
-                    compact=_compact_object,
+                    compact=compact_store,
                 ),
                 label="agent_entity_context",
             )

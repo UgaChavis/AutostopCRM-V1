@@ -48,6 +48,11 @@ class AgentGatewayV2SmokeScriptTests(unittest.TestCase):
         source = SCRIPT_PATH.read_text(encoding="utf-8")
 
         self.assertIn('"entity": "store_state"', source)
+        self.assertIn('"entity": "store_sourcing_offer"', source)
+        self.assertIn('"store_quote_adapter_configured"', source)
+        self.assertIn('"store_quote_full_read_enabled"', source)
+        self.assertIn('"store_quote_draft_write_enabled"', source)
+        self.assertIn('"store_supplier_lookup_enabled"', source)
         self.assertNotIn('{"scope": "store"', source)
 
     def test_state_version_requires_integer_summary_value(self) -> None:

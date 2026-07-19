@@ -56,6 +56,7 @@ class DeployScriptTests(unittest.TestCase):
             'AUTOSTOP_STORE_API_URL: "${AUTOSTOP_STORE_API_URL:-http://autostop-app:8000}"', compose
         )
         self.assertIn('AUTOSTOP_STORE_READ_TOKEN: "${AUTOSTOP_STORE_READ_TOKEN:-}"', compose)
+        self.assertIn('AUTOSTOP_STORE_QUOTE_TOKEN: "${AUTOSTOP_STORE_QUOTE_TOKEN:-}"', compose)
         self.assertIn('AUTOSTOP_STORE_MANAGE_TOKEN: "${AUTOSTOP_STORE_MANAGE_TOKEN:-}"', compose)
         self.assertNotIn("autostop-db:", compose)
 
@@ -128,6 +129,9 @@ class DeployScriptTests(unittest.TestCase):
 
         self.assertIn(
             ': "${AUTOSTOP_STORE_READ_TOKEN:?provision store read service token}"', script
+        )
+        self.assertIn(
+            ': "${AUTOSTOP_STORE_QUOTE_TOKEN:?provision store quote service token}"', script
         )
         self.assertIn(
             ': "${AUTOSTOP_STORE_MANAGE_TOKEN:?provision store manage service token}"', script

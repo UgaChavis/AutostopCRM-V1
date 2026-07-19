@@ -1767,6 +1767,76 @@ class AgentGatewayV2Tests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(accepted["passed"])
 
+    def test_store_quote_note_and_draft_readback_are_exact(self) -> None:
+        result = {
+            "ok": True,
+            "verification": {"passed": True},
+            "meta": {"correlation_id": "quote-correlation-123"},
+        }
+        common = {
+            "target_id": "quote-1",
+            "expected_updated_at": "2026-07-16T10:00:00+00:00",
+            "correlation_id": "quote-correlation-123",
+        }
+        note = verify_store_readback(
+            "add_quote_request_note",
+            {**common, "planned_changes": {"text": "Уточнить сторону"}},
+            {**result, "changes": [{"field": "notes_count"}]},
+            mode="apply",
+            preflight={"actual_updated_at": "2026-07-16T10:00:00+00:00"},
+            readback={
+                "ok": True,
+                "data": {
+                    "item": {
+                        "id": "quote-1",
+                        "updated_at": "2026-07-16T10:01:00+00:00",
+                        "notes": [{"origin": "AUTOSTOP_MANAGER", "text": "Уточнить сторону"}],
+                    }
+                },
+            },
+        )
+        self.assertTrue(note["passed"])
+
+        drafts = verify_store_readback(
+            "replace_quote_offer_drafts",
+            {
+                **common,
+                "planned_changes": {
+                    "items": [
+                        {
+                            "item_id": "item-1",
+                            "drafts": [{"candidate_key": "rossko:abc"}],
+                        }
+                    ]
+                },
+            },
+            {**result, "changes": [{"field": "agent_draft_count"}]},
+            mode="apply",
+            preflight={"actual_updated_at": "2026-07-16T10:00:00+00:00"},
+            readback={
+                "ok": True,
+                "data": {
+                    "item": {
+                        "id": "quote-1",
+                        "updated_at": "2026-07-16T10:01:00+00:00",
+                        "items": [
+                            {
+                                "item_id": "item-1",
+                                "offers": [
+                                    {
+                                        "origin": "AUTOSTOP_MANAGER",
+                                        "publication_status": "DRAFT",
+                                        "candidate_key": "rossko:abc",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertTrue(drafts["passed"])
+
     async def test_store_ready_external_effect_requires_terminal_success_state(self) -> None:
         for external_state, expected_status in (
             ("SENT", "completed"),

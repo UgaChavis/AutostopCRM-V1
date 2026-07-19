@@ -261,9 +261,16 @@ A Store-enabled release additionally provisions these server-local values:
 
 - `AUTOSTOP_STORE_API_URL=http://autostop-app:8000`;
 - `AUTOSTOP_STORE_READ_TOKEN` for pure reads;
-- `AUTOSTOP_STORE_MANAGE_TOKEN` for the five allowlisted actions.
+- `AUTOSTOP_STORE_QUOTE_TOKEN` for exact full quote and sourcing reads;
+- `AUTOSTOP_STORE_MANAGE_TOKEN` for the seven allowlisted actions.
 
-The two scoped tokens must be strong and distinct. Never display their values.
+The three scoped tokens must be strong and pairwise distinct. Never display
+their values. A Store-enabled release also requires the App runtime flags
+`STORE_AGENT_QUOTE_FULL_READ_ENABLED`,
+`STORE_AGENT_QUOTE_DRAFT_WRITE_ENABLED`, and
+`STORE_AGENT_SUPPLIER_LOOKUP_ENABLED`; the mandatory `--require-store` smoke
+proves all three flags plus the dedicated quote credential before release
+completion.
 Missing or invalid Store configuration is nonfatal to normal CRM container
 startup and is reported as `store_degraded`; `deploy.sh` nevertheless requires
 valid Store settings before publishing a Store-enabled release.

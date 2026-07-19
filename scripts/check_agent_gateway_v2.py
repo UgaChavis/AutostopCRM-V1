@@ -430,6 +430,7 @@ async def check_gateway(args: argparse.Namespace) -> dict[str, Any]:
                     entity_context = None
                     store_runtime = None
                     store_probe = None
+                    store_sourcing_probe = None
                     web_checks: dict[str, bool] = {}
                     workflows = None
                     calls: dict[str, bool] = {}
@@ -497,6 +498,16 @@ async def check_gateway(args: argparse.Namespace) -> dict[str, Any]:
                                     "limit": 1,
                                 },
                             )
+                            store_sourcing_probe = await _call(
+                                session,
+                                calls,
+                                "agent_search",
+                                {
+                                    "entity": "store_sourcing_offer",
+                                    "query": "масляный фильтр",
+                                    "limit": 1,
+                                },
+                            )
                         if args.require_web:
                             web_checks = await _run_web_checks(session, calls)
                         if args.exhaustive:
@@ -535,10 +546,31 @@ async def check_gateway(args: argparse.Namespace) -> dict[str, Any]:
         store_status = (
             runtime_data.get("store") if isinstance(runtime_data.get("store"), dict) else {}
         )
+        store_summary = (
+            store_status.get("summary") if isinstance(store_status.get("summary"), dict) else {}
+        )
+        store_adapter = (
+            store_summary.get("adapter") if isinstance(store_summary.get("adapter"), dict) else {}
+        )
+        store_features = (
+            store_summary.get("features") if isinstance(store_summary.get("features"), dict) else {}
+        )
         checks.update(
             {
                 "store_runtime_ready": bool(store_status.get("ok")),
                 "store_state_read_ok": store_probe is not None and _tool_ok(store_probe),
+                "store_quote_adapter_configured": bool(store_adapter.get("quote_configured")),
+                "store_quote_full_read_enabled": bool(
+                    store_features.get("quote_full_read_enabled")
+                ),
+                "store_quote_draft_write_enabled": bool(
+                    store_features.get("quote_draft_write_enabled")
+                ),
+                "store_supplier_lookup_enabled": bool(
+                    store_features.get("supplier_lookup_enabled")
+                ),
+                "store_sourcing_read_ok": store_sourcing_probe is not None
+                and _tool_ok(store_sourcing_probe),
             }
         )
     if args.require_web:
