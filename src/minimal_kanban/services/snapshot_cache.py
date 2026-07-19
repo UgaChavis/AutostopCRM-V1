@@ -130,4 +130,4 @@ def build_snapshot_revision(
         "archive_limit": archive_limit,
     }
     serialized = json_dumps(revision_payload, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha1(serialized.encode("utf-8")).hexdigest()
+    return hashlib.sha1(serialized.encode("utf-8"), usedforsecurity=False).hexdigest()

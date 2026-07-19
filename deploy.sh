@@ -104,7 +104,7 @@ validate_gateway_switches() {
   done
 }
 validate_gateway_switches
-export AUTOSTOP_MAINTENANCE_MARKER="/root/.minimal-kanban/.agent-gateway-maintenance"
+export AUTOSTOP_MAINTENANCE_MARKER="/home/autostop/.minimal-kanban/.agent-gateway-maintenance"
 export MINIMAL_KANBAN_MCP_PUBLIC_BASE_URL="$PUBLIC_SITE_URL"
 export MINIMAL_KANBAN_MCP_PUBLIC_ENDPOINT_URL="$PUBLIC_MCP_URL"
 export AUTOSTOP_MANAGER_HOST_DIR="$MANAGER_CURRENT_LINK"
