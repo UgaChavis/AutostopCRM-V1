@@ -112,6 +112,8 @@ class DeployScriptTests(unittest.TestCase):
         self.assertIn("run_release docker compose stop", script)
         self.assertIn("run_maintenance env AUTOSTOP_RELEASE_IMAGE", script)
         self.assertEqual(script.count('mkdir -p "$staging_dir/data"'), 2)
+        self.assertEqual(script.count('chmod -R a+rX "$staging_dir"'), 2)
+        self.assertIn('chmod 0755 "$MANAGER_RELEASE_ROOT"', script)
         self.assertIn("--exclude '/data/'", script)
         self.assertIn("--exclude '/out/'", script)
         self.assertIn("--exclude '/tmp/'", script)

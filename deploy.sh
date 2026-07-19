@@ -217,6 +217,11 @@ snapshot_manager_tree() {
   # Docker can overlay the live manager SQLite data only when the nested
   # mountpoint already exists inside the immutable read-only source snapshot.
   mkdir -p "$staging_dir/data"
+  # Production may keep the Manager checkout private (0600/0700).  The
+  # sanitized snapshot is mounted read-only into the unprivileged CRM
+  # container, so normalize only read/traverse access without inventing
+  # executable bits on regular files.
+  chmod -R a+rX "$staging_dir"
   mv "$staging_dir" "$target_dir"
 }
 
@@ -228,6 +233,7 @@ snapshot_manager_head() {
   mkdir -p "$staging_dir"
   git -C "$source_dir" archive HEAD | tar -x -C "$staging_dir"
   mkdir -p "$staging_dir/data"
+  chmod -R a+rX "$staging_dir"
   mv "$staging_dir" "$target_dir"
 }
 
@@ -253,6 +259,7 @@ if [[ ! -d "$MANAGER_SOURCE_DIR/autostop_manager" ]]; then
   exit 2
 fi
 mkdir -p "$MANAGER_RELEASE_ROOT"
+chmod 0755 "$MANAGER_RELEASE_ROOT"
 manager_release_dir="$MANAGER_RELEASE_ROOT/$release_id"
 snapshot_manager_tree "$MANAGER_SOURCE_DIR" "$manager_release_dir"
 if [[ -L "$MANAGER_CURRENT_LINK" ]] && [[ -d "$(readlink -f "$MANAGER_CURRENT_LINK")" ]]; then
