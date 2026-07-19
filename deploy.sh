@@ -381,6 +381,25 @@ wait_for_health() {
   return 1
 }
 
+wait_for_internal_store_gateway() {
+  local attempt
+
+  for (( attempt = 1; attempt <= SMOKE_ATTEMPTS; attempt++ )); do
+    if run_maintenance docker compose exec -T "$SERVICE_NAME" python scripts/check_agent_gateway_v2.py \
+      --mcp-url http://127.0.0.1:41831/mcp \
+      --require-store; then
+      return 0
+    fi
+
+    if (( attempt < SMOKE_ATTEMPTS )); then
+      echo "Store Gateway is not ready yet; retrying in ${SMOKE_DELAY_SECONDS}s (${attempt}/${SMOKE_ATTEMPTS})."
+      run_maintenance sleep "$SMOKE_DELAY_SECONDS" || return 1
+    fi
+  done
+
+  return 1
+}
+
 reload_deploy_environment() {
   if [[ -f "$ROOT_DIR/.env" ]]; then
     set -a
@@ -554,9 +573,7 @@ run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_live_con
   --local-api-url http://127.0.0.1:41731 \
   --expect-admin
 
-run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_agent_gateway_v2.py \
-  --mcp-url http://127.0.0.1:41831/mcp \
-  --require-store
+wait_for_internal_store_gateway
 
 # Internal authenticated smoke has passed. Remove maintenance mode before the
 # public probes so they verify the real anonymous auth boundary (401/403).

@@ -147,6 +147,18 @@ class DeployScriptTests(unittest.TestCase):
         self.assertIn("--require-production --require-store", script)
         self.assertEqual(3, script.count("--require-store"))
 
+    def test_deploy_retries_internal_store_gateway_until_ready(self) -> None:
+        script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+
+        self.assertIn("wait_for_internal_store_gateway()", script)
+        self.assertIn("attempt <= SMOKE_ATTEMPTS", script)
+        self.assertIn("Store Gateway is not ready yet; retrying", script)
+        self.assertIn("wait_for_internal_store_gateway\n", script)
+        self.assertLess(
+            script.index("wait_for_internal_store_gateway\n"),
+            script.index('run_release rm -f "$MAINTENANCE_MARKER_HOST"'),
+        )
+
     def test_deploy_rotates_auth_at_cutover_and_restores_it_on_rollback(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
 

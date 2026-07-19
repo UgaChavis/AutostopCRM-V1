@@ -362,7 +362,10 @@ The bounded release flow:
 5. creates and verifies an atomic backup of CRM state/audit data and Manager
    SQLite;
 6. starts the prebuilt image, proves only CRM and App share the Store network,
-   and runs internal authenticated CRM plus Store-read smoke;
+   and runs internal authenticated CRM plus Store-read smoke; Store Gateway
+   readiness is retried only within the bounded release budget, so a short
+   cold-start initialization is tolerated but an unavailable Store still fails
+   the release and triggers rollback;
 7. removes maintenance mode and runs mandatory public API, OAuth discovery,
    owner-approved OAuth flow, and exhaustive 24-tool Gateway smoke;
 8. tags the healthy release as stable and installs the watchdog.
