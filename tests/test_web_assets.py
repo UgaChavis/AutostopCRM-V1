@@ -1070,7 +1070,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".tag-limit {", BOARD_WEB_APP_HTML)
         self.assertIn(".tag-controls {", BOARD_WEB_APP_HTML)
         self.assertIn(".tag-list .tag {", BOARD_WEB_APP_HTML)
-        self.assertIn("--card-meta-panel-height: 132px;", BOARD_WEB_APP_HTML)
+        self.assertIn("--card-meta-panel-height: 112px;", BOARD_WEB_APP_HTML)
         self.assertIn(
             "grid-template-columns: minmax(144px, 150px) minmax(0, 450px);",
             BOARD_WEB_APP_HTML,
@@ -1094,7 +1094,6 @@ class WebAssetsTests(unittest.TestCase):
     def test_card_timer_is_inactive_by_default_and_has_explicit_controls(self) -> None:
         for element_id in (
             "signalState",
-            "signalRemaining",
             "signalActions",
             "signalStartButton",
             "signalStopButton",
@@ -2973,8 +2972,9 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="signalDaysIncrementButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="signalHoursDecrementButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="signalHoursIncrementButton"', BOARD_WEB_APP_HTML)
-        self.assertIn('id="signalDaysValue" for="signalDays">1 Д</output>', BOARD_WEB_APP_HTML)
-        self.assertIn('id="signalHoursValue" for="signalHours">0 Ч</output>', BOARD_WEB_APP_HTML)
+        self.assertIn('id="signalDaysValue" for="signalDays">1</output>', BOARD_WEB_APP_HTML)
+        self.assertIn('id="signalHoursValue" for="signalHours">0</output>', BOARD_WEB_APP_HTML)
+        self.assertNotIn('id="signalRemaining"', BOARD_WEB_APP_HTML)
         self.assertIn('role="group" aria-label="Дни"', BOARD_WEB_APP_HTML)
         self.assertIn('role="group" aria-label="Часы"', BOARD_WEB_APP_HTML)
         self.assertIn(">&minus;</button>", BOARD_WEB_APP_HTML)
@@ -2985,7 +2985,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("grid-template-columns: 20px minmax(0, 1fr) 20px;", BOARD_WEB_APP_HTML)
         self.assertIn("overflow: hidden;", BOARD_WEB_APP_HTML)
         self.assertIn(".signal-stepper__value {", BOARD_WEB_APP_HTML)
-        self.assertIn("grid-template-rows: 13px 25px 11px 25px 24px;", BOARD_WEB_APP_HTML)
+        self.assertIn("grid-template-rows: 13px 25px 25px 24px;", BOARD_WEB_APP_HTML)
         self.assertIn('.signal-actions[data-layout="split"] {', BOARD_WEB_APP_HTML)
         self.assertIn(
             "els.signalActions.dataset.layout = splitActions ? 'split' : 'single';",
@@ -2995,8 +2995,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(
             "? timerRemainingToMarkup(timerRemainingSeconds(state.activeCard))", BOARD_WEB_APP_HTML
         )
-        self.assertIn("els.signalDaysValue.value = days + ' Д';", BOARD_WEB_APP_HTML)
-        self.assertIn("els.signalHoursValue.value = hours + ' Ч';", BOARD_WEB_APP_HTML)
+        self.assertIn("els.signalDaysValue.value = String(days);", BOARD_WEB_APP_HTML)
+        self.assertIn("els.signalHoursValue.value = String(hours);", BOARD_WEB_APP_HTML)
+        self.assertIn("els.signalStartButton.textContent = 'ЗАПУСТИТЬ';", BOARD_WEB_APP_HTML)
+        self.assertNotIn("running ? 'ЗАНОВО' : 'ЗАПУСТИТЬ'", BOARD_WEB_APP_HTML)
 
     def test_card_preview_clamps_to_five_description_lines(self) -> None:
         self.assertIn(".card__desc {", BOARD_WEB_APP_HTML)

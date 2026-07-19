@@ -1134,7 +1134,6 @@
       cardDescriptionToolbar: document.getElementById('cardDescriptionToolbar'),
       signalPreview: document.getElementById('signalPreview'),
       signalState: document.getElementById('signalState'),
-      signalRemaining: document.getElementById('signalRemaining'),
       signalActions: document.getElementById('signalActions'),
       signalStartButton: document.getElementById('signalStartButton'),
       signalStopButton: document.getElementById('signalStopButton'),
@@ -12136,23 +12135,13 @@
         els.signalState.dataset.state = state.cardTimerState;
         els.signalState.textContent = running ? 'ИДЁТ' : 'ВЫКЛ';
       }
-      if (els.signalRemaining) {
-        if (!running) {
-          els.signalRemaining.textContent = 'НЕ ЗАПУЩЕН';
-        } else if (creating) {
-          els.signalRemaining.textContent = 'ПОСЛЕ СОХРАНЕНИЯ';
-        } else {
-          const deadlineText = formatDate(state.activeCard?.deadline_timestamp);
-          els.signalRemaining.textContent = 'ДО ' + deadlineText;
-        }
-      }
       const splitActions = running && !creating;
       if (els.signalActions) {
         els.signalActions.dataset.layout = splitActions ? 'split' : 'single';
       }
       if (els.signalStartButton) {
         els.signalStartButton.hidden = running && creating;
-        els.signalStartButton.textContent = running ? 'ЗАНОВО' : 'ЗАПУСТИТЬ';
+        els.signalStartButton.textContent = 'ЗАПУСТИТЬ';
         els.signalStartButton.disabled = state.cardTimerSaving;
       }
       if (els.signalStopButton) {
@@ -12494,8 +12483,8 @@
       if (els.signalDaysIncrementButton) els.signalDaysIncrementButton.disabled = state.cardTimerSaving || signalPartValue('days') >= 365;
       if (els.signalHoursDecrementButton) els.signalHoursDecrementButton.disabled = state.cardTimerSaving || signalPartValue('hours') <= 0;
       if (els.signalHoursIncrementButton) els.signalHoursIncrementButton.disabled = state.cardTimerSaving || signalPartValue('hours') >= 23;
-      if (els.signalDaysValue) els.signalDaysValue.value = days + ' Д';
-      if (els.signalHoursValue) els.signalHoursValue.value = hours + ' Ч';
+      if (els.signalDaysValue) els.signalDaysValue.value = String(days);
+      if (els.signalHoursValue) els.signalHoursValue.value = String(hours);
       const showLiveRemaining = state.cardTimerState === 'running' && state.editingId && state.activeCard;
       els.signalPreview.innerHTML = showLiveRemaining
         ? timerRemainingToMarkup(timerRemainingSeconds(state.activeCard))

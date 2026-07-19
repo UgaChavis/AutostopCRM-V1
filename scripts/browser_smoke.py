@@ -862,8 +862,8 @@ async def _exercise_card_modal_roundtrip(
                 start?.textContent.trim() === 'ЗАПУСТИТЬ' &&
                 stop?.hidden === true &&
                 actions?.dataset.layout === 'single' &&
-                /[0-9]+ Д/.test(daysValue?.textContent.trim() || '') &&
-                /[0-9]+ Ч/.test(hoursValue?.textContent.trim() || '')
+                /^[0-9]+$/.test(daysValue?.textContent.trim() || '') &&
+                /^[0-9]+$/.test(hoursValue?.textContent.trim() || '')
               );
             }"""
         )
@@ -883,15 +883,13 @@ async def _exercise_card_modal_roundtrip(
               const panel = document.querySelector('.signal-panel');
               const state = document.querySelector('#signalState');
               const preview = document.querySelector('#signalPreview');
-              const remaining = document.querySelector('#signalRemaining');
               const actions = document.querySelector('#signalActions');
               const start = document.querySelector('#signalStartButton');
               const stop = document.querySelector('#signalStopButton');
-              if (!panel || !state || !preview || !remaining || !actions || !start || !stop) return false;
+              if (!panel || !state || !preview || !actions || !start || !stop) return false;
               const rows = [
                 panel.querySelector('.signal-panel__head'),
                 preview,
-                remaining,
                 panel.querySelector('.signal-grid--timer'),
                 actions,
               ];
@@ -917,9 +915,9 @@ async def _exercise_card_modal_roundtrip(
                 steppersFit &&
                 state.textContent.trim() === 'ИДЁТ' &&
                 preview.textContent.includes(':') &&
-                remaining.textContent.trim().startsWith('ДО ') &&
+                !document.querySelector('#signalRemaining') &&
                 actions.dataset.layout === 'split' &&
-                start.textContent.trim() === 'ЗАНОВО' &&
+                start.textContent.trim() === 'ЗАПУСТИТЬ' &&
                 stop.textContent.trim() === 'СТОП' &&
                 !start.hidden &&
                 !stop.hidden
@@ -986,7 +984,6 @@ async def _exercise_card_modal_roundtrip(
               const signalRows = [
                 signalPanel?.querySelector('.signal-panel__head'),
                 document.querySelector('#signalPreview'),
-                document.querySelector('#signalRemaining'),
                 signalPanel?.querySelector('.signal-grid--timer'),
                 document.querySelector('#signalActions'),
               ];
