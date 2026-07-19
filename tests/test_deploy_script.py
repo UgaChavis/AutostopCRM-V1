@@ -222,6 +222,10 @@ class DeployScriptTests(unittest.TestCase):
         compose = (PROJECT_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
         dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
         deploy_script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+        desktop_requirements = (PROJECT_ROOT / "requirements.txt").read_text(encoding="utf-8")
+        runtime_requirements = (PROJECT_ROOT / "requirements-runtime.txt").read_text(
+            encoding="utf-8"
+        )
 
         self.assertNotIn("searxng/searxng:latest", compose)
         self.assertNotIn("unclecode/crawl4ai:latest", compose)
@@ -232,6 +236,8 @@ class DeployScriptTests(unittest.TestCase):
         self.assertIn('user: "appuser"', compose)
         self.assertIn("USER 10001:10001", dockerfile)
         self.assertIn("/home/autostop/.minimal-kanban", compose)
+        self.assertIn("defusedxml==0.7.1", desktop_requirements)
+        self.assertIn("defusedxml==0.7.1", runtime_requirements)
         self.assertIn('RUNTIME_UID="${AUTOSTOP_RUNTIME_UID:-10001}"', deploy_script)
         self.assertIn(
             'run_release chown -R "$RUNTIME_UID:$RUNTIME_GID" "$CRM_DATA_DIR" "$(dirname "$MANAGER_DB")"',
