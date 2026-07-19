@@ -6,6 +6,7 @@ import json
 import logging
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -1978,6 +1979,33 @@ class AgentGatewayV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("read", result.structuredContent["summary"]["risk"])
         self.assertTrue(result.structuredContent["verification"]["schema_hash_verified"])
         execute.assert_called_once_with("search_web_multi", {"query": "AutoStop", "limit": 3})
+
+    async def test_web_raw_call_runs_outside_the_mcp_asyncio_thread(self) -> None:
+        schema = await self._call("get_raw_capability_schema", {"name": "fetch_page_browser"})
+        caller_thread = threading.get_ident()
+        worker_threads: list[int] = []
+
+        def execute(_executor, _name, _arguments):
+            worker_threads.append(threading.get_ident())
+            return {"ok": True, "status_code": 200, "excerpt": "Example"}
+
+        with patch(
+            "minimal_kanban.mcp.web_gateway.AgentToolExecutor.execute",
+            autospec=True,
+            side_effect=execute,
+        ):
+            result = await self._call(
+                "call_raw_capability",
+                {
+                    "name": "fetch_page_browser",
+                    "arguments": {"url": "https://example.com", "wait_ms": 0},
+                    "schema_hash": schema.structuredContent["summary"]["schema_hash"],
+                },
+            )
+
+        self.assertTrue(result.structuredContent["ok"])
+        self.assertEqual(1, len(worker_threads))
+        self.assertNotEqual(caller_thread, worker_threads[0])
 
     async def test_web_excerpt_raw_call_rejects_private_url(self) -> None:
         schema = await self._call("get_raw_capability_schema", {"name": "fetch_page_excerpt"})

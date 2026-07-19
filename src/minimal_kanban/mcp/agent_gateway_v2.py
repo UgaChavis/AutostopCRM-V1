@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from collections.abc import Mapping
@@ -635,7 +636,6 @@ def register_agent_gateway_v2(
         return set()
 
     raw_tools = dict(tools)
-    web_tool_executor = create_web_tool_executor(board_api, actor_name=policy.service_identity)
     manager_bootstrap_tool = raw_tools.get("agent_bootstrap")
     if "agent_bootstrap" in tools:
         tool_manager.remove_tool("agent_bootstrap")
@@ -645,7 +645,18 @@ def register_agent_gateway_v2(
 
     async def _invoke(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         if name in WEB_RESEARCH_CAPABILITY_NAMES:
-            return invoke_web_research(web_tool_executor, name, arguments)
+
+            def run_web_research() -> dict[str, Any]:
+                executor = create_web_tool_executor(
+                    board_api,
+                    actor_name=load_agent_gateway_security_policy().service_identity,
+                )
+                return invoke_web_research(executor, name, arguments)
+
+            # Playwright's synchronous API rejects execution inside the MCP
+            # asyncio loop.  A worker thread also keeps page rendering from
+            # blocking every other Gateway request.
+            return await asyncio.to_thread(run_web_research)
         virtual_route = _virtual_api_route(name)
         if virtual_route is not None:
             payload = dict(arguments)
