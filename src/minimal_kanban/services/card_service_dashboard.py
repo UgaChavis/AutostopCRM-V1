@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
 from typing import Any
 
 from .. import models as model_helpers
@@ -59,7 +59,9 @@ class CardServiceDashboardMixin:
                     {
                         "name": employee["name"],
                         "position": employee.get("position", ""),
-                        "salary": str(payroll["totals"].get("accrued_total") or "0"),
+                        "salary": self._format_display_dashboard_rubles(
+                            payroll["totals"].get("accrued_total") or "0"
+                        ),
                     }
                 )
             visible_employees.sort(
@@ -90,7 +92,7 @@ class CardServiceDashboardMixin:
                 },
                 "employees": visible_employees,
                 "weeks": weeks,
-                "completed_week_average": self._format_payroll_decimal(completed_average),
+                "completed_week_average": self._format_display_dashboard_rubles(completed_average),
             }
 
     def _display_dashboard_salary_period(self, *, now: datetime | None = None) -> dict[str, Any]:
@@ -157,9 +159,13 @@ class CardServiceDashboardMixin:
                     "date_from": start_at.date().isoformat(),
                     "date_to": date_to.isoformat(),
                     "label": f"{start_at:%d.%m}–{date_to:%d.%m}",
-                    "amount": self._format_payroll_decimal(totals[index]),
+                    "amount": self._format_display_dashboard_rubles(totals[index]),
                     "orders_count": counts[index],
                     "is_current": is_current,
                 }
             )
         return weeks
+
+    @staticmethod
+    def _format_display_dashboard_rubles(amount: object) -> str:
+        return str(Decimal(str(amount)).to_integral_value(rounding=ROUND_CEILING))

@@ -353,7 +353,7 @@ def start_temp_runtime(*, start_port: int = 42731) -> TempRuntime:
         service.create_employee_shift_accrual(
             {
                 "employee_id": ranking_employee["id"],
-                "amount": str((16 - index) * 1000),
+                "amount": (f"{(16 - index) * 1000}.01" if index == 1 else str((16 - index) * 1000)),
                 "note": "Smoke недельный рейтинг",
                 "actor_name": "SMOKE",
             }
@@ -1109,6 +1109,15 @@ async def _exercise_display_dashboard(page: Any) -> bool:
             )"""
         )
         initial_salary_text = await dashboard_page.locator("#salaryList").inner_text()
+        whole_ruble_display_ok = bool(
+            await dashboard_page.evaluate(
+                r"""() => {
+                  const amount = document.querySelector('.salary-row[data-rank="1"] .salary-row__amount')?.textContent || '';
+                  const normalized = amount.replace(/[\s\u00a0\u202f]/g, '');
+                  return normalized === '15001₽';
+                }"""
+            )
+        )
         geometry_ok = bool(
             await dashboard_page.evaluate(
                 """() => {
@@ -1220,6 +1229,7 @@ async def _exercise_display_dashboard(page: Any) -> bool:
         )
         return bool(
             geometry_ok
+            and whole_ruble_display_ok
             and retained_ok
             and recovered_ok
             and not popup_errors

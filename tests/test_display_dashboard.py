@@ -217,6 +217,39 @@ class DisplayDashboardServiceTests(unittest.TestCase):
         self.assertEqual(sunday["employees"][0]["salary"], "1000")
         self.assertEqual(monday["employees"][0]["salary"], "0")
 
+    def test_dashboard_money_is_rounded_up_to_whole_rubles(self) -> None:
+        employee = self.service.save_employee(
+            {
+                "name": "Копеечный Мастер",
+                "position": "Механик",
+                "salary_mode": "none",
+                "created_at": "2026-07-20T00:00:00+07:00",
+            }
+        )["employee"]
+        self.service.create_employee_shift_accrual(
+            {
+                "employee_id": employee["id"],
+                "amount": "1500.01",
+                "created_at": "2026-07-20T10:00:00+07:00",
+            }
+        )
+        dashboard_cards = [
+            self._card(
+                status="closed",
+                closed_at="2026-07-20T12:00:00+07:00",
+                price="1000.01",
+            )
+        ]
+        now = datetime(2026, 7, 20, 12, 30, tzinfo=business_timezone())
+
+        with patch("minimal_kanban.models.utc_now", return_value=now):
+            dashboard = self.service.get_display_dashboard()
+        weeks = self.service._display_dashboard_week_buckets(dashboard_cards, now=now)
+
+        self.assertEqual(dashboard["employees"][0]["salary"], "1501")
+        self.assertEqual(weeks[-1]["amount"], "1001")
+        self.assertTrue(dashboard["completed_week_average"].isdigit())
+
     def test_non_admin_session_cannot_change_dashboard_visibility(self) -> None:
         employee = self.service.save_employee({"name": "Мастер", "position": "Механик"})["employee"]
         with self.assertRaisesRegex(Exception, "дашборде"):
@@ -358,6 +391,8 @@ class DisplayDashboardWebContractTests(unittest.TestCase):
         self.assertIn("Валовая выручка · 4 недели", DISPLAY_DASHBOARD_HTML)
         self.assertIn('class="salary-row"', DISPLAY_DASHBOARD_HTML)
         self.assertIn("maximum > 0 && amount > 0", DISPLAY_DASHBOARD_HTML)
+        self.assertIn("function wholeRubles(value)", DISPLAY_DASHBOARD_HTML)
+        self.assertIn("maximumFractionDigits: 0", DISPLAY_DASHBOARD_HTML)
         self.assertIn("REFRESH_INTERVAL_MS = 45000", DISPLAY_DASHBOARD_HTML)
         self.assertIn("НЕТ ОБНОВЛЕНИЯ", DISPLAY_DASHBOARD_HTML)
         self.assertIn("window.__AUTOSTOP_DISPLAY_DASHBOARD__", DISPLAY_DASHBOARD_HTML)

@@ -178,6 +178,11 @@ visible; after normalization the explicit flag is authoritative. The
 visibility checkbox is shown in the employee profile and changes from a browser
 operator session are administrator-only.
 
+All monetary values in this shared-display response (employee accruals, weekly
+revenue, and the completed-week average) are presentation-only whole rubles.
+Their precise source amount is rounded upward before being returned; cents and
+underlying payroll or repair-order ledger values are never changed.
+
 Weekly revenue uses `Asia/Krasnoyarsk`, Monday week boundaries, the previous
 three completed weeks plus Monday-to-now for the current week, and only repair
 orders whose current status is `closed` and whose `closed_at` falls inside the
