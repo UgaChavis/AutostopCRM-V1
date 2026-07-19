@@ -725,19 +725,28 @@ async def _login(page: Any) -> None:
 
 async def _login_gate_hides_board(page: Any) -> bool:
     await page.wait_for_selector("#identityModal.is-open")
+    await page.fill("#identityInput", "focus-regression-user")
+    await page.fill("#identityPassword", "focus-regression-password")
+    await page.focus("#identityPassword")
     return bool(
         await page.evaluate(
             """() => {
+              openOperatorLoginModal();
               const body = document.body;
               const shell = document.querySelector('.shell');
               const modal = document.querySelector('#identityModal');
+              const login = document.querySelector('#identityInput');
+              const password = document.querySelector('#identityPassword');
               const shellStyle = shell ? getComputedStyle(shell) : null;
               return Boolean(
                 body.classList.contains('operator-login-gate-open') &&
                 modal?.classList.contains('operator-login-gate') &&
                 shell?.getAttribute('aria-hidden') === 'true' &&
                 shell?.hasAttribute('inert') &&
-                shellStyle?.visibility === 'hidden'
+                shellStyle?.visibility === 'hidden' &&
+                login?.value === 'focus-regression-user' &&
+                password?.value === 'focus-regression-password' &&
+                document.activeElement === password
               );
             }"""
         )

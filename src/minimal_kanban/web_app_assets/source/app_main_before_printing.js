@@ -2912,6 +2912,7 @@
     async function api(path, options = {}) {
       const perfToken = perfStart('api:' + String(path || '').split('?')[0]);
       const request = { method: options.method || 'GET', headers: {}, cache: 'no-store' };
+      const requestOperatorSessionToken = state.operatorSessionToken;
       if (options.signal) request.signal = options.signal;
       if (options.body) {
         request.method = options.method || 'POST';
@@ -2919,7 +2920,7 @@
         request.body = JSON.stringify(options.body);
       }
       if (state.apiToken) request.headers['Authorization'] = 'Bearer ' + state.apiToken;
-      if (state.operatorSessionToken) request.headers['X-Operator-Session'] = state.operatorSessionToken;
+      if (requestOperatorSessionToken) request.headers['X-Operator-Session'] = requestOperatorSessionToken;
       let response;
       const retryLimit = request.method === 'GET' ? API_READ_RETRY_LIMIT : 0;
       for (let attempt = 0; attempt <= retryLimit; attempt += 1) {
@@ -2981,7 +2982,13 @@
       }
       if (payload?.error?.details?.auth_type === 'operator_session') {
         if (response.status === 401) {
-          clearOperatorSession({ openLogin: true, preserveStatus: true });
+          if (requestOperatorSessionToken) {
+            if (state.operatorSessionToken === requestOperatorSessionToken) {
+              clearOperatorSession({ openLogin: true, preserveStatus: true });
+            }
+          } else if (!state.operatorSessionToken) {
+            openOperatorLoginModal();
+          }
         }
         const error = new Error(payload?.error?.message || 'Need operator login.');
         error.code = payload?.error?.code || '';
@@ -3217,12 +3224,14 @@
     }
 
     function openOperatorLoginModal() {
+      const wasOpen = els.identityModal?.classList.contains('is-open');
+      setOperatorLoginGateOpen(true);
+      els.identityModal.classList.add('is-open');
+      if (wasOpen) return;
       els.identityInput.value = '';
       if (els.identityPassword) els.identityPassword.value = '';
       setOperatorLoginBusy(false);
       setOperatorLoginFeedback();
-      setOperatorLoginGateOpen(true);
-      els.identityModal.classList.add('is-open');
       requestAnimationFrame(() => els.identityInput.focus());
     }
 

@@ -1337,6 +1337,28 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
 
+        api_fragment = BOARD_WEB_APP_HTML[
+            BOARD_WEB_APP_HTML.index(
+                "async function api(path, options = {})"
+            ) : BOARD_WEB_APP_HTML.index("function setOperatorLoginGateOpen(isOpen)")
+        ]
+        self.assertIn(
+            "const requestOperatorSessionToken = state.operatorSessionToken;", api_fragment
+        )
+        self.assertIn("state.operatorSessionToken === requestOperatorSessionToken", api_fragment)
+        self.assertIn("else if (!state.operatorSessionToken)", api_fragment)
+
+        login_fragment = BOARD_WEB_APP_HTML[
+            BOARD_WEB_APP_HTML.index(
+                "function openOperatorLoginModal()"
+            ) : BOARD_WEB_APP_HTML.index("function updateOperatorButton()")
+        ]
+        self.assertIn(
+            "const wasOpen = els.identityModal?.classList.contains('is-open');",
+            login_fragment,
+        )
+        self.assertIn("if (wasOpen) return;", login_fragment)
+
         ensure_fragment = BOARD_WEB_APP_HTML[
             BOARD_WEB_APP_HTML.index("function ensureActor()") : BOARD_WEB_APP_HTML.index(
                 "function configureOperatorIdentityUi()"
