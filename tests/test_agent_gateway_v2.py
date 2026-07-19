@@ -1931,6 +1931,98 @@ class AgentGatewayV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(accepted.structuredContent["ok"])
         self.assertTrue(accepted.structuredContent["verification"]["schema_hash_verified"])
 
+    async def test_web_research_capabilities_are_discoverable_without_expanding_surface(
+        self,
+    ) -> None:
+        server, _state = self._create_store_server()
+        names = {tool.name for tool in server._tool_manager.list_tools()}
+        discovered = await server._tool_manager.get_tool("discover_raw_capabilities").run(
+            {"query": "search_web_multi"}, convert_result=False
+        )
+        capability = discovered.structuredContent["data"]["capabilities"][0]
+        schema = await server._tool_manager.get_tool("get_raw_capability_schema").run(
+            {"name": "search_web_multi"}, convert_result=False
+        )
+
+        self.assertEqual(24, len(names))
+        self.assertEqual("search_web_multi", capability["name"])
+        self.assertEqual("read", capability["risk"])
+        self.assertEqual(["query"], schema.structuredContent["data"]["input_schema"]["required"])
+        self.assertFalse(schema.structuredContent["data"]["input_schema"]["additionalProperties"])
+
+    async def test_web_search_raw_call_uses_schema_hash_and_read_only_envelope(self) -> None:
+        schema = await self._call("get_raw_capability_schema", {"name": "search_web_multi"})
+        schema_hash = schema.structuredContent["summary"]["schema_hash"]
+        mocked_result = {
+            "query": "AutoStop",
+            "results": [{"title": "AutoStop", "url": "https://example.com"}],
+            "provider_order": ["searxng"],
+            "providers": [{"provider": "searxng", "status": "success"}],
+            "fallback_used": False,
+        }
+
+        with patch(
+            "minimal_kanban.mcp.web_gateway.AgentToolExecutor.execute",
+            return_value=mocked_result,
+        ) as execute:
+            result = await self._call(
+                "call_raw_capability",
+                {
+                    "name": "search_web_multi",
+                    "arguments": {"query": "AutoStop", "limit": 3},
+                    "schema_hash": schema_hash,
+                },
+            )
+
+        self.assertTrue(result.structuredContent["ok"])
+        self.assertEqual("read", result.structuredContent["summary"]["risk"])
+        self.assertTrue(result.structuredContent["verification"]["schema_hash_verified"])
+        execute.assert_called_once_with("search_web_multi", {"query": "AutoStop", "limit": 3})
+
+    async def test_web_excerpt_raw_call_rejects_private_url(self) -> None:
+        schema = await self._call("get_raw_capability_schema", {"name": "fetch_page_excerpt"})
+        result = await self._call(
+            "call_raw_capability",
+            {
+                "name": "fetch_page_excerpt",
+                "arguments": {"url": "http://127.0.0.1/private"},
+                "schema_hash": schema.structuredContent["summary"]["schema_hash"],
+            },
+        )
+
+        self.assertFalse(result.structuredContent["ok"])
+        self.assertIn("raw_capability_failed", result.structuredContent["warnings"])
+
+    async def test_web_raw_call_rejects_schema_drift_and_redacts_runtime_errors(self) -> None:
+        schema = await self._call("get_raw_capability_schema", {"name": "search_web_multi"})
+        schema_hash = schema.structuredContent["summary"]["schema_hash"]
+        rejected = await self._call(
+            "call_raw_capability",
+            {
+                "name": "search_web_multi",
+                "arguments": {"query": "AutoStop", "unexpected": "field"},
+                "schema_hash": schema_hash,
+            },
+        )
+        with patch(
+            "minimal_kanban.mcp.web_gateway.AgentToolExecutor.execute",
+            side_effect=RuntimeError("secret-token-value"),
+        ):
+            failed = await self._call(
+                "call_raw_capability",
+                {
+                    "name": "search_web_multi",
+                    "arguments": {"query": "AutoStop"},
+                    "schema_hash": schema_hash,
+                },
+            )
+
+        self.assertIn(
+            "web_arguments_contain_unknown_fields", rejected.structuredContent["warnings"]
+        )
+        self.assertFalse(failed.structuredContent["ok"])
+        self.assertNotIn("secret-token-value", json.dumps(failed.structuredContent))
+
     async def test_permanent_v2_tools_are_not_duplicated_through_raw_discovery(self) -> None:
         discovered = await self._call("discover_raw_capabilities", {"query": "ping_connector"})
         self.assertEqual([], discovered.structuredContent["data"]["capabilities"])

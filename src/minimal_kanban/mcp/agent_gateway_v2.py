@@ -14,6 +14,15 @@ from ..api.route_registry import PROXIED_WRITE_ROUTES
 from ..deployment_security import load_agent_gateway_security_policy
 from ..repair_order import repair_order_payment_method_from_cashbox_name
 from .client import BoardApiClient
+from .gateway_contract import (
+    BOARD_WORKFLOW_OPERATIONS,
+    CARD_FIELD_ALLOWLIST,
+    DEFAULT_CARD_FIELDS,
+    DOCUMENT_WORKFLOW_OPERATIONS,
+    FINANCE_VIRTUAL_OPERATIONS,
+    FINANCE_WORKFLOW_OPERATIONS,
+    INVENTORY_WORKFLOW_OPERATIONS,
+)
 from .store_gateway import (
     INTERNAL_ONLY_CAPABILITY_NAMES,
     STORE_MANAGEMENT_CAPABILITY_NAME,
@@ -33,6 +42,14 @@ from .store_gateway import (
 )
 from .store_gateway import (
     workflow_state_version as _workflow_state_version,
+)
+from .web_gateway import (
+    WEB_RESEARCH_CAPABILITY_DESCRIPTIONS,
+    WEB_RESEARCH_CAPABILITY_NAMES,
+    WEB_RESEARCH_CAPABILITY_SCHEMAS,
+    create_web_tool_executor,
+    invoke_web_research,
+    web_research_argument_error,
 )
 
 AGENT_GATEWAY_FORMAT = "agent_envelope_v2"
@@ -71,108 +88,6 @@ DIAGNOSTIC_TOOL_NAMES = frozenset(
 PERMANENT_AGENT_GATEWAY_TOOL_NAMES = frozenset(
     AGENT_GATEWAY_TOOL_NAMES | MANAGER_WORKFLOW_TOOL_NAMES | DIAGNOSTIC_TOOL_NAMES
 )
-DEFAULT_CARD_FIELDS = (
-    "id",
-    "short_id",
-    "vehicle",
-    "title",
-    "column",
-    "column_label",
-    "tags",
-    "status",
-    "indicator",
-    "remaining_seconds",
-    "deadline_timestamp",
-    "client_id",
-    "board_summary",
-    "updated_at",
-)
-CARD_FIELD_ALLOWLIST = frozenset(
-    {
-        *DEFAULT_CARD_FIELDS,
-        "archived",
-        "description_preview",
-        "vehicle_profile_compact",
-        "attachment_count",
-        "events_count",
-        "is_unread",
-        "has_unseen_update",
-        "board_summary_stale",
-    }
-)
-
-BOARD_WORKFLOW_OPERATIONS = frozenset(
-    {
-        "manager_board_scan",
-        "list_ready_unpaid_cards",
-        "triage_inbox_cards",
-        "list_cards_missing_manager_data",
-        "audit_repair_order_consistency",
-        "audit_client_links",
-        "bulk_set_deadline_if_below",
-        "bulk_refresh_board_summaries",
-        "cleanup_card",
-        "apply_ready_unpaid_followups",
-    }
-)
-
-FINANCE_WORKFLOW_OPERATIONS = frozenset(
-    {
-        "list_cashboxes",
-        "get_cashbox",
-        "get_cash_journal",
-        "create_cashbox",
-        "delete_cashbox",
-        "create_cash_transaction",
-        "get_repair_order",
-        "update_repair_order",
-        "set_repair_order_status",
-        "record_repair_order_payment",
-        "reorder_cashboxes",
-        "create_cashbox_transfer",
-        "create_employee_salary_transaction",
-        "create_employee_shift_accrual",
-        "cancel_cash_transaction",
-        "cancel_last_cash_transaction",
-        "apply_finance_audit_safe_fixes",
-    }
-)
-
-FINANCE_VIRTUAL_OPERATIONS = {
-    "reorder_cashboxes": "/api/reorder_cashboxes",
-    "create_cashbox_transfer": "/api/create_cashbox_transfer",
-    "create_employee_salary_transaction": "/api/create_employee_salary_transaction",
-    "create_employee_shift_accrual": "/api/create_employee_shift_accrual",
-    "cancel_cash_transaction": "/api/cancel_cash_transaction",
-    "cancel_last_cash_transaction": "/api/cancel_last_cash_transaction",
-    "apply_finance_audit_safe_fixes": "/api/finance_audit/apply_safe_fixes",
-}
-
-INVENTORY_WORKFLOW_OPERATIONS = frozenset(
-    {
-        "list_inventory_items",
-        "search_inventory_items",
-        "get_inventory_item",
-        "list_inventory_movements",
-        "save_inventory_item",
-        "replenish_inventory_item",
-        "write_off_inventory_item",
-        "return_inventory_movement",
-    }
-)
-
-DOCUMENT_WORKFLOW_OPERATIONS = frozenset(
-    {
-        "download_repair_order_print_pdf",
-        "create_document_without_card_pdf",
-        "list_shared_files",
-        "get_shared_file_info",
-        "download_shared_file",
-        "upload_shared_file",
-        "delete_shared_file",
-    }
-)
-
 FINANCE_TOOL_NAMES = frozenset(FINANCE_WORKFLOW_OPERATIONS)
 DESTRUCTIVE_TOOL_NAMES = frozenset(
     {
@@ -720,6 +635,7 @@ def register_agent_gateway_v2(
         return set()
 
     raw_tools = dict(tools)
+    web_tool_executor = create_web_tool_executor(board_api, actor_name=policy.service_identity)
     manager_bootstrap_tool = raw_tools.get("agent_bootstrap")
     if "agent_bootstrap" in tools:
         tool_manager.remove_tool("agent_bootstrap")
@@ -728,6 +644,8 @@ def register_agent_gateway_v2(
         tool_manager.remove_tool("get_runtime_status")
 
     async def _invoke(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        if name in WEB_RESEARCH_CAPABILITY_NAMES:
+            return invoke_web_research(web_tool_executor, name, arguments)
         virtual_route = _virtual_api_route(name)
         if virtual_route is not None:
             payload = dict(arguments)
@@ -2136,7 +2054,23 @@ def register_agent_gateway_v2(
         effective_limit = _normalize_limit(limit, default=25, maximum=100)
         normalized_query = str(query or "").strip().casefold()
         items: list[dict[str, Any]] = []
+        for name in sorted(WEB_RESEARCH_CAPABILITY_NAMES):
+            description = WEB_RESEARCH_CAPABILITY_DESCRIPTIONS[name]
+            if normalized_query and normalized_query not in f"{name} {description}".casefold():
+                continue
+            items.append(
+                {
+                    "name": name,
+                    "description": description,
+                    "risk": "read",
+                    "schema_hash": _schema_hash(WEB_RESEARCH_CAPABILITY_SCHEMAS[name]),
+                }
+            )
+            if len(items) >= effective_limit:
+                break
         for name, tool in sorted(raw_tools.items()):
+            if len(items) >= effective_limit:
+                break
             if name in PERMANENT_AGENT_GATEWAY_TOOL_NAMES or name in INTERNAL_ONLY_CAPABILITY_NAMES:
                 continue
             description = str(getattr(tool, "description", "") or "")
@@ -2199,22 +2133,31 @@ def register_agent_gateway_v2(
             )
         tool = raw_tools.get(normalized_name)
         virtual_route = _virtual_api_route(normalized_name)
+        virtual_web = normalized_name in WEB_RESEARCH_CAPABILITY_NAMES
         if (
-            tool is None and virtual_route is None
+            tool is None and virtual_route is None and not virtual_web
         ) or normalized_name in PERMANENT_AGENT_GATEWAY_TOOL_NAMES:
             return _tool_result(
                 _envelope(ok=False, status="failed", warnings=["capability_not_found"]),
                 label="get_raw_capability_schema",
             )
         schema = (
-            _virtual_api_schema(virtual_route)
-            if virtual_route is not None
-            else getattr(tool, "parameters", {}) or {}
+            WEB_RESEARCH_CAPABILITY_SCHEMAS[normalized_name]
+            if virtual_web
+            else (
+                _virtual_api_schema(virtual_route)
+                if virtual_route is not None
+                else getattr(tool, "parameters", {}) or {}
+            )
         )
         risk = (
-            _virtual_api_risk(virtual_route, normalized_name)
-            if virtual_route is not None
-            else _tool_risk(tool)
+            "read"
+            if virtual_web
+            else (
+                _virtual_api_risk(virtual_route, normalized_name)
+                if virtual_route is not None
+                else _tool_risk(tool)
+            )
         )
         payload = _envelope(
             ok=True,
@@ -2257,17 +2200,22 @@ def register_agent_gateway_v2(
             )
         tool = raw_tools.get(normalized_name)
         virtual_route = _virtual_api_route(normalized_name)
+        virtual_web = normalized_name in WEB_RESEARCH_CAPABILITY_NAMES
         if (
-            tool is None and virtual_route is None
+            tool is None and virtual_route is None and not virtual_web
         ) or normalized_name in PERMANENT_AGENT_GATEWAY_TOOL_NAMES:
             return _tool_result(
                 _envelope(ok=False, status="failed", warnings=["capability_not_found"]),
                 label="call_raw_capability",
             )
         current_schema = (
-            _virtual_api_schema(virtual_route)
-            if virtual_route is not None
-            else getattr(tool, "parameters", {}) or {}
+            WEB_RESEARCH_CAPABILITY_SCHEMAS[normalized_name]
+            if virtual_web
+            else (
+                _virtual_api_schema(virtual_route)
+                if virtual_route is not None
+                else getattr(tool, "parameters", {}) or {}
+            )
         )
         current_hash = _schema_hash(current_schema)
         if str(schema_hash or "") != current_hash:
@@ -2280,10 +2228,21 @@ def register_agent_gateway_v2(
                 ),
                 label="call_raw_capability",
             )
+        if virtual_web:
+            argument_error = web_research_argument_error(normalized_name, arguments or {})
+            if argument_error:
+                return _tool_result(
+                    _envelope(ok=False, status="blocked", warnings=[argument_error]),
+                    label="call_raw_capability",
+                )
         risk = (
-            _virtual_api_risk(virtual_route, normalized_name)
-            if virtual_route is not None
-            else _tool_risk(tool)
+            "read"
+            if virtual_web
+            else (
+                _virtual_api_risk(virtual_route, normalized_name)
+                if virtual_route is not None
+                else _tool_risk(tool)
+            )
         )
         policy_error = _policy_error(
             tool_name=normalized_name,
@@ -2496,5 +2455,6 @@ __all__ = [
     "AGENT_GATEWAY_TOOL_NAMES",
     "MANAGER_WORKFLOW_TOOL_NAMES",
     "PERMANENT_AGENT_GATEWAY_TOOL_NAMES",
+    "WEB_RESEARCH_CAPABILITY_NAMES",
     "register_agent_gateway_v2",
 ]

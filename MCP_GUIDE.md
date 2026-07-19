@@ -253,6 +253,10 @@ Local:
 .\.venv\Scripts\python.exe scripts\check_agent_gateway_v2.py --mcp-url http://127.0.0.1:41831/mcp --exhaustive
 ```
 
+On Linux/VPS, `scripts/run_isolated_write_smoke.sh` exercises real create,
+inventory, archive, idempotency, and fail-closed paths against temporary state.
+The temporary state is removed on exit and is never the production state file.
+
 Release verification:
 
 ```powershell
@@ -260,7 +264,12 @@ Release verification:
 .\.venv\Scripts\python.exe scripts\check_mcp_oauth.py --mcp-url https://crm.autostopcrm.ru/mcp
 ```
 
-For a Store-enabled release, add `--require-store`. This performs a live
+For a Store-enabled release, add `--require-store`. For the guarded web route,
+add `--require-web`; it discovers and calls `search_web_multi`,
+`fetch_page_excerpt`, and `fetch_page_browser` through the existing raw escape
+hatch. These checks do not increase the public surface beyond 24 tools.
+
+The Store probe performs a live
 adapter health probe and one bounded `store_state` search without advancing the
 owner's `store_digest` cursor, while retaining the exact 24-tool assertion.
 

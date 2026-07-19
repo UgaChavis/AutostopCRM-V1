@@ -344,6 +344,68 @@ async def _run_exhaustive_checks(
     }
 
 
+async def _run_web_checks(
+    session: ClientSession,
+    calls: dict[str, bool],
+) -> dict[str, bool]:
+    checks: dict[str, bool] = {}
+    probes = (
+        (
+            "search_web_multi",
+            {"query": "AutoStop автосервис Красноярск", "limit": 1, "providers": ["searxng"]},
+        ),
+        ("fetch_page_excerpt", {"url": "https://example.com", "max_chars": 300}),
+        (
+            "fetch_page_browser",
+            {"url": "https://example.com", "max_chars": 300, "wait_ms": 0},
+        ),
+    )
+    for capability_name, arguments in probes:
+        discovered = await _call(
+            session,
+            calls,
+            "discover_raw_capabilities",
+            {"query": capability_name, "limit": 5},
+        )
+        discovered_payload = _structured(discovered)
+        capabilities = (
+            (discovered_payload.get("data") or {}).get("capabilities") or []
+            if isinstance(discovered_payload.get("data"), dict)
+            else []
+        )
+        checks[f"{capability_name}_discoverable"] = any(
+            isinstance(item, dict) and item.get("name") == capability_name for item in capabilities
+        )
+        schema = await _call(
+            session,
+            calls,
+            "get_raw_capability_schema",
+            {"name": capability_name},
+        )
+        schema_payload = _structured(schema)
+        schema_summary = (
+            schema_payload.get("summary") if isinstance(schema_payload.get("summary"), dict) else {}
+        )
+        schema_hash = str(schema_summary.get("schema_hash") or "")
+        checks[f"{capability_name}_schema_ok"] = bool(schema_hash) and _tool_ok(schema)
+        if not schema_hash:
+            checks[f"{capability_name}_call_ok"] = False
+            continue
+        result = await _call(
+            session,
+            calls,
+            "call_raw_capability",
+            {
+                "name": capability_name,
+                "arguments": arguments,
+                "schema_hash": schema_hash,
+                "allow_large_output": False,
+            },
+        )
+        checks[f"{capability_name}_call_ok"] = _tool_ok(result)
+    return checks
+
+
 async def check_gateway(args: argparse.Namespace) -> dict[str, Any]:
     token = str(os.environ.get(args.token_env, "") or "").strip()
     if not token:
@@ -368,6 +430,7 @@ async def check_gateway(args: argparse.Namespace) -> dict[str, Any]:
                     entity_context = None
                     store_runtime = None
                     store_probe = None
+                    web_checks: dict[str, bool] = {}
                     workflows = None
                     calls: dict[str, bool] = {}
                     exhaustive: dict[str, Any] = {}
@@ -434,6 +497,8 @@ async def check_gateway(args: argparse.Namespace) -> dict[str, Any]:
                                     "limit": 1,
                                 },
                             )
+                        if args.require_web:
+                            web_checks = await _run_web_checks(session, calls)
                         if args.exhaustive:
                             exhaustive = await _run_exhaustive_checks(session, calls)
                     bootstrap_bytes = _serialized_size(bootstrap) if bootstrap is not None else 0
@@ -476,6 +541,8 @@ async def check_gateway(args: argparse.Namespace) -> dict[str, Any]:
                 "store_state_read_ok": store_probe is not None and _tool_ok(store_probe),
             }
         )
+    if args.require_web:
+        checks.update(web_checks)
     if args.exhaustive:
         checks.update(
             {
@@ -523,6 +590,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--require-store",
         action="store_true",
         help="Require live AutoStop App health and a non-cursor-consuming store state read.",
+    )
+    parser.add_argument(
+        "--require-web",
+        action="store_true",
+        help="Require discovery, schema, and live calls for all guarded web research capabilities.",
     )
     return parser
 
