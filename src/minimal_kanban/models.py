@@ -1924,7 +1924,7 @@ class Card:
             separators=(",", ":"),
             allow_nan=False,
         )
-        return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:24]
+        return hashlib.sha1(raw.encode("utf-8"), usedforsecurity=False).hexdigest()[:24]
 
     def board_summary_stale(self) -> bool:
         if not self.board_summary:

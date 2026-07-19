@@ -1,8 +1,22 @@
 services:
   searxng:
     container_name: autostop-searxng
-    image: docker.io/searxng/searxng:latest
+    image: docker.io/searxng/searxng@sha256:800a5e3757df04f59e6bd6c622f15de2edbfa47f5591c5b82d4a8ff3b938a845
+    user: "977:977"
+    init: true
     restart: always
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: "1.50"
+    logging:
+      driver: local
+      options:
+        max-size: "20m"
+        max-file: "5"
     ports:
       - "127.0.0.1:8890:8080"
     environment:
@@ -25,9 +39,23 @@ services:
 
   crawl4ai:
     container_name: autostop-crawl4ai
-    image: unclecode/crawl4ai:latest
+    image: docker.io/unclecode/crawl4ai@sha256:bd36741e7bdd35ddc1a05d9183e1d6d8cefb61dd640d944a25d026b76e917690
+    user: "appuser"
+    init: true
     restart: always
     shm_size: "1gb"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 384
+    mem_limit: 1536m
+    cpus: "3.00"
+    logging:
+      driver: local
+      options:
+        max-size: "20m"
+        max-file: "5"
     ports:
       - "127.0.0.1:11235:11235"
     environment:
@@ -48,7 +76,20 @@ services:
     container_name: autostopcrm
     image: "${AUTOSTOP_RELEASE_IMAGE:-autostopcrm-autostopcrm:latest}"
     build: .
+    init: true
     restart: always
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: "2.00"
+    logging:
+      driver: local
+      options:
+        max-size: "20m"
+        max-file: "5"
     depends_on:
       searxng:
         condition: service_healthy
@@ -73,7 +114,7 @@ services:
       AUTOSTOP_AGENT_GATEWAY_MAIL_ENABLED: "${AUTOSTOP_AGENT_GATEWAY_MAIL_ENABLED:?set explicitly to 0 or 1}"
       AUTOSTOP_AGENT_GATEWAY_DESTRUCTIVE_ENABLED: "${AUTOSTOP_AGENT_GATEWAY_DESTRUCTIVE_ENABLED:?set explicitly to 0 or 1}"
       AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED: "${AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED:?set explicitly to 0 or 1}"
-      AUTOSTOP_MAINTENANCE_MARKER: "/root/.minimal-kanban/.agent-gateway-maintenance"
+      AUTOSTOP_MAINTENANCE_MARKER: "/home/autostop/.minimal-kanban/.agent-gateway-maintenance"
       MINIMAL_KANBAN_API_HOST: "0.0.0.0"
       MINIMAL_KANBAN_API_PORT: "41731"
       MINIMAL_KANBAN_MCP_HOST: "0.0.0.0"
@@ -101,7 +142,7 @@ services:
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       OPENAI_MODEL: "${OPENAI_MODEL:-gpt-5.4-mini}"
     volumes:
-      - "${AUTOSTOP_DATA_DIR:-./data}:/root/.minimal-kanban"
+      - "${AUTOSTOP_DATA_DIR:-./data}:/home/autostop/.minimal-kanban"
       - "${AUTOSTOP_MANAGER_HOST_DIR:-/opt/autostop-manager-releases/current}:${AUTOSTOP_MANAGER_CONTAINER_DIR:-/opt/AutostopManager}:ro"
       - "${AUTOSTOP_MANAGER_DATA_HOST_DIR:-../AutostopManager/data}:${AUTOSTOP_MANAGER_CONTAINER_DIR:-/opt/AutostopManager}/data"
     networks:

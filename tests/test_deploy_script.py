@@ -218,6 +218,30 @@ class DeployScriptTests(unittest.TestCase):
         self.assertIn("/opt/AutostopManager}/data", compose)
         self.assertIn("scripts/container_entrypoint.py", dockerfile)
 
+    def test_production_containers_are_bounded_and_non_privileged(self) -> None:
+        compose = (PROJECT_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+        dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
+        deploy_script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+
+        self.assertNotIn("searxng/searxng:latest", compose)
+        self.assertNotIn("unclecode/crawl4ai:latest", compose)
+        self.assertEqual(compose.count("no-new-privileges:true"), 3)
+        self.assertEqual(compose.count("driver: local"), 3)
+        self.assertGreaterEqual(compose.count("cap_drop:"), 3)
+        self.assertIn('user: "977:977"', compose)
+        self.assertIn('user: "appuser"', compose)
+        self.assertIn("USER 10001:10001", dockerfile)
+        self.assertIn("/home/autostop/.minimal-kanban", compose)
+        self.assertIn('RUNTIME_UID="${AUTOSTOP_RUNTIME_UID:-10001}"', deploy_script)
+        self.assertIn(
+            'run_release chown -R "$RUNTIME_UID:$RUNTIME_GID" "$CRM_DATA_DIR" "$(dirname "$MANAGER_DB")"',
+            deploy_script,
+        )
+        self.assertIn(
+            'export AUTOSTOP_MAINTENANCE_MARKER="/home/autostop/.minimal-kanban/.agent-gateway-maintenance"',
+            deploy_script,
+        )
+
     def test_deploy_provisions_and_verifies_owner_approved_oauth(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
 

@@ -17,6 +17,8 @@ from logging import Logger
 from pathlib import Path, PurePath
 from typing import Any
 
+from defusedxml.ElementTree import fromstring as safe_xml_fromstring
+
 from ..agent.knowledge import build_ai_chat_knowledge_packet
 from ..agent.openai_client import AgentModelError, OpenAIJsonAgentClient
 from ..config import ATTACHMENTS_DIR_NAME, get_fast_state_writes_enabled
@@ -5606,7 +5608,7 @@ class CardService(
             "tags": card.tag_labels(),
         }
         raw = _json_dumps(payload, sort_keys=True)
-        return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:24]
+        return hashlib.sha1(raw.encode("utf-8"), usedforsecurity=False).hexdigest()[:24]
 
     def _card_ai_next_interval_minutes(self, card: Card, *, changed: bool) -> int:
         run_count = self._card_ai_run_count(card)
@@ -9500,7 +9502,7 @@ class CardService(
         prefix = content.lstrip()[:2048].lower()
         if b"<!doctype" in prefix or b"<!entity" in prefix:
             raise ET.ParseError("XML entities are not supported in attachments.")
-        return ET.fromstring(content)
+        return safe_xml_fromstring(content)
 
     def _read_attachment_zip_member(
         self,

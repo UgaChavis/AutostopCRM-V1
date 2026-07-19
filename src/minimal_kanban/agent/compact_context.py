@@ -432,6 +432,7 @@ def compact_context_fingerprint(packet: dict[str, Any]) -> str:
             sort_keys=True,
             separators=(",", ":"),
             allow_nan=False,
-        ).encode("utf-8")
+        ).encode("utf-8"),
+        usedforsecurity=False,
     ).hexdigest()
     return digest[:16]

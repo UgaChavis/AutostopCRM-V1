@@ -27,6 +27,8 @@ SMOKE_DELAY_SECONDS="${AUTOSTOP_SMOKE_DELAY_SECONDS:-3}"
 BACKUP_ROOT="${AUTOSTOP_RELEASE_BACKUP_ROOT:-/root/autostopcrm-backups/agent-gateway-v2}"
 CRM_DATA_DIR="${AUTOSTOP_DATA_DIR:-$ROOT_DIR/data}"
 MANAGER_DB="${AUTOSTOP_MANAGER_DB:-/opt/AutostopManager/data/autostop_manager.sqlite3}"
+RUNTIME_UID="${AUTOSTOP_RUNTIME_UID:-10001}"
+RUNTIME_GID="${AUTOSTOP_RUNTIME_GID:-10001}"
 MANAGER_SOURCE_DIR="${AUTOSTOP_MANAGER_SOURCE_DIR:-/opt/AutostopManager}"
 MANAGER_RELEASE_ROOT="${AUTOSTOP_MANAGER_RELEASE_ROOT:-/opt/autostop-manager-releases}"
 MANAGER_CURRENT_LINK="${AUTOSTOP_MANAGER_CURRENT_LINK:-$MANAGER_RELEASE_ROOT/current}"
@@ -104,7 +106,7 @@ validate_gateway_switches() {
   done
 }
 validate_gateway_switches
-export AUTOSTOP_MAINTENANCE_MARKER="/root/.minimal-kanban/.agent-gateway-maintenance"
+export AUTOSTOP_MAINTENANCE_MARKER="/home/autostop/.minimal-kanban/.agent-gateway-maintenance"
 export MINIMAL_KANBAN_MCP_PUBLIC_BASE_URL="$PUBLIC_SITE_URL"
 export MINIMAL_KANBAN_MCP_PUBLIC_ENDPOINT_URL="$PUBLIC_MCP_URL"
 export AUTOSTOP_MANAGER_HOST_DIR="$MANAGER_CURRENT_LINK"
@@ -511,6 +513,10 @@ run_release "$PYTHON_BIN" scripts/agent_release_backup.py create \
 backup_dir="$BACKUP_ROOT/$release_id"
 run_release "$PYTHON_BIN" scripts/agent_release_backup.py verify --backup-dir "$backup_dir"
 assert_release_budget
+
+# The hardened image runs without root. Migrate only the two persisted data
+# trees after the verified backup and while the CRM container is stopped.
+run_release chown -R "$RUNTIME_UID:$RUNTIME_GID" "$CRM_DATA_DIR" "$(dirname "$MANAGER_DB")"
 
 run_release env AUTOSTOP_RELEASE_IMAGE="$release_image" docker compose up \
   -d --no-deps --no-build --force-recreate "$SERVICE_NAME"

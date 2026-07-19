@@ -3,9 +3,15 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     MINIMAL_KANBAN_SUPPRESS_ERROR_DIALOGS=1 \
-    AUTOSTOP_DEPLOYMENT_ENV=production
+    AUTOSTOP_DEPLOYMENT_ENV=production \
+    HOME=/home/autostop \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 WORKDIR /app
+
+RUN groupadd --gid 10001 autostop && \
+    useradd --uid 10001 --gid 10001 --create-home \
+        --home-dir /home/autostop --shell /usr/sbin/nologin autostop
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -51,9 +57,14 @@ RUN apt-get update && \
 COPY requirements-runtime.txt ./
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements-runtime.txt && \
-    python -m playwright install --with-deps chromium
+    python -m playwright install --with-deps chromium && \
+    chmod -R a+rX /ms-playwright
 
 COPY . .
+
+RUN chown -R autostop:autostop /app /home/autostop
+
+USER 10001:10001
 
 EXPOSE 41731 41831
 

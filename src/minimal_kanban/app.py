@@ -67,7 +67,9 @@ def _acquire_instance_guard():
         import ctypes
 
         app_data_key = str(get_app_data_dir()).strip().lower().encode("utf-8")
-        mutex_name = f"Local\\{APP_SLUG}-{sha1(app_data_key).hexdigest()[:16]}"
+        mutex_name = (
+            f"Local\\{APP_SLUG}-{sha1(app_data_key, usedforsecurity=False).hexdigest()[:16]}"
+        )
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         handle = kernel32.CreateMutexW(None, True, mutex_name)
         if not handle:
