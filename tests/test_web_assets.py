@@ -1095,8 +1095,11 @@ class WebAssetsTests(unittest.TestCase):
         for element_id in (
             "signalState",
             "signalRemaining",
+            "signalActions",
             "signalStartButton",
             "signalStopButton",
+            "signalDaysValue",
+            "signalHoursValue",
         ):
             self.assertIn(f'id="{element_id}"', BOARD_WEB_APP_HTML)
         self.assertIn("cardTimerState: 'inactive'", BOARD_WEB_APP_HTML)
@@ -2956,7 +2959,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("cards.map(renderBoardCardHtml).join('')", BOARD_WEB_APP_HTML)
 
     def test_card_timer_panel_uses_compact_stepper_fields(self) -> None:
-        self.assertIn('<div class="panel-title">ОБРАТНЫЙ ОТСЧЁТ</div>', BOARD_WEB_APP_HTML)
+        self.assertIn('<div class="panel-title">ТАЙМЕР</div>', BOARD_WEB_APP_HTML)
         self.assertIn(".signal-grid--timer {", BOARD_WEB_APP_HTML)
         self.assertIn(
             ".signal-grid--timer > .signal-cell:not(.signal-cell--timer) {", BOARD_WEB_APP_HTML
@@ -2970,12 +2973,28 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="signalDaysIncrementButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="signalHoursDecrementButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="signalHoursIncrementButton"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="signalDaysValue" for="signalDays">1 Д</output>', BOARD_WEB_APP_HTML)
+        self.assertIn('id="signalHoursValue" for="signalHours">0 Ч</output>', BOARD_WEB_APP_HTML)
+        self.assertIn('role="group" aria-label="Дни"', BOARD_WEB_APP_HTML)
+        self.assertIn('role="group" aria-label="Часы"', BOARD_WEB_APP_HTML)
         self.assertIn(">&minus;</button>", BOARD_WEB_APP_HTML)
         self.assertIn(">+</button>", BOARD_WEB_APP_HTML)
         self.assertIn('id="signalDays" type="number" min="0" max="365"', BOARD_WEB_APP_HTML)
         self.assertIn('id="signalHours" type="number" min="0" max="23"', BOARD_WEB_APP_HTML)
-        self.assertNotIn("signalDaysDisplay", BOARD_WEB_APP_HTML)
-        self.assertNotIn("signalHoursDisplay", BOARD_WEB_APP_HTML)
+        self.assertIn("grid-template-columns: minmax(24px, 0.72fr)", BOARD_WEB_APP_HTML)
+        self.assertIn(".signal-stepper__value {", BOARD_WEB_APP_HTML)
+        self.assertIn("grid-template-rows: 13px 25px 11px 25px 24px;", BOARD_WEB_APP_HTML)
+        self.assertIn('.signal-actions[data-layout="split"] {', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "els.signalActions.dataset.layout = splitActions ? 'split' : 'single';",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("function timerRemainingToMarkup(total)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "? timerRemainingToMarkup(timerRemainingSeconds(state.activeCard))", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("els.signalDaysValue.value = days + ' Д';", BOARD_WEB_APP_HTML)
+        self.assertIn("els.signalHoursValue.value = hours + ' Ч';", BOARD_WEB_APP_HTML)
 
     def test_card_preview_clamps_to_five_description_lines(self) -> None:
         self.assertIn(".card__desc {", BOARD_WEB_APP_HTML)

@@ -8,6 +8,7 @@ import base64
 import json
 import logging
 import math
+import os
 import socket
 import sys
 import tempfile
@@ -851,7 +852,19 @@ async def _exercise_card_modal_roundtrip(
               const state = document.querySelector('#signalState');
               const start = document.querySelector('#signalStartButton');
               const stop = document.querySelector('#signalStopButton');
-              return state?.dataset.state === 'inactive' && !start?.disabled && stop?.hidden === true;
+              const actions = document.querySelector('#signalActions');
+              const daysValue = document.querySelector('#signalDaysValue');
+              const hoursValue = document.querySelector('#signalHoursValue');
+              return (
+                state?.dataset.state === 'inactive' &&
+                state?.textContent.trim() === 'ВЫКЛ' &&
+                !start?.disabled &&
+                start?.textContent.trim() === 'ЗАПУСТИТЬ' &&
+                stop?.hidden === true &&
+                actions?.dataset.layout === 'single' &&
+                /[0-9]+ Д/.test(daysValue?.textContent.trim() || '') &&
+                /[0-9]+ Ч/.test(hoursValue?.textContent.trim() || '')
+              );
             }"""
         )
     )
@@ -864,6 +877,53 @@ async def _exercise_card_modal_roundtrip(
           return state?.dataset.state === 'running' && stop?.hidden === false && !stop?.disabled;
         }"""
     )
+    timer_running_visual_ok = bool(
+        await page.evaluate(
+            """() => {
+              const panel = document.querySelector('.signal-panel');
+              const state = document.querySelector('#signalState');
+              const preview = document.querySelector('#signalPreview');
+              const remaining = document.querySelector('#signalRemaining');
+              const actions = document.querySelector('#signalActions');
+              const start = document.querySelector('#signalStartButton');
+              const stop = document.querySelector('#signalStopButton');
+              if (!panel || !state || !preview || !remaining || !actions || !start || !stop) return false;
+              const rows = [
+                panel.querySelector('.signal-panel__head'),
+                preview,
+                remaining,
+                panel.querySelector('.signal-grid--timer'),
+                actions,
+              ];
+              if (rows.some((row) => !row)) return false;
+              const panelRect = panel.getBoundingClientRect();
+              const rects = rows.map((row) => row.getBoundingClientRect());
+              const noOverlap = rects.every((rect, index) => (
+                rect.top >= panelRect.top - 0.5 &&
+                rect.bottom <= panelRect.bottom + 0.5 &&
+                (index === 0 || rect.top >= rects[index - 1].bottom - 0.5)
+              ));
+              return (
+                noOverlap &&
+                state.textContent.trim() === 'ИДЁТ' &&
+                preview.textContent.includes(':') &&
+                remaining.textContent.trim().startsWith('ДО ') &&
+                actions.dataset.layout === 'split' &&
+                start.textContent.trim() === 'ЗАНОВО' &&
+                stop.textContent.trim() === 'СТОП' &&
+                !start.hidden &&
+                !stop.hidden
+              );
+            }"""
+        )
+    )
+    screenshot_dir = str(os.environ.get("AUTOSTOP_BROWSER_SMOKE_SCREENSHOT_DIR") or "").strip()
+    if screenshot_dir:
+        artifact_dir = Path(screenshot_dir).expanduser().resolve()
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        await page.locator(".signal-panel").screenshot(
+            path=str(artifact_dir / "card-timer-running.png")
+        )
     started_card = runtime.service.get_card({"card_id": runtime.card_id, "actor_name": "SMOKE"})[
         "card"
     ]
@@ -881,6 +941,7 @@ async def _exercise_card_modal_roundtrip(
     ]
     timer_ok = bool(
         timer_initial_ok
+        and timer_running_visual_ok
         and started_card.get("timer_state") == "running"
         and started_card.get("remaining_seconds", 0) > 0
         and stopped_card.get("timer_state") == "inactive"
@@ -910,10 +971,19 @@ async def _exercise_card_modal_roundtrip(
               const signalDaysIncrement = document.querySelector('#signalDaysIncrementButton');
               const signalHoursDecrement = document.querySelector('#signalHoursDecrementButton');
               const signalHoursIncrement = document.querySelector('#signalHoursIncrementButton');
+              const signalDaysValue = document.querySelector('#signalDaysValue');
+              const signalHoursValue = document.querySelector('#signalHoursValue');
+              const signalRows = [
+                signalPanel?.querySelector('.signal-panel__head'),
+                document.querySelector('#signalPreview'),
+                document.querySelector('#signalRemaining'),
+                signalPanel?.querySelector('.signal-grid--timer'),
+                document.querySelector('#signalActions'),
+              ];
               const repairOrderButton = document.querySelector('#repairOrderButton');
               const bottomClose = document.querySelector('#cardModalCloseButtonBottom');
               const saveButton = document.querySelector('#saveCardButton');
-              if (!overview || !editor || !tagInput || !tagAddButton || !tagsPanel || !signalPanel || !signalDaysDecrement || !signalDaysIncrement || !signalHoursDecrement || !signalHoursIncrement || !repairOrderButton || !bottomClose || !saveButton) return false;
+              if (!overview || !editor || !tagInput || !tagAddButton || !tagsPanel || !signalPanel || !signalDaysDecrement || !signalDaysIncrement || !signalHoursDecrement || !signalHoursIncrement || !signalDaysValue || !signalHoursValue || signalRows.some((row) => !row) || !repairOrderButton || !bottomClose || !saveButton) return false;
               const visibleInOverview = (node) => {
                 const viewport = overview.getBoundingClientRect();
                 const rect = node.getBoundingClientRect();
@@ -926,9 +996,17 @@ async def _exercise_card_modal_roundtrip(
               tagInput.scrollIntoView({ block: 'center', inline: 'nearest' });
               const signalHeight = signalPanel.getBoundingClientRect().height;
               const tagsHeight = tagsPanel.getBoundingClientRect().height;
+              const signalRect = signalPanel.getBoundingClientRect();
+              const signalRowRects = signalRows.map((row) => row.getBoundingClientRect());
+              const signalRowsDoNotOverlap = signalRowRects.every((rect, index) => (
+                rect.top >= signalRect.top - 0.5 &&
+                rect.bottom <= signalRect.bottom + 0.5 &&
+                (index === 0 || rect.top >= signalRowRects[index - 1].bottom - 0.5)
+              ));
               return (
                 editor.scrollHeight > editor.clientHeight &&
                 Math.abs(signalHeight - tagsHeight) <= 2 &&
+                signalRowsDoNotOverlap &&
                 visibleInOverview(tagInput) &&
                 visibleInOverview(tagAddButton) &&
                 visibleInOverview(tagsPanel) &&
@@ -937,6 +1015,8 @@ async def _exercise_card_modal_roundtrip(
                 visibleInOverview(signalDaysIncrement) &&
                 visibleInOverview(signalHoursDecrement) &&
                 visibleInOverview(signalHoursIncrement) &&
+                visibleInOverview(signalDaysValue) &&
+                visibleInOverview(signalHoursValue) &&
                 visibleInOverview(repairOrderButton) &&
                 visibleInWindow(bottomClose) &&
                 visibleInWindow(saveButton)

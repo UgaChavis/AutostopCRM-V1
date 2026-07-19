@@ -1135,10 +1135,13 @@
       signalPreview: document.getElementById('signalPreview'),
       signalState: document.getElementById('signalState'),
       signalRemaining: document.getElementById('signalRemaining'),
+      signalActions: document.getElementById('signalActions'),
       signalStartButton: document.getElementById('signalStartButton'),
       signalStopButton: document.getElementById('signalStopButton'),
       signalDays: document.getElementById('signalDays'),
       signalHours: document.getElementById('signalHours'),
+      signalDaysValue: document.getElementById('signalDaysValue'),
+      signalHoursValue: document.getElementById('signalHoursValue'),
       signalDaysIncrementButton: document.getElementById('signalDaysIncrementButton'),
       signalDaysDecrementButton: document.getElementById('signalDaysDecrementButton'),
       signalHoursIncrementButton: document.getElementById('signalHoursIncrementButton'),
@@ -12108,7 +12111,7 @@
       if (state.cardTimerTickHandle) window.clearInterval(state.cardTimerTickHandle);
       state.cardTimerTickHandle = window.setInterval(() => {
         refreshBoardTimerVisuals();
-        if (els.cardModal?.classList.contains('is-open')) renderCardTimerControls();
+        if (els.cardModal?.classList.contains('is-open')) renderSignalPreview();
       }, 1000);
     }
 
@@ -12131,29 +12134,30 @@
       const creating = !state.editingId;
       if (els.signalState) {
         els.signalState.dataset.state = state.cardTimerState;
-        els.signalState.textContent = running ? 'ИДЁТ' : 'ВЫКЛЮЧЕН';
+        els.signalState.textContent = running ? 'ИДЁТ' : 'ВЫКЛ';
       }
       if (els.signalRemaining) {
         if (!running) {
-          els.signalRemaining.textContent = 'Таймер не запущен';
+          els.signalRemaining.textContent = 'НЕ ЗАПУЩЕН';
         } else if (creating) {
-          els.signalRemaining.textContent = 'Запустится после сохранения карточки';
+          els.signalRemaining.textContent = 'ПОСЛЕ СОХРАНЕНИЯ';
         } else {
-          const remaining = timerRemainingSeconds(state.activeCard);
           const deadlineText = formatDate(state.activeCard?.deadline_timestamp);
-          els.signalRemaining.textContent = 'ОСТАЛОСЬ ' + timerRemainingText(remaining) + ' · ДО ' + deadlineText;
+          els.signalRemaining.textContent = 'ДО ' + deadlineText;
         }
       }
+      const splitActions = running && !creating;
+      if (els.signalActions) {
+        els.signalActions.dataset.layout = splitActions ? 'split' : 'single';
+      }
       if (els.signalStartButton) {
-        els.signalStartButton.hidden = false;
-        els.signalStartButton.textContent = running
-          ? (creating ? 'ЗАПУСТИТСЯ ПОСЛЕ СОХРАНЕНИЯ' : 'ПЕРЕЗАПУСТИТЬ')
-          : 'ЗАПУСТИТЬ';
-        els.signalStartButton.disabled = state.cardTimerSaving || (running && creating);
+        els.signalStartButton.hidden = running && creating;
+        els.signalStartButton.textContent = running ? 'ЗАНОВО' : 'ЗАПУСТИТЬ';
+        els.signalStartButton.disabled = state.cardTimerSaving;
       }
       if (els.signalStopButton) {
         els.signalStopButton.hidden = !running;
-        els.signalStopButton.textContent = creating ? 'ОТМЕНИТЬ ЗАПУСК' : 'ОСТАНОВИТЬ';
+        els.signalStopButton.textContent = creating ? 'ОТМЕНИТЬ' : 'СТОП';
         els.signalStopButton.disabled = state.cardTimerSaving;
       }
     }
@@ -12294,6 +12298,20 @@
         groups.push('<span class="time-readout__group"><span class="time-readout__num">' + String(parts.days).padStart(2, '0') + '</span><span class="time-readout__unit">Д</span></span>');
       }
       groups.push('<span class="time-readout__group"><span class="time-readout__num">' + String(parts.hours).padStart(2, '0') + '</span><span class="time-readout__unit">Ч</span></span>');
+      return '<span class="time-readout">' + groups.join('') + '</span>';
+    }
+
+    function timerRemainingToMarkup(total) {
+      const safe = Math.max(0, Math.floor(finiteNonNegativeNumber(total)));
+      const days = Math.floor(safe / 86400);
+      const hours = Math.floor((safe % 86400) / 3600);
+      const minutes = Math.floor((safe % 3600) / 60);
+      const seconds = safe % 60;
+      const groups = [];
+      if (days > 0) {
+        groups.push('<span class="time-readout__group"><span class="time-readout__num">' + days + '</span><span class="time-readout__unit">Д</span></span>');
+      }
+      groups.push('<span class="time-readout__clock">' + String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0') + '</span>');
       return '<span class="time-readout">' + groups.join('') + '</span>';
     }
 
@@ -12470,11 +12488,18 @@
     function renderSignalPreview() {
       const draft = deadlineInput();
       const total = (draft.days * 86400) + (draft.hours * 3600) + (draft.minutes * 60) + draft.seconds;
+      const days = signalPartValue('days');
+      const hours = signalPartValue('hours');
       if (els.signalDaysDecrementButton) els.signalDaysDecrementButton.disabled = state.cardTimerSaving || signalPartValue('days') <= 0;
       if (els.signalDaysIncrementButton) els.signalDaysIncrementButton.disabled = state.cardTimerSaving || signalPartValue('days') >= 365;
       if (els.signalHoursDecrementButton) els.signalHoursDecrementButton.disabled = state.cardTimerSaving || signalPartValue('hours') <= 0;
       if (els.signalHoursIncrementButton) els.signalHoursIncrementButton.disabled = state.cardTimerSaving || signalPartValue('hours') >= 23;
-      els.signalPreview.innerHTML = durationToMarkup(total, true);
+      if (els.signalDaysValue) els.signalDaysValue.value = days + ' Д';
+      if (els.signalHoursValue) els.signalHoursValue.value = hours + ' Ч';
+      const showLiveRemaining = state.cardTimerState === 'running' && state.editingId && state.activeCard;
+      els.signalPreview.innerHTML = showLiveRemaining
+        ? timerRemainingToMarkup(timerRemainingSeconds(state.activeCard))
+        : durationToMarkup(total, true);
       renderCardTimerControls();
     }
 
