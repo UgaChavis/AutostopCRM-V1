@@ -74,6 +74,25 @@ service may hydrate archived `before`/`after` data from `audit-archive`.
 service enforces line and length limits; callers must not place phones, VINs,
 full client identities, or raw diagnostics there.
 
+### Card timers
+
+`/api/create_card` creates a card with an inactive timer when `deadline` is
+omitted. Supplying a positive `deadline` keeps the legacy behavior and creates
+the card with a running timer. Existing stored cards without `timer_state` are
+read as running so an upgrade does not silently stop old deadlines.
+
+- `/api/start_card_timer` starts or restarts the countdown. Pass `deadline` to
+  save a new duration; omit it to reuse the card's saved duration.
+- `/api/stop_card_timer` stops the countdown without discarding that saved
+  duration.
+- Both routes accept `expected_updated_at` for optimistic concurrency and do
+  not create an unseen-content badge for other operators.
+
+Inactive timers report `timer_state="inactive"`, `timer_active=false`, and
+`remaining_seconds=0`. They are excluded from overdue/critical manager scans
+and from bulk deadline extension. `/api/set_card_deadline` remains compatible:
+setting a positive deadline activates and restarts the timer.
+
 ## Clients And Vehicles
 
 Search or suggest before creating a client. Cards link by confirmed

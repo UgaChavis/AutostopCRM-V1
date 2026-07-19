@@ -15,6 +15,22 @@ from minimal_kanban.mcp.client import BoardApiClient, BoardApiTransportError, _n
 
 
 class BoardApiClientTests(unittest.TestCase):
+    def test_create_card_without_deadline_keeps_timer_inactive(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with patch.object(client, "_request", return_value={"ok": True}) as request:
+            client.create_card(title="Новая заявка")
+
+        request.assert_called_once_with(
+            "/api/create_card",
+            {
+                "vehicle": "",
+                "title": "Новая заявка",
+                "description": "",
+                "source": "mcp",
+            },
+        )
+
     def test_normalize_int_clamps_large_finite_values_before_conversion(self) -> None:
         self.assertEqual(_normalize_int(1e308, default=5, minimum=1, maximum=30), 30)
         self.assertEqual(_normalize_int(-1e308, default=5, minimum=1, maximum=30), 1)

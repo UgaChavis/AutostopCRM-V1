@@ -36,12 +36,14 @@ from minimal_kanban.storage.json_store import JsonStore
 SMOKE_SCENARIOS = (
     "login_gate_hides_board_until_operator_login",
     "desktop_board_card_roundtrip",
+    "card_timer_start_stop",
     "card_long_description_controls_reachable",
     "cashbox_journal_workspace",
     "cashbox_journal_filters_and_no_audit",
     "cashbox_journal_compact_cleanup",
     "cashbox_journal_mode_and_period_navigation",
     "cashbox_journal_first_render_budget",
+    "cashbox_transaction_cancellation",
     "repair_order_payments_modal",
     "repair_order_material_executor_defaults_to_operator_employee",
     "clients_modal",
@@ -183,6 +185,7 @@ class TempRuntime:
     temp_dir: tempfile.TemporaryDirectory[str]
     api: ApiServer
     service: CardService
+    cashbox_id: str
     card_id: str
     employee_id: str
     payroll_card_id: str
@@ -323,7 +326,6 @@ def start_temp_runtime(*, start_port: int = 42731) -> TempRuntime:
             "vehicle": "Toyota Smoke",
             "title": "Browser smoke initial",
             "description": "Temporary card created by browser smoke.",
-            "deadline": {"hours": 2},
             "actor_name": "SMOKE",
         }
     )["card"]
@@ -506,6 +508,7 @@ def start_temp_runtime(*, start_port: int = 42731) -> TempRuntime:
         temp_dir=temp_dir,
         api=api,
         service=service,
+        cashbox_id=cashbox["id"],
         card_id=card["id"],
         employee_id=employee["id"],
         payroll_card_id=payroll_card["id"],
@@ -828,7 +831,9 @@ async def _exercise_operator_admin_employee_binding(page: Any) -> bool:
     return bool(escape_ok and back_ok and final_close_ok)
 
 
-async def _exercise_card_modal_roundtrip(page: Any, runtime: TempRuntime) -> tuple[bool, bool]:
+async def _exercise_card_modal_roundtrip(
+    page: Any, runtime: TempRuntime
+) -> tuple[bool, bool, bool]:
     card_selector = f'[data-card-id="{runtime.card_id}"]'
     await page.wait_for_selector(card_selector)
     await page.click(card_selector)
@@ -839,6 +844,48 @@ async def _exercise_card_modal_roundtrip(page: Any, runtime: TempRuntime) -> tup
           const saveButton = document.querySelector('#saveCardButton');
           return !editor?.classList.contains('is-loading') && !saveButton?.disabled;
         }"""
+    )
+    timer_initial_ok = bool(
+        await page.evaluate(
+            """() => {
+              const state = document.querySelector('#signalState');
+              const start = document.querySelector('#signalStartButton');
+              const stop = document.querySelector('#signalStopButton');
+              return state?.dataset.state === 'inactive' && !start?.disabled && stop?.hidden === true;
+            }"""
+        )
+    )
+    await page.fill("#cardTitle", "Timer unsaved draft")
+    await page.click("#signalStartButton")
+    await page.wait_for_function(
+        """() => {
+          const state = document.querySelector('#signalState');
+          const stop = document.querySelector('#signalStopButton');
+          return state?.dataset.state === 'running' && stop?.hidden === false && !stop?.disabled;
+        }"""
+    )
+    started_card = runtime.service.get_card({"card_id": runtime.card_id, "actor_name": "SMOKE"})[
+        "card"
+    ]
+    await page.click("#signalStopButton")
+    await page.wait_for_function(
+        """() => {
+          const state = document.querySelector('#signalState');
+          const start = document.querySelector('#signalStartButton');
+          const stop = document.querySelector('#signalStopButton');
+          return state?.dataset.state === 'inactive' && !start?.disabled && stop?.hidden === true;
+        }"""
+    )
+    stopped_card = runtime.service.get_card({"card_id": runtime.card_id, "actor_name": "SMOKE"})[
+        "card"
+    ]
+    timer_ok = bool(
+        timer_initial_ok
+        and started_card.get("timer_state") == "running"
+        and started_card.get("remaining_seconds", 0) > 0
+        and stopped_card.get("timer_state") == "inactive"
+        and stopped_card.get("remaining_seconds") == 0
+        and await page.input_value("#cardTitle") == "Timer unsaved draft"
     )
     long_description = "\n".join(
         f"Long description regression line {index:03d}" for index in range(1, 101)
@@ -913,7 +960,7 @@ async def _exercise_card_modal_roundtrip(page: Any, runtime: TempRuntime) -> tup
         for card in cards
     )
     await _close_card_modal_if_open(page)
-    return controls_ok, bool(roundtrip_ok)
+    return controls_ok, bool(roundtrip_ok), timer_ok
 
 
 async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]:
@@ -925,14 +972,55 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     admin_binding_ok = await _exercise_operator_admin_employee_binding(page)
     scenarios["operator_admin_employee_binding_returns_to_users"] = bool(admin_binding_ok)
 
-    controls_ok, roundtrip_ok = await _exercise_card_modal_roundtrip(page, runtime)
+    controls_ok, roundtrip_ok, timer_ok = await _exercise_card_modal_roundtrip(page, runtime)
     scenarios["card_long_description_controls_reachable"] = bool(controls_ok)
     scenarios["desktop_board_card_roundtrip"] = bool(roundtrip_ok)
+    scenarios["card_timer_start_stop"] = bool(timer_ok)
 
     await page.click("#cashboxesButton")
     await _wait_modal_open(page, "#cashboxesModal")
     await page.wait_for_selector("#cashboxJournalDownloadButton")
     await page.wait_for_selector("#cashboxesList [data-cashbox-id]")
+    await page.wait_for_selector("#cashboxTransactions [data-cashbox-transaction-cancel]")
+    selected_transaction_id = await page.locator(
+        "#cashboxTransactions [data-cashbox-transaction-cancel]"
+    ).first.get_attribute("data-cashbox-transaction-cancel")
+    await page.locator("#cashboxTransactions [data-cashbox-transaction-cancel]").first.click()
+    await page.wait_for_selector("#cashboxCancelPopover:not([hidden])")
+    await page.fill("#cashboxCancelReasonInput", "Browser smoke cancellation reason")
+    await page.click("#cashboxCancelConfirmButton")
+    await page.wait_for_function(
+        """() => {
+          const statusText = document.querySelector('#statusLine')?.textContent || '';
+          const popover = document.querySelector('#cashboxCancelPopover');
+          return statusText.includes('ОПЕРАЦИЯ ОТМЕНЕНА') && popover?.hidden === true;
+        }"""
+    )
+    cashbox_after_cancellation = runtime.service.get_cashbox(
+        {"cashbox_id": runtime.cashbox_id, "transaction_limit": 500}
+    )
+    cancelled_transaction = next(
+        (
+            item
+            for item in cashbox_after_cancellation["transactions"]
+            if item["id"] == selected_transaction_id
+        ),
+        None,
+    )
+    cancellation_transaction = next(
+        (
+            item
+            for item in cashbox_after_cancellation["transactions"]
+            if item.get("related_transaction_id") == selected_transaction_id
+            and item.get("transaction_kind") == "cashbox_cancellation"
+        ),
+        None,
+    )
+    scenarios["cashbox_transaction_cancellation"] = bool(
+        cancelled_transaction
+        and cancelled_transaction.get("transaction_kind") == "cashbox_cancelled"
+        and cancellation_transaction
+    )
     journal_open_started = time.perf_counter()
     await page.click("#cashboxJournalButton")
     await _wait_modal_open(page, "#cashboxJournalModal")

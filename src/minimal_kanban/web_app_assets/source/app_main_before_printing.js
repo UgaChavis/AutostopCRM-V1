@@ -116,6 +116,9 @@
       cardSaveInFlight: false,
       cardSavePromise: null,
       cardCloseAfterSave: false,
+      cardTimerState: 'inactive',
+      cardTimerSaving: false,
+      cardTimerTickHandle: null,
       cardInitialPayloadKey: '',
       cardDescriptionLoading: false,
       cardHydratingId: '',
@@ -1062,6 +1065,7 @@
       cashboxCancelPopover: document.getElementById('cashboxCancelPopover'),
       cashboxCancelMeta: document.getElementById('cashboxCancelMeta'),
       cashboxCancelReasonInput: document.getElementById('cashboxCancelReasonInput'),
+      cashboxCancelFeedback: document.getElementById('cashboxCancelFeedback'),
       cashboxCancelDismissButton: document.getElementById('cashboxCancelDismissButton'),
       cashboxCancelConfirmButton: document.getElementById('cashboxCancelConfirmButton'),
       cashboxJournalText: document.getElementById('cashboxJournalText'),
@@ -1129,6 +1133,10 @@
       cardDescriptionEditor: document.getElementById('cardDescriptionEditor'),
       cardDescriptionToolbar: document.getElementById('cardDescriptionToolbar'),
       signalPreview: document.getElementById('signalPreview'),
+      signalState: document.getElementById('signalState'),
+      signalRemaining: document.getElementById('signalRemaining'),
+      signalStartButton: document.getElementById('signalStartButton'),
+      signalStopButton: document.getElementById('signalStopButton'),
       signalDays: document.getElementById('signalDays'),
       signalHours: document.getElementById('signalHours'),
       signalDaysIncrementButton: document.getElementById('signalDaysIncrementButton'),
@@ -9105,8 +9113,9 @@
         tags: [],
         tag_items: [],
         attachments: [],
-        deadline: { days: 1, hours: 0, minutes: 0, seconds: 0 },
-        remaining_seconds: 86400,
+        timer_state: 'inactive',
+        timer_active: false,
+        remaining_seconds: 0,
         deadline_total_seconds: 86400,
         vehicle_profile: emptyVehicleProfile(),
       };
@@ -9600,7 +9609,6 @@
         description: String(values.description ?? card.description ?? ''),
         column: String(values.column || card.column || state.snapshot?.columns?.[0]?.id || '').trim(),
         tags: readMobileCardTags(),
-        deadline: mobileCardDeadlineFromUi(card),
         vehicle_profile: readMobileCardVehicleProfile(card),
       };
     }
@@ -9691,7 +9699,6 @@
               description: payload.description,
               column: payload.column,
               tags: payload.tags,
-              deadline: payload.deadline,
               vehicle_profile: payload.vehicle_profile,
             },
           })
@@ -12000,6 +12007,116 @@
       };
     }
 
+    function cardTimerState(card, { isNew = false } = {}) {
+      const explicit = String(card?.timer_state || '').trim().toLowerCase();
+      if (explicit === 'inactive' || explicit === 'running') return explicit;
+      return isNew || !card?.id ? 'inactive' : 'running';
+    }
+
+    function cardTimerIsRunning(card, options = {}) {
+      return cardTimerState(card, options) === 'running';
+    }
+
+    function timerRemainingSeconds(card, nowMs = Date.now()) {
+      if (!cardTimerIsRunning(card)) return 0;
+      const deadlineMs = Date.parse(String(card?.deadline_timestamp || ''));
+      if (!Number.isFinite(deadlineMs)) return Math.max(0, finiteNumber(card?.remaining_seconds));
+      return Math.max(0, Math.floor((deadlineMs - nowMs) / 1000));
+    }
+
+    function timerRemainingText(seconds) {
+      const safe = Math.max(0, Math.floor(finiteNonNegativeNumber(seconds)));
+      const days = Math.floor(safe / 86400);
+      const hours = Math.floor((safe % 86400) / 3600);
+      const minutes = Math.floor((safe % 3600) / 60);
+      const secs = safe % 60;
+      const time = String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+      return (days > 0 ? days + 'д ' : '') + time;
+    }
+
+    function timerVisualState(card, nowMs = Date.now()) {
+      const total = Math.max(1, finiteNumber(card?.deadline_total_seconds, 86400));
+      const remaining = timerRemainingSeconds(card, nowMs);
+      const remainingRatio = Math.max(0, Math.min(1, remaining / total));
+      const progressRatio = Math.max(0, Math.min(1, 1 - remainingRatio));
+      const bucket = Math.max(0, Math.min(20, Math.floor(progressRatio * 20)));
+      const ratio = bucket / 20;
+      const rgb = [
+        Math.round(83 + ((212 - 83) * ratio)),
+        Math.round(191 + ((98 - 191) * ratio)),
+        Math.round(122 + ((98 - 122) * ratio)),
+      ];
+      let status = 'ok';
+      if (remaining <= 0) status = 'expired';
+      else if (remainingRatio <= 0.15) status = 'critical';
+      else if (remainingRatio <= 0.6) status = 'warning';
+      const indicator = status === 'warning' ? 'yellow' : (status === 'critical' || status === 'expired' ? 'red' : 'green');
+      return {
+        remaining,
+        remainingRatio,
+        progressRatio,
+        bucket,
+        step: bucket * 5,
+        status,
+        indicator,
+        blinking: remaining <= 0 || remainingRatio <= 0.05,
+        border: 'rgba(' + rgb.join(', ') + ', ' + (0.34 + (ratio * 0.54)).toFixed(3) + ')',
+        ring: 'rgba(' + rgb.join(', ') + ', ' + (0.08 + (ratio * 0.26)).toFixed(3) + ')',
+        glow: 'rgba(' + rgb.join(', ') + ', ' + (0.04 + (ratio * 0.24)).toFixed(3) + ')',
+      };
+    }
+
+    function refreshBoardTimerVisuals() {
+      if (document.hidden || !state.snapshot?.cards) return;
+      const nowMs = Date.now();
+      state.snapshot.cards.forEach((card) => {
+        if (!cardTimerIsRunning(card)) return;
+        const visual = timerVisualState(card, nowMs);
+        card.remaining_seconds = visual.remaining;
+        card.remaining_ratio = visual.remainingRatio;
+        card.deadline_progress_ratio = visual.progressRatio;
+        card.deadline_progress_bucket = visual.bucket;
+        card.deadline_progress_step_percent = visual.step;
+        card.status = visual.status;
+        card.indicator = visual.indicator;
+        card.is_blinking = visual.blinking;
+        card.deadline_heat_border_color = visual.border;
+        card.deadline_heat_ring_color = visual.ring;
+        card.deadline_heat_glow_color = visual.glow;
+        const article = els.board?.querySelector('.card[data-card-id="' + CSS.escape(String(card.id || '')) + '"]');
+        if (!article) return;
+        article.dataset.timerState = 'running';
+        article.dataset.indicator = visual.indicator;
+        article.dataset.status = visual.status;
+        article.dataset.blink = visual.blinking ? 'true' : 'false';
+        article.dataset.deadlineBucket = String(visual.bucket);
+        article.dataset.deadlineStep = String(visual.step);
+        article.style.setProperty('--deadline-heat-border', visual.border);
+        article.style.setProperty('--deadline-heat-ring', visual.ring);
+        article.style.setProperty('--deadline-heat-glow', visual.glow);
+        const lamp = article.querySelector('.lamp');
+        if (lamp) {
+          const timerTitle = 'Таймер: ' + timerRemainingText(visual.remaining);
+          lamp.dataset.indicator = visual.indicator;
+          lamp.title = timerTitle;
+          lamp.setAttribute('aria-label', timerTitle);
+        }
+      });
+    }
+
+    function startCardTimerVisualTicker() {
+      if (state.cardTimerTickHandle) window.clearInterval(state.cardTimerTickHandle);
+      state.cardTimerTickHandle = window.setInterval(() => {
+        refreshBoardTimerVisuals();
+        if (els.cardModal?.classList.contains('is-open')) renderCardTimerControls();
+      }, 1000);
+    }
+
+    function selectedTimerTotalSeconds() {
+      const draft = deadlineInput();
+      return (draft.days * 86400) + (draft.hours * 3600) + (draft.minutes * 60) + draft.seconds;
+    }
+
     function deadlineInput() {
       return {
         days: clampSignalPart('days', els.signalDays.value),
@@ -12007,6 +12124,123 @@
         minutes: 0,
         seconds: 0,
       };
+    }
+
+    function renderCardTimerControls() {
+      const running = state.cardTimerState === 'running';
+      const creating = !state.editingId;
+      if (els.signalState) {
+        els.signalState.dataset.state = state.cardTimerState;
+        els.signalState.textContent = running ? 'ИДЁТ' : 'ВЫКЛЮЧЕН';
+      }
+      if (els.signalRemaining) {
+        if (!running) {
+          els.signalRemaining.textContent = 'Таймер не запущен';
+        } else if (creating) {
+          els.signalRemaining.textContent = 'Запустится после сохранения карточки';
+        } else {
+          const remaining = timerRemainingSeconds(state.activeCard);
+          const deadlineText = formatDate(state.activeCard?.deadline_timestamp);
+          els.signalRemaining.textContent = 'ОСТАЛОСЬ ' + timerRemainingText(remaining) + ' · ДО ' + deadlineText;
+        }
+      }
+      if (els.signalStartButton) {
+        els.signalStartButton.hidden = false;
+        els.signalStartButton.textContent = running
+          ? (creating ? 'ЗАПУСТИТСЯ ПОСЛЕ СОХРАНЕНИЯ' : 'ПЕРЕЗАПУСТИТЬ')
+          : 'ЗАПУСТИТЬ';
+        els.signalStartButton.disabled = state.cardTimerSaving || (running && creating);
+      }
+      if (els.signalStopButton) {
+        els.signalStopButton.hidden = !running;
+        els.signalStopButton.textContent = creating ? 'ОТМЕНИТЬ ЗАПУСК' : 'ОСТАНОВИТЬ';
+        els.signalStopButton.disabled = state.cardTimerSaving;
+      }
+    }
+
+    function applyCardTimerOperationResult(card) {
+      if (!card?.id) return;
+      applySavedCardLocalPatch(card);
+      state.activeCard = card;
+      state.activeCardIsFull = true;
+      state.cardTimerState = cardTimerState(card);
+      const parts = secondsToParts(card.deadline_total_seconds ?? 86400);
+      els.signalDays.value = parts.days;
+      els.signalHours.value = parts.hours;
+      renderSignalPreview();
+      syncCardSaveDirtyState();
+    }
+
+    async function startCardTimerFromPanel() {
+      const deadline = deadlineInput();
+      if (selectedTimerTotalSeconds() <= 0) {
+        setStatus('УКАЖИТЕ ДЛИТЕЛЬНОСТЬ ТАЙМЕРА БОЛЬШЕ НУЛЯ.', true);
+        return;
+      }
+      if (!state.editingId) {
+        state.cardTimerState = 'running';
+        renderSignalPreview();
+        scheduleCardSaveDirtyStateSync();
+        setStatus('ТАЙМЕР ЗАПУСТИТСЯ ПОСЛЕ СОХРАНЕНИЯ КАРТОЧКИ.', false);
+        return;
+      }
+      if (state.cardTimerSaving) return;
+      state.cardTimerSaving = true;
+      renderCardTimerControls();
+      try {
+        const data = await api('/api/start_card_timer', {
+          method: 'POST',
+          body: {
+            card_id: state.editingId,
+            deadline,
+            expected_updated_at: String(state.activeCard?.updated_at || ''),
+            actor_name: state.actor,
+            source: 'ui',
+          },
+        });
+        if (data?.card) {
+          applyCardTimerOperationResult(data.card);
+        }
+        setStatus(data?.meta?.action === 'restarted' ? 'ТАЙМЕР ПЕРЕЗАПУЩЕН.' : 'ТАЙМЕР ЗАПУЩЕН.', false);
+      } catch (error) {
+        setStatus(error.message, true);
+      } finally {
+        state.cardTimerSaving = false;
+        renderCardTimerControls();
+      }
+    }
+
+    async function stopCardTimerFromPanel() {
+      if (!state.editingId) {
+        state.cardTimerState = 'inactive';
+        renderSignalPreview();
+        scheduleCardSaveDirtyStateSync();
+        setStatus('ЗАПУСК ТАЙМЕРА ОТМЕНЁН.', false);
+        return;
+      }
+      if (state.cardTimerSaving) return;
+      state.cardTimerSaving = true;
+      renderCardTimerControls();
+      try {
+        const data = await api('/api/stop_card_timer', {
+          method: 'POST',
+          body: {
+            card_id: state.editingId,
+            expected_updated_at: String(state.activeCard?.updated_at || ''),
+            actor_name: state.actor,
+            source: 'ui',
+          },
+        });
+        if (data?.card) {
+          applyCardTimerOperationResult(data.card);
+        }
+        setStatus('ТАЙМЕР ОСТАНОВЛЕН.', false);
+      } catch (error) {
+        setStatus(error.message, true);
+      } finally {
+        state.cardTimerSaving = false;
+        renderCardTimerControls();
+      }
     }
 
     function clampSignalPart(kind, value) {
@@ -12236,11 +12470,12 @@
     function renderSignalPreview() {
       const draft = deadlineInput();
       const total = (draft.days * 86400) + (draft.hours * 3600) + (draft.minutes * 60) + draft.seconds;
-      if (els.signalDaysDecrementButton) els.signalDaysDecrementButton.disabled = signalPartValue('days') <= 0;
-      if (els.signalDaysIncrementButton) els.signalDaysIncrementButton.disabled = signalPartValue('days') >= 365;
-      if (els.signalHoursDecrementButton) els.signalHoursDecrementButton.disabled = signalPartValue('hours') <= 0;
-      if (els.signalHoursIncrementButton) els.signalHoursIncrementButton.disabled = signalPartValue('hours') >= 23;
+      if (els.signalDaysDecrementButton) els.signalDaysDecrementButton.disabled = state.cardTimerSaving || signalPartValue('days') <= 0;
+      if (els.signalDaysIncrementButton) els.signalDaysIncrementButton.disabled = state.cardTimerSaving || signalPartValue('days') >= 365;
+      if (els.signalHoursDecrementButton) els.signalHoursDecrementButton.disabled = state.cardTimerSaving || signalPartValue('hours') <= 0;
+      if (els.signalHoursIncrementButton) els.signalHoursIncrementButton.disabled = state.cardTimerSaving || signalPartValue('hours') >= 23;
       els.signalPreview.innerHTML = durationToMarkup(total, true);
+      renderCardTimerControls();
     }
 
     function normalizeTagColor(color) {
@@ -13072,7 +13307,7 @@
       const column = state.editingId
         ? (state.activeCard?.column || state.snapshot?.columns?.[0]?.id || '')
         : (state.cardCreateColumnId || state.activeCard?.column || state.snapshot?.columns?.[0]?.id || '');
-      return {
+      const payload = {
         actor_name: state.actor,
         source: 'ui',
         expected_updated_at: state.editingId ? String(state.activeCard?.updated_at || '') : undefined,
@@ -13081,9 +13316,12 @@
         description: getCardDescriptionValue(),
         column,
         tags: state.draftTags.map((tag) => ({ label: tag.label, color: tag.color })),
-        deadline: deadlineInput(),
         vehicle_profile: vehicleProfile,
       };
+      if (!state.editingId && state.cardTimerState === 'running') {
+        payload.deadline = deadlineInput();
+      }
+      return payload;
     }
 
     function cardDirtyComparisonPayload(payload = currentCardPayload()) {
@@ -13093,7 +13331,8 @@
         description: payload.description || '',
         column: payload.column || '',
         tags: Array.isArray(payload.tags) ? payload.tags : [],
-        deadline: payload.deadline || {},
+        timer_state: state.editingId ? '' : state.cardTimerState,
+        deadline: !state.editingId && state.cardTimerState === 'running' ? (payload.deadline || {}) : {},
         vehicle_profile: payload.vehicle_profile || {},
       };
     }
@@ -14798,6 +15037,8 @@
       state.activeCard = currentCard;
       state.activeCardIsFull = Boolean(cardIsFull || !nextCardId);
       state.editingId = currentCard?.id || null;
+      state.cardTimerState = cardTimerState(currentCard, { isNew: !currentCard?.id });
+      state.cardTimerSaving = false;
       state.cardCreateColumnId = currentCard?.id ? '' : String(currentCard?.column || state.snapshot?.columns?.[0]?.id || 'inbox').trim();
       if (!preserveLazyPanels || previousCardId !== nextCardId) {
         state.cardJournalLoadedFor = '';
@@ -14814,7 +15055,7 @@
       els.cardModalTitle.title = modalHeading;
       els.cardVehicle.value = currentCard?.vehicle || '';
       els.cardTitle.value = currentCard?.title || '';
-      const parts = secondsToParts(currentCard?.remaining_seconds ?? 86400);
+      const parts = secondsToParts(currentCard?.deadline_total_seconds ?? 86400);
       els.signalDays.value = parts.days;
       els.signalHours.value = parts.hours;
       renderSignalPreview();
@@ -14882,6 +15123,8 @@
       hideClientSuggestions();
       state.draftTags = [];
       state.draftTagColor = 'green';
+      state.cardTimerState = 'inactive';
+      state.cardTimerSaving = false;
       state.cardCleanupState = 'idle';
       state.cardCleanupError = '';
       stopCardCleanupPolling();
@@ -19761,6 +20004,14 @@
       else els.cashboxCancelReasonInput.removeAttribute('aria-invalid');
     }
 
+    function setCashboxCancelFeedback(message = '', isError = false) {
+      if (!els.cashboxCancelFeedback) return;
+      const text = String(message || '').trim();
+      els.cashboxCancelFeedback.textContent = text;
+      els.cashboxCancelFeedback.hidden = !text;
+      els.cashboxCancelFeedback.dataset.tone = isError ? 'error' : 'normal';
+    }
+
     function closeCashboxCancelPopover() {
       state.cashboxCancelTransactionId = '';
       if (els.cashboxCancelPopover) els.cashboxCancelPopover.hidden = true;
@@ -19768,6 +20019,7 @@
         els.cashboxCancelReasonInput.value = '';
         setCashboxCancelReasonInvalid(false);
       }
+      setCashboxCancelFeedback();
       if (els.cashboxCancelConfirmButton) els.cashboxCancelConfirmButton.disabled = false;
     }
 
@@ -19787,6 +20039,7 @@
         els.cashboxCancelReasonInput.value = '';
         setCashboxCancelReasonInvalid(false);
       }
+      setCashboxCancelFeedback();
       if (els.cashboxCancelPopover) els.cashboxCancelPopover.hidden = false;
       window.setTimeout(() => {
         els.cashboxCancelReasonInput?.focus();
@@ -19804,11 +20057,13 @@
       if (reason.length < CASHBOX_CANCEL_REASON_MIN_LENGTH) {
         setCashboxCancelReasonInvalid(true);
         els.cashboxCancelReasonInput?.focus();
+        setCashboxCancelFeedback('Причина отмены должна быть не короче 10 символов.', true);
         setStatus('ПРИЧИНА ОТМЕНЫ ДОЛЖНА БЫТЬ НЕ КОРОЧЕ 10 СИМВОЛОВ.', true);
         return;
       }
       try {
         if (els.cashboxCancelConfirmButton) els.cashboxCancelConfirmButton.disabled = true;
+        setCashboxCancelFeedback('Отменяю операцию…');
         await api('/api/cancel_cash_transaction', {
           method: 'POST',
           body: {
@@ -19823,7 +20078,9 @@
         await refreshCashboxesAfterMoneyMutation({ openModal: true, deferDetail: false });
         setStatus('ОПЕРАЦИЯ ОТМЕНЕНА.', false);
       } catch (error) {
-        setStatus(String(error?.message || 'НЕ УДАЛОСЬ ОТМЕНИТЬ ОПЕРАЦИЮ.'), true);
+        const message = String(error?.message || 'НЕ УДАЛОСЬ ОТМЕНИТЬ ОПЕРАЦИЮ.');
+        setCashboxCancelFeedback(message, true);
+        setStatus(message, true);
       } finally {
         if (els.cashboxCancelConfirmButton) els.cashboxCancelConfirmButton.disabled = false;
       }

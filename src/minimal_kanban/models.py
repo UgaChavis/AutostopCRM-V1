@@ -21,6 +21,7 @@ ColumnId = str
 Indicator = Literal["green", "yellow", "red"]
 TagColor = Literal["green", "yellow", "red"]
 Status = Literal["ok", "warning", "critical", "expired"]
+TimerState = Literal["inactive", "running"]
 AuditSource = Literal["ui", "api", "mcp", "system"]
 CashDirection = Literal["income", "expense"]
 ClientType = Literal["person", "ip", "ooo", "company"]
@@ -31,6 +32,7 @@ DEFAULT_COLUMN_IDS: tuple[str, ...] = ("inbox", "in_progress", "control", "done"
 VALID_INDICATORS: tuple[Indicator, ...] = ("green", "yellow", "red")
 VALID_TAG_COLORS: tuple[TagColor, ...] = ("green", "yellow", "red")
 VALID_STATUSES: tuple[Status, ...] = ("ok", "warning", "critical", "expired")
+VALID_TIMER_STATES: tuple[TimerState, ...] = ("inactive", "running")
 VALID_AUDIT_SOURCES: tuple[AuditSource, ...] = ("ui", "api", "mcp", "system")
 VALID_CASH_DIRECTIONS: tuple[CashDirection, ...] = ("income", "expense")
 VALID_CLIENT_TYPES: tuple[ClientType, ...] = ("person", "ip", "ooo", "company")
@@ -232,6 +234,13 @@ def normalize_indicator(value) -> Indicator:
     if indicator not in VALID_INDICATORS:
         return DEFAULT_INDICATOR
     return indicator
+
+
+def normalize_timer_state(value, *, default: TimerState = "running") -> TimerState:
+    timer_state = str(value or "").strip().lower()
+    if timer_state not in VALID_TIMER_STATES:
+        return default
+    return timer_state
 
 
 def normalize_source(value, *, default: AuditSource = "api") -> AuditSource:
@@ -1670,6 +1679,7 @@ class Card:
     updated_at: str
     deadline_timestamp: str
     deadline_total_seconds: int = DEFAULT_DEADLINE_TOTAL_SECONDS
+    timer_state: TimerState = "running"
     notification_updated_at: str = ""
     board_summary: str = ""
     board_summary_updated_at: str = ""
@@ -1695,6 +1705,7 @@ class Card:
     ai_autofill_log: list[dict[str, str]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
+        self.timer_state = normalize_timer_state(self.timer_state, default="running")
         self.board_summary = normalize_text(
             self.board_summary, default="", limit=CARD_BOARD_SUMMARY_LIMIT
         )
@@ -1752,18 +1763,27 @@ class Card:
             self.deadline_timestamp = deadline.isoformat()
         return deadline
 
+    def timer_is_running(self) -> bool:
+        return self.timer_state == "running"
+
     def remaining_seconds(self, reference_time: datetime | None = None) -> int:
+        if not self.timer_is_running():
+            return 0
         if reference_time is None:
             reference_time = utc_now()
         return max(0, int((self.deadline_datetime() - reference_time).total_seconds()))
 
     def remaining_ratio(self, reference_time: datetime | None = None) -> float:
+        if not self.timer_is_running():
+            return 1.0
         total = _normalize_positive_seconds(
             self.deadline_total_seconds, default=DEFAULT_DEADLINE_TOTAL_SECONDS
         )
         return self.remaining_seconds(reference_time) / total
 
     def deadline_progress_ratio(self, reference_time: datetime | None = None) -> float:
+        if not self.timer_is_running():
+            return 0.0
         return calculate_deadline_progress_ratio(
             self.remaining_seconds(reference_time), self.deadline_total_seconds
         )
@@ -1787,6 +1807,8 @@ class Card:
         return deadline_heat_glow_color_for_bucket(self.deadline_progress_bucket(reference_time))
 
     def status(self, reference_time: datetime | None = None) -> Status:
+        if not self.timer_is_running():
+            return "ok"
         remaining = self.remaining_seconds(reference_time)
         if remaining <= 0:
             return "expired"
@@ -1801,6 +1823,8 @@ class Card:
         return indicator_from_status(self.status(reference_time))
 
     def is_blinking(self, reference_time: datetime | None = None) -> bool:
+        if not self.timer_is_running():
+            return False
         remaining = self.remaining_seconds(reference_time)
         if remaining <= 0:
             return True
@@ -1955,7 +1979,10 @@ class Card:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "deadline_timestamp": self.deadline_timestamp,
+            "deadline_total_seconds": self.deadline_total_seconds,
             "signal_timestamp": self.deadline_timestamp,
+            "timer_state": self.timer_state,
+            "timer_active": self.timer_is_running(),
             "remaining_seconds": remaining,
             "remaining_ratio": remaining_ratio,
             "remaining_display": format_remaining_seconds(remaining),
@@ -2035,6 +2062,7 @@ class Card:
             "updated_at": self.updated_at,
             "deadline_timestamp": self.deadline_timestamp,
             "deadline_total_seconds": self.deadline_total_seconds,
+            "timer_state": self.timer_state,
             "notification_updated_at": self.notification_updated_at,
             "tags": self.tag_items(),
             "attachments": [attachment.to_dict() for attachment in self.attachments],
@@ -2068,6 +2096,7 @@ class Card:
             parse_datetime(payload.get("notification_updated_at")) or updated_at
         )
         archived = normalize_bool(payload.get("archived"), default=False)
+        timer_state = normalize_timer_state(payload.get("timer_state"), default="running")
         deadline_total_seconds = normalize_int(
             payload.get("deadline_total_seconds"),
             default=DEFAULT_DEADLINE_TOTAL_SECONDS,
@@ -2135,6 +2164,7 @@ class Card:
             updated_at=updated_at.isoformat(),
             deadline_timestamp=deadline.isoformat(),
             deadline_total_seconds=deadline_total_seconds,
+            timer_state=timer_state,
             notification_updated_at=notification_updated_at.isoformat(),
             vehicle=vehicle,
             client_id=normalize_text(payload.get("client_id"), default="", limit=128),

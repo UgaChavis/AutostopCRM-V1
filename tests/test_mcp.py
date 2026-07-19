@@ -175,6 +175,8 @@ EXPECTED_MCP_TOOLS = {
     "set_card_deadline",
     "set_card_board_summary",
     "set_card_indicator",
+    "start_card_timer",
+    "stop_card_timer",
     "set_repair_order_status",
     "suggest_clients_for_card",
     "triage_inbox_cards",
@@ -203,7 +205,7 @@ class McpRepairOrderPatchPayloadTests(unittest.TestCase):
 
         self.assertEqual(len(grouped_names), len(set(grouped_names)))
         self.assertEqual(PUBLIC_MCP_TOOL_NAMES, EXPECTED_MCP_TOOLS)
-        self.assertEqual(len(PUBLIC_MCP_TOOL_NAMES), 92)
+        self.assertEqual(len(PUBLIC_MCP_TOOL_NAMES), 94)
         self.assertEqual(
             set(MCP_TOOL_GROUPS),
             {
@@ -486,7 +488,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
                 self.assertTrue(EXPECTED_MCP_TOOLS.issubset(tool_names))
-                self.assertEqual(len(EXPECTED_MCP_TOOLS), 92)
+                self.assertEqual(len(EXPECTED_MCP_TOOLS), 94)
                 tool_map = {tool.name: tool for tool in tools.tools}
                 legacy_descriptions = [
                     tool.name
@@ -885,14 +887,18 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                     "create_card",
                     {
                         "title": "Р‘РµР· deadline",
-                        "description": "MCP should default deadline",
+                        "description": "MCP should leave timer inactive",
                         "column": column_id,
                         "actor_name": "РћРџР•Р РђРўРћР ",
                     },
                 )
                 self.assertFalse(created_without_deadline.isError)
                 self.assertTrue(created_without_deadline.structuredContent["ok"])
-                self.assertGreater(
+                self.assertEqual(
+                    created_without_deadline.structuredContent["data"]["card"]["timer_state"],
+                    "inactive",
+                )
+                self.assertEqual(
                     created_without_deadline.structuredContent["data"]["card"]["remaining_seconds"],
                     0,
                 )
@@ -1571,6 +1577,26 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(deadline_updated.structuredContent["ok"])
                 self.assertGreater(
                     deadline_updated.structuredContent["data"]["card"]["remaining_seconds"], 0
+                )
+
+                timer_stopped = await session.call_tool(
+                    "stop_card_timer",
+                    {"card_id": card_id, "actor_name": "ОПЕРАТОР"},
+                )
+                self.assertTrue(timer_stopped.structuredContent["ok"])
+                self.assertEqual(
+                    timer_stopped.structuredContent["data"]["card"]["timer_state"],
+                    "inactive",
+                )
+
+                timer_started = await session.call_tool(
+                    "start_card_timer",
+                    {"card_id": card_id, "actor_name": "ОПЕРАТОР"},
+                )
+                self.assertTrue(timer_started.structuredContent["ok"])
+                self.assertEqual(
+                    timer_started.structuredContent["data"]["card"]["timer_state"],
+                    "running",
                 )
 
                 yellow = await session.call_tool(

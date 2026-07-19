@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QHBoxLayout,
@@ -71,11 +72,16 @@ class CardDialog(QDialog):
         default_days, default_hours = split_seconds_to_days_hours(DEFAULT_DEADLINE_TOTAL_SECONDS)
         initial_days = default_days
         initial_hours = default_hours
+        initial_timer_state = "inactive"
         if initial:
             initial_days, initial_hours = split_seconds_to_days_hours(
-                initial.get("remaining_seconds", 0)
+                initial.get("deadline_total_seconds", initial.get("remaining_seconds", 0))
             )
+            initial_timer_state = str(initial.get("timer_state") or "running").strip().lower()
+            if initial_timer_state not in {"inactive", "running"}:
+                initial_timer_state = "running"
         self._initial_deadline = (initial_days, initial_hours)
+        self._initial_timer_state = initial_timer_state
         self._is_edit = is_edit
         self.archive_requested = False
 
@@ -93,6 +99,10 @@ class CardDialog(QDialog):
         self.deadline_hours_input.setRange(0, 23)
         self.deadline_hours_input.setValue(initial_hours)
 
+        self.timer_enabled_input = QCheckBox("Включить таймер")
+        self.timer_enabled_input.setChecked(initial_timer_state == "running")
+        self.timer_enabled_input.toggled.connect(self._sync_timer_inputs)
+
         deadline_layout = QHBoxLayout()
         deadline_layout.setContentsMargins(0, 0, 0, 0)
         deadline_layout.setSpacing(10)
@@ -107,7 +117,9 @@ class CardDialog(QDialog):
         form_layout.addWidget(QLabel(CARD_FIELD_DESCRIPTION))
         form_layout.addWidget(self.description_input)
         form_layout.addWidget(QLabel(CARD_FIELD_DEADLINE))
+        form_layout.addWidget(self.timer_enabled_input)
         form_layout.addLayout(deadline_layout)
+        self._sync_timer_inputs()
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
@@ -145,7 +157,14 @@ class CardDialog(QDialog):
             "description": self.description_input.toPlainText().strip(),
         }
         current_deadline = (self.deadline_days_input.value(), self.deadline_hours_input.value())
-        if not self._is_edit or current_deadline != self._initial_deadline:
+        timer_state = "running" if self.timer_enabled_input.isChecked() else "inactive"
+        if timer_state != self._initial_timer_state:
+            payload["timer_state"] = timer_state
+        if self.timer_enabled_input.isChecked() and (
+            not self._is_edit
+            or current_deadline != self._initial_deadline
+            or timer_state != self._initial_timer_state
+        ):
             payload["deadline"] = {
                 "days": current_deadline[0],
                 "hours": current_deadline[1],
@@ -171,11 +190,20 @@ class CardDialog(QDialog):
             )
             self.description_input.setFocus()
             return
-        if self.deadline_days_input.value() == 0 and self.deadline_hours_input.value() == 0:
+        if (
+            self.timer_enabled_input.isChecked()
+            and self.deadline_days_input.value() == 0
+            and self.deadline_hours_input.value() == 0
+        ):
             QMessageBox.warning(self, ERROR_VALIDATION_TITLE, CARD_DEADLINE_INVALID_MESSAGE)
             self.deadline_hours_input.setFocus()
             return
         super().accept()
+
+    def _sync_timer_inputs(self) -> None:
+        enabled = self.timer_enabled_input.isChecked()
+        self.deadline_days_input.setEnabled(enabled)
+        self.deadline_hours_input.setEnabled(enabled)
 
     def _request_archive(self) -> None:
         self.archive_requested = True

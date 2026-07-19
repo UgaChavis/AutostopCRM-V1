@@ -1031,8 +1031,9 @@ class BoardApiClient:
             "vehicle": vehicle,
             "title": title,
             "description": description,
-            "deadline": self._normalize_card_deadline(deadline),
         }
+        if deadline is not None:
+            payload["deadline"] = self._normalize_card_deadline(deadline)
         if column:
             payload["column"] = column
         if tags is not None:
@@ -1189,6 +1190,39 @@ class BoardApiClient:
         if response_mode:
             payload["response_mode"] = response_mode
         return self._request_with_identity("/api/set_card_deadline", payload, actor_name=actor_name)
+
+    def start_card_timer(
+        self,
+        *,
+        card_id: str,
+        deadline: dict | None = None,
+        expected_updated_at: str | None = None,
+        actor_name: str | None = None,
+        response_mode: str | None = None,
+    ) -> dict:
+        payload: dict[str, object] = {"card_id": card_id}
+        if deadline is not None:
+            payload["deadline"] = deadline
+        if expected_updated_at:
+            payload["expected_updated_at"] = expected_updated_at
+        if response_mode:
+            payload["response_mode"] = response_mode
+        return self._request_with_identity("/api/start_card_timer", payload, actor_name=actor_name)
+
+    def stop_card_timer(
+        self,
+        *,
+        card_id: str,
+        expected_updated_at: str | None = None,
+        actor_name: str | None = None,
+        response_mode: str | None = None,
+    ) -> dict:
+        payload: dict[str, object] = {"card_id": card_id}
+        if expected_updated_at:
+            payload["expected_updated_at"] = expected_updated_at
+        if response_mode:
+            payload["response_mode"] = response_mode
+        return self._request_with_identity("/api/stop_card_timer", payload, actor_name=actor_name)
 
     def set_card_indicator(
         self,

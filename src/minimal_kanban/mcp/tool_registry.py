@@ -53,6 +53,8 @@ MCP_TOOL_GROUPS: dict[str, tuple[str, ...]] = {
         "search_cards",
         "set_card_board_summary",
         "set_card_deadline",
+        "start_card_timer",
+        "stop_card_timer",
         "set_card_indicator",
         "update_board_settings",
         "update_card",

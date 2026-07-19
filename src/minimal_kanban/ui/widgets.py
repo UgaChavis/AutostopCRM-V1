@@ -193,45 +193,74 @@ class CardWidget(QFrame):
         self._description_text = card["description"] or CARD_NO_DESCRIPTION
         self.title_label.setToolTip(card["title"])
         self.description_label.setToolTip(card["description"] or CARD_NO_DESCRIPTION)
-        self.deadline_label.setText(format_deadline_preview(card["deadline_timestamp"]))
-        self.timer_label.setText(card["remaining_display"])
-
-        deadline_bucket = _safe_card_int(
-            card.get("deadline_progress_bucket"), default=0, minimum=0, maximum=20
+        timer_running = str(card.get("timer_state") or "running").strip().lower() == "running"
+        self.deadline_label.setText(
+            format_deadline_preview(card["deadline_timestamp"])
+            if timer_running
+            else "Таймер выключен"
         )
-        deadline_step = _safe_card_int(
-            card.get("deadline_progress_step_percent"), default=0, minimum=0, maximum=100
+        self.timer_label.setText(card["remaining_display"] if timer_running else "")
+
+        deadline_bucket = (
+            _safe_card_int(card.get("deadline_progress_bucket"), default=0, minimum=0, maximum=20)
+            if timer_running
+            else 0
+        )
+        deadline_step = (
+            _safe_card_int(
+                card.get("deadline_progress_step_percent"), default=0, minimum=0, maximum=100
+            )
+            if timer_running
+            else 0
         )
         self.setProperty("status", card["status"])
         self.setProperty("deadlineBucket", deadline_bucket)
         self.setProperty("deadlineStep", deadline_step)
         self.setProperty(
-            "deadlineHeatColor", card.get("deadline_heat_color", INDICATOR_STYLE[card["indicator"]])
+            "deadlineHeatColor",
+            card.get("deadline_heat_color", INDICATOR_STYLE[card["indicator"]])
+            if timer_running
+            else "#6f786e",
         )
         self.style().unpolish(self)
         self.style().polish(self)
 
-        timer_color = {
-            "ok": "#dce4ec",
-            "warning": "#d6b24c",
-            "expired": "#d46262",
-        }[card["status"]]
+        timer_color = (
+            {
+                "ok": "#dce4ec",
+                "warning": "#d6b24c",
+                "critical": "#d46262",
+                "expired": "#d46262",
+            }[card["status"]]
+            if timer_running
+            else "#8b958a"
+        )
         self.timer_label.setStyleSheet(f"color: {timer_color};")
 
-        heat_color = str(card.get("deadline_heat_color") or INDICATOR_STYLE[card["indicator"]])
+        heat_color = (
+            str(card.get("deadline_heat_color") or INDICATOR_STYLE[card["indicator"]])
+            if timer_running
+            else "#6f786e"
+        )
         shadow_color = QColor(heat_color)
         shadow_color.setAlpha(min(210, 48 + (deadline_bucket * 7)))
         self._shadow_effect.setColor(shadow_color)
         self._shadow_effect.setBlurRadius(12 + deadline_bucket)
         self.setStyleSheet(_card_frame_stylesheet(heat_color))
 
-        indicator_color = INDICATOR_STYLE[card["indicator"]]
-        self.indicator_badge.setStyleSheet(
-            f"background-color: {indicator_color}; border: 1px solid #0c0f12; border-radius: 5px;"
-        )
-        self.indicator_badge.setToolTip(
-            CARD_STATUS_TOOLTIP_TEMPLATE.format(label=STATUS_LABELS_RU[card["status"]])
-        )
+        if timer_running:
+            indicator_color = INDICATOR_STYLE[card["indicator"]]
+            self.indicator_badge.setStyleSheet(
+                f"background-color: {indicator_color}; border: 1px solid #0c0f12; border-radius: 5px;"
+            )
+            self.indicator_badge.setToolTip(
+                CARD_STATUS_TOOLTIP_TEMPLATE.format(label=STATUS_LABELS_RU[card["status"]])
+            )
+        else:
+            self.indicator_badge.setStyleSheet(
+                "background-color: transparent; border: 1px solid #6f786e; border-radius: 5px;"
+            )
+            self.indicator_badge.setToolTip("Таймер не включён")
 
         title_line_height = self.title_label.fontMetrics().lineSpacing()
         description_line_height = self.description_label.fontMetrics().lineSpacing()

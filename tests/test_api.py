@@ -2123,6 +2123,48 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(any(card["id"] == card_id for card in overdue["data"]["cards"]))
 
+    def test_card_timer_starts_inactive_and_uses_explicit_start_stop_routes(self) -> None:
+        status, created = self.request(
+            "/api/create_card",
+            {"title": "Карточка без таймера", "actor_name": "ALICE", "source": "api"},
+        )
+        self.assertEqual(status, 200)
+        card = created["data"]["card"]
+        self.assertEqual(card["timer_state"], "inactive")
+        self.assertFalse(card["timer_active"])
+        self.assertEqual(card["remaining_seconds"], 0)
+
+        status, started = self.request(
+            "/api/start_card_timer",
+            {
+                "card_id": card["id"],
+                "deadline": {"hours": 2},
+                "actor_name": "ALICE",
+                "source": "api",
+                "expected_updated_at": card["updated_at"],
+            },
+        )
+        self.assertEqual(status, 200)
+        running = started["data"]["card"]
+        self.assertEqual(running["timer_state"], "running")
+        self.assertTrue(running["timer_active"])
+        self.assertGreater(running["remaining_seconds"], 0)
+
+        status, stopped = self.request(
+            "/api/stop_card_timer",
+            {
+                "card_id": card["id"],
+                "actor_name": "ALICE",
+                "source": "api",
+                "expected_updated_at": running["updated_at"],
+            },
+        )
+        self.assertEqual(status, 200)
+        inactive = stopped["data"]["card"]
+        self.assertEqual(inactive["timer_state"], "inactive")
+        self.assertFalse(inactive["timer_active"])
+        self.assertEqual(inactive["remaining_seconds"], 0)
+
     def test_create_column_accepts_name_alias(self) -> None:
         status, created_column = self.request("/api/create_column", {"name": "Этап по имени"})
         self.assertEqual(status, 200)

@@ -99,6 +99,8 @@ _HIDDEN_RAW_MCP_TOOL_NAMES = [
     "move_sticky",
     "delete_sticky",
     "set_card_deadline",
+    "start_card_timer",
+    "stop_card_timer",
     "set_card_indicator",
     "move_card",
     "mark_card_ready",
@@ -253,6 +255,8 @@ _HISTORICAL_CONNECTOR_TOOL_NAMES = [
     "move_sticky",
     "delete_sticky",
     "set_card_deadline",
+    "start_card_timer",
+    "stop_card_timer",
     "set_card_indicator",
 ]
 

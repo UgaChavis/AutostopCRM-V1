@@ -642,6 +642,8 @@
     els.signalDaysDecrementButton.addEventListener('click', () => adjustSignalPart('days', -1));
     els.signalHoursIncrementButton.addEventListener('click', () => adjustSignalPart('hours', 1));
     els.signalHoursDecrementButton.addEventListener('click', () => adjustSignalPart('hours', -1));
+    els.signalStartButton?.addEventListener('click', startCardTimerFromPanel);
+    els.signalStopButton?.addEventListener('click', stopCardTimerFromPanel);
     [els.signalDays, els.signalHours].forEach((input) => {
       input.addEventListener('input', renderSignalPreview);
       input.addEventListener('input', scheduleCardSaveDirtyStateSync);
@@ -765,8 +767,14 @@
         : '';
       const headingHtml = buildCardHeadingHtml(card);
       const badgeHtml = cardUnreadBadgeHtml(card);
-      const heatStyle = '--deadline-heat-border:' + escapeHtml(card.deadline_heat_border_color || 'rgba(83, 191, 122, 0.34)') + ';--deadline-heat-ring:' + escapeHtml(card.deadline_heat_ring_color || 'rgba(83, 191, 122, 0.08)') + ';--deadline-heat-glow:' + escapeHtml(card.deadline_heat_glow_color || 'rgba(83, 191, 122, 0.04)') + ';';
-      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-indicator="' + escapeHtml(card.indicator) + '" data-status="' + escapeHtml(card.status) + '" data-blink="' + (card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-updated-unseen="' + (card.has_unseen_update ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(card.deadline_progress_bucket ?? 0) + '" data-deadline-step="' + escapeHtml(card.deadline_progress_step_percent ?? 0) + '">' + badgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(boardCardDescription(card)) + '</div><div class="card__footer"><div class="card__signal"><span class="lamp" data-indicator="' + escapeHtml(card.indicator) + '"></span></div><div class="card__tags">' + tagsHtml + '</div></div></article>';
+      const timerRunning = cardTimerIsRunning(card);
+      const indicator = timerRunning ? card.indicator : 'inactive';
+      const status = timerRunning ? card.status : 'inactive';
+      const heatStyle = timerRunning
+        ? '--deadline-heat-border:' + escapeHtml(card.deadline_heat_border_color || 'rgba(83, 191, 122, 0.34)') + ';--deadline-heat-ring:' + escapeHtml(card.deadline_heat_ring_color || 'rgba(83, 191, 122, 0.08)') + ';--deadline-heat-glow:' + escapeHtml(card.deadline_heat_glow_color || 'rgba(83, 191, 122, 0.04)') + ';'
+        : '--deadline-heat-border:rgba(78, 73, 61, 0.28);--deadline-heat-ring:rgba(0, 0, 0, 0);--deadline-heat-glow:rgba(0, 0, 0, 0);';
+      const timerTitle = timerRunning ? ('Таймер: ' + timerRemainingText(timerRemainingSeconds(card))) : 'Таймер не включён';
+      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-timer-state="' + (timerRunning ? 'running' : 'inactive') + '" data-indicator="' + escapeHtml(indicator) + '" data-status="' + escapeHtml(status) + '" data-blink="' + (timerRunning && card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-updated-unseen="' + (card.has_unseen_update ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(timerRunning ? (card.deadline_progress_bucket ?? 0) : 0) + '" data-deadline-step="' + escapeHtml(timerRunning ? (card.deadline_progress_step_percent ?? 0) : 0) + '">' + badgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(boardCardDescription(card)) + '</div><div class="card__footer"><div class="card__signal"><span class="lamp" data-indicator="' + escapeHtml(indicator) + '" title="' + escapeHtml(timerTitle) + '" aria-label="' + escapeHtml(timerTitle) + '"></span></div><div class="card__tags">' + tagsHtml + '</div></div></article>';
     }
 
     function refreshVehiclePanel() {
@@ -838,6 +846,7 @@
     refreshSnapshot(true);
     document.addEventListener('visibilitychange', handleSnapshotVisibilityChange);
     startSnapshotPolling();
+    startCardTimerVisualTicker();
   </script>
 </body>
 </html>

@@ -461,6 +461,79 @@ class CardServiceTests(unittest.TestCase):
         archived = self.service.archive_card({"card_id": card_id})
         self.assertTrue(archived["card"]["archived"])
 
+    def test_card_timer_is_inactive_by_default_and_start_stop_are_explicit(self) -> None:
+        created = self.service.create_card(
+            {"title": "Таймер по необходимости", "actor_name": "ALICE", "source": "ui"}
+        )["card"]
+        card_id = created["id"]
+        self.assertEqual(created["timer_state"], "inactive")
+        self.assertFalse(created["timer_active"])
+        self.assertEqual(created["remaining_seconds"], 0)
+        self.assertEqual(created["deadline_progress_bucket"], 0)
+        self.assertEqual(self.service.list_overdue_cards()["cards"], [])
+
+        self.service.mark_card_seen({"card_id": card_id, "actor_name": "BOB"})
+        started = self.service.start_card_timer(
+            {
+                "card_id": card_id,
+                "deadline": {"hours": 2},
+                "actor_name": "ALICE",
+                "source": "ui",
+            }
+        )
+        started_card = started["card"]
+        self.assertEqual(started["meta"]["action"], "started")
+        self.assertEqual(started_card["timer_state"], "running")
+        self.assertTrue(started_card["timer_active"])
+        self.assertGreater(started_card["remaining_seconds"], 0)
+        self.assertFalse(
+            self.service.get_card({"card_id": card_id, "actor_name": "BOB"})["card"][
+                "has_unseen_update"
+            ]
+        )
+
+        deadline_timestamp = started_card["deadline_timestamp"]
+        content_updated = self.service.update_card(
+            {
+                "card_id": card_id,
+                "description": "Обычная правка не перезапускает таймер",
+                "actor_name": "ALICE",
+                "source": "ui",
+            }
+        )["card"]
+        self.assertEqual(content_updated["deadline_timestamp"], deadline_timestamp)
+
+        self.service.mark_card_seen({"card_id": card_id, "actor_name": "BOB"})
+        stopped = self.service.stop_card_timer(
+            {"card_id": card_id, "actor_name": "ALICE", "source": "ui"}
+        )
+        self.assertEqual(stopped["meta"]["action"], "stopped")
+        self.assertEqual(stopped["card"]["timer_state"], "inactive")
+        self.assertEqual(stopped["card"]["remaining_seconds"], 0)
+        self.assertFalse(
+            self.service.get_card({"card_id": card_id, "actor_name": "BOB"})["card"][
+                "has_unseen_update"
+            ]
+        )
+
+        bulk = self.service.bulk_set_deadline_if_below(
+            {
+                "mode": "apply",
+                "card_ids": [card_id],
+                "min_total_seconds": 3600,
+                "target_total_seconds": 7200,
+                "actor_name": "ALICE",
+            }
+        )
+        self.assertEqual(bulk["eligible"], 0)
+        self.assertEqual(bulk["changed"], 0)
+
+        restarted = self.service.start_card_timer(
+            {"card_id": card_id, "actor_name": "ALICE", "source": "ui"}
+        )
+        self.assertEqual(restarted["card"]["deadline_total_seconds"], 7200)
+        self.assertEqual(restarted["card"]["timer_state"], "running")
+
     def test_clients_can_be_created_searched_and_linked_to_card(self) -> None:
         client = self.service.create_client(
             {

@@ -335,9 +335,9 @@ def _deadline_part_value(value: Any, *, maximum: int) -> int:
     return int(numeric)
 
 
-def _resolved_create_card_deadline(deadline: DeadlinePayload | None) -> dict[str, int]:
+def _resolved_create_card_deadline(deadline: DeadlinePayload | None) -> dict[str, int] | None:
     if deadline is None:
-        return {"days": 1, "hours": 0, "minutes": 0, "seconds": 0}
+        return None
     payload = deadline.model_dump()
     resolved = {
         "days": _deadline_part_value(payload.get("days"), maximum=365),
@@ -3332,9 +3332,9 @@ def create_mcp_server(
     @server.tool(
         name="create_card",
         description=_scoped_description(
-            "Create a card on the current AutoStop CRM board with vehicle, title, description, optional tags, optional target column, optional vehicle_profile, and a deadline. "
+            "Create a card on the current AutoStop CRM board with vehicle, title, description, optional tags, optional target column, optional vehicle_profile, and an optional timer deadline. "
             "vehicle must contain make/model only, and title must contain the short essence of the issue, task, or result. "
-            "If deadline is omitted or all-zero, the connector uses a default of one day. "
+            "If deadline is omitted, the card timer is inactive. An explicitly supplied all-zero deadline uses a default of one day. "
             "For the 1.1 vehicle card flow, prefer the compact vehicle fields: make_display, model_display, production_year, vin, engine_model, gearbox_model, drivetrain, and oem_notes."
         ),
         annotations=_write_tool_annotations("Create Card"),
@@ -3889,6 +3889,56 @@ def create_mcp_server(
             lambda: board_api.set_card_deadline(
                 card_id=card_id,
                 deadline=deadline.model_dump(),
+                actor_name=actor_name,
+                response_mode=response_mode,
+            ),
+        )
+
+    @server.tool(
+        name="start_card_timer",
+        description=_scoped_description(
+            "Start or restart a card timer. Supply a deadline to change the duration; omit it to reuse the card's saved duration."
+        ),
+        annotations=_write_tool_annotations("Start Card Timer"),
+        structured_output=True,
+    )
+    def start_card_timer(
+        card_id: str,
+        deadline: DeadlinePayload | None = None,
+        expected_updated_at: str | None = None,
+        actor_name: str | None = None,
+        response_mode: Literal["full", "compact"] = "full",
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "start_card_timer",
+            lambda: board_api.start_card_timer(
+                card_id=card_id,
+                deadline=deadline.model_dump() if deadline is not None else None,
+                expected_updated_at=expected_updated_at,
+                actor_name=actor_name,
+                response_mode=response_mode,
+            ),
+        )
+
+    @server.tool(
+        name="stop_card_timer",
+        description=_scoped_description(
+            "Stop a card timer without deleting the saved duration. A later start begins the full saved duration again."
+        ),
+        annotations=_write_tool_annotations("Stop Card Timer"),
+        structured_output=True,
+    )
+    def stop_card_timer(
+        card_id: str,
+        expected_updated_at: str | None = None,
+        actor_name: str | None = None,
+        response_mode: Literal["full", "compact"] = "full",
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "stop_card_timer",
+            lambda: board_api.stop_card_timer(
+                card_id=card_id,
+                expected_updated_at=expected_updated_at,
                 actor_name=actor_name,
                 response_mode=response_mode,
             ),

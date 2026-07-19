@@ -30,6 +30,7 @@ from ..models import (
     CARD_VEHICLE_LIMIT,
     COLUMN_LABEL_LIMIT,
     COUNTER_MAX_VALUE,
+    DEFAULT_DEADLINE_TOTAL_SECONDS,
     MAX_ATTACHMENT_SIZE_BYTES,
     MAX_DEADLINE_TOTAL_SECONDS,
     REPAIR_ORDER_FILE_RETENTION_LIMIT,
@@ -738,7 +739,12 @@ class CardService(
             vehicle = self._resolved_card_vehicle_label(vehicle, vehicle_profile)
             title = self._validated_title(payload.get("title"))
             description = self._validated_description(payload.get("description", ""))
-            deadline_total_seconds = self._validated_deadline(payload.get("deadline"))
+            timer_requested = "deadline" in payload and payload.get("deadline") is not None
+            deadline_total_seconds = (
+                self._validated_deadline(payload.get("deadline"))
+                if timer_requested
+                else DEFAULT_DEADLINE_TOTAL_SECONDS
+            )
             tags = self._validated_tags(payload.get("tags", []))
             default_column_id = columns[0].id if columns else "inbox"
             column = self._validated_column(payload.get("column", default_column_id), columns)
@@ -757,6 +763,7 @@ class CardService(
                 updated_at=now_iso,
                 deadline_timestamp=(now + timedelta(seconds=deadline_total_seconds)).isoformat(),
                 deadline_total_seconds=deadline_total_seconds,
+                timer_state="running" if timer_requested else "inactive",
                 position=0,
                 vehicle=vehicle,
                 vehicle_profile=vehicle_profile,
@@ -808,6 +815,7 @@ class CardService(
                     "tags": card.tag_labels(),
                     "deadline_total_seconds": card.deadline_total_seconds,
                     "deadline_timestamp": card.deadline_timestamp,
+                    "timer_state": card.timer_state,
                     "vehicle_profile_state": card.vehicle_profile.data_completion_state,
                     "is_unread": card.is_unread,
                 },
@@ -1599,9 +1607,15 @@ class CardService(
             now = utc_now()
             active_cards = [card for card in cards if not card.archived]
             archived_cards = [card for card in cards if card.archived]
-            overdue_cards = [card for card in active_cards if card.remaining_seconds(now) <= 0]
+            overdue_cards = [
+                card
+                for card in active_cards
+                if card.timer_is_running() and card.remaining_seconds(now) <= 0
+            ]
             critical_cards = [
-                card for card in active_cards if card.status(now) in {"critical", "expired"}
+                card
+                for card in active_cards
+                if card.timer_is_running() and card.status(now) in {"critical", "expired"}
             ]
             stale_summary_cards = [card for card in active_cards if card.board_summary_stale()]
             missing_cards = [card for card in active_cards if self._manager_missing_kinds(card)]
@@ -1889,7 +1903,9 @@ class CardService(
                 and (not target_ids or card.id in target_ids)
             ]
             eligible_cards = [
-                card for card in scanned_cards if card.remaining_seconds(now) < minimum_seconds
+                card
+                for card in scanned_cards
+                if card.timer_is_running() and card.remaining_seconds(now) < minimum_seconds
             ][:limit]
             changed_cards: list[Card] = []
             items = []
@@ -2142,7 +2158,7 @@ class CardService(
                         *card.tag_items(),
                         {"label": _MANAGER_WAIT_PAYMENT_TAG_LABEL, "color": "yellow"},
                     ]
-                if card.remaining_seconds(now) < target_seconds:
+                if card.timer_is_running() and card.remaining_seconds(now) < target_seconds:
                     planned_changes["deadline"] = {"target_total_seconds": target_seconds}
                 if refresh_summary and (not card.board_summary or card.board_summary_stale()):
                     planned_changes["board_summary"] = self._manager_generated_board_summary(
@@ -2182,7 +2198,10 @@ class CardService(
                 "passed": mode == "dry_run"
                 or all(
                     self._manager_has_wait_payment_tag(card)
-                    and card.remaining_seconds() >= max(0, target_seconds - 2)
+                    and (
+                        not card.timer_is_running()
+                        or card.remaining_seconds() >= max(0, target_seconds - 2)
+                    )
                     for card in changed_cards
                 ),
             }
@@ -3529,6 +3548,7 @@ class CardService(
                 "title",
                 "description",
                 "deadline",
+                "timer_state",
                 "tags",
                 "vehicle_profile",
                 "repair_order",
@@ -3536,13 +3556,14 @@ class CardService(
             if not updated_fields:
                 self._fail(
                     "validation_error",
-                    "Для обновления карточки нужно передать хотя бы одно поле: vehicle, title, description, deadline, tags, vehicle_profile или repair_order.",
+                    "Для обновления карточки нужно передать хотя бы одно поле: vehicle, title, description, deadline, timer_state, tags, vehicle_profile или repair_order.",
                     details={
                         "fields": [
                             "vehicle",
                             "title",
                             "description",
                             "deadline",
+                            "timer_state",
                             "tags",
                             "vehicle_profile",
                             "repair_order",
@@ -3611,6 +3632,13 @@ class CardService(
                 changed = deadline_changed or changed
                 if deadline_changed:
                     changed_fields.append("deadline")
+            if "timer_state" in payload:
+                timer_state_changed = self._update_timer_state(
+                    card, payload.get("timer_state"), events, actor_name, source
+                )
+                changed = timer_state_changed or changed
+                if timer_state_changed:
+                    changed_fields.append("timer_state")
             if "tags" in payload:
                 tags_changed = self._update_tags(
                     card, payload.get("tags"), events, actor_name, source
@@ -3681,7 +3709,8 @@ class CardService(
 
             numbering_changed = self._synchronize_repair_order_numbers(cards)
             notify_viewers = not (
-                changed_fields == ["deadline"]
+                bool(changed_fields)
+                and set(changed_fields).issubset({"deadline", "timer_state"})
                 and not numbering_changed
                 and not ready_column_changed
                 and not linked_vehicle_changed
@@ -3793,6 +3822,112 @@ class CardService(
             payload = dict(payload)
             payload["deadline"] = payload.get("deadline")
             return self.update_card(payload)
+
+    def start_card_timer(self, payload: dict) -> dict:
+        with self._lock:
+            bundle = self._store.read_bundle()
+            cards = bundle["cards"]
+            events = bundle["events"]
+            card = self._find_card(cards, payload.get("card_id"))
+            self._ensure_not_archived(card)
+            self._ensure_card_expected_updated_at(card, payload)
+            actor_name, source = self._audit_identity(payload, default_source="api")
+            response_mode = self._validated_response_mode(payload, default="full")
+            deadline_value = payload.get("deadline")
+            deadline_total_seconds = (
+                self._validated_deadline(deadline_value)
+                if deadline_value is not None
+                else max(
+                    1,
+                    normalize_int(
+                        card.deadline_total_seconds,
+                        default=DEFAULT_DEADLINE_TOTAL_SECONDS,
+                        minimum=1,
+                        maximum=MAX_DEADLINE_TOTAL_SECONDS,
+                    ),
+                )
+            )
+            now = utc_now()
+            previous_state = card.timer_state
+            previous_remaining_seconds = card.remaining_seconds(now)
+            previous_deadline_timestamp = card.deadline_timestamp
+            card.deadline_total_seconds = deadline_total_seconds
+            card.deadline_timestamp = (now + timedelta(seconds=deadline_total_seconds)).isoformat()
+            card.timer_state = "running"
+            self._touch_card(card, actor_name, notify_viewers=False)
+            self._append_event(
+                events,
+                actor_name=actor_name,
+                source=source,
+                action="timer_restarted" if previous_state == "running" else "timer_started",
+                message=(
+                    f"{actor_name} перезапустил таймер карточки"
+                    if previous_state == "running"
+                    else f"{actor_name} запустил таймер карточки"
+                ),
+                card_id=card.id,
+                details={
+                    "before_timer_state": previous_state,
+                    "after_timer_state": card.timer_state,
+                    "before_remaining_seconds": previous_remaining_seconds,
+                    "before_deadline_timestamp": previous_deadline_timestamp,
+                    "deadline_total_seconds": deadline_total_seconds,
+                    "deadline_timestamp": card.deadline_timestamp,
+                },
+            )
+            self._save_bundle(bundle, columns=bundle["columns"], cards=cards, events=events)
+            return self._card_timer_action_result(
+                card,
+                bundle,
+                events,
+                actor_name=actor_name,
+                response_mode=response_mode,
+                changed=True,
+                action="restarted" if previous_state == "running" else "started",
+            )
+
+    def stop_card_timer(self, payload: dict) -> dict:
+        with self._lock:
+            bundle = self._store.read_bundle()
+            cards = bundle["cards"]
+            events = bundle["events"]
+            card = self._find_card(cards, payload.get("card_id"))
+            self._ensure_not_archived(card)
+            self._ensure_card_expected_updated_at(card, payload)
+            actor_name, source = self._audit_identity(payload, default_source="api")
+            response_mode = self._validated_response_mode(payload, default="full")
+            changed = card.timer_is_running()
+            if changed:
+                now = utc_now()
+                previous_remaining_seconds = card.remaining_seconds(now)
+                previous_deadline_timestamp = card.deadline_timestamp
+                card.timer_state = "inactive"
+                self._touch_card(card, actor_name, notify_viewers=False)
+                self._append_event(
+                    events,
+                    actor_name=actor_name,
+                    source=source,
+                    action="timer_stopped",
+                    message=f"{actor_name} остановил таймер карточки",
+                    card_id=card.id,
+                    details={
+                        "before_timer_state": "running",
+                        "after_timer_state": card.timer_state,
+                        "before_remaining_seconds": previous_remaining_seconds,
+                        "deadline_total_seconds": card.deadline_total_seconds,
+                        "deadline_timestamp": previous_deadline_timestamp,
+                    },
+                )
+                self._save_bundle(bundle, columns=bundle["columns"], cards=cards, events=events)
+            return self._card_timer_action_result(
+                card,
+                bundle,
+                events,
+                actor_name=actor_name,
+                response_mode=response_mode,
+                changed=changed,
+                action="stopped" if changed else "already_inactive",
+            )
 
     def set_card_indicator(self, payload: dict) -> dict:
         with self._lock:
@@ -5372,6 +5507,62 @@ class CardService(
         self._cleanup_repair_orders_directory(cards)
         self._cleanup_attachment_directories(cards)
 
+    def _ensure_card_expected_updated_at(self, card: Card, payload: dict) -> None:
+        expected_updated_at = normalize_text(
+            payload.get("expected_updated_at"), default="", limit=80
+        )
+        if expected_updated_at and expected_updated_at != card.updated_at:
+            self._fail(
+                "card_update_conflict",
+                "Карточка уже изменена другим оператором. Обновите карточку и повторите правку.",
+                status_code=409,
+                details={
+                    "card_id": card.id,
+                    "expected_updated_at": expected_updated_at,
+                    "current_updated_at": card.updated_at,
+                },
+            )
+
+    def _card_timer_action_result(
+        self,
+        card: Card,
+        bundle: dict,
+        events: list[AuditEvent],
+        *,
+        actor_name: str,
+        response_mode: str,
+        changed: bool,
+        action: str,
+    ) -> dict:
+        column_labels = self._column_labels(bundle["columns"])
+        card_payload = (
+            self._manager_card_item(card, column_labels, now=utc_now(), viewer_username=actor_name)
+            if response_mode == "compact"
+            else self._serialize_card(
+                card,
+                events,
+                column_labels=column_labels,
+                viewer_username=actor_name,
+            )
+        )
+        return {
+            "card": card_payload,
+            "meta": {
+                "changed": changed,
+                "action": action,
+                "response_mode": response_mode,
+                "verification": {
+                    "passed": (
+                        card.timer_state == "running"
+                        if action in {"started", "restarted"}
+                        else card.timer_state == "inactive"
+                    ),
+                    "card_id": card.id,
+                    "timer_state": card.timer_state,
+                },
+            },
+        }
+
     def _touch_card(
         self,
         card: Card,
@@ -5868,6 +6059,7 @@ class CardService(
         deadline_total_seconds = self._validated_deadline(value)
         previous_timestamp = card.deadline_timestamp
         previous_total_seconds = card.deadline_total_seconds
+        previous_timer_state = card.timer_state
         next_timestamp = (utc_now() + timedelta(seconds=deadline_total_seconds)).isoformat()
         if (
             previous_total_seconds == deadline_total_seconds
@@ -5876,6 +6068,7 @@ class CardService(
             return False
         card.deadline_total_seconds = deadline_total_seconds
         card.deadline_timestamp = next_timestamp
+        card.timer_state = "running"
         self._append_event(
             events,
             actor_name=actor_name,
@@ -5888,6 +6081,68 @@ class CardService(
                 "after_deadline_timestamp": next_timestamp,
                 "before_total_seconds": previous_total_seconds,
                 "after_total_seconds": deadline_total_seconds,
+                "before_timer_state": previous_timer_state,
+                "after_timer_state": card.timer_state,
+            },
+        )
+        return True
+
+    def _update_timer_state(
+        self,
+        card: Card,
+        value,
+        events: list[AuditEvent],
+        actor_name: str,
+        source: str,
+    ) -> bool:
+        timer_state = str(value or "").strip().lower()
+        if timer_state not in {"inactive", "running"}:
+            self._fail(
+                "validation_error",
+                "Поле timer_state должно быть inactive или running.",
+                details={"field": "timer_state", "allowed_values": ["inactive", "running"]},
+            )
+        previous_state = card.timer_state
+        if previous_state == timer_state:
+            return False
+        now = utc_now()
+        previous_remaining_seconds = card.remaining_seconds(now)
+        previous_deadline_timestamp = card.deadline_timestamp
+        card.timer_state = timer_state
+        if timer_state == "running":
+            card.deadline_timestamp = (
+                now
+                + timedelta(
+                    seconds=max(
+                        1,
+                        normalize_int(
+                            card.deadline_total_seconds,
+                            default=DEFAULT_DEADLINE_TOTAL_SECONDS,
+                            minimum=1,
+                            maximum=MAX_DEADLINE_TOTAL_SECONDS,
+                        ),
+                    )
+                )
+            ).isoformat()
+        action = "timer_started" if timer_state == "running" else "timer_stopped"
+        self._append_event(
+            events,
+            actor_name=actor_name,
+            source=source,
+            action=action,
+            message=(
+                f"{actor_name} запустил таймер карточки"
+                if timer_state == "running"
+                else f"{actor_name} остановил таймер карточки"
+            ),
+            card_id=card.id,
+            details={
+                "before_timer_state": previous_state,
+                "after_timer_state": timer_state,
+                "before_remaining_seconds": previous_remaining_seconds,
+                "before_deadline_timestamp": previous_deadline_timestamp,
+                "deadline_total_seconds": card.deadline_total_seconds,
+                "deadline_timestamp": card.deadline_timestamp,
             },
         )
         return True
@@ -8220,6 +8475,9 @@ class CardService(
             "indicator": card.indicator(now),
             "remaining_seconds": card.remaining_seconds(now),
             "deadline_total_seconds": card.deadline_total_seconds,
+            "deadline_timestamp": card.deadline_timestamp,
+            "timer_state": card.timer_state,
+            "timer_active": card.timer_is_running(),
             "updated_at": card.updated_at,
             "is_unread": card.is_unread_for(viewer_username),
             "has_unseen_update": card.has_unseen_update_for(viewer_username),
@@ -8266,7 +8524,7 @@ class CardService(
         item["needs_payment_followup"] = True
         item["recommended_actions"] = [
             "confirm_payment_or_handoff_status",
-            "keep_deadline_at_least_two_days",
+            *(["keep_deadline_at_least_two_days"] if card.timer_is_running() else []),
             "add_wait_payment_tag_if_missing",
         ]
         return item
@@ -8285,7 +8543,10 @@ class CardService(
             recommended.append("audit_client_links")
         if "board_summary" in missing or "board_summary_stale" in missing:
             recommended.append("bulk_refresh_board_summaries")
-        if card.remaining_seconds(now or utc_now()) < _MANAGER_DEFAULT_MIN_DEADLINE_SECONDS:
+        if (
+            card.timer_is_running()
+            and card.remaining_seconds(now or utc_now()) < _MANAGER_DEFAULT_MIN_DEADLINE_SECONDS
+        ):
             recommended.append("bulk_set_deadline_if_below")
         if "vin" in missing:
             recommended.append("cleanup_card")
@@ -9012,6 +9273,7 @@ class CardService(
             remaining_seconds = 0
         card.deadline_total_seconds = total_seconds
         card.deadline_timestamp = (utc_now() + timedelta(seconds=remaining_seconds)).isoformat()
+        card.timer_state = "running"
 
     def _validated_vehicle_profile_create(self, value) -> VehicleProfile:
         profile, _, _ = self._vehicle_profiles.normalize_profile_payload(

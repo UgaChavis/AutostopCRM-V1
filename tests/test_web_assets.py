@@ -794,7 +794,7 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
 
-    def test_mobile_card_detail_preserves_hidden_deadline_and_tags(self) -> None:
+    def test_mobile_card_detail_preserves_tags_without_resetting_timer(self) -> None:
         self.assertIn("function renderMobileCardDeadline(card)", BOARD_WEB_APP_HTML)
         self.assertIn("function mobileCardDeadlineFromUi(card)", BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -812,7 +812,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("function handleMobileCardTagInputKeydown(event)", BOARD_WEB_APP_HTML)
         self.assertNotIn("els.mobileCardTagAddButton?.addEventListener", BOARD_WEB_APP_HTML)
         self.assertNotIn("els.mobileCardTagInput?.addEventListener", BOARD_WEB_APP_HTML)
-        self.assertIn("deadline: mobileCardDeadlineFromUi(card),", BOARD_WEB_APP_HTML)
+        self.assertNotIn("deadline: mobileCardDeadlineFromUi(card),", BOARD_WEB_APP_HTML)
         self.assertIn("tags: readMobileCardTags(),", BOARD_WEB_APP_HTML)
 
     def test_mobile_card_detail_supports_vehicle_profile_and_client_fields(self) -> None:
@@ -1070,7 +1070,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".tag-limit {", BOARD_WEB_APP_HTML)
         self.assertIn(".tag-controls {", BOARD_WEB_APP_HTML)
         self.assertIn(".tag-list .tag {", BOARD_WEB_APP_HTML)
-        self.assertIn("--card-meta-panel-height: 94px;", BOARD_WEB_APP_HTML)
+        self.assertIn("--card-meta-panel-height: 132px;", BOARD_WEB_APP_HTML)
         self.assertIn(
             "grid-template-columns: minmax(144px, 150px) minmax(0, 450px);",
             BOARD_WEB_APP_HTML,
@@ -1090,6 +1090,25 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="tagMeta"', BOARD_WEB_APP_HTML)
         self.assertIn("МЕТОК НЕТ", BOARD_WEB_APP_HTML)
         self.assertIn(".column > * {", BOARD_WEB_APP_HTML)
+
+    def test_card_timer_is_inactive_by_default_and_has_explicit_controls(self) -> None:
+        for element_id in (
+            "signalState",
+            "signalRemaining",
+            "signalStartButton",
+            "signalStopButton",
+        ):
+            self.assertIn(f'id="{element_id}"', BOARD_WEB_APP_HTML)
+        self.assertIn("cardTimerState: 'inactive'", BOARD_WEB_APP_HTML)
+        self.assertIn("function startCardTimerFromPanel()", BOARD_WEB_APP_HTML)
+        self.assertIn("function stopCardTimerFromPanel()", BOARD_WEB_APP_HTML)
+        self.assertIn("function applyCardTimerOperationResult(card)", BOARD_WEB_APP_HTML)
+        self.assertIn("api('/api/start_card_timer'", BOARD_WEB_APP_HTML)
+        self.assertIn("api('/api/stop_card_timer'", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "timer_state: state.editingId ? '' : state.cardTimerState", BOARD_WEB_APP_HTML
+        )
+        self.assertIn('data-indicator="inactive"', BOARD_WEB_APP_HTML)
 
     def test_vehicle_profile_fields_do_not_show_placeholder_hints(self) -> None:
         self.assertNotIn("Subaru Legacy", BOARD_WEB_APP_HTML)
@@ -5027,6 +5046,13 @@ class WebAssetsTests(unittest.TestCase):
             "return dd + '.' + mm + '.' + yy + ', ' + hh + ':' + min;", BOARD_WEB_APP_HTML
         )
         self.assertNotIn("window.prompt('Куда перевести деньги?", BOARD_WEB_APP_HTML)
+
+    def test_cashbox_cancellation_exposes_inline_feedback(self) -> None:
+        self.assertIn('id="cashboxCancelFeedback"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "function setCashboxCancelFeedback(message = '', isError = false)", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("setCashboxCancelFeedback('Отменяю операцию…');", BOARD_WEB_APP_HTML)
 
     def test_inventory_module_exposes_minimal_warehouse_workspace(self) -> None:
         self.assertIn('id="inventoryButton"', BOARD_WEB_APP_HTML)

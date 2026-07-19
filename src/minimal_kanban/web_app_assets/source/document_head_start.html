@@ -1044,6 +1044,12 @@
     }
     .lamp[data-indicator="green"] { background: var(--ok); }
     .lamp[data-indicator="yellow"] { background: var(--warn); }
+    .lamp[data-indicator="inactive"] {
+      border-color: rgba(66, 75, 65, 0.58);
+      background: transparent;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04);
+      opacity: 0.72;
+    }
     .lamp[data-indicator="red"] {
       background: var(--danger);
       box-shadow: 0 0 0 1px rgba(207, 91, 75, 0.2);

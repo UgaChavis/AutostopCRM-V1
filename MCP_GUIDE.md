@@ -68,6 +68,12 @@ Low-level board, client, repair-order, inventory, finance, file, operator, and
 manager functions remain in the raw registry but are not advertised directly.
 Do not call a hidden legacy name from an external agent.
 
+The raw board registry includes `start_card_timer` and `stop_card_timer`.
+`create_card` leaves the timer inactive when `deadline` is omitted; an explicit
+positive deadline starts it. Restarting without a deadline reuses the saved
+duration. Timer-only actions are audited but do not flag the card as unseen
+content for other operators.
+
 The mounted Manager contributes five `INTERNAL_ONLY` store adapter tools:
 `store_runtime_status`, `store_digest`, `store_search`,
 `store_entity_context`, and `store_management_action`. Gateway captures all

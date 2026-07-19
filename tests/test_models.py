@@ -70,6 +70,23 @@ class ModelsTests(unittest.TestCase):
 
         self.assertEqual(card.deadline_total_seconds, 31_536_000)
 
+    def test_card_timer_state_defaults_legacy_to_running_and_supports_inactive(self) -> None:
+        legacy = Card.from_dict({"id": "legacy-card", "title": "Старый таймер"})
+        inactive = Card.from_dict(
+            {"id": "inactive-card", "title": "Без таймера", "timer_state": "inactive"}
+        )
+
+        self.assertEqual(legacy.timer_state, "running")
+        self.assertTrue(legacy.timer_is_running())
+        self.assertEqual(inactive.timer_state, "inactive")
+        self.assertFalse(inactive.timer_is_running())
+        self.assertEqual(inactive.remaining_seconds(), 0)
+        self.assertEqual(inactive.status(), "ok")
+        self.assertFalse(inactive.is_blinking())
+        self.assertEqual(inactive.deadline_progress_bucket(), 0)
+        self.assertEqual(inactive.to_dict()["timer_active"], False)
+        self.assertEqual(inactive.to_storage_dict()["timer_state"], "inactive")
+
     def test_money_formatter_and_card_event_count_tolerate_invalid_numbers(self) -> None:
         card = Card.from_dict({"id": "card-1", "title": "Диагностика", "vehicle": "Toyota"})
 

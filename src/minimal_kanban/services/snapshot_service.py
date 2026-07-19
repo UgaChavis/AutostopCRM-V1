@@ -52,6 +52,9 @@ CARD_JOURNAL_ACTION_LABELS = {
     "board_summary_changed": "Обновлена краткая суть для доски",
     "signal_changed": "Изменён срок/сигнал",
     "signal_indicator_changed": "Изменён индикатор",
+    "timer_started": "Запущен таймер",
+    "timer_restarted": "Перезапущен таймер",
+    "timer_stopped": "Остановлен таймер",
     "tag_added": "Добавлена метка",
     "tag_removed": "Удалена метка",
     "tag_color_changed": "Изменён цвет метки",
@@ -84,6 +87,9 @@ CARD_JOURNAL_ACTION_ICONS = {
     "board_summary_changed": "🧭",
     "signal_changed": "⏰",
     "signal_indicator_changed": "🚦",
+    "timer_started": "▶️",
+    "timer_restarted": "🔄",
+    "timer_stopped": "⏹️",
     "tag_added": "🏷️",
     "tag_removed": "🏷️",
     "tag_color_changed": "🎨",
@@ -113,6 +119,7 @@ CARD_JOURNAL_FIELD_LABELS = {
     "column": "Столбец",
     "deadline": "Срок/сигнал",
     "indicator": "Индикатор",
+    "timer": "Таймер",
     "tags": "Метки",
     "tag": "Метка",
     "tag_color": "Цвет метки",
@@ -138,6 +145,7 @@ CARD_JOURNAL_FIELD_ACTION_LABELS = {
     "column": "Столбец",
     "deadline": "Срок/сигнал",
     "indicator": "Индикатор",
+    "timer": "Таймер",
     "tags": "Метки",
     "tag": "Метку",
     "tag_color": "Цвет метки",
@@ -1806,6 +1814,12 @@ class SnapshotService:
                 "yellow": "жёлтый",
                 "red": "красный",
             }.get(raw, self._card_log_scalar_human_value(value))
+        if field == "timer":
+            raw = str(value or "").strip().lower()
+            return {
+                "inactive": "выключен",
+                "running": "запущен",
+            }.get(raw, self._card_log_scalar_human_value(value))
         if field in {"tags", "tag"}:
             return self._card_log_tags_human_value(value)
         if field == "vehicle_profile":
@@ -1947,6 +1961,14 @@ class SnapshotService:
                 after=details.get("after_indicator"),
             )
             if "deadline_total_seconds" in details:
+                add("deadline", after=details.get("deadline_total_seconds"))
+        elif action in {"timer_started", "timer_restarted", "timer_stopped"}:
+            add(
+                "timer",
+                before=details.get("before_timer_state"),
+                after=details.get("after_timer_state"),
+            )
+            if action != "timer_stopped" and "deadline_total_seconds" in details:
                 add("deadline", after=details.get("deadline_total_seconds"))
         return changes
 
@@ -2689,6 +2711,9 @@ class SnapshotService:
             "vehicle_profile_updated",
             "signal_changed",
             "signal_indicator_changed",
+            "timer_started",
+            "timer_restarted",
+            "timer_stopped",
             "tags_changed",
         }:
             return True
