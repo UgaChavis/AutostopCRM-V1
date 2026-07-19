@@ -242,7 +242,15 @@ class DeployScriptTests(unittest.TestCase):
         self.assertIn("defusedxml==0.7.1", runtime_requirements)
         self.assertIn('RUNTIME_UID="${AUTOSTOP_RUNTIME_UID:-10001}"', deploy_script)
         self.assertIn(
+            'SEARXNG_RUNTIME_UID="${AUTOSTOP_SEARXNG_RUNTIME_UID:-977}"',
+            deploy_script,
+        )
+        self.assertIn(
             'run_release chown -R "$RUNTIME_UID:$RUNTIME_GID" "$CRM_DATA_DIR" "$(dirname "$MANAGER_DB")"',
+            deploy_script,
+        )
+        self.assertIn(
+            'run_release chown -R "$SEARXNG_RUNTIME_UID:$SEARXNG_RUNTIME_GID" "$searxng_dir"',
             deploy_script,
         )
         self.assertIn(

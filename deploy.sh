@@ -29,6 +29,10 @@ CRM_DATA_DIR="${AUTOSTOP_DATA_DIR:-$ROOT_DIR/data}"
 MANAGER_DB="${AUTOSTOP_MANAGER_DB:-/opt/AutostopManager/data/autostop_manager.sqlite3}"
 RUNTIME_UID="${AUTOSTOP_RUNTIME_UID:-10001}"
 RUNTIME_GID="${AUTOSTOP_RUNTIME_GID:-10001}"
+SEARXNG_RUNTIME_UID="${AUTOSTOP_SEARXNG_RUNTIME_UID:-977}"
+SEARXNG_RUNTIME_GID="${AUTOSTOP_SEARXNG_RUNTIME_GID:-977}"
+SEARXNG_CONFIG_DIR="${AUTOSTOP_SEARXNG_CONFIG_DIR:-$CRM_DATA_DIR/searxng/config}"
+SEARXNG_CACHE_DIR="${AUTOSTOP_SEARXNG_CACHE_DIR:-$CRM_DATA_DIR/searxng/cache}"
 MANAGER_SOURCE_DIR="${AUTOSTOP_MANAGER_SOURCE_DIR:-/opt/AutostopManager}"
 MANAGER_RELEASE_ROOT="${AUTOSTOP_MANAGER_RELEASE_ROOT:-/opt/autostop-manager-releases}"
 MANAGER_CURRENT_LINK="${AUTOSTOP_MANAGER_CURRENT_LINK:-$MANAGER_RELEASE_ROOT/current}"
@@ -524,6 +528,14 @@ assert_release_budget
 # The hardened image runs without root. Migrate only the two persisted data
 # trees after the verified backup and while the CRM container is stopped.
 run_release chown -R "$RUNTIME_UID:$RUNTIME_GID" "$CRM_DATA_DIR" "$(dirname "$MANAGER_DB")"
+# The CRM data tree also contains SearXNG bind mounts. Restore their dedicated
+# non-root owner after the broad CRM ownership migration so search survives a
+# deploy and the next container restart.
+for searxng_dir in "$SEARXNG_CONFIG_DIR" "$SEARXNG_CACHE_DIR"; do
+  if [[ -d "$searxng_dir" ]]; then
+    run_release chown -R "$SEARXNG_RUNTIME_UID:$SEARXNG_RUNTIME_GID" "$searxng_dir"
+  fi
+done
 
 run_release env AUTOSTOP_RELEASE_IMAGE="$release_image" docker compose up \
   -d --no-deps --no-build --force-recreate "$SERVICE_NAME"
