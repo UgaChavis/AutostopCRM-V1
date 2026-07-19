@@ -45,8 +45,8 @@ Owner MCP client -> 24-tool Gateway v2 -> mounted AutostopManager adapter
 - Operations: inventory movements, cashboxes, transfers, payroll, reports,
   shared files, and operator activity.
 - Shared display: a read-only TV dashboard opened from board scale settings,
-  with current-month employee accruals and four weekly repair-order revenue
-  buckets.
+  with a descending current-week employee-accrual ranking and four weekly
+  repair-order revenue buckets.
 - Integrations: local HTTP API, streamable HTTP MCP, Agent Gateway v2,
   Responses API clients, AutoStop App store context, and automotive/web
   research helpers.

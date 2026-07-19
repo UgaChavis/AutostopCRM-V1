@@ -44,9 +44,17 @@
     .dashboard {
       height: 100dvh;
       display: grid;
-      grid-template-rows: auto minmax(0, 0.82fr) minmax(0, 1.18fr);
+      grid-template-rows: auto minmax(0, 1fr);
       gap: clamp(10px, 1.4vh, 18px);
       padding: clamp(14px, 2vw, 34px);
+    }
+
+    .dashboard-content {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 0.88fr) minmax(0, 1.12fr);
+      gap: clamp(10px, 1.2vw, 20px);
     }
 
     .dashboard-header {
@@ -158,61 +166,109 @@
       white-space: nowrap;
     }
 
-    .salary-grid {
-      --columns: 4;
-      --rows: 2;
+    .salary-list {
       min-height: 0;
-      display: grid;
-      grid-template-columns: repeat(var(--columns), minmax(0, 1fr));
-      grid-template-rows: repeat(var(--rows), minmax(0, 1fr));
-      gap: clamp(7px, 0.7vw, 13px);
+      display: flex;
+      flex-direction: column;
+      gap: clamp(4px, 0.55vh, 8px);
     }
 
-    .salary-card {
+    .salary-row {
       min-width: 0;
       min-height: 0;
       overflow: hidden;
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: 30px minmax(150px, 0.95fr) minmax(120px, 1.3fr) minmax(104px, auto);
       align-items: center;
-      gap: 14px;
-      padding: clamp(9px, 0.9vw, 17px);
-      border-left: 5px solid var(--green);
+      gap: clamp(7px, 0.65vw, 12px);
+      padding: clamp(5px, 0.55vh, 9px) clamp(8px, 0.7vw, 13px);
+      border-left: 4px solid #94a496;
       background: #f8f7ef;
       outline: 1px solid #d8d8cc;
+      flex: 1 1 0;
+      min-height: 34px;
+      max-height: 58px;
     }
 
-    .salary-card__person { min-width: 0; }
+    .salary-row[data-rank="1"] {
+      border-left-color: var(--green);
+      background: #f0f6ed;
+      outline-color: #9db3a1;
+    }
 
-    .salary-card__name {
+    .salary-row__rank {
+      color: var(--muted);
+      font-family: Consolas, "Courier New", monospace;
+      font-size: clamp(13px, 0.9vw, 17px);
+      font-weight: 800;
+      text-align: center;
+    }
+
+    .salary-row[data-rank="1"] .salary-row__rank { color: var(--green); }
+
+    .salary-row__person { min-width: 0; }
+
+    .salary-row__name {
       overflow: hidden;
       color: var(--ink);
-      font-size: clamp(15px, 1.18vw, 23px);
+      font-size: clamp(14px, 1vw, 19px);
       font-weight: 800;
       line-height: 1.05;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
 
-    .salary-card__position {
+    .salary-row__position {
       overflow: hidden;
-      margin-top: 6px;
+      margin-top: 3px;
       color: var(--muted);
-      font-size: clamp(10px, 0.75vw, 14px);
+      font-size: clamp(9px, 0.65vw, 12px);
       text-overflow: ellipsis;
       text-transform: uppercase;
       white-space: nowrap;
     }
 
-    .salary-card__amount {
+    .salary-row__meter {
+      min-width: 0;
+      height: clamp(10px, 1.25vh, 15px);
+      overflow: hidden;
+      border: 1px solid #aeb8ae;
+      background: #e5e7df;
+    }
+
+    .salary-row__fill {
+      width: calc(var(--ratio) * 100%);
+      height: 100%;
+      background: linear-gradient(90deg, #78997e, var(--green));
+      transform: scaleX(0);
+      transform-origin: left;
+      transition: transform 850ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+
+    .salary-row[data-rank="1"] .salary-row__fill {
+      background: linear-gradient(90deg, #64a071, #1f743f);
+      box-shadow: 0 0 16px rgba(35, 115, 67, 0.22);
+    }
+
+    .dashboard[data-ready="true"] .salary-row__fill { transform: scaleX(1); }
+
+    .salary-row__amount {
       color: var(--green);
       font-family: Consolas, "Courier New", monospace;
-      font-size: clamp(18px, 1.45vw, 29px);
+      font-size: clamp(16px, 1.25vw, 24px);
       font-weight: 800;
       line-height: 1;
       text-align: right;
       white-space: nowrap;
     }
+
+    .salary-list[data-density="compact"] .salary-row {
+      min-height: 22px;
+      max-height: 40px;
+      padding-block: 2px;
+    }
+
+    .salary-list[data-density="compact"] .salary-row__position { display: none; }
 
     .weeks-chart {
       min-height: 0;
@@ -347,17 +403,20 @@
       .dashboard {
         min-height: 100dvh;
         height: auto;
-        grid-template-rows: auto auto auto;
+        grid-template-rows: auto auto;
       }
       .dashboard-header,
       .panel-head { align-items: flex-start; }
-      .salary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto; }
+      .dashboard-content { grid-template-columns: 1fr; }
+      .salary-list { display: grid; grid-template-rows: repeat(var(--salary-count), minmax(54px, auto)); }
+      .salary-row { grid-template-columns: 28px minmax(120px, 0.9fr) minmax(100px, 1.2fr) auto; }
       .weeks-chart { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .bar-stage { min-height: 180px; }
     }
 
     @media (prefers-reduced-motion: reduce) {
-      .bar { transition: none; }
+      .bar,
+      .salary-row__fill { transition: none; }
     }
   </style>
 </head>
@@ -374,31 +433,33 @@
       </div>
     </header>
 
-    <section class="panel" aria-labelledby="salaryTitle">
-      <div class="panel-head">
-        <div>
-          <div class="section-kicker" id="salaryMonth">ТЕКУЩИЙ МЕСЯЦ</div>
-          <h2 id="salaryTitle">Заработано в текущем месяце</h2>
+    <div class="dashboard-content">
+      <section class="panel salary-panel" aria-labelledby="salaryTitle">
+        <div class="panel-head">
+          <div>
+            <div class="section-kicker" id="salaryPeriod">ТЕКУЩАЯ НЕДЕЛЯ</div>
+            <h2 id="salaryTitle">Начислено за текущую неделю</h2>
+          </div>
+          <div class="panel-note">БОЛЬШЕ СВЕРХУ · МЕНЬШЕ СНИЗУ</div>
         </div>
-        <div class="panel-note">ТОЛЬКО АКТИВНЫЕ СОТРУДНИКИ ОБЩЕГО ЭКРАНА</div>
-      </div>
-      <div class="salary-grid" id="salaryGrid" aria-live="polite">
-        <div class="empty-state">Загрузка сотрудников…</div>
-      </div>
-    </section>
+        <div class="salary-list" id="salaryList" aria-live="polite">
+          <div class="empty-state">Загрузка сотрудников…</div>
+        </div>
+      </section>
 
-    <section class="panel" aria-labelledby="weeksTitle">
-      <div class="panel-head">
-        <div>
-          <div class="section-kicker">ЗАКРЫТЫЕ ЗАКАЗ-НАРЯДЫ</div>
-          <h2 id="weeksTitle">Валовая выручка · 4 недели</h2>
+      <section class="panel revenue-panel" aria-labelledby="weeksTitle">
+        <div class="panel-head">
+          <div>
+            <div class="section-kicker">ЗАКРЫТЫЕ ЗАКАЗ-НАРЯДЫ</div>
+            <h2 id="weeksTitle">Валовая выручка · 4 недели</h2>
+          </div>
+          <div class="panel-note" id="averageNote">ЕДИНАЯ ШКАЛА · ПН—ВС</div>
         </div>
-        <div class="panel-note" id="averageNote">ЕДИНАЯ ШКАЛА · ПН—ВС</div>
-      </div>
-      <div class="weeks-chart" id="weeksChart" aria-live="polite">
-        <div class="empty-state" style="grid-column:1/-1">Загрузка недель…</div>
-      </div>
-    </section>
+        <div class="weeks-chart" id="weeksChart" aria-live="polite">
+          <div class="empty-state" style="grid-column:1/-1">Загрузка недель…</div>
+        </div>
+      </section>
+    </div>
   </main>
 
   <div class="access-state" id="accessState" hidden>
@@ -417,8 +478,8 @@
         dashboard: document.getElementById('dashboard'),
         statusBadge: document.getElementById('statusBadge'),
         updatedAt: document.getElementById('updatedAt'),
-        salaryMonth: document.getElementById('salaryMonth'),
-        salaryGrid: document.getElementById('salaryGrid'),
+        salaryPeriod: document.getElementById('salaryPeriod'),
+        salaryList: document.getElementById('salaryList'),
         weeksChart: document.getElementById('weeksChart'),
         averageNote: document.getElementById('averageNote'),
         accessState: document.getElementById('accessState'),
@@ -444,11 +505,9 @@
         }).format(amountNumber(value));
       }
 
-      function monthLabel(value) {
-        const match = /^(\d{4})-(\d{2})$/.exec(String(value || ''));
-        if (!match) return 'ТЕКУЩИЙ МЕСЯЦ';
-        const date = new Date(Number(match[1]), Number(match[2]) - 1, 1);
-        return date.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' }).toUpperCase();
+      function salaryPeriodLabel(period) {
+        const label = String(period?.label || '').trim();
+        return label ? 'НЕДЕЛЯ · ' + label : 'ТЕКУЩАЯ НЕДЕЛЯ';
       }
 
       function ordersLabel(count) {
@@ -463,28 +522,29 @@
         return value + ' ' + word;
       }
 
-      function salaryGridShape(count) {
-        if (count <= 1) return { columns: 1, rows: 1 };
-        const columns = Math.min(6, Math.max(2, Math.ceil(Math.sqrt(count * 2.2))));
-        return { columns, rows: Math.ceil(count / columns) };
-      }
-
       function renderEmployees(employees) {
         const items = Array.isArray(employees) ? employees : [];
-        const shape = salaryGridShape(items.length);
-        els.salaryGrid.style.setProperty('--columns', String(shape.columns));
-        els.salaryGrid.style.setProperty('--rows', String(shape.rows));
-        els.salaryGrid.innerHTML = items.length
-          ? items.map((employee) => (
-            '<article class="salary-card">'
-              + '<div class="salary-card__person">'
-                + '<div class="salary-card__name" title="' + escapeHtml(employee.name) + '">' + escapeHtml(employee.name || 'Сотрудник') + '</div>'
-                + '<div class="salary-card__position" title="' + escapeHtml(employee.position) + '">' + escapeHtml(employee.position || 'Сотрудник') + '</div>'
+        const maximum = Math.max(0, ...items.map((employee) => amountNumber(employee.salary)));
+        els.salaryList.style.setProperty('--salary-count', String(Math.max(1, items.length)));
+        els.salaryList.dataset.density = items.length > 20 ? 'compact' : 'normal';
+        els.salaryList.innerHTML = items.length
+          ? items.map((employee, index) => {
+            const amount = amountNumber(employee.salary);
+            const ratio = maximum > 0 && amount > 0 ? Math.max(0.018, amount / maximum) : 0;
+            const rank = index + 1;
+            return (
+            '<article class="salary-row" data-rank="' + rank + '">'
+              + '<div class="salary-row__rank">' + rank + '</div>'
+              + '<div class="salary-row__person">'
+                + '<div class="salary-row__name" title="' + escapeHtml(employee.name) + '">' + escapeHtml(employee.name || 'Сотрудник') + '</div>'
+                + '<div class="salary-row__position" title="' + escapeHtml(employee.position) + '">' + escapeHtml(employee.position || 'Сотрудник') + '</div>'
               + '</div>'
-              + '<div class="salary-card__amount">' + escapeHtml(money(employee.salary)) + '</div>'
+              + '<div class="salary-row__meter" aria-hidden="true"><div class="salary-row__fill" style="--ratio:' + ratio.toFixed(4) + '"></div></div>'
+              + '<div class="salary-row__amount">' + escapeHtml(money(employee.salary)) + '</div>'
             + '</article>'
-          )).join('')
-          : '<div class="empty-state" style="grid-column:1/-1">Нет сотрудников, выбранных для общего дашборда</div>';
+            );
+          }).join('')
+          : '<div class="empty-state">Нет сотрудников, выбранных для общего дашборда</div>';
       }
 
       function renderWeeks(weeks) {
@@ -518,7 +578,7 @@
       function render(data) {
         state.data = data;
         els.accessState.hidden = true;
-        els.salaryMonth.textContent = monthLabel(data.salary_month);
+        els.salaryPeriod.textContent = salaryPeriodLabel(data.salary_period);
         renderEmployees(data.employees);
         renderWeeks(data.weeks);
         els.averageNote.textContent = 'СРЕДНЕЕ ЗА 3 НЕДЕЛИ · ' + money(data.completed_week_average);

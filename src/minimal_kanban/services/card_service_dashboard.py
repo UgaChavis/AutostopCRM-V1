@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -38,29 +38,36 @@ class CardServiceDashboardMixin:
             )
             now = model_helpers.utc_now()
             local_now = now.astimezone(business_timezone())
-            month = local_now.strftime("%Y-%m")
-            payroll = self._build_payroll_report(
-                bundle["cards"],
-                employees,
-                shift_accruals=shift_accruals,
-                repair_order_accruals=repair_order_accruals,
-                month=month,
-            )
-            salary_by_employee = {
-                str(item.get("employee_id") or ""): str(item.get("total_salary") or "0")
-                for item in payroll["summary"]
-            }
-            visible_employees = [
-                {
-                    "name": employee["name"],
-                    "position": employee.get("position", ""),
-                    "salary": salary_by_employee.get(employee["id"], "0"),
-                }
-                for employee in employees
-                if employee.get("is_active") and employee.get(DASHBOARD_VISIBLE_FIELD)
-            ]
+            salary_period = self._display_dashboard_salary_period(now=now)
+            period_start = salary_period["starts_at"].astimezone(UTC)
+            period_end = salary_period["accrued_through"].astimezone(UTC)
+            visible_employees: list[dict[str, str]] = []
+            for employee in employees:
+                if not employee.get("is_active") or not employee.get(DASHBOARD_VISIBLE_FIELD):
+                    continue
+                payroll = self._build_employee_salary_reconciliation(
+                    bundle["cards"],
+                    [],
+                    [],
+                    employee,
+                    shift_accruals=shift_accruals,
+                    repair_order_accruals=repair_order_accruals,
+                    period_start=period_start,
+                    period_end=period_end,
+                )
+                visible_employees.append(
+                    {
+                        "name": employee["name"],
+                        "position": employee.get("position", ""),
+                        "salary": str(payroll["totals"].get("accrued_total") or "0"),
+                    }
+                )
             visible_employees.sort(
-                key=lambda item: (item["name"].casefold(), item["position"].casefold())
+                key=lambda item: (
+                    -self._parse_payroll_decimal(item["salary"]),
+                    item["name"].casefold(),
+                    item["position"].casefold(),
+                )
             )
             weeks = self._display_dashboard_week_buckets(bundle["cards"], now=now)
             completed_amounts = [Decimal(item["amount"]) for item in weeks[:3]]
@@ -70,14 +77,41 @@ class CardServiceDashboardMixin:
                 else Decimal("0")
             )
             return {
-                "schema_version": "display_dashboard.v1",
+                "schema_version": "display_dashboard.v2",
                 "generated_at": local_now.isoformat(),
                 "timezone": DISPLAY_DASHBOARD_TIMEZONE,
-                "salary_month": month,
+                "salary_period": {
+                    "date_from": salary_period["starts_at"].date().isoformat(),
+                    "date_to": (salary_period["ends_at"] - timedelta(days=1)).date().isoformat(),
+                    "starts_at": salary_period["starts_at"].isoformat(),
+                    "ends_at": salary_period["ends_at"].isoformat(),
+                    "label": salary_period["label"],
+                    "is_open": salary_period["is_open"],
+                },
                 "employees": visible_employees,
                 "weeks": weeks,
                 "completed_week_average": self._format_payroll_decimal(completed_average),
             }
+
+    def _display_dashboard_salary_period(self, *, now: datetime | None = None) -> dict[str, Any]:
+        timezone = business_timezone()
+        local_now = (now or model_helpers.utc_now()).astimezone(timezone)
+        monday = local_now.date() - timedelta(days=local_now.weekday())
+        starts_at = datetime(
+            monday.year,
+            monday.month,
+            monday.day,
+            tzinfo=timezone,
+        )
+        ends_at = starts_at + timedelta(days=7)
+        accrued_through = min(local_now, ends_at)
+        return {
+            "starts_at": starts_at,
+            "ends_at": ends_at,
+            "accrued_through": accrued_through,
+            "label": f"{starts_at:%d.%m}–{(ends_at - timedelta(days=1)):%d.%m}",
+            "is_open": starts_at <= local_now < ends_at,
+        }
 
     def _display_dashboard_week_buckets(
         self, cards: list[Card], *, now: datetime | None = None

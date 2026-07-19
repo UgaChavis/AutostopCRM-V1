@@ -341,6 +341,23 @@ def start_temp_runtime(*, start_port: int = 42731) -> TempRuntime:
             "actor_name": "SMOKE",
         }
     )["employee"]
+    for index in range(1, 16):
+        ranking_employee = service.save_employee(
+            {
+                "name": f"Smoke Сотрудник {index:02d}",
+                "position": "Механик",
+                "salary_mode": "none",
+                "actor_name": "SMOKE",
+            }
+        )["employee"]
+        service.create_employee_shift_accrual(
+            {
+                "employee_id": ranking_employee["id"],
+                "amount": str((16 - index) * 1000),
+                "note": "Smoke недельный рейтинг",
+                "actor_name": "SMOKE",
+            }
+        )
     payroll_card = service.create_card(
         {
             "vehicle": "Lada Payroll Smoke",
@@ -1082,29 +1099,29 @@ async def _exercise_display_dashboard(page: Any) -> bool:
     try:
         await dashboard_page.set_viewport_size({"width": 1920, "height": 1080})
         await dashboard_page.wait_for_selector("h1", state="visible")
-        await dashboard_page.wait_for_selector(".salary-card", state="visible")
+        await dashboard_page.wait_for_selector(".salary-row", state="visible")
         await dashboard_page.wait_for_function(
             """() => (
+              document.querySelectorAll('.salary-row').length === 16 &&
               document.querySelectorAll('.week-card').length === 4 &&
               document.querySelectorAll('.week-card[data-current="true"]').length === 1 &&
               document.querySelector('#statusBadge')?.textContent.trim() === 'АКТУАЛЬНО'
             )"""
         )
-        initial_salary_text = await dashboard_page.locator("#salaryGrid").inner_text()
+        initial_salary_text = await dashboard_page.locator("#salaryList").inner_text()
         geometry_ok = bool(
             await dashboard_page.evaluate(
                 """() => {
                   const dashboard = document.querySelector('#dashboard');
                   const header = document.querySelector('.dashboard-header');
                   const panels = Array.from(document.querySelectorAll('.panel'));
-                  const salaryCards = Array.from(document.querySelectorAll('.salary-card'));
+                  const salaryRows = Array.from(document.querySelectorAll('.salary-row'));
                   const weekCards = Array.from(document.querySelectorAll('.week-card'));
-                  const ordered = [header, ...panels].filter(Boolean).map((node) => node.getBoundingClientRect());
-                  const insideViewport = [...salaryCards, ...weekCards].every((node) => {
+                  const majorNodes = [header, ...panels].filter(Boolean);
+                  const insideViewport = [...salaryRows, ...weekCards].every((node) => {
                     const rect = node.getBoundingClientRect();
                     return rect.left >= -0.5 && rect.top >= -0.5 && rect.right <= innerWidth + 0.5 && rect.bottom <= innerHeight + 0.5;
                   });
-                  const rowsDoNotOverlap = ordered.every((rect, index) => index === 0 || rect.top >= ordered[index - 1].bottom - 0.5);
                   const cardsDoNotOverlap = (cards) => cards.every((card, index) => {
                     const rect = card.getBoundingClientRect();
                     return cards.slice(index + 1).every((other) => {
@@ -1112,6 +1129,12 @@ async def _exercise_display_dashboard(page: Any) -> bool:
                       return rect.right <= next.left + 0.5 || next.right <= rect.left + 0.5 || rect.bottom <= next.top + 0.5 || next.bottom <= rect.top + 0.5;
                     });
                   });
+                  const salaryRatios = salaryRows.map((node) => Number(
+                    node.querySelector('.salary-row__fill')?.style.getPropertyValue('--ratio') || 0
+                  ));
+                  const salaryOrderIsDescending = salaryRatios.every(
+                    (ratio, index) => index === 0 || ratio <= salaryRatios[index - 1] + 0.0001
+                  );
                   return Boolean(
                     dashboard &&
                     document.title === 'Результаты автосервиса' &&
@@ -1120,8 +1143,10 @@ async def _exercise_display_dashboard(page: Any) -> bool:
                     document.body.scrollHeight <= innerHeight + 1 &&
                     document.documentElement.scrollWidth <= innerWidth + 1 &&
                     insideViewport &&
-                    rowsDoNotOverlap &&
-                    cardsDoNotOverlap(salaryCards) &&
+                    salaryRows.length === 16 &&
+                    salaryOrderIsDescending &&
+                    cardsDoNotOverlap(majorNodes) &&
+                    cardsDoNotOverlap(salaryRows) &&
                     cardsDoNotOverlap(weekCards)
                   );
                 }"""
@@ -1141,7 +1166,7 @@ async def _exercise_display_dashboard(page: Any) -> bool:
                       const rect = node.getBoundingClientRect();
                       return [rect.left, rect.top, rect.right, rect.bottom];
                     }),
-                  salaryRects: Array.from(document.querySelectorAll('.salary-card')).map((node) => {
+                  salaryRects: Array.from(document.querySelectorAll('.salary-row')).map((node) => {
                     const rect = node.getBoundingClientRect();
                     return [rect.left, rect.top, rect.right, rect.bottom];
                   }),
@@ -1176,15 +1201,16 @@ async def _exercise_display_dashboard(page: Any) -> bool:
             "() => document.querySelector('#statusBadge')?.textContent.trim() === 'НЕТ ОБНОВЛЕНИЯ'"
         )
         retained_ok = bool(
-            await dashboard_page.locator("#salaryGrid").inner_text() == initial_salary_text
+            await dashboard_page.locator("#salaryList").inner_text() == initial_salary_text
         )
         await dashboard_page.evaluate("() => window.__AUTOSTOP_DISPLAY_DASHBOARD__.refresh()")
         await dashboard_page.wait_for_function(
             "() => document.querySelector('#statusBadge')?.textContent.trim() === 'АКТУАЛЬНО'"
         )
         recovered_ok = bool(
-            await dashboard_page.locator("#salaryGrid").inner_text() == initial_salary_text
+            await dashboard_page.locator("#salaryList").inner_text() == initial_salary_text
         )
+        await dashboard_page.wait_for_timeout(950)
 
         artifact_dir = ROOT / "output" / "playwright"
         artifact_dir.mkdir(parents=True, exist_ok=True)

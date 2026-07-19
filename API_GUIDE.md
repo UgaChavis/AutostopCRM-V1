@@ -161,18 +161,22 @@ always requires an operator session, including on a local direct request, and
 returns HTTP 401 to an anonymous caller.
 
 The compact response contains only the generated time, business timezone,
-payroll month, visible employee name/position/month accrual, four weekly
-amount/count buckets, and the completed-week average. It must not expose
+current salary-week boundary, visible employee name/position/week accrual,
+four weekly amount/count buckets, and the completed-week average. It must not expose
 employee or card IDs, clients, contacts, vehicles, payments, repair-order
 rows, payroll terms, or formula inputs.
 
-Employee amounts reuse the regular current-month payroll report, including
-weekly base salary, shift, work, material, and repair-order accruals. Only
-active employees with `dashboard_visible=true` are returned. Existing records
-without the field normalize administrative positions to hidden and other
-positions to visible; after normalization the explicit flag is authoritative.
-The visibility checkbox is shown in the employee profile and changes from a
-browser operator session are administrator-only.
+Employee amounts reuse the regular payroll calculation, including weekly base
+salary, shift, work, material, and repair-order accruals and reversals. They
+represent the amount accrued during the current calendar week, without
+subtracting payouts or advances. The week uses `Asia/Krasnoyarsk`, starts at
+Monday 00:00, and switches at midnight after Sunday. Employees are ordered by
+the accrued amount descending, then by name for equal amounts. Only active
+employees with `dashboard_visible=true` are returned. Existing records without
+the field normalize administrative positions to hidden and other positions to
+visible; after normalization the explicit flag is authoritative. The
+visibility checkbox is shown in the employee profile and changes from a browser
+operator session are administrator-only.
 
 Weekly revenue uses `Asia/Krasnoyarsk`, Monday week boundaries, the previous
 three completed weeks plus Monday-to-now for the current week, and only repair

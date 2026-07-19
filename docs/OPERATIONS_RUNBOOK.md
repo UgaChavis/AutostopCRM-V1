@@ -430,8 +430,9 @@ operator login, board/card changes, clients, repair orders and PDF export,
 inventory, cashboxes, payroll, files, archive, nested modal behavior, and
 anonymous write rejection. For shared-display changes, also open
 `ОТКРЫТЬ ДАШБОРД` from board scale settings and verify the named `/dashboard`
-window at 1920x1080: current-month salary cards, exactly four Monday-based
-weekly bars, the green current-week `ИДЁТ` state, no scroll/overlap, a 401 from
+window at 1920x1080: the descending current-week salary ranking with one
+horizontal indicator per visible employee, exactly four Monday-based weekly
+bars, the green current-week `ИДЁТ` state, no scroll/overlap, a 401 from
 an anonymous `/api/get_display_dashboard` request, and retention/recovery after
 a temporary refresh error. The browser smoke saves
 `output/playwright/tv-dashboard-1920x1080.png` for this check.
