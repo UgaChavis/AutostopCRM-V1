@@ -903,8 +903,18 @@ async def _exercise_card_modal_roundtrip(
                 rect.bottom <= panelRect.bottom + 0.5 &&
                 (index === 0 || rect.top >= rects[index - 1].bottom - 0.5)
               ));
+              const steppersFit = Array.from(panel.querySelectorAll('.signal-stepper')).every((stepper) => {
+                const stepperRect = stepper.getBoundingClientRect();
+                const controlRects = Array.from(stepper.children).map((control) => control.getBoundingClientRect());
+                return controlRects.length === 3 && controlRects.every((rect, index) => (
+                  rect.left >= stepperRect.left - 0.5 &&
+                  rect.right <= stepperRect.right + 0.5 &&
+                  (index === 0 || rect.left >= controlRects[index - 1].right - 0.5)
+                ));
+              });
               return (
                 noOverlap &&
+                steppersFit &&
                 state.textContent.trim() === 'ИДЁТ' &&
                 preview.textContent.includes(':') &&
                 remaining.textContent.trim().startsWith('ДО ') &&
@@ -1003,10 +1013,20 @@ async def _exercise_card_modal_roundtrip(
                 rect.bottom <= signalRect.bottom + 0.5 &&
                 (index === 0 || rect.top >= signalRowRects[index - 1].bottom - 0.5)
               ));
+              const signalSteppersFit = Array.from(signalPanel.querySelectorAll('.signal-stepper')).every((stepper) => {
+                const stepperRect = stepper.getBoundingClientRect();
+                const controlRects = Array.from(stepper.children).map((control) => control.getBoundingClientRect());
+                return controlRects.length === 3 && controlRects.every((rect, index) => (
+                  rect.left >= stepperRect.left - 0.5 &&
+                  rect.right <= stepperRect.right + 0.5 &&
+                  (index === 0 || rect.left >= controlRects[index - 1].right - 0.5)
+                ));
+              });
               return (
                 editor.scrollHeight > editor.clientHeight &&
                 Math.abs(signalHeight - tagsHeight) <= 2 &&
                 signalRowsDoNotOverlap &&
+                signalSteppersFit &&
                 visibleInOverview(tagInput) &&
                 visibleInOverview(tagAddButton) &&
                 visibleInOverview(tagsPanel) &&

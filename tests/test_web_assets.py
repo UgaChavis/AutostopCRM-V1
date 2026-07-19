@@ -2982,6 +2982,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="signalDays" type="number" min="0" max="365"', BOARD_WEB_APP_HTML)
         self.assertIn('id="signalHours" type="number" min="0" max="23"', BOARD_WEB_APP_HTML)
         self.assertIn("grid-template-columns: minmax(24px, 0.72fr)", BOARD_WEB_APP_HTML)
+        self.assertIn("grid-template-columns: 20px minmax(0, 1fr) 20px;", BOARD_WEB_APP_HTML)
+        self.assertIn("overflow: hidden;", BOARD_WEB_APP_HTML)
         self.assertIn(".signal-stepper__value {", BOARD_WEB_APP_HTML)
         self.assertIn("grid-template-rows: 13px 25px 11px 25px 24px;", BOARD_WEB_APP_HTML)
         self.assertIn('.signal-actions[data-layout="split"] {', BOARD_WEB_APP_HTML)
