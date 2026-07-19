@@ -25,3 +25,5 @@ BOARD_WEB_APP_HTML = "".join(
         _read_source_chunk("app_main_after_printing.js"),
     ]
 )
+
+DISPLAY_DASHBOARD_HTML = _read_source_chunk("display_dashboard.html")

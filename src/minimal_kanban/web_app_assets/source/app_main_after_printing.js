@@ -638,6 +638,7 @@
     els.boardScaleInput.addEventListener('input', handleBoardScaleInput);
     els.boardScaleInput.addEventListener('change', persistBoardScaleChange);
     els.boardScaleReset.addEventListener('click', resetBoardScaleToDefault);
+    els.openDisplayDashboardButton?.addEventListener('click', openDisplayDashboard);
     els.signalDaysIncrementButton.addEventListener('click', () => adjustSignalPart('days', 1));
     els.signalDaysDecrementButton.addEventListener('click', () => adjustSignalPart('days', -1));
     els.signalHoursIncrementButton.addEventListener('click', () => adjustSignalPart('hours', 1));

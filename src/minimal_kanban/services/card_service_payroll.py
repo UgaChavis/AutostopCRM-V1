@@ -25,6 +25,7 @@ from ..models import (
 )
 from ..repair_order import REPAIR_ORDER_STATUS_CLOSED, RepairOrder, RepairOrderRow
 from ..vehicle_profile import normalize_license_plate
+from .card_service_dashboard import DASHBOARD_VISIBLE_FIELD, is_administrative_position
 from .payroll_active_periods import (
     employee_active_periods_after_state_change,
     employee_active_periods_for_save,
@@ -2247,6 +2248,15 @@ class CardServicePayrollMixin:
     def save_employee(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
+            if DASHBOARD_VISIBLE_FIELD in payload:
+                operator_session = payload.get("_operator_session")
+                if isinstance(operator_session, dict) and not operator_session.get("is_admin"):
+                    self._fail(
+                        "forbidden",
+                        "Видимость сотрудника на общем дашборде меняет администратор.",
+                        status_code=403,
+                        details={"field": DASHBOARD_VISIBLE_FIELD},
+                    )
             bundle = self._store.read_bundle()
             actor_name, source = self._audit_identity(payload, default_source="api")
             settings = dict(bundle["settings"])
@@ -3338,6 +3348,14 @@ class CardServicePayrollMixin:
             payload.get("is_active"),
             default=normalize_bool(existing.get("is_active"), default=True),
         )
+        dashboard_visible_source = (
+            payload.get(DASHBOARD_VISIBLE_FIELD)
+            if DASHBOARD_VISIBLE_FIELD in payload
+            else existing.get(DASHBOARD_VISIBLE_FIELD)
+            if DASHBOARD_VISIBLE_FIELD in existing
+            else not is_administrative_position(position)
+        )
+        dashboard_visible = normalize_bool(dashboard_visible_source, default=True)
         created_at = (
             normalize_text(
                 existing.get("created_at") or payload.get("created_at"),
@@ -3362,6 +3380,7 @@ class CardServicePayrollMixin:
             "material_percent": material_percent,
             "repair_order_percent": repair_order_percent,
             "is_active": is_active,
+            DASHBOARD_VISIBLE_FIELD: dashboard_visible,
             "active_periods": normalized_employee_active_periods(
                 payload.get("active_periods", existing.get("active_periods")),
                 created_at=created_at,

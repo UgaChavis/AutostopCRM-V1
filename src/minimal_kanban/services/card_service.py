@@ -104,6 +104,7 @@ from ..vehicle_profile import (
     normalize_license_plate,
 )
 from .card_service_clients import CardServiceClientsMixin
+from .card_service_dashboard import CardServiceDashboardMixin
 from .card_service_finance import CardServiceFinanceMixin
 from .card_service_inventory import CardServiceInventoryMixin
 from .card_service_payroll import CardServicePayrollMixin
@@ -535,6 +536,7 @@ class CardService(
     CardServiceFinanceMixin,
     CardServiceInventoryMixin,
     CardServiceClientsMixin,
+    CardServiceDashboardMixin,
     CardServicePayrollMixin,
 ):
     def __init__(

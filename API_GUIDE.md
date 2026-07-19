@@ -18,8 +18,9 @@ focused tests when a route is not described here.
 
 When `MINIMAL_KANBAN_API_BEARER_TOKEN` is configured, non-static API and
 download routes require `Authorization: Bearer <token>`. The board shell,
-favicons, and `/api/health` are static exceptions. Requests arriving through
-the browser proxy also enforce operator-session and admin rules where
+read-only `/dashboard` shell, favicons, and `/api/health` are static
+exceptions; the dashboard shell contains no business data. Requests arriving
+through the browser proxy also enforce operator-session and admin rules where
 applicable.
 
 Successful JSON response:
@@ -48,6 +49,7 @@ codes include `validation_error`, `not_found`, `unauthorized`, `forbidden`,
 | Repair orders and print | `/api/get_repair_order`, `/api/update_repair_order`, `/api/export_repair_order_print_pdf` | repair-order and printing services |
 | Inventory | `/api/list_inventory_items`, `/api/write_off_inventory_item`, `/api/return_inventory_movement` | inventory service mixin |
 | Cashboxes and payroll | `/api/get_cashbox`, `/api/create_cash_transaction`, `/api/create_employee_shift_accrual` | finance/payroll service mixins |
+| Shared display | `/api/get_display_dashboard` | compact dashboard service mixin |
 | Files | `/api/list_shared_files`, `/api/upload_shared_file`, `/api/attachment` | shared-files and attachment services |
 | Operators | `/api/login_operator`, `/api/list_operator_activity`, `/api/get_operator_user_report` | `OperatorAuthService` |
 | Agent compatibility | `/api/agent_status`, scheduled-task routes, manager-operation routes | agent and manager adapters |
@@ -148,6 +150,39 @@ positions.
 
 Financial totals, payroll formulas, and deletion guards live in the services.
 Callers must consume the returned totals and never patch ledgers directly.
+
+### Shared TV dashboard
+
+The board scale-settings dialog contains `ОТКРЫТЬ ДАШБОРД`. It opens the
+same-origin `/dashboard` page in the named `autostop-display-dashboard`
+window. The URL carries no credentials; the page reuses the current operator
+session from browser storage. Its data route, `GET /api/get_display_dashboard`,
+always requires an operator session, including on a local direct request, and
+returns HTTP 401 to an anonymous caller.
+
+The compact response contains only the generated time, business timezone,
+payroll month, visible employee name/position/month accrual, four weekly
+amount/count buckets, and the completed-week average. It must not expose
+employee or card IDs, clients, contacts, vehicles, payments, repair-order
+rows, payroll terms, or formula inputs.
+
+Employee amounts reuse the regular current-month payroll report, including
+weekly base salary, shift, work, material, and repair-order accruals. Only
+active employees with `dashboard_visible=true` are returned. Existing records
+without the field normalize administrative positions to hidden and other
+positions to visible; after normalization the explicit flag is authoritative.
+The visibility checkbox is shown in the employee profile and changes from a
+browser operator session are administrator-only.
+
+Weekly revenue uses `Asia/Krasnoyarsk`, Monday week boundaries, the previous
+three completed weeks plus Monday-to-now for the current week, and only repair
+orders whose current status is `closed` and whose `closed_at` falls inside the
+bucket. Each order contributes its backend `grand_total` once. Open, ready,
+reopened, undated, and future-closed orders are excluded.
+
+The page polls every 45 seconds. A temporary failure leaves the last rendered
+data in place and shows `НЕТ ОБНОВЛЕНИЯ`; a later successful poll restores the
+normal status. Closing the page stops its polling timer.
 
 ## Files And Operators
 

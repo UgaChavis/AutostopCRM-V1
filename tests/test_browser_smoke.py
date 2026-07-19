@@ -43,6 +43,7 @@ class BrowserSmokeScriptTests(unittest.TestCase):
         script = SCRIPT_PATH.read_text(encoding="utf-8")
 
         self.assertIn("desktop_board_card_roundtrip", module.SMOKE_SCENARIOS)
+        self.assertIn("display_dashboard_popup_1920x1080", module.SMOKE_SCENARIOS)
         self.assertIn("mobile_board_load", module.SMOKE_SCENARIOS)
         self.assertIn("employees_repair_order_returns_to_employee", module.SMOKE_SCENARIOS)
         self.assertIn("clients_repair_order_returns_to_client", module.SMOKE_SCENARIOS)
@@ -143,6 +144,8 @@ class BrowserSmokeScriptTests(unittest.TestCase):
         self.assertIn("DESKTOP_SMOKE_SCENARIOS", script)
         self.assertIn("_exercise_operator_admin_employee_binding", script)
         self.assertIn("_exercise_card_modal_roundtrip", script)
+        self.assertIn("_exercise_display_dashboard", script)
+        self.assertIn("tv-dashboard-1920x1080.png", script)
         self.assertIn("_close_card_modal_if_open", script)
         self.assertIn("service.archive_card", script)
         self.assertIn("employees_repair_order_returns_to_employee", script)

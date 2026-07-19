@@ -40,11 +40,14 @@ class InlineScriptExtractor(HTMLParser):
         self._in_inline_script = False
 
 
-def _board_html() -> str:
+def _browser_html_documents() -> dict[str, str]:
     sys.path.insert(0, str(SRC))
-    from minimal_kanban.web_assets import BOARD_WEB_APP_HTML
+    from minimal_kanban.web_assets import BOARD_WEB_APP_HTML, DISPLAY_DASHBOARD_HTML
 
-    return BOARD_WEB_APP_HTML
+    return {
+        "board": BOARD_WEB_APP_HTML,
+        "display_dashboard": DISPLAY_DASHBOARD_HTML,
+    }
 
 
 def extract_inline_scripts(html: str) -> list[str]:
@@ -60,15 +63,19 @@ def main() -> int:
         print("Node.js is required to validate generated browser JavaScript.", file=sys.stderr)
         return 1
 
-    scripts = extract_inline_scripts(_board_html())
+    scripts = [
+        (document_name, script)
+        for document_name, html in _browser_html_documents().items()
+        for script in extract_inline_scripts(html)
+    ]
     if not scripts:
-        print("No inline scripts found in BOARD_WEB_APP_HTML.", file=sys.stderr)
+        print("No inline scripts found in browser HTML documents.", file=sys.stderr)
         return 1
 
     with tempfile.TemporaryDirectory(prefix="autostop-web-assets-js-") as temp_dir:
         temp_path = Path(temp_dir)
-        for index, script in enumerate(scripts, start=1):
-            script_path = temp_path / f"inline_script_{index}.js"
+        for index, (document_name, script) in enumerate(scripts, start=1):
+            script_path = temp_path / f"{document_name}_inline_script_{index}.js"
             script_path.write_text(script, encoding="utf-8")
             result = subprocess.run(
                 [node, "--check", str(script_path)],

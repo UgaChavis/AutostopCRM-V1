@@ -44,6 +44,9 @@ Owner MCP client -> 24-tool Gateway v2 -> mounted AutostopManager adapter
   templates, and PDF export.
 - Operations: inventory movements, cashboxes, transfers, payroll, reports,
   shared files, and operator activity.
+- Shared display: a read-only TV dashboard opened from board scale settings,
+  with current-month employee accruals and four weekly repair-order revenue
+  buckets.
 - Integrations: local HTTP API, streamable HTTP MCP, Agent Gateway v2,
   Responses API clients, AutoStop App store context, and automotive/web
   research helpers.
@@ -120,6 +123,8 @@ Run the desktop application or the headless API/MCP runtime:
 Default local endpoints:
 
 - API/UI: `http://127.0.0.1:41731`
+- TV dashboard: `http://127.0.0.1:41731/dashboard` (open it from board
+  settings so it reuses the current operator session)
 - MCP: `http://127.0.0.1:41831/mcp`
 
 Production endpoints:

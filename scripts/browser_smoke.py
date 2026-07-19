@@ -37,6 +37,7 @@ from minimal_kanban.storage.json_store import JsonStore
 SMOKE_SCENARIOS = (
     "login_gate_hides_board_until_operator_login",
     "desktop_board_card_roundtrip",
+    "display_dashboard_popup_1920x1080",
     "card_timer_start_stop",
     "card_long_description_controls_reachable",
     "cashbox_journal_workspace",
@@ -1060,6 +1061,150 @@ async def _exercise_card_modal_roundtrip(
     return controls_ok, bool(roundtrip_ok), timer_ok
 
 
+async def _exercise_display_dashboard(page: Any) -> bool:
+    await page.click("#boardSettingsButton")
+    await _wait_modal_open(page, "#boardSettingsModal")
+    popup_errors: list[str] = []
+    popup_failed_requests: list[str] = []
+    async with page.expect_popup() as popup_info:
+        await page.click("#openDisplayDashboardButton")
+    dashboard_page = await popup_info.value
+    _set_page_timeouts(dashboard_page)
+    dashboard_page.on(
+        "console",
+        lambda msg: popup_errors.append(msg.text) if msg.type == "error" else None,
+    )
+    dashboard_page.on("pageerror", lambda exc: popup_errors.append(str(exc)))
+    dashboard_page.on(
+        "requestfailed",
+        lambda request: popup_failed_requests.append(format_failed_request(request)),
+    )
+    try:
+        await dashboard_page.set_viewport_size({"width": 1920, "height": 1080})
+        await dashboard_page.wait_for_selector("h1", state="visible")
+        await dashboard_page.wait_for_selector(".salary-card", state="visible")
+        await dashboard_page.wait_for_function(
+            """() => (
+              document.querySelectorAll('.week-card').length === 4 &&
+              document.querySelectorAll('.week-card[data-current="true"]').length === 1 &&
+              document.querySelector('#statusBadge')?.textContent.trim() === 'АКТУАЛЬНО'
+            )"""
+        )
+        initial_salary_text = await dashboard_page.locator("#salaryGrid").inner_text()
+        geometry_ok = bool(
+            await dashboard_page.evaluate(
+                """() => {
+                  const dashboard = document.querySelector('#dashboard');
+                  const header = document.querySelector('.dashboard-header');
+                  const panels = Array.from(document.querySelectorAll('.panel'));
+                  const salaryCards = Array.from(document.querySelectorAll('.salary-card'));
+                  const weekCards = Array.from(document.querySelectorAll('.week-card'));
+                  const ordered = [header, ...panels].filter(Boolean).map((node) => node.getBoundingClientRect());
+                  const insideViewport = [...salaryCards, ...weekCards].every((node) => {
+                    const rect = node.getBoundingClientRect();
+                    return rect.left >= -0.5 && rect.top >= -0.5 && rect.right <= innerWidth + 0.5 && rect.bottom <= innerHeight + 0.5;
+                  });
+                  const rowsDoNotOverlap = ordered.every((rect, index) => index === 0 || rect.top >= ordered[index - 1].bottom - 0.5);
+                  const cardsDoNotOverlap = (cards) => cards.every((card, index) => {
+                    const rect = card.getBoundingClientRect();
+                    return cards.slice(index + 1).every((other) => {
+                      const next = other.getBoundingClientRect();
+                      return rect.right <= next.left + 0.5 || next.right <= rect.left + 0.5 || rect.bottom <= next.top + 0.5 || next.bottom <= rect.top + 0.5;
+                    });
+                  });
+                  return Boolean(
+                    dashboard &&
+                    document.title === 'Результаты автосервиса' &&
+                    document.querySelector('h1')?.textContent.trim().toUpperCase() === 'РЕЗУЛЬТАТЫ АВТОСЕРВИСА' &&
+                    document.documentElement.scrollHeight <= innerHeight + 1 &&
+                    document.body.scrollHeight <= innerHeight + 1 &&
+                    document.documentElement.scrollWidth <= innerWidth + 1 &&
+                    insideViewport &&
+                    rowsDoNotOverlap &&
+                    cardsDoNotOverlap(salaryCards) &&
+                    cardsDoNotOverlap(weekCards)
+                  );
+                }"""
+            )
+        )
+        if not geometry_ok:
+            geometry_diagnostics = await dashboard_page.evaluate(
+                """() => ({
+                  title: document.title,
+                  h1: document.querySelector('h1')?.textContent.trim(),
+                  viewport: [innerWidth, innerHeight],
+                  htmlSize: [document.documentElement.scrollWidth, document.documentElement.scrollHeight],
+                  bodySize: [document.body.scrollWidth, document.body.scrollHeight],
+                  majorRects: [document.querySelector('.dashboard-header'), ...document.querySelectorAll('.panel')]
+                    .filter(Boolean)
+                    .map((node) => {
+                      const rect = node.getBoundingClientRect();
+                      return [rect.left, rect.top, rect.right, rect.bottom];
+                    }),
+                  salaryRects: Array.from(document.querySelectorAll('.salary-card')).map((node) => {
+                    const rect = node.getBoundingClientRect();
+                    return [rect.left, rect.top, rect.right, rect.bottom];
+                  }),
+                  weekRects: Array.from(document.querySelectorAll('.week-card')).map((node) => {
+                    const rect = node.getBoundingClientRect();
+                    return [rect.left, rect.top, rect.right, rect.bottom];
+                  }),
+                })"""
+            )
+            raise AssertionError(
+                "dashboard_geometry_failed: " + json.dumps(geometry_diagnostics, ensure_ascii=False)
+            )
+
+        async def temporary_dashboard_error(route: Any) -> None:
+            await route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps(
+                    {
+                        "ok": False,
+                        "data": None,
+                        "error": {"code": "temporary_unavailable", "message": "temporary"},
+                    }
+                ),
+            )
+
+        await dashboard_page.route(
+            "**/api/get_display_dashboard", temporary_dashboard_error, times=1
+        )
+        await dashboard_page.evaluate("() => window.__AUTOSTOP_DISPLAY_DASHBOARD__.refresh()")
+        await dashboard_page.wait_for_function(
+            "() => document.querySelector('#statusBadge')?.textContent.trim() === 'НЕТ ОБНОВЛЕНИЯ'"
+        )
+        retained_ok = bool(
+            await dashboard_page.locator("#salaryGrid").inner_text() == initial_salary_text
+        )
+        await dashboard_page.evaluate("() => window.__AUTOSTOP_DISPLAY_DASHBOARD__.refresh()")
+        await dashboard_page.wait_for_function(
+            "() => document.querySelector('#statusBadge')?.textContent.trim() === 'АКТУАЛЬНО'"
+        )
+        recovered_ok = bool(
+            await dashboard_page.locator("#salaryGrid").inner_text() == initial_salary_text
+        )
+
+        artifact_dir = ROOT / "output" / "playwright"
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        await dashboard_page.screenshot(
+            path=str(artifact_dir / "tv-dashboard-1920x1080.png"),
+            full_page=True,
+        )
+        return bool(
+            geometry_ok
+            and retained_ok
+            and recovered_ok
+            and not popup_errors
+            and not popup_failed_requests
+        )
+    finally:
+        await dashboard_page.close()
+        await page.click('[data-close="settings"]')
+        await _wait_modal_closed(page, "#boardSettingsModal")
+
+
 async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]:
     scenarios = {name: False for name in DESKTOP_SMOKE_SCENARIOS}
     await page.wait_for_selector("#board")
@@ -1068,6 +1213,8 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     )
     admin_binding_ok = await _exercise_operator_admin_employee_binding(page)
     scenarios["operator_admin_employee_binding_returns_to_users"] = bool(admin_binding_ok)
+
+    scenarios["display_dashboard_popup_1920x1080"] = await _exercise_display_dashboard(page)
 
     controls_ok, roundtrip_ok, timer_ok = await _exercise_card_modal_roundtrip(page, runtime)
     scenarios["card_long_description_controls_reachable"] = bool(controls_ok)

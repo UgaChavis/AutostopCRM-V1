@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Результаты автосервиса</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17231c;
+      --muted: #667269;
+      --paper: #f4f0e6;
+      --panel: #fffdf7;
+      --line: #c8c9bd;
+      --green: #315f43;
+      --green-soft: #dbe9dc;
+      --red: #a8342d;
+      --amber: #a67526;
+      --shadow: 0 12px 34px rgba(28, 42, 32, 0.1);
+      font-family: Inter, "Segoe UI", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: var(--paper);
+      color: var(--ink);
+    }
+
+    body {
+      min-width: 320px;
+      background:
+        linear-gradient(115deg, rgba(49, 95, 67, 0.07), transparent 35%),
+        repeating-linear-gradient(0deg, rgba(23, 35, 28, 0.025) 0 1px, transparent 1px 32px),
+        var(--paper);
+    }
+
+    .dashboard {
+      height: 100dvh;
+      display: grid;
+      grid-template-rows: auto minmax(0, 0.82fr) minmax(0, 1.18fr);
+      gap: clamp(10px, 1.4vh, 18px);
+      padding: clamp(14px, 2vw, 34px);
+    }
+
+    .dashboard-header {
+      min-height: 76px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 2px 4px 0;
+    }
+
+    .brand {
+      min-width: 0;
+    }
+
+    .eyebrow,
+    .section-kicker,
+    .status-badge,
+    .week-badge {
+      font-family: Consolas, "Courier New", monospace;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow {
+      color: var(--green);
+      font-size: clamp(11px, 0.82vw, 15px);
+      margin-bottom: 5px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(28px, 3vw, 58px);
+      line-height: 0.98;
+      letter-spacing: -0.045em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .header-meta {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .updated-at {
+      color: var(--muted);
+      font-size: clamp(12px, 0.88vw, 16px);
+      text-align: right;
+      line-height: 1.3;
+    }
+
+    .status-badge {
+      min-width: 116px;
+      padding: 10px 13px;
+      border: 1px solid var(--green);
+      color: var(--green);
+      background: var(--green-soft);
+      font-size: clamp(10px, 0.72vw, 13px);
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    .status-badge[data-tone="error"] {
+      border-color: var(--red);
+      color: var(--red);
+      background: #f6dfdb;
+    }
+
+    .panel {
+      min-height: 0;
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: clamp(8px, 1vh, 14px);
+      padding: clamp(14px, 1.35vw, 25px);
+      border: 1px solid var(--line);
+      background: rgba(255, 253, 247, 0.96);
+      box-shadow: var(--shadow);
+    }
+
+    .panel-head {
+      min-width: 0;
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 20px;
+    }
+
+    .section-kicker {
+      color: var(--red);
+      font-size: clamp(10px, 0.72vw, 13px);
+      margin-bottom: 3px;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: clamp(18px, 1.55vw, 30px);
+      line-height: 1.05;
+      text-transform: uppercase;
+    }
+
+    .panel-note {
+      color: var(--muted);
+      font-size: clamp(11px, 0.78vw, 14px);
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .salary-grid {
+      --columns: 4;
+      --rows: 2;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: repeat(var(--columns), minmax(0, 1fr));
+      grid-template-rows: repeat(var(--rows), minmax(0, 1fr));
+      gap: clamp(7px, 0.7vw, 13px);
+    }
+
+    .salary-card {
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 14px;
+      padding: clamp(9px, 0.9vw, 17px);
+      border-left: 5px solid var(--green);
+      background: #f8f7ef;
+      outline: 1px solid #d8d8cc;
+    }
+
+    .salary-card__person { min-width: 0; }
+
+    .salary-card__name {
+      overflow: hidden;
+      color: var(--ink);
+      font-size: clamp(15px, 1.18vw, 23px);
+      font-weight: 800;
+      line-height: 1.05;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .salary-card__position {
+      overflow: hidden;
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: clamp(10px, 0.75vw, 14px);
+      text-overflow: ellipsis;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .salary-card__amount {
+      color: var(--green);
+      font-family: Consolas, "Courier New", monospace;
+      font-size: clamp(18px, 1.45vw, 29px);
+      font-weight: 800;
+      line-height: 1;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .weeks-chart {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: clamp(10px, 1vw, 18px);
+      align-items: stretch;
+    }
+
+    .week-card {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      gap: clamp(7px, 0.8vh, 12px);
+      padding: clamp(10px, 0.9vw, 17px);
+      border: 1px solid #d2d3c7;
+      background: #f8f7ef;
+    }
+
+    .week-card[data-current="true"] {
+      border: 2px solid var(--green);
+      background: #f1f7ef;
+    }
+
+    .week-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .week-range {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: clamp(13px, 1vw, 19px);
+      font-weight: 700;
+    }
+
+    .week-badge {
+      padding: 5px 8px;
+      border: 1px solid var(--green);
+      color: var(--green);
+      background: var(--green-soft);
+      font-size: clamp(9px, 0.62vw, 11px);
+    }
+
+    .bar-stage {
+      min-height: 0;
+      position: relative;
+      display: flex;
+      align-items: end;
+      justify-content: center;
+      border-bottom: 2px solid var(--ink);
+      background:
+        repeating-linear-gradient(to top, transparent 0 calc(25% - 1px), rgba(23, 35, 28, 0.09) calc(25% - 1px) 25%);
+    }
+
+    .bar {
+      width: min(68%, 150px);
+      height: max(5px, calc(var(--ratio) * 100%));
+      min-height: 5px;
+      max-height: 100%;
+      background: linear-gradient(180deg, #567d62, var(--green));
+      transform-origin: bottom;
+      transform: scaleY(0);
+      transition: transform 900ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+
+    .week-card[data-current="true"] .bar {
+      background: linear-gradient(180deg, #79a47f, #237343);
+      box-shadow: 0 0 24px rgba(35, 115, 67, 0.18);
+    }
+
+    .dashboard[data-ready="true"] .bar { transform: scaleY(1); }
+
+    .week-summary {
+      display: grid;
+      gap: 5px;
+      text-align: center;
+    }
+
+    .week-amount {
+      overflow: hidden;
+      color: var(--ink);
+      font-family: Consolas, "Courier New", monospace;
+      font-size: clamp(20px, 1.75vw, 34px);
+      font-weight: 800;
+      line-height: 1;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .week-count {
+      color: var(--muted);
+      font-size: clamp(11px, 0.78vw, 14px);
+      text-transform: uppercase;
+    }
+
+    .empty-state,
+    .access-state {
+      min-height: 0;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      border: 1px dashed var(--line);
+      color: var(--muted);
+      font-size: clamp(16px, 1.3vw, 24px);
+      text-align: center;
+      text-transform: uppercase;
+    }
+
+    .access-state {
+      position: fixed;
+      inset: 0;
+      z-index: 5;
+      border: 0;
+      background: var(--paper);
+    }
+
+    .access-state strong {
+      display: block;
+      margin-bottom: 12px;
+      color: var(--red);
+      font-size: clamp(24px, 2.4vw, 46px);
+    }
+
+    [hidden] { display: none !important; }
+
+    @media (max-width: 900px), (max-height: 680px) {
+      html,
+      body { overflow: auto; }
+      .dashboard {
+        min-height: 100dvh;
+        height: auto;
+        grid-template-rows: auto auto auto;
+      }
+      .dashboard-header,
+      .panel-head { align-items: flex-start; }
+      .salary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto; }
+      .weeks-chart { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .bar-stage { min-height: 180px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .bar { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="dashboard" id="dashboard" data-ready="false">
+    <header class="dashboard-header">
+      <div class="brand">
+        <div class="eyebrow">AUTO STOP · ОБЩИЙ ЭКРАН</div>
+        <h1>Результаты автосервиса</h1>
+      </div>
+      <div class="header-meta">
+        <div class="updated-at" id="updatedAt">ПОЛУЧАЕМ АКТУАЛЬНЫЕ ДАННЫЕ</div>
+        <div class="status-badge" id="statusBadge" role="status" aria-live="polite">ОБНОВЛЕНИЕ</div>
+      </div>
+    </header>
+
+    <section class="panel" aria-labelledby="salaryTitle">
+      <div class="panel-head">
+        <div>
+          <div class="section-kicker" id="salaryMonth">ТЕКУЩИЙ МЕСЯЦ</div>
+          <h2 id="salaryTitle">Заработано в текущем месяце</h2>
+        </div>
+        <div class="panel-note">ТОЛЬКО АКТИВНЫЕ СОТРУДНИКИ ОБЩЕГО ЭКРАНА</div>
+      </div>
+      <div class="salary-grid" id="salaryGrid" aria-live="polite">
+        <div class="empty-state">Загрузка сотрудников…</div>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="weeksTitle">
+      <div class="panel-head">
+        <div>
+          <div class="section-kicker">ЗАКРЫТЫЕ ЗАКАЗ-НАРЯДЫ</div>
+          <h2 id="weeksTitle">Валовая выручка · 4 недели</h2>
+        </div>
+        <div class="panel-note" id="averageNote">ЕДИНАЯ ШКАЛА · ПН—ВС</div>
+      </div>
+      <div class="weeks-chart" id="weeksChart" aria-live="polite">
+        <div class="empty-state" style="grid-column:1/-1">Загрузка недель…</div>
+      </div>
+    </section>
+  </main>
+
+  <div class="access-state" id="accessState" hidden>
+    <div><strong>Нужен вход оператора</strong>Откройте CRM, войдите и снова нажмите «Открыть дашборд».</div>
+  </div>
+
+  <script>
+    (() => {
+      'use strict';
+
+      const OPERATOR_SESSION_STORAGE_KEY = 'kanban-operator-session';
+      const API_TOKEN_STORAGE_KEY = 'kanban-api-token';
+      const REFRESH_INTERVAL_MS = 45000;
+      const state = { data: null, timer: null, inFlight: false, stopped: false };
+      const els = {
+        dashboard: document.getElementById('dashboard'),
+        statusBadge: document.getElementById('statusBadge'),
+        updatedAt: document.getElementById('updatedAt'),
+        salaryMonth: document.getElementById('salaryMonth'),
+        salaryGrid: document.getElementById('salaryGrid'),
+        weeksChart: document.getElementById('weeksChart'),
+        averageNote: document.getElementById('averageNote'),
+        accessState: document.getElementById('accessState'),
+      };
+
+      function escapeHtml(value) {
+        return String(value ?? '').replace(/[&<>'"]/g, (character) => ({
+          '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
+        })[character]);
+      }
+
+      function amountNumber(value) {
+        const number = Number(String(value ?? '0').replace(',', '.'));
+        return Number.isFinite(number) ? number : 0;
+      }
+
+      function money(value) {
+        return new Intl.NumberFormat('ru-RU', {
+          style: 'currency',
+          currency: 'RUB',
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 2,
+        }).format(amountNumber(value));
+      }
+
+      function monthLabel(value) {
+        const match = /^(\d{4})-(\d{2})$/.exec(String(value || ''));
+        if (!match) return 'ТЕКУЩИЙ МЕСЯЦ';
+        const date = new Date(Number(match[1]), Number(match[2]) - 1, 1);
+        return date.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' }).toUpperCase();
+      }
+
+      function ordersLabel(count) {
+        const value = Math.max(0, Number(count) || 0);
+        const mod10 = value % 10;
+        const mod100 = value % 100;
+        const word = mod10 === 1 && mod100 !== 11
+          ? 'заказ-наряд'
+          : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)
+            ? 'заказ-наряда'
+            : 'заказ-нарядов';
+        return value + ' ' + word;
+      }
+
+      function salaryGridShape(count) {
+        if (count <= 1) return { columns: 1, rows: 1 };
+        const columns = Math.min(6, Math.max(2, Math.ceil(Math.sqrt(count * 2.2))));
+        return { columns, rows: Math.ceil(count / columns) };
+      }
+
+      function renderEmployees(employees) {
+        const items = Array.isArray(employees) ? employees : [];
+        const shape = salaryGridShape(items.length);
+        els.salaryGrid.style.setProperty('--columns', String(shape.columns));
+        els.salaryGrid.style.setProperty('--rows', String(shape.rows));
+        els.salaryGrid.innerHTML = items.length
+          ? items.map((employee) => (
+            '<article class="salary-card">'
+              + '<div class="salary-card__person">'
+                + '<div class="salary-card__name" title="' + escapeHtml(employee.name) + '">' + escapeHtml(employee.name || 'Сотрудник') + '</div>'
+                + '<div class="salary-card__position" title="' + escapeHtml(employee.position) + '">' + escapeHtml(employee.position || 'Сотрудник') + '</div>'
+              + '</div>'
+              + '<div class="salary-card__amount">' + escapeHtml(money(employee.salary)) + '</div>'
+            + '</article>'
+          )).join('')
+          : '<div class="empty-state" style="grid-column:1/-1">Нет сотрудников, выбранных для общего дашборда</div>';
+      }
+
+      function renderWeeks(weeks) {
+        const items = Array.isArray(weeks) ? weeks.slice(0, 4) : [];
+        const maximum = Math.max(1, ...items.map((week) => amountNumber(week.amount)));
+        els.weeksChart.innerHTML = items.length === 4
+          ? items.map((week) => {
+            const ratio = Math.max(0.015, amountNumber(week.amount) / maximum);
+            return (
+              '<article class="week-card" data-current="' + String(Boolean(week.is_current)) + '">'
+                + '<div class="week-head">'
+                  + '<div class="week-range">' + escapeHtml(week.label) + '</div>'
+                  + (week.is_current ? '<div class="week-badge">ИДЁТ</div>' : '')
+                + '</div>'
+                + '<div class="bar-stage" aria-hidden="true"><div class="bar" style="--ratio:' + ratio.toFixed(4) + '"></div></div>'
+                + '<div class="week-summary">'
+                  + '<div class="week-amount">' + escapeHtml(money(week.amount)) + '</div>'
+                  + '<div class="week-count">' + escapeHtml(ordersLabel(week.orders_count)) + '</div>'
+                + '</div>'
+              + '</article>'
+            );
+          }).join('')
+          : '<div class="empty-state" style="grid-column:1/-1">Недостаточно данных для четырёх недель</div>';
+      }
+
+      function setStatus(text, tone = 'ok') {
+        els.statusBadge.textContent = text;
+        els.statusBadge.dataset.tone = tone;
+      }
+
+      function render(data) {
+        state.data = data;
+        els.accessState.hidden = true;
+        els.salaryMonth.textContent = monthLabel(data.salary_month);
+        renderEmployees(data.employees);
+        renderWeeks(data.weeks);
+        els.averageNote.textContent = 'СРЕДНЕЕ ЗА 3 НЕДЕЛИ · ' + money(data.completed_week_average);
+        const generated = new Date(data.generated_at);
+        els.updatedAt.textContent = Number.isNaN(generated.getTime())
+          ? 'ДАННЫЕ ОБНОВЛЕНЫ'
+          : 'ОБНОВЛЕНО · ' + generated.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+        setStatus('АКТУАЛЬНО');
+        els.dashboard.dataset.ready = 'false';
+        requestAnimationFrame(() => requestAnimationFrame(() => { els.dashboard.dataset.ready = 'true'; }));
+      }
+
+      async function refresh() {
+        if (state.stopped || state.inFlight) return;
+        state.inFlight = true;
+        try {
+          const headers = { Accept: 'application/json' };
+          const session = localStorage.getItem(OPERATOR_SESSION_STORAGE_KEY) || '';
+          const apiToken = localStorage.getItem(API_TOKEN_STORAGE_KEY) || '';
+          if (session) headers['X-Operator-Session'] = session;
+          if (apiToken) headers.Authorization = 'Bearer ' + apiToken;
+          const response = await fetch('/api/get_display_dashboard', {
+            method: 'GET',
+            headers,
+            cache: 'no-store',
+          });
+          const payload = await response.json().catch(() => null);
+          if (response.status === 401) {
+            const error = new Error('operator_session_required');
+            error.code = 'unauthorized';
+            throw error;
+          }
+          if (!response.ok || !payload?.ok || !payload?.data) {
+            throw new Error(payload?.error?.message || 'dashboard_update_failed');
+          }
+          render(payload.data);
+        } catch (error) {
+          if (error?.code === 'unauthorized') {
+            els.accessState.hidden = false;
+            setStatus('НУЖЕН ВХОД', 'error');
+          } else {
+            setStatus('НЕТ ОБНОВЛЕНИЯ', 'error');
+            if (!state.data) {
+              els.updatedAt.textContent = 'СОХРАНЁННЫХ ДАННЫХ ПОКА НЕТ';
+            }
+          }
+        } finally {
+          state.inFlight = false;
+        }
+      }
+
+      function schedule() {
+        if (state.timer) window.clearInterval(state.timer);
+        state.timer = window.setInterval(refresh, REFRESH_INTERVAL_MS);
+      }
+
+      function stop() {
+        state.stopped = true;
+        if (state.timer) window.clearInterval(state.timer);
+        state.timer = null;
+      }
+
+      window.__AUTOSTOP_DISPLAY_DASHBOARD__ = { refresh, render, stop, state };
+      window.addEventListener('beforeunload', stop, { once: true });
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) refresh();
+      });
+      refresh();
+      schedule();
+    })();
+  </script>
+</body>
+</html>

@@ -239,6 +239,7 @@
       employeesReferencePromise: null,
       activeEmployeeId: '',
       employeeCreateMode: false,
+      employeeDashboardVisibilityTouched: false,
       employeesReportDetailsOpen: false,
       employeeFormBaseline: null,
       payrollMonth: '',
@@ -587,6 +588,7 @@
                       + '<div class="field employees-field--span-4"><label for="employeeNameInput">ИМЯ</label><input id="employeeNameInput" type="text" maxlength="80"></div>'
                       + '<div class="field employees-field--span-4"><label for="employeeMiddleNameInput">ОТЧЕСТВО</label><input id="employeeMiddleNameInput" type="text" maxlength="80"></div>'
                       + '<div class="field employees-field--span-4"><label for="employeePositionInput">ДОЛЖНОСТЬ</label><input id="employeePositionInput" type="text" maxlength="80"></div>'
+                      + '<label class="employees-check employees-field--span-12" id="employeeDashboardVisibleField"><input id="employeeDashboardVisibleInput" type="checkbox" checked> ПОКАЗЫВАТЬ НА ОБЩЕМ ДАШБОРДЕ</label>'
                       + '<input id="employeeSalaryModeInput" type="hidden" value="percent_only">'
                       + '<input id="employeeBaseSalaryInput" type="hidden" value="">'
                       + '<input id="employeeWorkPercentInput" type="hidden" value="">'
@@ -855,6 +857,7 @@
       boardScaleInput: document.getElementById('boardScaleInput'),
       boardScaleValue: document.getElementById('boardScaleValue'),
       boardScaleReset: document.getElementById('boardScaleReset'),
+      openDisplayDashboardButton: document.getElementById('openDisplayDashboardButton'),
       stickyModal: document.getElementById('stickyModal'),
       stickyModalTitle: document.getElementById('stickyModalTitle'),
       stickyText: document.getElementById('stickyText'),
@@ -1010,6 +1013,8 @@
       employeeNameInput: document.getElementById('employeeNameInput'),
       employeeMiddleNameInput: document.getElementById('employeeMiddleNameInput'),
       employeePositionInput: document.getElementById('employeePositionInput'),
+      employeeDashboardVisibleField: document.getElementById('employeeDashboardVisibleField'),
+      employeeDashboardVisibleInput: document.getElementById('employeeDashboardVisibleInput'),
       employeeSalaryModeInput: document.getElementById('employeeSalaryModeInput'),
       employeeBaseSalaryInput: document.getElementById('employeeBaseSalaryInput'),
       employeeWorkPercentInput: document.getElementById('employeeWorkPercentInput'),
@@ -1580,6 +1585,8 @@
       els.employeeNameInput = document.getElementById('employeeNameInput');
       els.employeeMiddleNameInput = document.getElementById('employeeMiddleNameInput');
       els.employeePositionInput = document.getElementById('employeePositionInput');
+      els.employeeDashboardVisibleField = document.getElementById('employeeDashboardVisibleField');
+      els.employeeDashboardVisibleInput = document.getElementById('employeeDashboardVisibleInput');
       els.employeeSalaryModeInput = document.getElementById('employeeSalaryModeInput');
       els.employeeBaseSalaryInput = document.getElementById('employeeBaseSalaryInput');
       els.employeeWorkPercentInput = document.getElementById('employeeWorkPercentInput');
@@ -5802,6 +5809,7 @@
         material_percent: normalizeEmployeeComparableNumber(current?.material_percent),
         repair_order_percent: normalizeEmployeeComparableNumber(current?.repair_order_percent),
         is_active: employee ? Boolean(employee.is_active) : true,
+        dashboard_visible: employee ? Boolean(employee.dashboard_visible) : true,
       };
     }
 
@@ -5822,6 +5830,7 @@
         material_percent: normalizeEmployeeComparableNumber(els.employeeMaterialPercentInput?.value),
         repair_order_percent: normalizeEmployeeComparableNumber(els.employeeRepairOrderPercentInput?.value),
         is_active: Boolean(selectedEmployeeRecord()?.is_active ?? true),
+        dashboard_visible: Boolean(els.employeeDashboardVisibleInput?.checked),
       };
     }
 
@@ -6051,6 +6060,16 @@
       els.employeeNameInput.value = current?.name || '';
       if (els.employeeMiddleNameInput) els.employeeMiddleNameInput.value = '';
       els.employeePositionInput.value = current?.position || '';
+      state.employeeDashboardVisibilityTouched = false;
+      if (els.employeeDashboardVisibleInput) {
+        els.employeeDashboardVisibleInput.checked = current ? Boolean(current.dashboard_visible) : true;
+        els.employeeDashboardVisibleInput.disabled = !state.operatorProfile?.user?.is_admin;
+      }
+      if (els.employeeDashboardVisibleField) {
+        els.employeeDashboardVisibleField.title = state.operatorProfile?.user?.is_admin
+          ? 'Видимость сотрудника на телевизионном дашборде'
+          : 'Эту настройку меняет администратор';
+      }
       els.employeeSalaryModeInput.value = current?.salary_mode || 'percent_only';
       els.employeeBaseSalaryInput.value = current?.base_salary || '';
       els.employeeWorkPercentInput.value = current?.work_percent || '';
@@ -6065,7 +6084,7 @@
 
     function readEmployeeFormPayload() {
       const selectedEmployee = selectedEmployeeRecord();
-      return {
+      const payload = {
         create_mode: Boolean(state.employeeCreateMode),
         employee_id: state.employeeCreateMode ? '' : (state.activeEmployeeId || ''),
         name: employeeCombinedNameFromForm(),
@@ -6079,6 +6098,10 @@
         actor_name: state.actor,
         source: 'ui',
       };
+      if (state.operatorProfile?.user?.is_admin && els.employeeDashboardVisibleInput) {
+        payload.dashboard_visible = Boolean(els.employeeDashboardVisibleInput.checked);
+      }
+      return payload;
     }
 
     function renderEmployeesList() {
@@ -7123,6 +7146,20 @@
         syncEmployeeSalaryModeUi();
         renderEmployeeShiftAccrualDialog();
         return;
+      }
+      if (target === els.employeeDashboardVisibleInput) {
+        state.employeeDashboardVisibilityTouched = true;
+        renderEmployeeProfileMeta();
+        return;
+      }
+      if (
+        target === els.employeePositionInput
+        && state.employeeCreateMode
+        && !state.employeeDashboardVisibilityTouched
+        && els.employeeDashboardVisibleInput
+      ) {
+        const position = String(els.employeePositionInput.value || '').trim().toLowerCase();
+        els.employeeDashboardVisibleInput.checked = !/(^|[^a-zа-яё])(администратор\w*|административ\w*|administrator\w*|admin)($|[^a-zа-яё])/i.test(position);
       }
       if (
         target === els.employeeNameInput
@@ -17549,6 +17586,15 @@
       applyBoardScale(normalizeBoardScale(state.boardScale), { syncInput: true });
       syncBoardControlSettingsForm();
       pushModal('settings', els.boardSettingsModal);
+    }
+
+    function openDisplayDashboard() {
+      const popup = window.open('/dashboard', 'autostop-display-dashboard');
+      if (!popup) {
+        setStatus('БРАУЗЕР ЗАБЛОКИРОВАЛ ОКНО ДАШБОРДА.', true);
+        return;
+      }
+      popup.focus();
     }
 
     function currentBoardControlSettings() {

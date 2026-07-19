@@ -100,6 +100,7 @@ PROXIED_WRITE_ROUTES = {
 OPERATOR_SESSION_ROUTES = {
     "/api/logout_operator",
     "/api/get_operator_profile",
+    "/api/get_display_dashboard",
     "/api/open_card",
 }
 
@@ -169,6 +170,7 @@ def build_service_routes(
         "/api/delete_client_vehicle": service.delete_client_vehicle,
         "/api/suggest_clients_for_card": service.suggest_clients_for_card,
         "/api/get_payroll_report": service.get_payroll_report,
+        "/api/get_display_dashboard": service.get_display_dashboard,
         "/api/get_employee_salary_ledger": service.get_employee_salary_ledger,
         "/api/get_employee_salary_report": service.get_employee_salary_report,
         "/api/get_employee_salary_reconciliation": service.get_employee_salary_reconciliation,

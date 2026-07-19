@@ -40,7 +40,7 @@ from ..services.shared_files_service import SharedFilesService
 from ..storage.json_store import StateFileCorruptedError
 from ..storage.limited_io import read_bytes_limited
 from ..system_clipboard import ClipboardUnavailableError, list_clipboard_file_paths
-from ..web_assets import BOARD_WEB_APP_HTML
+from ..web_assets import BOARD_WEB_APP_HTML, DISPLAY_DASHBOARD_HTML
 from .route_registry import (
     ADMIN_ONLY_ROUTES,
     OPERATOR_SESSION_ROUTES,
@@ -57,6 +57,7 @@ QUIET_SUCCESS_ROUTES = frozenset(
         "/api/health",
         "/api/get_board_revision",
         "/api/get_board_snapshot",
+        "/api/get_display_dashboard",
         "/api/mark_card_seen",
     }
 )
@@ -126,6 +127,7 @@ READONLY_GET_ROUTES = frozenset(
         "/api/get_client_stats",
         "/api/suggest_clients_for_card",
         "/api/get_payroll_report",
+        "/api/get_display_dashboard",
         "/api/get_employee_salary_ledger",
         "/api/get_employee_salary_report",
         "/api/get_employee_salary_reconciliation",
@@ -345,6 +347,16 @@ def _board_html_bytes() -> bytes:
 @cache
 def _board_html_gzip_bytes() -> bytes:
     return gzip.compress(_board_html_bytes())
+
+
+@cache
+def _display_dashboard_html_bytes() -> bytes:
+    return DISPLAY_DASHBOARD_HTML.encode("utf-8")
+
+
+@cache
+def _display_dashboard_html_gzip_bytes() -> bytes:
+    return gzip.compress(_display_dashboard_html_bytes())
 
 
 def _html_text(value: object, *, fallback: str = "-") -> str:
@@ -725,6 +737,11 @@ class ApiServer:
                     self.send_response(HTTPStatus.OK)
                     self._send_headers("text/html; charset=utf-8", len(body))
                     return
+                if route in {"/dashboard", "/dashboard/"}:
+                    body = _display_dashboard_html_bytes()
+                    self.send_response(HTTPStatus.OK)
+                    self._send_headers("text/html; charset=utf-8", len(body))
+                    return
                 if route == "/favicon.ico":
                     body = _static_asset_bytes("favicon.ico")
                     self.send_response(HTTPStatus.OK)
@@ -941,6 +958,24 @@ class ApiServer:
                     content_type="text/html; charset=utf-8",
                     request_id=request_id,
                     route=urlsplit(self.path).path or "/",
+                    extra_headers=extra_headers,
+                )
+
+            def _serve_display_dashboard(self, request_id: str) -> None:
+                gzip_ok = "gzip" in str(self.headers.get("Accept-Encoding", "")).lower()
+                body = (
+                    _display_dashboard_html_gzip_bytes()
+                    if gzip_ok
+                    else _display_dashboard_html_bytes()
+                )
+                extra_headers = {"Vary": "Accept-Encoding"}
+                if gzip_ok:
+                    extra_headers["Content-Encoding"] = "gzip"
+                self._send_bytes_response(
+                    body,
+                    content_type="text/html; charset=utf-8",
+                    request_id=request_id,
+                    route=urlsplit(self.path).path or "/dashboard",
                     extra_headers=extra_headers,
                 )
 
@@ -1407,11 +1442,22 @@ class ApiServer:
                 return body, headers
 
             def _route_is_static(self, route: str) -> bool:
-                return route in {"/", "/index.html", "/favicon.ico", "/favicon.png", "/api/health"}
+                return route in {
+                    "/",
+                    "/index.html",
+                    "/dashboard",
+                    "/dashboard/",
+                    "/favicon.ico",
+                    "/favicon.png",
+                    "/api/health",
+                }
 
             def _serve_static_route(self, route: str, request_id: str) -> bool:
                 if route in {"/", "/index.html"}:
                     self._serve_board(request_id)
+                    return True
+                if route in {"/dashboard", "/dashboard/"}:
+                    self._serve_display_dashboard(request_id)
                     return True
                 if route == "/favicon.ico":
                     body = _static_asset_bytes("favicon.ico")
