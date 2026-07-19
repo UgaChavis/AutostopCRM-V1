@@ -83,9 +83,9 @@ use only `agent_inventory_workflow`.
 
 Store coverage is additive to the existing schemas:
 
-- `agent_bootstrap` includes compact Store health and a separate
-  `store_bootstrap` digest stream; continue it with optional
-  `store_cursor`/`store_ack_token`;
+- `agent_bootstrap` includes one compact stateless Store snapshot from a
+  single Store request. It has no Store cursor/ACK, does not read the change
+  feed, and does not touch `store_digest`;
 - `agent_board_digest(scope="store")` uses the durable `store_digest` stream
   and accepts the returned `cursor`/`ack_token` pair;
 - `agent_search` supports `store_part`, `store_order`,
@@ -106,6 +106,12 @@ the same public tool. Intermediate ACK returns the next page; final ACK returns
 an empty terminal page with `next_cursor=null` and only then commits durable
 high-water. Repeating an unacknowledged page or final ACK is idempotent. Raw App
 checkpoint/replay cursors are never public.
+
+The bootstrap snapshot contains Store API readiness, product/active-order/open
+quote counts, aggregate inventory, marketplace state, Store contract version,
+and a safe export-error report (24 hours, 7 days, all time, latest five). Error
+rows contain only time, fixed error code, part/account refs, and attempt count;
+provider messages, payloads, credentials, and contacts are never returned.
 
 ## Gateway Guarantees
 
@@ -163,8 +169,8 @@ recreating the CRM container.
 7. raw discovery only when no named workflow covers the request
 
 For a Store digest, finish the cursor/ACK loop before treating “what is new” as
-consumed. `agent_bootstrap` and `agent_board_digest(scope="store")` use separate
-streams and their continuation field names are intentionally different.
+consumed. Only `agent_board_digest(scope="store")` participates in that
+ACK/replay/CAS protocol; `agent_bootstrap` is stateless.
 
 For Store writes, `agent_inventory_workflow` permits exactly:
 `assign_quote_request`, `set_quote_request_status`,

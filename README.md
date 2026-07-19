@@ -71,7 +71,8 @@ state. AutostopManager owns only routing, compact cursors, action contracts,
 and workflow checkpoints. Gateway store reads never access the App database.
 Store digest pages use at-least-once delivery: every non-empty page carries an
 opaque Manager cursor/ACK pair, and durable high-water advances only after the
-final ACK; bootstrap and owner digest remain separate streams.
+final ACK. Bootstrap is a separate stateless one-request snapshot and never
+reads or advances that owner digest.
 Store writes require a matching dry-run and apply with distinct idempotency
 keys but one stable action correlation. Gateway verifies only App-safe DTO
 fields and keeps READY runs compensating until the notifier is `SENT` or

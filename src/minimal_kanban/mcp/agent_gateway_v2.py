@@ -1646,8 +1646,6 @@ def register_agent_gateway_v2(
         query: str = "",
         intent: str | None = None,
         sample_limit: int = 8,
-        store_cursor: str | None = None,
-        store_ack_token: str | None = None,
     ) -> CallToolResult:
         manager_payload: dict[str, Any] = {}
         if manager_bootstrap_tool is not None:
@@ -1659,17 +1657,9 @@ def register_agent_gateway_v2(
                 )
             except Exception as exc:  # pragma: no cover
                 manager_payload = {"ok": False, "error": str(exc)}
-        store_runtime = await _invoke_store("store_runtime_status", {})
-        store_digest = await _invoke_store(
-            "store_digest",
-            {
-                "baseline": False,
-                "since": None,
-                "cursor": store_cursor,
-                "ack_token": store_ack_token,
-                "limit": 5,
-                "stream": "store_bootstrap",
-            },
+        store_snapshot = await _invoke_store(
+            "store_runtime_status",
+            {"live": True, "bootstrap_snapshot": True},
         )
         context_ok, context_data, _context_meta, context_error = _response_data(
             board_api.get_board_context()
@@ -1686,7 +1676,7 @@ def register_agent_gateway_v2(
             context_data.get("context", context_data) if isinstance(context_data, dict) else {}
         )
         ok = context_ok and cards_ok
-        store_ok = bool(store_runtime.get("ok")) and bool(store_digest.get("ok"))
+        store_ok = bool(store_snapshot.get("ok"))
         warnings = [] if ok else [str(context_error or cards_error or "bootstrap_degraded")]
         if not store_ok:
             warnings.append("store_adapter_degraded")
@@ -1705,21 +1695,11 @@ def register_agent_gateway_v2(
                 "store": {
                     "ok": store_ok,
                     "status": str(
-                        store_runtime.get("status")
-                        or ("ready" if bool(store_runtime.get("ok")) else "degraded")
+                        store_snapshot.get("status") or ("ready" if store_ok else "degraded")
                     ),
-                    "runtime": _compact_object(
-                        store_runtime.get("summary") or store_runtime.get("data") or {},
+                    "snapshot": _compact_object(
+                        store_snapshot.get("summary") or store_snapshot.get("data") or {},
                         item_limit=10,
-                        key_limit=30,
-                    ),
-                    "digest": _compact_object(
-                        {
-                            "summary": store_digest.get("summary") or {},
-                            "items": store_digest.get("items") or [],
-                            "page": store_digest.get("page") or {},
-                        },
-                        item_limit=5,
                         key_limit=40,
                     ),
                 },

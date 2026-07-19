@@ -499,14 +499,58 @@ def _prepare_fake_store_state(state: dict) -> None:
     )
 
 
+def _fake_store_bootstrap_snapshot() -> dict:
+    return {
+        "ok": True,
+        "format": "store_agent_v1",
+        "status": "ok",
+        "summary": {
+            "store_api_ready": True,
+            "product_count": 42,
+            "active_order_count": 3,
+            "open_quote_request_count": 2,
+            "inventory": {
+                "position_count": 40,
+                "physical_qty": 100,
+                "reserved_qty": 7,
+                "available_qty": 93,
+            },
+            "marketplaces": {
+                "active_accounts": 2,
+                "export_errors": {
+                    "counts": {"last_24_hours": 1, "last_7_days": 2, "all_time": 3},
+                    "latest": [],
+                },
+            },
+            "contract_version": "store_agent_v1",
+            "bootstrap_snapshot_version": 1,
+        },
+        "items": [],
+        "changes": [],
+        "page": {"has_more": False, "next_cursor": None},
+        "warnings": [],
+        "meta": {},
+    }
+
+
 def register_fake_store_manager_tools(server, _logger, state: dict) -> None:
     _prepare_fake_store_state(state)
 
     @server.tool(name="store_runtime_status", description="INTERNAL_ONLY store runtime")
-    def store_runtime_status(live: bool = False) -> dict:
-        state["calls"].append(("store_runtime_status", {"live": live}))
+    def store_runtime_status(
+        live: bool = False,
+        bootstrap_snapshot: bool = False,
+    ) -> dict:
+        state["calls"].append(
+            (
+                "store_runtime_status",
+                {"live": live, "bootstrap_snapshot": bootstrap_snapshot},
+            )
+        )
         if not state["store_available"]:
             return _fake_store_unavailable()
+        if bootstrap_snapshot:
+            return _fake_store_bootstrap_snapshot()
         return {
             "ok": True,
             "format": "store_agent_v1",
@@ -1059,8 +1103,8 @@ class AgentGatewayV2Tests(unittest.IsolatedAsyncioTestCase):
             {"include_archived", "cursor", "limit", "fields"} <= set(board_schema["properties"])
         )
         self.assertIn("ack_token", board_schema["properties"])
-        self.assertTrue({"store_cursor", "store_ack_token"} <= set(bootstrap_schema["properties"]))
-        self.assertNotIn("store_cursor", bootstrap_schema.get("required", []))
+        self.assertNotIn("store_cursor", bootstrap_schema["properties"])
+        self.assertNotIn("store_ack_token", bootstrap_schema["properties"])
         self.assertNotIn("ack_token", board_schema.get("required", []))
         self.assertTrue(
             {"card", "client", "repair_order", "inventory", "cashbox", "file"}
@@ -1077,7 +1121,7 @@ class AgentGatewayV2Tests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIsNone(inventory_schema["properties"]["mode"]["default"])
 
-    async def test_store_digest_normalizes_top_level_items_and_uses_separate_streams(
+    async def test_store_bootstrap_snapshot_is_one_store_call_and_digest_keeps_owner_stream(
         self,
     ) -> None:
         server, state = self._create_store_server()
@@ -1092,11 +1136,24 @@ class AgentGatewayV2Tests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(bootstrap.structuredContent["ok"])
         self.assertTrue(bootstrap.structuredContent["summary"]["store"]["ok"])
+        self.assertEqual(
+            42,
+            bootstrap.structuredContent["summary"]["store"]["snapshot"]["product_count"],
+        )
         self.assertEqual("order-1", digest.structuredContent["data"]["items"][0]["id"])
         self.assertEqual("opaque-2", digest.structuredContent["page"]["next_cursor"])
+        bootstrap_calls = [
+            arguments
+            for name, arguments in state["calls"]
+            if name == "store_runtime_status" and arguments["bootstrap_snapshot"]
+        ]
         digest_calls = [arguments for name, arguments in state["calls"] if name == "store_digest"]
-        self.assertEqual("store_bootstrap", digest_calls[0]["stream"])
-        self.assertEqual("store_digest", digest_calls[-1]["stream"])
+        self.assertEqual(
+            [{"live": True, "bootstrap_snapshot": True}],
+            bootstrap_calls,
+        )
+        self.assertEqual(1, len(digest_calls))
+        self.assertEqual("store_digest", digest_calls[0]["stream"])
 
     async def test_store_digest_ack_traverses_first_next_and_final_without_new_tool(self) -> None:
         server, state = self._create_store_server({"store_digest_ack_mode": True})
@@ -1132,35 +1189,23 @@ class AgentGatewayV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("digest-ack-1", calls[1]["ack_token"])
         self.assertEqual("digest-ack-2", calls[2]["ack_token"])
 
-    async def test_store_bootstrap_ack_has_an_independent_stream(self) -> None:
+    async def test_store_bootstrap_snapshot_never_uses_digest_ack_or_pagination(self) -> None:
         server, state = self._create_store_server({"store_digest_ack_mode": True})
         tool = server._tool_manager.get_tool("agent_bootstrap")
 
-        first = await tool.run({}, convert_result=False)
-        first_page = first.structuredContent["summary"]["store"]["digest"]["page"]
-        second = await tool.run(
-            {
-                "store_cursor": first_page["next_cursor"],
-                "store_ack_token": first_page["ack_token"],
-            },
-            convert_result=False,
-        )
-        second_page = second.structuredContent["summary"]["store"]["digest"]["page"]
-        final = await tool.run(
-            {
-                "store_cursor": second_page["next_cursor"],
-                "store_ack_token": second_page["ack_token"],
-            },
-            convert_result=False,
-        )
-        final_page = final.structuredContent["summary"]["store"]["digest"]["page"]
+        result = await tool.run({}, convert_result=False)
 
-        self.assertFalse(final_page["has_more"])
-        self.assertIsNone(final_page["next_cursor"])
+        snapshot = result.structuredContent["summary"]["store"]["snapshot"]
+        self.assertTrue(snapshot["store_api_ready"])
+        self.assertNotIn("page", snapshot)
         calls = [arguments for name, arguments in state["calls"] if name == "store_digest"]
-        self.assertTrue(all(call["stream"] == "store_bootstrap" for call in calls))
-        self.assertEqual("bootstrap-ack-1", calls[1]["ack_token"])
-        self.assertEqual("bootstrap-ack-2", calls[2]["ack_token"])
+        self.assertEqual([], calls)
+        snapshot_calls = [
+            arguments
+            for name, arguments in state["calls"]
+            if name == "store_runtime_status" and arguments["bootstrap_snapshot"]
+        ]
+        self.assertEqual([{"live": True, "bootstrap_snapshot": True}], snapshot_calls)
 
     async def test_store_search_and_exact_context_use_existing_public_tools(self) -> None:
         server, state = self._create_store_server()
