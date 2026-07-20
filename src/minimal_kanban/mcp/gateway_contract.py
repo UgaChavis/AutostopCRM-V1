@@ -90,6 +90,7 @@ DOCUMENT_WORKFLOW_OPERATIONS = frozenset(
         "list_shared_files",
         "get_shared_file_info",
         "download_shared_file",
+        "download_store_quote_vin_photo",
         "upload_shared_file",
         "delete_shared_file",
     }

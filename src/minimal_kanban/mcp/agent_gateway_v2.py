@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import json
 from collections.abc import Mapping
@@ -8,7 +9,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
-from mcp.types import CallToolResult, TextContent, ToolAnnotations
+from mcp.types import CallToolResult, ImageContent, TextContent, ToolAnnotations
 from pydantic import BaseModel
 
 from ..api.route_registry import PROXIED_WRITE_ROUTES
@@ -54,6 +55,8 @@ from .web_gateway import (
 )
 
 AGENT_GATEWAY_FORMAT = "agent_envelope_v2"
+STORE_VIN_PHOTO_PREVIEW_OPERATION = "download_store_quote_vin_photo"
+STORE_VIN_PHOTO_PREVIEW_MAX_BYTES = 2 * 1024 * 1024
 AGENT_GATEWAY_TOOL_NAMES = frozenset(
     {
         "agent_bootstrap",
@@ -254,6 +257,65 @@ def _tool_result(payload: dict[str, Any], *, label: str) -> CallToolResult:
         structuredContent=payload,
         isError=not bool(payload.get("ok")),
     )
+
+
+def _without_binary_content(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            str(key): _without_binary_content(item)
+            for key, item in value.items()
+            if str(key) not in {"content_base64", "content_bytes", "pdf_base64"}
+        }
+    if isinstance(value, list):
+        return [_without_binary_content(item) for item in value]
+    return value
+
+
+def _tool_result_with_image(
+    payload: dict[str, Any],
+    *,
+    label: str,
+    image_base64: str,
+    mime_type: str,
+) -> CallToolResult:
+    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+    text_payload = {
+        "ok": bool(payload.get("ok")),
+        "tool": label,
+        "status": payload.get("status"),
+        "run_id": payload.get("run_id"),
+        "summary": summary,
+        "warnings": payload.get("warnings") or [],
+        "next_actions": payload.get("next_actions") or [],
+    }
+    text = json.dumps(text_payload, ensure_ascii=False, separators=(",", ":"), default=str)
+    if len(text) > 1000:
+        text = text[:997] + "..."
+    return CallToolResult(
+        content=[
+            TextContent(type="text", text=text),
+            ImageContent(type="image", data=image_base64, mimeType=mime_type),
+        ],
+        structuredContent=payload,
+        isError=not bool(payload.get("ok")),
+    )
+
+
+def _store_vin_photo_image(result: Mapping[str, Any]) -> tuple[str, str]:
+    data = result.get("data") if isinstance(result.get("data"), Mapping) else {}
+    image_base64 = data.get("content_base64")
+    mime_type = data.get("content_type")
+    if not isinstance(image_base64, str) or not isinstance(mime_type, str):
+        raise ValueError("store_attachment_payload_missing")
+    if mime_type.casefold() != "image/jpeg":
+        raise ValueError("store_attachment_mime_invalid")
+    try:
+        content = base64.b64decode(image_base64, validate=True)
+    except (ValueError, TypeError):
+        raise ValueError("store_attachment_base64_invalid") from None
+    if not content or len(content) > STORE_VIN_PHOTO_PREVIEW_MAX_BYTES:
+        raise ValueError("store_attachment_payload_too_large")
+    return image_base64, "image/jpeg"
 
 
 def _response_data(response: Any) -> tuple[bool, Any, dict[str, Any], Any]:
@@ -1222,6 +1284,17 @@ def register_agent_gateway_v2(
                 _envelope(ok=False, status="failed", warnings=["idempotency_key_required"]),
                 label=workflow_id,
             )
+        is_store_vin_photo_preview = operation == STORE_VIN_PHOTO_PREVIEW_OPERATION
+        if is_store_vin_photo_preview and not allow_large_output:
+            return _tool_result(
+                _envelope(
+                    ok=False,
+                    status="blocked",
+                    summary={"workflow_id": workflow_id, "operation": operation},
+                    warnings=["allow_large_output_required_for_store_vin_photo"],
+                ),
+                label=workflow_id,
+            )
         store_operation = workflow_id == "inventory" and operation in STORE_MANAGEMENT_OPERATIONS
         store_preflight: dict[str, Any] = {}
         store_correlation = ""
@@ -1450,6 +1523,17 @@ def register_agent_gateway_v2(
             if logical_payment
             else await _invoke(target_tool, arguments)
         )
+        image_base64 = ""
+        image_mime_type = ""
+        if is_store_vin_photo_preview and bool(result.get("ok")):
+            try:
+                image_base64, image_mime_type = _store_vin_photo_image(result)
+            except ValueError as exc:
+                result = {
+                    "ok": False,
+                    "error": {"code": str(exc)},
+                    "warnings": [str(exc)],
+                }
         verification = (
             await verify_store_operation(
                 operation,
@@ -1540,7 +1624,13 @@ def register_agent_gateway_v2(
                 ledger_error = failed
         overall_ok = result_ok and ledger_closed
         result_data = normalized_store_data(result) if store_operation else result
-        safe_result = result_data if allow_large_output else _compact_object(result_data)
+        safe_result = (
+            _without_binary_content(result_data)
+            if is_store_vin_photo_preview
+            else result_data
+            if allow_large_output
+            else _compact_object(result_data)
+        )
         source_warnings = (
             [str(item) for item in result.get("warnings") or [] if str(item).strip()]
             if store_operation
@@ -1555,37 +1645,42 @@ def register_agent_gateway_v2(
             if result_ok
             else ["executor_failed"]
         )
-        return _tool_result(
-            _envelope(
-                ok=overall_ok,
-                status=workflow_status,
-                run_id=run_id,
-                summary={
-                    "workflow_id": workflow_id,
-                    "operation": operation,
-                    "mode": mode or "apply",
-                    "executor": target_tool,
-                    "risk": risk,
-                },
-                data=safe_result,
-                verification={
-                    "executor_ok": executor_ok,
-                    "ledger_closed": ledger_closed,
-                    **verification,
-                },
-                warnings=[*source_warnings, *workflow_warnings],
-                next_actions=[]
-                if overall_ok
-                else [f"workflow_status(run_id={run_id}) and reconcile exact target"],
-                meta={
-                    "mode": mode or "apply",
-                    "dry_run": mode == "dry_run",
-                    "ledger_owned_by_named_workflow": True,
-                    "ledger_error": _compact_object(ledger_error) if ledger_error else None,
-                },
-            ),
-            label=workflow_id,
+        payload = _envelope(
+            ok=overall_ok,
+            status=workflow_status,
+            run_id=run_id,
+            summary={
+                "workflow_id": workflow_id,
+                "operation": operation,
+                "mode": mode or "apply",
+                "executor": target_tool,
+                "risk": risk,
+            },
+            data=safe_result,
+            verification={
+                "executor_ok": executor_ok,
+                "ledger_closed": ledger_closed,
+                **verification,
+            },
+            warnings=[*source_warnings, *workflow_warnings],
+            next_actions=[]
+            if overall_ok
+            else [f"workflow_status(run_id={run_id}) and reconcile exact target"],
+            meta={
+                "mode": mode or "apply",
+                "dry_run": mode == "dry_run",
+                "ledger_owned_by_named_workflow": True,
+                "ledger_error": _compact_object(ledger_error) if ledger_error else None,
+            },
         )
+        if overall_ok and is_store_vin_photo_preview:
+            return _tool_result_with_image(
+                payload,
+                label=workflow_id,
+                image_base64=image_base64,
+                mime_type=image_mime_type,
+            )
+        return _tool_result(payload, label=workflow_id)
 
     @server.tool(
         name="get_runtime_status",
@@ -1904,7 +1999,7 @@ def register_agent_gateway_v2(
             "store_state",
         ],
         entity_id: str,
-        detail: Literal["summary", "full"] = "summary",
+        detail: Literal["summary", "full", "full_with_vin_photo"] = "summary",
     ) -> CallToolResult:
         if entity in STORE_SEARCH_ENTITIES:
             result = await _invoke_store(
@@ -1913,7 +2008,7 @@ def register_agent_gateway_v2(
             )
             compact_store = (
                 (lambda value, **kwargs: _compact_object(value, max_depth=8, **kwargs))
-                if entity == "store_quote_request" and detail == "full"
+                if entity == "store_quote_request" and detail in {"full", "full_with_vin_photo"}
                 else _compact_object
             )
             return _tool_result(
@@ -2027,7 +2122,10 @@ def register_agent_gateway_v2(
 
     @server.tool(
         name="agent_document_workflow",
-        description="Execute a CRM print/file operation; binary payloads are returned only when allow_large_output is explicit.",
+        description=(
+            "Execute a CRM print/file operation or retrieve an exact Store VIN-photo preview; "
+            "binary payloads are returned only when allow_large_output is explicit."
+        ),
         annotations=_write_annotations("Agent Document Workflow"),
     )
     async def agent_document_workflow(

@@ -12,6 +12,7 @@ STORE_READ_CAPABILITY_NAMES = frozenset(
         "store_digest",
         "store_search",
         "store_entity_context",
+        "download_store_quote_vin_photo",
     }
 )
 STORE_MANAGEMENT_CAPABILITY_NAME = "store_management_action"

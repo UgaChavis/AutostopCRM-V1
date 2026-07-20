@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import copy
 import hashlib
 import json
@@ -698,6 +699,42 @@ def register_fake_store_manager_tools(server, _logger, state: dict) -> None:
         }
 
     @server.tool(
+        name="download_store_quote_vin_photo",
+        description="INTERNAL_ONLY Store VIN photo preview",
+        annotations=ToolAnnotations(
+            title="Store VIN Photo Preview",
+            readOnlyHint=True,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=False,
+        ),
+    )
+    def download_store_quote_vin_photo(
+        quote_request_id: str,
+        expected_photo_sha256: str,
+    ) -> dict:
+        arguments = {
+            "quote_request_id": quote_request_id,
+            "expected_photo_sha256": expected_photo_sha256,
+        }
+        state["calls"].append(("download_store_quote_vin_photo", arguments))
+        if not state["store_available"]:
+            return _fake_store_unavailable()
+        return {
+            "ok": True,
+            "data": {
+                "content_base64": base64.b64encode(b"fake-jpeg-preview").decode("ascii"),
+                "content_type": "image/jpeg",
+            },
+            "summary": {
+                "entity": "store_quote_request",
+                "entity_id": quote_request_id,
+                "attachment": {"sha256": expected_photo_sha256, "byte_size": 17},
+            },
+            "warnings": [],
+        }
+
+    @server.tool(
         name="get_store_analytics_report",
         description="Read-only storefront analytics report",
         annotations=ToolAnnotations(
@@ -1060,7 +1097,7 @@ class AgentGatewayV2Tests(unittest.IsolatedAsyncioTestCase):
         names = {tool.name for tool in server._tool_manager.list_tools()}
 
         self.assertEqual(24, len(names))
-        self.assertEqual(4, len(STORE_READ_CAPABILITY_NAMES))
+        self.assertEqual(5, len(STORE_READ_CAPABILITY_NAMES))
         self.assertEqual(
             {*STORE_READ_CAPABILITY_NAMES, STORE_MANAGEMENT_CAPABILITY_NAME},
             set(INTERNAL_ONLY_CAPABILITY_NAMES),
@@ -1114,7 +1151,10 @@ class AgentGatewayV2Tests(unittest.IsolatedAsyncioTestCase):
             {"card", "client", "repair_order", "cashbox", "inventory", "file"}
             <= set(context_schema["properties"]["entity"]["enum"])
         )
-        self.assertEqual({"summary", "full"}, set(context_schema["properties"]["detail"]["enum"]))
+        self.assertEqual(
+            {"summary", "full", "full_with_vin_photo"},
+            set(context_schema["properties"]["detail"]["enum"]),
+        )
         self.assertEqual(
             {"operation", "payload", "idempotency_key"},
             set(inventory_schema["required"]),
@@ -1233,6 +1273,44 @@ class AgentGatewayV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({"status": "IN_PROGRESS"}, search_call["filters"])
         self.assertEqual("opaque-search", search_call["cursor"])
 
+    async def test_store_vin_photo_preview_uses_existing_document_tool_and_never_leaks_base64(
+        self,
+    ) -> None:
+        server, state = self._create_store_server()
+        document = server._tool_manager.get_tool("agent_document_workflow")
+        arguments = {
+            "operation": "download_store_quote_vin_photo",
+            "payload": {
+                "quote_request_id": "quote-1",
+                "expected_photo_sha256": "a" * 64,
+            },
+            "idempotency_key": "store-vin-photo-preview-001",
+        }
+
+        blocked = await document.run(arguments, convert_result=False)
+        self.assertFalse(blocked.structuredContent["ok"])
+        self.assertIn(
+            "allow_large_output_required_for_store_vin_photo",
+            blocked.structuredContent["warnings"],
+        )
+        self.assertFalse(
+            any(name == "download_store_quote_vin_photo" for name, _arguments in state["calls"])
+        )
+
+        result = await document.run({**arguments, "allow_large_output": True}, convert_result=False)
+        self.assertTrue(result.structuredContent["ok"])
+        self.assertEqual(2, len(result.content))
+        self.assertEqual("image", result.content[1].type)
+        self.assertEqual("image/jpeg", result.content[1].mimeType)
+        self.assertNotIn("content_base64", json.dumps(result.structuredContent))
+        preview_call = next(
+            call for call in state["calls"] if call[0] == "download_store_quote_vin_photo"
+        )
+        self.assertEqual(
+            {"quote_request_id": "quote-1", "expected_photo_sha256": "a" * 64},
+            preview_call[1],
+        )
+
     async def test_store_outage_degrades_store_without_breaking_crm(self) -> None:
         server, state = self._create_store_server({"store_available": False})
 
@@ -1269,6 +1347,7 @@ class AgentGatewayV2Tests(unittest.IsolatedAsyncioTestCase):
             "store_digest",
             "store_search",
             "store_entity_context",
+            "download_store_quote_vin_photo",
             "store_management_action",
         ):
             with self.subTest(name=name):
