@@ -5,6 +5,7 @@ import asyncio
 import json
 import math
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -34,6 +35,7 @@ from minimal_kanban.settings_models import IntegrationSettings
 
 LIVE_CONNECTOR_RESPONSE_MAX_BYTES = 4 * 1024 * 1024
 LIVE_CONNECTOR_SETTINGS_MAX_BYTES = 1 * 1024 * 1024
+BOARD_JS_PATH_PATTERN = re.compile(r'src=["\'](?P<path>/assets/board\.[0-9a-f]{64}\.js)["\']')
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -288,6 +290,8 @@ def check_site(site_url: str, *, expect_https: bool = False) -> dict[str, Any]:
         "title": "",
         "contains_autostop": False,
         "contains_login_route": False,
+        "login_route_source": "",
+        "asset_probe_url": "",
         "probe_url": site_url,
         "error": None,
     }
@@ -331,6 +335,29 @@ def check_site(site_url: str, *, expect_https: bool = False) -> dict[str, Any]:
                 result["title"] = title
                 result["contains_autostop"] = "AUTOSTOP" in body.upper()
                 result["contains_login_route"] = "/api/login_operator" in body
+                if result["contains_login_route"]:
+                    result["login_route_source"] = "html"
+                else:
+                    asset_match = BOARD_JS_PATH_PATTERN.search(body)
+                    final_parts = _urlsplit_clean(final_url)
+                    if asset_match is not None and final_parts is not None and final_parts.netloc:
+                        asset_url = (
+                            f"{final_parts.scheme}://{final_parts.netloc}"
+                            f"{asset_match.group('path')}"
+                        )
+                        result["asset_probe_url"] = asset_url
+                        asset_request = urllib.request.Request(
+                            asset_url,
+                            method="GET",
+                            headers={"Accept": "application/javascript", **headers},
+                        )
+                        with _urlopen_no_redirect(asset_request, timeout=10.0) as asset_response:
+                            asset_body = _read_response_body(asset_response).decode(
+                                "utf-8", errors="replace"
+                            )
+                        result["contains_login_route"] = "/api/login_operator" in asset_body
+                        if result["contains_login_route"]:
+                            result["login_route_source"] = "asset"
                 result["ok"] = bool(
                     response.status == 200
                     and result["contains_autostop"]
