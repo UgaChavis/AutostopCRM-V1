@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "perf_workflows.py"
+QUALITY_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "quality.yml"
 
 
 class FakeResponse:
@@ -60,6 +61,8 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
             "--max-storage-write-ms",
             "--max-revision-server-ms",
             "--max-get-card-direct-ms",
+            "--max-feed-read-ms",
+            "--max-feed-replay-ms",
             "--browser-timeout-seconds",
         ):
             with self.subTest(flag=flag):
@@ -90,6 +93,16 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
         self.assertNotIn("print_page = await context.new_page()", script)
         self.assertIn("salary_override_card_id", self.module.BrowserRuntime.__dataclass_fields__)
         self.assertIn("employee_id", self.module.BrowserRuntime.__dataclass_fields__)
+
+    def test_quality_workflow_enforces_change_feed_performance_budgets(self) -> None:
+        workflow = QUALITY_WORKFLOW_PATH.read_text(encoding="utf-8")
+        stage1 = workflow.split("- name: Stage 1 production-scale performance gates", 1)[1]
+        stage1 = stage1.split("- name: Upload Stage 1 performance artifact", 1)[0]
+
+        self.assertIn("--max-feed-read-ms 50", stage1)
+        self.assertIn("--max-feed-replay-ms 20", stage1)
+        self.assertEqual(1, stage1.count("--max-feed-read-ms"))
+        self.assertEqual(1, stage1.count("--max-feed-replay-ms"))
 
     def test_summarize_samples_returns_required_report_fields(self) -> None:
         summary = self.module.summarize_samples(
@@ -190,12 +203,16 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
             max_storage_write_ms=550,
             max_revision_server_ms=20,
             max_get_card_direct_ms=20,
+            max_feed_read_ms=15,
+            max_feed_replay_ms=10,
         )
         rows = [
             {"scenario": "backend.update_card", "p95_ms": 601},
             {"scenario": "storage.write_cached_bundle", "p95_ms": 551},
             {"scenario": "backend.get_board_revision_cached", "p95_ms": 21},
             {"scenario": "backend.get_card", "p95_ms": 19},
+            {"scenario": "change_feed.read_page", "p95_ms": 16},
+            {"scenario": "change_feed.replay_page", "p95_ms": 9},
         ]
 
         violations = self.module.evaluate_thresholds(rows, args)
@@ -206,6 +223,7 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
                 "backend.update_card",
                 "storage.write_cached_bundle",
                 "backend.get_board_revision_cached",
+                "change_feed.read_page",
             ],
         )
 

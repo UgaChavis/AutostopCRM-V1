@@ -35,12 +35,14 @@ from ..models import business_timezone, parse_datetime
 from ..operator_auth import OperatorAuthService
 from ..performance import request_performance_trace
 from ..services.card_service import CardService
+from ..services.change_feed_service import ChangeFeedService
 from ..services.errors import ServiceError
 from ..services.shared_files_service import SharedFilesService
 from ..storage.json_store import StateFileCorruptedError
 from ..storage.limited_io import read_bytes_limited
 from ..system_clipboard import ClipboardUnavailableError, list_clipboard_file_paths
 from ..web_assets import BOARD_WEB_APP_HTML, DISPLAY_DASHBOARD_HTML
+from .change_feed import build_change_feed_routes
 from .route_registry import (
     ADMIN_ONLY_ROUTES,
     OPERATOR_SESSION_ROUTES,
@@ -134,6 +136,7 @@ READONLY_GET_ROUTES = frozenset(
         "/api/get_employee_salary_reconciliation",
         "/api/get_cashbox",
         "/api/get_gpt_wall",
+        "/api/get_ai_chat_knowledge",
         "/api/agent_status",
         "/api/agent_tasks",
         "/api/agent_actions",
@@ -550,10 +553,12 @@ class ApiServer:
         fallback_limit: int | None = None,
         bearer_token: str | None = None,
         shared_files_service: SharedFilesService | None = None,
+        change_feed_service: ChangeFeedService | None = None,
         clipboard_file_provider: Callable[[], Iterable[Path | str]] | None = None,
     ) -> None:
         self._service = service
         self._shared_files_service = shared_files_service
+        self._change_feed_service = change_feed_service
         self._logger = logger
         self._thread: threading.Thread | None = None
         self._server: ThreadingHTTPServer | None = None
@@ -664,13 +669,46 @@ class ApiServer:
     def _build_shared_files_service(self, service: CardService) -> SharedFilesService:
         store = getattr(service, "_store", None)
         base_dir = getattr(store, "base_dir", None)
+        change_feed_store = getattr(store, "change_feed_store", None)
         if isinstance(base_dir, Path):
             return SharedFilesService(
                 storage_dir=base_dir / "shared-files",
                 index_file=base_dir / "shared_files_index.json",
                 logger=self._logger,
+                change_feed_store=change_feed_store,
             )
-        return SharedFilesService(logger=self._logger)
+        return SharedFilesService(
+            logger=self._logger,
+            change_feed_store=change_feed_store,
+        )
+
+    @staticmethod
+    def _build_change_feed_service(
+        service: CardService,
+        shared_files_service: SharedFilesService,
+        operator_service: OperatorAuthService | None,
+    ) -> ChangeFeedService:
+        store = getattr(service, "_store", None)
+        change_feed_store = getattr(store, "change_feed_store", None)
+        reconcile_state = getattr(store, "reconcile_change_feed", None)
+        if change_feed_store is None:
+            raise RuntimeError("CardService storage does not expose the durable change feed.")
+
+        def reconcile() -> None:
+            if callable(reconcile_state):
+                reconcile_state()
+            print_reconcile = getattr(service, "reconcile_print_change_feed", None)
+            if callable(print_reconcile):
+                print_reconcile()
+            shared_files_service.reconcile_change_feed()
+            operator_reconcile = getattr(operator_service, "reconcile_change_feed", None)
+            if callable(operator_reconcile):
+                operator_reconcile()
+
+        return ChangeFeedService(
+            change_feed_store,
+            reconcile=reconcile,
+        )
 
     def _make_handler(self):
         service = self._service
@@ -678,6 +716,12 @@ class ApiServer:
         if shared_files_service is None:
             shared_files_service = self._build_shared_files_service(service)
             self._shared_files_service = shared_files_service
+        change_feed_service = self._change_feed_service
+        if change_feed_service is None:
+            change_feed_service = self._build_change_feed_service(
+                service, shared_files_service, self._operator_service
+            )
+            self._change_feed_service = change_feed_service
         logger = self._logger
         bearer_token = self._bearer_token
         operator_service = self._operator_service
@@ -726,6 +770,7 @@ class ApiServer:
             shared_files_service,
             paste_shared_files_from_clipboard=paste_shared_files_from_clipboard,
         )
+        routes.update(build_change_feed_routes(change_feed_service))
         proxied_write_routes = set(PROXIED_WRITE_ROUTES)
         operator_session_routes = set(OPERATOR_SESSION_ROUTES)
         admin_only_routes = set(ADMIN_ONLY_ROUTES)
@@ -1591,7 +1636,7 @@ class ApiServer:
                         next_payload["actor_name"] = session["username"]
                 return next_payload
 
-            def _trusted_agent_session(self, payload: dict) -> dict | None:
+            def _trusted_agent_session(self, route: str, payload: dict) -> dict | None:
                 """Authorize the local MCP service identity without impersonating a human."""
 
                 if self._is_proxied_request():
@@ -1602,7 +1647,9 @@ class ApiServer:
                     policy = load_agent_gateway_security_policy()
                 except Exception:
                     return None
-                if not (policy.gateway_enabled and policy.writes_enabled and policy.raw_enabled):
+                if not (policy.gateway_enabled and policy.raw_enabled):
+                    return None
+                if route not in readonly_routes and not policy.writes_enabled:
                     return None
                 identity = str(self.headers.get("X-Autostop-Agent-Identity", "") or "").strip()
                 supplied_token = str(self.headers.get("X-Autostop-Agent-Token", "") or "").strip()
@@ -1662,7 +1709,7 @@ class ApiServer:
                         self.headers.get("X-Operator-Session", "")
                     )
                     if session is None:
-                        session = self._trusted_agent_session(payload)
+                        session = self._trusted_agent_session(route, payload)
                 next_payload = self._operator_context_payload_with_session(route, payload, session)
                 if (
                     route != "/api/login_operator"

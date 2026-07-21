@@ -121,6 +121,98 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(read_status, 200)
         self.assertEqual(cards["data"]["cards"], [])
 
+    def test_ai_chat_knowledge_and_autofill_ui_routes_use_card_service(self) -> None:
+        knowledge_status, knowledge = self.request(
+            "/api/get_ai_chat_knowledge",
+            {
+                "prompt": "Кратко объясни контекст карточки",
+                "context": {"kind": "compact_context", "card_label": "C-TEST"},
+                "prompt_profile": {"kind": "ai_chat"},
+            },
+        )
+        get_status, get_knowledge = self.request(
+            "/api/get_ai_chat_knowledge?prompt=diagnostics",
+            method="GET",
+        )
+        create_status, created = self.request(
+            "/api/create_card",
+            {"title": "AI route contract", "deadline": {"hours": 1}},
+        )
+        card = created["data"]["card"]
+        stale_status, stale = self.request(
+            "/api/set_card_ai_autofill",
+            {
+                "card_id": card["id"],
+                "enabled": True,
+                "expected_updated_at": "2000-01-01T00:00:00+00:00",
+            },
+        )
+        update_status, updated = self.request(
+            "/api/set_card_ai_autofill",
+            {
+                "card_id": card["id"],
+                "enabled": True,
+                "expected_updated_at": card["updated_at"],
+            },
+        )
+
+        self.assertEqual(knowledge_status, 200)
+        self.assertEqual(knowledge["data"]["kind"], "ai_chat_knowledge")
+        self.assertEqual(knowledge["data"]["prompt_profile_kind"], "ai_chat")
+        self.assertEqual(get_status, 200)
+        self.assertEqual(get_knowledge["data"]["prompt"], "diagnostics")
+        self.assertEqual(create_status, 200)
+        self.assertEqual(stale_status, 409)
+        self.assertEqual(stale["error"]["code"], "card_update_conflict")
+        self.assertEqual(update_status, 200)
+        self.assertEqual(updated["data"]["card"]["id"], card["id"])
+        self.assertTrue(updated["data"]["meta"]["retired"])
+
+    def test_copy_shared_file_obeys_write_maintenance_and_operator_gates(self) -> None:
+        upload_status, uploaded = self.request(
+            "/api/upload_shared_file",
+            {
+                "file_name": "copy-gate.txt",
+                "content_base64": base64.b64encode(b"copy gate").decode("ascii"),
+            },
+        )
+        self.assertEqual(upload_status, 200)
+        file_id = uploaded["data"]["file"]["id"]
+
+        marker = Path(self.temp_dir.name) / ".agent-gateway-maintenance"
+        marker.touch()
+        with patch.dict(os.environ, {"AUTOSTOP_MAINTENANCE_MARKER": str(marker)}):
+            maintenance_status, maintenance_blocked = self.request(
+                "/api/copy_shared_file", {"file_id": file_id}
+            )
+
+        proxied_headers = {"X-Forwarded-For": "203.0.113.10"}
+        unauthorized_status, unauthorized = self.request(
+            "/api/copy_shared_file",
+            {"file_id": file_id},
+            headers=proxied_headers,
+        )
+        login_status, logged_in = self.request(
+            "/api/login_operator",
+            {"username": "admin", "password": "admin"},
+        )
+        self.assertEqual(login_status, 200)
+        authorized_status, authorized = self.request(
+            "/api/copy_shared_file",
+            {"file_id": file_id},
+            headers={
+                **proxied_headers,
+                "X-Operator-Session": logged_in["data"]["session"]["token"],
+            },
+        )
+
+        self.assertEqual(maintenance_status, 503)
+        self.assertEqual(maintenance_blocked["error"]["code"], "maintenance_mode")
+        self.assertEqual(unauthorized_status, 401)
+        self.assertEqual(unauthorized["error"]["code"], "unauthorized")
+        self.assertEqual(authorized_status, 200)
+        self.assertEqual(authorized["data"]["clipboard"]["source_id"], file_id)
+
     def test_api_cors_allows_same_host_origin_only(self) -> None:
         status, headers, _ = self.raw_request("/api/health", headers={"Origin": self.base_url})
         self.assertEqual(status, 200)
@@ -994,6 +1086,107 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(proxied_status, 401)
         self.assertEqual(status, 200)
         self.assertEqual(saved["data"]["user"]["username"], "AGENTMADE")
+
+    def test_local_agent_service_identity_can_open_card_and_read_dashboard_with_audit(self) -> None:
+        create_status, created = self.request(
+            "/api/create_card",
+            {"title": "Agent parity open", "deadline": {"hours": 1}},
+        )
+        self.assertEqual(create_status, 200)
+        card_id = created["data"]["card"]["id"]
+        token = "agent-service-token-with-strong-test-entropy-0123456789"
+        gateway_env = {
+            "AUTOSTOP_DEPLOYMENT_ENV": "development",
+            "AUTOSTOP_AGENT_GATEWAY_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_WRITES_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_FINANCE_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_MAIL_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_DESTRUCTIVE_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED": "1",
+            "AUTOSTOP_AGENT_SERVICE_IDENTITY": "codex-owner-agent",
+            "MINIMAL_KANBAN_MCP_BEARER_TOKEN": token,
+        }
+        headers = {
+            "X-Autostop-Agent-Identity": "codex-owner-agent",
+            "X-Autostop-Agent-Token": token,
+        }
+        with patch.dict("os.environ", gateway_env, clear=False):
+            open_status, opened = self.request(
+                "/api/open_card",
+                {
+                    "card_id": card_id,
+                    "return_card": False,
+                    "mark_seen": False,
+                    "source": "mcp_agent_gateway_v2",
+                },
+                headers=headers,
+            )
+            dashboard_status, dashboard = self.request(
+                "/api/get_display_dashboard",
+                {"source": "mcp_agent_gateway_v2"},
+                headers=headers,
+            )
+            activity_status, activity = self.request(
+                "/api/list_operator_activity",
+                {
+                    "action": "card_opened",
+                    "source": "mcp_agent_gateway_v2",
+                    "query": card_id,
+                    "limit": 10,
+                },
+                headers=headers,
+            )
+
+        self.assertEqual(open_status, 200)
+        self.assertEqual(opened["data"]["card_id"], card_id)
+        self.assertEqual(dashboard_status, 200)
+        self.assertTrue(dashboard["data"]["generated_at"])
+        self.assertEqual(activity_status, 200)
+        row = activity["data"]["activities"][0]
+        self.assertEqual(row["object_id"], card_id)
+        self.assertEqual(row["action"], "card_opened")
+        self.assertEqual(row["source"], "mcp_agent_gateway_v2")
+
+    def test_local_agent_read_identity_stays_available_when_writes_are_disabled(self) -> None:
+        create_status, created = self.request(
+            "/api/create_card",
+            {"title": "Read-only agent parity", "deadline": {"hours": 1}},
+        )
+        self.assertEqual(create_status, 200)
+        token = "agent-service-token-with-strong-test-entropy-0123456789"
+        gateway_env = {
+            "AUTOSTOP_DEPLOYMENT_ENV": "development",
+            "AUTOSTOP_AGENT_GATEWAY_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_WRITES_ENABLED": "0",
+            "AUTOSTOP_AGENT_GATEWAY_FINANCE_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_MAIL_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_DESTRUCTIVE_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED": "1",
+            "AUTOSTOP_AGENT_SERVICE_IDENTITY": "codex-owner-agent",
+            "MINIMAL_KANBAN_MCP_BEARER_TOKEN": token,
+        }
+        headers = {
+            "X-Autostop-Agent-Identity": "codex-owner-agent",
+            "X-Autostop-Agent-Token": token,
+        }
+        with patch.dict("os.environ", gateway_env, clear=False):
+            dashboard_status, _ = self.request(
+                "/api/get_display_dashboard",
+                {"source": "mcp_agent_gateway_v2"},
+                headers=headers,
+            )
+            open_status, blocked = self.request(
+                "/api/open_card",
+                {
+                    "card_id": created["data"]["card"]["id"],
+                    "source": "mcp_agent_gateway_v2",
+                },
+                headers=headers,
+            )
+
+        self.assertEqual(dashboard_status, 200)
+        self.assertEqual(open_status, 401)
+        self.assertEqual(blocked["error"]["code"], "unauthorized")
 
     def test_operator_password_update_revokes_existing_sessions(self) -> None:
         status, admin_login = self.request(

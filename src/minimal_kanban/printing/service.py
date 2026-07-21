@@ -20,6 +20,8 @@ from ..repair_order import (
     RepairOrderRow,
     repair_order_cashless_gross_value,
 )
+from ..storage.change_feed_projection import project_print_module
+from ..storage.change_feed_store import ChangeFeedStore
 from ..storage.limited_io import read_bytes_limited
 from .defaults import BUILTIN_PRINT_DOCUMENTS, PRINT_BASE_STYLES, builtin_template_records
 from .errors import PrintModuleError
@@ -919,7 +921,13 @@ def _parts_sale_terms_html() -> str:
 class PrintModuleService:
     """Storage-backed printing module for repair-order documents."""
 
-    def __init__(self, base_dir: Path) -> None:
+    def __init__(
+        self,
+        base_dir: Path,
+        *,
+        change_feed_store: ChangeFeedStore | None = None,
+        logger: Any | None = None,
+    ) -> None:
         self._root_dir = Path(base_dir) / "printing"
         self._root_dir.mkdir(parents=True, exist_ok=True)
         self._settings_path = self._root_dir / _SETTINGS_FILE_NAME
@@ -927,6 +935,9 @@ class PrintModuleService:
         self._inspection_sheet_forms_path = self._root_dir / _INSPECTION_SHEET_FORMS_FILE_NAME
         self._builtin_documents = {item.id: item for item in BUILTIN_PRINT_DOCUMENTS}
         self._builtin_templates = {item.id: item for item in builtin_template_records()}
+        self._change_feed_store = change_feed_store
+        self._logger = logger
+        self._sync_change_feed(initialize=True)
 
     def manual_document_profile(
         self,
@@ -1590,6 +1601,7 @@ class PrintModuleService:
 
     def _write_settings(self, settings: PrintModuleSettings) -> None:
         _safe_json_write(self._settings_path, settings.to_dict())
+        self._sync_change_feed()
 
     def _read_custom_templates(self) -> list[PrintTemplateRecord]:
         raw = _safe_json_read(self._templates_path, default=[])
@@ -1613,6 +1625,7 @@ class PrintModuleService:
     def _write_custom_templates(self, records: list[PrintTemplateRecord]) -> None:
         payload = [record.to_dict() for record in records if not record.is_builtin]
         _safe_json_write(self._templates_path, payload)
+        self._sync_change_feed()
 
     def _templates_by_document_type(
         self, *, settings: PrintModuleSettings
@@ -1854,6 +1867,27 @@ class PrintModuleService:
 
     def _write_inspection_sheet_form_map(self, payload: dict[str, dict[str, Any]]) -> None:
         _safe_json_write(self._inspection_sheet_forms_path, payload)
+        self._sync_change_feed()
+
+    def reconcile_change_feed(self) -> None:
+        self._sync_change_feed()
+
+    def _sync_change_feed(self, *, initialize: bool = False) -> None:
+        if self._change_feed_store is None:
+            return
+        projected = project_print_module(
+            settings=self._read_settings().to_dict(),
+            templates=[item.to_dict() for item in self._read_custom_templates()],
+            inspection_sheet_forms=self._read_inspection_sheet_form_map(),
+        )
+        try:
+            if initialize:
+                self._change_feed_store.initialize_external_projection("print_module", projected)
+            else:
+                self._change_feed_store.reconcile_external_projection("print_module", projected)
+        except Exception as exc:  # pragma: no cover - next feed read reconciles files
+            if self._logger is not None:
+                self._logger.warning("print_change_feed_deferred error=%s", exc)
 
     def _load_inspection_sheet_form(
         self, card: Card, order: RepairOrder

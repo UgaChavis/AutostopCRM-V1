@@ -8,6 +8,7 @@ import threading
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from copy import deepcopy
+from datetime import UTC, datetime
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
@@ -365,7 +366,11 @@ class JsonStoreTests(unittest.TestCase):
         self.state_file.write_text(json.dumps(raw_state, ensure_ascii=False), encoding="utf-8")
         store = JsonStore(state_file=self.state_file, logger=self.logger)
 
-        bundle = store.read_bundle()
+        with patch(
+            "minimal_kanban.storage.json_store.utc_now",
+            return_value=datetime(2026, 6, 1, tzinfo=UTC),
+        ):
+            bundle = store.read_bundle()
         stored_state = json.loads(self.state_file.read_text(encoding="utf-8"))
 
         self.assertEqual(bundle["events"][0].details, {"before": "old", "after": "new"})

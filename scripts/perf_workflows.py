@@ -1349,6 +1349,8 @@ def _run_stage1_state_file_benchmark(
         "backend.get_card": [],
         "backend.get_board_revision_cached": [],
         "backend.update_card": [],
+        "change_feed.read_page": [],
+        "change_feed.replay_page": [],
         "storage.write_cached_bundle": [],
     }
 
@@ -1414,6 +1416,36 @@ def _run_stage1_state_file_benchmark(
                 {
                     "duration_ms": duration_ms,
                     "payload_bytes": state_file.stat().st_size,
+                    "phase_timings": phase_timings,
+                }
+            )
+
+        consumer_id = f"perf-feed-{index:04d}"
+        duration_ms, feed_page, phase_timings = _timed_with_phases(
+            lambda: store.change_feed_store.read_page(consumer_id, limit=25)
+        )
+        if collect:
+            raw_samples["change_feed.read_page"].append(
+                {
+                    "duration_ms": duration_ms,
+                    "payload_bytes": response_size(feed_page),
+                    "phase_timings": phase_timings,
+                }
+            )
+        duration_ms, replay_page, phase_timings = _timed_with_phases(
+            lambda: store.change_feed_store.read_page(
+                consumer_id,
+                cursor=feed_page.get("replay_cursor"),
+                limit=25,
+            )
+        )
+        if collect:
+            if replay_page != feed_page:
+                raise ValueError("change-feed replay page changed during performance benchmark")
+            raw_samples["change_feed.replay_page"].append(
+                {
+                    "duration_ms": duration_ms,
+                    "payload_bytes": response_size(replay_page),
                     "phase_timings": phase_timings,
                 }
             )
@@ -1626,6 +1658,8 @@ def evaluate_thresholds(
         "storage.write_cached_bundle": getattr(args, "max_storage_write_ms", 0.0),
         "backend.get_board_revision_cached": getattr(args, "max_revision_server_ms", 0.0),
         "backend.get_card": getattr(args, "max_get_card_direct_ms", 0.0),
+        "change_feed.read_page": getattr(args, "max_feed_read_ms", 0.0),
+        "change_feed.replay_page": getattr(args, "max_feed_replay_ms", 0.0),
     }
     violations: list[dict[str, Any]] = []
     for row in rows:
@@ -1703,6 +1737,8 @@ def main() -> int:
     parser.add_argument("--max-storage-write-ms", default=0.0)
     parser.add_argument("--max-revision-server-ms", default=0.0)
     parser.add_argument("--max-get-card-direct-ms", default=0.0)
+    parser.add_argument("--max-feed-read-ms", default=0.0)
+    parser.add_argument("--max-feed-replay-ms", default=0.0)
     parser.add_argument("--browser-timeout-seconds", default=DEFAULT_BROWSER_TIMEOUT_SECONDS)
     args = parser.parse_args()
     args.iterations = _bounded_iterations(args.iterations)
@@ -1735,6 +1771,16 @@ def main() -> int:
     )
     args.max_get_card_direct_ms = _bounded_float(
         args.max_get_card_direct_ms,
+        default=0.0,
+        maximum=3_600_000.0,
+    )
+    args.max_feed_read_ms = _bounded_float(
+        args.max_feed_read_ms,
+        default=0.0,
+        maximum=3_600_000.0,
+    )
+    args.max_feed_replay_ms = _bounded_float(
+        args.max_feed_replay_ms,
         default=0.0,
         maximum=3_600_000.0,
     )

@@ -2259,6 +2259,14 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
             def get_store_analytics_report(period: str = "today") -> dict[str, str]:
                 return {"period": period}
 
+            @server.tool(name="store_owner_capabilities")
+            def store_owner_capabilities(query: str = "") -> dict[str, str]:
+                return {"query": query}
+
+            @server.tool(name="store_owner_api")
+            def store_owner_api(operation_id: str) -> dict[str, str]:
+                return {"operation_id": operation_id}
+
             @server.tool(name="remember")
             def remember(content: str) -> dict[str, bool]:
                 return {"ok": bool(content)}
@@ -2295,6 +2303,10 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(tools["system_audit"].annotations.destructiveHint)
         self.assertTrue(tools["get_store_analytics_report"].annotations.readOnlyHint)
         self.assertFalse(tools["get_store_analytics_report"].annotations.destructiveHint)
+        self.assertTrue(tools["store_owner_capabilities"].annotations.readOnlyHint)
+        self.assertFalse(tools["store_owner_capabilities"].annotations.destructiveHint)
+        self.assertFalse(tools["store_owner_api"].annotations.readOnlyHint)
+        self.assertFalse(tools["store_owner_api"].annotations.destructiveHint)
         self.assertFalse(tools["remember"].annotations.readOnlyHint)
         self.assertFalse(tools["remember"].annotations.destructiveHint)
         self.assertFalse(tools["curate_memory"].annotations.readOnlyHint)

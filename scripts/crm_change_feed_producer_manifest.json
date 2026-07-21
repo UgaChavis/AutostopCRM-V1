@@ -1,0 +1,374 @@
+{
+  "format": "autostopcrm_change_feed_producer_parity_v1",
+  "change_types": [
+    "archive",
+    "create",
+    "delete",
+    "move",
+    "restore",
+    "update"
+  ],
+  "entity_domains": [
+    "attachment",
+    "board_settings",
+    "card",
+    "cash_transaction",
+    "cashbox",
+    "client",
+    "client_vehicle",
+    "column",
+    "employee",
+    "employee_repair_order_accrual",
+    "employee_shift_accrual",
+    "inspection_sheet_form",
+    "inventory_item",
+    "inventory_movement",
+    "operator_user",
+    "print_settings",
+    "print_template",
+    "repair_order",
+    "repair_order_material",
+    "repair_order_payment",
+    "repair_order_work",
+    "shared_file",
+    "sticky",
+    "vehicle_profile"
+  ],
+  "producer_groups": [
+    {
+      "name": "json_state_commit_projection",
+      "kind": "state_projection",
+      "producer": "state_projection with compatible audit_event projection",
+      "sinks": [
+        "_save_bundle",
+        "write_bundle",
+        "_write_state"
+      ],
+      "routes": [
+        "/api/add_card_attachment",
+        "/api/apply_ready_unpaid_followups",
+        "/api/archive_card",
+        "/api/autofill_repair_order",
+        "/api/bulk_move_cards",
+        "/api/bulk_refresh_board_summaries",
+        "/api/bulk_set_deadline_if_below",
+        "/api/cancel_cash_transaction",
+        "/api/cancel_last_cash_transaction",
+        "/api/cleanup_card",
+        "/api/cleanup_card_content",
+        "/api/create_card",
+        "/api/create_cash_transaction",
+        "/api/create_cashbox",
+        "/api/create_cashbox_transfer",
+        "/api/create_client",
+        "/api/create_column",
+        "/api/create_employee_salary_transaction",
+        "/api/create_employee_shift_accrual",
+        "/api/create_sticky",
+        "/api/delete_cashbox",
+        "/api/delete_client",
+        "/api/delete_client_vehicle",
+        "/api/delete_column",
+        "/api/delete_employee",
+        "/api/delete_sticky",
+        "/api/finance_audit/apply_safe_fixes",
+        "/api/link_card_to_client",
+        "/api/mark_card_ready",
+        "/api/mark_card_seen",
+        "/api/move_card",
+        "/api/move_column",
+        "/api/move_sticky",
+        "/api/remove_card_attachment",
+        "/api/rename_column",
+        "/api/reorder_cashboxes",
+        "/api/replace_repair_order_materials",
+        "/api/replace_repair_order_works",
+        "/api/replenish_inventory_item",
+        "/api/restore_card",
+        "/api/return_inventory_movement",
+        "/api/rollback_manager_run",
+        "/api/run_full_card_enrichment",
+        "/api/run_manager_operation",
+        "/api/save_employee",
+        "/api/save_inventory_item",
+        "/api/set_card_ai_autofill",
+        "/api/set_card_board_summary",
+        "/api/set_card_deadline",
+        "/api/set_card_indicator",
+        "/api/set_repair_order_status",
+        "/api/start_card_timer",
+        "/api/stop_card_timer",
+        "/api/toggle_employee",
+        "/api/unlink_card_from_client",
+        "/api/update_board_settings",
+        "/api/update_card",
+        "/api/update_client",
+        "/api/update_repair_order",
+        "/api/update_sticky",
+        "/api/upsert_client_vehicle",
+        "/api/write_off_inventory_item"
+      ],
+      "test_evidence": [
+        {
+          "source": "tests/test_change_feed_producers.py",
+          "pattern": "test_repair_order_children_emit_exact_commit_bound_create_update_delete"
+        },
+        {
+          "source": "tests/test_change_feed_producers.py",
+          "pattern": "test_failed_state_replace_aborts_outbox_and_next_commit_is_exact_and_gapless"
+        },
+        {
+          "source": "tests/test_change_feed_producers.py",
+          "pattern": "test_state_lifecycle_covers_move_archive_restore_and_tombstone"
+        },
+        {
+          "source": "tests/test_change_feed_producers.py",
+          "pattern": "test_validation_error_and_notification_seen_state_have_correct_event_semantics"
+        }
+      ]
+    },
+    {
+      "name": "shared_file_index_projection",
+      "kind": "shared_files_projection",
+      "producer": "shared_files",
+      "sinks": [
+        "_write_index"
+      ],
+      "routes": [
+        "/api/delete_shared_file",
+        "/api/paste_shared_file",
+        "/api/paste_shared_files_from_clipboard",
+        "/api/rename_shared_file",
+        "/api/update_shared_file_position",
+        "/api/upload_shared_file"
+      ],
+      "test_evidence": [
+        {
+          "source": "tests/test_change_feed_producers.py",
+          "pattern": "test_shared_file_projection_covers_create_update_move_delete_and_deferred_recovery"
+        }
+      ]
+    },
+    {
+      "name": "operator_account_projection",
+      "kind": "operator_users_projection",
+      "producer": "operator_users",
+      "sinks": [
+        "_write_state"
+      ],
+      "routes": [
+        "/api/delete_operator_user",
+        "/api/save_operator_user",
+        "/api/set_operator_user_employee"
+      ],
+      "test_evidence": [
+        {
+          "source": "tests/test_change_feed_producers.py",
+          "pattern": "test_operator_projection_excludes_sessions_but_tracks_user_lifecycle"
+        }
+      ]
+    },
+    {
+      "name": "print_module_file_projection",
+      "kind": "print_module_projection",
+      "producer": "print_module",
+      "sinks": [
+        "_write_custom_templates",
+        "_write_inspection_sheet_form_map",
+        "_write_settings"
+      ],
+      "routes": [
+        "/api/autofill_inspection_sheet_form",
+        "/api/delete_print_template",
+        "/api/duplicate_print_template",
+        "/api/save_inspection_sheet_form",
+        "/api/save_print_module_settings",
+        "/api/save_print_template",
+        "/api/set_default_print_template"
+      ],
+      "test_evidence": [
+        {
+          "source": "tests/test_change_feed_producers.py",
+          "pattern": "test_print_projection_covers_templates_settings_and_inspection_drafts"
+        }
+      ]
+    },
+    {
+      "name": "open_card_composite_projection",
+      "kind": "composite_projection",
+      "producer": "state_projection plus operator_users",
+      "sinks": [
+        "_save_bundle",
+        "_write_state"
+      ],
+      "routes": [
+        "/api/open_card"
+      ],
+      "test_evidence": [
+        {
+          "source": "tests/test_change_feed_producers.py",
+          "pattern": "test_validation_error_and_notification_seen_state_have_correct_event_semantics"
+        },
+        {
+          "source": "tests/test_change_feed_producers.py",
+          "pattern": "test_operator_projection_excludes_sessions_but_tracks_user_lifecycle"
+        }
+      ]
+    },
+    {
+      "name": "card_print_audit_manual_printer_boundary",
+      "kind": "mixed_audit_infrastructure",
+      "producer": "audit_event for a CRM card; external printer is authoritative for manual documents",
+      "sinks": [
+        "_save_bundle"
+      ],
+      "routes": [
+        "/api/print_repair_order_documents"
+      ],
+      "test_evidence": [
+        {
+          "source": "tests/test_change_feed_producers.py",
+          "pattern": "test_print_command_audits_card_scope_and_exempts_manual_external_printer_scope"
+        }
+      ]
+    },
+    {
+      "name": "human_operator_session_privacy_boundary",
+      "kind": "privacy_exemption",
+      "producer": "none",
+      "rationale": "Ephemeral browser credentials and session tokens are privacy and authentication state, not CRM business mutations.",
+      "routes": [
+        "/api/login_operator",
+        "/api/logout_operator"
+      ],
+      "route_evidence": {
+        "/api/login_operator": {
+          "source": "src/minimal_kanban/operator_auth.py",
+          "pattern": "def login(self, payload: dict | None = None)"
+        },
+        "/api/logout_operator": {
+          "source": "src/minimal_kanban/operator_auth.py",
+          "pattern": "def logout(self, payload: dict | None = None)"
+        }
+      },
+      "test_evidence": [
+        {
+          "source": "tests/test_change_feed_producers.py",
+          "pattern": "test_operator_projection_excludes_sessions_but_tracks_user_lifecycle"
+        }
+      ]
+    },
+    {
+      "name": "manager_agent_runtime_authority_boundary",
+      "kind": "infrastructure_exemption",
+      "producer": "external Manager agent runtime",
+      "rationale": "Scheduled-task and queue durability belongs to the attached Manager agent runtime; CRM delegates without changing CRM business state.",
+      "routes": [
+        "/api/agent_enqueue_task",
+        "/api/delete_agent_scheduled_task",
+        "/api/pause_agent_scheduled_task",
+        "/api/resume_agent_scheduled_task",
+        "/api/run_agent_scheduled_task",
+        "/api/save_agent_scheduled_task"
+      ],
+      "route_evidence": {
+        "/api/agent_enqueue_task": {
+          "source": "src/minimal_kanban/services/card_service.py",
+          "pattern": "return self._agent_control.agent_enqueue_task(payload)"
+        },
+        "/api/delete_agent_scheduled_task": {
+          "source": "src/minimal_kanban/services/card_service.py",
+          "pattern": "return self._agent_control.delete_agent_scheduled_task(payload)"
+        },
+        "/api/pause_agent_scheduled_task": {
+          "source": "src/minimal_kanban/services/card_service.py",
+          "pattern": "return self._agent_control.pause_agent_scheduled_task(payload)"
+        },
+        "/api/resume_agent_scheduled_task": {
+          "source": "src/minimal_kanban/services/card_service.py",
+          "pattern": "return self._agent_control.resume_agent_scheduled_task(payload)"
+        },
+        "/api/run_agent_scheduled_task": {
+          "source": "src/minimal_kanban/services/card_service.py",
+          "pattern": "return self._agent_control.run_agent_scheduled_task(payload)"
+        },
+        "/api/save_agent_scheduled_task": {
+          "source": "src/minimal_kanban/services/card_service.py",
+          "pattern": "return self._agent_control.save_agent_scheduled_task(payload)"
+        }
+      },
+      "test_evidence": [
+        {
+          "source": "tests/test_change_feed_producers.py",
+          "pattern": "test_agent_runtime_routes_are_external_authority_and_do_not_forge_crm_events"
+        }
+      ]
+    },
+    {
+      "name": "change_feed_consumer_checkpoint_boundary",
+      "kind": "infrastructure_exemption",
+      "producer": "none",
+      "rationale": "Bootstrap and ACK mutate only owner delivery checkpoints; emitting them into the same feed would create an infinite self-observation loop.",
+      "routes": [
+        "/api/change_feed/ack",
+        "/api/change_feed/bootstrap"
+      ],
+      "route_evidence": {
+        "/api/change_feed/ack": {
+          "source": "src/minimal_kanban/api/change_feed.py",
+          "pattern": "CHANGE_FEED_ACK_ROUTE = \"/api/change_feed/ack\""
+        },
+        "/api/change_feed/bootstrap": {
+          "source": "src/minimal_kanban/api/change_feed.py",
+          "pattern": "CHANGE_FEED_BOOTSTRAP_ROUTE = \"/api/change_feed/bootstrap\""
+        }
+      },
+      "test_evidence": [
+        {
+          "source": "tests/test_change_feed.py",
+          "pattern": "test_bootstrap_does_not_open_or_ack_owner_delivery"
+        },
+        {
+          "source": "tests/test_change_feed.py",
+          "pattern": "test_ack_is_ordered_idempotent_and_final_page_closes_delivery"
+        }
+      ]
+    },
+    {
+      "name": "non_mutating_compatibility_and_artifact_routes",
+      "kind": "non_mutating_exemption",
+      "producer": "none",
+      "rationale": "These compatibility routes return clipboard metadata, render an artifact, or fail closed; they do not commit durable CRM business state.",
+      "routes": [
+        "/api/copy_shared_file",
+        "/api/correct_repair_order_number",
+        "/api/export_repair_order_print_pdf",
+        "/api/preview_repair_order_print_documents"
+      ],
+      "route_evidence": {
+        "/api/copy_shared_file": {
+          "source": "src/minimal_kanban/services/shared_files_service.py",
+          "pattern": "def copy_shared_file(self, payload: dict | None = None)"
+        },
+        "/api/correct_repair_order_number": {
+          "source": "src/minimal_kanban/services/card_service.py",
+          "pattern": "def correct_repair_order_number(self, payload: dict | None = None)"
+        },
+        "/api/export_repair_order_print_pdf": {
+          "source": "src/minimal_kanban/services/card_service.py",
+          "pattern": "def export_repair_order_print_pdf(self, payload: dict | None = None)"
+        },
+        "/api/preview_repair_order_print_documents": {
+          "source": "src/minimal_kanban/services/card_service.py",
+          "pattern": "def preview_repair_order_print_documents(self, payload: dict | None = None)"
+        }
+      },
+      "test_evidence": [
+        {
+          "source": "tests/test_change_feed_producers.py",
+          "pattern": "test_artifact_preview_clipboard_and_retired_routes_do_not_forge_mutation_events"
+        }
+      ]
+    }
+  ]
+}

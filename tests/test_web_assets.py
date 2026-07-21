@@ -1064,6 +1064,13 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("api('/api/run_full_card_enrichment'", BOARD_WEB_APP_HTML)
         self.assertNotIn("openAgentModal('card');", BOARD_WEB_APP_HTML)
 
+    def test_ai_chat_and_autofill_controls_use_registered_service_routes(self) -> None:
+        self.assertIn("api('/api/get_ai_chat_knowledge'", BOARD_WEB_APP_HTML)
+        self.assertGreaterEqual(
+            BOARD_WEB_APP_HTML.count("api('/api/set_card_ai_autofill'"),
+            2,
+        )
+
     def test_card_tag_editor_uses_compact_tag_controls(self) -> None:
         self.assertIn(".tags-panel {", BOARD_WEB_APP_HTML)
         self.assertIn(".tags-panel__head {", BOARD_WEB_APP_HTML)

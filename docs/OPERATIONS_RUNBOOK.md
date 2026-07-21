@@ -63,8 +63,13 @@ if (-not $env:AUTOSTOPCRM_SSH_KEY) {
 ssh -i $env:AUTOSTOPCRM_SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes root@crm.autostopcrm.ru "cd /opt/autostopcrm && git status --short --branch && git rev-parse HEAD && git rev-parse origin/autostopcrm-v1 && docker compose ps"
 ```
 
-Stop if the production checkout is dirty or revisions do not match the
-intended release. Do not reset a dirty checkout.
+The production preflight is fail-closed for both repositories. CRM must be the
+root checkout on branch `autostopcrm-v1`, clean including untracked files, and
+its `HEAD` must equal a fresh exact fetch of `origin/autostopcrm-v1`.
+`/opt/AutostopManager` must be the root of a Git checkout on branch
+`AutostopManager`, clean including untracked files, with `HEAD` equal to the
+freshly fetched configured remote branch. There is no skip-sync or dirty-tree
+production override. Do not reset either dirty checkout.
 
 ## Workstation Setup
 
@@ -295,9 +300,11 @@ A Store-enabled release additionally provisions these server-local values:
 - `AUTOSTOP_STORE_API_URL=http://autostop-app:8000`;
 - `AUTOSTOP_STORE_READ_TOKEN` for pure reads;
 - `AUTOSTOP_STORE_QUOTE_TOKEN` for exact full quote and sourcing reads;
-- `AUTOSTOP_STORE_MANAGE_TOKEN` for the seven allowlisted actions.
+- `AUTOSTOP_STORE_MANAGE_TOKEN` for the seven optimized named actions;
+- `AUTOSTOP_STORE_OWNER_TOKEN` for owner-approved guarded parity with the
+  existing Store employee API.
 
-The three scoped tokens must be strong and pairwise distinct. Never display
+The four scoped tokens must be strong and pairwise distinct. Never display
 their values. A Store-enabled release also requires the App runtime flags
 `STORE_AGENT_QUOTE_FULL_READ_ENABLED`,
 `STORE_AGENT_QUOTE_DRAFT_WRITE_ENABLED`, and
@@ -358,6 +365,9 @@ cd /opt/autostopcrm
 git status --short --branch
 git fetch origin autostopcrm-v1
 git merge --ff-only origin/autostopcrm-v1
+git -C /opt/AutostopManager status --short --branch
+git -C /opt/AutostopManager fetch origin AutostopManager
+git -C /opt/AutostopManager merge --ff-only origin/AutostopManager
 docker network inspect --format '{{.Internal}}' autostop-store-agent
 docker network inspect --format '{{range .Containers}}{{println .Name}}{{end}}' autostop-store-agent
 ```
@@ -383,11 +393,15 @@ mandatory; there is no skip flag.
 
 The bounded release flow:
 
-1. verifies branch/remote parity, a clean checkout, free space, Compose
-   configuration, production auth, scoped Store identity, and the isolated
-   Store network;
-2. snapshots the mounted Manager code and prebuilds an immutable CRM image
-   before maintenance;
+1. verifies exact branch/fetched-remote parity and full cleanliness for both
+   the CRM and Manager root checkouts before any snapshot, image build, or auth
+   rotation, then checks free space, Compose configuration, production auth,
+   scoped Store identity, and the isolated Store network;
+2. creates both the active Manager release and any rollback fallback strictly
+   from the verified Manager commit via `git archive HEAD`, then prebuilds an
+   immutable CRM image before maintenance; an early EXIT guard owns only this
+   attempt's exact Manager paths and Docker refs, so a pre-maintenance failure
+   removes or restores them without touching the live/previous release;
 3. provisions stable encrypted OAuth, snapshots auth, removes Codex bearer
    config, and rotates the internal compatibility bearer with a private
    rollback copy;
@@ -396,24 +410,39 @@ The bounded release flow:
    SQLite;
 6. starts the prebuilt image, proves only CRM and App share the Store network,
    and runs internal authenticated CRM plus Store-read smoke; Store Gateway
-   readiness is retried only within the bounded release budget, so a short
-   cold-start initialization is tolerated but an unavailable Store still fails
-   the release and triggers rollback;
-7. removes maintenance mode and runs mandatory public API, OAuth discovery,
-   owner-approved OAuth flow, and exhaustive 24-tool Gateway smoke;
-8. tags the healthy release as stable and installs the watchdog.
+   readiness and every candidate-side Docker probe remain inside the bounded
+   release budget, so a short cold-start initialization is tolerated but an
+   unavailable Store still fails the release and triggers rollback;
+7. while maintenance protection remains active, runs the signed technical
+   owner/feed dry-run probes, mandatory public API and OAuth checks, and the
+   exhaustive maintenance-safe 24-tool Gateway smoke;
+8. installs the watchdog, tags the healthy release as stable, then removes the
+   maintenance marker as the final fallible release action;
+9. after success is marked and the rollback trap is removed, best-effort
+   retention prunes only validated old backup directories, Manager release
+   snapshots, and exact CRM release/rollback image tags. Current and rollback
+   references are always protected; retention failure cannot roll back or stop
+   the healthy release.
 
 Any failure or maintenance-budget overrun attempts a bounded rollback of
 changed protected data, Manager release, auth configuration, and the previous
-image. The marker remains if rollback cannot prove a healthy recovery.
+image. Rollback restores protected state only after the candidate container is
+proven stopped; if stop fails, state/feed/Manager data remain untouched and the
+maintenance marker stays active. The marker also remains if rollback cannot
+prove a healthy recovery.
 
-Commonly reviewed overrides:
+Commonly reviewed settings:
 
-- `AUTOSTOP_DEPLOY_BRANCH` / `AUTOSTOP_DEPLOY_REMOTE`
+- `AUTOSTOP_MANAGER_DEPLOY_REMOTE` (the Manager branch remains fixed as
+  `AutostopManager`)
 - `AUTOSTOP_RELEASE_IMAGE` / `AUTOSTOP_STABLE_IMAGE`
 - `AUTOSTOP_BUILD_RELEASE_IMAGE`
 - `AUTOSTOP_MAINTENANCE_BUDGET_SECONDS`
 - `AUTOSTOP_RELEASE_BACKUP_ROOT`
+- `AUTOSTOP_RELEASE_BACKUP_RETENTION_COUNT`
+- `AUTOSTOP_MANAGER_RELEASE_RETENTION_COUNT`
+- `AUTOSTOP_RELEASE_IMAGE_RETENTION_COUNT` /
+  `AUTOSTOP_ROLLBACK_IMAGE_RETENTION_COUNT`
 - `AUTOSTOP_DEPLOY_LOCK_PATH`
 - `AUTOSTOP_SMOKE_ATTEMPTS` / `AUTOSTOP_SMOKE_DELAY_SECONDS`
 - `AUTOSTOP_INSTALL_WATCHDOG`
