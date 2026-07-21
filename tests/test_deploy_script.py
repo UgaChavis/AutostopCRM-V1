@@ -7,11 +7,23 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 class DeployScriptTests(unittest.TestCase):
     def test_deploy_script_verifies_active_v1_branch_without_destructive_reset(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+        preflight = (PROJECT_ROOT / "scripts" / "release_git_preflight.sh").read_text(
+            encoding="utf-8"
+        )
 
-        self.assertIn('DEPLOY_BRANCH="${AUTOSTOP_DEPLOY_BRANCH:-autostopcrm-v1}"', script)
-        self.assertIn('DEPLOY_REMOTE="${AUTOSTOP_DEPLOY_REMOTE:-origin}"', script)
-        self.assertIn('git fetch "$DEPLOY_REMOTE" "$DEPLOY_BRANCH"', script)
-        self.assertIn('remote_head="$(git rev-parse FETCH_HEAD)"', script)
+        self.assertIn('CRM_DEPLOY_BRANCH="autostopcrm-v1"', script)
+        self.assertIn('CRM_DEPLOY_REMOTE="origin"', script)
+        self.assertIn('MANAGER_DEPLOY_BRANCH="AutostopManager"', script)
+        self.assertIn('MANAGER_DEPLOY_REMOTE="${AUTOSTOP_MANAGER_DEPLOY_REMOTE:-origin}"', script)
+        self.assertIn("release_git_verify_fetched_checkout \\", script)
+        self.assertIn("symbolic-ref --quiet --short HEAD", preflight)
+        self.assertIn("status --porcelain=v1 --untracked-files=all", preflight)
+        self.assertIn("fetch --quiet --no-tags \\", preflight)
+        self.assertIn('"$remote" "refs/heads/$remote_branch"', preflight)
+        self.assertNotIn("AUTOSTOP_SKIP_GIT_SYNC", script)
+        self.assertNotIn("AUTOSTOP_ALLOW_DIRTY_RELEASE", script)
+        self.assertNotIn("AUTOSTOP_DEPLOY_BRANCH", script)
+        self.assertNotIn("AUTOSTOP_DEPLOY_REMOTE", script)
         self.assertNotIn("git reset --hard", script)
 
     def test_deploy_loads_server_local_env_before_smoke_credentials(self) -> None:
@@ -112,20 +124,43 @@ class DeployScriptTests(unittest.TestCase):
         )
         self.assertIn("run_release docker compose stop", script)
         self.assertIn("run_maintenance env AUTOSTOP_RELEASE_IMAGE", script)
-        self.assertEqual(script.count('mkdir -p "$staging_dir/data"'), 2)
-        self.assertEqual(script.count('chmod -R a+rX "$staging_dir"'), 2)
+        self.assertEqual(script.count('mkdir -p "$staging_dir/data"'), 1)
+        self.assertEqual(script.count('chmod -R a+rX "$staging_dir"'), 1)
         self.assertIn('chmod 0755 "$MANAGER_RELEASE_ROOT"', script)
-        self.assertIn("--exclude '/data/'", script)
-        self.assertIn("--exclude '/out/'", script)
-        self.assertIn("--exclude '/tmp/'", script)
-        self.assertIn("--exclude '.coverage'", script)
-        self.assertIn("--exclude '.mypy_cache/'", script)
-        self.assertNotIn("--exclude 'data/'", script)
+        self.assertIn('git -C "$source_dir" archive HEAD | tar -x -C "$staging_dir"', script)
+        self.assertEqual(
+            script.count('snapshot_manager_commit "$MANAGER_SOURCE_DIR"'),
+            2,
+        )
+        self.assertNotIn("rsync", script)
         self.assertLess(
             script.index('df --output=avail -B1 "$ROOT_DIR"'),
             script.index('snapshot --backup-dir "$auth_backup_dir"'),
         )
         self.assertNotIn("docker compose up -d --build --remove-orphans", script)
+
+    def test_deploy_verifies_both_checkouts_before_snapshot_build_or_rotation(self) -> None:
+        script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+
+        crm_preflight = script.index('crm_revision="$(')
+        manager_preflight = script.index('manager_revision="$(')
+        oauth_ensure = script.index("scripts/configure_mcp_oauth.py ensure")
+        manager_snapshot = script.index(
+            'snapshot_manager_commit "$MANAGER_SOURCE_DIR" "$manager_release_dir"'
+        )
+        image_build = script.index('docker build --tag "$release_image" "$ROOT_DIR"')
+        auth_snapshot = script.index('snapshot --backup-dir "$auth_backup_dir"')
+        auth_rotation = script.index('rotate --generate --mcp-url "$PUBLIC_MCP_URL"')
+
+        self.assertLess(crm_preflight, manager_preflight)
+        for release_action in (
+            oauth_ensure,
+            manager_snapshot,
+            image_build,
+            auth_snapshot,
+            auth_rotation,
+        ):
+            self.assertLess(manager_preflight, release_action)
 
     def test_deploy_requires_scoped_store_identity_and_safe_network_membership(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")

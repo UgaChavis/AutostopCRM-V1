@@ -13,10 +13,8 @@ if [[ -f "$ROOT_DIR/.env" ]]; then
 fi
 
 SERVICE_NAME="${AUTOSTOP_COMPOSE_SERVICE:-autostopcrm}"
-DEPLOY_REMOTE="${AUTOSTOP_DEPLOY_REMOTE:-origin}"
-DEPLOY_BRANCH="${AUTOSTOP_DEPLOY_BRANCH:-autostopcrm-v1}"
-SKIP_GIT_SYNC="${AUTOSTOP_SKIP_GIT_SYNC:-0}"
-ALLOW_DIRTY_RELEASE="${AUTOSTOP_ALLOW_DIRTY_RELEASE:-0}"
+CRM_DEPLOY_REMOTE="origin"
+CRM_DEPLOY_BRANCH="autostopcrm-v1"
 BUILD_RELEASE_IMAGE="${AUTOSTOP_BUILD_RELEASE_IMAGE:-1}"
 STABLE_IMAGE="${AUTOSTOP_STABLE_IMAGE:-autostopcrm-autostopcrm:latest}"
 MIN_FREE_DISK_BYTES="${AUTOSTOP_MIN_FREE_DISK_BYTES:-2147483648}"
@@ -34,6 +32,8 @@ SEARXNG_RUNTIME_GID="${AUTOSTOP_SEARXNG_RUNTIME_GID:-977}"
 SEARXNG_CONFIG_DIR="${AUTOSTOP_SEARXNG_CONFIG_DIR:-$CRM_DATA_DIR/searxng/config}"
 SEARXNG_CACHE_DIR="${AUTOSTOP_SEARXNG_CACHE_DIR:-$CRM_DATA_DIR/searxng/cache}"
 MANAGER_SOURCE_DIR="${AUTOSTOP_MANAGER_SOURCE_DIR:-/opt/AutostopManager}"
+MANAGER_DEPLOY_REMOTE="${AUTOSTOP_MANAGER_DEPLOY_REMOTE:-origin}"
+MANAGER_DEPLOY_BRANCH="AutostopManager"
 MANAGER_RELEASE_ROOT="${AUTOSTOP_MANAGER_RELEASE_ROOT:-/opt/autostop-manager-releases}"
 MANAGER_CURRENT_LINK="${AUTOSTOP_MANAGER_CURRENT_LINK:-$MANAGER_RELEASE_ROOT/current}"
 MAINTENANCE_MARKER_HOST="${AUTOSTOP_MAINTENANCE_MARKER_HOST:-$CRM_DATA_DIR/.agent-gateway-maintenance}"
@@ -48,23 +48,6 @@ STORE_NETWORK="${AUTOSTOP_STORE_NETWORK:-autostop-store-agent}"
 STORE_APP_CONTAINER="${AUTOSTOP_STORE_APP_CONTAINER:-autostop-app}"
 STORE_DB_CONTAINER="${AUTOSTOP_STORE_DB_CONTAINER:-autostop-db}"
 CRM_CONTAINER="${AUTOSTOP_CRM_CONTAINER:-autostopcrm}"
-
-"$PYTHON_BIN" scripts/configure_mcp_oauth.py ensure --env-file "$ROOT_DIR/.env"
-set -a
-# shellcheck disable=SC1091
-. "$ROOT_DIR/.env"
-set +a
-
-: "${AUTOSTOP_SMOKE_OPERATOR_USERNAME:?set smoke username}"
-: "${AUTOSTOP_SMOKE_OPERATOR_PASSWORD:?set smoke password}"
-: "${AUTOSTOP_STORE_READ_TOKEN:?provision store read service token}"
-: "${AUTOSTOP_STORE_QUOTE_TOKEN:?provision store quote service token}"
-: "${AUTOSTOP_STORE_MANAGE_TOKEN:?provision store manage service token}"
-: "${AUTOSTOP_STORE_OWNER_TOKEN:?provision store owner service token}"
-export AUTOSTOP_SMOKE_OPERATOR_USERNAME AUTOSTOP_SMOKE_OPERATOR_PASSWORD
-export AUTOSTOP_STORE_API_URL="${AUTOSTOP_STORE_API_URL:-http://autostop-app:8000}"
-export AUTOSTOP_STORE_READ_TOKEN AUTOSTOP_STORE_QUOTE_TOKEN AUTOSTOP_STORE_MANAGE_TOKEN
-export AUTOSTOP_STORE_OWNER_TOKEN
 
 if ! [[ "$MAINTENANCE_BUDGET_SECONDS" =~ ^[0-9]+$ ]] \
   || (( MAINTENANCE_BUDGET_SECONDS < 60 || MAINTENANCE_BUDGET_SECONDS > 600 )); then
@@ -169,25 +152,41 @@ if ! flock -n "$DEPLOY_LOCK_FD"; then
   exit 1
 fi
 
-if [[ "$SKIP_GIT_SYNC" != "1" ]]; then
-  git fetch "$DEPLOY_REMOTE" "$DEPLOY_BRANCH"
-  local_head="$(git rev-parse HEAD)"
-  remote_head="$(git rev-parse FETCH_HEAD)"
-  if [[ "$local_head" != "$remote_head" ]]; then
-    echo "ERROR: checkout HEAD does not match $DEPLOY_REMOTE/$DEPLOY_BRANCH; update it before deploy." >&2
-    exit 2
-  fi
-fi
-if [[ "$ALLOW_DIRTY_RELEASE" != "1" ]] && [[ -n "$(git status --short)" ]]; then
-  echo "ERROR: production checkout is dirty; commit/stash changes or set AUTOSTOP_ALLOW_DIRTY_RELEASE=1." >&2
-  exit 2
-fi
+# shellcheck source=scripts/release_git_preflight.sh
+. "$ROOT_DIR/scripts/release_git_preflight.sh"
+crm_revision="$(
+  release_git_verify_fetched_checkout \
+    "AutoStop CRM" "$ROOT_DIR" "$CRM_DEPLOY_BRANCH" \
+    "$CRM_DEPLOY_REMOTE" "$CRM_DEPLOY_BRANCH"
+)"
+manager_revision="$(
+  release_git_verify_fetched_checkout \
+    "AutoStopManager" "$MANAGER_SOURCE_DIR" "$MANAGER_DEPLOY_BRANCH" \
+    "$MANAGER_DEPLOY_REMOTE" "$MANAGER_DEPLOY_BRANCH"
+)"
+
+"$PYTHON_BIN" scripts/configure_mcp_oauth.py ensure --env-file "$ROOT_DIR/.env"
+set -a
+# shellcheck disable=SC1091
+. "$ROOT_DIR/.env"
+set +a
+
+: "${AUTOSTOP_SMOKE_OPERATOR_USERNAME:?set smoke username}"
+: "${AUTOSTOP_SMOKE_OPERATOR_PASSWORD:?set smoke password}"
+: "${AUTOSTOP_STORE_READ_TOKEN:?provision store read service token}"
+: "${AUTOSTOP_STORE_QUOTE_TOKEN:?provision store quote service token}"
+: "${AUTOSTOP_STORE_MANAGE_TOKEN:?provision store manage service token}"
+: "${AUTOSTOP_STORE_OWNER_TOKEN:?provision store owner service token}"
+export AUTOSTOP_SMOKE_OPERATOR_USERNAME AUTOSTOP_SMOKE_OPERATOR_PASSWORD
+export AUTOSTOP_STORE_API_URL="${AUTOSTOP_STORE_API_URL:-http://autostop-app:8000}"
+export AUTOSTOP_STORE_READ_TOKEN AUTOSTOP_STORE_QUOTE_TOKEN AUTOSTOP_STORE_MANAGE_TOKEN
+export AUTOSTOP_STORE_OWNER_TOKEN
 
 validate_store_network 0
 docker compose config --quiet
 
 release_timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-release_revision="$(git rev-parse --short=12 HEAD)"
+release_revision="${crm_revision:0:12}"
 release_id="${release_timestamp}-${release_revision}-$$"
 release_image="${AUTOSTOP_RELEASE_IMAGE:-autostopcrm:${release_revision}}"
 maintenance_started=0
@@ -198,28 +197,20 @@ auth_rotated=0
 rollback_active=0
 auth_backup_dir="$BACKUP_ROOT/.auth-rollback-$release_id"
 
-snapshot_manager_tree() {
+snapshot_manager_commit() {
   local source_dir="$1"
   local target_dir="$2"
+  local expected_revision="$3"
   local staging_dir="${target_dir}.partial-$$"
   rm -rf "$staging_dir"
   mkdir -p "$staging_dir"
-  rsync -a \
-    --exclude '.git/' \
-    --exclude '.venv/' \
-    --exclude '.env' \
-    --exclude '.env.*' \
-    --exclude '/data/' \
-    --exclude '/out/' \
-    --exclude '/tmp/' \
-    --exclude 'tests/' \
-    --exclude '__pycache__/' \
-    --exclude '.coverage' \
-    --exclude 'htmlcov/' \
-    --exclude '.mypy_cache/' \
-    --exclude '.pytest_cache/' \
-    --exclude '.ruff_cache/' \
-    "$source_dir/" "$staging_dir/"
+  release_git_assert_exact_state \
+    "AutoStopManager" "$source_dir" "$MANAGER_DEPLOY_BRANCH" \
+    "$expected_revision" >/dev/null
+  git -C "$source_dir" archive HEAD | tar -x -C "$staging_dir"
+  release_git_assert_exact_state \
+    "AutoStopManager" "$source_dir" "$MANAGER_DEPLOY_BRANCH" \
+    "$expected_revision" >/dev/null
   # Docker can overlay the live manager SQLite data only when the nested
   # mountpoint already exists inside the immutable read-only source snapshot.
   mkdir -p "$staging_dir/data"
@@ -227,18 +218,6 @@ snapshot_manager_tree() {
   # sanitized snapshot is mounted read-only into the unprivileged CRM
   # container, so normalize only read/traverse access without inventing
   # executable bits on regular files.
-  chmod -R a+rX "$staging_dir"
-  mv "$staging_dir" "$target_dir"
-}
-
-snapshot_manager_head() {
-  local source_dir="$1"
-  local target_dir="$2"
-  local staging_dir="${target_dir}.partial-$$"
-  rm -rf "$staging_dir"
-  mkdir -p "$staging_dir"
-  git -C "$source_dir" archive HEAD | tar -x -C "$staging_dir"
-  mkdir -p "$staging_dir/data"
   chmod -R a+rX "$staging_dir"
   mv "$staging_dir" "$target_dir"
 }
@@ -266,16 +245,18 @@ if [[ ! -d "$MANAGER_SOURCE_DIR/autostop_manager" ]]; then
 fi
 mkdir -p "$MANAGER_RELEASE_ROOT"
 chmod 0755 "$MANAGER_RELEASE_ROOT"
-manager_release_dir="$MANAGER_RELEASE_ROOT/$release_id"
-snapshot_manager_tree "$MANAGER_SOURCE_DIR" "$manager_release_dir"
+manager_release_dir="$MANAGER_RELEASE_ROOT/${release_id}-manager-${manager_revision:0:12}"
+snapshot_manager_commit "$MANAGER_SOURCE_DIR" "$manager_release_dir" "$manager_revision"
 if [[ -L "$MANAGER_CURRENT_LINK" ]] && [[ -d "$(readlink -f "$MANAGER_CURRENT_LINK")" ]]; then
   previous_manager_dir="$(readlink -f "$MANAGER_CURRENT_LINK")"
 else
   previous_manager_dir="$MANAGER_RELEASE_ROOT/${release_id}-previous"
-  snapshot_manager_head "$MANAGER_SOURCE_DIR" "$previous_manager_dir"
+  snapshot_manager_commit "$MANAGER_SOURCE_DIR" "$previous_manager_dir" "$manager_revision"
 fi
 
 if [[ "$BUILD_RELEASE_IMAGE" == "1" ]]; then
+  release_git_assert_exact_state \
+    "AutoStop CRM" "$ROOT_DIR" "$CRM_DEPLOY_BRANCH" "$crm_revision" >/dev/null
   echo "Prebuilding immutable release image $release_image before maintenance..."
   docker build --tag "$release_image" "$ROOT_DIR"
 fi

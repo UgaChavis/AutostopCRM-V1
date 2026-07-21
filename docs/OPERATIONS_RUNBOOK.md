@@ -63,8 +63,13 @@ if (-not $env:AUTOSTOPCRM_SSH_KEY) {
 ssh -i $env:AUTOSTOPCRM_SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes root@crm.autostopcrm.ru "cd /opt/autostopcrm && git status --short --branch && git rev-parse HEAD && git rev-parse origin/autostopcrm-v1 && docker compose ps"
 ```
 
-Stop if the production checkout is dirty or revisions do not match the
-intended release. Do not reset a dirty checkout.
+The production preflight is fail-closed for both repositories. CRM must be the
+root checkout on branch `autostopcrm-v1`, clean including untracked files, and
+its `HEAD` must equal a fresh exact fetch of `origin/autostopcrm-v1`.
+`/opt/AutostopManager` must be the root of a Git checkout on branch
+`AutostopManager`, clean including untracked files, with `HEAD` equal to the
+freshly fetched configured remote branch. There is no skip-sync or dirty-tree
+production override. Do not reset either dirty checkout.
 
 ## Workstation Setup
 
@@ -360,6 +365,9 @@ cd /opt/autostopcrm
 git status --short --branch
 git fetch origin autostopcrm-v1
 git merge --ff-only origin/autostopcrm-v1
+git -C /opt/AutostopManager status --short --branch
+git -C /opt/AutostopManager fetch origin AutostopManager
+git -C /opt/AutostopManager merge --ff-only origin/AutostopManager
 docker network inspect --format '{{.Internal}}' autostop-store-agent
 docker network inspect --format '{{range .Containers}}{{println .Name}}{{end}}' autostop-store-agent
 ```
@@ -385,11 +393,13 @@ mandatory; there is no skip flag.
 
 The bounded release flow:
 
-1. verifies branch/remote parity, a clean checkout, free space, Compose
-   configuration, production auth, scoped Store identity, and the isolated
-   Store network;
-2. snapshots the mounted Manager code and prebuilds an immutable CRM image
-   before maintenance;
+1. verifies exact branch/fetched-remote parity and full cleanliness for both
+   the CRM and Manager root checkouts before any snapshot, image build, or auth
+   rotation, then checks free space, Compose configuration, production auth,
+   scoped Store identity, and the isolated Store network;
+2. creates both the active Manager release and any rollback fallback strictly
+   from the verified Manager commit via `git archive HEAD`, then prebuilds an
+   immutable CRM image before maintenance;
 3. provisions stable encrypted OAuth, snapshots auth, removes Codex bearer
    config, and rotates the internal compatibility bearer with a private
    rollback copy;
@@ -409,9 +419,10 @@ Any failure or maintenance-budget overrun attempts a bounded rollback of
 changed protected data, Manager release, auth configuration, and the previous
 image. The marker remains if rollback cannot prove a healthy recovery.
 
-Commonly reviewed overrides:
+Commonly reviewed settings:
 
-- `AUTOSTOP_DEPLOY_BRANCH` / `AUTOSTOP_DEPLOY_REMOTE`
+- `AUTOSTOP_MANAGER_DEPLOY_REMOTE` (the Manager branch remains fixed as
+  `AutostopManager`)
 - `AUTOSTOP_RELEASE_IMAGE` / `AUTOSTOP_STABLE_IMAGE`
 - `AUTOSTOP_BUILD_RELEASE_IMAGE`
 - `AUTOSTOP_MAINTENANCE_BUDGET_SECONDS`
