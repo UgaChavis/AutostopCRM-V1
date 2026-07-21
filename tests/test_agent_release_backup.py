@@ -63,6 +63,7 @@ class AgentReleaseBackupTests(unittest.TestCase):
                 backup_id="release-1",
             )
             backup_dir = Path(created["backup_dir"])
+            self.assertTrue(created["ok"])
             self.assertEqual(created["schema"], "autostop-agent-release-backup.v2")
             verified = self.module.verify_backup(backup_dir)
             self.assertTrue(verified["ok"])
@@ -94,6 +95,36 @@ class AgentReleaseBackupTests(unittest.TestCase):
                     "SELECT acked_sequence FROM consumers WHERE consumer_id = 'owner'"
                 ).fetchone()[0]
             self.assertEqual(acked, 41)
+
+    def test_create_cli_returns_zero_for_a_complete_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            crm_data, manager_db, output_root = self._fixture(root)
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT_PATH),
+                    "create",
+                    "--output-root",
+                    str(output_root),
+                    "--crm-data-dir",
+                    str(crm_data),
+                    "--manager-db",
+                    str(manager_db),
+                    "--backup-id",
+                    "cli-success",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            result = json.loads(completed.stdout)
+            self.assertTrue(result["ok"])
+            self.assertTrue(result["complete"])
+            self.assertTrue(Path(result["backup_dir"]).is_dir())
 
     def test_restore_removes_feed_created_after_backup_of_legacy_release(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
