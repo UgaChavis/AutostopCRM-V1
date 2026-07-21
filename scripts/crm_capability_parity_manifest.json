@@ -1,0 +1,248 @@
+{
+  "format": "autostopcrm_capability_parity_v1",
+  "ui_sources": [
+    "src/minimal_kanban/web_app_assets/source/*.js",
+    "src/minimal_kanban/web_app_assets/source/*.html",
+    "src/minimal_kanban/printing/web_module.py"
+  ],
+  "http_route_sources": [
+    "src/minimal_kanban/api/server.py",
+    "src/minimal_kanban/api/change_feed.py"
+  ],
+  "dynamic_ui_routes": {
+    "/api/pause_agent_scheduled_task": {
+      "source": "src/minimal_kanban/web_app_assets/source/app_main_before_printing.js",
+      "evidence_pattern": "(action === 'pause' ? 'pause' : 'resume')"
+    },
+    "/api/resume_agent_scheduled_task": {
+      "source": "src/minimal_kanban/web_app_assets/source/app_main_before_printing.js",
+      "evidence_pattern": "(action === 'pause' ? 'pause' : 'resume')"
+    }
+  },
+  "presentation_http_routes": {
+    "/": {
+      "kind": "static_board_shell"
+    },
+    "/index.html": {
+      "kind": "static_board_shell_alias"
+    },
+    "/dashboard": {
+      "kind": "static_dashboard_shell",
+      "business_data_route": "/api/get_display_dashboard"
+    },
+    "/favicon.ico": {
+      "kind": "static_asset"
+    },
+    "/favicon.png": {
+      "kind": "static_asset"
+    }
+  },
+  "special_http_coverage": {
+    "/api/attachment": {
+      "backend_kind": "authenticated_binary_get",
+      "backend_source": "src/minimal_kanban/api/server.py",
+      "backend_evidence_pattern": "route == \"/api/attachment\"",
+      "gateway_kind": "guarded_raw_mcp",
+      "gateway_tool": "call_raw_capability",
+      "mcp_tool": "read_card_attachment",
+      "readback_class": "binary_document"
+    },
+    "/api/change_feed/ack": {
+      "backend_kind": "authenticated_feed_checkpoint_write",
+      "backend_source": "src/minimal_kanban/api/change_feed.py",
+      "backend_evidence_pattern": "CHANGE_FEED_ACK_ROUTE = \"/api/change_feed/ack\"",
+      "gateway_kind": "guarded_virtual_api",
+      "gateway_tool": "call_raw_capability",
+      "operation": "api:/api/change_feed/ack",
+      "readback_class": "exact_change_feed_ack_checkpoint"
+    },
+    "/api/change_feed/bootstrap": {
+      "backend_kind": "authenticated_feed_checkpoint_write",
+      "backend_source": "src/minimal_kanban/api/change_feed.py",
+      "backend_evidence_pattern": "CHANGE_FEED_BOOTSTRAP_ROUTE = \"/api/change_feed/bootstrap\"",
+      "gateway_kind": "guarded_virtual_api",
+      "gateway_tool": "call_raw_capability",
+      "operation": "api:/api/change_feed/bootstrap",
+      "readback_class": "exact_change_feed_bootstrap_checkpoint"
+    },
+    "/api/change_feed/read": {
+      "backend_kind": "authenticated_replay_safe_feed_read",
+      "backend_source": "src/minimal_kanban/api/change_feed.py",
+      "backend_evidence_pattern": "CHANGE_FEED_READ_ROUTE = \"/api/change_feed/read\"",
+      "gateway_kind": "guarded_virtual_api",
+      "gateway_tool": "call_raw_capability",
+      "operation": "api:/api/change_feed/read",
+      "readback_class": "replay_safe_ordered_change_feed_page"
+    },
+    "/api/fetch_shared_file": {
+      "backend_kind": "registered_json_binary_read",
+      "gateway_kind": "named_workflow",
+      "gateway_tool": "agent_document_workflow",
+      "mcp_tool": "download_shared_file",
+      "operation": "download_shared_file",
+      "readback_class": "binary_document"
+    },
+    "/api/get_ai_chat_knowledge": {
+      "backend_kind": "registered_json_read",
+      "gateway_kind": "guarded_virtual_api",
+      "gateway_tool": "call_raw_capability",
+      "operation": "api:/api/get_ai_chat_knowledge",
+      "readback_class": "exact_ai_chat_knowledge"
+    },
+    "/api/get_board_revision": {
+      "backend_kind": "registered_json_read",
+      "gateway_kind": "guarded_virtual_api",
+      "gateway_tool": "call_raw_capability",
+      "operation": "api:/api/get_board_revision",
+      "readback_class": "exact_board_revision"
+    },
+    "/api/get_display_dashboard": {
+      "backend_kind": "operator_scoped_json_read",
+      "gateway_kind": "guarded_virtual_api",
+      "gateway_tool": "call_raw_capability",
+      "operation": "api:/api/get_display_dashboard",
+      "readback_class": "exact_display_dashboard"
+    },
+    "/api/health": {
+      "backend_kind": "public_transport_health_get",
+      "backend_source": "src/minimal_kanban/api/server.py",
+      "backend_evidence_pattern": "route == \"/api/health\"",
+      "gateway_kind": "permanent_gateway_tool",
+      "gateway_tool": "ping_connector",
+      "operation": "ping_connector",
+      "readback_class": "runtime_health"
+    },
+    "/api/get_inspection_sheet_form": {
+      "backend_kind": "registered_json_document_read",
+      "gateway_kind": "guarded_virtual_api",
+      "gateway_tool": "call_raw_capability",
+      "operation": "api:/api/get_inspection_sheet_form",
+      "readback_class": "exact_inspection_sheet_form"
+    },
+    "/api/get_repair_order_print_workspace": {
+      "backend_kind": "registered_json_document_read",
+      "gateway_kind": "guarded_virtual_api",
+      "gateway_tool": "call_raw_capability",
+      "operation": "api:/api/get_repair_order_print_workspace",
+      "readback_class": "exact_repair_order_print_workspace"
+    },
+    "/api/list_employees": {
+      "backend_kind": "registered_json_collection_read",
+      "gateway_kind": "guarded_virtual_api",
+      "gateway_tool": "call_raw_capability",
+      "operation": "api:/api/list_employees",
+      "readback_class": "exact_employee_collection"
+    },
+    "/api/open_card": {
+      "backend_kind": "operator_scoped_audited_write",
+      "gateway_kind": "guarded_virtual_api",
+      "gateway_tool": "call_raw_capability",
+      "operation": "api:/api/open_card",
+      "readback_class": "exact_operator_activity"
+    },
+    "/api/repair_order_text": {
+      "backend_kind": "authenticated_text_get",
+      "backend_source": "src/minimal_kanban/api/server.py",
+      "backend_evidence_pattern": "route == \"/api/repair_order_text\"",
+      "gateway_kind": "guarded_raw_mcp",
+      "gateway_tool": "call_raw_capability",
+      "mcp_tool": "get_repair_order_text",
+      "readback_class": "text_document"
+    },
+    "/api/set_card_ai_autofill": {
+      "backend_kind": "registered_json_write",
+      "gateway_kind": "guarded_virtual_api",
+      "gateway_tool": "call_raw_capability",
+      "operation": "api:/api/set_card_ai_autofill",
+      "readback_class": "exact_card_ai_autofill"
+    },
+    "/api/shared_file": {
+      "backend_kind": "authenticated_binary_get",
+      "backend_source": "src/minimal_kanban/api/server.py",
+      "backend_evidence_pattern": "route == \"/api/shared_file\"",
+      "gateway_kind": "named_workflow",
+      "gateway_tool": "agent_document_workflow",
+      "mcp_tool": "download_shared_file",
+      "operation": "download_shared_file",
+      "readback_class": "binary_document"
+    },
+    "/employee_salary_reconciliation_print": {
+      "backend_kind": "authenticated_print_presentation_get",
+      "backend_source": "src/minimal_kanban/api/server.py",
+      "backend_evidence_pattern": "route == \"/employee_salary_reconciliation_print\"",
+      "gateway_kind": "guarded_virtual_api_alias",
+      "gateway_tool": "call_raw_capability",
+      "operation": "api:/api/get_employee_salary_reconciliation",
+      "readback_class": "printable_salary_reconciliation_payload"
+    }
+  },
+  "baseline_gaps": {
+    "/api/copy_shared_file": {
+      "kind": "registered_backend_without_gateway_path",
+      "expected_coverage": "guarded virtual api:/api/copy_shared_file or typed file workflow",
+      "reason": "The UI and backend can copy a shared file, but the baseline Gateway inventory did not expose that write."
+    },
+    "/api/get_ai_chat_knowledge": {
+      "kind": "ui_without_registered_backend",
+      "expected_coverage": "registered backend read plus typed or guarded raw reachability",
+      "reason": "The browser calls a service method name that is absent from the registered HTTP route table."
+    },
+    "/api/get_board_revision": {
+      "kind": "registered_backend_without_gateway_path",
+      "expected_coverage": "typed read or guarded virtual api:/api/get_board_revision",
+      "reason": "The compact board revision read is registered and used by the UI but has no exact Gateway capability."
+    },
+    "/api/get_display_dashboard": {
+      "kind": "registered_backend_without_gateway_path",
+      "expected_coverage": "typed read or guarded virtual api:/api/get_display_dashboard",
+      "reason": "The operator dashboard aggregate is readable in the UI but not through the Gateway."
+    },
+    "/api/get_inspection_sheet_form": {
+      "kind": "registered_backend_without_gateway_path",
+      "expected_coverage": "typed document read or guarded virtual api:/api/get_inspection_sheet_form",
+      "reason": "The print module can read an inspection form, while the Gateway cannot request that exact form."
+    },
+    "/api/get_repair_order_print_workspace": {
+      "kind": "registered_backend_without_gateway_path",
+      "expected_coverage": "typed document read or guarded virtual api:/api/get_repair_order_print_workspace",
+      "reason": "The UI print workspace read has no exact Gateway capability."
+    },
+    "/api/list_employees": {
+      "kind": "registered_backend_without_gateway_path",
+      "expected_coverage": "typed employee collection read or guarded virtual api:/api/list_employees",
+      "reason": "The employee collection is available to the UI but not directly reachable through the Gateway."
+    },
+    "/api/login_operator": {
+      "kind": "human_session_boundary",
+      "expected_coverage": "intentional exemption",
+      "reason": "Browser credential exchange belongs to an interactive human operator session, not the owner service principal."
+    },
+    "/api/logout_operator": {
+      "kind": "human_session_boundary",
+      "expected_coverage": "intentional exemption",
+      "reason": "Revoking a browser operator session is intentionally separate from the owner's OAuth service-principal session."
+    },
+    "/api/open_card": {
+      "kind": "registered_backend_without_gateway_path",
+      "expected_coverage": "typed audited operation or guarded virtual api:/api/open_card",
+      "reason": "Opening a card records operator activity and remains a business/audit action rather than a login exemption."
+    },
+    "/api/set_card_ai_autofill": {
+      "kind": "ui_without_registered_backend",
+      "expected_coverage": "registered backend write plus typed or guarded virtual reachability",
+      "reason": "The browser exposes the AI autofill toggle, but the route is absent from the registered HTTP table."
+    }
+  },
+  "intentional_exemptions": {
+    "/api/login_operator": {
+      "kind": "human_login",
+      "scope": "interactive browser operator session only",
+      "rationale": "Agents authenticate as an owner-approved OAuth service principal and must not receive human browser credentials."
+    },
+    "/api/logout_operator": {
+      "kind": "human_logout",
+      "scope": "interactive browser operator session only",
+      "rationale": "The service principal must not revoke or mutate an independent human operator browser session."
+    }
+  }
+}

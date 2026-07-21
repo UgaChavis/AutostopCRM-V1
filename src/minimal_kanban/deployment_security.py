@@ -21,6 +21,7 @@ STORE_TOKEN_ENV_NAMES = (
     "AUTOSTOP_STORE_READ_TOKEN",
     "AUTOSTOP_STORE_QUOTE_TOKEN",
     "AUTOSTOP_STORE_MANAGE_TOKEN",
+    "AUTOSTOP_STORE_OWNER_TOKEN",
 )
 
 GATEWAY_SWITCH_ENV_NAMES = (
@@ -206,7 +207,9 @@ def validate_store_integration_environment(
         elif not bearer_token_is_strong(store_token):
             errors.append(f"{name} must be a strong URL-safe service token")
     if all(store_tokens.values()) and len(set(store_tokens.values())) != len(store_tokens):
-        errors.append("Store read, quote, and manage service tokens must be pairwise distinct")
+        errors.append(
+            "Store read, quote, manage, and owner service tokens must be pairwise distinct"
+        )
     return errors
 
 

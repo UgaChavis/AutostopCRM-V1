@@ -45,6 +45,15 @@ class FakeBoardApi:
     def __init__(self) -> None:
         self.raw_requests: list[dict] = []
         self.card_updated_at = "2026-07-11T00:00:00+00:00"
+        self.card_ai_state = {
+            "ai_autofill_active": False,
+            "ai_autofill_until": "",
+            "ai_next_run_at": "",
+            "ai_autofill_prompt": "",
+            "last_card_fingerprint": "",
+            "ai_run_count": 0,
+        }
+        self.operator_activities: list[dict] = []
         self.repair_order_payments: list[dict] = []
         self.cash_transactions: list[dict] = []
 
@@ -94,7 +103,17 @@ class FakeBoardApi:
         return {"ok": True, "data": {"items": [{"id": "inventory-1", "name": "Filter"}]}}
 
     def get_card(self, card_id: str) -> dict:
-        return {"ok": True, "data": {"card": {"id": card_id, "title": "Task"}}}
+        return {
+            "ok": True,
+            "data": {
+                "card": {
+                    "id": card_id,
+                    "title": "Task",
+                    "updated_at": self.card_updated_at,
+                    **self.card_ai_state,
+                }
+            },
+        }
 
     def run_manager_operation(
         self,
@@ -195,6 +214,39 @@ class FakeBoardApi:
                 "extra_headers": dict(extra_headers or {}),
             }
         )
+        request_payload = dict(payload or {})
+        if path == "/api/set_card_ai_autofill":
+            if request_payload.get("expected_updated_at") != self.card_updated_at:
+                return {"ok": False, "error": {"code": "card_update_conflict"}}
+            if "enabled" in request_payload:
+                self.card_ai_state["ai_autofill_active"] = bool(request_payload["enabled"])
+            if "prompt" in request_payload:
+                self.card_ai_state["ai_autofill_prompt"] = str(request_payload["prompt"])
+            self.card_updated_at = "2026-07-11T00:01:00+00:00"
+            return self.get_card(str(request_payload.get("card_id") or ""))
+        if path == "/api/open_card":
+            card_id = str(request_payload.get("card_id") or "")
+            self.operator_activities.insert(
+                0,
+                {
+                    "id": f"activity-{len(self.operator_activities) + 1}",
+                    "username": "codex-owner-agent",
+                    "module": "card",
+                    "action": "card_opened",
+                    "source": "mcp_agent_gateway_v2",
+                    "object_type": "card",
+                    "object_id": card_id,
+                },
+            )
+            return self.get_card(card_id)
+        if path == "/api/list_operator_activity":
+            activities = [
+                dict(item)
+                for item in self.operator_activities
+                if not request_payload.get("action")
+                or item.get("action") == request_payload.get("action")
+            ]
+            return {"ok": True, "data": {"activities": activities}}
         return {
             "ok": True,
             "data": {"path": path, "accepted": True},
@@ -534,9 +586,7 @@ def _fake_store_bootstrap_snapshot() -> dict:
     }
 
 
-def register_fake_store_manager_tools(server, _logger, state: dict) -> None:
-    _prepare_fake_store_state(state)
-
+def _register_fake_store_context_tools(server, state: dict) -> None:
     @server.tool(name="store_runtime_status", description="INTERNAL_ONLY store runtime")
     def store_runtime_status(
         live: bool = False,
@@ -749,6 +799,8 @@ def register_fake_store_manager_tools(server, _logger, state: dict) -> None:
         state["calls"].append(("get_store_analytics_report", {"period": period}))
         return {"ok": True, "data": {"period": period, "orders_count": 3}}
 
+
+def _register_fake_store_workflow_tools(server, state: dict) -> None:
     @server.tool(name="store_management_action", description="INTERNAL_ONLY store write")
     def store_management_action(
         domain: str,
@@ -994,6 +1046,12 @@ def register_fake_store_manager_tools(server, _logger, state: dict) -> None:
     ) -> dict:
         del reason, expected_state_version
         return {"ok": True, "run_id": run_id, "status": "cancelled", "summary": {}}
+
+
+def register_fake_store_manager_tools(server, _logger, state: dict) -> None:
+    _prepare_fake_store_state(state)
+    _register_fake_store_context_tools(server, state)
+    _register_fake_store_workflow_tools(server, state)
 
 
 class AgentGatewayV2Tests(unittest.IsolatedAsyncioTestCase):
@@ -2334,6 +2392,34 @@ class AgentGatewayV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(schema.structuredContent["summary"]["risk"], "write")
         self.assertTrue(schema.structuredContent["data"]["input_schema"]["additionalProperties"])
 
+    async def test_copy_shared_file_virtual_raw_route_is_guarded_write(self) -> None:
+        discovered = await self._call(
+            "discover_raw_capabilities", {"query": "api:/api/copy_shared_file"}
+        )
+        capability = next(
+            item
+            for item in discovered.structuredContent["data"]["capabilities"]
+            if item["name"] == "api:/api/copy_shared_file"
+        )
+        schema = await self._call("get_raw_capability_schema", {"name": capability["name"]})
+        rejected = await self._call(
+            "call_raw_capability",
+            {
+                "name": capability["name"],
+                "arguments": {"file_id": "shared-file-1"},
+                "schema_hash": capability["schema_hash"],
+            },
+        )
+
+        self.assertEqual(capability["risk"], "write")
+        self.assertEqual(schema.structuredContent["summary"]["risk"], "write")
+        self.assertFalse(rejected.structuredContent["ok"])
+        self.assertIn(
+            "idempotency_key_required_for_raw_write",
+            rejected.structuredContent["warnings"],
+        )
+        self.assertEqual(self.board_api.raw_requests, [])
+
     async def test_virtual_raw_schema_hash_is_bound_to_exact_route(self) -> None:
         first = await self._call(
             "get_raw_capability_schema",
@@ -2502,37 +2588,35 @@ class AgentGatewayV2Tests(unittest.IsolatedAsyncioTestCase):
 
         self.manager_register.side_effect = register_fake_ledger
         board_api = FakeBoardApi()
+        agent_token = "agent-service-token-with-strong-test-entropy-0123456789"
         server = create_mcp_server(
             board_api,
             self.logger,
             host="127.0.0.1",
             port=41833,
             path="/mcp",
+            bearer_token=agent_token,
             public_endpoint_url="https://crm.example/mcp",
         )
 
         async def call(name: str, arguments: dict):
             return await server._tool_manager.get_tool(name).run(arguments, convert_result=False)
 
-        discovered = await call(
-            "discover_raw_capabilities", {"query": "api:/api/create_cashbox_transfer"}
-        )
+        discovered = await call("discover_raw_capabilities", {"query": "api:/api/copy_shared_file"})
         capability = next(
             item
             for item in discovered.structuredContent["data"]["capabilities"]
-            if item["name"] == "api:/api/create_cashbox_transfer"
+            if item["name"] == "api:/api/copy_shared_file"
         )
         arguments = {
             "name": capability["name"],
             "arguments": {
-                "from_cashbox_id": "cash-1",
-                "to_cashbox_id": "cash-2",
-                "amount": "1000",
+                "file_id": "shared-file-1",
                 "actor_name": "spoofed-human",
                 "source": "ui",
             },
             "schema_hash": capability["schema_hash"],
-            "idempotency_key": "transfer-cash-1-cash-2-v1",
+            "idempotency_key": "copy-shared-file-1-v1",
         }
         first = await call("call_raw_capability", arguments)
         duplicate = await call("call_raw_capability", arguments)
@@ -2540,8 +2624,17 @@ class AgentGatewayV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(first.structuredContent["ok"])
         self.assertTrue(first.structuredContent["verification"]["ledger_closed"])
         self.assertEqual(len(board_api.raw_requests), 1)
+        self.assertEqual(board_api.raw_requests[0]["path"], "/api/copy_shared_file")
         self.assertEqual(board_api.raw_requests[0]["payload"]["actor_name"], "codex-owner-agent")
         self.assertEqual(board_api.raw_requests[0]["payload"]["source"], "mcp_agent_gateway_v2")
+        self.assertEqual(
+            board_api.raw_requests[0]["extra_headers"]["X-Autostop-Agent-Identity"],
+            "codex-owner-agent",
+        )
+        self.assertEqual(
+            board_api.raw_requests[0]["extra_headers"]["X-Autostop-Agent-Token"],
+            agent_token,
+        )
         self.assertTrue(duplicate.structuredContent["ok"])
         self.assertIn(
             "idempotency_reused_completed_result", duplicate.structuredContent["warnings"]

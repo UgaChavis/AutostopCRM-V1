@@ -565,7 +565,11 @@ class CardService(
         self._runtime_cleanup_interval_seconds = 30.0
         self._last_runtime_cleanup_at = 0.0
         self._vehicle_profiles = VehicleProfileService()
-        self._print_module = PrintModuleService(self._store.base_dir)
+        self._print_module = PrintModuleService(
+            self._store.base_dir,
+            change_feed_store=self._store.change_feed_store,
+            logger=self._logger,
+        )
         self._finance_read_core = FinanceReadCore(self)
         self._column_service = ColumnService(
             store,
@@ -604,6 +608,11 @@ class CardService(
             fail=self._fail,
             hydrate_event_details=self._hydrate_event_details,
         )
+
+    def reconcile_print_change_feed(self) -> None:
+        """Reconcile durable print files after any previously deferred feed write."""
+
+        self._print_module.reconcile_change_feed()
 
     def attach_agent_control(self, agent_control: Any | None) -> None:
         self._agent_control = agent_control
@@ -902,6 +911,7 @@ class CardService(
             columns = bundle["columns"]
             card = self._find_card(cards, payload.get("card_id"))
             self._ensure_not_archived(card)
+            self._ensure_card_expected_updated_at(card, payload)
             actor_name, source = self._audit_identity(payload, default_source="ui")
             had_legacy_state = any(
                 (
@@ -1121,6 +1131,7 @@ class CardService(
             columns = bundle["columns"]
             card = self._find_card(cards, payload.get("card_id"))
             self._ensure_not_archived(card)
+            self._ensure_card_expected_updated_at(card, payload)
             actor_name, source = self._audit_identity(payload, default_source="ui")
             enabled_requested = "enabled" in payload
             prompt_requested = "prompt" in payload or "ai_autofill_prompt" in payload

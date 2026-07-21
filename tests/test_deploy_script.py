@@ -58,6 +58,7 @@ class DeployScriptTests(unittest.TestCase):
         self.assertIn('AUTOSTOP_STORE_READ_TOKEN: "${AUTOSTOP_STORE_READ_TOKEN:-}"', compose)
         self.assertIn('AUTOSTOP_STORE_QUOTE_TOKEN: "${AUTOSTOP_STORE_QUOTE_TOKEN:-}"', compose)
         self.assertIn('AUTOSTOP_STORE_MANAGE_TOKEN: "${AUTOSTOP_STORE_MANAGE_TOKEN:-}"', compose)
+        self.assertIn('AUTOSTOP_STORE_OWNER_TOKEN: "${AUTOSTOP_STORE_OWNER_TOKEN:-}"', compose)
         self.assertNotIn("autostop-db:", compose)
 
     def test_deploy_installs_production_watchdog_timer_by_default(self) -> None:
@@ -137,6 +138,9 @@ class DeployScriptTests(unittest.TestCase):
         )
         self.assertIn(
             ': "${AUTOSTOP_STORE_MANAGE_TOKEN:?provision store manage service token}"', script
+        )
+        self.assertIn(
+            ': "${AUTOSTOP_STORE_OWNER_TOKEN:?provision store owner service token}"', script
         )
         self.assertIn("validate_store_network 0", script)
         self.assertIn("validate_store_network 1", script)

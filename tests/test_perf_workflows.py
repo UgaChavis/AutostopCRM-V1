@@ -190,12 +190,16 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
             max_storage_write_ms=550,
             max_revision_server_ms=20,
             max_get_card_direct_ms=20,
+            max_feed_read_ms=15,
+            max_feed_replay_ms=10,
         )
         rows = [
             {"scenario": "backend.update_card", "p95_ms": 601},
             {"scenario": "storage.write_cached_bundle", "p95_ms": 551},
             {"scenario": "backend.get_board_revision_cached", "p95_ms": 21},
             {"scenario": "backend.get_card", "p95_ms": 19},
+            {"scenario": "change_feed.read_page", "p95_ms": 16},
+            {"scenario": "change_feed.replay_page", "p95_ms": 9},
         ]
 
         violations = self.module.evaluate_thresholds(rows, args)
@@ -206,6 +210,7 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
                 "backend.update_card",
                 "storage.write_cached_bundle",
                 "backend.get_board_revision_cached",
+                "change_feed.read_page",
             ],
         )
 

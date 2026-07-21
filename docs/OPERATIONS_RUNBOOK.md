@@ -262,9 +262,11 @@ A Store-enabled release additionally provisions these server-local values:
 - `AUTOSTOP_STORE_API_URL=http://autostop-app:8000`;
 - `AUTOSTOP_STORE_READ_TOKEN` for pure reads;
 - `AUTOSTOP_STORE_QUOTE_TOKEN` for exact full quote and sourcing reads;
-- `AUTOSTOP_STORE_MANAGE_TOKEN` for the seven allowlisted actions.
+- `AUTOSTOP_STORE_MANAGE_TOKEN` for the seven optimized named actions;
+- `AUTOSTOP_STORE_OWNER_TOKEN` for owner-approved guarded parity with the
+  existing Store employee API.
 
-The three scoped tokens must be strong and pairwise distinct. Never display
+The four scoped tokens must be strong and pairwise distinct. Never display
 their values. A Store-enabled release also requires the App runtime flags
 `STORE_AGENT_QUOTE_FULL_READ_ENABLED`,
 `STORE_AGENT_QUOTE_DRAFT_WRITE_ENABLED`, and

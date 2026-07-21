@@ -136,6 +136,17 @@ Gateway responses use `agent_envelope_v2` and compact verification evidence.
   caller-supplied human actor names do not override it.
 - Operator-admin raw routes additionally require the local service identity
   and matching bearer token; public proxy traffic cannot claim that identity.
+- Exact UI/backend reads for AI chat knowledge, board revision, display
+  dashboard, inspection form, repair-order print workspace, and employees are
+  guarded virtual `api:/api/...` capabilities classified as reads. They do not
+  open a write ledger. `set_card_ai_autofill` and audited `open_card` remain
+  guarded writes with idempotency plus exact card/activity readback.
+- The durable CRM feed is available only through raw discovery as
+  `api:/api/change_feed/bootstrap`, `api:/api/change_feed/read`, and
+  `api:/api/change_feed/ack`; it adds no public tool. `read` is a bounded read
+  (maximum 25 complete events), while `bootstrap` and `ack` use the guarded
+  write path with an idempotency key, ledger record, and exact durable
+  checkpoint readback. Feed cursors and ACKs remain opaque.
 - During maintenance, write routes return `503 maintenance_mode` while
   diagnostics and reads remain available.
 - The five Store adapter tools cannot be invoked through the raw escape hatch;
@@ -214,8 +225,10 @@ Use `get_runtime_status` for runtime/auth diagnostics, not as the normal
 bootstrap. When the optional AutostopManager package is mounted, its memory,
 routing, and ledger capabilities remain behind the same Gateway and raw
 discovery; the visible count stays 24. Store traffic uses
-`AUTOSTOP_STORE_API_URL` plus separate read/manage service tokens over the
-internal `autostop-store-agent` network. Never print these settings' values.
+`AUTOSTOP_STORE_API_URL` plus separate read/quote/manage/owner service tokens
+over the internal `autostop-store-agent` network. The owner credential is
+reserved for guarded OpenAPI-bound employee-route parity and does not expand
+the public 24-tool surface. Never print these settings' values.
 
 ## Write Rules
 
@@ -261,9 +274,17 @@ Local:
 
 ```powershell
 .\scripts\run_mcp_server.ps1
+.\.venv\Scripts\python.exe scripts\crm_capability_parity.py --require-complete
+.\.venv\Scripts\python.exe scripts\crm_change_feed_producer_parity.py --require-complete
 .\.venv\Scripts\python.exe -m unittest tests.test_mcp tests.test_mcp_main tests.test_agent_gateway_v2 -v
 .\.venv\Scripts\python.exe scripts\check_agent_gateway_v2.py --mcp-url http://127.0.0.1:41831/mcp --exhaustive
 ```
+
+The producer parity gate does not count guarded `api:/api/*` reachability as
+end-to-end verification by itself. Every `executor_contract_only` write route
+must either execute its real registry handler against isolated temporary state
+and replay the resulting durable feed event, or match a fixed reviewed
+model/runtime/render boundary in the route-contract test.
 
 On Linux/VPS, `scripts/run_isolated_write_smoke.sh` exercises real create,
 inventory, archive, idempotency, and fail-closed paths against temporary state.

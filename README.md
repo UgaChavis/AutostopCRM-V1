@@ -98,6 +98,14 @@ reimplementing those rules.
 - `src/minimal_kanban/mcp/server.py`, `mcp/tool_registry.py`, and
   `mcp/agent_gateway_v2.py` — raw MCP implementation and the production
   Gateway v2 surface.
+- [`scripts/crm_capability_parity.py`](scripts/crm_capability_parity.py) and its
+  JSON manifest — machine-verifiable UI/backend/Gateway capability matrix,
+  readback classes, test evidence, reviewed gaps, and human-session exemptions.
+- [`scripts/crm_change_feed_producer_parity.py`](scripts/crm_change_feed_producer_parity.py)
+  and its JSON manifest — every discovered write route mapped to a commit-bound
+  feed producer or a fixed, evidence-backed privacy/infrastructure exemption;
+  generic executor routes additionally require an executable temporary-state
+  route-to-feed readback contract or an exact reviewed boundary rationale.
 - `src/minimal_kanban/deployment_security.py` — production auth, maintenance,
   identity, and kill-switch validation.
 - `src/minimal_kanban/web_app_assets/source/` and
@@ -111,6 +119,8 @@ reimplementing those rules.
 .\scripts\setup_dev.ps1 -InstallGitHooks
 .\scripts\doctor.ps1
 .\scripts\run_checks.ps1
+.\.venv\Scripts\python.exe scripts\crm_capability_parity.py --require-complete
+.\.venv\Scripts\python.exe scripts\crm_change_feed_producer_parity.py --require-complete
 ```
 
 Run the desktop application or the headless API/MCP runtime:

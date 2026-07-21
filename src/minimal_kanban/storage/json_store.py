@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import time
@@ -32,6 +33,7 @@ from ..models import (
 from ..performance import MeasuredRLock, record_timing
 from ..services.ready_column import ensure_ready_column
 from ..texts import COLUMN_LABELS_RU
+from .change_feed_store import ChangeFeedPendingWriteError, ChangeFeedStore
 from .file_lock import ProcessFileLock
 from .limited_io import read_text_limited
 
@@ -68,6 +70,22 @@ def _json_safe_value(value: Any, *, depth: int = _JSON_SAFE_MAX_DEPTH) -> Any:
 def _json_safe_dict(value: Any) -> dict[str, Any]:
     safe = _json_safe_value(value)
     return safe if isinstance(safe, dict) else {}
+
+
+def _serialized_state(
+    state: dict[str, Any], *, already_safe: bool = False
+) -> tuple[dict[str, Any], bytes, str]:
+    safe_state = state if already_safe else _json_safe_dict(state)
+    payload = json.dumps(
+        safe_state,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    if len(payload) > JSON_STORE_STATE_MAX_BYTES:
+        raise ValueError("state file is too large")
+    fingerprint = hashlib.sha256(payload).hexdigest()
+    return safe_state, payload, fingerprint
 
 
 def _reject_json_constant(value: str) -> None:
@@ -120,6 +138,9 @@ class JsonStore:
         self._process_lock = ProcessFileLock(
             self._state_file.with_suffix(".lock"), metric_name="file_lock"
         )
+        self._change_feed_store = ChangeFeedStore(self._state_file.with_name("change_feed.sqlite3"))
+        self._change_feed_initialized = False
+        self._change_feed_state_signature: tuple[int, int, int, int] | None = None
         self._read_cache_signature: tuple[int, int, int, int] | None = None
         self._read_cache_bundle: dict[str, Any] | None = None
         self._trusted_card_versions: dict[str, tuple[int, str]] = {}
@@ -132,13 +153,47 @@ class JsonStore:
         self._trusted_event_objects: set[int] = set()
         get_app_data_dir().mkdir(parents=True, exist_ok=True)
         self._state_file.parent.mkdir(parents=True, exist_ok=True)
-        if not self._state_file.exists():
-            with self._process_lock.acquire():
+        with self._process_lock.acquire():
+            if not self._state_file.exists():
+                self._change_feed_store.initialize_baseline([], state=DEFAULT_STATE)
+                self._change_feed_initialized = True
                 self._write_state(DEFAULT_STATE)
 
     @property
     def base_dir(self) -> Path:
         return self._state_file.parent
+
+    @property
+    def change_feed_store(self) -> ChangeFeedStore:
+        return self._change_feed_store
+
+    def reconcile_change_feed(self) -> None:
+        """Publish a recovered/external state change before serving owner feed reads."""
+
+        with self._lock:
+            with self._process_lock.acquire():
+                current_signature = self._state_signature()
+                if (
+                    current_signature is not None
+                    and current_signature == self._change_feed_state_signature
+                    and not self._change_feed_store.has_pending_state_write()
+                ):
+                    return
+                self._reconcile_change_feed_locked()
+
+    def _reconcile_change_feed_locked(self) -> None:
+        state = self._read_state()
+        self._reconcile_change_feed_state_locked(state)
+
+    def _reconcile_change_feed_state_locked(self, state: dict[str, Any]) -> None:
+        safe_state, _payload, fingerprint = _serialized_state(state)
+        self._change_feed_store.reconcile_state(
+            fingerprint,
+            safe_state.get("events"),
+            state=safe_state,
+        )
+        self._change_feed_initialized = True
+        self._change_feed_state_signature = self._state_signature()
 
     def read_bundle(self) -> dict[str, Any]:
         return self.read_bundle_with_signature()[0]
@@ -157,6 +212,12 @@ class JsonStore:
                 ):
                     return self._read_cache_bundle, signature
                 state = self._read_state()
+                if (
+                    not self._change_feed_initialized
+                    or signature != self._change_feed_state_signature
+                    or self._change_feed_store.has_pending_state_write()
+                ):
+                    self._reconcile_change_feed_state_locked(state)
                 columns, columns_repaired = self._normalize_columns(state)
                 cards, cards_repaired = self._normalize_cards(state, columns)
                 clients, clients_repaired = self._normalize_clients(state)
@@ -730,30 +791,68 @@ class JsonStore:
 
     def _write_state(self, state: dict, *, already_safe: bool = False) -> tuple[float, float]:
         serialize_started_at = time.perf_counter()
-        safe_state = state if already_safe else _json_safe_dict(state)
-        payload = json.dumps(
-            safe_state,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            allow_nan=False,
-        )
-        payload_bytes = len(payload.encode("utf-8"))
-        if payload_bytes > JSON_STORE_STATE_MAX_BYTES:
-            raise ValueError("state file is too large")
+        safe_state, payload, fingerprint = _serialized_state(state, already_safe=already_safe)
+        if not self._change_feed_initialized:
+            if self._state_file.exists():
+                self._reconcile_change_feed_locked()
+            else:
+                self._change_feed_store.initialize_baseline([], state=safe_state)
+                self._change_feed_initialized = True
+        payload_bytes = len(payload)
         serialize_ms = (time.perf_counter() - serialize_started_at) * 1000
         record_timing("serialize", serialize_ms)
+        feed_prepare_started_at = time.perf_counter()
+        try:
+            self._change_feed_store.prepare_state_write(
+                fingerprint,
+                safe_state.get("events"),
+                state=safe_state,
+            )
+        except ChangeFeedPendingWriteError:
+            self._reconcile_change_feed_locked()
+            self._change_feed_store.prepare_state_write(
+                fingerprint,
+                safe_state.get("events"),
+                state=safe_state,
+            )
+        finally:
+            record_timing(
+                "change_feed_prepare",
+                (time.perf_counter() - feed_prepare_started_at) * 1000,
+            )
         temp_file = self._state_file.with_name(f".{self._state_file.name}.{uuid4().hex}.tmp")
         write_started_at = time.perf_counter()
         try:
-            temp_file.write_text(payload, encoding="utf-8")
+            temp_file.write_bytes(payload)
             temp_file.replace(self._state_file)
+        except Exception:
+            try:
+                self._change_feed_store.abort_state_write(fingerprint)
+            except Exception as abort_exc:  # pragma: no cover - restart reconciliation is durable
+                self._log_warning("Change-feed outbox abort deferred: %s", abort_exc)
+            raise
         finally:
             temp_file.unlink(missing_ok=True)
             write_ms = (time.perf_counter() - write_started_at) * 1000
             record_timing("write", write_ms)
         written_signature = self._state_signature()
+        self._change_feed_state_signature = written_signature
         if written_signature is None or written_signature[3] != payload_bytes:
+            self._change_feed_store.abort_state_write(fingerprint)
             raise OSError("state file post-write verification failed")
+        feed_commit_started_at = time.perf_counter()
+        try:
+            self._change_feed_store.commit_state_write(fingerprint)
+        except Exception as exc:  # pragma: no cover - staged outbox recovers on next access
+            self._log_warning(
+                "Change-feed publish deferred; durable outbox will reconcile: %s",
+                exc,
+            )
+        finally:
+            record_timing(
+                "change_feed_commit",
+                (time.perf_counter() - feed_commit_started_at) * 1000,
+            )
         return serialize_ms, write_ms
 
     def _state_signature(self) -> tuple[int, int, int, int] | None:

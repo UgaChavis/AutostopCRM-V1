@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import hashlib
 import json
 from collections.abc import Mapping
 from decimal import Decimal, InvalidOperation
@@ -12,7 +11,6 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult, ImageContent, TextContent, ToolAnnotations
 from pydantic import BaseModel
 
-from ..api.route_registry import PROXIED_WRITE_ROUTES
 from ..deployment_security import load_agent_gateway_security_policy
 from ..repair_order import repair_order_payment_method_from_cashbox_name
 from .client import BoardApiClient
@@ -24,6 +22,30 @@ from .gateway_contract import (
     FINANCE_VIRTUAL_OPERATIONS,
     FINANCE_WORKFLOW_OPERATIONS,
     INVENTORY_WORKFLOW_OPERATIONS,
+)
+from .raw_gateway import (
+    DESTRUCTIVE_CAPABILITY_MARKERS,
+    OPTIMISTIC_WRITE_NAMES,
+    RAW_API_ROUTES,
+    verify_virtual_api_write_readback,
+)
+from .raw_gateway import (
+    request_fingerprint as _request_fingerprint,
+)
+from .raw_gateway import (
+    schema_hash as _schema_hash,
+)
+from .raw_gateway import (
+    virtual_api_name as _virtual_api_name,
+)
+from .raw_gateway import (
+    virtual_api_risk as _virtual_api_risk,
+)
+from .raw_gateway import (
+    virtual_api_route as _virtual_api_route,
+)
+from .raw_gateway import (
+    virtual_api_schema as _virtual_api_schema,
 )
 from .store_gateway import (
     INTERNAL_ONLY_CAPABILITY_NAMES,
@@ -105,32 +127,6 @@ DESTRUCTIVE_TOOL_NAMES = frozenset(
     }
 )
 
-RAW_API_PREFIX = "api:"
-RAW_API_WRITE_ROUTES = frozenset(
-    route for route in PROXIED_WRITE_ROUTES if route != "/api/get_repair_order"
-)
-RAW_API_READ_ROUTES = frozenset(
-    {
-        "/api/agent_actions",
-        "/api/agent_scheduled_tasks",
-        "/api/agent_status",
-        "/api/agent_tasks",
-        "/api/export_operator_activity",
-        "/api/finance_audit",
-        "/api/get_employee_salary_ledger",
-        "/api/get_employee_salary_reconciliation",
-        "/api/get_employee_salary_report",
-        "/api/get_operator_activity_aggregates",
-        "/api/get_operator_activity_details",
-        "/api/get_operator_profile",
-        "/api/get_operator_user_report",
-        "/api/get_payroll_report",
-        "/api/list_operator_activity",
-        "/api/list_operator_users",
-        "/api/repair_order_number_audit",
-    }
-)
-RAW_API_ROUTES = RAW_API_READ_ROUTES | RAW_API_WRITE_ROUTES
 WORKFLOW_TERMINAL_STATES = frozenset({"completed", "failed", "cancelled"})
 
 FINANCE_SENSITIVE_KEYS = frozenset(
@@ -155,19 +151,6 @@ MAIL_CAPABILITY_NAMES = frozenset(
     {
         "workflow_wait_for_external",
         "complete_external_step",
-    }
-)
-
-OPTIMISTIC_WRITE_NAMES = frozenset(
-    {
-        "update_card",
-        "update_repair_order",
-        "set_repair_order_status",
-        "api:/api/update_card",
-        "api:/api/update_repair_order",
-        "api:/api/set_repair_order_status",
-        "api:/api/replace_repair_order_works",
-        "api:/api/replace_repair_order_materials",
     }
 )
 
@@ -532,56 +515,6 @@ def _decimal_text(value: Decimal) -> str:
     return normalized.rstrip("0").rstrip(".") if "." in normalized else normalized
 
 
-def _schema_hash(schema: Mapping[str, Any]) -> str:
-    encoded = json.dumps(schema, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
-
-
-def _virtual_api_schema(route: str) -> dict[str, Any]:
-    """Bind raw-schema confirmation to one exact internal API route."""
-
-    return {
-        "$id": f"autostopcrm-agent-gateway:{route}",
-        "title": route,
-        "type": "object",
-        "description": (
-            f"Guarded JSON-object fallback for {route}. The hash is bound to this exact route; "
-            "resolve target ids with focused reads and inspect the corresponding API contract "
-            "before execution."
-        ),
-        "additionalProperties": True,
-    }
-
-
-def _request_fingerprint(value: Any) -> str:
-    canonical = json.dumps(
-        value,
-        sort_keys=True,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        default=str,
-    )
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-
-def _virtual_api_route(name: str) -> str | None:
-    normalized = str(name or "").strip()
-    if not normalized.startswith(RAW_API_PREFIX):
-        return None
-    route = normalized.removeprefix(RAW_API_PREFIX)
-    return route if route in RAW_API_ROUTES else None
-
-
-def _virtual_api_risk(route: str, name: str) -> str:
-    if route in RAW_API_READ_ROUTES:
-        return "read"
-    return "destructive" if _is_destructive_capability(name, "write") else "write"
-
-
-def _virtual_api_name(route: str) -> str:
-    return f"{RAW_API_PREFIX}{route}"
-
-
 def _contains_sensitive_key(
     value: Any,
     keys: frozenset[str],
@@ -645,7 +578,7 @@ def _is_destructive_capability(name: str, risk: str) -> bool:
     return (
         risk == "destructive"
         or name in DESTRUCTIVE_TOOL_NAMES
-        or any(marker in normalized for marker in ("delete_", "cancel_", "archive_", "remove_"))
+        or any(marker in normalized for marker in DESTRUCTIVE_CAPABILITY_MARKERS)
     )
 
 
@@ -1111,6 +1044,14 @@ def register_agent_gateway_v2(
     ) -> dict[str, Any]:
         if risk == "read":
             return {"required": False, "passed": bool(result.get("ok"))}
+        virtual_verification = await verify_virtual_api_write_readback(
+            operation,
+            arguments,
+            result,
+            _invoke,
+        )
+        if virtual_verification is not None:
+            return virtual_verification
         if operation == "record_repair_order_payment":
             checks = (
                 result.get("verification") if isinstance(result.get("verification"), dict) else {}

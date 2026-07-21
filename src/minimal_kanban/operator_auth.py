@@ -29,6 +29,7 @@ from .models import (
 from .operator_activity import OperatorActivityService
 from .services.card_service import CardService
 from .services.errors import ServiceError
+from .storage.change_feed_projection import project_operator_users
 from .storage.file_lock import ProcessFileLock
 from .storage.json_store import JsonStore
 from .storage.limited_io import read_text_limited
@@ -123,6 +124,7 @@ class OperatorAuthService:
         self._uses_default_users_file = users_file is None
         self._users_file = users_file or get_users_file()
         self._logger = logger
+        self._change_feed_store = state_store.change_feed_store
         self._lock = threading.RLock()
         self._process_lock = ProcessFileLock(self._users_file.with_suffix(".lock"))
         get_app_data_dir().mkdir(parents=True, exist_ok=True)
@@ -130,6 +132,7 @@ class OperatorAuthService:
         if not self._users_file.exists():
             with self._process_lock.acquire():
                 self._write_state(self._bootstrap_state())
+        self._sync_change_feed(self._read_normalized_state(), initialize=True)
 
     def login(self, payload: dict | None = None) -> dict:
         payload = payload or {}
@@ -1306,8 +1309,24 @@ class OperatorAuthService:
         try:
             temp_file.write_text(payload, encoding="utf-8")
             temp_file.replace(self._users_file)
+            self._sync_change_feed(state)
         finally:
             temp_file.unlink(missing_ok=True)
+
+    def reconcile_change_feed(self) -> None:
+        with self._lock:
+            self._sync_change_feed(self._read_normalized_state())
+
+    def _sync_change_feed(self, state: dict[str, Any], *, initialize: bool = False) -> None:
+        projected = project_operator_users(state)
+        try:
+            if initialize:
+                self._change_feed_store.initialize_external_projection("operator_users", projected)
+            else:
+                self._change_feed_store.reconcile_external_projection("operator_users", projected)
+        except Exception as exc:  # pragma: no cover - next feed read reconciles users file
+            if self._logger is not None:
+                self._logger.warning("operator_change_feed_deferred error=%s", exc)
 
     def _user_snapshot(self, users: list[dict[str, Any]], username) -> dict[str, Any] | None:
         user = self._find_user(users, username)

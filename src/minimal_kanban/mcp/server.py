@@ -69,6 +69,7 @@ _AUTOSTOP_MANAGER_READ_ONLY_TOOLS = frozenset(
         "recommend_fluid_maintenance_sources",
         "recommend_service_management_actions",
         "search_knowledge_base",
+        "store_owner_capabilities",
         "system_audit",
         "today_context",
     }
@@ -84,6 +85,7 @@ _AUTOSTOP_MANAGER_WRITE_TOOLS = frozenset(
         "record_manager_run_event",
         "remember",
         "start_manager_run",
+        "store_owner_api",
         "sync_knowledge_base",
     }
 )

@@ -48,6 +48,7 @@ PROXIED_WRITE_ROUTES = {
     "/api/resume_agent_scheduled_task",
     "/api/run_agent_scheduled_task",
     "/api/run_full_card_enrichment",
+    "/api/set_card_ai_autofill",
     "/api/cleanup_card_content",
     "/api/bulk_set_deadline_if_below",
     "/api/bulk_refresh_board_summaries",
@@ -92,9 +93,11 @@ PROXIED_WRITE_ROUTES = {
     "/api/upload_shared_file",
     "/api/rename_shared_file",
     "/api/delete_shared_file",
+    "/api/copy_shared_file",
     "/api/paste_shared_file",
     "/api/paste_shared_files_from_clipboard",
     "/api/update_shared_file_position",
+    "/api/open_card",
 }
 
 OPERATOR_SESSION_ROUTES = {
@@ -193,6 +196,8 @@ def build_service_routes(
         "/api/cancel_cash_transaction": service.cancel_cash_transaction,
         "/api/cancel_last_cash_transaction": service.cancel_last_cash_transaction,
         "/api/get_gpt_wall": service.get_gpt_wall,
+        "/api/get_ai_chat_knowledge": service.get_ai_chat_knowledge,
+        "/api/set_card_ai_autofill": service.set_card_ai_autofill,
         "/api/autofill_repair_order": service.autofill_repair_order,
         "/api/agent_status": service.agent_status,
         "/api/agent_tasks": service.agent_tasks,

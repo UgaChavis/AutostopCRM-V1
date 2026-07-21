@@ -18,6 +18,8 @@ from uuid import uuid4
 from ..config import get_shared_files_dir, get_shared_files_index_file
 from ..json_safety import reject_deeply_nested_json
 from ..models import normalize_actor_name, normalize_file_name, normalize_int
+from ..storage.change_feed_projection import project_shared_files
+from ..storage.change_feed_store import ChangeFeedStore
 from ..storage.file_lock import ProcessFileLock
 from ..storage.limited_io import copy_file_limited, read_bytes_limited, read_text_limited
 from .errors import ServiceError
@@ -97,12 +99,14 @@ class SharedFilesService:
         storage_dir: Path | None = None,
         index_file: Path | None = None,
         logger: Logger | None = None,
+        change_feed_store: ChangeFeedStore | None = None,
         storage_limit_bytes: int = SHARED_FILES_STORAGE_LIMIT_BYTES,
         max_upload_bytes: int = SHARED_FILES_MAX_UPLOAD_BYTES,
     ) -> None:
         self._storage_dir = storage_dir or get_shared_files_dir()
         self._index_file = index_file or get_shared_files_index_file()
         self._logger = logger
+        self._change_feed_store = change_feed_store
         self._storage_limit_bytes = _normalize_byte_limit(
             storage_limit_bytes,
             default=SHARED_FILES_STORAGE_LIMIT_BYTES,
@@ -121,6 +125,9 @@ class SharedFilesService:
             with self._process_lock.acquire():
                 if not self._index_file.exists():
                     self._write_index([])
+        if self._change_feed_store is not None:
+            with self._locked_files() as files:
+                self._sync_change_feed(files, initialize=True)
 
     @property
     def storage_dir(self) -> Path:
@@ -700,8 +707,28 @@ class SharedFilesService:
         try:
             temp_file.write_text(text, encoding="utf-8")
             temp_file.replace(self._index_file)
+            self._sync_change_feed(files)
         finally:
             temp_file.unlink(missing_ok=True)
+
+    def reconcile_change_feed(self) -> None:
+        if self._change_feed_store is None:
+            return
+        with self._locked_files() as files:
+            self._sync_change_feed(files)
+
+    def _sync_change_feed(self, files: list[SharedFile], *, initialize: bool = False) -> None:
+        if self._change_feed_store is None:
+            return
+        projected = project_shared_files([item.to_dict() for item in files])
+        try:
+            if initialize:
+                self._change_feed_store.initialize_external_projection("shared_files", projected)
+            else:
+                self._change_feed_store.reconcile_external_projection("shared_files", projected)
+        except Exception as exc:  # pragma: no cover - next feed read reconciles durable index
+            if self._logger is not None:
+                self._logger.warning("shared_file_change_feed_deferred error=%s", exc)
 
     def _write_file_bytes_atomic(self, path: Path, content: bytes) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)

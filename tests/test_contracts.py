@@ -79,6 +79,7 @@ EXPECTED_SERVICE_ROUTES = {
     "/api/get_board_events",
     "/api/get_board_revision",
     "/api/get_board_snapshot",
+    "/api/get_ai_chat_knowledge",
     "/api/get_card",
     "/api/get_card_attachment",
     "/api/get_card_context",
@@ -151,6 +152,7 @@ EXPECTED_SERVICE_ROUTES = {
     "/api/search_clients",
     "/api/search_inventory_items",
     "/api/set_card_board_summary",
+    "/api/set_card_ai_autofill",
     "/api/set_card_deadline",
     "/api/set_card_indicator",
     "/api/start_card_timer",
@@ -243,8 +245,11 @@ class ContractSnapshotTests(unittest.TestCase):
 
     def test_auth_route_sets_keep_critical_routes(self) -> None:
         self.assertIn("/api/update_card", PROXIED_WRITE_ROUTES)
+        self.assertIn("/api/set_card_ai_autofill", PROXIED_WRITE_ROUTES)
+        self.assertIn("/api/open_card", PROXIED_WRITE_ROUTES)
         self.assertIn("/api/delete_employee", PROXIED_WRITE_ROUTES)
         self.assertIn("/api/get_repair_order", PROXIED_WRITE_ROUTES)
+        self.assertIn("/api/copy_shared_file", PROXIED_WRITE_ROUTES)
         self.assertIn("/api/finance_audit/apply_safe_fixes", ADMIN_ONLY_ROUTES)
         self.assertIn("/api/get_operator_profile", OPERATOR_SESSION_ROUTES)
 
