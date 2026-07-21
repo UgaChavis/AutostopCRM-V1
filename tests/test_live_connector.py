@@ -33,9 +33,18 @@ class LegacyConsoleStdout:
 
 
 class FakeResponse:
-    def __init__(self, payload: bytes, *, status: int = 200) -> None:
+    def __init__(
+        self,
+        payload: bytes,
+        *,
+        status: int = 200,
+        url: str = "http://example.test",
+        content_type: str = "text/html; charset=utf-8",
+    ) -> None:
         self._payload = payload
         self.status = status
+        self._url = url
+        self.headers = {"Content-Type": content_type}
 
     def __enter__(self):
         return self
@@ -47,6 +56,9 @@ class FakeResponse:
         if size is None or size < 0:
             return self._payload
         return self._payload[:size]
+
+    def geturl(self) -> str:
+        return self._url
 
 
 class OversizedResponse(FakeResponse):
@@ -192,6 +204,50 @@ class LiveConnectorOutputTests(unittest.TestCase):
         self.assertEqual(result["error"], "site_probe_redirected")
         self.assertEqual(opener.call_count, 1)
         urlopen.assert_not_called()
+
+    def test_check_site_follows_fingerprinted_board_asset_for_login_contract(self) -> None:
+        module = load_live_connector_module()
+        asset_path = "/assets/board." + ("a" * 64) + ".js"
+        html = (
+            "<html><head><title>AutoStop</title></head><body>AUTOSTOP"
+            f'<script src="{asset_path}"></script></body></html>'
+        ).encode()
+        responses = [
+            FakeResponse(html, url="https://crm.example.test"),
+            FakeResponse(
+                b"const loginRoute = '/api/login_operator';",
+                url=f"https://crm.example.test{asset_path}",
+                content_type="application/javascript",
+            ),
+        ]
+
+        with patch.object(module, "_urlopen_no_redirect", side_effect=responses) as opener:
+            result = module.check_site("https://crm.example.test", expect_https=True)
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["contains_login_route"])
+        self.assertEqual(result["login_route_source"], "asset")
+        self.assertEqual(result["asset_probe_url"], f"https://crm.example.test{asset_path}")
+        self.assertEqual(opener.call_count, 2)
+
+    def test_check_site_does_not_follow_unfingerprinted_asset(self) -> None:
+        module = load_live_connector_module()
+        html = (
+            b"<html><head><title>AutoStop</title></head><body>AUTOSTOP"
+            b'<script src="/assets/board.js"></script></body></html>'
+        )
+
+        with patch.object(
+            module,
+            "_urlopen_no_redirect",
+            return_value=FakeResponse(html, url="https://crm.example.test"),
+        ) as opener:
+            result = module.check_site("https://crm.example.test", expect_https=True)
+
+        self.assertFalse(result["ok"])
+        self.assertFalse(result["contains_login_route"])
+        self.assertEqual(result["asset_probe_url"], "")
+        self.assertEqual(opener.call_count, 1)
 
     def test_url_helpers_handle_malformed_urls_without_crashing(self) -> None:
         module = load_live_connector_module()

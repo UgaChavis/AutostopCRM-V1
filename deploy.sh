@@ -738,7 +738,7 @@ rollback_release() {
   echo "ROLLBACK: restoring the previous CRM image and changed protected data." >&2
   if ! run_maintenance env AUTOSTOP_RELEASE_IMAGE="$release_image" \
     docker compose stop --timeout 20 "$SERVICE_NAME" >/dev/null 2>&1; then
-    echo "ROLLBACK CRITICAL: candidate CRM could not be stopped; protected data remains untouched, maintenance stays active, and the auth snapshot is preserved." >&2
+    echo "ROLLBACK CRITICAL: candidate CRM could not be stopped; protected data remains untouched and maintenance stays active; the auth snapshot is preserved." >&2
     set -e
     return "$original_status"
   fi
