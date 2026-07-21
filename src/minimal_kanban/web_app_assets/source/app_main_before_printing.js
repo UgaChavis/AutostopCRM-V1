@@ -137,6 +137,7 @@
       draftTagColor: 'green',
       pollHandle: null,
       refreshInFlight: null,
+      viewerStateGeneration: 0,
       backgroundSnapshotTimer: null,
       boardDragCardId: '',
       boardDragColumnId: '',
@@ -237,6 +238,7 @@
       employees: [],
       employeesLoadedMonth: '',
       employeesReferencePromise: null,
+      employeesWorkspaceLoadGeneration: 0,
       activeEmployeeId: '',
       employeeCreateMode: false,
       employeeDashboardVisibilityTouched: false,
@@ -244,6 +246,7 @@
       employeeFormBaseline: null,
       payrollMonth: '',
       payrollReport: null,
+      payrollReportMonth: '',
       activeEmployeeSalaryId: '',
       activeEmployeeSalaryReportId: '',
       activeEmployeeSalaryReconciliationReportId: '',
@@ -2922,6 +2925,7 @@
       if (state.apiToken) request.headers['Authorization'] = 'Bearer ' + state.apiToken;
       if (requestOperatorSessionToken) request.headers['X-Operator-Session'] = requestOperatorSessionToken;
       let response;
+      let rawText = '';
       const retryLimit = request.method === 'GET' ? API_READ_RETRY_LIMIT : 0;
       for (let attempt = 0; attempt <= retryLimit; attempt += 1) {
         const requestAttempt = { ...request };
@@ -2937,6 +2941,7 @@
         }
         try {
           response = await fetch(path, requestAttempt);
+          rawText = await response.text();
           break;
         } catch (error) {
           if (error?.name === 'AbortError') {
@@ -2959,7 +2964,6 @@
           if (timeoutId) window.clearTimeout(timeoutId);
         }
       }
-      const rawText = await response.text();
       let payload = null;
       try {
         payload = rawText ? JSON.parse(rawText) : null;
@@ -3246,12 +3250,57 @@
       renderMobileStatus();
     }
 
+    function resetViewerScopedState() {
+      state.viewerStateGeneration += 1;
+      state.snapshot = null;
+      state.lastSnapshotRevision = '';
+      state.refreshInFlight = null;
+      state.archiveCards = [];
+      state.archiveLoaded = false;
+      state.archiveLoading = null;
+      state.employeesWorkspaceLoadGeneration += 1;
+      state.employees = [];
+      state.employeesLoadedMonth = '';
+      state.employeesReferencePromise = null;
+      state.activeEmployeeId = '';
+      state.employeeCreateMode = false;
+      state.employeeFormBaseline = null;
+      state.payrollMonth = '';
+      state.payrollReport = null;
+      state.payrollReportMonth = '';
+      state.activeEmployeeSalaryId = '';
+      state.activeEmployeeSalaryReportId = '';
+      state.activeEmployeeSalaryReconciliationReportId = '';
+      state.employeeSalarySheet = null;
+      state.employeeSalaryReport = null;
+      state.fullCardCache.clear();
+      state.cardFetchInFlight.clear();
+      state.cardSeenSuppressions.clear();
+      state.unreadHoverTimers.forEach((timerId) => window.clearTimeout(timerId));
+      state.unreadHoverTimers.clear();
+      state.unreadSeenDeferredTimers.forEach((timerId) => window.clearTimeout(timerId));
+      state.unreadSeenDeferredTimers.clear();
+      state.unreadSeenInFlight.clear();
+      clearCardOpenSideEffectTimer();
+      state.activeCard = null;
+      state.activeCardIsFull = false;
+      state.editingId = null;
+      state.mobileCard = null;
+      state.mobileCardId = '';
+      state.mobileCardJournalPayload = null;
+      state.mobileCardJournalLoadedFor = '';
+      state.cardHydrationSeq += 1;
+      state.cardHydratingId = '';
+      state.boardViewportPrimed = false;
+      els.board?.replaceChildren();
+      if (els.mobileBoardColumns) els.mobileBoardColumns.textContent = 'ДОСКА ЗАГРУЖАЕТСЯ...';
+    }
+
     function clearOperatorSession({ openLogin = false, preserveStatus = false } = {}) {
+      resetViewerScopedState();
       state.actor = '';
       state.operatorProfile = null;
       state.operatorUsers = [];
-      state.archiveCards = [];
-      state.archiveLoaded = false;
       setOperatorSessionToken('');
       applyBoardScalePreference({ fallbackValue: 1, syncInput: true, persistFallback: false });
       updateOperatorButton();
@@ -3339,9 +3388,10 @@
             password,
           },
         });
+        resetViewerScopedState();
         renderOperatorProfile(data, { openModal: true });
+        await refreshSnapshot(true);
         if (state.snapshot) updateSnapshotStatusLine();
-        else setStatus('СЕРВЕР АКТИВЕН', false);
       } catch (error) {
         const message = error.message || 'Не удалось выполнить вход.';
         setOperatorLoginFeedback(message, { tone: 'error' });
@@ -5500,6 +5550,7 @@
     }
 
     async function loadArchive(openModal = false, { force = false } = {}) {
+      const viewerStateGeneration = state.viewerStateGeneration;
       if (state.archiveLoading) {
         const pending = state.archiveLoading;
         if (openModal) maybeOpenModal(els.archiveModal, true);
@@ -5515,24 +5566,28 @@
       if (els.archiveList && (!state.archiveLoaded || force)) {
         els.archiveList.innerHTML = '<div class="log-row__meta">ЗАГРУЗКА АРХИВА...</div>';
       }
-      state.archiveLoading = (async () => {
+      let archivePromise = null;
+      archivePromise = (async () => {
         try {
           const data = await api('/api/list_archived_cards?limit=' + ARCHIVE_PREVIEW_LIMIT + '&compact=1');
+          if (viewerStateGeneration !== state.viewerStateGeneration) return null;
           state.archiveCards = Array.isArray(data?.cards) ? data.cards : [];
           state.archiveLoaded = true;
           renderArchive();
           return data;
         } catch (error) {
+          if (viewerStateGeneration !== state.viewerStateGeneration) return null;
           if (els.archiveList) {
             els.archiveList.innerHTML = '<div class="log-row__meta">НЕ УДАЛОСЬ ЗАГРУЗИТЬ АРХИВ.</div>';
           }
           setStatus(error.message, true);
           return null;
         } finally {
-          state.archiveLoading = null;
+          if (state.archiveLoading === archivePromise) state.archiveLoading = null;
         }
       })();
-      return state.archiveLoading;
+      state.archiveLoading = archivePromise;
+      return archivePromise;
     }
 
     function currentPayrollMonthValue() {
@@ -6887,45 +6942,87 @@
       renderEmployeeShiftAccrualDialog();
     }
 
-    async function loadEmployeesReference() {
-      const month = state.payrollMonth || currentPayrollMonthValue();
-      if (state.employeesLoadedMonth === month && Array.isArray(state.employees)) {
-        if (!state.employeeCreateMode && !state.activeEmployeeId && state.employees.length) {
-          state.activeEmployeeId = state.employees[0].id;
-        }
-        if (!state.employees.length) {
-          state.employeeCreateMode = true;
-        }
-        return { employees: state.employees, meta: { cached: true, month } };
+    function applyEmployeesReferenceData(data, month) {
+      state.employees = Array.isArray(data?.employees) ? data.employees : [];
+      state.employeesLoadedMonth = month;
+      if (!state.employeeCreateMode && !state.activeEmployeeId && state.employees.length) {
+        state.activeEmployeeId = state.employees[0].id;
       }
-      if (state.employeesReferencePromise && state.employeesReferencePromise.month === month) {
-        return state.employeesReferencePromise.promise;
+      if (!state.employees.length) {
+        state.employeeCreateMode = true;
       }
-      const request = api('/api/list_employees?month=' + encodeURIComponent(month))
-        .then((data) => {
-          state.employees = Array.isArray(data?.employees) ? data.employees : [];
-          state.employeesLoadedMonth = month;
-          if (!state.employeeCreateMode && !state.activeEmployeeId && state.employees.length) {
-            state.activeEmployeeId = state.employees[0].id;
-          }
-          if (!state.employees.length) {
-            state.employeeCreateMode = true;
-          }
-          return data;
-        })
-        .finally(() => {
-          if (state.employeesReferencePromise && state.employeesReferencePromise.month === month) {
-            state.employeesReferencePromise = null;
-          }
-        });
-      state.employeesReferencePromise = { month, promise: request };
-      return request;
     }
 
-    async function loadPayrollReport() {
-      const month = state.payrollMonth || currentPayrollMonthValue();
-      state.payrollReport = await api('/api/get_payroll_report?month=' + encodeURIComponent(month));
-      return state.payrollReport;
+    async function loadEmployeesReference({ month: requestedMonth = '', apply = true } = {}) {
+      const viewerStateGeneration = state.viewerStateGeneration;
+      const month = String(requestedMonth || state.payrollMonth || currentPayrollMonthValue()).trim();
+      if (state.employeesLoadedMonth === month && Array.isArray(state.employees)) {
+        return { employees: state.employees, meta: { cached: true, month } };
+      }
+      let request = null;
+      if (
+        state.employeesReferencePromise
+        && state.employeesReferencePromise.month === month
+        && state.employeesReferencePromise.viewerStateGeneration === viewerStateGeneration
+      ) {
+        request = state.employeesReferencePromise.promise;
+      } else {
+        request = api('/api/list_employees?month=' + encodeURIComponent(month))
+          .finally(() => {
+            if (state.employeesReferencePromise?.promise === request) {
+              state.employeesReferencePromise = null;
+            }
+          });
+        state.employeesReferencePromise = { month, viewerStateGeneration, promise: request };
+      }
+      const data = await request;
+      if (viewerStateGeneration !== state.viewerStateGeneration) return data;
+      const activeMonth = state.payrollMonth || currentPayrollMonthValue();
+      if (apply && month === activeMonth) applyEmployeesReferenceData(data, month);
+      return data;
+    }
+
+    async function loadPayrollReport({ month: requestedMonth = '', apply = true } = {}) {
+      const viewerStateGeneration = state.viewerStateGeneration;
+      const month = String(requestedMonth || state.payrollMonth || currentPayrollMonthValue()).trim();
+      const report = await api('/api/get_payroll_report?month=' + encodeURIComponent(month));
+      if (viewerStateGeneration !== state.viewerStateGeneration) return report;
+      const activeMonth = state.payrollMonth || currentPayrollMonthValue();
+      if (apply && month === activeMonth) {
+        state.payrollReport = report;
+        state.payrollReportMonth = month;
+      }
+      return report;
+    }
+
+    async function loadEmployeesWorkspaceData(month) {
+      const viewerStateGeneration = state.viewerStateGeneration;
+      const requestedMonth = String(month || state.payrollMonth || currentPayrollMonthValue()).trim();
+      state.payrollMonth = requestedMonth;
+      const loadGeneration = state.employeesWorkspaceLoadGeneration + 1;
+      state.employeesWorkspaceLoadGeneration = loadGeneration;
+      let employeesData;
+      let payrollReport;
+      try {
+        [employeesData, payrollReport] = await Promise.all([
+          loadEmployeesReference({ month: requestedMonth, apply: false }),
+          loadPayrollReport({ month: requestedMonth, apply: false }),
+        ]);
+      } catch (error) {
+        const isStale = viewerStateGeneration !== state.viewerStateGeneration
+          || loadGeneration !== state.employeesWorkspaceLoadGeneration
+          || requestedMonth !== state.payrollMonth;
+        if (isStale) return { applied: false, generation: loadGeneration, month: requestedMonth };
+        throw error;
+      }
+      const isCurrent = viewerStateGeneration === state.viewerStateGeneration
+        && loadGeneration === state.employeesWorkspaceLoadGeneration
+        && requestedMonth === state.payrollMonth;
+      if (!isCurrent) return { applied: false, generation: loadGeneration, month: requestedMonth };
+      applyEmployeesReferenceData(employeesData, requestedMonth);
+      state.payrollReport = payrollReport;
+      state.payrollReportMonth = requestedMonth;
+      return { applied: true, generation: loadGeneration, month: requestedMonth };
     }
 
     function refreshRepairOrderEmployeeSelects() {
@@ -6934,9 +7031,9 @@
     }
 
     async function loadEmployeesWorkspace(openModal = false) {
-      state.payrollMonth = (els.employeesMonthInput?.value || state.payrollMonth || currentPayrollMonthValue());
-      await loadEmployeesReference();
-      await loadPayrollReport();
+      const month = els.employeesMonthInput?.value || state.payrollMonth || currentPayrollMonthValue();
+      const loadResult = await loadEmployeesWorkspaceData(month);
+      if (!loadResult.applied) return loadResult;
       renderEmployeesWorkspace();
       refreshRepairOrderEmployeeSelects();
       if (openModal) {
@@ -6952,6 +7049,7 @@
           closeButton.focus({ preventScroll: true });
         }
       }
+      return loadResult;
     }
 
     async function addEmployeeFromForm() {
@@ -10842,7 +10940,7 @@
 
     async function loadMobileEmployees({ force = false } = {}) {
       const month = state.payrollMonth || currentPayrollMonthValue();
-      if (!force && state.employeesLoadedMonth === month && Array.isArray(state.employees) && state.payrollReport) {
+      if (!force && state.employeesLoadedMonth === month && Array.isArray(state.employees) && state.payrollReportMonth === month) {
         renderMobileEmployeesPanel();
         return;
       }
@@ -10850,8 +10948,7 @@
       state.mobileEmployeesLoading = true;
       renderMobileEmployeesPanel();
       try {
-        await loadEmployeesReference();
-        await loadPayrollReport();
+        await loadEmployeesWorkspaceData(month);
       } catch (error) {
         setStatus(error.message, true);
       } finally {
@@ -16055,16 +16152,21 @@
     function recordCardOpenSideEffects(cardId) {
       const normalizedCardId = String(cardId || '').trim();
       if (!normalizedCardId) return;
+      const viewerStateGeneration = state.viewerStateGeneration;
       clearCardOpenSideEffectTimer();
       const currentCard = snapshotCardById(normalizedCardId) || (state.activeCard?.id === normalizedCardId ? state.activeCard : null);
       const shouldMarkSeen = Boolean(currentCard?.is_unread || currentCard?.has_unseen_update);
       if (shouldMarkSeen) {
         markCardSeenOptimistically(normalizedCardId);
-        window.setTimeout(() => markCardSeen(normalizedCardId, { force: true }), CARD_OPEN_SIDE_EFFECT_DELAY_MS);
+        window.setTimeout(() => {
+          if (viewerStateGeneration !== state.viewerStateGeneration) return;
+          markCardSeen(normalizedCardId, { force: true });
+        }, CARD_OPEN_SIDE_EFFECT_DELAY_MS);
       }
       state.cardOpenSideEffectCardId = normalizedCardId;
       state.cardOpenSideEffectTimer = window.setTimeout(() => {
         state.cardOpenSideEffectTimer = null;
+        if (viewerStateGeneration !== state.viewerStateGeneration) return;
         if (state.cardOpenSideEffectCardId !== normalizedCardId) return;
         api('/api/open_card', {
           method: 'POST',
@@ -16081,6 +16183,7 @@
       return perfMeasureAsync('openCardWorkspace', async () => {
         const normalizedCardId = String(cardId || '').trim();
         if (!normalizedCardId) return null;
+        const viewerStateGeneration = state.viewerStateGeneration;
         const cachedCard = snapshotCardById(normalizedCardId);
         const cachedFullCard = cachedCard
           ? cachedFullCardForSnapshot(cachedCard)
@@ -16113,6 +16216,7 @@
           if (state.cardHydratingId === normalizedCardId) state.cardHydratingId = '';
           throw error;
         }
+        if (!fullCard || viewerStateGeneration !== state.viewerStateGeneration) return null;
         if (openCardModalEl) {
           if (!openedFromCache && closeModalEl) popModal(modalKeyForElement(closeModalEl));
           const shouldHydrateOpenModal = !openedFromCache
@@ -16813,10 +16917,13 @@
           if (!showSuccess) return;
         }
 
-        state.refreshInFlight = (async () => {
+        const viewerStateGeneration = state.viewerStateGeneration;
+        let refreshPromise = null;
+        refreshPromise = (async () => {
           try {
             if (!state.snapshot || els.statusLine?.dataset.connection === 'offline') showConnectionPendingStatus();
             const nextSnapshot = applyCardSeenSuppressionsToSnapshot(await api('/api/get_board_snapshot?compact=1&include_archive=0'));
+            if (viewerStateGeneration !== state.viewerStateGeneration) return;
             const previousRevision = String(state.lastSnapshotRevision || '');
             const nextRevision = String(nextSnapshot?.meta?.revision || '');
             const boardChanged = !previousRevision || !nextRevision || previousRevision !== nextRevision;
@@ -16833,13 +16940,14 @@
             if (els.gptWallModal.classList.contains('is-open')) await loadGptWall(false);
             updateSnapshotStatusLine({ showSuccess });
           } catch (error) {
-            setStatus(error.message, true);
+            if (viewerStateGeneration === state.viewerStateGeneration) setStatus(error.message, true);
           } finally {
-            state.refreshInFlight = null;
+            if (state.refreshInFlight === refreshPromise) state.refreshInFlight = null;
           }
         })();
 
-        return state.refreshInFlight;
+        state.refreshInFlight = refreshPromise;
+        return refreshPromise;
       });
     }
 
@@ -16896,9 +17004,18 @@
       if (cachedCard && (!normalizedExpectedUpdatedAt || String(cachedCard.updated_at || '').trim() === normalizedExpectedUpdatedAt)) return cachedCard;
       const pending = state.cardFetchInFlight.get(normalizedCardId);
       if (pending) return pending;
-      const request = api('/api/get_card?card_id=' + encodeURIComponent(normalizedCardId))
-        .then((data) => cacheFullCard(applyCardSeenSuppression(data?.card)))
-        .finally(() => state.cardFetchInFlight.delete(normalizedCardId));
+      const viewerStateGeneration = state.viewerStateGeneration;
+      let request = null;
+      request = api('/api/get_card?card_id=' + encodeURIComponent(normalizedCardId))
+        .then((data) => {
+          if (viewerStateGeneration !== state.viewerStateGeneration) return null;
+          return cacheFullCard(applyCardSeenSuppression(data?.card));
+        })
+        .finally(() => {
+          if (state.cardFetchInFlight.get(normalizedCardId) === request) {
+            state.cardFetchInFlight.delete(normalizedCardId);
+          }
+        });
       state.cardFetchInFlight.set(normalizedCardId, request);
       return request;
     }
@@ -17125,6 +17242,7 @@
     async function markCardSeen(cardId, { force = false } = {}) {
       const normalizedCardId = String(cardId || '').trim();
       if (!normalizedCardId) return;
+      const viewerStateGeneration = state.viewerStateGeneration;
       if (state.cardSaveInFlight) {
         deferCardSeen(normalizedCardId, { force });
         return;
@@ -17139,10 +17257,10 @@
           method: 'POST',
           body: { card_id: normalizedCardId, actor_name: state.actor, source: 'ui' },
         });
-        if (data?.card) replaceSnapshotCard(data.card);
+        if (viewerStateGeneration === state.viewerStateGeneration && data?.card) replaceSnapshotCard(data.card);
       } catch (_) {
       } finally {
-        state.unreadSeenInFlight.delete(normalizedCardId);
+        if (viewerStateGeneration === state.viewerStateGeneration) state.unreadSeenInFlight.delete(normalizedCardId);
       }
     }
 

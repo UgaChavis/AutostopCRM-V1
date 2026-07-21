@@ -593,7 +593,8 @@ run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_live_con
 run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_agent_gateway_v2.py \
   --mcp-url "$PUBLIC_MCP_URL" \
   --exhaustive \
-  --require-store
+  --require-store \
+  --require-web
 run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_mcp_oauth.py \
   --mcp-url "$PUBLIC_MCP_URL"
 

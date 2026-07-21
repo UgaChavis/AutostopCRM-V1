@@ -63,6 +63,57 @@ ALLOWED_LARGE_FUNCTIONS = {
     "tests/test_mcp.py:test_mcp_tools_reach_backend": "MCP contract test split target",
 }
 
+CANONICAL_DOCS = frozenset(
+    {
+        "AGENTS.md",
+        "API_GUIDE.md",
+        "AUTOSTOPCRM_FULL_INSTRUCTION.txt",
+        "CHATGPT_CONNECTOR_SETUP.md",
+        "MCP_GUIDE.md",
+        "README.md",
+        "docs/OPERATIONS_RUNBOOK.md",
+    }
+)
+DEPENDENCY_MANIFESTS = frozenset(
+    {"requirements.txt", "requirements-dev.txt", "requirements-runtime.txt"}
+)
+CONFIG_DEPLOY_FILES = frozenset(
+    {
+        ".dockerignore",
+        ".gitattributes",
+        ".gitignore",
+        ".pre-commit-config.yaml",
+        ".python-version",
+        "Dockerfile",
+        "deploy.sh",
+        "docker-compose.yml",
+        "ruff.toml",
+    }
+)
+ONE_OFF_MIGRATIONS = frozenset(
+    {
+        "scripts/apply_payroll_policy_2026_07_13.py",
+        "scripts/normalize_cashboxes_after_safe_fix.py",
+    }
+)
+GENERATED_PATH_PREFIXES = (
+    "build/",
+    "dist/",
+    "output/",
+    "release/",
+)
+TRACKED_FILE_ROLES = frozenset(
+    {
+        "canonical_doc",
+        "manifest",
+        "runtime_code",
+        "runtime_asset",
+        "ops_tool",
+        "test",
+        "config_deploy",
+    }
+)
+
 
 @dataclass(frozen=True)
 class CodeHealthIssue:
@@ -71,10 +122,17 @@ class CodeHealthIssue:
     detail: str
 
 
-def _tracked_python_files(root: Path, *, include_untracked: bool = False) -> list[Path]:
-    git_args = ["git", "ls-files", "--cached", "*.py"]
+@dataclass(frozen=True)
+class TrackedFileClassification:
+    path: str
+    role: str
+    flags: tuple[str, ...] = ()
+
+
+def _repository_files(root: Path, *, include_untracked: bool = False) -> list[Path]:
+    git_args = ["git", "ls-files", "--cached"]
     if include_untracked:
-        git_args = ["git", "ls-files", "--cached", "--others", "--exclude-standard", "*.py"]
+        git_args.extend(["--others", "--exclude-standard"])
     try:
         result = subprocess.run(
             git_args,
@@ -88,13 +146,69 @@ def _tracked_python_files(root: Path, *, include_untracked: bool = False) -> lis
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return sorted(
             path
-            for path in root.rglob("*.py")
-            if not any(part in SKIP_DIRS for part in path.relative_to(root).parts)
+            for path in root.rglob("*")
+            if path.is_file()
+            and not any(part in SKIP_DIRS for part in path.relative_to(root).parts)
         )
+    return sorted(
+        root / line.strip()
+        for line in result.stdout.splitlines()
+        if line.strip() and (root / line.strip()).is_file()
+    )
+
+
+def classify_repository_file(path: str) -> TrackedFileClassification:
+    normalized = path.replace("\\", "/")
+    if normalized.startswith("./"):
+        normalized = normalized[2:]
+    flags: list[str] = []
+    if normalized in ONE_OFF_MIGRATIONS:
+        flags.extend(["migration_one_off", "delete_candidate", "review_required"])
+
+    if normalized in CANONICAL_DOCS:
+        role = "canonical_doc"
+    elif normalized in DEPENDENCY_MANIFESTS:
+        role = "manifest"
+    elif normalized.startswith("tests/"):
+        role = "test"
+    elif normalized.startswith("scripts/"):
+        role = (
+            "config_deploy"
+            if normalized.endswith((".conf.example", ".http-bootstrap.conf.example"))
+            else "ops_tool"
+        )
+    elif normalized.startswith(".github/") or normalized in CONFIG_DEPLOY_FILES:
+        role = "config_deploy"
+    elif normalized in {"main.py", "main_mcp.py"} or (
+        normalized.startswith("src/") and normalized.endswith(".py")
+    ):
+        role = "runtime_code"
+    elif normalized.startswith("src/"):
+        role = "runtime_asset"
+    elif normalized.endswith(".py"):
+        role = "runtime_code"
+    else:
+        role = ""
+
+    if normalized.startswith(GENERATED_PATH_PREFIXES) or normalized.endswith((".pyc", ".pyo")):
+        flags.extend(["generated", "review_required"])
+    return TrackedFileClassification(normalized, role, tuple(flags))
+
+
+def repository_inventory(
+    root: Path = ROOT, *, include_untracked: bool = False
+) -> list[TrackedFileClassification]:
+    return [
+        classify_repository_file(_relative(path, root))
+        for path in _repository_files(root, include_untracked=include_untracked)
+    ]
+
+
+def _tracked_python_files(root: Path, *, include_untracked: bool = False) -> list[Path]:
     return [
         path
-        for line in result.stdout.splitlines()
-        if line.strip() and (path := root / line.strip()).exists()
+        for path in _repository_files(root, include_untracked=include_untracked)
+        if path.suffix == ".py"
     ]
 
 
@@ -121,6 +235,23 @@ def _node_length(node: ast.AST) -> int:
 
 def audit(root: Path = ROOT, *, include_untracked: bool = False) -> list[CodeHealthIssue]:
     issues: list[CodeHealthIssue] = []
+    for entry in repository_inventory(root, include_untracked=include_untracked):
+        if not entry.role:
+            issues.append(
+                CodeHealthIssue(
+                    "unclassified_tracked_file",
+                    entry.path,
+                    "tracked file has no explicit repository role",
+                )
+            )
+        if "generated" in entry.flags:
+            issues.append(
+                CodeHealthIssue(
+                    "tracked_generated_artifact",
+                    entry.path,
+                    "generated build/cache artifact must not be versioned",
+                )
+            )
     for path in _tracked_python_files(root, include_untracked=include_untracked):
         relative_path = _relative(path, root)
         try:
@@ -187,8 +318,14 @@ def audit(root: Path = ROOT, *, include_untracked: bool = False) -> list[CodeHea
 
 def _summary(root: Path, *, include_untracked: bool) -> dict[str, Any]:
     files = _tracked_python_files(root, include_untracked=include_untracked)
+    inventory = repository_inventory(root, include_untracked=include_untracked)
+    role_counts = {
+        role: sum(entry.role == role for entry in inventory) for role in sorted(TRACKED_FILE_ROLES)
+    }
     return {
         "python_files": len(files),
+        "repository_files": len(inventory),
+        "repository_roles": role_counts,
         "include_untracked": include_untracked,
         "budgets": {
             "py_module_lines": MAX_PY_MODULE_LINES,
@@ -218,6 +355,10 @@ def main(argv: list[str] | None = None) -> int:
     payload = {
         "ok": not issues,
         "summary": _summary(root, include_untracked=args.include_untracked),
+        "inventory": [
+            asdict(entry)
+            for entry in repository_inventory(root, include_untracked=args.include_untracked)
+        ],
         "issues": [asdict(issue) for issue in issues],
     }
     if args.format == "json":
@@ -227,7 +368,12 @@ def main(argv: list[str] | None = None) -> int:
         for issue in issues:
             print(f"- {issue.code}: {issue.path}: {issue.detail}")
     else:
-        print("Code health audit passed: no unapproved size-budget issues.")
+        summary = payload["summary"]
+        print(
+            "Code health audit passed: "
+            f"{summary['repository_files']} repository files classified; "
+            "no unapproved size-budget issues."
+        )
     return 0 if not issues else 1
 
 

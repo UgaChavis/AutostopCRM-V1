@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -1625,17 +1625,6 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
         )
         return matched
 
-    def _cash_journal_amount_text(
-        self,
-        amount_minor: int,
-        *,
-        allow_sign: bool = False,
-        force_negative: bool = False,
-    ) -> str:
-        normalized = self._cash_journal_minor_value(amount_minor)
-        signed_value = -abs(normalized) if force_negative else normalized
-        return self._cashbox_rounded_money_text(signed_value, signed=allow_sign or force_negative)
-
     def _cashbox_rounded_money_text(self, amount_minor: object, *, signed: bool = False) -> str:
         value = self._cash_journal_minor_value(amount_minor)
         rounded_rubles = (abs(value) + 50) // 100
@@ -1979,26 +1968,6 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             day["opening_total_sign"] = "negative" if opening_total_minor < 0 else "positive"
         return days
 
-    def _cash_journal_opening_balances(
-        self,
-        date_key: str,
-        *,
-        all_transactions: list[CashTransaction],
-        cashbox_labels: list[tuple[str, str]],
-    ) -> list[dict[str, object]]:
-        balances_by_id = {cashbox_id: 0 for cashbox_id, _ in cashbox_labels}
-        if date_key and date_key != "unknown":
-            for transaction in all_transactions:
-                transaction_date_key = self._cash_journal_transaction_date_key(transaction)
-                if transaction_date_key == "unknown" or transaction_date_key >= date_key:
-                    continue
-                direction_sign = 1 if transaction.direction == "income" else -1
-                balances_by_id.setdefault(transaction.cashbox_id, 0)
-                balances_by_id[transaction.cashbox_id] += (
-                    self._cash_journal_minor_value(transaction.amount_minor) * direction_sign
-                )
-        return self._cash_journal_balance_rows(balances_by_id, cashbox_labels)
-
     def _cash_journal_balance_rows(
         self,
         balances_by_id: dict[str, int],
@@ -2247,23 +2216,6 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
         if not parts:
             return ""
         return f"{prefix}: " + ", ".join(parts)
-
-    def _cash_journal_text(
-        self,
-        transactions: list[CashTransaction],
-        cashboxes_by_id: dict[str, CashBox],
-        *,
-        months: int,
-    ) -> str:
-        journal = self._build_cash_journal(
-            transactions,
-            cashboxes_by_id,
-            months=months,
-            limit=len(transactions),
-            total=len(transactions),
-            period_start=model_helpers.utc_now() - timedelta(days=30 * months),
-        )
-        return str(journal["markdown"])
 
     def _cashbox_statistics(
         self,

@@ -939,6 +939,42 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(decoded, BOARD_WEB_APP_HTML)
         self.assertLess(len(body), len(decoded.encode("utf-8")) // 4)
 
+    def test_html_gzip_negotiation_honors_quality_values_and_exact_tokens(self) -> None:
+        rejected_encodings = (
+            "gzip;q=0",
+            "br, gzip ; q=0.000",
+            "gzip;q=0, *;q=1",
+            "notgzip",
+        )
+        accepted_encodings = (
+            "br;q=1, gzip;q=0.25",
+            "GZip ; q=1",
+            "*;q=0.5",
+        )
+
+        for route in ("/", "/dashboard"):
+            for accept_encoding in rejected_encodings:
+                with self.subTest(route=route, accept_encoding=accept_encoding):
+                    status, headers, body = self.raw_request(
+                        route,
+                        headers={"Accept-Encoding": accept_encoding},
+                    )
+
+                    self.assertEqual(status, 200)
+                    self.assertNotIn("Content-Encoding", headers)
+                    self.assertIn("<!doctype html>", body.decode("utf-8").lower())
+
+            for accept_encoding in accepted_encodings:
+                with self.subTest(route=route, accept_encoding=accept_encoding):
+                    status, headers, body = self.raw_request(
+                        route,
+                        headers={"Accept-Encoding": accept_encoding},
+                    )
+
+                    self.assertEqual(status, 200)
+                    self.assertEqual(headers.get("Content-Encoding"), "gzip")
+                    self.assertIn("<!doctype html>", gzip.decompress(body).decode("utf-8").lower())
+
     def test_review_board_route_returns_summary(self) -> None:
         status, created = self.request(
             "/api/create_card",
@@ -1534,9 +1570,18 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 401)
         self.assertEqual(blocked["error"]["details"]["auth_type"], "operator_session")
 
+        status, blocked_post = self.request(
+            "/api/get_cards",
+            {},
+            headers=proxy_headers,
+        )
+        self.assertEqual(status, 401)
+        self.assertEqual(blocked_post["error"]["details"]["auth_type"], "operator_session")
+
         status, logged_in = self.request(
             "/api/login_operator",
             {"username": "admin", "password": "admin"},
+            headers=proxy_headers,
         )
         self.assertEqual(status, 200)
         token = logged_in["data"]["session"]["token"]
@@ -1548,6 +1593,14 @@ class ApiServerTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertTrue(allowed["ok"])
+
+        status, allowed_post = self.request(
+            "/api/get_cards",
+            {},
+            headers={**proxy_headers, "X-Operator-Session": token},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(allowed_post["ok"])
 
         status, local_allowed = self.request("/api/get_cards", method="GET")
         self.assertEqual(status, 200)
@@ -1582,6 +1635,151 @@ class ApiServerTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertEqual(created["data"]["sticky"]["text"], "Proxy write")
+
+    def test_proxied_data_routes_fail_closed_without_operator_service(self) -> None:
+        self.server.stop()
+        logger = logging.getLogger(f"test.api.no_operator_service.{self._testMethodName}")
+        logger.handlers.clear()
+        logger.addHandler(logging.NullHandler())
+        logger.propagate = False
+        self.server = ApiServer(
+            self.service,
+            logger,
+            start_port=0,
+            fallback_limit=TEST_API_PORT_FALLBACK_LIMIT,
+            bearer_token="",
+        )
+        self.server.start()
+        self.port = self.server.port
+        self.base_url = self.server.base_url
+
+        local_status, local_payload = self.request("/api/get_cards", method="GET")
+        self.assertEqual(local_status, 200)
+        self.assertTrue(local_payload["ok"])
+
+        proxy_headers = {"X-Forwarded-For": "203.0.113.10"}
+        cases = (
+            ("GET", "/api/get_cards", None),
+            ("POST", "/api/get_cards", {}),
+            ("GET", "/api/shared_file?file_id=missing", None),
+        )
+        for method, path, payload in cases:
+            with self.subTest(method=method, path=path):
+                status, blocked = self.request(
+                    path,
+                    payload,
+                    method=method,
+                    headers=proxy_headers,
+                )
+                self.assertEqual(status, 503)
+                self.assertEqual(blocked["error"]["code"], "operator_auth_unavailable")
+                self.assertEqual(blocked["error"]["details"]["auth_type"], "operator_session")
+
+    def test_proxied_post_auth_preflight_precedes_json_and_size_checks(self) -> None:
+        proxy_headers = {
+            "Content-Type": "application/json",
+            "X-Forwarded-For": "203.0.113.10",
+        }
+        cases = (
+            ("malformed", b"{not-json", contextlib.nullcontext()),
+            (
+                "oversized",
+                b'{"padding":"' + (b"x" * 4096) + b'"}',
+                patch("minimal_kanban.api.server.MAX_JSON_BODY_BYTES", 64),
+            ),
+        )
+
+        for label, body, size_limit in cases:
+            with (
+                self.subTest(label=label),
+                size_limit,
+                patch(
+                    "minimal_kanban.api.server.json.loads",
+                    side_effect=AssertionError("anonymous proxied body reached JSON parser"),
+                ) as json_loads,
+            ):
+                connection = http.client.HTTPConnection(
+                    "127.0.0.1", self.port, timeout=TEST_HTTP_TIMEOUT_SECONDS
+                )
+                try:
+                    connection.request(
+                        "POST",
+                        "/api/get_cards",
+                        body=body,
+                        headers={**proxy_headers, "Content-Length": str(len(body))},
+                    )
+                    response = connection.getresponse()
+                    status = response.status
+                    response_body = response.read()
+                finally:
+                    connection.close()
+
+                json_loads.assert_not_called()
+
+            blocked = json.loads(response_body.decode("utf-8"))
+            self.assertEqual(status, 401)
+            self.assertEqual(blocked["error"]["code"], "unauthorized")
+            self.assertEqual(blocked["error"]["details"]["auth_type"], "operator_session")
+
+    def test_proxied_binary_routes_require_operator_session(self) -> None:
+        proxy_headers = {"X-Forwarded-For": "203.0.113.10"}
+        status, created = self.request(
+            "/api/create_card",
+            {"title": "Protected attachment", "deadline": {"hours": 1}},
+        )
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+        private_content = b"private attachment"
+        status, uploaded = self.request(
+            "/api/add_card_attachment",
+            {
+                "card_id": card_id,
+                "file_name": "private.txt",
+                "mime_type": "text/plain",
+                "content_base64": base64.b64encode(private_content).decode("ascii"),
+            },
+        )
+        self.assertEqual(status, 200)
+        attachment_id = uploaded["data"]["attachment"]["id"]
+        path = f"/api/attachment?card_id={card_id}&attachment_id={attachment_id}"
+
+        protected_paths = (
+            path,
+            "/api/shared_file?file_id=missing",
+            "/api/repair_order_text?card_id=missing",
+            "/employee_salary_reconciliation_print?employee_id=missing",
+        )
+        for protected_path in protected_paths:
+            with self.subTest(protected_path=protected_path):
+                blocked_request = urllib.request.Request(
+                    f"{self.base_url}{protected_path}",
+                    headers=proxy_headers,
+                    method="GET",
+                )
+                with self.assertRaises(urllib.error.HTTPError) as blocked:
+                    urllib.request.urlopen(blocked_request, timeout=5)
+                try:
+                    self.assertEqual(blocked.exception.code, 401)
+                    payload = json.loads(blocked.exception.read().decode("utf-8"))
+                finally:
+                    blocked.exception.close()
+                self.assertEqual(payload["error"]["details"]["auth_type"], "operator_session")
+
+        status, logged_in = self.request(
+            "/api/login_operator",
+            {"username": "admin", "password": "admin"},
+            headers=proxy_headers,
+        )
+        self.assertEqual(status, 200)
+        token = logged_in["data"]["session"]["token"]
+        allowed_request = urllib.request.Request(
+            f"{self.base_url}{path}",
+            headers={**proxy_headers, "X-Operator-Session": token},
+            method="GET",
+        )
+        with urllib.request.urlopen(allowed_request, timeout=5) as response:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.read(), private_content)
 
     def test_update_board_settings_route_is_not_exposed_via_get(self) -> None:
         status, response = self.request("/api/update_board_settings?board_scale=1.25", method="GET")
@@ -3251,6 +3449,32 @@ class ApiServerTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertTrue(payload["data"]["meta"]["revision"])
         self.assertGreater(len(payload["data"]["cards"]), 0)
+
+    def test_json_gzip_negotiation_honors_quality_values_and_exact_tokens(self) -> None:
+        cases = (
+            ("gzip;q=0", False),
+            ("br, gzip ; q=0.000", False),
+            ("gzip;q=0, *;q=1", False),
+            ("notgzip", False),
+            ("gzip;q=invalid", False),
+            ("gzip;q=1.1", False),
+            ("br;q=1, gzip;q=0.25", True),
+            ("GZip ; q=1", True),
+            ("*;q=0.5", True),
+        )
+
+        with patch("minimal_kanban.api.server.JSON_GZIP_MIN_BYTES", 0):
+            for accept_encoding, expected_gzip in cases:
+                with self.subTest(accept_encoding=accept_encoding):
+                    status, headers, body = self.raw_request(
+                        "/api/get_cards",
+                        headers={"Accept-Encoding": accept_encoding},
+                    )
+
+                    self.assertEqual(status, 200)
+                    self.assertEqual(headers.get("Content-Encoding") == "gzip", expected_gzip)
+                    decoded = gzip.decompress(body) if expected_gzip else body
+                    self.assertTrue(json.loads(decoded)["ok"])
 
     def test_write_response_exposes_storage_phase_timings(self) -> None:
         status, headers, body = self.raw_request(

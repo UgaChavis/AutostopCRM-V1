@@ -20,6 +20,50 @@ from minimal_kanban.settings_store import SettingsStore
 
 
 class AppStartupTests(unittest.TestCase):
+    def test_run_shows_splash_before_loading_heavy_runtime_modules(self) -> None:
+        events: list[str] = []
+
+        class Guard:
+            def __enter__(self):
+                events.append("guard")
+
+            def __exit__(self, exc_type, exc, tb):
+                events.append("guard_exit")
+
+        class Splash:
+            def show(self) -> None:
+                events.append("splash_show")
+
+            def isVisible(self) -> bool:
+                return False
+
+        def create_qt_runtime():
+            events.append("qt")
+            return object(), True, Splash()
+
+        def show_splash(_app, _splash, message: str) -> None:
+            events.append(f"message:{message}")
+
+        def load_runtime_modules():
+            events.append("runtime_imports")
+            raise RuntimeError("stop after import-order proof")
+
+        with (
+            patch("minimal_kanban.app._acquire_instance_guard", return_value=Guard()),
+            patch("minimal_kanban.app._create_qt_runtime", side_effect=create_qt_runtime),
+            patch("minimal_kanban.app._show_splash", side_effect=show_splash),
+            patch("minimal_kanban.app._load_runtime_modules", side_effect=load_runtime_modules),
+            patch("minimal_kanban.app._shutdown_desktop_runtime"),
+            self.assertRaisesRegex(RuntimeError, "import-order proof"),
+        ):
+            run()
+
+        self.assertLess(events.index("splash_show"), events.index("runtime_imports"))
+        self.assertLess(
+            events.index("message:Загружаю компоненты..."),
+            events.index("runtime_imports"),
+        )
+
     def test_instance_guard_rejects_second_running_copy(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             with patch.dict(os.environ, {"APPDATA": temp_dir}, clear=False):

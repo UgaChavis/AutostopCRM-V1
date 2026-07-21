@@ -4,6 +4,8 @@ import logging
 import os
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -16,6 +18,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication, QLineEdit, QMessageBox
 
@@ -69,6 +72,20 @@ class FakeTunnelController:
     def stop(self) -> TunnelRuntimeState:
         self.state = TunnelRuntimeState(running=False, public_url="", message="Tunnel stopped.")
         return self.state
+
+
+class BlockingMcpController(FakeMcpController):
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = threading.Event()
+        self.release = threading.Event()
+        self.start_calls = 0
+
+    def start(self, settings) -> McpRuntimeState:
+        self.start_calls += 1
+        self.started.set()
+        self.release.wait(timeout=2)
+        return super().start(settings)
 
 
 class SettingsWindowIntegrationTests(unittest.TestCase):
@@ -148,10 +165,98 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
         ):
             self.window.open_chatgpt_setup()
 
+        assert self.window._publication_thread is not None
+        self.window._publication_thread.join(timeout=1)
+        self.app.processEvents()
         self.assertTrue(self.controller.state.running)
         build_dialog.assert_called_once_with()
         single_shot.assert_called_once_with(0, dialog.open_chatgpt_wizard)
         dialog.exec.assert_called_once_with()
+
+    def test_connect_runtime_starts_once_without_blocking_ui_thread(self) -> None:
+        settings = self.settings_service.load()
+        saved = self.settings_service.save(
+            settings.__class__.from_dict(
+                {
+                    **settings.to_dict(),
+                    "general": {
+                        **settings.general.to_dict(),
+                        "integration_enabled": True,
+                    },
+                    "mcp": {
+                        **settings.mcp.to_dict(),
+                        "mcp_enabled": True,
+                    },
+                }
+            )
+        )
+        self.window._on_settings_saved(saved)
+        controller = BlockingMcpController()
+        self.window._mcp_controller = controller
+
+        started_at = time.perf_counter()
+        self.window._ensure_publication_runtime_for_connect()
+        elapsed = time.perf_counter() - started_at
+
+        self.assertLess(elapsed, 0.15)
+        self.assertTrue(controller.started.wait(timeout=1))
+        self.assertTrue(self.window._publication_in_progress)
+        self.window._ensure_publication_runtime_for_connect()
+        self.assertEqual(controller.start_calls, 1)
+
+        heartbeat = threading.Event()
+        QTimer.singleShot(0, heartbeat.set)
+        self.app.processEvents()
+        self.assertTrue(heartbeat.is_set())
+
+        controller.release.set()
+        assert self.window._publication_thread is not None
+        self.window._publication_thread.join(timeout=1)
+        self.app.processEvents()
+        self.assertFalse(self.window._publication_in_progress)
+        self.assertTrue(controller.state.running)
+
+    def test_open_connect_wizard_refreshes_after_background_runtime_start(self) -> None:
+        settings = self.settings_service.load()
+        saved = self.settings_service.save(
+            settings.__class__.from_dict(
+                {
+                    **settings.to_dict(),
+                    "general": {
+                        **settings.general.to_dict(),
+                        "integration_enabled": True,
+                    },
+                    "mcp": {
+                        **settings.mcp.to_dict(),
+                        "mcp_enabled": True,
+                    },
+                }
+            )
+        )
+        self.window._on_settings_saved(saved)
+        controller = BlockingMcpController()
+        self.window._mcp_controller = controller
+
+        self.window._ensure_publication_runtime_for_connect()
+        self.assertTrue(controller.started.wait(timeout=1))
+        dialog = self.window.build_settings_window()
+        dialog.open_chatgpt_wizard()
+        wizard = dialog._connect_dialog
+        self.assertIsNotNone(wizard)
+        assert wizard is not None
+        self.assertIn("Сначала запустите MCP сервер", wizard.warning_label.text())
+
+        controller.release.set()
+        assert self.window._publication_thread is not None
+        self.window._publication_thread.join(timeout=1)
+        self.app.processEvents()
+
+        self.assertTrue(wizard._runtime_state.running)
+        self.assertNotIn("Сначала запустите MCP сервер", wizard.warning_label.text())
+        self.assertIn("Локальный MCP работает", wizard.warning_label.text())
+        self.assertIn("Локальный MCP работает", wizard.preflight_status_label.text())
+        wizard.close()
+        dialog.close()
 
     def test_settings_are_saved_from_ui_and_restored_after_reload(self) -> None:
         dialog = SettingsWindow(

@@ -424,11 +424,13 @@ def run() -> int:
     agent_control = None
     mcp_controller = None
     tunnel_controller = None
+    splash = None
     try:
-        modules = _load_runtime_modules()
         app, _, splash = _create_qt_runtime()
         if splash is not None:
             splash.show()
+        _show_splash(app, splash, "Загружаю компоненты...")
+        modules = _load_runtime_modules()
         _show_splash(app, splash, "Подготавливаю запуск...")
         (
             logger,

@@ -6,6 +6,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,9 +39,10 @@ class AgentReleaseBackupTests(unittest.TestCase):
         audit_dir.mkdir()
         (audit_dir / "2026-07.jsonl").write_text('{"event_id":"E-1"}\n', encoding="utf-8")
         manager_db = root / "manager.sqlite3"
-        with sqlite3.connect(manager_db) as connection:
+        with closing(sqlite3.connect(manager_db)) as connection:
             connection.execute("CREATE TABLE manager_runs (id INTEGER PRIMARY KEY, status TEXT)")
             connection.execute("INSERT INTO manager_runs(status) VALUES ('completed')")
+            connection.commit()
         return crm_data, manager_db, root / "backups"
 
     def test_create_verify_and_restore_changed_protected_files(self) -> None:
@@ -59,14 +61,15 @@ class AgentReleaseBackupTests(unittest.TestCase):
             self.assertTrue((backup_dir / "audit-archive.tar.gz").is_file())
 
             (crm_data / "state.json").write_text('{"cards":[]}', encoding="utf-8")
-            with sqlite3.connect(manager_db) as connection:
+            with closing(sqlite3.connect(manager_db)) as connection:
                 connection.execute("UPDATE manager_runs SET status = 'failed'")
+                connection.commit()
 
             restored = self.module.restore_changed_state_and_manager(backup_dir)
             self.assertEqual(set(restored["restored"]), {"state", "manager_sqlite"})
             state = json.loads((crm_data / "state.json").read_text(encoding="utf-8"))
             self.assertEqual(state["cards"][0]["id"], "C-1")
-            with sqlite3.connect(manager_db) as connection:
+            with closing(sqlite3.connect(manager_db)) as connection:
                 status = connection.execute("SELECT status FROM manager_runs").fetchone()[0]
             self.assertEqual(status, "completed")
 

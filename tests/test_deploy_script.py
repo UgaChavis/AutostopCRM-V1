@@ -150,6 +150,7 @@ class DeployScriptTests(unittest.TestCase):
         self.assertIn("unexpected container is attached", script)
         self.assertIn("--require-production --require-store", script)
         self.assertEqual(3, script.count("--require-store"))
+        self.assertEqual(1, script.count("--require-web"))
 
     def test_deploy_retries_internal_store_gateway_until_ready(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")

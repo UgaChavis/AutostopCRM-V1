@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import stat
 import sys
 import tempfile
@@ -66,8 +67,9 @@ class ConfigureCodexMcpAuthTests(unittest.TestCase):
             self.assertNotIn("bearer_token_env_var", config_text)
             self.assertNotIn("http_headers", config_text)
             self.assertNotIn(token, config_text)
-            for path in (server_env, codex_config, runtime_env):
-                self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+            if os.name != "nt":
+                for path in (server_env, codex_config, runtime_env):
+                    self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
 
     def test_rotate_is_idempotent_for_existing_keys(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -202,14 +204,15 @@ class ConfigureCodexMcpAuthTests(unittest.TestCase):
             )
             self.assertNotIn(old_token, repr(snap))
             self.assertNotIn(old_token, repr(restored))
-            self.assertEqual(stat.S_IMODE(backup_dir.stat().st_mode), 0o700)
-            self.assertTrue(
-                all(
-                    stat.S_IMODE(path.stat().st_mode) == 0o600
-                    for path in backup_dir.iterdir()
-                    if path.is_file()
+            if os.name != "nt":
+                self.assertEqual(stat.S_IMODE(backup_dir.stat().st_mode), 0o700)
+                self.assertTrue(
+                    all(
+                        stat.S_IMODE(path.stat().st_mode) == 0o600
+                        for path in backup_dir.iterdir()
+                        if path.is_file()
+                    )
                 )
-            )
 
     def test_rotate_restores_all_files_when_a_late_write_fails(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

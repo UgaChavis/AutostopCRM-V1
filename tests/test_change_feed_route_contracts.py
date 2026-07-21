@@ -155,6 +155,31 @@ class ChangeFeedCanonicalRouteContractTests(unittest.TestCase):
         self.covered.add(route)
         return result
 
+    def _exercise_operator_user_routes(self, employee_id: str) -> None:
+        operator_payload = {"_operator_session": self.admin_session}
+        self._invoke(
+            "/api/save_operator_user",
+            {**operator_payload, "username": "route-user", "password": "route-password"},
+            producers={"operator_users"},
+            entity_types={"operator_user"},
+        )
+        self._invoke(
+            "/api/set_operator_user_employee",
+            {
+                **operator_payload,
+                "username": "route-user",
+                "employee_id": employee_id,
+            },
+            producers={"operator_users"},
+            entity_types={"operator_user"},
+        )
+        self._invoke(
+            "/api/delete_operator_user",
+            {**operator_payload, "username": "route-user"},
+            producers={"operator_users"},
+            entity_types={"operator_user"},
+        )
+
     def test_registry_routes_commit_and_replay_exact_temp_state_mutations(self) -> None:
         state_producers = {"audit_event", "state_projection"}
 
@@ -418,29 +443,7 @@ class ChangeFeedCanonicalRouteContractTests(unittest.TestCase):
         operator_employee = self.service.save_employee(
             {"name": "Route Operator Employee", "position": "Manager"}
         )["employee"]
-        operator_payload = {"_operator_session": self.admin_session}
-        self._invoke(
-            "/api/save_operator_user",
-            {**operator_payload, "username": "route-user", "password": "route-password"},
-            producers={"operator_users"},
-            entity_types={"operator_user"},
-        )
-        self._invoke(
-            "/api/set_operator_user_employee",
-            {
-                **operator_payload,
-                "username": "route-user",
-                "employee_id": operator_employee["id"],
-            },
-            producers={"operator_users"},
-            entity_types={"operator_user"},
-        )
-        self._invoke(
-            "/api/delete_operator_user",
-            {**operator_payload, "username": "route-user"},
-            producers={"operator_users"},
-            entity_types={"operator_user"},
-        )
+        self._exercise_operator_user_routes(operator_employee["id"])
 
         template = self._invoke(
             "/api/save_print_template",

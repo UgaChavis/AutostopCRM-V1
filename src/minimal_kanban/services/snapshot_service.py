@@ -662,14 +662,6 @@ class SnapshotService:
                 else 0
             )
             bundle, signature = self._store.read_bundle_with_signature()
-            cards = self._visible_cards(bundle["cards"], include_archived=False)
-            archived_cards_total = sum(1 for card in bundle["cards"] if card.archived)
-            archive = (
-                self._archived_cards(bundle["cards"], limit=archive_limit)
-                if include_archive
-                else []
-            )
-            stickies = self._stickies(bundle["stickies"])
             viewer_username = self._viewer_username(payload)
             cache_key = self._snapshot_cache.key(
                 viewer_username=viewer_username,
@@ -688,6 +680,14 @@ class SnapshotService:
                     result = deepcopy(cached_snapshot)
                     result["meta"]["generated_at"] = utc_now_iso()
                     return result
+            cards = self._visible_cards(bundle["cards"], include_archived=False)
+            archived_cards_total = sum(1 for card in bundle["cards"] if card.archived)
+            archive = (
+                self._archived_cards(bundle["cards"], limit=archive_limit)
+                if include_archive
+                else []
+            )
+            stickies = self._stickies(bundle["stickies"])
             column_labels, event_counts = self._card_serialization_context(
                 cards + archive,
                 columns=bundle["columns"],
@@ -783,14 +783,6 @@ class SnapshotService:
                 else 0
             )
             bundle, signature = self._store.read_bundle_with_signature()
-            cards = self._visible_cards(bundle["cards"], include_archived=False)
-            archived_cards_total = sum(1 for card in bundle["cards"] if card.archived)
-            archive = (
-                self._archived_cards(bundle["cards"], limit=archive_limit)
-                if include_archive
-                else []
-            )
-            stickies = self._stickies(bundle["stickies"])
             viewer_username = self._viewer_username(payload)
             cache_key = self._snapshot_cache.key(
                 viewer_username=viewer_username,
@@ -800,6 +792,14 @@ class SnapshotService:
             )
             cache_entry = self._snapshot_cache.get(signature, cache_key)
             if cache_entry is None or not cache_entry.get("revision"):
+                cards = self._visible_cards(bundle["cards"], include_archived=False)
+                archived_cards_total = sum(1 for card in bundle["cards"] if card.archived)
+                archive = (
+                    self._archived_cards(bundle["cards"], limit=archive_limit)
+                    if include_archive
+                    else []
+                )
+                stickies = self._stickies(bundle["stickies"])
                 revision = self._snapshot_revision(
                     columns=bundle["columns"],
                     cards=cards,
@@ -2050,29 +2050,6 @@ class SnapshotService:
         ):
             changes.extend(handler(action, details))
         return changes
-
-    def _card_log_detail_text(
-        self, event: dict[str, Any], changes: list[dict[str, Any]] | None = None
-    ) -> str:
-        if changes is None:
-            changes = self._card_log_changes(event)
-        if changes:
-            return " | ".join(
-                f"{item['label']}: {item.get('after_human') or 'очищено'}" for item in changes
-            )
-
-        details = event.get("details")
-        if not isinstance(details, dict) or not details:
-            return ""
-        parts: list[str] = []
-        for key in sorted(details.keys()):
-            text = self._card_log_value_text(details.get(key))
-            if text != "—":
-                label = CARD_JOURNAL_GENERIC_DETAIL_LABELS.get(
-                    key, CARD_JOURNAL_FIELD_LABELS.get(key, key.replace("_", " "))
-                )
-                parts.append(f"{label}: {text}")
-        return " | ".join(parts)
 
     def _card_log_value_lines(self, value: Any) -> list[str]:
         text = str(value or "")

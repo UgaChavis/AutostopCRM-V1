@@ -41,7 +41,7 @@
     "/api/attachment": {
       "backend_kind": "authenticated_binary_get",
       "backend_source": "src/minimal_kanban/api/server.py",
-      "backend_evidence_pattern": "route == \"/api/attachment\"",
+      "backend_evidence_pattern": "\"/api/attachment\": self._serve_attachment",
       "gateway_kind": "guarded_raw_mcp",
       "gateway_tool": "call_raw_capability",
       "mcp_tool": "read_card_attachment",
@@ -143,7 +143,7 @@
     "/api/repair_order_text": {
       "backend_kind": "authenticated_text_get",
       "backend_source": "src/minimal_kanban/api/server.py",
-      "backend_evidence_pattern": "route == \"/api/repair_order_text\"",
+      "backend_evidence_pattern": "\"/api/repair_order_text\": self._serve_repair_order_text",
       "gateway_kind": "guarded_raw_mcp",
       "gateway_tool": "call_raw_capability",
       "mcp_tool": "get_repair_order_text",
@@ -159,7 +159,7 @@
     "/api/shared_file": {
       "backend_kind": "authenticated_binary_get",
       "backend_source": "src/minimal_kanban/api/server.py",
-      "backend_evidence_pattern": "route == \"/api/shared_file\"",
+      "backend_evidence_pattern": "\"/api/shared_file\": self._serve_shared_file",
       "gateway_kind": "named_workflow",
       "gateway_tool": "agent_document_workflow",
       "mcp_tool": "download_shared_file",
@@ -169,7 +169,7 @@
     "/employee_salary_reconciliation_print": {
       "backend_kind": "authenticated_print_presentation_get",
       "backend_source": "src/minimal_kanban/api/server.py",
-      "backend_evidence_pattern": "route == \"/employee_salary_reconciliation_print\"",
+      "backend_evidence_pattern": "\"/employee_salary_reconciliation_print\": (",
       "gateway_kind": "guarded_virtual_api_alias",
       "gateway_tool": "call_raw_capability",
       "operation": "api:/api/get_employee_salary_reconciliation",

@@ -71,6 +71,39 @@ class SnapshotCacheTests(unittest.TestCase):
         self.assertEqual(first["revision"], second["revision"])
         self.assertEqual(build_revision.call_count, 1)
 
+    def test_repeated_revision_skips_board_projection_on_cache_hit(self) -> None:
+        view = {
+            "actor_name": "ALICE",
+            "compact": True,
+            "include_archive": True,
+            "archive_limit": 10,
+        }
+
+        with (
+            patch.object(
+                self.snapshot_service,
+                "_visible_cards",
+                wraps=self.snapshot_service._visible_cards,
+            ) as visible_cards,
+            patch.object(
+                self.snapshot_service,
+                "_archived_cards",
+                wraps=self.snapshot_service._archived_cards,
+            ) as archived_cards,
+            patch.object(
+                self.snapshot_service,
+                "_stickies",
+                wraps=self.snapshot_service._stickies,
+            ) as stickies,
+        ):
+            first = self.service.get_board_revision(view)
+            second = self.service.get_board_revision(view)
+
+        self.assertEqual(first["revision"], second["revision"])
+        self.assertEqual(visible_cards.call_count, 1)
+        self.assertEqual(archived_cards.call_count, 1)
+        self.assertEqual(stickies.call_count, 1)
+
     def test_external_store_write_changes_signature_and_invalidates_revision(self) -> None:
         view = self._compact_view()
         _, before_signature = self.store.read_bundle_with_signature()
@@ -156,6 +189,40 @@ class SnapshotCacheTests(unittest.TestCase):
         self.assertTrue(second["columns"])
         self.assertFalse(second["settings"]["ai_board_control"]["enabled"])
         self.assertEqual(second["meta"]["revision"], original_revision)
+
+    def test_compact_snapshot_skips_board_projection_on_cache_hit(self) -> None:
+        view = {
+            "actor_name": "ALICE",
+            "compact": True,
+            "include_archive": True,
+            "archive_limit": 10,
+        }
+
+        with (
+            patch.object(
+                self.snapshot_service,
+                "_visible_cards",
+                wraps=self.snapshot_service._visible_cards,
+            ) as visible_cards,
+            patch.object(
+                self.snapshot_service,
+                "_archived_cards",
+                wraps=self.snapshot_service._archived_cards,
+            ) as archived_cards,
+            patch.object(
+                self.snapshot_service,
+                "_stickies",
+                wraps=self.snapshot_service._stickies,
+            ) as stickies,
+            patch.object(snapshot_service_module.time, "monotonic", return_value=100.0),
+        ):
+            first = self.service.get_board_snapshot(view)
+            second = self.service.get_board_snapshot(view)
+
+        self.assertEqual(first["meta"]["revision"], second["meta"]["revision"])
+        self.assertEqual(visible_cards.call_count, 1)
+        self.assertEqual(archived_cards.call_count, 1)
+        self.assertEqual(stickies.call_count, 1)
 
     def test_compact_snapshot_cache_expires_after_monotonic_ttl(self) -> None:
         self._create_card()
