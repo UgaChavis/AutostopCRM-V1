@@ -183,7 +183,7 @@ def create_backup(
         }
         _write_json_atomic(temp_dir / MANIFEST_NAME, manifest)
         temp_dir.replace(final_dir)
-        return {**manifest, "backup_dir": str(final_dir)}
+        return {"ok": True, **manifest, "backup_dir": str(final_dir)}
     except Exception:
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise
