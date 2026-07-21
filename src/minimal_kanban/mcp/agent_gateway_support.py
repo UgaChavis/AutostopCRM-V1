@@ -71,6 +71,7 @@ DESTRUCTIVE_TOOL_NAMES = frozenset(
 
 WORKFLOW_TERMINAL_STATES = frozenset({"completed", "failed", "cancelled"})
 RELEASE_SMOKE_REVISION_PATTERN = re.compile(r"[0-9a-f]{40,64}")
+RELEASE_SMOKE_CHANGE_FEED_CONSUMER_ID = "gateway-release-smoke"
 OWNER_CORRELATION_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{7,159}")
 OWNER_CONTRACT_ID_PATTERN = re.compile(r"ac_[0-9a-f]{20}")
 HEX_SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
@@ -130,6 +131,15 @@ def _maintenance_technical_write_allowed(
     ):
         return False
     if capability == "store_owner_api" and str(arguments.get("mode") or "").casefold() != "dry_run":
+        return False
+    if (
+        capability
+        in {
+            "api:/api/change_feed/bootstrap",
+            "api:/api/change_feed/ack",
+        }
+        and arguments.get("consumer_id") != RELEASE_SMOKE_CHANGE_FEED_CONSUMER_ID
+    ):
         return False
     expected = _release_smoke_proof(agent_bearer_token, normalized_revision)
     return hmac.compare_digest(expected, str(proof or ""))

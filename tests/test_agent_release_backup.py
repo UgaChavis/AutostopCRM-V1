@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sqlite3
+import stat
 import subprocess
 import sys
 import tempfile
 import unittest
 from contextlib import closing
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "agent_release_backup.py"
@@ -96,6 +99,109 @@ class AgentReleaseBackupTests(unittest.TestCase):
                 ).fetchone()[0]
             self.assertEqual(acked, 41)
 
+    def test_backup_records_and_restores_original_file_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            crm_data, manager_db, output_root = self._fixture(root)
+            targets = {
+                "state": crm_data / "state.json",
+                "change_feed_sqlite": crm_data / "change_feed.sqlite3",
+                "manager_sqlite": manager_db,
+            }
+            if os.name != "nt":
+                for path, mode in zip(targets.values(), (0o640, 0o620, 0o660), strict=True):
+                    path.chmod(mode)
+            expected = {
+                name: self.module._file_restore_metadata(path) for name, path in targets.items()
+            }
+
+            created = self.module.create_backup(
+                output_root=output_root,
+                crm_data_dir=crm_data,
+                manager_db=manager_db,
+                backup_id="metadata-release",
+            )
+            backup_dir = Path(created["backup_dir"])
+            for name, metadata in expected.items():
+                self.assertEqual(created["artifacts"][name]["restore_metadata"], metadata)
+
+            targets["state"].write_text('{"cards":[]}', encoding="utf-8")
+            with closing(sqlite3.connect(targets["change_feed_sqlite"])) as connection:
+                connection.execute("UPDATE consumers SET acked_sequence = 99")
+                connection.commit()
+            with closing(sqlite3.connect(targets["manager_sqlite"])) as connection:
+                connection.execute("UPDATE manager_runs SET status = 'failed'")
+                connection.commit()
+            if os.name != "nt":
+                for path in targets.values():
+                    path.chmod(0o666)
+
+            self.module.restore_crm_state_and_feed(backup_dir)
+            self.module.restore_manager_database(backup_dir)
+
+            for name, path in targets.items():
+                restored = self.module._file_restore_metadata(path)
+                self.assertEqual(restored, expected[name])
+
+    def test_atomic_restore_applies_validated_metadata_and_uses_unique_temp(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.bin"
+            destination = root / "destination.bin"
+            source.write_bytes(b"restored")
+            destination.write_bytes(b"candidate")
+            metadata = {"mode": 0o640, "uid": 123, "gid": 456}
+
+            with patch.object(self.module.os, "chown", create=True) as chown:
+                self.module._restore_file_atomic(
+                    source,
+                    destination,
+                    restore_metadata=metadata,
+                )
+
+            self.assertEqual(destination.read_bytes(), b"restored")
+            if os.name != "nt":
+                self.assertEqual(stat.S_IMODE(destination.stat().st_mode), 0o640)
+            self.assertEqual(chown.call_count, 1)
+            self.assertEqual(chown.call_args.args[1:], (123, 456))
+            self.assertEqual(list(root.glob(".destination.bin.restore-*")), [])
+
+    def test_legacy_manifest_restore_preserves_existing_metadata_and_fails_if_missing(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.bin"
+            destination = root / "destination.bin"
+            source.write_bytes(b"restored")
+            destination.write_bytes(b"candidate")
+            if os.name != "nt":
+                destination.chmod(0o604)
+            expected = self.module._file_restore_metadata(destination)
+
+            self.module._restore_file_atomic(source, destination)
+
+            self.assertEqual(destination.read_bytes(), b"restored")
+            self.assertEqual(self.module._file_restore_metadata(destination), expected)
+            destination.unlink()
+            with self.assertRaisesRegex(self.module.BackupError, "metadata is missing"):
+                self.module._restore_file_atomic(source, destination)
+            self.assertFalse(destination.exists())
+            self.assertEqual(list(root.glob(".destination.bin.restore-*")), [])
+
+    def test_restore_metadata_validation_fails_closed(self) -> None:
+        invalid_values = (
+            None,
+            {"mode": True, "uid": 1, "gid": 1},
+            {"mode": -1, "uid": 1, "gid": 1},
+            {"mode": 0o600, "uid": -1, "gid": 1},
+            {"mode": 0o600, "uid": 1, "gid": self.module.MAX_RESTORE_ID + 1},
+            {"mode": 0o600, "uid": 1, "gid": 1, "extra": 1},
+        )
+        for value in invalid_values:
+            with self.subTest(value=value), self.assertRaises(self.module.BackupError):
+                self.module._validated_restore_metadata(value, label="state")
+
     def test_create_cli_returns_zero_for_a_complete_backup(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -152,6 +258,135 @@ class AgentReleaseBackupTests(unittest.TestCase):
             self.assertFalse((crm_data / "change_feed.sqlite3").exists())
             self.assertFalse(Path(f"{crm_data / 'change_feed.sqlite3'}-wal").exists())
             self.assertFalse(Path(f"{crm_data / 'change_feed.sqlite3'}-shm").exists())
+
+    def test_v1_backup_verifies_and_restores_state_manager_and_absent_feed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            crm_data, manager_db, output_root = self._fixture(root)
+            change_feed = crm_data / "change_feed.sqlite3"
+            change_feed.unlink()
+            created = self.module.create_backup(
+                output_root=output_root,
+                crm_data_dir=crm_data,
+                manager_db=manager_db,
+                backup_id="retained-v1-release",
+            )
+            backup_dir = Path(created["backup_dir"])
+            manifest_path = backup_dir / self.module.MANIFEST_NAME
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["schema"] = self.module.LEGACY_BACKUP_SCHEMA
+            manifest["artifacts"].pop("change_feed_sqlite")
+            for artifact_name in ("state", "manager_sqlite"):
+                manifest["artifacts"][artifact_name].pop("restore_metadata")
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            loaded = self.module._load_manifest(backup_dir)
+            self.assertIsNone(loaded["artifacts"]["change_feed_sqlite"])
+            verified = self.module.verify_backup(backup_dir)
+            self.assertTrue(verified["ok"])
+            self.assertNotIn("change_feed_sqlite", verified["verified_artifacts"])
+
+            (crm_data / "state.json").write_text('{"cards":[]}', encoding="utf-8")
+            with closing(sqlite3.connect(manager_db)) as connection:
+                connection.execute("UPDATE manager_runs SET status = 'failed'")
+                connection.commit()
+            with closing(sqlite3.connect(change_feed)) as connection:
+                connection.execute("CREATE TABLE candidate_only (id INTEGER PRIMARY KEY)")
+                connection.commit()
+            Path(f"{change_feed}-wal").touch()
+            Path(f"{change_feed}-shm").touch()
+
+            crm_restored = self.module.restore_crm_state_and_feed(backup_dir)
+            manager_restored = self.module.restore_manager_database(backup_dir)
+
+            self.assertEqual(
+                {"state", "change_feed_sqlite"},
+                set(crm_restored["restored"]),
+            )
+            self.assertEqual(["manager_sqlite"], manager_restored["restored"])
+            state = json.loads((crm_data / "state.json").read_text(encoding="utf-8"))
+            self.assertEqual("C-1", state["cards"][0]["id"])
+            with closing(sqlite3.connect(manager_db)) as connection:
+                status = connection.execute("SELECT status FROM manager_runs").fetchone()[0]
+            self.assertEqual("completed", status)
+            self.assertFalse(change_feed.exists())
+            self.assertFalse(Path(f"{change_feed}-wal").exists())
+            self.assertFalse(Path(f"{change_feed}-shm").exists())
+
+    def test_malformed_or_inexact_v1_manifest_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backup_dir = Path(temp_dir)
+            manifest_path = backup_dir / self.module.MANIFEST_NAME
+            malformed = {
+                "schema": self.module.LEGACY_BACKUP_SCHEMA,
+                "complete": True,
+                "artifacts": [],
+            }
+            manifest_path.write_text(json.dumps(malformed), encoding="utf-8")
+            with self.assertRaisesRegex(self.module.BackupError, "manifest"):
+                self.module.verify_backup(backup_dir)
+
+            malformed["schema"] = f"{self.module.LEGACY_BACKUP_SCHEMA}.unexpected"
+            malformed["artifacts"] = {}
+            manifest_path.write_text(json.dumps(malformed), encoding="utf-8")
+            with self.assertRaisesRegex(self.module.BackupError, "Unsupported"):
+                self.module.verify_backup(backup_dir)
+
+    def test_manifest_cannot_verify_one_file_and_restore_another(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            crm_data, manager_db, output_root = self._fixture(root)
+            created = self.module.create_backup(
+                output_root=output_root,
+                crm_data_dir=crm_data,
+                manager_db=manager_db,
+                backup_id="confused-artifact",
+            )
+            backup_dir = Path(created["backup_dir"])
+            manifest_path = backup_dir / self.module.MANIFEST_NAME
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            verified_copy = backup_dir / "verified-copy.json"
+            verified_copy.write_bytes((backup_dir / self.module.STATE_BACKUP_NAME).read_bytes())
+            manifest["artifacts"]["state"]["name"] = verified_copy.name
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            (backup_dir / self.module.STATE_BACKUP_NAME).write_text(
+                '{"schema_version":9,"cards":[{"id":"TAMPERED"}]}',
+                encoding="utf-8",
+            )
+            candidate_state = '{"schema_version":9,"cards":[{"id":"CANDIDATE"}]}'
+            (crm_data / "state.json").write_text(candidate_state, encoding="utf-8")
+
+            with self.assertRaisesRegex(self.module.BackupError, "artifact filename"):
+                self.module.verify_backup(backup_dir)
+            with self.assertRaisesRegex(self.module.BackupError, "artifact filename"):
+                self.module.restore_crm_state_and_feed(backup_dir)
+            self.assertEqual((crm_data / "state.json").read_text(encoding="utf-8"), candidate_state)
+
+    def test_v2_manifest_requires_exact_artifacts_and_restore_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            crm_data, manager_db, output_root = self._fixture(root)
+            created = self.module.create_backup(
+                output_root=output_root,
+                crm_data_dir=crm_data,
+                manager_db=manager_db,
+                backup_id="strict-v2",
+            )
+            backup_dir = Path(created["backup_dir"])
+            manifest_path = backup_dir / self.module.MANIFEST_NAME
+            original = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+            extra_artifact = json.loads(json.dumps(original))
+            extra_artifact["artifacts"]["unexpected"] = None
+            manifest_path.write_text(json.dumps(extra_artifact), encoding="utf-8")
+            with self.assertRaisesRegex(self.module.BackupError, "artifact keys"):
+                self.module.verify_backup(backup_dir)
+
+            missing_metadata = json.loads(json.dumps(original))
+            missing_metadata["artifacts"]["state"].pop("restore_metadata")
+            manifest_path.write_text(json.dumps(missing_metadata), encoding="utf-8")
+            with self.assertRaisesRegex(self.module.BackupError, "metadata fields"):
+                self.module.verify_backup(backup_dir)
 
     def test_manager_restore_discards_wal_only_candidate_write(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -1199,19 +1199,27 @@ async def _run_web_checks(
 
 async def check_gateway(args: argparse.Namespace) -> dict[str, Any]:
     release_revision = str(getattr(args, "release_revision", "") or "").strip().casefold()
+    maintenance_safe = bool(getattr(args, "maintenance_safe", False))
+    if maintenance_safe and not args.exhaustive:
+        return {"ok": False, "error": "--maintenance-safe requires --exhaustive"}
     if args.exhaustive:
-        try:
-            smoke_id = _release_smoke_id(release_revision)
-        except ValueError as exc:
-            return {"ok": False, "error": str(exc)}
+        if release_revision:
+            try:
+                smoke_id = _release_smoke_id(release_revision)
+            except ValueError as exc:
+                return {"ok": False, "error": str(exc)}
+        elif maintenance_safe:
+            return {
+                "ok": False,
+                "error": "--maintenance-safe requires --release-revision",
+            }
+        else:
+            smoke_id = os.urandom(16).hex()
     else:
         smoke_id = ""
     token = str(os.environ.get(args.token_env, "") or "").strip()
     if not token:
         return {"ok": False, "error": f"token environment variable is missing: {args.token_env}"}
-    maintenance_safe = bool(getattr(args, "maintenance_safe", False))
-    if maintenance_safe and not args.exhaustive:
-        return {"ok": False, "error": "--maintenance-safe requires --exhaustive"}
     release_smoke_proof = _release_smoke_proof(token, release_revision) if maintenance_safe else ""
 
     anonymous_blocked, anonymous_status = await _anonymous_access_probe(args.mcp_url)
@@ -1466,7 +1474,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--release-revision",
         default="",
-        help="Immutable 40-64 character lowercase hex revision required by --exhaustive.",
+        help="Immutable 40-64 character lowercase hex revision required by --maintenance-safe.",
     )
     parser.add_argument(
         "--maintenance-safe",

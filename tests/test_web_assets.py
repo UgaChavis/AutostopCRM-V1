@@ -14,7 +14,16 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from minimal_kanban.web_assets import BOARD_WEB_APP_HTML  # noqa: E402
+from minimal_kanban.web_assets import (  # noqa: E402
+    BOARD_WEB_APP_CONTRACT_TEXT as BOARD_WEB_APP_HTML,
+)
+from minimal_kanban.web_assets import (
+    BOARD_WEB_APP_CSS,
+    BOARD_WEB_APP_CSS_PATH,
+    BOARD_WEB_APP_HTML as BOARD_WEB_APP_SHELL_HTML,
+    BOARD_WEB_APP_JS,
+    BOARD_WEB_APP_JS_PATH,
+)
 
 
 class _EmployeesLayoutParser(HTMLParser):
@@ -47,7 +56,18 @@ class WebAssetsTests(unittest.TestCase):
     def test_web_assets_facade_exports_assembled_html(self) -> None:
         from minimal_kanban.web_app_assets.assembler import BOARD_WEB_APP_HTML as assembled_html
 
-        self.assertEqual(BOARD_WEB_APP_HTML, assembled_html)
+        self.assertEqual(BOARD_WEB_APP_SHELL_HTML, assembled_html)
+
+    def test_board_shell_references_only_fingerprinted_external_assets(self) -> None:
+        self.assertRegex(BOARD_WEB_APP_CSS_PATH, r"^/assets/board\.[0-9a-f]{64}\.css$")
+        self.assertRegex(BOARD_WEB_APP_JS_PATH, r"^/assets/board\.[0-9a-f]{64}\.js$")
+        self.assertIn(f'href="{BOARD_WEB_APP_CSS_PATH}"', BOARD_WEB_APP_SHELL_HTML)
+        self.assertIn(f'href="{BOARD_WEB_APP_JS_PATH}"', BOARD_WEB_APP_SHELL_HTML)
+        self.assertIn(f'src="{BOARD_WEB_APP_JS_PATH}"', BOARD_WEB_APP_SHELL_HTML)
+        self.assertNotIn("<style>", BOARD_WEB_APP_SHELL_HTML)
+        self.assertNotIn("  <script>\n", BOARD_WEB_APP_SHELL_HTML)
+        self.assertGreater(len(BOARD_WEB_APP_CSS), 100_000)
+        self.assertGreater(len(BOARD_WEB_APP_JS), 1_000_000)
 
     def test_web_assets_are_loaded_from_packaged_source_chunks(self) -> None:
         source_dir = ROOT / "src" / "minimal_kanban" / "web_app_assets" / "source"

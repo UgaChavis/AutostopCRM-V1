@@ -1355,6 +1355,9 @@ class CardService(
     def get_board_snapshot(self, payload: dict | None = None) -> dict:
         return self._snapshot_service.get_board_snapshot(payload)
 
+    def get_board_snapshot_for_http(self, payload: dict | None = None):
+        return self._snapshot_service.get_board_snapshot_for_http(payload)
+
     def get_board_revision(self, payload: dict | None = None) -> dict:
         return self._snapshot_service.get_board_revision(payload)
 

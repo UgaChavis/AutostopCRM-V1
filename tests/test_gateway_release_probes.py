@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import logging
+import os
 import sqlite3
 import stat
 import sys
@@ -447,14 +449,15 @@ class GatewayReleaseSmokeConsumerContractTests(unittest.TestCase):
                 self.assertEqual([], caught_up["events"])
                 self.assertIsNone(caught_up["ack"])
 
-            with sqlite3.connect(database) as connection:
+            with contextlib.closing(sqlite3.connect(database)) as connection:
                 consumers = connection.execute(
                     "SELECT consumer_id, acked_sequence FROM consumers"
                 ).fetchall()
                 deliveries = connection.execute("SELECT consumer_id FROM deliveries").fetchall()
             self.assertEqual([(consumer_id, 1)], consumers)
             self.assertEqual([], deliveries)
-            self.assertEqual(0o600, stat.S_IMODE(database.stat().st_mode))
+            if os.name != "nt":
+                self.assertEqual(0o600, stat.S_IMODE(database.stat().st_mode))
 
 
 if __name__ == "__main__":

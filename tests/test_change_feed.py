@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import stat
 import sys
 import tempfile
@@ -111,10 +112,11 @@ class ChangeFeedStorageContractTests(ChangeFeedTestCase):
         self.assertRegex(rows[0]["correlation_ref"], r"^corr:[0-9a-f]{24}$")
         self.assertRegex(rows[0]["idempotency_ref"], r"^idem:[0-9a-f]{24}$")
         database_bytes = (self.base_dir / "change_feed.sqlite3").read_bytes()
-        self.assertEqual(
-            0o600,
-            stat.S_IMODE((self.base_dir / "change_feed.sqlite3").stat().st_mode),
-        )
+        if os.name != "nt":
+            self.assertEqual(
+                0o600,
+                stat.S_IMODE((self.base_dir / "change_feed.sqlite3").stat().st_mode),
+            )
         for private_value in (private_name, private_phone, private_vin):
             self.assertNotIn(private_value.encode("utf-8"), database_bytes)
 

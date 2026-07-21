@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import sys
 import tempfile
@@ -14,7 +15,10 @@ if str(SRC) not in sys.path:
 
 from minimal_kanban.services import snapshot_service as snapshot_service_module  # noqa: E402
 from minimal_kanban.services.card_service import CardService  # noqa: E402
-from minimal_kanban.services.snapshot_cache import SNAPSHOT_CACHE_MAX_ENTRIES  # noqa: E402
+from minimal_kanban.services.snapshot_cache import (  # noqa: E402
+    SNAPSHOT_CACHE_MAX_ENTRIES,
+    PreparedSnapshotData,
+)
 from minimal_kanban.storage.json_store import JsonStore  # noqa: E402
 
 
@@ -223,6 +227,35 @@ class SnapshotCacheTests(unittest.TestCase):
         self.assertEqual(visible_cards.call_count, 1)
         self.assertEqual(archived_cards.call_count, 1)
         self.assertEqual(stickies.call_count, 1)
+
+    def test_compact_http_snapshot_reuses_prepared_payload_and_preserves_public_contract(
+        self,
+    ) -> None:
+        card_id = self._create_card()
+        view = self._compact_view()
+
+        with (
+            patch.object(snapshot_service_module.time, "monotonic", return_value=100.0),
+            patch.object(
+                snapshot_service_module,
+                "build_prepared_snapshot_data",
+                wraps=snapshot_service_module.build_prepared_snapshot_data,
+            ) as build_prepared,
+        ):
+            first = self.service.get_board_snapshot_for_http(view)
+            second = self.service.get_board_snapshot_for_http(view)
+            public = self.service.get_board_snapshot(view)
+
+        self.assertIsInstance(first, PreparedSnapshotData)
+        self.assertIs(first, second)
+        self.assertEqual(build_prepared.call_count, 1)
+        self.assertIsInstance(public, dict)
+        self.assertEqual(
+            json.loads(first.render(generated_at=public["meta"]["generated_at"])),
+            public,
+        )
+        card = next(item for item in public["cards"] if item["id"] == card_id)
+        self.assertEqual(card["title"], "Snapshot cache card")
 
     def test_compact_snapshot_cache_expires_after_monotonic_ttl(self) -> None:
         self._create_card()

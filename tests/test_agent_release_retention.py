@@ -117,7 +117,12 @@ class AgentReleaseRetentionTests(unittest.TestCase):
             release_id = self._release_id(1)
             external = Path(temp_dir) / "external"
             external.mkdir()
-            (root / release_id).symlink_to(external, target_is_directory=True)
+            try:
+                (root / release_id).symlink_to(external, target_is_directory=True)
+            except OSError as exc:
+                if sys.platform == "win32" and exc.winerror == 1314:
+                    self.skipTest("directory symlinks require Developer Mode or elevation")
+                raise
             with self.assertRaisesRegex(self.module.RetentionError, "removable directory"):
                 self.module._filesystem_prune_plan(
                     root=root,

@@ -186,6 +186,7 @@ data/
 .autostop-deploy.lock
 
 # Local agent and QA artifacts
+.codex-remote-attachments/
 .playwright-cli/
 .superpowers/
 output/

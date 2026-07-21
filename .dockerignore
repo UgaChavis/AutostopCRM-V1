@@ -21,6 +21,7 @@ backups
 tmp
 tests
 data
+.codex-remote-attachments
 scripts/*.example
 amnezia*
 audit_autostopvpn.ps1

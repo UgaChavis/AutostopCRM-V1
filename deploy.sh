@@ -690,10 +690,27 @@ restore_auth_configuration() {
       restore --backup-dir "$auth_backup_dir" || status=$?
   fi
   if (( status == 0 )); then
-    reload_deploy_environment
-    auth_rotated=0
+    if reload_deploy_environment; then
+      auth_rotated=0
+    else
+      status=$?
+    fi
+  fi
+  if (( status != 0 )); then
+    echo "AUTH RECOVERY WARNING: private auth snapshot is preserved at $auth_backup_dir." >&2
   fi
   return "$status"
+}
+
+remove_auth_backup_if_safe() {
+  if (( auth_rotated != 0 )); then
+    echo "AUTH RECOVERY WARNING: refusing to remove the active auth snapshot at $auth_backup_dir." >&2
+    return 1
+  fi
+  if ! rm -rf "$auth_backup_dir"; then
+    echo "WARN: restored or committed auth snapshot cleanup failed at $auth_backup_dir." >&2
+    return 1
+  fi
 }
 
 rollback_release() {
@@ -710,16 +727,26 @@ rollback_release() {
     rollback_ok=0
     marker_rearmed=0
   fi
+  # Restore the stable reference before any rollback operation can exhaust the
+  # reserve. Retagging does not affect the running container, while it prevents
+  # a watchdog from ever restarting the failed candidate image.
+  if ! timeout --signal=TERM --kill-after=5 30s \
+    docker tag "$rollback_image" "$STABLE_IMAGE" </dev/null; then
+    echo "ROLLBACK CRITICAL: stable image reference could not be restored." >&2
+    rollback_ok=0
+  fi
   echo "ROLLBACK: restoring the previous CRM image and changed protected data." >&2
   if ! run_maintenance env AUTOSTOP_RELEASE_IMAGE="$release_image" \
     docker compose stop --timeout 20 "$SERVICE_NAME" >/dev/null 2>&1; then
-    echo "ROLLBACK CRITICAL: candidate CRM could not be stopped; protected data remains untouched and maintenance stays active." >&2
+    echo "ROLLBACK CRITICAL: candidate CRM could not be stopped; protected data remains untouched, maintenance stays active, and the auth snapshot is preserved." >&2
     set -e
     return "$original_status"
   fi
   if (( marker_rearmed == 0 )); then
     echo "ROLLBACK CRITICAL: CRM remains stopped because write protection is unavailable." >&2
-    restore_auth_configuration || true
+    if restore_auth_configuration; then
+      remove_auth_backup_if_safe || true
+    fi
     set -e
     return "$original_status"
   fi
@@ -746,9 +773,6 @@ rollback_release() {
   run_maintenance env AUTOSTOP_RELEASE_IMAGE="$rollback_image" docker compose up \
     -d --no-deps --no-build --force-recreate "$SERVICE_NAME" >&2 || rollback_ok=0
   if wait_for_health "$rollback_image" 0; then
-    if (( rollback_ok == 1 )); then
-      run_maintenance docker tag "$rollback_image" "$STABLE_IMAGE" || rollback_ok=0
-    fi
     # Never reopen writes after an incomplete protected-data, Manager, auth,
     # image, or health rollback, even when the old container itself is healthy.
     if (( rollback_ok == 1 )); then
@@ -763,7 +787,11 @@ rollback_release() {
     rollback_ok=0
     echo "ROLLBACK FAILED: maintenance marker remains in place; manual recovery is required." >&2
   fi
-  run_maintenance rm -rf "$auth_backup_dir" >/dev/null 2>&1 || true
+  if (( auth_rotated == 0 )); then
+    remove_auth_backup_if_safe || true
+  else
+    echo "ROLLBACK CRITICAL: auth recovery is incomplete; private snapshot remains at $auth_backup_dir." >&2
+  fi
   if (( rollback_ok == 0 )); then
     echo "ROLLBACK completed with warnings; inspect protected data and auth state." >&2
   fi
@@ -777,8 +805,9 @@ on_exit() {
   if (( status != 0 && maintenance_started == 1 && deployment_succeeded == 0 )); then
     rollback_release "$status" || true
   elif (( status != 0 && auth_rotated == 1 )); then
-    restore_auth_configuration || true
-    rm -rf "$auth_backup_dir" || true
+    if restore_auth_configuration; then
+      remove_auth_backup_if_safe || true
+    fi
   fi
   if (( status != 0 && maintenance_started == 0 )); then
     cleanup_owned_premaintenance_artifacts || {
@@ -796,15 +825,14 @@ trap on_exit EXIT
   --codex-config "$CODEX_CONFIG_PATH" \
   --runtime-env "$CODEX_RUNTIME_ENV_PATH" \
   snapshot --backup-dir "$auth_backup_dir"
+auth_rotated=1
 if ! "$PYTHON_BIN" scripts/configure_codex_mcp_auth.py \
   --server-env "$ROOT_DIR/.env" \
   --codex-config "$CODEX_CONFIG_PATH" \
   --runtime-env "$CODEX_RUNTIME_ENV_PATH" \
   rotate --generate --mcp-url "$PUBLIC_MCP_URL"; then
-  rm -rf "$auth_backup_dir"
   exit 2
 fi
-auth_rotated=1
 reload_deploy_environment
 "$PYTHON_BIN" scripts/configure_codex_mcp_auth.py \
   --server-env "$ROOT_DIR/.env" \
@@ -903,13 +931,13 @@ fi
 
 assert_release_budget
 run_release docker tag "$release_image" "$STABLE_IMAGE"
-run_release rm -rf "$auth_backup_dir"
-auth_rotated=0
 assert_release_budget
 maintenance_elapsed="$(elapsed_seconds)"
 run_release rm -f "$MAINTENANCE_MARKER_HOST"
 deployment_succeeded=1
 trap - EXIT
+auth_rotated=0
+remove_auth_backup_if_safe || true
 
 # Retention is deliberately post-success and best effort: cleanup can never
 # roll back or interrupt a healthy release after public writes reopen. The

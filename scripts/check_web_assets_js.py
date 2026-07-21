@@ -40,14 +40,13 @@ class InlineScriptExtractor(HTMLParser):
         self._in_inline_script = False
 
 
-def _browser_html_documents() -> dict[str, str]:
+def _browser_javascript_sources() -> list[tuple[str, str]]:
     sys.path.insert(0, str(SRC))
-    from minimal_kanban.web_assets import BOARD_WEB_APP_HTML, DISPLAY_DASHBOARD_HTML
+    from minimal_kanban.web_assets import BOARD_WEB_APP_JS, DISPLAY_DASHBOARD_HTML
 
-    return {
-        "board": BOARD_WEB_APP_HTML,
-        "display_dashboard": DISPLAY_DASHBOARD_HTML,
-    }
+    return [("board_external", BOARD_WEB_APP_JS)] + [
+        ("display_dashboard", script) for script in extract_inline_scripts(DISPLAY_DASHBOARD_HTML)
+    ]
 
 
 def extract_inline_scripts(html: str) -> list[str]:
@@ -63,11 +62,7 @@ def main() -> int:
         print("Node.js is required to validate generated browser JavaScript.", file=sys.stderr)
         return 1
 
-    scripts = [
-        (document_name, script)
-        for document_name, html in _browser_html_documents().items()
-        for script in extract_inline_scripts(html)
-    ]
+    scripts = _browser_javascript_sources()
     if not scripts:
         print("No inline scripts found in browser HTML documents.", file=sys.stderr)
         return 1
@@ -93,7 +88,7 @@ def main() -> int:
                     print(result.stderr, end="", file=sys.stderr)
                 return result.returncode
 
-    print(f"Generated browser JavaScript syntax check passed: {len(scripts)} inline script(s).")
+    print(f"Generated browser JavaScript syntax check passed: {len(scripts)} script(s).")
     return 0
 
 

@@ -15,7 +15,10 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from minimal_kanban.mcp.agent_gateway_support import _store_owner_request_error
+from minimal_kanban.mcp.agent_gateway_support import (
+    RELEASE_SMOKE_CHANGE_FEED_CONSUMER_ID,
+    _store_owner_request_error,
+)
 from minimal_kanban.mcp.agent_gateway_v2 import (
     PERMANENT_AGENT_GATEWAY_TOOL_NAMES,
     _maintenance_technical_write_allowed,
@@ -532,8 +535,14 @@ class StoreOwnerGatewayTests(unittest.IsolatedAsyncioTestCase):
         proof = _release_smoke_proof(token, revision)
 
         for capability, arguments in (
-            ("api:/api/change_feed/bootstrap", {"consumer_id": "gateway-release-smoke"}),
-            ("api:/api/change_feed/ack", {"consumer_id": "gateway-release-smoke"}),
+            (
+                "api:/api/change_feed/bootstrap",
+                {"consumer_id": RELEASE_SMOKE_CHANGE_FEED_CONSUMER_ID},
+            ),
+            (
+                "api:/api/change_feed/ack",
+                {"consumer_id": RELEASE_SMOKE_CHANGE_FEED_CONSUMER_ID},
+            ),
             ("store_owner_api", {"mode": "dry_run"}),
         ):
             self.assertTrue(
@@ -555,6 +564,21 @@ class StoreOwnerGatewayTests(unittest.IsolatedAsyncioTestCase):
                 agent_bearer_token=token,
             )
         )
+        for capability in (
+            "api:/api/change_feed/bootstrap",
+            "api:/api/change_feed/ack",
+        ):
+            for consumer_id in (None, "", "owner", "arbitrary-consumer"):
+                with self.subTest(capability=capability, consumer_id=consumer_id):
+                    self.assertFalse(
+                        _maintenance_technical_write_allowed(
+                            capability=capability,
+                            arguments={"consumer_id": consumer_id},
+                            revision=revision,
+                            proof=proof,
+                            agent_bearer_token=token,
+                        )
+                    )
         self.assertFalse(
             _maintenance_technical_write_allowed(
                 capability="api:/api/change_feed/bootstrap",

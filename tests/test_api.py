@@ -18,7 +18,7 @@ import unittest
 import urllib.error
 import urllib.request
 from urllib.parse import quote, urlsplit
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -43,7 +43,9 @@ from minimal_kanban.api.server import ApiServer
 from minimal_kanban.api.server import ReusableThreadingHTTPServer
 from minimal_kanban.api.server import _same_host_cors_origin
 from minimal_kanban.api.server import _success_log_level
+from minimal_kanban.api import server as api_server_module
 from minimal_kanban.models import AuditEvent, utc_now
+from minimal_kanban.services import snapshot_service as snapshot_service_module
 from minimal_kanban.operator_activity import OperatorActivityService
 from minimal_kanban.operator_auth import (
     PASSWORD_HASH_MAX_ITERATIONS,
@@ -54,7 +56,13 @@ from minimal_kanban.operator_auth import (
 from minimal_kanban.services.card_service import CardService, ServiceError
 from minimal_kanban.services.payroll_constants import EMPLOYEES_MAX_COUNT
 from minimal_kanban.storage.json_store import JsonStore
-from minimal_kanban.web_assets import BOARD_WEB_APP_HTML
+from minimal_kanban.web_assets import (
+    BOARD_WEB_APP_CSS,
+    BOARD_WEB_APP_CSS_PATH,
+    BOARD_WEB_APP_HTML,
+    BOARD_WEB_APP_JS,
+    BOARD_WEB_APP_JS_PATH,
+)
 
 TEST_API_PORT_START = 0
 TEST_API_PORT_FALLBACK_LIMIT = 25
@@ -914,6 +922,65 @@ class ApiServerTests(unittest.TestCase):
             finally:
                 connection.close()
 
+    def test_board_assets_are_fingerprinted_immutable_and_precompressed(self) -> None:
+        cases = (
+            (BOARD_WEB_APP_CSS_PATH, "text/css; charset=utf-8", BOARD_WEB_APP_CSS),
+            (
+                BOARD_WEB_APP_JS_PATH,
+                "application/javascript; charset=utf-8",
+                BOARD_WEB_APP_JS,
+            ),
+        )
+        for path, content_type, text in cases:
+            expected = text.encode("utf-8")
+            with self.subTest(path=path, encoding="identity"):
+                status, headers, body = self.raw_request(path)
+                self.assertEqual(status, 200)
+                self.assertEqual(headers.get("Content-Type"), content_type)
+                self.assertEqual(
+                    headers.get("Cache-Control"),
+                    "public, max-age=31536000, immutable",
+                )
+                self.assertEqual(headers.get("Vary"), "Accept-Encoding")
+                self.assertEqual(headers.get("X-Content-Type-Options"), "nosniff")
+                self.assertNotIn("Content-Encoding", headers)
+                self.assertEqual(body, expected)
+
+            with self.subTest(path=path, encoding="gzip"):
+                status, headers, body = self.raw_request(
+                    path,
+                    headers={"Accept-Encoding": "gzip"},
+                )
+                self.assertEqual(status, 200)
+                self.assertEqual(headers.get("Content-Encoding"), "gzip")
+                self.assertEqual(headers.get("Vary"), "Accept-Encoding")
+                self.assertEqual(gzip.decompress(body), expected)
+
+            with self.subTest(path=path, method="HEAD"):
+                status, headers, body = self.raw_request(
+                    path,
+                    method="HEAD",
+                    headers={"Accept-Encoding": "gzip"},
+                )
+                self.assertEqual(status, 200)
+                self.assertEqual(body, b"")
+                self.assertEqual(headers.get("Content-Encoding"), "gzip")
+                self.assertEqual(
+                    int(headers.get("Content-Length", "0")),
+                    len(gzip.compress(expected, mtime=0)),
+                )
+
+    def test_unknown_board_asset_hash_is_not_served(self) -> None:
+        known_assets = dict(api_server_module._BOARD_ASSETS)
+        for index in range(1000):
+            self.assertIsNone(api_server_module._board_asset_bytes(f"/assets/unknown-{index}"))
+        self.assertEqual(api_server_module._BOARD_ASSETS, known_assets)
+
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            self.raw_request(f"{BOARD_WEB_APP_JS_PATH}.stale")
+
+        self.assertEqual(raised.exception.code, 404)
+
     def test_board_client_disconnect_is_handled_without_server_error(self) -> None:
         parsed = urlsplit(self.base_url)
         server = self.server._server
@@ -1698,24 +1765,38 @@ class ApiServerTests(unittest.TestCase):
                     side_effect=AssertionError("anonymous proxied body reached JSON parser"),
                 ) as json_loads,
             ):
-                connection = http.client.HTTPConnection(
-                    "127.0.0.1", self.port, timeout=TEST_HTTP_TIMEOUT_SECONDS
-                )
-                try:
-                    connection.request(
-                        "POST",
-                        "/api/get_cards",
-                        body=body,
-                        headers={**proxy_headers, "Content-Length": str(len(body))},
+                status = None
+                response_body = None
+                for attempt in range(3):
+                    connection = http.client.HTTPConnection(
+                        "127.0.0.1", self.port, timeout=TEST_HTTP_TIMEOUT_SECONDS
                     )
-                    response = connection.getresponse()
-                    status = response.status
-                    response_body = response.read()
-                finally:
-                    connection.close()
+                    try:
+                        connection.request(
+                            "POST",
+                            "/api/get_cards",
+                            body=body,
+                            headers={**proxy_headers, "Content-Length": str(len(body))},
+                        )
+                        response = connection.getresponse()
+                        status = response.status
+                        response_body = response.read()
+                        break
+                    except (
+                        TimeoutError,
+                        ConnectionAbortedError,
+                        ConnectionResetError,
+                    ) as exc:
+                        if attempt + 1 >= 3 or not is_transient_request_error(exc):
+                            raise
+                        time.sleep(0.05)
+                    finally:
+                        connection.close()
 
                 json_loads.assert_not_called()
 
+            self.assertIsNotNone(status)
+            self.assertIsNotNone(response_body)
             blocked = json.loads(response_body.decode("utf-8"))
             self.assertEqual(status, 401)
             self.assertEqual(blocked["error"]["code"], "unauthorized")
@@ -3380,6 +3461,111 @@ class ApiServerTests(unittest.TestCase):
         self.assertNotIn("vehicle_profile", compact_card)
         self.assertNotIn("attachments", compact_card)
         self.assertTrue(snapshot["data"]["meta"]["revision"])
+
+    def test_compact_snapshot_cache_refreshes_per_request_metadata(self) -> None:
+        status, created = self.request(
+            "/api/create_card",
+            {"title": "Prepared snapshot metadata", "deadline": {"hours": 2}},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(created["ok"])
+        generated_at = (
+            "2026-07-22T01:02:03+00:00",
+            "2026-07-22T01:02:04+00:00",
+        )
+        response_timestamps = (
+            datetime(2026, 7, 22, 1, 2, 3, tzinfo=UTC),
+            datetime(2026, 7, 22, 1, 2, 4, tzinfo=UTC),
+        )
+
+        with (
+            patch.object(snapshot_service_module.time, "monotonic", return_value=100.0),
+            patch.object(
+                snapshot_service_module,
+                "build_prepared_snapshot_data",
+                wraps=snapshot_service_module.build_prepared_snapshot_data,
+            ) as build_prepared,
+            patch.object(api_server_module, "utc_now_iso", side_effect=generated_at),
+            patch.object(api_server_module, "datetime") as api_datetime,
+        ):
+            api_datetime.now.side_effect = response_timestamps
+            first_status, first = self.request(
+                "/api/get_board_snapshot?compact=1&include_archive=0",
+                method="GET",
+            )
+            second_status, second = self.request(
+                "/api/get_board_snapshot?compact=1&include_archive=0",
+                method="GET",
+            )
+
+        self.assertEqual((first_status, second_status), (200, 200))
+        self.assertEqual(build_prepared.call_count, 1)
+        self.assertEqual(first["data"]["meta"]["generated_at"], generated_at[0])
+        self.assertEqual(second["data"]["meta"]["generated_at"], generated_at[1])
+        self.assertEqual(first["meta"]["timestamp"], response_timestamps[0].isoformat())
+        self.assertEqual(second["meta"]["timestamp"], response_timestamps[1].isoformat())
+        self.assertNotEqual(first["meta"]["request_id"], second["meta"]["request_id"])
+        self.assertTrue(first["ok"])
+        self.assertTrue(second["ok"])
+        self.assertIsNone(first["error"])
+        self.assertIsNone(second["error"])
+        first_static = dict(first["data"])
+        first_static["meta"] = {
+            key: value for key, value in first["data"]["meta"].items() if key != "generated_at"
+        }
+        second_static = dict(second["data"])
+        second_static["meta"] = {
+            key: value for key, value in second["data"]["meta"].items() if key != "generated_at"
+        }
+        self.assertEqual(first_static, second_static)
+
+    def test_prepared_snapshot_matches_http_normalization_depth(self) -> None:
+        generated_at = "2026-07-22T01:02:03+00:00"
+        response_timestamp = datetime(2026, 7, 22, 1, 2, 4, tzinfo=UTC)
+        request_id = "fixed-request-id"
+        snapshot = {
+            "columns": [],
+            "cards": [],
+            "archive": [],
+            "stickies": [],
+            "settings": {
+                "deep": {
+                    "level_1": {
+                        "level_2": {
+                            "level_3": {"level_4": {"level_5": {"level_6": "settings-leaf"}}}
+                        }
+                    }
+                }
+            },
+            "meta": {
+                "revision": "test-revision",
+                "deep": {
+                    "level_1": {
+                        "level_2": {"level_3": {"level_4": {"level_5": {"level_6": "meta-leaf"}}}}
+                    }
+                },
+                "generated_at": generated_at,
+            },
+        }
+        prepared = snapshot_service_module.build_prepared_snapshot_data(
+            snapshot,
+            json_dumps=snapshot_service_module._json_dumps,
+        )
+
+        with patch.object(api_server_module, "datetime") as api_datetime:
+            api_datetime.now.return_value = response_timestamp
+            ordinary = api_server_module._json_response(
+                ok=True,
+                data=snapshot,
+                error=None,
+                request_id=request_id,
+            )
+            preencoded = api_server_module._json_response_from_preencoded_data(
+                data=prepared.render(generated_at=generated_at),
+                request_id=request_id,
+            )
+
+        self.assertEqual(json.loads(preencoded), json.loads(ordinary))
 
     def test_board_revision_route_matches_snapshot_without_card_payload(self) -> None:
         status, created = self.request(

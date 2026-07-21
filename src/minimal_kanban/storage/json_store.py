@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import orjson
+
 from ..config import get_app_data_dir, get_state_file
 from ..json_safety import reject_deeply_nested_json
 from ..models import (
@@ -36,7 +38,7 @@ from ..services.ready_column import ensure_ready_column
 from ..texts import COLUMN_LABELS_RU
 from .change_feed_store import ChangeFeedPendingWriteError, ChangeFeedStore
 from .file_lock import ProcessFileLock
-from .limited_io import read_text_limited
+from .limited_io import read_bytes_limited, read_text_limited
 
 SLOW_STORAGE_OPERATION_MS = 250.0
 _JSON_SAFE_MAX_DEPTH = 8
@@ -74,19 +76,56 @@ def _json_safe_dict(value: Any) -> dict[str, Any]:
 
 
 def _serialized_state(
-    state: dict[str, Any], *, already_safe: bool = False
+    state: dict[str, Any], *, already_safe: bool = False, fast_serializer: bool = False
 ) -> tuple[dict[str, Any], bytes, str]:
     safe_state = state if already_safe else _json_safe_dict(state)
-    payload = json.dumps(
-        safe_state,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        allow_nan=False,
-    ).encode("utf-8")
+    if fast_serializer and _supports_fast_state_serialization(safe_state):
+        try:
+            payload = orjson.dumps(safe_state)
+        except orjson.JSONEncodeError:
+            payload = _stdlib_state_payload(safe_state)
+    else:
+        payload = _stdlib_state_payload(safe_state)
     if len(payload) > JSON_STORE_STATE_MAX_BYTES:
         raise ValueError("state file is too large")
     fingerprint = hashlib.sha256(payload).hexdigest()
     return safe_state, payload, fingerprint
+
+
+def _stdlib_state_payload(state: dict[str, Any]) -> bytes:
+    return json.dumps(
+        state,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+
+
+def _supports_fast_state_serialization(value: Any) -> bool:
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        item_type = type(item)
+        if item is None or item_type in {str, bool}:
+            continue
+        if item_type is int:
+            if item < -(1 << 63) or item > (1 << 64) - 1:
+                return False
+            continue
+        if item_type is float:
+            if not math.isfinite(item):
+                return False
+            continue
+        if item_type is dict:
+            if any(type(key) is not str for key in item):
+                return False
+            pending.extend(item.values())
+            continue
+        if item_type in {list, tuple}:
+            pending.extend(item)
+            continue
+        return False
+    return True
 
 
 def _reject_json_constant(value: str) -> None:
@@ -189,7 +228,8 @@ class JsonStore:
         self._reconcile_change_feed_state_locked(state)
 
     def _reconcile_change_feed_state_locked(self, state: dict[str, Any]) -> None:
-        safe_state, _payload, fingerprint = _serialized_state(state)
+        safe_state = _json_safe_dict(state)
+        fingerprint = self._state_file_fingerprint()
         self._change_feed_store.reconcile_state(
             fingerprint,
             safe_state.get("events"),
@@ -440,7 +480,11 @@ class JsonStore:
                     state = self._state_from_bundle(bundle)
                     state_conversion_ms = (time.perf_counter() - state_started_at) * 1000
                     record_timing("serialize", state_conversion_ms)
-                    json_serialize_ms, write_ms = self._write_state(state, already_safe=True)
+                    json_serialize_ms, write_ms = self._write_state(
+                        state,
+                        already_safe=True,
+                        fast_serializer=True,
+                    )
                 except Exception:
                     self._invalidate_read_cache()
                     record_timing("storage", (time.perf_counter() - started_at) * 1000)
@@ -823,12 +867,22 @@ class JsonStore:
             temp_backup.unlink(missing_ok=True)
         return backup
 
-    def _write_state(self, state: dict, *, already_safe: bool = False) -> tuple[float, float]:
+    def _write_state(
+        self,
+        state: dict,
+        *,
+        already_safe: bool = False,
+        fast_serializer: bool = False,
+    ) -> tuple[float, float]:
         existing_signature = self._state_signature()
         if existing_signature is not None and existing_signature != self._validated_state_signature:
             self._read_state()
         serialize_started_at = time.perf_counter()
-        safe_state, payload, fingerprint = _serialized_state(state, already_safe=already_safe)
+        safe_state, payload, fingerprint = _serialized_state(
+            state,
+            already_safe=already_safe,
+            fast_serializer=fast_serializer,
+        )
         if not self._change_feed_initialized:
             if self._state_file.exists():
                 self._reconcile_change_feed_locked()
@@ -899,6 +953,14 @@ class JsonStore:
         except FileNotFoundError:
             return None
         return stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_size
+
+    def _state_file_fingerprint(self) -> str:
+        payload = read_bytes_limited(
+            self._state_file,
+            max_bytes=JSON_STORE_STATE_MAX_BYTES,
+            label="state file",
+        )
+        return hashlib.sha256(payload).hexdigest()
 
     def _invalidate_read_cache(self) -> None:
         self._read_cache_signature = None

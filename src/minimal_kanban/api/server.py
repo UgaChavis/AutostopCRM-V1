@@ -31,17 +31,25 @@ from ..config import (
 )
 from ..deployment_security import is_maintenance_mode, load_agent_gateway_security_policy
 from ..json_safety import reject_deeply_nested_json
-from ..models import business_timezone, parse_datetime
+from ..models import business_timezone, parse_datetime, utc_now_iso
 from ..operator_auth import OperatorAuthService
 from ..performance import request_performance_trace
 from ..services.card_service import CardService
 from ..services.change_feed_service import ChangeFeedService
 from ..services.errors import ServiceError
 from ..services.shared_files_service import SharedFilesService
+from ..services.snapshot_cache import PreparedSnapshotData
 from ..storage.json_store import StateFileCorruptedError
 from ..storage.limited_io import read_bytes_limited
 from ..system_clipboard import ClipboardUnavailableError, list_clipboard_file_paths
-from ..web_assets import BOARD_WEB_APP_HTML, DISPLAY_DASHBOARD_HTML
+from ..web_assets import (
+    BOARD_WEB_APP_CSS,
+    BOARD_WEB_APP_CSS_PATH,
+    BOARD_WEB_APP_HTML,
+    BOARD_WEB_APP_JS,
+    BOARD_WEB_APP_JS_PATH,
+    DISPLAY_DASHBOARD_HTML,
+)
 from .change_feed import build_change_feed_routes
 from .route_registry import (
     ADMIN_ONLY_ROUTES,
@@ -69,6 +77,7 @@ MAX_JSON_BODY_BYTES = 25 * 1024 * 1024
 OVERSIZED_JSON_DRAIN_BYTES = 1024 * 1024
 API_FILE_RESPONSE_MAX_BYTES = 32 * 1024 * 1024
 STATIC_ASSET_MAX_BYTES = 1 * 1024 * 1024
+IMMUTABLE_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
 MAX_QUERY_STRING_BYTES = 16 * 1024
 MAX_QUERY_FIELDS = 128
 HTTP_QVALUE_RE = re.compile(r"^(?:0(?:\.\d{0,3})?|1(?:\.0{0,3})?)$")
@@ -201,6 +210,18 @@ def _json_response(
         ensure_ascii=False,
         allow_nan=False,
     ).encode("utf-8")
+
+
+def _json_response_from_preencoded_data(*, data: bytes, request_id: str) -> bytes:
+    response_meta = json.dumps(
+        {
+            "request_id": request_id,
+            "timestamp": datetime.now(UTC).isoformat(),
+        },
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    return b'{"ok": true, "data": ' + data + b', "error": null, "meta": ' + response_meta + b"}"
 
 
 def _success_log_level(route: str) -> int:
@@ -382,6 +403,29 @@ def _board_html_bytes() -> bytes:
 @cache
 def _board_html_gzip_bytes() -> bytes:
     return gzip.compress(_board_html_bytes())
+
+
+_BOARD_ASSETS = {
+    BOARD_WEB_APP_CSS_PATH: (
+        BOARD_WEB_APP_CSS.encode("utf-8"),
+        "text/css; charset=utf-8",
+    ),
+    BOARD_WEB_APP_JS_PATH: (
+        BOARD_WEB_APP_JS.encode("utf-8"),
+        "application/javascript; charset=utf-8",
+    ),
+}
+_BOARD_ASSETS_GZIP = {
+    route: gzip.compress(asset[0], mtime=0) for route, asset in _BOARD_ASSETS.items()
+}
+
+
+def _board_asset_bytes(route: str) -> tuple[bytes, str] | None:
+    return _BOARD_ASSETS.get(route)
+
+
+def _board_asset_gzip_bytes(route: str) -> bytes | None:
+    return _BOARD_ASSETS_GZIP.get(route)
 
 
 @cache
@@ -819,6 +863,21 @@ class ApiServer:
                     self.send_response(HTTPStatus.OK)
                     self._send_headers("text/html; charset=utf-8", len(body))
                     return
+                board_asset = _board_asset_bytes(route)
+                if board_asset is not None:
+                    body, content_type = board_asset
+                    extra_headers = {"Vary": "Accept-Encoding"}
+                    if _accepts_gzip(self.headers.get("Accept-Encoding", "")):
+                        body = _board_asset_gzip_bytes(route) or body
+                        extra_headers["Content-Encoding"] = "gzip"
+                    self.send_response(HTTPStatus.OK)
+                    self._send_headers(
+                        content_type,
+                        len(body),
+                        cache_control=IMMUTABLE_ASSET_CACHE_CONTROL,
+                        extra_headers=extra_headers,
+                    )
+                    return
                 if route == "/favicon.ico":
                     body = _static_asset_bytes("favicon.ico")
                     self.send_response(HTTPStatus.OK)
@@ -1244,10 +1303,22 @@ class ApiServer:
                         )
                         if payload is None:
                             return
-                        result = self.ROUTES[route](payload)
-                        body = _json_response(
-                            ok=True, data=result, error=None, request_id=request_id
-                        )
+                        if route == "/api/get_board_snapshot":
+                            result = service.get_board_snapshot_for_http(payload)
+                        else:
+                            result = self.ROUTES[route](payload)
+                        if isinstance(result, PreparedSnapshotData):
+                            body = _json_response_from_preencoded_data(
+                                data=result.render(generated_at=utc_now_iso()),
+                                request_id=request_id,
+                            )
+                        else:
+                            body = _json_response(
+                                ok=True,
+                                data=result,
+                                error=None,
+                                request_id=request_id,
+                            )
                         app_duration_ms = max(perf_counter() - started_at, 0.0) * 1000
                         server_timing = performance_trace.server_timing(
                             app_duration_ms=app_duration_ms
@@ -1553,6 +1624,22 @@ class ApiServer:
                     return True
                 if route in {"/dashboard", "/dashboard/"}:
                     self._serve_display_dashboard(request_id)
+                    return True
+                board_asset = _board_asset_bytes(route)
+                if board_asset is not None:
+                    body, content_type = board_asset
+                    extra_headers = {"Vary": "Accept-Encoding"}
+                    if _accepts_gzip(self.headers.get("Accept-Encoding", "")):
+                        body = _board_asset_gzip_bytes(route) or body
+                        extra_headers["Content-Encoding"] = "gzip"
+                    self._send_bytes_response(
+                        body,
+                        content_type=content_type,
+                        request_id=request_id,
+                        route=route,
+                        cache_control=IMMUTABLE_ASSET_CACHE_CONTROL,
+                        extra_headers=extra_headers,
+                    )
                     return True
                 if route == "/favicon.ico":
                     body = _static_asset_bytes("favicon.ico")

@@ -13,7 +13,12 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.mcp.raw_gateway import virtual_api_risk
-from minimal_kanban.web_assets import BOARD_WEB_APP_HTML, DISPLAY_DASHBOARD_HTML
+from minimal_kanban.web_assets import (
+    BOARD_WEB_APP_CSS,
+    BOARD_WEB_APP_HTML,
+    BOARD_WEB_APP_JS,
+    DISPLAY_DASHBOARD_HTML,
+)
 from scripts import crm_capability_parity
 
 
@@ -27,7 +32,12 @@ class CrmParityInventoryQualityTests(unittest.TestCase):
         source_routes, issues = crm_capability_parity.discover_ui_routes(self.manifest)
         assembled_routes = {
             route
-            for text in (BOARD_WEB_APP_HTML, DISPLAY_DASHBOARD_HTML)
+            for text in (
+                BOARD_WEB_APP_HTML,
+                BOARD_WEB_APP_CSS,
+                BOARD_WEB_APP_JS,
+                DISPLAY_DASHBOARD_HTML,
+            )
             for value in crm_capability_parity.API_ROUTE_PATTERN.findall(text)
             if (route := crm_capability_parity._normalized_route(value))
         }

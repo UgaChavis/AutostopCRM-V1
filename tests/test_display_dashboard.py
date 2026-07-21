@@ -22,7 +22,10 @@ from minimal_kanban.operator_activity import OperatorActivityService
 from minimal_kanban.operator_auth import OperatorAuthService
 from minimal_kanban.services.card_service import CardService
 from minimal_kanban.storage.json_store import JsonStore
-from minimal_kanban.web_assets import BOARD_WEB_APP_HTML, DISPLAY_DASHBOARD_HTML
+from minimal_kanban.web_assets import (
+    BOARD_WEB_APP_CONTRACT_TEXT as BOARD_WEB_APP_HTML,
+)
+from minimal_kanban.web_assets import DISPLAY_DASHBOARD_HTML
 
 
 class DisplayDashboardServiceTests(unittest.TestCase):

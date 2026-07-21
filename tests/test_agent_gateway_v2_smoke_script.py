@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "check_agent_gateway_v2.py"
@@ -66,6 +68,21 @@ class AgentGatewayV2SmokeScriptTests(unittest.TestCase):
 
         self.assertFalse(standard.exhaustive)
         self.assertTrue(exhaustive.exhaustive)
+
+    def test_release_revision_is_required_only_for_maintenance_safe_exhaustive(self) -> None:
+        module = load_script_module()
+        ordinary = module.build_parser().parse_args(["--exhaustive"])
+        maintenance = module.build_parser().parse_args(["--exhaustive", "--maintenance-safe"])
+
+        with patch.dict(module.os.environ, {}, clear=True):
+            ordinary_result = asyncio.run(module.check_gateway(ordinary))
+            maintenance_result = asyncio.run(module.check_gateway(maintenance))
+
+        self.assertIn("token environment variable is missing", ordinary_result["error"])
+        self.assertEqual(
+            maintenance_result["error"],
+            "--maintenance-safe requires --release-revision",
+        )
 
     def test_release_smoke_identity_is_deterministic_and_revision_bound(self) -> None:
         module = load_script_module()

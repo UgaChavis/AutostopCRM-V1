@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import shutil
 import sys
 import tempfile
 import unittest
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -16,9 +19,11 @@ if str(SRC) not in sys.path:
 from minimal_kanban.models import AuditEvent, Card, utc_now  # noqa: E402
 from minimal_kanban.services.card_service import CardService  # noqa: E402
 from minimal_kanban.services.errors import ServiceError  # noqa: E402
+from minimal_kanban.storage import json_store as json_store_module  # noqa: E402
 from minimal_kanban.storage.json_store import (  # noqa: E402
     JsonStore,
     StateWriteConflictError,
+    _serialized_state,
 )
 
 
@@ -195,6 +200,112 @@ class FastStateWriteTests(unittest.TestCase):
         self._fast_write(fast_store, fast_bundle)
 
         self.assertEqual(fast_path.read_bytes(), normal_path.read_bytes())
+
+    def test_fast_write_uses_orjson_for_supported_state(self) -> None:
+        state_file = self._state_path("orjson-fast-path")
+        store = self._seed_store(state_file, include_event=True)
+        bundle = store.read_bundle()
+        bundle["events"].append(self._event("event-fast-path"))
+
+        with patch.object(
+            json_store_module.orjson,
+            "dumps",
+            wraps=json_store_module.orjson.dumps,
+        ) as fast_dumps:
+            self._fast_write(store, bundle)
+
+        self.assertEqual(fast_dumps.call_count, 1)
+
+    def test_fast_serializer_preserves_json_semantics_for_unicode_and_floats(self) -> None:
+        state = {
+            "message": "Русский текст 🚗",
+            "values": [-0.0, 1.25, 1e20, 1e-7],
+            "nested": {"enabled": True, "empty": None},
+        }
+
+        _safe, fast_payload, _fingerprint = _serialized_state(
+            state,
+            already_safe=True,
+            fast_serializer=True,
+        )
+        _safe, legacy_payload, _fingerprint = _serialized_state(
+            state,
+            already_safe=True,
+            fast_serializer=False,
+        )
+
+        self.assertEqual(json.loads(fast_payload), json.loads(legacy_payload))
+        self.assertIn("Русский текст 🚗".encode(), fast_payload)
+
+    def test_fast_serializer_falls_back_or_fails_closed_for_unsupported_values(self) -> None:
+        too_large_for_orjson = 1 << 80
+        with patch.object(
+            json_store_module.orjson,
+            "dumps",
+            side_effect=AssertionError("orjson must not receive unsupported values"),
+        ) as fast_dumps:
+            _safe, payload, _fingerprint = _serialized_state(
+                {"value": too_large_for_orjson},
+                already_safe=True,
+                fast_serializer=True,
+            )
+        fast_dumps.assert_not_called()
+        self.assertEqual(json.loads(payload)["value"], too_large_for_orjson)
+
+        unsupported_values = (
+            datetime(2026, 7, 22, tzinfo=UTC),
+            object(),
+            float("nan"),
+            float("inf"),
+        )
+        for value in unsupported_values:
+            with self.subTest(value=type(value).__name__):
+                with patch.object(
+                    json_store_module.orjson,
+                    "dumps",
+                    side_effect=AssertionError("orjson must not receive unsupported values"),
+                ) as fast_dumps:
+                    with self.assertRaises((TypeError, ValueError)):
+                        _serialized_state(
+                            {"value": value},
+                            already_safe=True,
+                            fast_serializer=True,
+                        )
+                fast_dumps.assert_not_called()
+
+    def test_fast_write_outbox_recovers_using_exact_state_file_fingerprint(self) -> None:
+        state_file = self._state_path("orjson-outbox-recovery")
+        store = self._seed_store(state_file)
+        bundle = store.read_bundle()
+        event = self._event("event-recovered-after-restart")
+        event.details["scientific"] = 1e20
+        bundle["events"].append(event)
+
+        with patch.object(
+            store.change_feed_store,
+            "commit_state_write",
+            side_effect=RuntimeError("simulated interruption after state replace"),
+        ):
+            self._fast_write(store, bundle)
+
+        state_bytes = state_file.read_bytes()
+        expected_fingerprint = hashlib.sha256(state_bytes).hexdigest()
+        self.assertIn(b"1e20", state_bytes)
+        self.assertTrue(store.change_feed_store.has_pending_state_write())
+        restarted = JsonStore(state_file=state_file, logger=self.logger)
+        with patch.object(
+            restarted.change_feed_store,
+            "reconcile_state",
+            wraps=restarted.change_feed_store.reconcile_state,
+        ) as reconcile_state:
+            restarted.read_bundle()
+
+        self.assertEqual(reconcile_state.call_args.args[0], expected_fingerprint)
+        self.assertFalse(restarted.change_feed_store.has_pending_state_write())
+        published_ids = {
+            row["event_id"] for row in restarted.change_feed_store.raw_events_for_test()
+        }
+        self.assertIn("event-recovered-after-restart", published_ids)
 
     def test_strict_serialization_failure_preserves_file_and_invalidates_cache(self) -> None:
         state_file = self._state_path("serialization-failure")

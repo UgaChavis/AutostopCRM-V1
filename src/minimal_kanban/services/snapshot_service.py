@@ -27,7 +27,9 @@ from ..models import (
 from ..storage.json_store import JsonStore
 from .snapshot_cache import (
     COMPACT_SNAPSHOT_CACHE_TTL_SECONDS,
+    PreparedSnapshotData,
     SnapshotResponseCache,
+    build_prepared_snapshot_data,
     build_snapshot_meta,
     build_snapshot_revision,
 )
@@ -269,9 +271,10 @@ def _json_dumps(
     indent: int | None = None,
     sort_keys: bool = False,
     separators: tuple[str, str] | None = None,
+    safe_depth: int = 8,
 ) -> str:
     return json.dumps(
-        _json_safe_value(payload),
+        _json_safe_value(payload, depth=safe_depth),
         ensure_ascii=False,
         indent=indent,
         sort_keys=sort_keys,
@@ -648,6 +651,22 @@ class SnapshotService:
             }
 
     def get_board_snapshot(self, payload: dict | None = None) -> dict:
+        result = self._get_board_snapshot(payload, prepared=False)
+        if isinstance(result, PreparedSnapshotData):  # pragma: no cover - internal invariant
+            raise RuntimeError("Prepared snapshot escaped the HTTP-only path.")
+        return result
+
+    def get_board_snapshot_for_http(
+        self, payload: dict | None = None
+    ) -> dict | PreparedSnapshotData:
+        return self._get_board_snapshot(payload, prepared=True)
+
+    def _get_board_snapshot(
+        self,
+        payload: dict | None,
+        *,
+        prepared: bool,
+    ) -> dict | PreparedSnapshotData:
         with self._lock:
             payload = payload or {}
             compact_cards = self._validated_optional_bool(payload, "compact", default=False)
@@ -677,6 +696,10 @@ class SnapshotService:
                     isinstance(cached_snapshot, dict)
                     and time.monotonic() - cached_at <= COMPACT_SNAPSHOT_CACHE_TTL_SECONDS
                 ):
+                    if prepared:
+                        cached_prepared = cache_entry.get("prepared_snapshot")
+                        if isinstance(cached_prepared, PreparedSnapshotData):
+                            return cached_prepared
                     result = deepcopy(cached_snapshot)
                     result["meta"]["generated_at"] = utc_now_iso()
                     return result
@@ -761,11 +784,18 @@ class SnapshotService:
             )
             if compact_cards:
                 entry["snapshot"] = deepcopy(result)
+                entry["prepared_snapshot"] = build_prepared_snapshot_data(
+                    result,
+                    json_dumps=_json_dumps,
+                )
                 entry["snapshot_cached_at"] = time.monotonic()
             else:
                 entry.pop("snapshot", None)
+                entry.pop("prepared_snapshot", None)
                 entry.pop("snapshot_cached_at", None)
             self._snapshot_cache.put(signature, cache_key, entry)
+            if prepared and compact_cards:
+                return entry["prepared_snapshot"]
             return result
 
     def get_board_revision(self, payload: dict | None = None) -> dict:

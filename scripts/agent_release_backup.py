@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import sqlite3
+import stat
 import sys
 import tarfile
 import tempfile
@@ -22,12 +23,29 @@ if str(SRC) not in sys.path:
 from minimal_kanban.storage.file_lock import ProcessFileLock  # noqa: E402
 
 BACKUP_SCHEMA = "autostop-agent-release-backup.v2"
+LEGACY_BACKUP_SCHEMA = "autostop-agent-release-backup.v1"
+SUPPORTED_BACKUP_SCHEMAS = frozenset({BACKUP_SCHEMA, LEGACY_BACKUP_SCHEMA})
 MANIFEST_NAME = "manifest.json"
 STATE_BACKUP_NAME = "state.json"
 CHANGE_FEED_BACKUP_NAME = "change_feed.sqlite3"
 AUDIT_BACKUP_NAME = "audit-archive.tar.gz"
 MANAGER_BACKUP_NAME = "autostop_manager.sqlite3"
 COPY_CHUNK_BYTES = 1024 * 1024
+MAX_RESTORE_ID = (1 << 32) - 2
+ARTIFACT_FILE_NAMES = {
+    "state": STATE_BACKUP_NAME,
+    "change_feed_sqlite": CHANGE_FEED_BACKUP_NAME,
+    "audit_archive": AUDIT_BACKUP_NAME,
+    "manager_sqlite": MANAGER_BACKUP_NAME,
+}
+LEGACY_ARTIFACT_KEYS = frozenset({"state", "audit_archive", "manager_sqlite"})
+CURRENT_ARTIFACT_KEYS = frozenset(ARTIFACT_FILE_NAMES)
+REQUIRED_ARTIFACT_KEYS = frozenset({"state", "manager_sqlite"})
+METADATA_ARTIFACT_KEYS = frozenset({"state", "change_feed_sqlite", "manager_sqlite"})
+BASE_ARTIFACT_FIELDS = frozenset({"name", "size_bytes", "sha256"})
+MANIFEST_FIELDS = frozenset(
+    {"schema", "backup_id", "created_at", "complete", "sources", "artifacts"}
+)
 
 
 class BackupError(RuntimeError):
@@ -42,12 +60,48 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _artifact(path: Path) -> dict[str, object]:
-    return {
+def _artifact(path: Path, *, restore_metadata: dict[str, int] | None = None) -> dict[str, object]:
+    artifact: dict[str, object] = {
         "name": path.name,
         "size_bytes": path.stat().st_size,
         "sha256": _sha256(path),
     }
+    if restore_metadata is not None:
+        artifact["restore_metadata"] = dict(restore_metadata)
+    return artifact
+
+
+def _file_restore_metadata(path: Path) -> dict[str, int]:
+    source_stat = path.stat()
+    return {
+        "mode": stat.S_IMODE(source_stat.st_mode),
+        "uid": int(source_stat.st_uid),
+        "gid": int(source_stat.st_gid),
+    }
+
+
+def _validated_restore_metadata(value: object, *, label: str) -> dict[str, int]:
+    if not isinstance(value, dict):
+        raise BackupError(f"Invalid restore metadata: {label}")
+    validated: dict[str, int] = {}
+    for key, maximum in (("mode", 0o7777), ("uid", MAX_RESTORE_ID), ("gid", MAX_RESTORE_ID)):
+        raw = value.get(key)
+        if type(raw) is not int or raw < 0 or raw > maximum:
+            raise BackupError(f"Invalid restore metadata {key}: {label}")
+        validated[key] = raw
+    if set(value) != set(validated):
+        raise BackupError(f"Invalid restore metadata fields: {label}")
+    return validated
+
+
+def _restore_metadata_matches(path: Path, value: object) -> bool:
+    if value is None:
+        return True
+    expected = _validated_restore_metadata(value, label=path.name)
+    try:
+        return _file_restore_metadata(path) == expected
+    except OSError:
+        return False
 
 
 def _fsync_file(path: Path) -> None:
@@ -143,13 +197,29 @@ def create_backup(
 
     temp_dir = Path(tempfile.mkdtemp(prefix=f".{resolved_id}.partial-", dir=output_root))
     try:
+        state_source = crm_data_dir / "state.json"
+        if not state_source.is_file():
+            raise BackupError(f"CRM state file does not exist: {state_source}")
+        state_restore_metadata = _file_restore_metadata(state_source)
         state_destination = temp_dir / STATE_BACKUP_NAME
-        _copy_state(crm_data_dir / "state.json", state_destination)
-        artifacts: dict[str, Any] = {"state": _artifact(state_destination)}
+        _copy_state(state_source, state_destination)
+        artifacts: dict[str, Any] = {
+            "state": _artifact(
+                state_destination,
+                restore_metadata=state_restore_metadata,
+            )
+        }
 
+        change_feed_source = crm_data_dir / "change_feed.sqlite3"
+        change_feed_restore_metadata = (
+            _file_restore_metadata(change_feed_source) if change_feed_source.is_file() else None
+        )
         change_feed_destination = temp_dir / CHANGE_FEED_BACKUP_NAME
-        if _copy_sqlite(crm_data_dir / "change_feed.sqlite3", change_feed_destination):
-            artifacts["change_feed_sqlite"] = _artifact(change_feed_destination)
+        if _copy_sqlite(change_feed_source, change_feed_destination):
+            artifacts["change_feed_sqlite"] = _artifact(
+                change_feed_destination,
+                restore_metadata=change_feed_restore_metadata,
+            )
         else:
             # An older release may predate the durable feed. Recording the
             # absence is important: rollback must then remove a database first
@@ -164,9 +234,15 @@ def create_backup(
         else:
             artifacts["audit_archive"] = None
 
+        if not manager_db.is_file():
+            raise BackupError(f"Manager SQLite does not exist: {manager_db}")
+        manager_restore_metadata = _file_restore_metadata(manager_db)
         manager_destination = temp_dir / MANAGER_BACKUP_NAME
         if _copy_sqlite(manager_db, manager_destination):
-            artifacts["manager_sqlite"] = _artifact(manager_destination)
+            artifacts["manager_sqlite"] = _artifact(
+                manager_destination,
+                restore_metadata=manager_restore_metadata,
+            )
         else:
             raise BackupError(f"Manager SQLite does not exist: {manager_db}")
 
@@ -195,10 +271,74 @@ def _load_manifest(backup_dir: Path) -> dict[str, Any]:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         raise BackupError(f"Invalid backup manifest: {manifest_path}") from exc
-    if not isinstance(manifest, dict) or manifest.get("schema") != BACKUP_SCHEMA:
+    if not isinstance(manifest, dict):
         raise BackupError("Unsupported backup manifest schema")
-    if not manifest.get("complete"):
+    schema = manifest.get("schema")
+    if not isinstance(schema, str) or schema not in SUPPORTED_BACKUP_SCHEMAS:
+        raise BackupError("Unsupported backup manifest schema")
+    if set(manifest) != MANIFEST_FIELDS:
+        raise BackupError("Invalid backup manifest fields")
+    if not isinstance(manifest.get("backup_id"), str) or not manifest["backup_id"]:
+        raise BackupError("Invalid backup manifest id")
+    if not isinstance(manifest.get("created_at"), str) or not manifest["created_at"]:
+        raise BackupError("Invalid backup manifest timestamp")
+    if manifest.get("complete") is not True:
         raise BackupError("Backup is not marked complete")
+
+    sources = manifest.get("sources")
+    if (
+        not isinstance(sources, dict)
+        or set(sources) != {"crm_data_dir", "manager_db"}
+        or any(not isinstance(value, str) or not value for value in sources.values())
+    ):
+        raise BackupError("Invalid backup manifest sources")
+
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, dict):
+        raise BackupError("Invalid backup manifest artifacts")
+    expected_artifact_keys = (
+        LEGACY_ARTIFACT_KEYS if schema == LEGACY_BACKUP_SCHEMA else CURRENT_ARTIFACT_KEYS
+    )
+    if set(artifacts) != expected_artifact_keys:
+        raise BackupError("Invalid backup manifest artifact keys")
+    for artifact_name in expected_artifact_keys:
+        metadata = artifacts[artifact_name]
+        if metadata is None:
+            if artifact_name in REQUIRED_ARTIFACT_KEYS:
+                raise BackupError(f"Required backup artifact is missing: {artifact_name}")
+            continue
+        if not isinstance(metadata, dict):
+            raise BackupError(f"Invalid artifact metadata: {artifact_name}")
+        expected_fields = set(BASE_ARTIFACT_FIELDS)
+        if schema == BACKUP_SCHEMA and artifact_name in METADATA_ARTIFACT_KEYS:
+            expected_fields.add("restore_metadata")
+        if set(metadata) != expected_fields:
+            raise BackupError(f"Invalid artifact metadata fields: {artifact_name}")
+        expected_filename = ARTIFACT_FILE_NAMES[artifact_name]
+        if metadata.get("name") != expected_filename:
+            raise BackupError(f"Invalid backup artifact filename: {artifact_name}")
+        size_bytes = metadata.get("size_bytes")
+        if type(size_bytes) is not int or size_bytes < 0:
+            raise BackupError(f"Invalid backup artifact size: {artifact_name}")
+        sha256 = metadata.get("sha256")
+        if (
+            not isinstance(sha256, str)
+            or len(sha256) != 64
+            or any(character not in "0123456789abcdef" for character in sha256)
+        ):
+            raise BackupError(f"Invalid backup artifact hash: {artifact_name}")
+        if "restore_metadata" in metadata:
+            _validated_restore_metadata(metadata["restore_metadata"], label=artifact_name)
+
+    if schema == LEGACY_BACKUP_SCHEMA:
+        # Release backups created before the durable change feed did not have
+        # this artifact at all. Normalize that historical absence to the v2
+        # representation so rollback removes a feed first created by a failed
+        # candidate instead of retaining state from two different revisions.
+        manifest = dict(manifest)
+        normalized_artifacts = dict(artifacts)
+        normalized_artifacts.setdefault("change_feed_sqlite", None)
+        manifest["artifacts"] = normalized_artifacts
     return manifest
 
 
@@ -208,15 +348,18 @@ def verify_backup(backup_dir: Path) -> dict[str, Any]:
     for artifact_name, metadata in manifest.get("artifacts", {}).items():
         if metadata is None:
             continue
-        if not isinstance(metadata, dict):
-            raise BackupError(f"Invalid artifact metadata: {artifact_name}")
-        path = backup_dir / str(metadata.get("name", ""))
-        if not path.is_file():
+        path = backup_dir / ARTIFACT_FILE_NAMES[artifact_name]
+        if path.is_symlink() or not path.is_file():
             raise BackupError(f"Backup artifact is missing: {artifact_name}")
-        if path.stat().st_size != int(metadata.get("size_bytes", -1)):
+        if path.stat().st_size != metadata["size_bytes"]:
             raise BackupError(f"Backup artifact size mismatch: {artifact_name}")
-        if _sha256(path) != str(metadata.get("sha256", "")):
+        if _sha256(path) != metadata["sha256"]:
             raise BackupError(f"Backup artifact hash mismatch: {artifact_name}")
+        if "restore_metadata" in metadata:
+            _validated_restore_metadata(
+                metadata["restore_metadata"],
+                label=artifact_name,
+            )
         verified.append(artifact_name)
     _sqlite_integrity_check(backup_dir / MANAGER_BACKUP_NAME)
     change_feed_metadata = manifest.get("artifacts", {}).get("change_feed_sqlite")
@@ -233,18 +376,49 @@ def verify_backup(backup_dir: Path) -> dict[str, Any]:
     }
 
 
-def _restore_file_atomic(source: Path, destination: Path, *, lock_path: Path | None = None) -> None:
+def _restore_file_atomic(
+    source: Path,
+    destination: Path,
+    *,
+    restore_metadata: object = None,
+    lock_path: Path | None = None,
+) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = destination.with_name(f".{destination.name}.restore-{os.getpid()}")
     context = (
         ProcessFileLock(lock_path, timeout_seconds=30.0).acquire()
         if lock_path is not None
         else nullcontext()
     )
     with context:
-        shutil.copyfile(source, temp_path)
-        _fsync_file(temp_path)
-        temp_path.replace(destination)
+        if restore_metadata is None:
+            if not destination.is_file():
+                raise BackupError(
+                    f"Restore metadata is missing and destination does not exist: {destination}"
+                )
+            effective_metadata = _file_restore_metadata(destination)
+        else:
+            effective_metadata = _validated_restore_metadata(
+                restore_metadata,
+                label=destination.name,
+            )
+        descriptor, raw_temp_path = tempfile.mkstemp(
+            prefix=f".{destination.name}.restore-",
+            dir=destination.parent,
+        )
+        os.close(descriptor)
+        temp_path = Path(raw_temp_path)
+        try:
+            shutil.copyfile(source, temp_path)
+            chown = getattr(os, "chown", None)
+            if chown is not None:
+                chown(temp_path, effective_metadata["uid"], effective_metadata["gid"])
+            elif os.name == "posix":  # pragma: no cover - POSIX always exposes os.chown
+                raise BackupError("POSIX restore cannot apply file ownership")
+            os.chmod(temp_path, effective_metadata["mode"])
+            _fsync_file(temp_path)
+            os.replace(temp_path, destination)
+        finally:
+            temp_path.unlink(missing_ok=True)
 
 
 def _verified_restore_sources(backup_dir: Path) -> tuple[dict[str, Any], Path, Path]:
@@ -275,10 +449,16 @@ def restore_crm_state_and_feed(backup_dir: Path) -> dict[str, Any]:
     restored: list[str] = []
     state_source = backup_dir / STATE_BACKUP_NAME
     state_destination = crm_data_dir / "state.json"
-    if not state_destination.is_file() or _sha256(state_destination) != _sha256(state_source):
+    state_metadata = manifest["artifacts"]["state"].get("restore_metadata")
+    if (
+        not state_destination.is_file()
+        or _sha256(state_destination) != _sha256(state_source)
+        or not _restore_metadata_matches(state_destination, state_metadata)
+    ):
         _restore_file_atomic(
             state_source,
             state_destination,
+            restore_metadata=state_metadata,
             lock_path=state_destination.with_suffix(".lock"),
         )
         restored.append("state")
@@ -300,10 +480,19 @@ def restore_crm_state_and_feed(backup_dir: Path) -> dict[str, Any]:
             restored.append("change_feed_sqlite")
     else:
         change_feed_source = backup_dir / CHANGE_FEED_BACKUP_NAME
-        if not change_feed_destination.is_file() or _sha256(change_feed_destination) != _sha256(
-            change_feed_source
+        if (
+            not change_feed_destination.is_file()
+            or _sha256(change_feed_destination) != _sha256(change_feed_source)
+            or not _restore_metadata_matches(
+                change_feed_destination,
+                change_feed_metadata.get("restore_metadata"),
+            )
         ):
-            _restore_file_atomic(change_feed_source, change_feed_destination)
+            _restore_file_atomic(
+                change_feed_source,
+                change_feed_destination,
+                restore_metadata=change_feed_metadata.get("restore_metadata"),
+            )
             restored.append("change_feed_sqlite")
         _sqlite_integrity_check(change_feed_destination)
     # WAL journal mode may recreate empty sidecars during integrity_check.
@@ -332,7 +521,12 @@ def restore_manager_database(backup_dir: Path) -> dict[str, Any]:
         sidecar = Path(f"{manager_db}{suffix}")
         if sidecar.exists():
             sidecar.unlink()
-    _restore_file_atomic(manager_source, manager_db)
+    manager_metadata = manifest["artifacts"]["manager_sqlite"].get("restore_metadata")
+    _restore_file_atomic(
+        manager_source,
+        manager_db,
+        restore_metadata=manager_metadata,
+    )
     for suffix in ("-wal", "-shm"):
         sidecar = Path(f"{manager_db}{suffix}")
         if sidecar.exists():

@@ -1,9 +1,30 @@
+import os
+import shutil
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _posix_bash_available() -> bool:
+    bash = shutil.which("bash")
+    if os.name != "posix" or not bash:
+        return False
+    try:
+        return (
+            subprocess.run(
+                [bash, "-c", "exit 0"],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            ).returncode
+            == 0
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 class DeployScriptTests(unittest.TestCase):
@@ -262,13 +283,64 @@ class DeployScriptTests(unittest.TestCase):
 
         build_index = script.index('docker tag "$previous_image_id" "$rollback_image"')
         snapshot_index = script.index('snapshot --backup-dir "$auth_backup_dir"')
+        recovery_armed_index = script.index("auth_rotated=1", snapshot_index)
         rotate_index = script.index('rotate --generate --mcp-url "$PUBLIC_MCP_URL"')
         maintenance_index = script.index("maintenance_started=1", rotate_index)
         self.assertLess(build_index, snapshot_index)
-        self.assertLess(snapshot_index, rotate_index)
+        self.assertLess(snapshot_index, recovery_armed_index)
+        self.assertLess(recovery_armed_index, rotate_index)
         self.assertLess(rotate_index, maintenance_index)
         self.assertIn('restore --backup-dir "$auth_backup_dir"', script)
         self.assertIn('check --mcp-url "$PUBLIC_MCP_URL"', script)
+
+    def test_auth_snapshot_remains_recoverable_until_release_commit(self) -> None:
+        script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+        snapshot = script.index('snapshot --backup-dir "$auth_backup_dir"')
+        recovery_armed = script.index("auth_rotated=1", snapshot)
+        rotate = script.index('rotate --generate --mcp-url "$PUBLIC_MCP_URL"')
+        marker_removal = script.index('run_release rm -f "$MAINTENANCE_MARKER_HOST"')
+        marked_success = script.index("deployment_succeeded=1", marker_removal)
+        trap_removed = script.index("trap - EXIT", marked_success)
+        recovery_disarmed = script.index("auth_rotated=0", trap_removed)
+        backup_cleanup = script.index("remove_auth_backup_if_safe", recovery_disarmed)
+
+        self.assertLess(snapshot, recovery_armed)
+        self.assertLess(recovery_armed, rotate)
+        self.assertLess(rotate, marker_removal)
+        self.assertLess(marker_removal, marked_success)
+        self.assertLess(marked_success, trap_removed)
+        self.assertLess(trap_removed, recovery_disarmed)
+        self.assertLess(recovery_disarmed, backup_cleanup)
+        rotation_failure = script[rotate : script.index("reload_deploy_environment", rotate)]
+        self.assertNotIn('rm -rf "$auth_backup_dir"', rotation_failure)
+
+    def test_failed_auth_restore_never_deletes_the_recovery_snapshot(self) -> None:
+        script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+        restore_start = script.index("restore_auth_configuration()")
+        restore_end = script.index("\nremove_auth_backup_if_safe()", restore_start)
+        restore = script[restore_start:restore_end]
+        cleanup_start = restore_end + 1
+        cleanup_end = script.index("\nrollback_release()", cleanup_start)
+        cleanup = script[cleanup_start:cleanup_end]
+        rollback_start = cleanup_end + 1
+        rollback_end = script.index("\non_exit() {", rollback_start)
+        rollback = script[rollback_start:rollback_end]
+        on_exit_start = rollback_end + 1
+        on_exit_end = script.index("trap on_exit EXIT", on_exit_start)
+        on_exit = script[on_exit_start:on_exit_end]
+
+        self.assertIn("if (( status == 0 )); then", restore)
+        self.assertIn("if reload_deploy_environment; then", restore)
+        self.assertIn("auth_rotated=0", restore)
+        self.assertIn("if (( status != 0 )); then", restore)
+        self.assertNotIn('rm -rf "$auth_backup_dir"', restore)
+        self.assertIn("if (( auth_rotated != 0 )); then", cleanup)
+        self.assertIn('rm -rf "$auth_backup_dir"', cleanup)
+        self.assertNotIn('rm -rf "$auth_backup_dir"', rollback)
+        self.assertIn("if restore_auth_configuration; then", rollback)
+        self.assertIn("if (( auth_rotated == 0 )); then", rollback)
+        self.assertNotIn('rm -rf "$auth_backup_dir"', on_exit)
+        self.assertIn("if restore_auth_configuration; then", on_exit)
 
     def test_deploy_makes_public_auth_smoke_mandatory_for_reads_and_writes(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
@@ -331,15 +403,21 @@ class DeployScriptTests(unittest.TestCase):
         rollback_start = script.index("rollback_release()")
         rollback = script[rollback_start : script.index("\non_exit() {", rollback_start)]
 
-        stable_tag = rollback.index('run_maintenance docker tag "$rollback_image"')
         marker_removal = rollback.index('run_maintenance rm -f "$MAINTENANCE_MARKER_HOST"')
+        marker_rearm = rollback.index('install -D -m 600 /dev/null "$MAINTENANCE_MARKER_HOST"')
+        stop = rollback.index("docker compose stop")
+        stable_tag = rollback.index('docker tag "$rollback_image" "$STABLE_IMAGE"')
+        crm_restore = rollback.index("restore-crm-changed --backup-dir")
+        health = rollback.index('wait_for_health "$rollback_image"')
         self.assertIn(
-            "if (( rollback_ok == 1 )); then\n"
-            '      run_maintenance docker tag "$rollback_image" "$STABLE_IMAGE" '
-            "|| rollback_ok=0\n"
-            "    fi",
+            "timeout --signal=TERM --kill-after=5 30s \\\n"
+            '    docker tag "$rollback_image" "$STABLE_IMAGE" </dev/null',
             rollback,
         )
+        self.assertLess(marker_rearm, stable_tag)
+        self.assertLess(stable_tag, stop)
+        self.assertLess(stable_tag, crm_restore)
+        self.assertLess(stable_tag, health)
         self.assertIn(
             "if (( rollback_ok == 1 )); then\n"
             '      run_maintenance rm -f "$MAINTENANCE_MARKER_HOST" '
@@ -350,6 +428,7 @@ class DeployScriptTests(unittest.TestCase):
         self.assertLess(stable_tag, marker_removal)
         self.assertIn("ROLLBACK INCOMPLETE: maintenance marker remains", rollback)
 
+    @unittest.skipUnless(_posix_bash_available(), "a working POSIX bash is required")
     def test_failed_rollback_stop_never_touches_protected_state(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
         rollback_start = script.index("rollback_release()")

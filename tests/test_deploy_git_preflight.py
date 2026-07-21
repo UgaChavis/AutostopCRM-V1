@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import tempfile
@@ -11,7 +12,24 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PREFLIGHT_SCRIPT = PROJECT_ROOT / "scripts" / "release_git_preflight.sh"
 
 
-@unittest.skipUnless(shutil.which("git") and shutil.which("bash"), "git and bash are required")
+def _release_shell_available() -> bool:
+    bash = shutil.which("bash")
+    if os.name != "posix" or not shutil.which("git") or not bash:
+        return False
+    try:
+        result = subprocess.run(
+            [bash, "-c", "command -v timeout >/dev/null && command -v flock >/dev/null"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
+@unittest.skipUnless(_release_shell_available(), "POSIX git, bash, timeout and flock are required")
 class ReleaseGitPreflightTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()

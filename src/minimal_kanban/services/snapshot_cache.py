@@ -1,14 +1,40 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from collections import OrderedDict
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from typing import Any
 
 from ..models import Card, Column, StickyNote, normalize_actor_name
 
 SNAPSHOT_CACHE_MAX_ENTRIES = 32
 COMPACT_SNAPSHOT_CACHE_TTL_SECONDS = 1.5
+_SNAPSHOT_HEAVY_KEYS = ("columns", "cards", "archive", "stickies", "settings")
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedSnapshotData:
+    payload_prefix: bytes
+
+    def render(self, *, generated_at: str) -> bytes:
+        encoded_generated_at = json.dumps(generated_at, ensure_ascii=False).encode("utf-8")
+        return self.payload_prefix + encoded_generated_at + b"}}"
+
+
+def build_prepared_snapshot_data(
+    snapshot: dict[str, Any], *, json_dumps: Callable[..., str]
+) -> PreparedSnapshotData:
+    heavy_payload = {key: snapshot[key] for key in _SNAPSHOT_HEAVY_KEYS}
+    heavy_bytes = json_dumps(heavy_payload, safe_depth=7).encode("utf-8")
+    static_meta = {key: value for key, value in snapshot["meta"].items() if key != "generated_at"}
+    meta_bytes = json_dumps(static_meta, safe_depth=6).encode("utf-8")
+    meta_separator = b", " if len(meta_bytes) > 2 else b""
+    payload_prefix = (
+        heavy_bytes[:-1] + b', "meta": ' + meta_bytes[:-1] + meta_separator + b'"generated_at": '
+    )
+    return PreparedSnapshotData(payload_prefix=payload_prefix)
 
 
 class SnapshotResponseCache:

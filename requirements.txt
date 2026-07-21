@@ -4,3 +4,4 @@ defusedxml==0.7.1
 mcp==1.28.1
 httpx==0.28.1
 cryptography==48.0.1
+orjson==3.10.18

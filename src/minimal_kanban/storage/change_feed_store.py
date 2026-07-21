@@ -193,6 +193,15 @@ class ChangeFeedStore:
         return connection
 
     @contextmanager
+    def _connection(self, *, durable: bool = True):
+        connection = self._connect(durable=durable)
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
+
+    @contextmanager
     def _transaction(self, *, immediate: bool = False, durable: bool = True):
         connection = self._connect(durable=durable)
         try:
@@ -206,7 +215,7 @@ class ChangeFeedStore:
             connection.close()
 
     def _ensure_schema(self) -> None:
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute("PRAGMA journal_mode = WAL")
             connection.executescript(
                 """
@@ -915,7 +924,7 @@ class ChangeFeedStore:
             self._set_metadata(connection, "initialized", "1")
 
     def has_pending_state_write(self) -> bool:
-        with self._connect() as connection:
+        with self._connection() as connection:
             return bool(self._metadata(connection, "pending_fingerprint"))
 
     def _stage_unseen_audit_events(
@@ -1123,7 +1132,7 @@ class ChangeFeedStore:
         }
 
     def _secret(self) -> bytes:
-        with self._connect() as connection:
+        with self._connection() as connection:
             encoded = self._metadata(connection, "cursor_secret")
         try:
             return base64.urlsafe_b64decode(encoded.encode("ascii"))
@@ -1430,12 +1439,12 @@ class ChangeFeedStore:
     def raw_events_for_test(self) -> list[dict[str, Any]]:
         """Return compact rows for storage contract tests; never exposes audit details."""
 
-        with self._connect() as connection:
+        with self._connection() as connection:
             rows = connection.execute("SELECT * FROM events ORDER BY sequence").fetchall()
         return [self._row_event(row) for row in rows]
 
     def iter_source_ids_for_test(self) -> Iterable[str]:
-        with self._connect() as connection:
+        with self._connection() as connection:
             rows = connection.execute(
                 "SELECT source_event_id FROM seen_sources ORDER BY source_event_id"
             ).fetchall()
