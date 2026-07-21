@@ -2,17 +2,18 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import math
 import os
-import re
 import sys
 import urllib.error
 import urllib.request
 from datetime import UTC, datetime
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 from mcp import ClientSession
@@ -32,10 +33,25 @@ from minimal_kanban.json_safety import reject_deeply_nested_json
 from minimal_kanban.mcp.client import discover_board_api
 from minimal_kanban.mcp.oauth_provider import DEFAULT_KANBAN_SCOPES
 from minimal_kanban.settings_models import IntegrationSettings
+from minimal_kanban.web_assets import BOARD_WEB_APP_JS_PATH
 
 LIVE_CONNECTOR_RESPONSE_MAX_BYTES = 4 * 1024 * 1024
 LIVE_CONNECTOR_SETTINGS_MAX_BYTES = 1 * 1024 * 1024
-BOARD_JS_PATH_PATTERN = re.compile(r'src=["\'](?P<path>/assets/board\.[0-9a-f]{64}\.js)["\']')
+LIVE_CONNECTOR_SITE_SCRIPT_LIMIT = 4
+
+
+class _ScriptSourceParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.sources: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() != "script" or len(self.sources) >= LIVE_CONNECTOR_SITE_SCRIPT_LIMIT:
+            return
+        for name, value in attrs:
+            if name.lower() == "src" and value:
+                self.sources.append(value.strip())
+                return
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -138,6 +154,113 @@ def _urlsplit_clean(value: str | None):
         return urlsplit(_clean_url(value))
     except ValueError:
         return None
+
+
+def _url_origin(value: str) -> tuple[str, str, int] | None:
+    parts = _urlsplit_clean(value)
+    if parts is None:
+        return None
+    scheme = parts.scheme.lower()
+    try:
+        hostname = parts.hostname
+        port = parts.port
+    except ValueError:
+        return None
+    if (
+        scheme not in {"http", "https"}
+        or not hostname
+        or parts.username is not None
+        or parts.password is not None
+    ):
+        return None
+    return scheme, hostname.lower().rstrip("."), port or (443 if scheme == "https" else 80)
+
+
+def _fingerprinted_board_script_digest(path: str) -> str | None:
+    prefix = "/assets/board."
+    suffix = ".js"
+    if not path.startswith(prefix) or not path.endswith(suffix):
+        return None
+    digest = path[len(prefix) : -len(suffix)]
+    if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
+        return None
+    return digest
+
+
+def _board_script_urls(document_url: str, body: str) -> list[str]:
+    parser = _ScriptSourceParser()
+    try:
+        parser.feed(body)
+    except Exception:
+        return []
+
+    document_origin = _url_origin(document_url)
+    if document_origin is None:
+        return []
+    resolved: list[str] = []
+    for source in parser.sources:
+        if not source or len(source) > 2048:
+            continue
+        candidate = urljoin(document_url, source)
+        parts = _urlsplit_clean(candidate)
+        if (
+            parts is None
+            or parts.query
+            or parts.fragment
+            or _url_origin(candidate) != document_origin
+            or parts.path != BOARD_WEB_APP_JS_PATH
+            or _fingerprinted_board_script_digest(parts.path) is None
+            or candidate in resolved
+        ):
+            continue
+        resolved.append(candidate)
+    return resolved
+
+
+def _probe_login_route_in_board_scripts(document_url: str, body: str) -> tuple[bool, int, str, str]:
+    checked = 0
+    last_error = "board_script_not_found"
+    last_asset_url = ""
+    headers = {
+        "Accept": "application/javascript,text/javascript;q=0.9,*/*;q=0.1",
+        "Accept-Encoding": "identity",
+        "User-Agent": "AutoStopCRM-check/1.0",
+    }
+    for asset_url in _board_script_urls(document_url, body):
+        checked += 1
+        last_asset_url = asset_url
+        try:
+            request = urllib.request.Request(asset_url, method="GET", headers=headers)
+            with _urlopen_no_redirect(request, timeout=10.0) as response:
+                script_bytes = _read_response_body(response)
+                content_type = (
+                    str(response.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+                )
+                if response.status != 200:
+                    last_error = f"board_script_http_{response.status}"
+                    continue
+                if content_type not in {"application/javascript", "text/javascript"}:
+                    last_error = "board_script_content_type_invalid"
+                    continue
+                parts = _urlsplit_clean(asset_url)
+                expected_digest = (
+                    _fingerprinted_board_script_digest(parts.path) if parts is not None else None
+                )
+                if (
+                    expected_digest is None
+                    or hashlib.sha256(script_bytes).hexdigest() != expected_digest
+                ):
+                    last_error = "board_script_fingerprint_mismatch"
+                    continue
+                script = script_bytes.decode("utf-8", errors="replace")
+                if "/api/login_operator" in script:
+                    return True, checked, "", asset_url
+                last_error = "board_script_login_route_missing"
+        except urllib.error.HTTPError as exc:
+            last_error = f"board_script_http_{exc.code}"
+        except Exception:
+            last_error = "board_script_probe_failed"
+    return False, checked, last_error, last_asset_url
 
 
 def _fallback_http_url(url: str) -> str:
@@ -292,6 +415,8 @@ def check_site(site_url: str, *, expect_https: bool = False) -> dict[str, Any]:
         "contains_login_route": False,
         "login_route_source": "",
         "asset_probe_url": "",
+        "script_assets_checked": 0,
+        "script_asset_error": None,
         "probe_url": site_url,
         "error": None,
     }
@@ -338,26 +463,15 @@ def check_site(site_url: str, *, expect_https: bool = False) -> dict[str, Any]:
                 if result["contains_login_route"]:
                     result["login_route_source"] = "html"
                 else:
-                    asset_match = BOARD_JS_PATH_PATTERN.search(body)
-                    final_parts = _urlsplit_clean(final_url)
-                    if asset_match is not None and final_parts is not None and final_parts.netloc:
-                        asset_url = (
-                            f"{final_parts.scheme}://{final_parts.netloc}"
-                            f"{asset_match.group('path')}"
-                        )
-                        result["asset_probe_url"] = asset_url
-                        asset_request = urllib.request.Request(
-                            asset_url,
-                            method="GET",
-                            headers={"Accept": "application/javascript", **headers},
-                        )
-                        with _urlopen_no_redirect(asset_request, timeout=10.0) as asset_response:
-                            asset_body = _read_response_body(asset_response).decode(
-                                "utf-8", errors="replace"
-                            )
-                        result["contains_login_route"] = "/api/login_operator" in asset_body
-                        if result["contains_login_route"]:
-                            result["login_route_source"] = "asset"
+                    found, checked, asset_error, asset_url = _probe_login_route_in_board_scripts(
+                        final_url, body
+                    )
+                    result["contains_login_route"] = found
+                    result["asset_probe_url"] = asset_url
+                    result["script_assets_checked"] = checked
+                    result["script_asset_error"] = asset_error or None
+                    if found:
+                        result["login_route_source"] = "asset"
                 result["ok"] = bool(
                     response.status == 200
                     and result["contains_autostop"]
@@ -913,6 +1027,8 @@ def _print_site(report: dict[str, Any]) -> None:
     else:
         print("status: failed")
         print(f"error: {report.get('error')}")
+        if report.get("script_asset_error"):
+            print(f"script_asset_error: {report.get('script_asset_error')}")
 
 
 def _print_operator_auth(report: dict[str, Any]) -> None:

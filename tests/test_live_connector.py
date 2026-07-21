@@ -40,11 +40,13 @@ class FakeResponse:
         status: int = 200,
         url: str = "http://example.test",
         content_type: str = "text/html; charset=utf-8",
+        headers: dict[str, str] | None = None,
     ) -> None:
         self._payload = payload
         self.status = status
         self._url = url
         self.headers = {"Content-Type": content_type}
+        self.headers.update(headers or {})
 
     def __enter__(self):
         return self
@@ -205,48 +207,179 @@ class LiveConnectorOutputTests(unittest.TestCase):
         self.assertEqual(opener.call_count, 1)
         urlopen.assert_not_called()
 
-    def test_check_site_follows_fingerprinted_board_asset_for_login_contract(self) -> None:
+    def test_check_site_follows_same_origin_fingerprinted_board_script_contract(self) -> None:
         module = load_live_connector_module()
-        asset_path = "/assets/board." + ("a" * 64) + ".js"
-        html = (
-            "<html><head><title>AutoStop</title></head><body>AUTOSTOP"
-            f'<script src="{asset_path}"></script></body></html>'
+        script = b'fetch("/api/login_operator")'
+        digest = module.hashlib.sha256(script).hexdigest()
+        site_url = "https://crm.example.test"
+        asset_url = f"{site_url}/assets/board.{digest}.js"
+        document = (
+            "<html><head><title>AutoStop CRM</title></head>"
+            f'<body><script defer src="/assets/board.{digest}.js"></script></body></html>'
         ).encode()
-        responses = [
-            FakeResponse(html, url="https://crm.example.test"),
+        responses = (
             FakeResponse(
-                b"const loginRoute = '/api/login_operator';",
-                url=f"https://crm.example.test{asset_path}",
-                content_type="application/javascript",
+                document,
+                url=f"{site_url}/",
+                headers={"Content-Type": "text/html; charset=utf-8"},
             ),
-        ]
+            FakeResponse(
+                script,
+                url=asset_url,
+                headers={"Content-Type": "application/javascript; charset=utf-8"},
+            ),
+        )
 
-        with patch.object(module, "_urlopen_no_redirect", side_effect=responses) as opener:
-            result = module.check_site("https://crm.example.test", expect_https=True)
+        with (
+            patch.object(module, "BOARD_WEB_APP_JS_PATH", f"/assets/board.{digest}.js"),
+            patch.object(module, "_urlopen_no_redirect", side_effect=responses) as opener,
+        ):
+            result = module.check_site(site_url, expect_https=True)
 
         self.assertTrue(result["ok"])
         self.assertTrue(result["contains_login_route"])
         self.assertEqual(result["login_route_source"], "asset")
-        self.assertEqual(result["asset_probe_url"], f"https://crm.example.test{asset_path}")
+        self.assertEqual(result["asset_probe_url"], asset_url)
+        self.assertEqual(result["script_assets_checked"], 1)
+        self.assertIsNone(result["script_asset_error"])
         self.assertEqual(opener.call_count, 2)
+
+    def test_check_site_does_not_fetch_cross_origin_board_script(self) -> None:
+        module = load_live_connector_module()
+        digest = module.hashlib.sha256(b'fetch("/api/login_operator")').hexdigest()
+        site_url = "https://crm.example.test"
+        document = (
+            "<html><head><title>AutoStop CRM</title></head>"
+            f'<body><script src="https://cdn.example.test/assets/board.{digest}.js">'
+            "</script></body></html>"
+        ).encode()
+
+        with (
+            patch.object(module, "BOARD_WEB_APP_JS_PATH", f"/assets/board.{digest}.js"),
+            patch.object(
+                module,
+                "_urlopen_no_redirect",
+                return_value=FakeResponse(
+                    document,
+                    url=f"{site_url}/",
+                    headers={"Content-Type": "text/html; charset=utf-8"},
+                ),
+            ) as opener,
+        ):
+            result = module.check_site(site_url, expect_https=True)
+
+        self.assertFalse(result["ok"])
+        self.assertFalse(result["contains_login_route"])
+        self.assertEqual(result["script_assets_checked"], 0)
+        self.assertEqual(result["script_asset_error"], "board_script_not_found")
+        self.assertEqual(opener.call_count, 1)
 
     def test_check_site_does_not_follow_unfingerprinted_asset(self) -> None:
         module = load_live_connector_module()
-        html = (
-            b"<html><head><title>AutoStop</title></head><body>AUTOSTOP"
-            b'<script src="/assets/board.js"></script></body></html>'
+        site_url = "https://crm.example.test"
+        document = (
+            b"<html><head><title>AutoStop CRM</title></head>"
+            b'<body><script src="/assets/board.js"></script></body></html>'
         )
 
         with patch.object(
             module,
             "_urlopen_no_redirect",
-            return_value=FakeResponse(html, url="https://crm.example.test"),
+            return_value=FakeResponse(document, url=f"{site_url}/"),
         ) as opener:
-            result = module.check_site("https://crm.example.test", expect_https=True)
+            result = module.check_site(site_url, expect_https=True)
 
         self.assertFalse(result["ok"])
         self.assertFalse(result["contains_login_route"])
         self.assertEqual(result["asset_probe_url"], "")
+        self.assertEqual(result["script_assets_checked"], 0)
+        self.assertEqual(result["script_asset_error"], "board_script_not_found")
+        self.assertEqual(opener.call_count, 1)
+
+    def test_check_site_rejects_board_script_with_wrong_fingerprint(self) -> None:
+        module = load_live_connector_module()
+        site_url = "https://crm.example.test"
+        asset_url = f"{site_url}/assets/board.{'c' * 64}.js"
+        document = (
+            "<html><head><title>AutoStop CRM</title></head>"
+            f'<body><script src="{asset_url}"></script></body></html>'
+        ).encode()
+        responses = (
+            FakeResponse(
+                document,
+                url=f"{site_url}/",
+                headers={"Content-Type": "text/html; charset=utf-8"},
+            ),
+            FakeResponse(
+                b'fetch("/api/login_operator")',
+                url=asset_url,
+                headers={"Content-Type": "application/javascript; charset=utf-8"},
+            ),
+        )
+
+        with (
+            patch.object(module, "BOARD_WEB_APP_JS_PATH", f"/assets/board.{'c' * 64}.js"),
+            patch.object(module, "_urlopen_no_redirect", side_effect=responses),
+        ):
+            result = module.check_site(site_url, expect_https=True)
+
+        self.assertFalse(result["ok"])
+        self.assertFalse(result["contains_login_route"])
+        self.assertEqual(result["script_assets_checked"], 1)
+        self.assertEqual(result["script_asset_error"], "board_script_fingerprint_mismatch")
+
+    def test_check_site_accepts_current_external_board_shell(self) -> None:
+        module = load_live_connector_module()
+        from minimal_kanban.web_assets import (
+            BOARD_WEB_APP_HTML,
+            BOARD_WEB_APP_JS,
+            BOARD_WEB_APP_JS_PATH,
+        )
+
+        site_url = "https://crm.example.test"
+        responses = (
+            FakeResponse(
+                BOARD_WEB_APP_HTML.encode(),
+                url=f"{site_url}/",
+                headers={"Content-Type": "text/html; charset=utf-8"},
+            ),
+            FakeResponse(
+                BOARD_WEB_APP_JS.encode(),
+                url=f"{site_url}{BOARD_WEB_APP_JS_PATH}",
+                headers={"Content-Type": "application/javascript; charset=utf-8"},
+            ),
+        )
+
+        with patch.object(module, "_urlopen_no_redirect", side_effect=responses):
+            result = module.check_site(site_url, expect_https=True)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["login_route_source"], "asset")
+        self.assertEqual(result["asset_probe_url"], f"{site_url}{BOARD_WEB_APP_JS_PATH}")
+        self.assertEqual(result["script_assets_checked"], 1)
+
+    def test_check_site_keeps_support_for_inline_login_route(self) -> None:
+        module = load_live_connector_module()
+        site_url = "https://crm.example.test"
+        document = (
+            b"<html><head><title>AutoStop CRM</title></head>"
+            b'<body><script>fetch("/api/login_operator")</script></body></html>'
+        )
+
+        with patch.object(
+            module,
+            "_urlopen_no_redirect",
+            return_value=FakeResponse(
+                document,
+                url=f"{site_url}/",
+                headers={"Content-Type": "text/html; charset=utf-8"},
+            ),
+        ) as opener:
+            result = module.check_site(site_url, expect_https=True)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["login_route_source"], "html")
+        self.assertEqual(result["script_assets_checked"], 0)
         self.assertEqual(opener.call_count, 1)
 
     def test_url_helpers_handle_malformed_urls_without_crashing(self) -> None:
