@@ -66,6 +66,7 @@ release_git_verify_fetched_checkout() {
   local remote="$4"
   local remote_branch="$5"
   local before_head after_head remote_head candidate remote_found=0
+  local fetch_timeout="${AUTOSTOP_GIT_FETCH_TIMEOUT_SECONDS:-60}"
 
   if [[ -z "$remote" || "$remote" == -* || "$remote" == *[[:space:]]* ]]; then
     release_git_error "$label Git remote name is invalid."
@@ -73,6 +74,11 @@ release_git_verify_fetched_checkout() {
   fi
   if ! git check-ref-format "refs/heads/$remote_branch" >/dev/null 2>&1; then
     release_git_error "$label remote branch name is invalid."
+    return
+  fi
+  if ! [[ "$fetch_timeout" =~ ^[0-9]+$ ]] \
+    || (( fetch_timeout < 5 || fetch_timeout > 300 )); then
+    release_git_error "$label Git fetch timeout must be between 5 and 300 seconds."
     return
   fi
   if ! before_head="$(
@@ -90,8 +96,11 @@ release_git_verify_fetched_checkout() {
     release_git_error "$label configured Git remote is unavailable."
     return
   fi
-  if ! git -C "$checkout" fetch --quiet --no-tags \
-    "$remote" "refs/heads/$remote_branch" >/dev/null 2>&1; then
+  if ! timeout --signal=TERM --kill-after=5 "${fetch_timeout}s" \
+    env GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=Never \
+      GIT_SSH_COMMAND='ssh -oBatchMode=yes -oConnectTimeout=15' \
+    git -C "$checkout" fetch --quiet --no-tags \
+      "$remote" "refs/heads/$remote_branch" </dev/null >/dev/null 2>&1; then
     release_git_error "$label exact remote branch fetch failed."
     return
   fi

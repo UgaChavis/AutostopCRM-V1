@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -38,6 +39,12 @@ class AgentReleaseBackupTests(unittest.TestCase):
         audit_dir = crm_data / "audit-archive"
         audit_dir.mkdir()
         (audit_dir / "2026-07.jsonl").write_text('{"event_id":"E-1"}\n', encoding="utf-8")
+        with closing(sqlite3.connect(crm_data / "change_feed.sqlite3")) as connection:
+            connection.execute(
+                "CREATE TABLE consumers (consumer_id TEXT PRIMARY KEY, acked_sequence INTEGER)"
+            )
+            connection.execute("INSERT INTO consumers VALUES ('owner', 41)")
+            connection.commit()
         manager_db = root / "manager.sqlite3"
         with closing(sqlite3.connect(manager_db)) as connection:
             connection.execute("CREATE TABLE manager_runs (id INTEGER PRIMARY KEY, status TEXT)")
@@ -56,22 +63,156 @@ class AgentReleaseBackupTests(unittest.TestCase):
                 backup_id="release-1",
             )
             backup_dir = Path(created["backup_dir"])
+            self.assertEqual(created["schema"], "autostop-agent-release-backup.v2")
             verified = self.module.verify_backup(backup_dir)
             self.assertTrue(verified["ok"])
             self.assertTrue((backup_dir / "audit-archive.tar.gz").is_file())
+            self.assertTrue((backup_dir / "change_feed.sqlite3").is_file())
 
             (crm_data / "state.json").write_text('{"cards":[]}', encoding="utf-8")
+            with closing(sqlite3.connect(crm_data / "change_feed.sqlite3")) as connection:
+                connection.execute("UPDATE consumers SET acked_sequence = 99")
+                connection.commit()
             with closing(sqlite3.connect(manager_db)) as connection:
                 connection.execute("UPDATE manager_runs SET status = 'failed'")
                 connection.commit()
 
-            restored = self.module.restore_changed_state_and_manager(backup_dir)
-            self.assertEqual(set(restored["restored"]), {"state", "manager_sqlite"})
+            crm_restored = self.module.restore_crm_state_and_feed(backup_dir)
+            manager_restored = self.module.restore_manager_database(backup_dir)
+            self.assertEqual(
+                set(crm_restored["restored"]),
+                {"state", "change_feed_sqlite"},
+            )
+            self.assertEqual(manager_restored["restored"], ["manager_sqlite"])
             state = json.loads((crm_data / "state.json").read_text(encoding="utf-8"))
             self.assertEqual(state["cards"][0]["id"], "C-1")
             with closing(sqlite3.connect(manager_db)) as connection:
                 status = connection.execute("SELECT status FROM manager_runs").fetchone()[0]
             self.assertEqual(status, "completed")
+            with closing(sqlite3.connect(crm_data / "change_feed.sqlite3")) as connection:
+                acked = connection.execute(
+                    "SELECT acked_sequence FROM consumers WHERE consumer_id = 'owner'"
+                ).fetchone()[0]
+            self.assertEqual(acked, 41)
+
+    def test_restore_removes_feed_created_after_backup_of_legacy_release(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            crm_data, manager_db, output_root = self._fixture(root)
+            (crm_data / "change_feed.sqlite3").unlink()
+            created = self.module.create_backup(
+                output_root=output_root,
+                crm_data_dir=crm_data,
+                manager_db=manager_db,
+                backup_id="legacy-release",
+            )
+            backup_dir = Path(created["backup_dir"])
+            self.assertIsNone(created["artifacts"]["change_feed_sqlite"])
+
+            with closing(sqlite3.connect(crm_data / "change_feed.sqlite3")) as connection:
+                connection.execute("CREATE TABLE candidate_only (id INTEGER PRIMARY KEY)")
+                connection.commit()
+            Path(f"{crm_data / 'change_feed.sqlite3'}-wal").touch()
+            Path(f"{crm_data / 'change_feed.sqlite3'}-shm").touch()
+
+            restored = self.module.restore_crm_state_and_feed(backup_dir)
+
+            self.assertIn("change_feed_sqlite", restored["restored"])
+            self.assertFalse((crm_data / "change_feed.sqlite3").exists())
+            self.assertFalse(Path(f"{crm_data / 'change_feed.sqlite3'}-wal").exists())
+            self.assertFalse(Path(f"{crm_data / 'change_feed.sqlite3'}-shm").exists())
+
+    def test_manager_restore_discards_wal_only_candidate_write(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            crm_data, manager_db, output_root = self._fixture(root)
+            with closing(sqlite3.connect(manager_db)) as connection:
+                self.assertEqual(
+                    connection.execute("PRAGMA journal_mode=WAL").fetchone()[0].casefold(),
+                    "wal",
+                )
+            created = self.module.create_backup(
+                output_root=output_root,
+                crm_data_dir=crm_data,
+                manager_db=manager_db,
+                backup_id="wal-only-release",
+            )
+            backup_dir = Path(created["backup_dir"])
+            main_hash_before = self.module._sha256(manager_db)
+
+            candidate = """
+import os
+import sqlite3
+import sys
+
+connection = sqlite3.connect(sys.argv[1])
+connection.execute("PRAGMA journal_mode=WAL")
+connection.execute("PRAGMA wal_autocheckpoint=0")
+connection.execute("UPDATE manager_runs SET status = 'candidate'")
+connection.commit()
+os._exit(0)
+"""
+            subprocess.run([sys.executable, "-c", candidate, str(manager_db)], check=True)
+
+            self.assertEqual(main_hash_before, self.module._sha256(manager_db))
+            self.assertTrue(Path(f"{manager_db}-wal").is_file())
+            comparison = self.module.compare_current_protected_state(backup_dir)
+            self.assertFalse(comparison["ok"])
+            self.assertIn("manager_sqlite", comparison["changed_artifacts"])
+
+            restored = self.module.restore_manager_database(backup_dir)
+
+            self.assertEqual(["manager_sqlite"], restored["restored"])
+            self.assertFalse(Path(f"{manager_db}-wal").exists())
+            self.assertFalse(Path(f"{manager_db}-shm").exists())
+            with closing(sqlite3.connect(manager_db)) as connection:
+                status = connection.execute("SELECT status FROM manager_runs").fetchone()[0]
+            self.assertEqual("completed", status)
+
+    def test_change_feed_restore_discards_wal_before_opening_restored_main(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            crm_data, manager_db, output_root = self._fixture(root)
+            change_feed = crm_data / "change_feed.sqlite3"
+            with closing(sqlite3.connect(change_feed)) as connection:
+                self.assertEqual(
+                    connection.execute("PRAGMA journal_mode=WAL").fetchone()[0].casefold(),
+                    "wal",
+                )
+            created = self.module.create_backup(
+                output_root=output_root,
+                crm_data_dir=crm_data,
+                manager_db=manager_db,
+                backup_id="feed-wal-release",
+            )
+            backup_dir = Path(created["backup_dir"])
+            main_hash_before = self.module._sha256(change_feed)
+            candidate = """
+import os
+import sqlite3
+import sys
+
+connection = sqlite3.connect(sys.argv[1])
+connection.execute("PRAGMA journal_mode=WAL")
+connection.execute("PRAGMA wal_autocheckpoint=0")
+connection.execute("UPDATE consumers SET acked_sequence = 99")
+connection.commit()
+os._exit(0)
+"""
+            subprocess.run([sys.executable, "-c", candidate, str(change_feed)], check=True)
+            self.assertEqual(main_hash_before, self.module._sha256(change_feed))
+            self.assertTrue(Path(f"{change_feed}-wal").is_file())
+
+            restored = self.module.restore_crm_state_and_feed(backup_dir)
+
+            self.assertIn("change_feed_sqlite", restored["restored"])
+            self.assertFalse(Path(f"{change_feed}-wal").exists())
+            self.assertFalse(Path(f"{change_feed}-shm").exists())
+            with closing(sqlite3.connect(change_feed)) as connection:
+                acked = connection.execute(
+                    "SELECT acked_sequence FROM consumers WHERE consumer_id = 'owner'"
+                ).fetchone()[0]
+            self.assertEqual(41, acked)
 
     def test_incomplete_backup_directory_is_never_published(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
