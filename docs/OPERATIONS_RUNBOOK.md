@@ -399,7 +399,9 @@ The bounded release flow:
    scoped Store identity, and the isolated Store network;
 2. creates both the active Manager release and any rollback fallback strictly
    from the verified Manager commit via `git archive HEAD`, then prebuilds an
-   immutable CRM image before maintenance;
+   immutable CRM image before maintenance; an early EXIT guard owns only this
+   attempt's exact Manager paths and Docker refs, so a pre-maintenance failure
+   removes or restores them without touching the live/previous release;
 3. provisions stable encrypted OAuth, snapshots auth, removes Codex bearer
    config, and rotates the internal compatibility bearer with a private
    rollback copy;
@@ -408,16 +410,26 @@ The bounded release flow:
    SQLite;
 6. starts the prebuilt image, proves only CRM and App share the Store network,
    and runs internal authenticated CRM plus Store-read smoke; Store Gateway
-   readiness is retried only within the bounded release budget, so a short
-   cold-start initialization is tolerated but an unavailable Store still fails
-   the release and triggers rollback;
-7. removes maintenance mode and runs mandatory public API, OAuth discovery,
-   owner-approved OAuth flow, and exhaustive 24-tool Gateway smoke;
-8. tags the healthy release as stable and installs the watchdog.
+   readiness and every candidate-side Docker probe remain inside the bounded
+   release budget, so a short cold-start initialization is tolerated but an
+   unavailable Store still fails the release and triggers rollback;
+7. while maintenance protection remains active, runs the signed technical
+   owner/feed dry-run probes, mandatory public API and OAuth checks, and the
+   exhaustive maintenance-safe 24-tool Gateway smoke;
+8. installs the watchdog, tags the healthy release as stable, then removes the
+   maintenance marker as the final fallible release action;
+9. after success is marked and the rollback trap is removed, best-effort
+   retention prunes only validated old backup directories, Manager release
+   snapshots, and exact CRM release/rollback image tags. Current and rollback
+   references are always protected; retention failure cannot roll back or stop
+   the healthy release.
 
 Any failure or maintenance-budget overrun attempts a bounded rollback of
 changed protected data, Manager release, auth configuration, and the previous
-image. The marker remains if rollback cannot prove a healthy recovery.
+image. Rollback restores protected state only after the candidate container is
+proven stopped; if stop fails, state/feed/Manager data remain untouched and the
+maintenance marker stays active. The marker also remains if rollback cannot
+prove a healthy recovery.
 
 Commonly reviewed settings:
 
@@ -427,6 +439,10 @@ Commonly reviewed settings:
 - `AUTOSTOP_BUILD_RELEASE_IMAGE`
 - `AUTOSTOP_MAINTENANCE_BUDGET_SECONDS`
 - `AUTOSTOP_RELEASE_BACKUP_ROOT`
+- `AUTOSTOP_RELEASE_BACKUP_RETENTION_COUNT`
+- `AUTOSTOP_MANAGER_RELEASE_RETENTION_COUNT`
+- `AUTOSTOP_RELEASE_IMAGE_RETENTION_COUNT` /
+  `AUTOSTOP_ROLLBACK_IMAGE_RETENTION_COUNT`
 - `AUTOSTOP_DEPLOY_LOCK_PATH`
 - `AUTOSTOP_SMOKE_ATTEMPTS` / `AUTOSTOP_SMOKE_DELAY_SECONDS`
 - `AUTOSTOP_INSTALL_WATCHDOG`

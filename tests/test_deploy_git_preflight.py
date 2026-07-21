@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -66,6 +67,77 @@ class ReleaseGitPreflightTests(unittest.TestCase):
             capture_output=True,
             text=True,
         )
+
+    def test_invalid_fetch_timeout_fails_before_network_access(self) -> None:
+        checkout, _remote = self._create_checkout("timeout", "autostopcrm-v1")
+
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                'source "$1"; AUTOSTOP_GIT_FETCH_TIMEOUT_SECONDS=0 '
+                'release_git_verify_fetched_checkout "$2" "$3" "$4" origin "$5"',
+                "bash",
+                str(PREFLIGHT_SCRIPT),
+                "AutoStop CRM",
+                str(checkout),
+                "autostopcrm-v1",
+                "autostopcrm-v1",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(2, result.returncode)
+        self.assertIn("fetch timeout must be between 5 and 300 seconds", result.stderr)
+
+    def test_hanging_fetch_is_bounded_redacted_and_releases_outer_lock(self) -> None:
+        checkout, _remote = self._create_checkout("hanging", "autostopcrm-v1")
+        upload_pack = self.base_dir / "private-hanging-upload-pack"
+        upload_pack.write_text("#!/bin/sh\nsleep 30\n", encoding="utf-8")
+        upload_pack.chmod(0o700)
+        self._run(
+            "git",
+            "config",
+            "remote.origin.uploadpack",
+            str(upload_pack),
+            cwd=checkout,
+        )
+        deploy_lock = self.base_dir / "deploy.lock"
+
+        started_at = time.monotonic()
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                'exec {lock_fd}>"$1"; flock -n "$lock_fd"; source "$2"; '
+                "AUTOSTOP_GIT_FETCH_TIMEOUT_SECONDS=5 release_git_verify_fetched_checkout "
+                '"AutoStop CRM" "$3" autostopcrm-v1 origin autostopcrm-v1',
+                "bash",
+                str(deploy_lock),
+                str(PREFLIGHT_SCRIPT),
+                str(checkout),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=12,
+        )
+        elapsed = time.monotonic() - started_at
+
+        self.assertEqual(2, result.returncode)
+        self.assertLess(elapsed, 10)
+        self.assertEqual("", result.stdout)
+        self.assertIn("exact remote branch fetch failed", result.stderr)
+        self.assertNotIn(str(upload_pack), result.stderr)
+        released = subprocess.run(
+            ["flock", "-n", str(deploy_lock), "true"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(0, released.returncode)
 
     def test_clean_exact_branch_and_remote_head_returns_only_commit_sha(self) -> None:
         checkout, _remote = self._create_checkout("clean", "AutostopManager")

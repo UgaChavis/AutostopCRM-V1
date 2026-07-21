@@ -1,21 +1,56 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from collections.abc import Mapping
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
-from mcp.types import CallToolResult, ToolAnnotations
-from pydantic import BaseModel
+from mcp.types import CallToolResult
 
-from ..deployment_security import load_agent_gateway_security_policy
+from ..deployment_security import is_maintenance_mode, load_agent_gateway_security_policy
 from ..repair_order import repair_order_payment_method_from_cashbox_name
+from .agent_gateway_support import (
+    AGENT_GATEWAY_FORMAT,
+    AGENT_GATEWAY_TOOL_NAMES,
+    DIAGNOSTIC_TOOL_NAMES,
+    MAIL_CAPABILITY_NAMES,
+    MANAGER_WORKFLOW_TOOL_NAMES,
+    PERMANENT_AGENT_GATEWAY_TOOL_NAMES,
+    STORE_VIN_PHOTO_PREVIEW_OPERATION,
+    WORKFLOW_TERMINAL_STATES,
+    _as_dict,
+    _compact_object,
+    _contains_value,
+    _cursor_offset,
+    _decimal_text,
+    _envelope,
+    _error_code,
+    _find_mapping,
+    _find_value,
+    _is_destructive_capability,
+    _items_from_data,
+    _maintenance_technical_write_allowed,
+    _normalize_limit,
+    _policy_error,
+    _positive_decimal,
+    _read_annotations,
+    _response_data,
+    _selected_fields,
+    _slim_card,
+    _store_owner_prepare_binding,
+    _store_owner_request_error,
+    _store_owner_transport_matches_binding,
+    _subset_matches,
+    _tool_risk,
+    _write_annotations,
+)
+from .agent_gateway_support import (
+    _release_smoke_proof as _release_smoke_proof,
+)
 from .client import BoardApiClient
 from .gateway_contract import (
     BOARD_WORKFLOW_OPERATIONS,
-    CARD_FIELD_ALLOWLIST,
     DEFAULT_CARD_FIELDS,
     DOCUMENT_WORKFLOW_OPERATIONS,
     FINANCE_VIRTUAL_OPERATIONS,
@@ -33,7 +68,6 @@ from .gateway_media import (
     without_binary_content as _without_binary_content,
 )
 from .raw_gateway import (
-    DESTRUCTIVE_CAPABILITY_MARKERS,
     OPTIMISTIC_WRITE_NAMES,
     RAW_API_ROUTES,
     verify_virtual_api_write_readback,
@@ -84,459 +118,6 @@ from .web_gateway import (
     invoke_web_research,
     web_research_argument_error,
 )
-
-AGENT_GATEWAY_FORMAT = "agent_envelope_v2"
-STORE_VIN_PHOTO_PREVIEW_OPERATION = "download_store_quote_vin_photo"
-AGENT_GATEWAY_TOOL_NAMES = frozenset(
-    {
-        "agent_bootstrap",
-        "agent_board_digest",
-        "agent_search",
-        "agent_entity_context",
-        "agent_board_workflow",
-        "agent_finance_workflow",
-        "agent_inventory_workflow",
-        "agent_document_workflow",
-        "discover_raw_capabilities",
-        "get_raw_capability_schema",
-        "call_raw_capability",
-    }
-)
-MANAGER_WORKFLOW_TOOL_NAMES = frozenset(
-    {
-        "list_agent_workflows",
-        "prepare_action_contract",
-        "start_workflow",
-        "workflow_status",
-        "workflow_transition",
-        "workflow_checkpoint",
-        "workflow_wait_for_external",
-        "complete_external_step",
-        "workflow_resume",
-        "workflow_cancel",
-    }
-)
-DIAGNOSTIC_TOOL_NAMES = frozenset(
-    {"ping_connector", "get_connector_identity", "get_runtime_status"}
-)
-PERMANENT_AGENT_GATEWAY_TOOL_NAMES = frozenset(
-    AGENT_GATEWAY_TOOL_NAMES | MANAGER_WORKFLOW_TOOL_NAMES | DIAGNOSTIC_TOOL_NAMES
-)
-FINANCE_TOOL_NAMES = frozenset(FINANCE_WORKFLOW_OPERATIONS)
-DESTRUCTIVE_TOOL_NAMES = frozenset(
-    {
-        "archive_card",
-        "delete_cashbox",
-        "delete_client",
-        "delete_client_vehicle",
-        "delete_column",
-        "delete_shared_file",
-        "delete_sticky",
-    }
-)
-
-WORKFLOW_TERMINAL_STATES = frozenset({"completed", "failed", "cancelled"})
-
-FINANCE_SENSITIVE_KEYS = frozenset(
-    {
-        "advance_payment",
-        "cashbox_id",
-        "cash_transaction_id",
-        "noncash_due",
-        "paid_amount",
-        "payment",
-        "payment_history",
-        "payment_method",
-        "payments",
-        "payroll",
-        "prepayment",
-        "salary",
-        "shift_accrual",
-    }
-)
-
-MAIL_CAPABILITY_NAMES = frozenset(
-    {
-        "workflow_wait_for_external",
-        "complete_external_step",
-    }
-)
-
-
-def _read_annotations(title: str) -> ToolAnnotations:
-    return ToolAnnotations(
-        title=title,
-        readOnlyHint=True,
-        destructiveHint=False,
-        idempotentHint=True,
-        openWorldHint=False,
-    )
-
-
-def _write_annotations(title: str, *, destructive: bool = False) -> ToolAnnotations:
-    return ToolAnnotations(
-        title=title,
-        readOnlyHint=False,
-        destructiveHint=destructive,
-        idempotentHint=True,
-        openWorldHint=False,
-    )
-
-
-def _as_dict(value: Any) -> dict[str, Any]:
-    if isinstance(value, CallToolResult):
-        structured = value.structuredContent
-        if isinstance(structured, dict):
-            return dict(structured)
-    if isinstance(value, BaseModel):
-        return value.model_dump(mode="json", by_alias=True)
-    if isinstance(value, dict):
-        return dict(value)
-    return {"ok": False, "error": {"code": "unexpected_result", "message": str(value)}}
-
-
-def _envelope(
-    *,
-    ok: bool,
-    status: str = "completed",
-    summary: dict[str, Any] | None = None,
-    data: Any = None,
-    run_id: int | None = None,
-    changes: list[dict[str, Any]] | None = None,
-    verification: dict[str, Any] | None = None,
-    warnings: list[str] | None = None,
-    next_actions: list[str] | None = None,
-    page: dict[str, Any] | None = None,
-    meta: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    payload = {
-        "ok": bool(ok),
-        "format": AGENT_GATEWAY_FORMAT,
-        "run_id": run_id,
-        "status": status,
-        "summary": summary or {},
-        "data": data,
-        "changes": changes or [],
-        "verification": verification or {},
-        "warnings": list(dict.fromkeys(warnings or [])),
-        "next_actions": next_actions or [],
-        "page": page or {},
-        "meta": {"response_mode": "agent_compact", **(meta or {})},
-    }
-    payload["meta"]["payload_bytes"] = len(
-        json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str).encode("utf-8")
-    )
-    return payload
-
-
-def _response_data(response: Any) -> tuple[bool, Any, dict[str, Any], Any]:
-    payload = _as_dict(response)
-    return (
-        bool(payload.get("ok")),
-        payload.get("data"),
-        dict(payload.get("meta") or {}) if isinstance(payload.get("meta"), dict) else {},
-        payload.get("error"),
-    )
-
-
-def _items_from_data(data: Any, *keys: str) -> list[dict[str, Any]]:
-    if isinstance(data, list):
-        return [dict(item) for item in data if isinstance(item, dict)]
-    if not isinstance(data, dict):
-        return []
-    for key in keys:
-        value = data.get(key)
-        if isinstance(value, list):
-            return [dict(item) for item in value if isinstance(item, dict)]
-    return []
-
-
-def _normalize_limit(value: Any, *, default: int, maximum: int) -> int:
-    if isinstance(value, bool):
-        return default
-    try:
-        normalized = int(value)
-    except (TypeError, ValueError, OverflowError):
-        return default
-    return max(1, min(normalized, maximum))
-
-
-def _cursor_offset(cursor: str | None) -> int:
-    try:
-        return max(0, int(str(cursor or "0")))
-    except (TypeError, ValueError, OverflowError):
-        return 0
-
-
-def _selected_fields(fields: list[str] | None) -> tuple[str, ...]:
-    if not fields:
-        return DEFAULT_CARD_FIELDS
-    selected = tuple(
-        dict.fromkeys(
-            str(field).strip()
-            for field in fields
-            if str(field or "").strip() in CARD_FIELD_ALLOWLIST
-        )
-    )
-    return selected or DEFAULT_CARD_FIELDS
-
-
-def _slim_card(card: Mapping[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:
-    return {field: card.get(field) for field in fields if field in card}
-
-
-def _compact_object(
-    value: Any,
-    *,
-    depth: int = 0,
-    item_limit: int = 25,
-    key_limit: int = 100,
-    max_depth: int = 5,
-    _budget: list[int] | None = None,
-) -> Any:
-    budget = _budget if _budget is not None else [100_000]
-    if budget[0] <= 0:
-        return "<payload-budget-exhausted>"
-    if depth >= max_depth:
-        return "<max-depth>"
-    if isinstance(value, BaseModel):
-        value = value.model_dump(mode="json", by_alias=True)
-    if isinstance(value, dict):
-        safe_items = [
-            (key, item)
-            for key, item in value.items()
-            if str(key) not in {"content_base64", "pdf_base64", "raw_body", "body_html"}
-        ]
-        compact: dict[str, Any] = {}
-        for key, item in safe_items[:key_limit]:
-            if budget[0] <= 0:
-                break
-            normalized_key = str(key)
-            budget[0] -= len(normalized_key)
-            compact[normalized_key] = _compact_object(
-                item,
-                depth=depth + 1,
-                item_limit=item_limit,
-                key_limit=key_limit,
-                _budget=budget,
-                max_depth=max_depth,
-            )
-        if len(safe_items) > key_limit:
-            compact["truncated_keys"] = len(safe_items) - key_limit
-        elif budget[0] <= 0:
-            compact["payload_truncated"] = True
-        return compact
-    if isinstance(value, list):
-        compact = [
-            _compact_object(
-                item,
-                depth=depth + 1,
-                item_limit=item_limit,
-                key_limit=key_limit,
-                _budget=budget,
-                max_depth=max_depth,
-            )
-            for item in value[:item_limit]
-            if budget[0] > 0
-        ]
-        if len(value) > item_limit:
-            compact.append({"truncated_items": len(value) - item_limit})
-        return compact
-    if isinstance(value, str):
-        allowed = max(0, min(4000, budget[0]))
-        budget[0] -= min(len(value), allowed)
-        if len(value) > allowed:
-            return value[:allowed] + "...<truncated>"
-        return value
-    budget[0] -= min(len(str(value)), 64)
-    return value
-
-
-def _find_value(value: Any, keys: frozenset[str], *, depth: int = 0) -> Any:
-    if depth > 5:
-        return None
-    if isinstance(value, BaseModel):
-        value = value.model_dump(mode="json", by_alias=True)
-    if isinstance(value, dict):
-        for key in keys:
-            candidate = value.get(key)
-            if candidate not in (None, "", [], {}):
-                return candidate
-        for candidate in value.values():
-            found = _find_value(candidate, keys, depth=depth + 1)
-            if found not in (None, "", [], {}):
-                return found
-    elif isinstance(value, list):
-        for candidate in value[:25]:
-            found = _find_value(candidate, keys, depth=depth + 1)
-            if found not in (None, "", [], {}):
-                return found
-    return None
-
-
-def _contains_value(value: Any, key: str, expected: Any, *, depth: int = 0) -> bool:
-    if depth > 7:
-        return False
-    if isinstance(value, BaseModel):
-        value = value.model_dump(mode="json", by_alias=True)
-    if isinstance(value, dict):
-        if key in value and str(value.get(key)) == str(expected):
-            return True
-        return any(_contains_value(item, key, expected, depth=depth + 1) for item in value.values())
-    if isinstance(value, list):
-        return any(_contains_value(item, key, expected, depth=depth + 1) for item in value[:200])
-    return False
-
-
-def _find_mapping(value: Any, key: str, expected: Any, *, depth: int = 0) -> dict[str, Any] | None:
-    if depth > 7:
-        return None
-    if isinstance(value, BaseModel):
-        value = value.model_dump(mode="json", by_alias=True)
-    if isinstance(value, dict):
-        if key in value and str(value.get(key)) == str(expected):
-            return dict(value)
-        for item in value.values():
-            found = _find_mapping(item, key, expected, depth=depth + 1)
-            if found is not None:
-                return found
-    elif isinstance(value, list):
-        for item in value[:200]:
-            found = _find_mapping(item, key, expected, depth=depth + 1)
-            if found is not None:
-                return found
-    return None
-
-
-def _subset_matches(expected: Any, actual: Any) -> bool:
-    if isinstance(expected, BaseModel):
-        expected = expected.model_dump(mode="json", by_alias=True, exclude_none=True)
-    if isinstance(actual, BaseModel):
-        actual = actual.model_dump(mode="json", by_alias=True, exclude_none=True)
-    if isinstance(expected, dict):
-        return isinstance(actual, dict) and all(
-            key in actual and _subset_matches(value, actual.get(key))
-            for key, value in expected.items()
-        )
-    if isinstance(expected, list):
-        return isinstance(actual, list) and expected == actual
-    return expected == actual
-
-
-def _error_code(value: Any) -> str:
-    error = value.get("error") if isinstance(value, dict) else None
-    if isinstance(error, dict):
-        return str(error.get("code") or "")
-    return str(error or "")
-
-
-def _positive_decimal(value: Any) -> Decimal | None:
-    try:
-        parsed = Decimal(str(value).strip().replace(" ", "").replace(",", "."))
-    except (InvalidOperation, AttributeError, ValueError):
-        return None
-    return parsed if parsed.is_finite() and parsed > 0 else None
-
-
-def _decimal_text(value: Decimal) -> str:
-    normalized = format(value.quantize(Decimal("0.01")), "f")
-    return normalized.rstrip("0").rstrip(".") if "." in normalized else normalized
-
-
-def _contains_sensitive_key(
-    value: Any,
-    keys: frozenset[str],
-    *,
-    depth: int = 0,
-) -> bool:
-    if depth > 7:
-        return False
-    if isinstance(value, BaseModel):
-        value = value.model_dump(mode="json", by_alias=True)
-    if isinstance(value, Mapping):
-        normalized_keys = {str(key).strip().casefold().replace("-", "_") for key in value}
-        if any(
-            key in keys
-            or any(
-                marker in key
-                for marker in ("payment", "cashbox", "salary", "payroll", "shift_accrual")
-            )
-            for key in normalized_keys
-        ):
-            return True
-        return any(_contains_sensitive_key(item, keys, depth=depth + 1) for item in value.values())
-    if isinstance(value, list):
-        return any(_contains_sensitive_key(item, keys, depth=depth + 1) for item in value[:200])
-    return False
-
-
-def _is_finance_capability(name: str, arguments: Mapping[str, Any] | None = None) -> bool:
-    normalized = str(name or "").casefold()
-    if name in FINANCE_TOOL_NAMES or any(
-        marker in normalized
-        for marker in (
-            "cashbox",
-            "cash_transaction",
-            "finance_audit",
-            "payroll",
-            "save_employee",
-            "toggle_employee",
-            "delete_employee",
-            "salary_transaction",
-            "shift_accrual",
-            "repair_order_payment",
-            "update_repair_order",
-            "set_repair_order_status",
-            "replace_repair_order_",
-        )
-    ):
-        return True
-    return _contains_sensitive_key(arguments or {}, FINANCE_SENSITIVE_KEYS)
-
-
-def _is_mail_capability(name: str) -> bool:
-    normalized = str(name or "").casefold()
-    return name in MAIL_CAPABILITY_NAMES or any(
-        marker in normalized for marker in ("gmail", "mail_", "email_")
-    )
-
-
-def _is_destructive_capability(name: str, risk: str) -> bool:
-    normalized = str(name or "").casefold()
-    return (
-        risk == "destructive"
-        or name in DESTRUCTIVE_TOOL_NAMES
-        or any(marker in normalized for marker in DESTRUCTIVE_CAPABILITY_MARKERS)
-    )
-
-
-def _tool_risk(tool: Any) -> str:
-    annotations = getattr(tool, "annotations", None)
-    if bool(getattr(annotations, "destructiveHint", False)):
-        return "destructive"
-    if bool(getattr(annotations, "readOnlyHint", False)):
-        return "read"
-    return "write"
-
-
-def _policy_error(
-    *,
-    tool_name: str,
-    risk: str,
-    arguments: Mapping[str, Any] | None = None,
-) -> str | None:
-    policy = load_agent_gateway_security_policy()
-    if not policy.gateway_enabled:
-        return "agent_gateway_disabled"
-    if risk != "read" and not policy.writes_enabled:
-        return "agent_gateway_writes_disabled"
-    if _is_finance_capability(tool_name, arguments) and not policy.finance_enabled:
-        return "agent_gateway_finance_disabled"
-    if _is_mail_capability(tool_name) and not policy.mail_enabled:
-        return "agent_gateway_mail_disabled"
-    if _is_destructive_capability(tool_name, risk) and not policy.destructive_enabled:
-        return "agent_gateway_destructive_disabled"
-    return None
 
 
 def register_agent_gateway_v2(
@@ -976,6 +557,49 @@ def register_agent_gateway_v2(
     ) -> dict[str, Any]:
         if risk == "read":
             return {"required": False, "passed": bool(result.get("ok"))}
+        if operation == "store_owner_api":
+            mode = str(arguments.get("mode") or "").strip().casefold()
+            result_status = str(result.get("status") or "").strip().casefold()
+            result_meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
+            if mode == "apply":
+                # The generic owner transport deliberately cannot know how to
+                # verify all employee operations. A successful HTTP mutation is
+                # therefore only executor evidence; the caller must perform the
+                # operation-specific exact reread before closing the ledger.
+                readback_required = bool(result_meta.get("readback_required"))
+                return {
+                    "required": True,
+                    # Never accept a transport self-attestation as exact
+                    # business-state verification. The generic gateway lacks
+                    # the operation-specific target mapping by design.
+                    "passed": False,
+                    "check": "store_owner_operation_specific_exact_readback",
+                    "evidence": {
+                        "transport_status": result_status,
+                        "write_applied": bool(result_meta.get("write_applied")),
+                        "readback_required": readback_required,
+                        "outcome_uncertain": bool(result_meta.get("outcome_uncertain")),
+                    },
+                }
+            if mode == "dry_run":
+                return {
+                    "required": True,
+                    "passed": bool(result.get("ok"))
+                    and result_status == "planned"
+                    and result_meta.get("domain_handler_executed") is False,
+                    "check": "store_owner_server_dry_run_receipt",
+                    "evidence": {
+                        "transport_status": result_status,
+                        "domain_handler_executed": result_meta.get("domain_handler_executed"),
+                    },
+                }
+            return {
+                "required": True,
+                "passed": bool(result.get("ok"))
+                and result_status == "completed"
+                and not bool(result_meta.get("readback_required")),
+                "check": "store_owner_read_response_contract",
+            }
         virtual_verification = await verify_virtual_api_write_readback(
             operation,
             arguments,
@@ -1142,6 +766,15 @@ def register_agent_gateway_v2(
         mode: str | None = None,
         allow_large_output: bool = False,
     ) -> CallToolResult:
+        if is_maintenance_mode():
+            return _tool_result(
+                _envelope(
+                    ok=False,
+                    status="blocked",
+                    warnings=["maintenance_mode_domain_writes_blocked"],
+                ),
+                label=workflow_id,
+            )
         if operation not in allowed:
             return _tool_result(
                 _envelope(
@@ -1554,6 +1187,108 @@ def register_agent_gateway_v2(
                 mime_type=image_mime_type,
             )
         return _tool_result(payload, label=workflow_id)
+
+    async def _guarded_ledger_call(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        if is_maintenance_mode():
+            return _tool_result(
+                _envelope(
+                    ok=False,
+                    status="blocked",
+                    warnings=["maintenance_mode_workflow_ledger_write_blocked"],
+                ),
+                label=name,
+            )
+        return _tool_result(await _invoke(name, arguments), label=name)
+
+    for guarded_ledger_tool in (
+        "start_workflow",
+        "workflow_transition",
+        "workflow_checkpoint",
+        "workflow_wait_for_external",
+        "complete_external_step",
+        "workflow_resume",
+        "workflow_cancel",
+    ):
+        if guarded_ledger_tool in tools:
+            tool_manager.remove_tool(guarded_ledger_tool)
+
+    @server.tool(name="start_workflow", annotations=_write_annotations("Start Workflow"))
+    async def guarded_start_workflow(
+        workflow_id: str,
+        intent: str,
+        idempotency_key: str,
+        query: str = "",
+        request_id: str = "",
+        correlation_id: str = "",
+        actor: str = "codex-owner-agent",
+        scope: dict[str, Any] | None = None,
+        selected_ids: list[str] | None = None,
+        dry_run: bool = False,
+        source: str = "codex",
+        metadata: dict[str, Any] | None = None,
+    ) -> CallToolResult:
+        return await _guarded_ledger_call("start_workflow", locals())
+
+    @server.tool(name="workflow_transition", annotations=_write_annotations("Workflow Transition"))
+    async def guarded_workflow_transition(
+        run_id: int,
+        status: str,
+        message: str = "",
+        verification: dict[str, Any] | None = None,
+        summary: str = "",
+        expected_state_version: int | None = None,
+    ) -> CallToolResult:
+        return await _guarded_ledger_call("workflow_transition", locals())
+
+    @server.tool(name="workflow_checkpoint", annotations=_write_annotations("Workflow Checkpoint"))
+    async def guarded_workflow_checkpoint(
+        run_id: int,
+        checkpoint: dict[str, Any],
+        selected_ids: list[str] | None = None,
+        message: str = "",
+        expected_state_version: int | None = None,
+    ) -> CallToolResult:
+        return await _guarded_ledger_call("workflow_checkpoint", locals())
+
+    @server.tool(
+        name="workflow_wait_for_external",
+        annotations=_write_annotations("Workflow External Wait"),
+    )
+    async def guarded_workflow_wait_for_external(
+        run_id: int,
+        step_id: str,
+        connector: str,
+        action: str,
+        request_refs: dict[str, Any] | None = None,
+        expected_state_version: int | None = None,
+    ) -> CallToolResult:
+        return await _guarded_ledger_call("workflow_wait_for_external", locals())
+
+    @server.tool(
+        name="complete_external_step",
+        annotations=_write_annotations("Complete External Step"),
+    )
+    async def guarded_complete_external_step(
+        run_id: int,
+        step_id: str,
+        result_refs: dict[str, Any] | None = None,
+        expected_state_version: int | None = None,
+    ) -> CallToolResult:
+        return await _guarded_ledger_call("complete_external_step", locals())
+
+    @server.tool(name="workflow_resume", annotations=_write_annotations("Workflow Resume"))
+    async def guarded_workflow_resume(
+        run_id: int, expected_state_version: int | None = None
+    ) -> CallToolResult:
+        return await _guarded_ledger_call("workflow_resume", locals())
+
+    @server.tool(name="workflow_cancel", annotations=_write_annotations("Workflow Cancel"))
+    async def guarded_workflow_cancel(
+        run_id: int,
+        reason: str = "",
+        expected_state_version: int | None = None,
+    ) -> CallToolResult:
+        return await _guarded_ledger_call("workflow_cancel", locals())
 
     @server.tool(
         name="get_runtime_status",
@@ -2152,6 +1887,8 @@ def register_agent_gateway_v2(
         schema_hash: str,
         idempotency_key: str = "",
         allow_large_output: bool = False,
+        release_smoke_revision: str = "",
+        release_smoke_proof: str = "",
     ) -> CallToolResult:
         policy_now = load_agent_gateway_security_policy()
         if not policy_now.raw_enabled:
@@ -2206,9 +1943,34 @@ def register_agent_gateway_v2(
                     _envelope(ok=False, status="blocked", warnings=[argument_error]),
                     label="call_raw_capability",
                 )
+        owner_mode = (
+            str((arguments or {}).get("mode") or "dry_run").strip().casefold()
+            if normalized_name == "store_owner_api"
+            else ""
+        )
+        owner_correlation_id = (
+            str((arguments or {}).get("correlation_id") or "").strip()
+            if normalized_name == "store_owner_api"
+            else ""
+        )
+        owner_request_error = _store_owner_request_error(
+            normalized_name,
+            arguments or {},
+            owner_mode=owner_mode,
+            owner_correlation_id=owner_correlation_id,
+        )
+        if owner_request_error:
+            return _tool_result(
+                _envelope(ok=False, status="blocked", warnings=[owner_request_error]),
+                label="call_raw_capability",
+            )
         risk = (
             "read"
             if virtual_web
+            or (
+                normalized_name == "store_owner_api"
+                and owner_mode in {"read", "revision", "prepare"}
+            )
             else (
                 _virtual_api_risk(virtual_route, normalized_name)
                 if virtual_route is not None
@@ -2226,6 +1988,25 @@ def register_agent_gateway_v2(
                 label="call_raw_capability",
             )
         if (
+            risk != "read"
+            and is_maintenance_mode()
+            and not _maintenance_technical_write_allowed(
+                capability=normalized_name,
+                arguments=arguments or {},
+                revision=release_smoke_revision,
+                proof=release_smoke_proof,
+                agent_bearer_token=agent_bearer_token,
+            )
+        ):
+            return _tool_result(
+                _envelope(
+                    ok=False,
+                    status="blocked",
+                    warnings=["maintenance_mode_raw_write_blocked"],
+                ),
+                label="call_raw_capability",
+            )
+        if (
             normalized_name in OPTIMISTIC_WRITE_NAMES
             and not str((arguments or {}).get("expected_updated_at") or "").strip()
         ):
@@ -2238,6 +2019,9 @@ def register_agent_gateway_v2(
                 label="call_raw_capability",
             )
         run_id: int | None = None
+        effective_arguments = dict(arguments or {})
+        owner_binding: dict[str, Any] = {}
+        request_fingerprint = ""
         if risk != "read":
             if not str(idempotency_key or "").strip():
                 return _tool_result(
@@ -2248,8 +2032,62 @@ def register_agent_gateway_v2(
                     ),
                     label="call_raw_capability",
                 )
+            if normalized_name == "store_owner_api":
+                supplied_contract_id = str(
+                    effective_arguments.get("expected_contract_id") or ""
+                ).strip()
+                prepare_arguments = dict(effective_arguments)
+                prepare_arguments["mode"] = "prepare"
+                prepare_arguments["prepare_for_mode"] = owner_mode
+                prepare_arguments.pop("expected_contract_id", None)
+                prepared = await _invoke(normalized_name, prepare_arguments)
+                prepared_binding = _store_owner_prepare_binding(
+                    effective_arguments,
+                    prepared,
+                    prepared_for_mode=owner_mode,
+                )
+                if prepared_binding is None:
+                    return _tool_result(
+                        _envelope(
+                            ok=False,
+                            status="blocked",
+                            warnings=["store_owner_prepare_contract_invalid"],
+                        ),
+                        label="call_raw_capability",
+                    )
+                if supplied_contract_id and supplied_contract_id != prepared_binding["contract_id"]:
+                    return _tool_result(
+                        _envelope(
+                            ok=False,
+                            status="blocked",
+                            warnings=["store_owner_expected_contract_id_mismatch"],
+                        ),
+                        label="call_raw_capability",
+                    )
+                owner_binding = prepared_binding
+                effective_arguments["expected_contract_id"] = owner_binding["contract_id"]
             request_fingerprint = _request_fingerprint(
-                {"capability": normalized_name, "arguments": arguments or {}}
+                {"capability": normalized_name, "arguments": effective_arguments}
+            )
+            owner_scope = (
+                {
+                    "domain": "store",
+                    "source": "store",
+                    "correlation_id": owner_correlation_id,
+                    "contract_id": owner_binding["contract_id"],
+                    "operation_id": owner_binding["operation_id"],
+                    "request_sha256": owner_binding["request_sha256"],
+                    "schema_hash": owner_binding["schema_hash"],
+                    "verification_class": owner_binding["verification_class"],
+                    "target_ref_sha256": owner_binding["target_ref_sha256"],
+                    **(
+                        {"expected_revision_sha256": owner_binding["expected_revision_sha256"]}
+                        if owner_binding.get("expected_revision_sha256") is not None
+                        else {}
+                    ),
+                }
+                if normalized_name == "store_owner_api"
+                else None
             )
             run_id, started, deduplicated = await _start_idempotent_workflow(
                 workflow_id=f"raw:{normalized_name}",
@@ -2259,6 +2097,11 @@ def register_agent_gateway_v2(
                     "operation": normalized_name,
                     "request_fingerprint": request_fingerprint,
                 },
+                mode=owner_mode or None,
+                dry_run=owner_mode == "dry_run",
+                correlation_id=owner_correlation_id,
+                scope_overrides=owner_scope,
+                refs_only=normalized_name == "store_owner_api",
             )
             if started and not bool(started.get("ok")):
                 return _tool_result(
@@ -2303,17 +2146,85 @@ def register_agent_gateway_v2(
                     ),
                     label="call_raw_capability",
                 )
-        effective_arguments = dict(arguments or {})
         result = await _invoke(normalized_name, effective_arguments)
+        owner_transport_bound = True
+        ledger_state_version = _workflow_state_version(executing) if run_id is not None else None
+        if normalized_name == "store_owner_api" and run_id is not None:
+            owner_transport_bound = _store_owner_transport_matches_binding(result, owner_binding)
+            if owner_transport_bound:
+                checkpoint_payload = {
+                    "phase": "transport_result",
+                    "operation": normalized_name,
+                    "mode": owner_mode,
+                    "status": str(result.get("status") or ""),
+                    "request_fingerprint": request_fingerprint,
+                    "contract_id": owner_binding["contract_id"],
+                    "operation_id": owner_binding["operation_id"],
+                    "request_sha256": owner_binding["request_sha256"],
+                    "schema_hash": owner_binding["schema_hash"],
+                    "verification_class": owner_binding["verification_class"],
+                    "target_ref_sha256": owner_binding["target_ref_sha256"],
+                    **(
+                        {"expected_revision_sha256": owner_binding["expected_revision_sha256"]}
+                        if owner_binding.get("expected_revision_sha256") is not None
+                        else {}
+                    ),
+                }
+                checkpointed = await _invoke(
+                    "workflow_checkpoint",
+                    {
+                        "run_id": run_id,
+                        "checkpoint": checkpoint_payload,
+                        "message": f"raw verify {normalized_name}",
+                        "expected_state_version": ledger_state_version,
+                    },
+                )
+                owner_transport_bound = bool(checkpointed.get("ok"))
+                if owner_transport_bound:
+                    ledger_state_version = _workflow_state_version(checkpointed)
         verification = await _verify_operation(normalized_name, effective_arguments, result, risk)
-        executor_ok = bool(result.get("ok")) or bool(result.get("executor_applied"))
+        if normalized_name == "store_owner_api" and run_id is not None:
+            verification.update(
+                {
+                    "contract_id": owner_binding.get("contract_id"),
+                    "operation_id": owner_binding.get("operation_id"),
+                    "request_fingerprint": request_fingerprint,
+                    "request_sha256": owner_binding.get("request_sha256"),
+                    "schema_hash": owner_binding.get("schema_hash"),
+                    "target_ref_sha256": owner_binding.get("target_ref_sha256"),
+                    "verification_class": owner_binding.get("verification_class"),
+                    **(
+                        {"expected_revision_sha256": owner_binding.get("expected_revision_sha256")}
+                        if owner_binding.get("expected_revision_sha256") is not None
+                        else {}
+                    ),
+                }
+            )
+            if not owner_transport_bound:
+                verification["passed"] = False
+                verification["check"] = "store_owner_transport_checkpoint_binding_failed"
+        result_meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
+        owner_executor_may_have_applied = bool(
+            normalized_name == "store_owner_api"
+            and (
+                str(result.get("status") or "").casefold() == "compensating"
+                or result_meta.get("write_applied") is True
+                or result_meta.get("outcome_uncertain") is True
+                or result_meta.get("readback_required") is True
+            )
+        )
+        executor_ok = (
+            bool(result.get("ok"))
+            or bool(result.get("executor_applied"))
+            or owner_executor_may_have_applied
+        )
         verification_passed = bool(verification.get("passed"))
         ok = executor_ok and verification_passed
         ledger_closed = risk == "read"
         ledger_error: dict[str, Any] | None = None
         workflow_status = "completed" if ok and risk == "read" else "failed"
         if run_id is not None:
-            executing_version = _workflow_state_version(executing)
+            executing_version = ledger_state_version
             if ok:
                 verifying = await _transition(
                     run_id,
