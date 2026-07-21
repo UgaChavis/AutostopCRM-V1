@@ -28,6 +28,52 @@ class CodeHealthAuditTests(unittest.TestCase):
 
         self.assertEqual([], module.audit(ROOT))
 
+    def test_every_current_repository_file_has_an_explicit_role(self) -> None:
+        module = load_code_health_audit_module()
+
+        inventory = module.repository_inventory(ROOT, include_untracked=True)
+
+        self.assertGreater(len(inventory), 270)
+        self.assertTrue(all(entry.role in module.TRACKED_FILE_ROLES for entry in inventory))
+        self.assertEqual(len(inventory), len({entry.path for entry in inventory}))
+        self.assertFalse(any("generated" in entry.flags for entry in inventory))
+
+    def test_one_off_migrations_stay_visible_as_review_candidates(self) -> None:
+        module = load_code_health_audit_module()
+
+        for path in module.ONE_OFF_MIGRATIONS:
+            entry = module.classify_repository_file(path)
+            self.assertEqual("ops_tool", entry.role)
+            self.assertEqual(
+                {"migration_one_off", "delete_candidate", "review_required"},
+                set(entry.flags),
+            )
+
+    def test_unclassified_and_generated_tracked_files_are_reported(self) -> None:
+        module = load_code_health_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            subprocess.run(["git", "init"], cwd=temp_root, check=True, capture_output=True)
+            mystery = temp_root / "mystery.bin"
+            generated = temp_root / "output" / "bundle.bin"
+            generated.parent.mkdir()
+            mystery.write_bytes(b"unknown")
+            generated.write_bytes(b"generated")
+            subprocess.run(
+                ["git", "add", "mystery.bin", "output/bundle.bin"],
+                cwd=temp_root,
+                check=True,
+                capture_output=True,
+            )
+
+            issues = module.audit(temp_root)
+
+        self.assertEqual(
+            {"unclassified_tracked_file", "tracked_generated_artifact"},
+            {issue.code for issue in issues},
+        )
+
     def test_unapproved_large_module_is_reported(self) -> None:
         module = load_code_health_audit_module()
 

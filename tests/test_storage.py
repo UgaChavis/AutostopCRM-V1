@@ -4,6 +4,7 @@ import json
 import logging
 import sys
 import tempfile
+import threading
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from copy import deepcopy
@@ -23,6 +24,7 @@ from minimal_kanban.storage.audit_archive import (  # noqa: E402
     AuditArchiveStore,
     compact_audit_event_details,
 )
+from minimal_kanban.storage.file_lock import ProcessFileLock  # noqa: E402
 from minimal_kanban.storage.financial_history_cleanup import (  # noqa: E402
     sanitize_financial_history_state,
 )
@@ -61,6 +63,43 @@ class JsonStoreTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
+
+    def test_concurrent_constructor_never_overwrites_state_created_while_waiting_for_lock(
+        self,
+    ) -> None:
+        checked_missing = threading.Event()
+        worker_errors: list[BaseException] = []
+        original_exists = Path.exists
+        business_state = deepcopy(DEFAULT_STATE)
+        business_state["settings"]["constructor_race_marker"] = "preserve"
+
+        def tracked_exists(path: Path) -> bool:
+            exists = original_exists(path)
+            if path == self.state_file and not exists and threading.current_thread() is worker:
+                checked_missing.set()
+            return exists
+
+        def create_store() -> None:
+            try:
+                JsonStore(state_file=self.state_file, logger=self.logger)
+            except BaseException as exc:  # pragma: no cover - asserted below
+                worker_errors.append(exc)
+
+        lock = ProcessFileLock(self.state_file.with_suffix(".lock"))
+        with lock.acquire(), patch.object(Path, "exists", tracked_exists):
+            worker = threading.Thread(target=create_store, daemon=True)
+            worker.start()
+            self.assertTrue(checked_missing.wait(timeout=2))
+            self.state_file.write_text(
+                json.dumps(business_state, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+        worker.join(timeout=2)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual([], worker_errors)
+        persisted = json.loads(self.state_file.read_text(encoding="utf-8"))
+        self.assertEqual("preserve", persisted["settings"]["constructor_race_marker"])
 
     def test_card_notification_updated_at_falls_back_to_updated_at(self) -> None:
         card = Card.from_dict(
@@ -130,18 +169,25 @@ class JsonStoreTests(unittest.TestCase):
         return raw_state
 
     def test_rejects_broken_json_without_replacing_state_with_empty_board(self) -> None:
+        store = JsonStore(state_file=self.state_file, logger=self.logger)
+        trusted_bundle = store.read_bundle()
         self.state_file.write_text("{broken json", encoding="utf-8")
         previous_backup = self.state_file.with_suffix(".corrupted.json")
         previous_backup.write_text("previous corrupt backup", encoding="utf-8")
-        store = JsonStore(state_file=self.state_file, logger=self.logger)
 
-        with self.assertRaises(RuntimeError):
-            store.read_cards()
+        with self.assertRaises(StateFileCorruptedError):
+            store.read_bundle()
+        with self.assertRaises(StateFileCorruptedError):
+            store.read_bundle()
+        with self.assertRaises(StateFileCorruptedError):
+            JsonStore(state_file=self.state_file, logger=self.logger).read_bundle()
+        with self.assertRaises(StateFileCorruptedError):
+            store.write_bundle(**trusted_bundle)
 
-        self.assertFalse(self.state_file.exists())
+        self.assertEqual(self.state_file.read_text(encoding="utf-8"), "{broken json")
         self.assertEqual(previous_backup.read_text(encoding="utf-8"), "previous corrupt backup")
         backups = sorted(self.state_file.parent.glob("state.corrupted*.json"))
-        self.assertGreaterEqual(len(backups), 2)
+        self.assertEqual(len(backups), 2)
         self.assertTrue(any(path.read_text(encoding="utf-8") == "{broken json" for path in backups))
 
     def test_rejects_nonstandard_json_constants_without_silent_repair(self) -> None:
@@ -151,7 +197,7 @@ class JsonStoreTests(unittest.TestCase):
         with self.assertRaises(StateFileCorruptedError):
             store.read_bundle()
 
-        self.assertFalse(self.state_file.exists())
+        self.assertTrue(self.state_file.exists())
         backups = sorted(self.state_file.parent.glob("state.corrupted*.json"))
         self.assertEqual(len(backups), 1)
         self.assertIn("NaN", backups[0].read_text(encoding="utf-8"))
@@ -163,7 +209,7 @@ class JsonStoreTests(unittest.TestCase):
         with self.assertRaises(StateFileCorruptedError):
             store.read_bundle()
 
-        self.assertFalse(self.state_file.exists())
+        self.assertTrue(self.state_file.exists())
         backups = sorted(self.state_file.parent.glob("state.corrupted*.json"))
         self.assertEqual(len(backups), 1)
         self.assertEqual(backups[0].read_text(encoding="utf-8"), "[]")
@@ -179,7 +225,7 @@ class JsonStoreTests(unittest.TestCase):
         ):
             store.read_bundle()
 
-        self.assertFalse(self.state_file.exists())
+        self.assertTrue(self.state_file.exists())
         backups = sorted(self.state_file.parent.glob("state.corrupted*.json"))
         self.assertEqual(len(backups), 1)
         self.assertEqual(backups[0].stat().st_size, 16)
@@ -307,7 +353,7 @@ class JsonStoreTests(unittest.TestCase):
         raw_state["events"] = [
             {
                 "id": "legacy-description-event",
-                "timestamp": "2026-05-22T00:00:00+00:00",
+                "timestamp": utc_now().isoformat(),
                 "actor_name": "system",
                 "source": "system",
                 "action": "description_changed",

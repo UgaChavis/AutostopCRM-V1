@@ -143,6 +143,25 @@ Add the smallest relevant checks:
 - repository health:
   `.\.venv\Scripts\python.exe scripts\code_health_audit.py --format text`.
 
+The repository-health audit classifies every tracked file as a canonical doc,
+manifest, runtime code/asset, operations tool, test, or deploy configuration.
+It fails on an unknown role or tracked generated artifact; `--format json`
+emits the complete per-file inventory and lifecycle flags. One-off migration
+scripts stay explicitly flagged for review until production evidence permits
+their removal.
+
+### Desktop Build and Release
+
+- `scripts/build_app.ps1` creates a fresh staged PyInstaller build and
+  atomically publishes `build/` and `dist/`.
+- `scripts/prepare_release.ps1` calls that build, assembles the portable
+  `release/Start Kanban.exe`, and publishes it from `release.staging/`.
+- `scripts/run_quality_pass.ps1` is the complete desktop gate: environment and
+  lint checks, all unit tests, localization, `prepare_release.ps1`, then
+  `scripts/post_build_verification.py` against the portable executable.
+
+Do not treat a successful `build_app.ps1` alone as a verified release.
+
 ## Performance Smoke
 
 The mandatory stage-1 gate uses synthetic production-sized state and does not
@@ -198,12 +217,26 @@ Operator activity lives under `operator-activity/current`,
 `scripts/operator_activity_maintenance.py --dry-run --json` first; apply only
 with `--apply --backup`.
 
+Client maintenance is also audit-first and must target an explicit copied or
+approved state file. These commands are read-only unless `--apply --backup`
+are both supplied:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\client_data_quality_maintenance.py --state-file .\path\to\state.json --format text
+.\.venv\Scripts\python.exe scripts\client_duplicates_maintenance.py --state-file .\path\to\state.json --format text
+```
+
+The first reports placeholder/invalid vehicle VIN values; the second plans
+exact duplicate-client merges and card relinks. Review the full plan and a
+verified backup before any apply.
+
 ### Finance Audit-First
 
 Finance audit is read-only first:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\finance_audit_report.py --base-url https://crm.autostopcrm.ru --format text --issue-limit 50
+.\.venv\Scripts\python.exe scripts\payroll_audit_report.py --base-url https://crm.autostopcrm.ru --format text --issue-limit 50
 ```
 
 `/api/finance_audit/apply_safe_fixes` is maintenance-only. Historical finance

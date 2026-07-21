@@ -266,8 +266,77 @@ class DocsAuditTests(unittest.TestCase):
                 "production environment validator is not documented: validate_production_env.py",
                 "Gateway v2 release verifier is not documented: check_agent_gateway_v2.py",
                 "blocked repair-order correction contract is not documented: repair_order_number_immutable",
+                "desktop build entrypoint is not documented: build_app.ps1",
+                "portable release assembly is not documented: prepare_release.ps1",
+                "complete desktop release gate is not documented: run_quality_pass.ps1",
+                "portable executable verification is not documented: post_build_verification.py",
+                "payroll audit tool is not documented: payroll_audit_report.py",
+                "client data-quality maintenance tool is not documented: client_data_quality_maintenance.py",
+                "client duplicate maintenance tool is not documented: client_duplicates_maintenance.py",
             },
             {issue.detail for issue in issues},
+        )
+
+    def test_store_gateway_docs_are_derived_from_source_contract(self) -> None:
+        module = load_docs_audit_module()
+
+        self.assertEqual([], module._check_store_gateway_docs_contract(ROOT))
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            source = temp_root / "src" / "minimal_kanban" / "mcp" / "store_gateway.py"
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                "STORE_READ_CAPABILITY_NAMES = frozenset({'store_read', 'download_store_quote_vin_photo'})\n"
+                "STORE_MANAGEMENT_CAPABILITY_NAME = 'store_manage'\n"
+                "STORE_SEARCH_ENTITIES = frozenset({'store_part', 'store_sourcing_offer'})\n"
+                "STORE_MANAGEMENT_OPERATIONS = frozenset({'write_one', 'write_two'})\n",
+                encoding="utf-8",
+            )
+            (temp_root / "MCP_GUIDE.md").write_text(
+                "1 `INTERNAL_ONLY` tool: `store_read`. Exactly one operation: `write_one`.\n",
+                encoding="utf-8",
+            )
+            (temp_root / "CHATGPT_CONNECTOR_SETUP.md").write_text(
+                "One mounted tool. Use `write_one`; pass store_cursor to agent_bootstrap.\n",
+                encoding="utf-8",
+            )
+
+            issues = module._check_store_gateway_docs_contract(temp_root)
+
+        self.assertEqual(
+            {
+                "mcp_guide_store_internal_capabilities_stale",
+                "mcp_guide_store_search_entities_stale",
+                "store_management_operations_stale",
+                "store_vin_photo_workflow_missing",
+                "mcp_guide_store_internal_count_stale",
+                "chatgpt_store_internal_count_stale",
+                "mcp_guide_store_operation_count_stale",
+                "chatgpt_store_operation_count_stale",
+                "chatgpt_bootstrap_cursor_stale",
+            },
+            {issue.code for issue in issues},
+        )
+
+    def test_short_server_instruction_requires_complete_release_gates(self) -> None:
+        module = load_docs_audit_module()
+
+        self.assertEqual([], module._check_short_server_instruction_commands(ROOT))
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            (temp_root / "AUTOSTOPCRM_FULL_INSTRUCTION.txt").write_text(
+                "scripts/validate_production_env.py --require-production\n"
+                "scripts/check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --exhaustive\n",
+                encoding="utf-8",
+            )
+
+            issues = module._check_short_server_instruction_commands(temp_root)
+
+        self.assertEqual(2, len(issues))
+        self.assertEqual(
+            {"server_instruction_release_gate_stale"}, {issue.code for issue in issues}
         )
 
     def test_quality_workflow_runs_docs_audit(self) -> None:

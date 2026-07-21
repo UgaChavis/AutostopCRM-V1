@@ -384,6 +384,34 @@ RUNBOOK_REQUIRED_TEXT = (
         "repair_order_number_immutable",
         "blocked repair-order correction contract is not documented",
     ),
+    (
+        "build_app.ps1",
+        "desktop build entrypoint is not documented",
+    ),
+    (
+        "prepare_release.ps1",
+        "portable release assembly is not documented",
+    ),
+    (
+        "run_quality_pass.ps1",
+        "complete desktop release gate is not documented",
+    ),
+    (
+        "post_build_verification.py",
+        "portable executable verification is not documented",
+    ),
+    (
+        "payroll_audit_report.py",
+        "payroll audit tool is not documented",
+    ),
+    (
+        "client_data_quality_maintenance.py",
+        "client data-quality maintenance tool is not documented",
+    ),
+    (
+        "client_duplicates_maintenance.py",
+        "client duplicate maintenance tool is not documented",
+    ),
 )
 
 QUALITY_WORKFLOW_REQUIRED_TEXT = (
@@ -889,6 +917,169 @@ def _literal_assignment(tree: ast.AST, name: str) -> Any:
     raise ValueError(f"{name} assignment not found")
 
 
+def _literal_string_collection_assignment(tree: ast.AST, name: str) -> set[str]:
+    value: ast.AST | None = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            if node.target.id == name:
+                value = node.value
+                break
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == name for target in node.targets
+        ):
+            value = node.value
+            break
+    if value is None:
+        raise ValueError(f"{name} assignment not found")
+    if (
+        isinstance(value, ast.Call)
+        and isinstance(value.func, ast.Name)
+        and value.func.id in {"frozenset", "set", "tuple", "list"}
+        and len(value.args) == 1
+    ):
+        value = value.args[0]
+    items = ast.literal_eval(value)
+    if not isinstance(items, (set, frozenset, tuple, list)):
+        raise ValueError(f"{name} must be a literal collection")
+    return {str(item) for item in items}
+
+
+def load_store_gateway_contract(root: Path) -> dict[str, set[str] | str]:
+    path = root / "src" / "minimal_kanban" / "mcp" / "store_gateway.py"
+    tree = ast.parse(_read_text(path), filename=str(path))
+    return {
+        "read_capabilities": _literal_string_collection_assignment(
+            tree, "STORE_READ_CAPABILITY_NAMES"
+        ),
+        "management_capability": str(_literal_assignment(tree, "STORE_MANAGEMENT_CAPABILITY_NAME")),
+        "search_entities": _literal_string_collection_assignment(tree, "STORE_SEARCH_ENTITIES"),
+        "management_operations": _literal_string_collection_assignment(
+            tree, "STORE_MANAGEMENT_OPERATIONS"
+        ),
+    }
+
+
+def _check_store_gateway_docs_contract(root: Path) -> list[Issue]:
+    contract = load_store_gateway_contract(root)
+    mcp_path = root / "MCP_GUIDE.md"
+    chatgpt_path = root / "CHATGPT_CONNECTOR_SETUP.md"
+    if not mcp_path.exists() or not chatgpt_path.exists():
+        return []
+    mcp_text = _read_text(mcp_path)
+    chatgpt_text = _read_text(chatgpt_path)
+    compact_mcp = " ".join(mcp_text.split())
+    compact_chatgpt = " ".join(chatgpt_text.split())
+    reads = set(contract["read_capabilities"])
+    management = str(contract["management_capability"])
+    internal_capabilities = reads | {management}
+    search_entities = set(contract["search_entities"])
+    operations = set(contract["management_operations"])
+    issues: list[Issue] = []
+
+    def missing_items(*, path: Path, text: str, items: set[str], code: str, label: str) -> None:
+        missing = sorted(item for item in items if f"`{item}`" not in text)
+        if missing:
+            issues.append(Issue(code, _display_path(path, root), f"missing {label}: {missing}"))
+
+    missing_items(
+        path=mcp_path,
+        text=mcp_text,
+        items=internal_capabilities,
+        code="mcp_guide_store_internal_capabilities_stale",
+        label="Store internal capabilities",
+    )
+    missing_items(
+        path=mcp_path,
+        text=mcp_text,
+        items=search_entities,
+        code="mcp_guide_store_search_entities_stale",
+        label="Store search entities",
+    )
+    for path, text in ((mcp_path, mcp_text), (chatgpt_path, chatgpt_text)):
+        missing_items(
+            path=path,
+            text=text,
+            items=operations,
+            code="store_management_operations_stale",
+            label="Store management operations",
+        )
+        if "download_store_quote_vin_photo" not in text:
+            issues.append(
+                Issue(
+                    "store_vin_photo_workflow_missing",
+                    _display_path(path, root),
+                    "public Store VIN photo workflow is not documented",
+                )
+            )
+
+    expected_internal_mcp = f"{len(internal_capabilities)} `INTERNAL_ONLY`"
+    if expected_internal_mcp not in compact_mcp:
+        issues.append(
+            Issue(
+                "mcp_guide_store_internal_count_stale",
+                _display_path(mcp_path, root),
+                f"expected current internal Store count text: {expected_internal_mcp}",
+            )
+        )
+    expected_internal_chatgpt = f"{len(internal_capabilities)} mounted `store_*` adapter tools"
+    if expected_internal_chatgpt not in compact_chatgpt:
+        issues.append(
+            Issue(
+                "chatgpt_store_internal_count_stale",
+                _display_path(chatgpt_path, root),
+                f"expected current internal Store count text: {expected_internal_chatgpt}",
+            )
+        )
+    if f"exactly {len(operations)} operations" not in compact_mcp:
+        issues.append(
+            Issue(
+                "mcp_guide_store_operation_count_stale",
+                _display_path(mcp_path, root),
+                f"expected current Store operation count: {len(operations)}",
+            )
+        )
+    if f"{len(operations)} allowlisted Store actions" not in compact_chatgpt:
+        issues.append(
+            Issue(
+                "chatgpt_store_operation_count_stale",
+                _display_path(chatgpt_path, root),
+                f"expected current Store operation count: {len(operations)}",
+            )
+        )
+    for stale_argument in ("store_cursor", "store_ack_token"):
+        if stale_argument in chatgpt_text:
+            issues.append(
+                Issue(
+                    "chatgpt_bootstrap_cursor_stale",
+                    _display_path(chatgpt_path, root),
+                    f"agent_bootstrap does not accept {stale_argument}",
+                )
+            )
+    return issues
+
+
+def _check_short_server_instruction_commands(root: Path) -> list[Issue]:
+    path = root / "AUTOSTOPCRM_FULL_INSTRUCTION.txt"
+    if not path.exists():
+        return []
+    text = " ".join(_read_text(path).split())
+    required = (
+        (
+            "scripts/validate_production_env.py --require-production --require-store",
+            "short server instruction omits the mandatory Store environment gate",
+        ),
+        (
+            "scripts/check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --exhaustive --require-store --require-web",
+            "short server instruction omits mandatory Store/Web Gateway gates",
+        ),
+    )
+    return [
+        Issue("server_instruction_release_gate_stale", _display_path(path, root), detail)
+        for command, detail in required
+        if command not in text
+    ]
+
+
 def load_crm_registry_tools(root: Path) -> set[str]:
     registry_path = root / "src" / "minimal_kanban" / "mcp" / "tool_registry.py"
     tree = ast.parse(_read_text(registry_path), filename=str(registry_path))
@@ -1076,6 +1267,7 @@ def audit(
 
     issues.extend(_check_script_instruction_text(root))
     issues.extend(_check_api_guide_required_routes(root))
+    issues.extend(_check_short_server_instruction_commands(root))
     issues.extend(_check_quality_workflow_required_gates(root))
     issues.extend(_scan_retired_candidate_issues(root))
 
@@ -1083,6 +1275,7 @@ def audit(
         crm_tools = load_crm_registry_tools(root)
         issues.extend(_check_crm_mcp_surface(root))
         issues.extend(_check_mcp_guide_gateway_surface(root))
+        issues.extend(_check_store_gateway_docs_contract(root))
     except (OSError, SyntaxError, ValueError) as exc:
         crm_tools = set()
         issues.append(Issue("crm_mcp_audit_error", str(root), str(exc)))

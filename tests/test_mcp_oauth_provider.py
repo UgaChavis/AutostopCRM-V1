@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import stat
 import sys
 import tempfile
@@ -428,7 +429,8 @@ class McpOAuthProviderStateTests(unittest.TestCase):
             ciphertext = state_file.read_bytes()
             self.assertNotIn(b"private-client-secret", ciphertext)
             self.assertNotIn(b"client-1", ciphertext)
-            self.assertEqual(stat.S_IMODE(state_file.stat().st_mode), 0o600)
+            if os.name != "nt":
+                self.assertEqual(stat.S_IMODE(state_file.stat().st_mode), 0o600)
             decrypted = self._decrypted_state(provider, state_file)
             self.assertEqual(decrypted["clients"]["client-1"]["client_id"], "client-1")
 

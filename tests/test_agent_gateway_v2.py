@@ -10,6 +10,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from mcp.types import ToolAnnotations
@@ -19,6 +20,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from minimal_kanban.mcp.agent_gateway_v2 import register_agent_gateway_v2
 from minimal_kanban.mcp.oauth_provider import ProductionOAuthAuthorizationServerProvider
 from minimal_kanban.mcp.server import create_mcp_server
 from minimal_kanban.mcp.store_gateway import (
@@ -534,7 +536,7 @@ def _fake_store_bootstrap_snapshot() -> dict:
     }
 
 
-def register_fake_store_manager_tools(server, _logger, state: dict) -> None:
+def _register_fake_store_context_tools(server, _logger, state: dict) -> None:
     _prepare_fake_store_state(state)
 
     @server.tool(name="store_runtime_status", description="INTERNAL_ONLY store runtime")
@@ -776,6 +778,8 @@ def register_fake_store_manager_tools(server, _logger, state: dict) -> None:
         state["store_post_count"] += 1
         return _fake_store_management_action(state, arguments)
 
+
+def _register_fake_store_workflow_tools(server, state: dict) -> None:
     @server.tool(name="start_workflow")
     def start_workflow(
         workflow_id: str,
@@ -994,6 +998,11 @@ def register_fake_store_manager_tools(server, _logger, state: dict) -> None:
     ) -> dict:
         del reason, expected_state_version
         return {"ok": True, "run_id": run_id, "status": "cancelled", "summary": {}}
+
+
+def register_fake_store_manager_tools(server, logger, state: dict) -> None:
+    _register_fake_store_context_tools(server, logger, state)
+    _register_fake_store_workflow_tools(server, state)
 
 
 class AgentGatewayV2Tests(unittest.IsolatedAsyncioTestCase):
@@ -2443,6 +2452,25 @@ class AgentGatewayV2Tests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("create_cash_transaction", names)
         self.assertNotIn("update_repair_order", names)
+
+    async def test_production_rejects_incompatible_private_tool_registry(self) -> None:
+        production_env = {
+            **GATEWAY_ENV,
+            "AUTOSTOP_DEPLOYMENT_ENV": "production",
+            "AUTOSTOP_AGENT_SERVICE_IDENTITY": "codex-owner-agent",
+        }
+        incompatible_server = SimpleNamespace(_tool_manager=SimpleNamespace())
+
+        with (
+            patch.dict("os.environ", production_env, clear=False),
+            self.assertRaisesRegex(RuntimeError, "compatible FastMCP tool registry"),
+        ):
+            register_agent_gateway_v2(
+                incompatible_server,
+                FakeBoardApi(),
+                connector_identity={},
+                agent_bearer_token="b" * 48,
+            )
 
     async def test_raw_write_uses_ledger_and_deduplicates_only_completed_result(self) -> None:
         state = {"started": False, "status": "planned", "scope": None}

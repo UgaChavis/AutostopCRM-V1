@@ -613,13 +613,9 @@ class MainWindow(QMainWindow):
             settings = self._settings_service.load()
             if not settings.general.integration_enabled or not settings.mcp.mcp_enabled:
                 return
-            state = self._start_publication_runtime(settings)
-            if state.running:
-                self.status_label.setText(
-                    "MCP сервер поднят. Можно сразу переходить к подключению ChatGPT."
-                )
-            elif state.error:
-                self.status_label.setText(f"MCP не поднялся автоматически: {state.error}")
+            self._start_publication_runtime_async(
+                settings, status_text="Поднимаю MCP и внешний доступ в фоне..."
+            )
         except Exception as exc:
             self.status_label.setText(f"MCP не поднялся автоматически: {exc}")
 
@@ -669,18 +665,13 @@ class MainWindow(QMainWindow):
             state = self._mcp_controller.restart(settings)
         return state, settings
 
-    def _start_publication_runtime(self, settings):
-        state, updated_settings = self._start_publication_runtime_core(settings)
-        self._load_publish_urls(updated_settings)
-        self._sync_publish_panel()
-        self._publish_connector_files(updated_settings)
-        return state
-
     def _on_publication_ready(self, settings, state) -> None:
         self._publication_in_progress = False
         self._load_publish_urls(settings)
         self._sync_publish_panel()
         self._publish_connector_files(settings)
+        if self._settings_window is not None:
+            self._settings_window.refresh_publication_runtime(settings, state)
         if state is None:
             return
         if state.running:

@@ -473,7 +473,18 @@
       const OPERATOR_SESSION_STORAGE_KEY = 'kanban-operator-session';
       const API_TOKEN_STORAGE_KEY = 'kanban-api-token';
       const REFRESH_INTERVAL_MS = 45000;
-      const state = { data: null, timer: null, inFlight: false, stopped: false };
+      const REQUEST_TIMEOUT_MS = 15000;
+      const state = {
+        data: null,
+        timer: null,
+        inFlight: false,
+        refreshPromise: null,
+        refreshToken: null,
+        resumePromise: null,
+        controller: null,
+        stopped: false,
+        renderSignature: '',
+      };
       const els = {
         dashboard: document.getElementById('dashboard'),
         statusBadge: document.getElementById('statusBadge'),
@@ -579,79 +590,163 @@
         els.statusBadge.dataset.tone = tone;
       }
 
+      function dashboardRenderSignature(data) {
+        return JSON.stringify([
+          data?.schema_version || '',
+          data?.timezone || '',
+          data?.salary_period || null,
+          Array.isArray(data?.employees) ? data.employees : [],
+          Array.isArray(data?.weeks) ? data.weeks : [],
+          data?.completed_week_average ?? null,
+        ]);
+      }
+
       function render(data) {
         state.data = data;
         els.accessState.hidden = true;
-        els.salaryPeriod.textContent = salaryPeriodLabel(data.salary_period);
-        renderEmployees(data.employees);
-        renderWeeks(data.weeks);
-        els.averageNote.textContent = 'СРЕДНЕЕ ЗА 3 НЕДЕЛИ · ' + money(data.completed_week_average);
         const generated = new Date(data.generated_at);
         els.updatedAt.textContent = Number.isNaN(generated.getTime())
           ? 'ДАННЫЕ ОБНОВЛЕНЫ'
           : 'ОБНОВЛЕНО · ' + generated.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
         setStatus('АКТУАЛЬНО');
+
+        const signature = dashboardRenderSignature(data);
+        if (signature === state.renderSignature) return false;
+        state.renderSignature = signature;
+        els.salaryPeriod.textContent = salaryPeriodLabel(data.salary_period);
+        renderEmployees(data.employees);
+        renderWeeks(data.weeks);
+        els.averageNote.textContent = 'СРЕДНЕЕ ЗА 3 НЕДЕЛИ · ' + money(data.completed_week_average);
         els.dashboard.dataset.ready = 'false';
         requestAnimationFrame(() => requestAnimationFrame(() => { els.dashboard.dataset.ready = 'true'; }));
+        return true;
       }
 
       async function refresh() {
-        if (state.stopped || state.inFlight) return;
+        if (state.stopped || document.hidden) return null;
+        if (state.refreshPromise) return state.refreshPromise;
+
+        const controller = new AbortController();
+        const refreshToken = {};
+        let requestTimedOut = false;
+        const timeout = window.setTimeout(() => {
+          requestTimedOut = true;
+          controller.abort();
+        }, REQUEST_TIMEOUT_MS);
+        state.controller = controller;
         state.inFlight = true;
-        try {
-          const headers = { Accept: 'application/json' };
-          const session = localStorage.getItem(OPERATOR_SESSION_STORAGE_KEY) || '';
-          const apiToken = localStorage.getItem(API_TOKEN_STORAGE_KEY) || '';
-          if (session) headers['X-Operator-Session'] = session;
-          if (apiToken) headers.Authorization = 'Bearer ' + apiToken;
-          const response = await fetch('/api/get_display_dashboard', {
-            method: 'GET',
-            headers,
-            cache: 'no-store',
-          });
-          const payload = await response.json().catch(() => null);
-          if (response.status === 401) {
-            const error = new Error('operator_session_required');
-            error.code = 'unauthorized';
-            throw error;
-          }
-          if (!response.ok || !payload?.ok || !payload?.data) {
-            throw new Error(payload?.error?.message || 'dashboard_update_failed');
-          }
-          render(payload.data);
-        } catch (error) {
-          if (error?.code === 'unauthorized') {
-            els.accessState.hidden = false;
-            setStatus('НУЖЕН ВХОД', 'error');
-          } else {
-            setStatus('НЕТ ОБНОВЛЕНИЯ', 'error');
-            if (!state.data) {
-              els.updatedAt.textContent = 'СОХРАНЁННЫХ ДАННЫХ ПОКА НЕТ';
+        state.refreshToken = refreshToken;
+
+        const refreshPromise = Promise.resolve().then(async () => {
+          try {
+            const headers = { Accept: 'application/json' };
+            const session = localStorage.getItem(OPERATOR_SESSION_STORAGE_KEY) || '';
+            const apiToken = localStorage.getItem(API_TOKEN_STORAGE_KEY) || '';
+            if (session) headers['X-Operator-Session'] = session;
+            if (apiToken) headers.Authorization = 'Bearer ' + apiToken;
+            const response = await fetch('/api/get_display_dashboard', {
+              method: 'GET',
+              headers,
+              cache: 'no-store',
+              signal: controller.signal,
+            });
+            const payload = await response.json().catch((error) => {
+              if (error?.name === 'AbortError') throw error;
+              return null;
+            });
+            if (response.status === 401) {
+              const error = new Error('operator_session_required');
+              error.code = 'unauthorized';
+              throw error;
+            }
+            if (!response.ok || !payload?.ok || !payload?.data) {
+              throw new Error(payload?.error?.message || 'dashboard_update_failed');
+            }
+            render(payload.data);
+            return true;
+          } catch (error) {
+            if (error?.code === 'unauthorized') {
+              els.accessState.hidden = false;
+              setStatus('НУЖЕН ВХОД', 'error');
+            } else if (error?.name === 'AbortError' && !requestTimedOut) {
+              return false;
+            } else {
+              setStatus('НЕТ ОБНОВЛЕНИЯ', 'error');
+              if (!state.data) {
+                els.updatedAt.textContent = 'СОХРАНЁННЫХ ДАННЫХ ПОКА НЕТ';
+              }
+            }
+            return true;
+          } finally {
+            window.clearTimeout(timeout);
+            if (state.refreshToken === refreshToken) {
+              if (state.controller === controller) state.controller = null;
+              state.inFlight = false;
+              state.refreshPromise = null;
+              state.refreshToken = null;
             }
           }
-        } finally {
-          state.inFlight = false;
-        }
+        });
+        state.refreshPromise = refreshPromise;
+        return refreshPromise;
+      }
+
+      function clearScheduledRefresh() {
+        if (state.timer) window.clearTimeout(state.timer);
+        state.timer = null;
       }
 
       function schedule() {
-        if (state.timer) window.clearInterval(state.timer);
-        state.timer = window.setInterval(refresh, REFRESH_INTERVAL_MS);
+        clearScheduledRefresh();
+        if (state.stopped || document.hidden || state.resumePromise) return;
+        state.timer = window.setTimeout(async () => {
+          state.timer = null;
+          await refresh();
+          schedule();
+        }, REFRESH_INTERVAL_MS);
+      }
+
+      function pause() {
+        clearScheduledRefresh();
+        if (state.controller) state.controller.abort();
+      }
+
+      function resume() {
+        if (state.resumePromise) return state.resumePromise;
+        const resumePromise = (async () => {
+          const activeRefresh = state.refreshPromise;
+          if (activeRefresh) await activeRefresh;
+          if (state.stopped || document.hidden) return;
+          const refreshed = await refresh();
+          if (refreshed === false && !state.stopped && !document.hidden) {
+            await refresh();
+          }
+        })();
+        state.resumePromise = resumePromise;
+        const finalizeResume = () => {
+          if (state.resumePromise !== resumePromise) return;
+          state.resumePromise = null;
+          schedule();
+        };
+        resumePromise.then(finalizeResume, finalizeResume);
+        return resumePromise;
       }
 
       function stop() {
         state.stopped = true;
-        if (state.timer) window.clearInterval(state.timer);
-        state.timer = null;
+        pause();
       }
 
       window.__AUTOSTOP_DISPLAY_DASHBOARD__ = { refresh, render, stop, state };
       window.addEventListener('beforeunload', stop, { once: true });
       document.addEventListener('visibilitychange', () => {
-        if (!document.hidden) refresh();
+        if (document.hidden) {
+          pause();
+        } else {
+          void resume();
+        }
       });
-      refresh();
-      schedule();
+      void resume();
     })();
   </script>
 </body>

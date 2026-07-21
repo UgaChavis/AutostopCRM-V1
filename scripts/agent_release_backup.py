@@ -50,7 +50,10 @@ def _artifact(path: Path) -> dict[str, object]:
 
 
 def _fsync_file(path: Path) -> None:
-    with path.open("rb") as handle:
+    # Python 3.13 on Windows rejects fsync() for a read-only descriptor even
+    # though the file itself exists and is readable. A writable descriptor is
+    # portable and does not modify the already-written backup payload.
+    with path.open("rb+") as handle:
         os.fsync(handle.fileno())
 
 

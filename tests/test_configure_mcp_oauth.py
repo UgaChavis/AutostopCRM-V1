@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import stat
 import sys
 import tempfile
@@ -45,7 +46,8 @@ class ConfigureMcpOAuthTests(unittest.TestCase):
             self.assertTrue(self.module.check(env_file)["ok"])
             self.assertEqual(first_values[self.module.OAUTH_ENABLED_KEY], "1")
             self.assertEqual(first_values[self.module.EMBEDDED_OAUTH_KEY], "0")
-            self.assertEqual(stat.S_IMODE(env_file.stat().st_mode), 0o600)
+            if os.name != "nt":
+                self.assertEqual(stat.S_IMODE(env_file.stat().st_mode), 0o600)
 
     def test_ensure_rejects_existing_invalid_key_instead_of_rotating_it(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

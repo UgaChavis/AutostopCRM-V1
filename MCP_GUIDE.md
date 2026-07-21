@@ -74,10 +74,10 @@ positive deadline starts it. Restarting without a deadline reuses the saved
 duration. Timer-only actions are audited but do not flag the card as unseen
 content for other operators.
 
-The mounted Manager contributes five `INTERNAL_ONLY` store adapter tools:
+The mounted Manager contributes 6 `INTERNAL_ONLY` Store adapter tools:
 `store_runtime_status`, `store_digest`, `store_search`,
-`store_entity_context`, and `store_management_action`. Gateway captures all
-five before hiding the raw registry. They are deliberately absent from raw
+`store_entity_context`, `download_store_quote_vin_photo`, and
+`store_management_action`. Gateway captures all 6 before hiding the raw registry. They are deliberately absent from raw
 discovery/schema/call: store reads use the named context tools and store writes
 use only `agent_inventory_workflow`.
 
@@ -91,10 +91,13 @@ Store coverage is additive to the existing schemas:
 - `agent_search` supports `store_part`, `store_order`,
   `store_quote_request`, `store_supplier`, `store_batch`,
   `store_warehouse_operation`, `store_marketplace_listing`, and
-  `store_state`;
+  `store_state`, and `store_sourcing_offer`;
 - `agent_entity_context` reads one exact Store entity with `detail="summary"`
   or `detail="full"`; Store PII remains redacted because the service identity
   has no contact scope;
+- `agent_document_workflow(operation="download_store_quote_vin_photo")`
+  returns a bounded JPEG preview as an MCP image only when
+  `allow_large_output=true`; base64 is never copied into structured output;
 - `get_runtime_status` performs a live Store health probe. Store failure makes
   the Store section `degraded` while a healthy CRM remains usable;
 - `agent_inventory_workflow` keeps its old CRM default (`mode` omitted means
@@ -138,7 +141,7 @@ Gateway responses use `agent_envelope_v2` and compact verification evidence.
   and matching bearer token; public proxy traffic cannot claim that identity.
 - During maintenance, write routes return `503 maintenance_mode` while
   diagnostics and reads remain available.
-- The five Store adapter tools cannot be invoked through the raw escape hatch;
+- The 6 Store adapter tools cannot be invoked through the raw escape hatch;
   attempts return `named_operation_required` or `named_workflow_required`.
 - Store outage, missing credentials, or malformed Store configuration degrades
   only Store context. CRM startup, board reads, and CRM workflows remain
@@ -172,9 +175,10 @@ For a Store digest, finish the cursor/ACK loop before treating “what is new”
 consumed. Only `agent_board_digest(scope="store")` participates in that
 ACK/replay/CAS protocol; `agent_bootstrap` is stateless.
 
-For Store writes, `agent_inventory_workflow` permits exactly:
+For Store writes, `agent_inventory_workflow` permits exactly 7 operations:
 `assign_quote_request`, `set_quote_request_status`,
-`update_quote_request_comment`, `set_batch_storage_location`, and
+`update_quote_request_comment`, `add_quote_request_note`,
+`replace_quote_offer_drafts`, `set_batch_storage_location`, and
 `mark_order_ready`. Supply exact `target_id`, current `expected_updated_at`,
 `owner_intent`, `planned_changes`, a unique idempotency key, and explicit
 `mode`. Dry-run and apply use different idempotency keys but the same stable

@@ -98,17 +98,25 @@ def _atomic_write_private_bytes(path: Path, payload: bytes) -> None:
             os.fsync(handle.fileno())
         temp_path.replace(path)
         path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-        directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
+        _fsync_directory(path.parent)
     except Exception:
         try:
             temp_path.unlink()
         except OSError:
             pass
         raise
+
+
+def _fsync_directory(path: Path) -> None:
+    """Persist a rename on POSIX; Windows does not expose directory fsync."""
+
+    if os.name == "nt":
+        return
+    directory_fd = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
 
 
 def _atomic_write_private(path: Path, text: str) -> None:
@@ -374,10 +382,12 @@ def check(
         )
     except AuthConfigError:
         url_matches = False
-    secure_modes = all(
-        path.is_file() and stat.S_IMODE(path.stat().st_mode) == 0o600
-        for path in (server_env, codex_config, runtime_env)
-    )
+    auth_paths = (server_env, codex_config, runtime_env)
+    secure_modes = all(path.is_file() for path in auth_paths)
+    if os.name != "nt":
+        secure_modes = secure_modes and all(
+            stat.S_IMODE(path.stat().st_mode) == 0o600 for path in auth_paths
+        )
     matches = bool(server_token and secrets.compare_digest(server_token, runtime_token))
     codex_oauth_ready = not has_bearer_reference and not has_static_headers
     token_is_strong = False

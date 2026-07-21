@@ -573,6 +573,10 @@ class ChatGPTConnectDialog(QDialog):
                 "MCP runtime запущен. Можно копировать данные и подключать ChatGPT.", tone="success"
             )
 
+    def refresh_publication_state(self, settings: IntegrationSettings, runtime_state) -> None:
+        self._runtime_state = runtime_state
+        self._refresh_from_settings(settings)
+
     def _copy_all(self) -> None:
         settings = self._settings_provider()
         payload = build_chatgpt_connect_payload(
@@ -1809,6 +1813,18 @@ class SettingsWindow(QDialog):
 
     def open_chatgpt_wizard(self) -> None:
         self._open_chatgpt_connect_dialog()
+
+    def refresh_publication_runtime(self, settings: IntegrationSettings, runtime_state) -> None:
+        normalized = self._settings_service.normalize(settings)
+        self._settings = normalized
+        self._runtime_reference = normalized
+        self.mcp_tunnel_url_input.setText(normalized.mcp.tunnel_url)
+        self._sync_derived_fields()
+        self._render_runtime_state()
+        if self._connect_dialog is not None:
+            self._connect_dialog.refresh_publication_state(
+                self._current_form_settings(), runtime_state
+            )
 
     def _normalized_form_settings(self) -> IntegrationSettings:
         return self._settings_service.normalize(self._collect_settings())

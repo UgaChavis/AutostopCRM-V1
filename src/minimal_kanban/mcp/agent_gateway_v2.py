@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import hashlib
 import json
 from collections.abc import Mapping
@@ -9,7 +8,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
-from mcp.types import CallToolResult, ImageContent, TextContent, ToolAnnotations
+from mcp.types import CallToolResult, ToolAnnotations
 from pydantic import BaseModel
 
 from ..api.route_registry import PROXIED_WRITE_ROUTES
@@ -24,6 +23,16 @@ from .gateway_contract import (
     FINANCE_VIRTUAL_OPERATIONS,
     FINANCE_WORKFLOW_OPERATIONS,
     INVENTORY_WORKFLOW_OPERATIONS,
+)
+from .gateway_media import (
+    store_vin_photo_image as _store_vin_photo_image,
+)
+from .gateway_media import tool_result as _tool_result
+from .gateway_media import (
+    tool_result_with_image as _tool_result_with_image,
+)
+from .gateway_media import (
+    without_binary_content as _without_binary_content,
 )
 from .store_gateway import (
     INTERNAL_ONLY_CAPABILITY_NAMES,
@@ -56,7 +65,6 @@ from .web_gateway import (
 
 AGENT_GATEWAY_FORMAT = "agent_envelope_v2"
 STORE_VIN_PHOTO_PREVIEW_OPERATION = "download_store_quote_vin_photo"
-STORE_VIN_PHOTO_PREVIEW_MAX_BYTES = 2 * 1024 * 1024
 AGENT_GATEWAY_TOOL_NAMES = frozenset(
     {
         "agent_bootstrap",
@@ -236,86 +244,6 @@ def _envelope(
         json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str).encode("utf-8")
     )
     return payload
-
-
-def _tool_result(payload: dict[str, Any], *, label: str) -> CallToolResult:
-    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
-    text_payload = {
-        "ok": bool(payload.get("ok")),
-        "tool": label,
-        "status": payload.get("status"),
-        "run_id": payload.get("run_id"),
-        "summary": summary,
-        "warnings": payload.get("warnings") or [],
-        "next_actions": payload.get("next_actions") or [],
-    }
-    text = json.dumps(text_payload, ensure_ascii=False, separators=(",", ":"), default=str)
-    if len(text) > 1000:
-        text = text[:997] + "..."
-    return CallToolResult(
-        content=[TextContent(type="text", text=text)],
-        structuredContent=payload,
-        isError=not bool(payload.get("ok")),
-    )
-
-
-def _without_binary_content(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {
-            str(key): _without_binary_content(item)
-            for key, item in value.items()
-            if str(key) not in {"content_base64", "content_bytes", "pdf_base64"}
-        }
-    if isinstance(value, list):
-        return [_without_binary_content(item) for item in value]
-    return value
-
-
-def _tool_result_with_image(
-    payload: dict[str, Any],
-    *,
-    label: str,
-    image_base64: str,
-    mime_type: str,
-) -> CallToolResult:
-    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
-    text_payload = {
-        "ok": bool(payload.get("ok")),
-        "tool": label,
-        "status": payload.get("status"),
-        "run_id": payload.get("run_id"),
-        "summary": summary,
-        "warnings": payload.get("warnings") or [],
-        "next_actions": payload.get("next_actions") or [],
-    }
-    text = json.dumps(text_payload, ensure_ascii=False, separators=(",", ":"), default=str)
-    if len(text) > 1000:
-        text = text[:997] + "..."
-    return CallToolResult(
-        content=[
-            TextContent(type="text", text=text),
-            ImageContent(type="image", data=image_base64, mimeType=mime_type),
-        ],
-        structuredContent=payload,
-        isError=not bool(payload.get("ok")),
-    )
-
-
-def _store_vin_photo_image(result: Mapping[str, Any]) -> tuple[str, str]:
-    data = result.get("data") if isinstance(result.get("data"), Mapping) else {}
-    image_base64 = data.get("content_base64")
-    mime_type = data.get("content_type")
-    if not isinstance(image_base64, str) or not isinstance(mime_type, str):
-        raise ValueError("store_attachment_payload_missing")
-    if mime_type.casefold() != "image/jpeg":
-        raise ValueError("store_attachment_mime_invalid")
-    try:
-        content = base64.b64decode(image_base64, validate=True)
-    except (ValueError, TypeError):
-        raise ValueError("store_attachment_base64_invalid") from None
-    if not content or len(content) > STORE_VIN_PHOTO_PREVIEW_MAX_BYTES:
-        raise ValueError("store_attachment_payload_too_large")
-    return image_base64, "image/jpeg"
 
 
 def _response_data(response: Any) -> tuple[bool, Any, dict[str, Any], Any]:
@@ -691,6 +619,10 @@ def register_agent_gateway_v2(
     tool_manager = getattr(server, "_tool_manager", None)
     tools = getattr(tool_manager, "_tools", None)
     if not isinstance(tools, dict):
+        if policy.production:
+            raise RuntimeError(
+                "Production Agent Gateway requires a compatible FastMCP tool registry"
+            )
         return set()
     if not policy.gateway_enabled:
         if policy.production:

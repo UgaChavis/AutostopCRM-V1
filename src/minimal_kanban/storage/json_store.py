@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import shutil
 import time
 from copy import deepcopy
 from datetime import timedelta
@@ -122,6 +123,7 @@ class JsonStore:
         )
         self._read_cache_signature: tuple[int, int, int, int] | None = None
         self._read_cache_bundle: dict[str, Any] | None = None
+        self._validated_state_signature: tuple[int, int, int, int] | None = None
         self._trusted_card_versions: dict[str, tuple[int, str]] = {}
         self._trusted_client_versions: dict[str, tuple[int, str]] = {}
         self._trusted_sticky_versions: dict[str, tuple[int, str]] = {}
@@ -134,7 +136,8 @@ class JsonStore:
         self._state_file.parent.mkdir(parents=True, exist_ok=True)
         if not self._state_file.exists():
             with self._process_lock.acquire():
-                self._write_state(DEFAULT_STATE)
+                if not self._state_file.exists():
+                    self._write_state(DEFAULT_STATE)
 
     @property
     def base_dir(self) -> Path:
@@ -691,23 +694,26 @@ class JsonStore:
                 message="state file JSON is too deeply nested",
             )
         except (json.JSONDecodeError, UnicodeDecodeError, ValueError, RecursionError):
-            backup = self._corrupted_backup_path()
+            self._validated_state_signature = None
+            backup = self._preserve_corrupted_state()
             self._log_warning(
-                "Файл состояния поврежден, выполняется резервное копирование: %s",
+                "Файл состояния поврежден, резервная копия сохранена: %s",
                 backup.name,
             )
-            self._state_file.replace(backup)
             raise StateFileCorruptedError(
-                f"Файл состояния поврежден и сохранен как {backup.name}."
+                f"Файл состояния поврежден; резервная копия сохранена как {backup.name}."
             ) from None
         if not isinstance(payload, dict):
-            backup = self._corrupted_backup_path()
+            self._validated_state_signature = None
+            backup = self._preserve_corrupted_state()
             self._log_warning(
-                "Файл состояния имеет некорректный корневой тип, выполняется резервное копирование: %s",
+                "Файл состояния имеет некорректный корневой тип, резервная копия сохранена: %s",
                 backup.name,
             )
-            self._state_file.replace(backup)
-            raise StateFileCorruptedError(f"Файл состояния поврежден и сохранен как {backup.name}.")
+            raise StateFileCorruptedError(
+                f"Файл состояния поврежден; резервная копия сохранена как {backup.name}."
+            )
+        self._validated_state_signature = self._state_signature()
         return payload
 
     def _read_state_text(self) -> str:
@@ -728,7 +734,38 @@ class JsonStore:
                 return candidate
         return self._state_file.with_name(f"{stem}.corrupted-{time.time_ns()}.json")
 
+    @staticmethod
+    def _files_have_same_content(left: Path, right: Path) -> bool:
+        try:
+            if left.stat().st_size != right.stat().st_size:
+                return False
+            with left.open("rb") as left_handle, right.open("rb") as right_handle:
+                while left_chunk := left_handle.read(1024 * 1024):
+                    if left_chunk != right_handle.read(len(left_chunk)):
+                        return False
+                return right_handle.read(1) == b""
+        except OSError:
+            return False
+
+    def _preserve_corrupted_state(self) -> Path:
+        stem = self._state_file.with_suffix("").name
+        for candidate in sorted(self._state_file.parent.glob(f"{stem}.corrupted*.json")):
+            if candidate.is_file() and self._files_have_same_content(self._state_file, candidate):
+                return candidate
+
+        backup = self._corrupted_backup_path()
+        temp_backup = backup.with_name(f".{backup.name}.{uuid4().hex}.tmp")
+        try:
+            shutil.copyfile(self._state_file, temp_backup)
+            temp_backup.replace(backup)
+        finally:
+            temp_backup.unlink(missing_ok=True)
+        return backup
+
     def _write_state(self, state: dict, *, already_safe: bool = False) -> tuple[float, float]:
+        existing_signature = self._state_signature()
+        if existing_signature is not None and existing_signature != self._validated_state_signature:
+            self._read_state()
         serialize_started_at = time.perf_counter()
         safe_state = state if already_safe else _json_safe_dict(state)
         payload = json.dumps(
@@ -754,6 +791,7 @@ class JsonStore:
         written_signature = self._state_signature()
         if written_signature is None or written_signature[3] != payload_bytes:
             raise OSError("state file post-write verification failed")
+        self._validated_state_signature = written_signature
         return serialize_ms, write_ms
 
     def _state_signature(self) -> tuple[int, int, int, int] | None:

@@ -69,6 +69,7 @@ API_FILE_RESPONSE_MAX_BYTES = 32 * 1024 * 1024
 STATIC_ASSET_MAX_BYTES = 1 * 1024 * 1024
 MAX_QUERY_STRING_BYTES = 16 * 1024
 MAX_QUERY_FIELDS = 128
+HTTP_QVALUE_RE = re.compile(r"^(?:0(?:\.\d{0,3})?|1(?:\.0{0,3})?)$")
 BOOLEAN_QUERY_KEYS = frozenset(
     {
         "allow_linked",
@@ -257,6 +258,37 @@ def _same_host_cors_origin(origin: object, host: object) -> str:
     if origin_port != request_port:
         return ""
     return f"{scheme}://{origin_parts.netloc.lower()}"
+
+
+def _accepts_gzip(value: object) -> bool:
+    gzip_qualities: list[float] = []
+    wildcard_qualities: list[float] = []
+    for member in str(value or "").split(","):
+        parts = [part.strip() for part in member.split(";")]
+        coding = parts[0].casefold()
+        if coding not in {"gzip", "*"}:
+            continue
+        quality = 1.0
+        quality_seen = False
+        for parameter in parts[1:]:
+            name, separator, raw_quality = parameter.partition("=")
+            if name.strip().casefold() != "q":
+                continue
+            normalized_quality = raw_quality.strip()
+            if (
+                quality_seen
+                or not separator
+                or HTTP_QVALUE_RE.fullmatch(normalized_quality) is None
+            ):
+                quality = 0.0
+                break
+            quality_seen = True
+            quality = float(normalized_quality)
+        target = gzip_qualities if coding == "gzip" else wildcard_qualities
+        target.append(quality)
+    if gzip_qualities:
+        return max(gzip_qualities) > 0
+    return bool(wildcard_qualities and max(wildcard_qualities) > 0)
 
 
 def _shared_file_clipboard_position(value: object, *, default: int = 24) -> int:
@@ -837,6 +869,18 @@ class ApiServer:
                         "Заголовок Content-Length не может быть отрицательным.",
                     )
                     return
+                if not self._authenticate(request_id):
+                    self._drain_request_body(content_length)
+                    return
+                resolved_operator_session: dict | None = None
+                operator_session_resolved = False
+                if route != "/api/login_operator" and self._is_proxied_request():
+                    preflight_payload = self._operator_context_payload(route, {}, request_id)
+                    if preflight_payload is None:
+                        self.close_connection = True
+                        return
+                    resolved_operator_session = preflight_payload.get("_operator_session")
+                    operator_session_resolved = True
                 if content_length > MAX_JSON_BODY_BYTES:
                     self._drain_request_body(min(content_length, OVERSIZED_JSON_DRAIN_BYTES))
                     self.close_connection = True
@@ -850,9 +894,6 @@ class ApiServer:
                             "content_length": content_length,
                         },
                     )
-                    return
-                if not self._authenticate(request_id):
-                    self._drain_request_body(content_length)
                     return
                 if route in proxied_write_routes and is_maintenance_mode():
                     self._drain_request_body(content_length)
@@ -886,7 +927,13 @@ class ApiServer:
                         "Тело запроса должно быть JSON-объектом.",
                     )
                     return
-                self._dispatch(route, request_id, payload)
+                self._dispatch(
+                    route,
+                    request_id,
+                    payload,
+                    resolved_operator_session=resolved_operator_session,
+                    operator_session_resolved=operator_session_resolved,
+                )
 
             def _drain_request_body(self, content_length: int) -> None:
                 remaining = max(0, int(content_length))
@@ -948,7 +995,7 @@ class ApiServer:
                 return payload
 
             def _serve_board(self, request_id: str) -> None:
-                gzip_ok = "gzip" in str(self.headers.get("Accept-Encoding", "")).lower()
+                gzip_ok = _accepts_gzip(self.headers.get("Accept-Encoding", ""))
                 body = _board_html_gzip_bytes() if gzip_ok else _board_html_bytes()
                 extra_headers = {"Vary": "Accept-Encoding"}
                 if gzip_ok:
@@ -962,7 +1009,7 @@ class ApiServer:
                 )
 
             def _serve_display_dashboard(self, request_id: str) -> None:
-                gzip_ok = "gzip" in str(self.headers.get("Accept-Encoding", "")).lower()
+                gzip_ok = _accepts_gzip(self.headers.get("Accept-Encoding", ""))
                 body = (
                     _display_dashboard_html_gzip_bytes()
                     if gzip_ok
@@ -1131,11 +1178,25 @@ class ApiServer:
                 )
                 return False
 
-            def _dispatch(self, route: str, request_id: str, payload: dict) -> None:
+            def _dispatch(
+                self,
+                route: str,
+                request_id: str,
+                payload: dict,
+                *,
+                resolved_operator_session: dict | None = None,
+                operator_session_resolved: bool = False,
+            ) -> None:
                 started_at = perf_counter()
                 with request_performance_trace() as performance_trace:
                     try:
-                        payload = self._operator_context_payload(route, payload, request_id)
+                        payload = self._operator_context_payload(
+                            route,
+                            payload,
+                            request_id,
+                            resolved_operator_session=resolved_operator_session,
+                            operator_session_resolved=operator_session_resolved,
+                        )
                         if payload is None:
                             return
                         result = self.ROUTES[route](payload)
@@ -1432,7 +1493,7 @@ class ApiServer:
                 if (
                     content_type.startswith("application/json")
                     and len(body) >= JSON_GZIP_MIN_BYTES
-                    and "gzip" in str(self.headers.get("Accept-Encoding", "")).lower()
+                    and _accepts_gzip(self.headers.get("Accept-Encoding", ""))
                 ):
                     headers["Content-Encoding"] = "gzip"
                     headers["Vary"] = "Accept-Encoding"
@@ -1440,17 +1501,6 @@ class ApiServer:
                 if content_type.startswith("application/json"):
                     headers["Vary"] = "Accept-Encoding"
                 return body, headers
-
-            def _route_is_static(self, route: str) -> bool:
-                return route in {
-                    "/",
-                    "/index.html",
-                    "/dashboard",
-                    "/dashboard/",
-                    "/favicon.ico",
-                    "/favicon.png",
-                    "/api/health",
-                }
 
             def _serve_static_route(self, route: str, request_id: str) -> bool:
                 if route in {"/", "/index.html"}:
@@ -1504,43 +1554,28 @@ class ApiServer:
             def _serve_authenticated_get_route(
                 self, route: str, request_id: str, query: dict
             ) -> bool:
-                if route == "/api/attachment":
-                    if not self._authenticate(request_id, query):
+                handlers = {
+                    "/api/attachment": self._serve_attachment,
+                    "/api/shared_file": self._serve_shared_file,
+                    "/api/repair_order_text": self._serve_repair_order_text,
+                    "/employee_salary_reconciliation_print": (
+                        self._serve_employee_salary_reconciliation_print
+                    ),
+                }
+                handler = handlers.get(route)
+                if handler is not None:
+                    protected_query = self._operator_context_payload(route, query, request_id)
+                    if protected_query is None:
                         return True
-                    self._serve_attachment(request_id, query)
-                    return True
-                if route == "/api/shared_file":
-                    if not self._authenticate(request_id, query):
+                    if not self._authenticate(request_id, protected_query):
                         return True
-                    self._serve_shared_file(request_id, query)
-                    return True
-                if route == "/api/repair_order_text":
-                    if not self._authenticate(request_id, query):
-                        return True
-                    self._serve_repair_order_text(request_id, query)
-                    return True
-                if route == "/employee_salary_reconciliation_print":
-                    if not self._authenticate(request_id, query):
-                        return True
-                    self._serve_employee_salary_reconciliation_print(request_id, query)
+                    handler(request_id, protected_query)
                     return True
                 return False
 
             def _serve_readonly_get_route(self, route: str, request_id: str, query: dict) -> bool:
                 if route not in readonly_routes:
                     return False
-                if self._is_proxied_request() and operator_service is not None:
-                    session = operator_service.resolve_session(
-                        self.headers.get("X-Operator-Session", "")
-                    )
-                    if session is None:
-                        self._operator_context_payload_reject(
-                            request_id,
-                            status=HTTPStatus.UNAUTHORIZED,
-                            code="unauthorized",
-                            message="Для чтения рабочей CRM нужен вход оператора.",
-                        )
-                        return True
                 if not self._authenticate(request_id, query):
                     return True
                 self._dispatch(route, request_id, query)
@@ -1602,16 +1637,45 @@ class ApiServer:
                 )
 
             def _operator_context_payload(
-                self, route: str, payload: dict, request_id: str
+                self,
+                route: str,
+                payload: dict,
+                request_id: str,
+                *,
+                resolved_operator_session: dict | None = None,
+                operator_session_resolved: bool = False,
             ) -> dict | None:
                 if operator_service is None:
+                    if route != "/api/login_operator" and self._is_proxied_request():
+                        self._operator_context_payload_reject(
+                            request_id,
+                            status=HTTPStatus.SERVICE_UNAVAILABLE,
+                            code="operator_auth_unavailable",
+                            message="Сервис входа операторов временно недоступен.",
+                        )
+                        return None
                     return payload
-                session = operator_service.resolve_session(
-                    self.headers.get("X-Operator-Session", "")
-                )
-                if session is None:
-                    session = self._trusted_agent_session(payload)
+                if operator_session_resolved:
+                    session = resolved_operator_session
+                else:
+                    session = operator_service.resolve_session(
+                        self.headers.get("X-Operator-Session", "")
+                    )
+                    if session is None:
+                        session = self._trusted_agent_session(payload)
                 next_payload = self._operator_context_payload_with_session(route, payload, session)
+                if (
+                    route != "/api/login_operator"
+                    and session is None
+                    and self._is_proxied_request()
+                ):
+                    self._operator_context_payload_reject(
+                        request_id,
+                        status=HTTPStatus.UNAUTHORIZED,
+                        code="unauthorized",
+                        message="Для доступа к рабочей CRM нужен вход оператора.",
+                    )
+                    return None
                 if route in admin_only_routes:
                     if session is None:
                         self._operator_context_payload_reject(
@@ -1640,14 +1704,6 @@ class ApiServer:
                         )
                         return None
                     return next_payload
-                if route in proxied_write_routes and session is None and self._is_proxied_request():
-                    self._operator_context_payload_reject(
-                        request_id,
-                        status=HTTPStatus.UNAUTHORIZED,
-                        code="unauthorized",
-                        message="Нужен вход оператора.",
-                    )
-                    return None
                 if str(next_payload.get("source", "")).strip().lower() == "ui" and session is None:
                     self._operator_context_payload_reject(
                         request_id,

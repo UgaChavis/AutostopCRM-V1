@@ -1249,13 +1249,6 @@ class CardServiceClientsMixin:
                 score += 10
         return score
 
-    def _client_orders(self, client: ClientProfile, cards: list[Card]) -> list[dict[str, Any]]:
-        return [
-            self._serialize_repair_order_list_item(card)
-            for card in self._client_related_cards(client, cards)
-            if self._card_has_repair_order(card)
-        ]
-
     def _serialize_client(
         self,
         client: ClientProfile,
