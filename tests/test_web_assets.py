@@ -4302,6 +4302,38 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("height: 30px;", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-toolbar {", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-toolbar__content {", BOARD_WEB_APP_HTML)
+        toolbar_rule = re.search(
+            r"\.repair-orders-toolbar \{(?P<body>.*?)\n    \}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(toolbar_rule)
+        assert toolbar_rule is not None
+        self.assertIn("rgba(28, 36, 30, 0.20);", toolbar_rule.group("body"))
+        toolbar_action_surface_rule = re.search(
+            r"\.repair-orders-toolbar \.tab-btn,\n    \.repair-orders-toolbar \[data-close=\"repair-orders\"\] \{(?P<body>.*?)\n    \}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(toolbar_action_surface_rule)
+        assert toolbar_action_surface_rule is not None
+        self.assertIn("background: #151c17;", toolbar_action_surface_rule.group("body"))
+        for selector, background in (
+            ("#repairOrdersOpenTab", "#233024"),
+            ("#repairOrdersOpenTab.is-active", "#334933"),
+            ("#repairOrdersReadyTab", "#28302b"),
+            ("#repairOrdersReadyTab.is-active", "#424a47"),
+            ("#repairOrdersClosedTab", "#272822"),
+            ("#repairOrdersClosedTab.is-active", "#40322c"),
+        ):
+            tab_rule = re.search(
+                rf"{re.escape(selector)} \{{(?P<body>.*?)\n    \}}",
+                BOARD_WEB_APP_HTML,
+                re.S,
+            )
+            self.assertIsNotNone(tab_rule)
+            assert tab_rule is not None
+            self.assertIn(f"background: {background};", tab_rule.group("body"))
         self.assertIn(".dialog--repair-orders > .repair-orders-body-scroll {", BOARD_WEB_APP_HTML)
         self.assertIn("scrollbar-gutter: stable;", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-body-scroll .repair-orders-table-head {", BOARD_WEB_APP_HTML)
