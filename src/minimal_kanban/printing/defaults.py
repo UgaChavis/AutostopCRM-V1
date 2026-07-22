@@ -100,6 +100,16 @@ PRINT_BASE_STYLES = """
   .document-page--dense {
     padding: 9mm 10mm 10mm;
   }
+  .document-page--dense .doc-table th,
+  .document-page--dense .doc-table td {
+    padding: 4px 6px;
+  }
+  .document-page--dense .doc-totals-table {
+    margin-top: 6px;
+  }
+  .document-page--dense .doc-totals-table td {
+    padding: 6px 9px;
+  }
   .document-page:last-child { page-break-after: auto; }
   .doc-head {
     display: grid;
