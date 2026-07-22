@@ -7078,6 +7078,26 @@ class CardService(
                     "common_aliases": common_aliases,
                 },
             )
+        canonical_patch: dict[str, Any] = {}
+        canonical_sources: dict[str, list[str]] = {}
+        for field_name, field_value in patch.items():
+            canonical_name = common_aliases.get(field_name, field_name)
+            if canonical_name in canonical_patch and canonical_patch[canonical_name] != field_value:
+                self._fail(
+                    "validation_error",
+                    "Нельзя передавать разные значения одного поля заказ-наряда через основное имя и псевдоним.",
+                    details={
+                        "field": canonical_name,
+                        "conflicting_fields": [
+                            *canonical_sources[canonical_name],
+                            field_name,
+                        ],
+                        "common_aliases": common_aliases,
+                    },
+                )
+            canonical_patch[canonical_name] = field_value
+            canonical_sources.setdefault(canonical_name, []).append(field_name)
+        patch = canonical_patch
         if "works" in patch:
             patch["works"] = self._validated_repair_order_rows(
                 patch["works"], field_name="repair_order.works"

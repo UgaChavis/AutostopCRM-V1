@@ -11202,6 +11202,35 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(order["mileage"], "120000")
         self.assertEqual(order["note"], "Комментарий мастера")
 
+    def test_repair_order_patch_rejects_conflicting_alias_values(self) -> None:
+        created = self.service.create_card(
+            {"vehicle": "KIA RIO", "title": "Ремонт", "deadline": {"hours": 2}}
+        )
+
+        with self.assertRaises(ServiceError) as raised:
+            self.service.update_repair_order(
+                {
+                    "card_id": created["card"]["id"],
+                    "repair_order": {
+                        "comment": "Комментарий для клиента",
+                        "client_information": "Другая информация для клиента",
+                    },
+                }
+            )
+
+        self.assertEqual(raised.exception.code, "validation_error")
+        self.assertEqual(raised.exception.details["field"], "comment")
+        self.assertEqual(
+            raised.exception.details["conflicting_fields"],
+            ["comment", "client_information"],
+        )
+        self.assertEqual(
+            self.service.get_repair_order({"card_id": created["card"]["id"]})["repair_order"][
+                "comment"
+            ],
+            "",
+        )
+
     def test_search_cards_matches_repair_order_fields(self) -> None:
         created = self.service.create_card(
             {
