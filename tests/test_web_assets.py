@@ -4239,19 +4239,45 @@ class WebAssetsTests(unittest.TestCase):
             "state.repairOrderParentLayer = String(parentLayer || 'repair-orders').trim();",
             repair_order_card_fragment,
         )
-        self.assertIn(".dialog--repair-orders {", BOARD_WEB_APP_HTML)
-        self.assertIn("width: min(1940px, calc(100vw - 24px));", BOARD_WEB_APP_HTML)
+        self.assertIn(".repair-orders-workspace {", BOARD_WEB_APP_HTML)
+        self.assertIn("width: min(1940px, 100%);", BOARD_WEB_APP_HTML)
+        self.assertIn("grid-template-rows: auto minmax(0, 1fr);", BOARD_WEB_APP_HTML)
         repair_orders_modal_fragment = BOARD_WEB_APP_HTML[
             BOARD_WEB_APP_HTML.index(
                 '<div class="modal" id="repairOrdersModal">'
-            ) : BOARD_WEB_APP_HTML.index(
-                '<div class="repair-orders-table-head" id="repairOrdersTableHead">'
-            )
+            ) : BOARD_WEB_APP_HTML.index('<div class="modal" id="clientsModal">')
         ]
-        self.assertIn("dialog__head-actions--repair-orders", repair_orders_modal_fragment)
+        self.assertIn('class="repair-orders-workspace"', repair_orders_modal_fragment)
+        self.assertIn(
+            'class="repair-orders-toolbar dialog__floating-actions"', repair_orders_modal_fragment
+        )
         self.assertIn(
             'class="repair-orders-controls repair-orders-controls--header"',
             repair_orders_modal_fragment,
+        )
+        self.assertIn(
+            'class="dialog dialog--repair-orders dialog--fixed-actions"',
+            repair_orders_modal_fragment,
+        )
+        self.assertIn(
+            'class="dialog__body-scroll repair-orders-body-scroll"', repair_orders_modal_fragment
+        )
+        self.assertIn(
+            'id="repairOrdersPanelTitle">ЗАКАЗ-НАРЯДЫ</div>', repair_orders_modal_fragment
+        )
+        self.assertLess(
+            repair_orders_modal_fragment.index('class="repair-orders-toolbar'),
+            repair_orders_modal_fragment.index('class="dialog dialog--repair-orders'),
+        )
+        self.assertLess(
+            repair_orders_modal_fragment.index(
+                'class="dialog__body-scroll repair-orders-body-scroll"'
+            ),
+            repair_orders_modal_fragment.index('id="repairOrdersTableHead"'),
+        )
+        self.assertLess(
+            repair_orders_modal_fragment.index('id="repairOrdersTableHead"'),
+            repair_orders_modal_fragment.index('id="repairOrdersList"'),
         )
         self.assertLess(
             repair_orders_modal_fragment.index("repair-orders-controls--header"),
@@ -4274,34 +4300,21 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("box-sizing: border-box;", BOARD_WEB_APP_HTML)
         self.assertIn("height: 30px;", BOARD_WEB_APP_HTML)
-        head_left_rule = re.search(
-            r"\.dialog__head-left--repair-orders \{(?P<body>.*?)\n    \}",
+        self.assertIn(".repair-orders-toolbar {", BOARD_WEB_APP_HTML)
+        self.assertIn(".repair-orders-toolbar__content {", BOARD_WEB_APP_HTML)
+        self.assertIn(".dialog--repair-orders > .repair-orders-body-scroll {", BOARD_WEB_APP_HTML)
+        self.assertIn("scrollbar-gutter: stable;", BOARD_WEB_APP_HTML)
+        self.assertIn(".repair-orders-body-scroll .repair-orders-table-head {", BOARD_WEB_APP_HTML)
+        self.assertIn("top: 0;", BOARD_WEB_APP_HTML)
+        toolbar_close_rule = re.search(
+            r"\.repair-orders-toolbar \[data-close=\"repair-orders\"\] \{(?P<body>.*?)\n    \}",
             BOARD_WEB_APP_HTML,
             re.S,
         )
-        self.assertIsNotNone(head_left_rule)
-        assert head_left_rule is not None
-        self.assertIn("flex: 0 0 auto;", head_left_rule.group("body"))
-        head_actions_rule = re.search(
-            r"\.dialog__head-actions--repair-orders \{(?P<body>.*?)\n    \}",
-            BOARD_WEB_APP_HTML,
-            re.S,
-        )
-        self.assertIsNotNone(head_actions_rule)
-        assert head_actions_rule is not None
-        self.assertIn("align-items: center;", head_actions_rule.group("body"))
-        self.assertIn("justify-content: flex-start;", head_actions_rule.group("body"))
-        self.assertIn("margin-left: 12px;", head_actions_rule.group("body"))
-        close_button_rule = re.search(
-            r"\.dialog__head-actions--repair-orders \[data-close=\"repair-orders\"\] \{(?P<body>.*?)\n    \}",
-            BOARD_WEB_APP_HTML,
-            re.S,
-        )
-        self.assertIsNotNone(close_button_rule)
-        assert close_button_rule is not None
-        self.assertIn("margin-left: auto;", close_button_rule.group("body"))
-        self.assertIn("min-width: 96px;", close_button_rule.group("body"))
-        self.assertIn("min-height: 36px;", close_button_rule.group("body"))
+        self.assertIsNotNone(toolbar_close_rule)
+        assert toolbar_close_rule is not None
+        self.assertIn("min-width: 96px;", toolbar_close_rule.group("body"))
+        self.assertIn("min-height: 36px;", toolbar_close_rule.group("body"))
         self.assertIn(
             "repairOrderListTotalText(item.grand_total, item.works_total)", BOARD_WEB_APP_HTML
         )

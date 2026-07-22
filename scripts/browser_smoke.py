@@ -56,6 +56,7 @@ SMOKE_SCENARIOS = (
     "employee_shift_accrual_manual_salary",
     "clients_repair_order_returns_to_client",
     "repair_orders_list_returns_to_list",
+    "repair_orders_toolbar_stays_available_while_list_scrolls",
     "repair_order_salary_override_popover",
     "payroll_chain_reaches_reports_and_reconciliation",
     "archive_search_filters_visible_rows",
@@ -467,6 +468,33 @@ def start_temp_runtime(*, start_port: int = 42731) -> TempRuntime:
             "actor_name": "SMOKE",
         }
     )
+    for index in range(18):
+        list_card = service.create_card(
+            {
+                "vehicle": f"Smoke Scroll Vehicle {index:02d}",
+                "title": f"Browser smoke repair-order scroll row {index:02d}",
+                "deadline": {"hours": 2},
+                "actor_name": "SMOKE",
+            }
+        )["card"]
+        service.update_card(
+            {
+                "card_id": list_card["id"],
+                "repair_order": {
+                    "number": str(920 + index),
+                    "status": "open",
+                    "vehicle": f"Smoke Scroll Vehicle {index:02d}",
+                    "works": [
+                        {
+                            "name": f"Smoke scrolling work {index:02d}",
+                            "quantity": "1",
+                            "price": "1000",
+                        }
+                    ],
+                },
+                "actor_name": "SMOKE",
+            }
+        )
     archived_card = service.create_card(
         {
             "vehicle": "Archive Filter Smoke",
@@ -1556,6 +1584,43 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     await page.click("#repairOrdersButton")
     await _wait_modal_open(page, "#repairOrdersModal")
     await page.wait_for_selector(f'[data-open-repair-order-card="{runtime.client_card_id}"]')
+    toolbar_stays_available = bool(
+        await page.evaluate(
+            """() => {
+              const scrollPort = document.querySelector('#repairOrdersModal .repair-orders-body-scroll');
+              const toolbar = document.querySelector('#repairOrdersModal .repair-orders-toolbar');
+              const closeButton = document.querySelector('#repairOrdersModal [data-close="repair-orders"]');
+              const activeTab = document.querySelector('#repairOrdersModal #repairOrdersOpenTab');
+              const search = document.querySelector('#repairOrdersModal #repairOrdersSearchInput');
+              const tableHead = document.querySelector('#repairOrdersModal #repairOrdersTableHead');
+              if (!scrollPort || !toolbar || !closeButton || !activeTab || !search || !tableHead) return false;
+              const isVisible = (element) => {
+                const rect = element.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0
+                  && rect.top >= 0 && rect.bottom <= window.innerHeight
+                  && rect.left >= 0 && rect.right <= window.innerWidth;
+              };
+              const toolbarTop = toolbar.getBoundingClientRect().top;
+              const hasOverflow = scrollPort.scrollHeight > scrollPort.clientHeight + 1;
+              scrollPort.scrollTop = scrollPort.scrollHeight;
+              const scrollPortRect = scrollPort.getBoundingClientRect();
+              const tableHeadRect = tableHead.getBoundingClientRect();
+              return hasOverflow
+                && scrollPort.scrollTop > 0
+                && Math.abs(toolbar.getBoundingClientRect().top - toolbarTop) <= 1
+                && isVisible(closeButton)
+                && isVisible(activeTab)
+                && isVisible(search)
+                && Math.abs(tableHeadRect.top - scrollPortRect.top) <= 2;
+            }"""
+        )
+    )
+    await page.click("#repairOrdersReadyTab")
+    await page.wait_for_selector("#repairOrdersReadyTab.is-active")
+    await page.click("#repairOrdersOpenTab")
+    await page.wait_for_selector("#repairOrdersOpenTab.is-active")
+    await page.wait_for_selector(f'[data-open-repair-order-card="{runtime.client_card_id}"]')
+    scenarios["repair_orders_toolbar_stays_available_while_list_scrolls"] = toolbar_stays_available
     await page.click(f'[data-open-repair-order-card="{runtime.client_card_id}"]')
     await _wait_modal_open(page, "#repairOrderModal")
     await page.click('[data-close="repair-order"]')

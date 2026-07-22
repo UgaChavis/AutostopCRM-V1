@@ -1588,37 +1588,39 @@
       flex: 1 1 auto;
     }
     .dialog__head--repair-orders {
-      display: block;
-    }
-    .dialog__head-row--repair-orders {
       display: flex;
       align-items: center;
+      min-height: 48px;
+      margin: 0;
+      padding: 11px 14px 9px;
+      border-bottom: 1px solid rgba(115, 126, 105, 0.22);
+      background: rgba(0, 0, 0, 0.1);
+    }
+    .repair-orders-toolbar {
+      display: flex;
+      align-items: end;
       justify-content: space-between;
       gap: 12px;
-      flex-wrap: nowrap;
-    }
-    .dialog__head-left--repair-orders {
-      display: flex;
-      align-items: center;
-      gap: 12px;
       min-width: 0;
-      flex: 0 0 auto;
-      flex-wrap: nowrap;
+      padding: 10px 14px;
+      border: 1px solid rgba(115, 126, 105, 0.34);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.04), transparent 62%),
+        rgba(28, 36, 30, 0.98);
+      box-shadow: 0 14px 30px rgba(0, 0, 0, 0.24);
     }
-    .dialog__head-actions--repair-orders {
+    .repair-orders-toolbar__content {
       display: flex;
-      align-items: center;
-      justify-content: flex-start;
+      align-items: end;
       gap: 12px;
       min-width: 0;
       flex: 1 1 auto;
-      margin-left: 12px;
     }
-    .dialog__head-actions--repair-orders [data-close="repair-orders"] {
+    .repair-orders-toolbar [data-close="repair-orders"] {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      margin-left: auto;
+      flex: 0 0 auto;
       min-width: 96px;
       min-height: 36px;
       padding: 0 14px;
@@ -5030,9 +5032,35 @@
         grid-column: auto;
       }
     }
+    .repair-orders-workspace {
+      width: min(1940px, 100%);
+      height: min(94vh, 980px);
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 10px;
+    }
     .dialog--repair-orders {
-      width: min(1940px, calc(100vw - 24px));
-      max-height: min(94vh, 980px);
+      width: 100%;
+      height: 100%;
+      max-height: none;
+      min-height: 0;
+      padding: 0;
+      gap: 0;
+      overflow: hidden;
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+    .dialog--repair-orders > .repair-orders-body-scroll {
+      display: grid;
+      align-content: start;
+      min-height: 0;
+      gap: 0;
+      padding: 0 14px 14px;
+      overflow: auto;
+      scrollbar-gutter: stable;
+    }
+    .repair-orders-body-scroll .repair-orders-table-head {
+      top: 0;
     }
     .repair-orders-controls--header {
       display: grid;
@@ -5056,6 +5084,60 @@
       min-height: 72px;
       padding-bottom: 14px;
       scroll-padding-bottom: 14px;
+    }
+    @media (max-width: 1180px) {
+      .repair-orders-toolbar {
+        align-items: flex-start;
+      }
+      .repair-orders-toolbar__content {
+        align-items: flex-start;
+        flex-wrap: wrap;
+      }
+    }
+    @media (max-width: 760px) {
+      #repairOrdersModal {
+        padding: 12px;
+      }
+      .repair-orders-workspace {
+        height: calc(100dvh - 24px);
+        gap: 8px;
+      }
+      .repair-orders-toolbar {
+        align-items: flex-start;
+        gap: 8px;
+        padding: 8px 10px;
+      }
+      .repair-orders-toolbar__content {
+        gap: 8px;
+      }
+      .repair-orders-controls--header {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .repair-orders-search-field {
+        grid-column: 1 / -1;
+      }
+      .dialog--repair-orders > .repair-orders-body-scroll {
+        padding-right: 10px;
+        padding-left: 10px;
+      }
+    }
+    @media (max-width: 500px) {
+      .repair-orders-toolbar {
+        flex-wrap: wrap;
+      }
+      .repair-orders-toolbar__content {
+        width: 100%;
+      }
+      .repair-orders-toolbar [data-close="repair-orders"] {
+        margin-left: auto;
+      }
+      .repair-orders-controls--header {
+        grid-template-columns: 1fr;
+        width: 100%;
+      }
+      .repair-orders-search-field {
+        grid-column: auto;
+      }
     }
     .repair-order-tags-card {
       gap: 7px;

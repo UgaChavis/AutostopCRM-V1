@@ -212,6 +212,7 @@ EXPECTED_SMOKE_SCENARIOS = (
     "employee_shift_accrual_manual_salary",
     "clients_repair_order_returns_to_client",
     "repair_orders_list_returns_to_list",
+    "repair_orders_toolbar_stays_available_while_list_scrolls",
     "repair_order_salary_override_popover",
     "payroll_chain_reaches_reports_and_reconciliation",
     "archive_search_filters_visible_rows",

@@ -48,6 +48,10 @@ class BrowserSmokeScriptTests(unittest.TestCase):
         self.assertIn("employees_repair_order_returns_to_employee", module.SMOKE_SCENARIOS)
         self.assertIn("clients_repair_order_returns_to_client", module.SMOKE_SCENARIOS)
         self.assertIn("repair_orders_list_returns_to_list", module.SMOKE_SCENARIOS)
+        self.assertIn(
+            "repair_orders_toolbar_stays_available_while_list_scrolls",
+            module.SMOKE_SCENARIOS,
+        )
         self.assertIn("cashboxes_journal_transfer_returns_to_cashbox", module.SMOKE_SCENARIOS)
         self.assertIn("cashbox_journal_filters_and_no_audit", module.SMOKE_SCENARIOS)
         self.assertIn("cashbox_journal_compact_cleanup", module.SMOKE_SCENARIOS)

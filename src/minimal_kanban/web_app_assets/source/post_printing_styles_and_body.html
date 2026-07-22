@@ -3471,58 +3471,61 @@
   </div>
 
     <div class="modal" id="repairOrdersModal">
-      <div class="dialog dialog--repair-orders">
-        <div class="dialog__head dialog__head--repair-orders">
-          <div class="dialog__head-row dialog__head-row--repair-orders">
-            <div class="dialog__head-left dialog__head-left--repair-orders">
-              <div class="dialog__title">ЗАКАЗ-НАРЯДЫ</div>
-              <div class="dialog__tabs dialog__tabs--repair-orders">
-                <div>
-                  <button class="tab-btn is-active" id="repairOrdersOpenTab" data-repair-orders-status="open">ОТКРЫТЫЕ</button>
-                  <button class="tab-btn" id="repairOrdersReadyTab" data-repair-orders-status="ready">ГОТОВЫЕ</button>
-                  <button class="tab-btn" id="repairOrdersClosedTab" data-repair-orders-status="closed">ЗАКРЫТЫЕ</button>
-                </div>
+      <section class="repair-orders-workspace" aria-label="Заказ-наряды">
+        <div class="repair-orders-toolbar dialog__floating-actions">
+          <div class="repair-orders-toolbar__content">
+            <div class="dialog__tabs dialog__tabs--repair-orders">
+              <div>
+                <button class="tab-btn is-active" id="repairOrdersOpenTab" data-repair-orders-status="open">ОТКРЫТЫЕ</button>
+                <button class="tab-btn" id="repairOrdersReadyTab" data-repair-orders-status="ready">ГОТОВЫЕ</button>
+                <button class="tab-btn" id="repairOrdersClosedTab" data-repair-orders-status="closed">ЗАКРЫТЫЕ</button>
               </div>
             </div>
-            <div class="dialog__head-actions dialog__head-actions--repair-orders">
-              <div class="repair-orders-controls repair-orders-controls--header">
-                <div class="field field--compact repair-orders-search-field">
-                  <label for="repairOrdersSearchInput" class="repair-orders-search-label"><span>ПОИСК</span><span class="repair-orders-search-spinner" id="repairOrdersSearchSpinner" aria-hidden="true"></span></label>
-                  <input id="repairOrdersSearchInput" type="text" maxlength="120" placeholder="номер, клиент, авто">
-                </div>
-                <div class="field field--compact repair-orders-sort-field">
-                  <label for="repairOrdersSortBy">СОРТИРОВКА</label>
-                  <select id="repairOrdersSortBy">
-                    <option value="opened_at">Дата открытия</option>
-                    <option value="closed_at">Дата закрытия</option>
-                    <option value="number" selected>Номер</option>
-                  </select>
-                </div>
-                <div class="field field--compact repair-orders-sort-field">
-                  <label for="repairOrdersSortDir">ПОРЯДОК</label>
-                  <select id="repairOrdersSortDir">
-                    <option value="desc">Сначала новые</option>
-                    <option value="asc">Сначала старые</option>
-                  </select>
-                </div>
+            <div class="repair-orders-controls repair-orders-controls--header">
+              <div class="field field--compact repair-orders-search-field">
+                <label for="repairOrdersSearchInput" class="repair-orders-search-label"><span>ПОИСК</span><span class="repair-orders-search-spinner" id="repairOrdersSearchSpinner" aria-hidden="true"></span></label>
+                <input id="repairOrdersSearchInput" type="text" maxlength="120" placeholder="номер, клиент, авто">
               </div>
-              <button class="btn" data-close="repair-orders">ЗАКРЫТЬ</button>
+              <div class="field field--compact repair-orders-sort-field">
+                <label for="repairOrdersSortBy">СОРТИРОВКА</label>
+                <select id="repairOrdersSortBy">
+                  <option value="opened_at">Дата открытия</option>
+                  <option value="closed_at">Дата закрытия</option>
+                  <option value="number" selected>Номер</option>
+                </select>
+              </div>
+              <div class="field field--compact repair-orders-sort-field">
+                <label for="repairOrdersSortDir">ПОРЯДОК</label>
+                <select id="repairOrdersSortDir">
+                  <option value="desc">Сначала новые</option>
+                  <option value="asc">Сначала старые</option>
+                </select>
+              </div>
             </div>
           </div>
+          <button class="btn" data-close="repair-orders">ЗАКРЫТЬ</button>
         </div>
-      <div class="wall-meta repair-orders-meta" id="repairOrdersMeta" hidden aria-hidden="true"></div>
-      <div class="repair-orders-table-head" id="repairOrdersTableHead">
-        <div class="repair-orders-table-head__searchable"><span>№</span><button class="repair-orders-search-scope" type="button" data-repair-orders-search-field="number" aria-label="Искать по графе номер" title="Искать по графе номер"></button></div>
-        <div class="repair-orders-table-head__searchable"><span>Даты</span><button class="repair-orders-search-scope" type="button" data-repair-orders-search-field="date" aria-label="Искать по графе даты" title="Искать по графе даты"></button></div>
-        <div>Оплата</div>
-        <div class="repair-orders-table-head__searchable"><span>Клиент</span><button class="repair-orders-search-scope" type="button" data-repair-orders-search-field="client" aria-label="Искать по графе клиент" title="Искать по графе клиент"></button></div>
-        <div class="repair-orders-table-head__searchable"><span>Телефон</span><button class="repair-orders-search-scope" type="button" data-repair-orders-search-field="phone" aria-label="Искать по графе телефон" title="Искать по графе телефон"></button></div>
-        <div class="repair-orders-table-head__searchable"><span>Автомобиль</span><button class="repair-orders-search-scope" type="button" data-repair-orders-search-field="vehicle" aria-label="Искать по графе автомобиль" title="Искать по графе автомобиль"></button></div>
-        <div class="repair-orders-table-head__searchable-group"><div class="repair-orders-table-head__searchable"><span>Смысл карточки</span><button class="repair-orders-search-scope is-active" type="button" data-repair-orders-search-field="summary" aria-label="Искать по графе смысл карточки" title="Искать по графе смысл карточки"></button></div><div class="repair-orders-table-head__searchable repair-orders-table-head__searchable--plate"><span>Госномер</span><button class="repair-orders-search-scope" type="button" data-repair-orders-search-field="license_plate" aria-label="Искать по госномеру" title="Искать по госномеру"></button></div></div>
-        <div class="repair-orders-table-head__sum">Внесено</div>
-        <div class="repair-orders-table-head__sum">Сумма</div>
-      </div>
-      <div class="repair-orders-list" id="repairOrdersList"></div>
+        <div class="dialog dialog--repair-orders dialog--fixed-actions">
+          <div class="dialog__head dialog__head--repair-orders">
+            <div class="dialog__title" id="repairOrdersPanelTitle">ЗАКАЗ-НАРЯДЫ</div>
+          </div>
+          <div class="dialog__body-scroll repair-orders-body-scroll">
+            <div class="wall-meta repair-orders-meta" id="repairOrdersMeta" hidden aria-hidden="true"></div>
+            <div class="repair-orders-table-head" id="repairOrdersTableHead">
+              <div class="repair-orders-table-head__searchable"><span>№</span><button class="repair-orders-search-scope" type="button" data-repair-orders-search-field="number" aria-label="Искать по графе номер" title="Искать по графе номер"></button></div>
+              <div class="repair-orders-table-head__searchable"><span>Даты</span><button class="repair-orders-search-scope" type="button" data-repair-orders-search-field="date" aria-label="Искать по графе даты" title="Искать по графе даты"></button></div>
+              <div>Оплата</div>
+              <div class="repair-orders-table-head__searchable"><span>Клиент</span><button class="repair-orders-search-scope" type="button" data-repair-orders-search-field="client" aria-label="Искать по графе клиент" title="Искать по графе клиент"></button></div>
+              <div class="repair-orders-table-head__searchable"><span>Телефон</span><button class="repair-orders-search-scope" type="button" data-repair-orders-search-field="phone" aria-label="Искать по графе телефон" title="Искать по графе телефон"></button></div>
+              <div class="repair-orders-table-head__searchable"><span>Автомобиль</span><button class="repair-orders-search-scope" type="button" data-repair-orders-search-field="vehicle" aria-label="Искать по графе автомобиль" title="Искать по графе автомобиль"></button></div>
+              <div class="repair-orders-table-head__searchable-group"><div class="repair-orders-table-head__searchable"><span>Смысл карточки</span><button class="repair-orders-search-scope is-active" type="button" data-repair-orders-search-field="summary" aria-label="Искать по графе смысл карточки" title="Искать по графе смысл карточки"></button></div><div class="repair-orders-table-head__searchable repair-orders-table-head__searchable--plate"><span>Госномер</span><button class="repair-orders-search-scope" type="button" data-repair-orders-search-field="license_plate" aria-label="Искать по госномеру" title="Искать по госномеру"></button></div></div>
+              <div class="repair-orders-table-head__sum">Внесено</div>
+              <div class="repair-orders-table-head__sum">Сумма</div>
+            </div>
+            <div class="repair-orders-list" id="repairOrdersList"></div>
+          </div>
+        </div>
+      </section>
     </div>
   </div>
 
