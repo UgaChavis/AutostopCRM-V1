@@ -370,6 +370,20 @@ class McpOAuthProviderStateTests(unittest.TestCase):
 
             self.assertIsNotNone(asyncio.run(provider.get_client("codex-cli-relay")))
 
+    def test_register_client_accepts_issuer_bound_codex_relay_endpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            provider = self._provider(Path(temp_dir) / "mcp-oauth-state.json")
+            client = OAuthClientInformationFull(
+                client_id="codex-cli-relay-endpoint",
+                redirect_uris=["https://agent.example/codex-oauth"],
+                token_endpoint_auth_method="none",
+                scope="kanban:read kanban:write",
+            )
+
+            asyncio.run(provider.register_client(client))
+
+            self.assertIsNotNone(asyncio.run(provider.get_client("codex-cli-relay-endpoint")))
+
     def test_authorization_requires_exact_audience_scopes_and_owner_approval(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             provider = self._provider(Path(temp_dir) / "mcp-oauth-state.json")

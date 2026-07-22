@@ -522,6 +522,13 @@ class ProductionOAuthAuthorizationServerProvider(
             )
         issuer = urlsplit(self._issuer_url)
         issuer_hostname = (issuer.hostname or "").casefold()
+        if (
+            parsed.scheme.casefold() == "https"
+            and hostname == issuer_hostname
+            and port is None
+            and parsed.path == "/codex-oauth"
+        ):
+            return True
         relay_callback_id = parsed.path.removeprefix("/codex-oauth/callback/")
         if (
             parsed.scheme.casefold() == "https"
