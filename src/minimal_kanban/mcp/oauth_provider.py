@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import hmac
 import json
 import math
@@ -43,6 +44,9 @@ CHATGPT_OAUTH_REDIRECT_PATH_PREFIX = "/connector/oauth/"
 CHATGPT_LEGACY_OAUTH_REDIRECT_PATH = "/connector_platform_oauth_redirect"
 OAUTH_CONSENT_PATH = "/oauth/authorize"
 OAUTH_STATE_KEY_ENV = "AUTOSTOP_MCP_OAUTH_STATE_KEY"
+OAUTH_AUDIT_ACTOR_HEADER = "X-Autostop-Agent-OAuth-Actor"
+OAUTH_AUDIT_ASSERTION_HEADER = "X-Autostop-Agent-OAuth-Assertion"
+_OAUTH_AUDIT_ASSERTION_DOMAIN = "autostopcrm:mcp-oauth-audit:v1"
 
 
 def _reject_json_constant(value: str) -> None:
@@ -54,6 +58,78 @@ def _is_production() -> bool:
         "prod",
         "production",
     }
+
+
+def _oauth_audit_assertion_key() -> bytes:
+    """Return the deployment-held OAuth key for internal audit assertions.
+
+    The state key is already mandatory and protected in production.  Reusing it
+    with a separate HMAC domain avoids a second secret while keeping an OAuth
+    subject from becoming an untrusted HTTP header at the local API boundary.
+    """
+
+    raw = str(os.environ.get(OAUTH_STATE_KEY_ENV) or "").strip()
+    if not raw:
+        return b""
+    try:
+        encoded = raw.encode("ascii")
+        Fernet(encoded)
+    except (TypeError, UnicodeEncodeError, ValueError):
+        return b""
+    return encoded
+
+
+def _oauth_audit_assertion_message(
+    *, subject: str, method: str, route: str, payload: dict[str, object]
+) -> bytes:
+    canonical = json.dumps(
+        {
+            "domain": _OAUTH_AUDIT_ASSERTION_DOMAIN,
+            "subject": str(subject or "").strip(),
+            "method": str(method or "").upper(),
+            "route": str(route or "").strip(),
+            "payload": payload,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    return canonical.encode("utf-8")
+
+
+def create_oauth_audit_assertion(
+    *, subject: str, method: str, route: str, payload: dict[str, object]
+) -> str:
+    """Bind the active OAuth owner to one trusted local API request."""
+
+    normalized_subject = str(subject or "").strip()
+    key = _oauth_audit_assertion_key()
+    if not normalized_subject or not key:
+        return ""
+    try:
+        message = _oauth_audit_assertion_message(
+            subject=normalized_subject,
+            method=method,
+            route=route,
+            payload=payload,
+        )
+    except (TypeError, ValueError):
+        return ""
+    return hmac.new(key, message, hashlib.sha256).hexdigest()
+
+
+def verify_oauth_audit_assertion(
+    *, subject: str, method: str, route: str, payload: dict[str, object], assertion: str
+) -> bool:
+    expected = create_oauth_audit_assertion(
+        subject=subject,
+        method=method,
+        route=route,
+        payload=payload,
+    )
+    supplied = str(assertion or "").strip()
+    return bool(expected and supplied) and hmac.compare_digest(expected, supplied)
 
 
 class OwnerAuthorizationCode(AuthorizationCode):
@@ -817,7 +893,11 @@ EmbeddedOAuthAuthorizationServerProvider = ProductionOAuthAuthorizationServerPro
 __all__ = [
     "ACCESS_TOKEN_TTL_SECONDS",
     "DEFAULT_KANBAN_SCOPES",
+    "OAUTH_AUDIT_ACTOR_HEADER",
+    "OAUTH_AUDIT_ASSERTION_HEADER",
     "OAUTH_CONSENT_PATH",
     "OAUTH_STATE_KEY_ENV",
     "ProductionOAuthAuthorizationServerProvider",
+    "create_oauth_audit_assertion",
+    "verify_oauth_audit_assertion",
 ]

@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from logging import Logger
 
 from ..config import get_api_port, get_api_port_fallback_limit
+from .oauth_provider import OAUTH_AUDIT_ACTOR_HEADER, OAUTH_AUDIT_ASSERTION_HEADER
 
 
 class BoardApiTransportError(RuntimeError):
@@ -1503,6 +1504,8 @@ class BoardApiClient:
                     in {
                         "X-Autostop-Agent-Identity",
                         "X-Autostop-Agent-Token",
+                        OAUTH_AUDIT_ACTOR_HEADER,
+                        OAUTH_AUDIT_ASSERTION_HEADER,
                     }
                     and normalized_value
                 ):

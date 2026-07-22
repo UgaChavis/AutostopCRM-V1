@@ -551,6 +551,25 @@ class OperatorAuthService:
                 return self._session_payload(token=raw_token, user=user)
         return None
 
+    def resolve_oauth_audit_admin(self, username: str | None) -> str | None:
+        """Resolve a current administrator solely for trusted audit attribution.
+
+        This does not create a human session or grant privileges.  The local
+        Gateway keeps using its service principal for authorization; the API
+        uses this narrow lookup only after it verifies an OAuth-bound internal
+        assertion.
+        """
+
+        normalized = _normalized_username(username)
+        if not normalized:
+            return None
+        with self._lock:
+            state = self._read_normalized_state()
+            user = self._find_user(state["users"], normalized)
+            if user is None or user.get("role") != "admin":
+                return None
+            return str(user["username"])
+
     def _required_session(self, payload: dict | None) -> dict:
         session = (payload or {}).get("_operator_session")
         if isinstance(session, dict) and session.get("username"):

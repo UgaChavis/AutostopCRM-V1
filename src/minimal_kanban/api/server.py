@@ -31,6 +31,11 @@ from ..config import (
 )
 from ..deployment_security import is_maintenance_mode, load_agent_gateway_security_policy
 from ..json_safety import reject_deeply_nested_json
+from ..mcp.oauth_provider import (
+    OAUTH_AUDIT_ACTOR_HEADER,
+    OAUTH_AUDIT_ASSERTION_HEADER,
+    verify_oauth_audit_assertion,
+)
 from ..models import business_timezone, parse_datetime, utc_now_iso
 from ..operator_auth import OperatorAuthService
 from ..performance import request_performance_trace
@@ -1720,7 +1725,9 @@ class ApiServer:
                 if session is not None:
                     next_payload["_operator_session"] = session
                     if route not in operator_session_routes and route not in admin_only_routes:
-                        next_payload["actor_name"] = session["username"]
+                        next_payload["actor_name"] = str(
+                            session.get("audit_actor_name") or session["username"]
+                        )
                 return next_payload
 
             def _trusted_agent_session(self, route: str, payload: dict) -> dict | None:
@@ -1745,7 +1752,7 @@ class ApiServer:
                     return None
                 if not expected_token or not hmac.compare_digest(supplied_token, expected_token):
                     return None
-                return {
+                session = {
                     "token": "service-identity",
                     "username": policy.service_identity,
                     "role": "admin",
@@ -1753,6 +1760,42 @@ class ApiServer:
                     "employee_id": "",
                     "service_identity": True,
                 }
+                audit_actor = str(self.headers.get(OAUTH_AUDIT_ACTOR_HEADER, "") or "").strip()
+                audit_assertion = str(
+                    self.headers.get(OAUTH_AUDIT_ASSERTION_HEADER, "") or ""
+                ).strip()
+                if bool(audit_actor) != bool(audit_assertion):
+                    raise ServiceError(
+                        "unauthorized",
+                        "OAuth-аудит Gateway не прошёл проверку.",
+                        status_code=HTTPStatus.UNAUTHORIZED,
+                    )
+                if audit_actor:
+                    if not verify_oauth_audit_assertion(
+                        subject=audit_actor,
+                        method=self.command,
+                        route=route,
+                        payload=payload,
+                        assertion=audit_assertion,
+                    ):
+                        raise ServiceError(
+                            "unauthorized",
+                            "OAuth-аудит Gateway не прошёл проверку.",
+                            status_code=HTTPStatus.UNAUTHORIZED,
+                        )
+                    verified_actor = (
+                        operator_service.resolve_oauth_audit_admin(audit_actor)
+                        if operator_service is not None
+                        else None
+                    )
+                    if not verified_actor:
+                        raise ServiceError(
+                            "unauthorized",
+                            "OAuth-пользователь больше не является активным администратором CRM.",
+                            status_code=HTTPStatus.UNAUTHORIZED,
+                        )
+                    session["audit_actor_name"] = verified_actor
+                return session
 
             def _operator_context_payload_reject(
                 self,

@@ -44,6 +44,11 @@ from minimal_kanban.api.server import ReusableThreadingHTTPServer
 from minimal_kanban.api.server import _same_host_cors_origin
 from minimal_kanban.api.server import _success_log_level
 from minimal_kanban.api import server as api_server_module
+from minimal_kanban.mcp.oauth_provider import (
+    OAUTH_AUDIT_ACTOR_HEADER,
+    OAUTH_AUDIT_ASSERTION_HEADER,
+    create_oauth_audit_assertion,
+)
 from minimal_kanban.models import AuditEvent, utc_now
 from minimal_kanban.services import snapshot_service as snapshot_service_module
 from minimal_kanban.operator_activity import OperatorActivityService
@@ -1162,6 +1167,77 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(saved["data"]["user"]["username"], "AGENTMADE")
 
+    def test_local_agent_oauth_audit_actor_is_signed_and_must_remain_admin(self) -> None:
+        login_status, admin_login = self.request(
+            "/api/login_operator",
+            {"username": "admin", "password": "admin"},
+        )
+        self.assertEqual(login_status, 200)
+        admin_headers = {"X-Operator-Session": admin_login["data"]["session"]["token"]}
+        save_status, saved = self.request(
+            "/api/save_operator_user",
+            {"username": "codex", "password": "test-password", "role": "admin"},
+            headers=admin_headers,
+        )
+        self.assertEqual(save_status, 200)
+        self.assertEqual(saved["data"]["user"]["username"], "CODEX")
+
+        token = "agent-service-token-with-strong-test-entropy-0123456789"
+        gateway_env = {
+            "AUTOSTOP_DEPLOYMENT_ENV": "development",
+            "AUTOSTOP_AGENT_GATEWAY_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_WRITES_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_FINANCE_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_MAIL_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_DESTRUCTIVE_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED": "1",
+            "AUTOSTOP_AGENT_SERVICE_IDENTITY": "codex-owner-agent",
+            "AUTOSTOP_MCP_OAUTH_STATE_KEY": ("MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="),
+            "MINIMAL_KANBAN_MCP_BEARER_TOKEN": token,
+        }
+        payload = {
+            "title": "OAuth audit actor",
+            "deadline": {"hours": 1},
+            "source": "mcp_agent_gateway_v2",
+            "actor_name": "CODEX",
+        }
+        with patch.dict("os.environ", gateway_env, clear=False):
+            assertion = create_oauth_audit_assertion(
+                subject="CODEX",
+                method="POST",
+                route="/api/create_card",
+                payload=payload,
+            )
+            headers = {
+                "X-Autostop-Agent-Identity": "codex-owner-agent",
+                "X-Autostop-Agent-Token": token,
+                OAUTH_AUDIT_ACTOR_HEADER: "CODEX",
+                OAUTH_AUDIT_ASSERTION_HEADER: assertion,
+            }
+            created_status, created = self.request("/api/create_card", payload, headers=headers)
+            invalid_status, invalid = self.request(
+                "/api/create_card",
+                payload,
+                headers={**headers, OAUTH_AUDIT_ASSERTION_HEADER: "invalid"},
+            )
+            demote_status, _ = self.request(
+                "/api/save_operator_user",
+                {"username": "CODEX", "role": "operator"},
+                headers=admin_headers,
+            )
+            demoted_status, demoted = self.request("/api/create_card", payload, headers=headers)
+
+        self.assertEqual(created_status, 200)
+        card_id = created["data"]["card"]["id"]
+        log_status, log = self.request(f"/api/get_card_log?card_id={card_id}&limit=1", method="GET")
+        self.assertEqual(log_status, 200)
+        self.assertEqual(log["data"]["events"][0]["actor_name"], "CODEX")
+        self.assertEqual(invalid_status, 401)
+        self.assertEqual(invalid["error"]["code"], "unauthorized")
+        self.assertEqual(demote_status, 200)
+        self.assertEqual(demoted_status, 401)
+        self.assertEqual(demoted["error"]["code"], "unauthorized")
+
     def test_local_agent_service_identity_can_open_card_and_read_dashboard_with_audit(self) -> None:
         create_status, created = self.request(
             "/api/create_card",
@@ -1221,6 +1297,7 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(row["object_id"], card_id)
         self.assertEqual(row["action"], "card_opened")
         self.assertEqual(row["source"], "mcp_agent_gateway_v2")
+        self.assertEqual(row["username"], "CODEX-OWNER-AGENT")
 
     def test_local_agent_read_identity_stays_available_when_writes_are_disabled(self) -> None:
         create_status, created = self.request(

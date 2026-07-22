@@ -135,8 +135,11 @@ Gateway responses use `agent_envelope_v2` and compact verification evidence.
 - Workflow lifecycle changes use state-version compare-and-swap.
 - Finance writes require current revision evidence where the operation defines
   it.
-- Agent mutations use the audited `codex-owner-agent` service identity;
-  caller-supplied human actor names do not override it.
+- Agent mutations use the authenticated OAuth owner as the audit actor when
+  that owner is still an active CRM administrator. The technical
+  `codex-owner-agent` service identity remains fixed for local authorization;
+  caller-supplied actor names never override either identity. Legacy internal
+  bearer calls remain audited as `codex-owner-agent`.
 - Operator-admin raw routes additionally require the local service identity
   and matching bearer token; public proxy traffic cannot claim that identity.
 - Exact UI/backend reads for AI chat knowledge, board revision, display

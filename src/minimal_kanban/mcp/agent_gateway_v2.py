@@ -5,10 +5,12 @@ from collections.abc import Mapping
 from decimal import Decimal
 from typing import Any, Literal
 
+from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
 
 from ..deployment_security import is_maintenance_mode, load_agent_gateway_security_policy
+from ..models import normalize_actor_name
 from ..repair_order import repair_order_payment_method_from_cashbox_name
 from .agent_gateway_support import (
     AGENT_GATEWAY_FORMAT,
@@ -66,6 +68,12 @@ from .gateway_media import (
 )
 from .gateway_media import (
     without_binary_content as _without_binary_content,
+)
+from .oauth_provider import (
+    OAUTH_AUDIT_ACTOR_HEADER,
+    OAUTH_AUDIT_ASSERTION_HEADER,
+    OwnerAccessToken,
+    create_oauth_audit_assertion,
 )
 from .raw_gateway import (
     OPTIMISTIC_WRITE_NAMES,
@@ -154,13 +162,46 @@ def register_agent_gateway_v2(
     if "get_runtime_status" in tools:
         tool_manager.remove_tool("get_runtime_status")
 
+    def _oauth_audit_actor() -> str:
+        """Return the authenticated OAuth owner, never a caller-supplied actor."""
+
+        access_token = get_access_token()
+        if not isinstance(access_token, OwnerAccessToken):
+            return ""
+        subject = normalize_actor_name(access_token.subject, default="")
+        if "\r" in subject or "\n" in subject:
+            return ""
+        return subject
+
+    def _effective_audit_actor() -> str:
+        return _oauth_audit_actor() or load_agent_gateway_security_policy().service_identity
+
+    def _oauth_audit_headers(
+        *, route: str, payload: dict[str, object], method: str = "POST"
+    ) -> dict[str, str]:
+        subject = _oauth_audit_actor()
+        if not subject:
+            return {}
+        assertion = create_oauth_audit_assertion(
+            subject=subject,
+            method=method,
+            route=route,
+            payload=payload,
+        )
+        if not assertion:
+            return {}
+        return {
+            OAUTH_AUDIT_ACTOR_HEADER: subject,
+            OAUTH_AUDIT_ASSERTION_HEADER: assertion,
+        }
+
     async def _invoke(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         if name in WEB_RESEARCH_CAPABILITY_NAMES:
 
             def run_web_research() -> dict[str, Any]:
                 executor = create_web_tool_executor(
                     board_api,
-                    actor_name=load_agent_gateway_security_policy().service_identity,
+                    actor_name=_effective_audit_actor(),
                 )
                 return invoke_web_research(executor, name, arguments)
 
@@ -173,17 +214,19 @@ def register_agent_gateway_v2(
             payload = dict(arguments)
             service_identity = load_agent_gateway_security_policy().service_identity
             payload["source"] = "mcp_agent_gateway_v2"
-            payload["actor_name"] = service_identity
+            payload["actor_name"] = _effective_audit_actor()
+            extra_headers = {
+                "X-Autostop-Agent-Identity": service_identity,
+                "X-Autostop-Agent-Token": str(agent_bearer_token or ""),
+                **_oauth_audit_headers(route=virtual_route, payload=payload),
+            }
             try:
                 return _as_dict(
                     board_api._request(
                         virtual_route,
                         payload,
                         method="POST",
-                        extra_headers={
-                            "X-Autostop-Agent-Identity": service_identity,
-                            "X-Autostop-Agent-Token": str(agent_bearer_token or ""),
-                        },
+                        extra_headers=extra_headers,
                     )
                 )
             except Exception as exc:  # pragma: no cover - transport integration failure
@@ -203,7 +246,9 @@ def register_agent_gateway_v2(
             if _tool_risk(tool) != "read":
                 properties = getattr(tool, "parameters", {}).get("properties", {})
                 if "actor_name" in properties:
-                    effective_arguments["actor_name"] = policy.service_identity
+                    effective_arguments["actor_name"] = _effective_audit_actor()
+                if "actor" in properties:
+                    effective_arguments["actor"] = _effective_audit_actor()
                 if "source" in properties:
                     effective_arguments["source"] = "mcp_agent_gateway_v2"
             return _as_dict(await tool.run(effective_arguments, convert_result=False))
@@ -262,7 +307,7 @@ def register_agent_gateway_v2(
             "workflow_id": workflow_id,
             "intent": intent,
             "idempotency_key": idempotency_key,
-            "actor": load_agent_gateway_security_policy().service_identity,
+            "actor": _effective_audit_actor(),
             "scope": workflow_scope,
             "dry_run": bool(dry_run),
         }
@@ -509,7 +554,7 @@ def register_agent_gateway_v2(
                 "card_id": card_id,
                 "repair_order": {"payments": payments},
                 "expected_updated_at": expected_updated_at,
-                "actor_name": load_agent_gateway_security_policy().service_identity,
+                "actor_name": _effective_audit_actor(),
             },
         )
         if not bool(write_result.get("ok")):
@@ -1007,23 +1052,20 @@ def register_agent_gateway_v2(
                 correlation_id=store_correlation,
             )
         elif workflow_id == "board":
+            board_payload = dict(payload)
+            board_payload["actor_name"] = _effective_audit_actor()
             arguments = {
                 "operation": operation,
-                "payload": payload,
+                "payload": board_payload,
                 "mode": mode or str(payload.get("mode") or "dry_run"),
-                "actor_name": str(
-                    payload.get("actor_name")
-                    or load_agent_gateway_security_policy().service_identity
-                ),
+                "actor_name": _effective_audit_actor(),
             }
         elif (
             risk != "read"
             and tool is not None
             and "actor_name" in getattr(tool, "parameters", {}).get("properties", {})
         ):
-            arguments.setdefault(
-                "actor_name", load_agent_gateway_security_policy().service_identity
-            )
+            arguments["actor_name"] = _effective_audit_actor()
         result = (
             await _record_repair_order_payment(arguments, idempotency_key=idempotency_key)
             if logical_payment
