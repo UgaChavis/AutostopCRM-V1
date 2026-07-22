@@ -4162,6 +4162,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("z-index: 17;", BOARD_WEB_APP_HTML)
 
     def test_topbar_repair_orders_list_uses_compact_row_open_flow(self) -> None:
+        self.assertIn(
+            "#repairOrdersModal {\n      background: rgba(7, 10, 8, 0.92);\n    }",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn('id="repairOrdersButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrdersModal"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrdersList"', BOARD_WEB_APP_HTML)
