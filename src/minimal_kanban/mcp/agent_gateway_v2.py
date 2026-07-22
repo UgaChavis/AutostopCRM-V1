@@ -619,7 +619,12 @@ def register_agent_gateway_v2(
         }
 
     async def _verify_operation(
-        operation: str, arguments: dict[str, Any], result: dict[str, Any], risk: str
+        operation: str,
+        arguments: dict[str, Any],
+        result: dict[str, Any],
+        risk: str,
+        *,
+        extra_headers: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
         if risk == "read":
             return {"required": False, "passed": bool(result.get("ok"))}
@@ -666,11 +671,21 @@ def register_agent_gateway_v2(
                 and not bool(result_meta.get("readback_required")),
                 "check": "store_owner_read_response_contract",
             }
+
+        async def invoke_verification_readback(
+            name: str, readback_arguments: dict[str, Any]
+        ) -> dict[str, Any]:
+            return await _invoke(
+                name,
+                readback_arguments,
+                extra_headers=extra_headers,
+            )
+
         virtual_verification = await verify_virtual_api_write_readback(
             operation,
             arguments,
             result,
-            _invoke,
+            invoke_verification_readback,
         )
         if virtual_verification is not None:
             return virtual_verification
@@ -2214,9 +2229,7 @@ def register_agent_gateway_v2(
                     label="call_raw_capability",
                 )
         result = await _invoke(
-            normalized_name,
-            effective_arguments,
-            extra_headers=maintenance_headers,
+            normalized_name, effective_arguments, extra_headers=maintenance_headers
         )
         owner_transport_bound = True
         ledger_state_version = _workflow_state_version(executing) if run_id is not None else None
@@ -2253,7 +2266,9 @@ def register_agent_gateway_v2(
                 owner_transport_bound = bool(checkpointed.get("ok"))
                 if owner_transport_bound:
                     ledger_state_version = _workflow_state_version(checkpointed)
-        verification = await _verify_operation(normalized_name, effective_arguments, result, risk)
+        verification = await _verify_operation(
+            normalized_name, effective_arguments, result, risk, extra_headers=maintenance_headers
+        )
         if normalized_name == "store_owner_api" and run_id is not None:
             verification.update(
                 {

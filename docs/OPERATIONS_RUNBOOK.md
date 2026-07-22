@@ -417,8 +417,9 @@ The bounded release flow:
    release budget, so a short cold-start initialization is tolerated but an
    unavailable Store still fails the release and triggers rollback;
 7. while maintenance protection remains active, runs the signed technical
-   owner/feed dry-run probes, mandatory public API and OAuth checks, and the
-   exhaustive maintenance-safe 24-tool Gateway smoke;
+   owner/feed dry-run probes with a revision-bound proof and unique release
+   attempt id, mandatory public API and OAuth checks, and the exhaustive
+   maintenance-safe 24-tool Gateway smoke;
 8. installs the watchdog, tags the healthy release as stable, then removes the
    maintenance marker as the final fallible release action;
 9. after success is marked and the rollback trap is removed, best-effort

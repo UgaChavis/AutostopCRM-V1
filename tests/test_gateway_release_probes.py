@@ -38,6 +38,8 @@ class ReleaseProbeBoardApi:
     def __init__(self) -> None:
         self.acked_sequence = 0
         self.requests: list[tuple[str, dict]] = []
+        self.request_headers: list[tuple[str, dict[str, str]]] = []
+        self.require_release_headers = False
 
     def health(self) -> dict:
         return {"ok": True, "data": {"status": "healthy"}}
@@ -56,9 +58,19 @@ class ReleaseProbeBoardApi:
         method: str = "POST",
         extra_headers: dict[str, str] | None = None,
     ) -> dict:
-        del method, extra_headers
+        del method
         request = dict(payload or {})
         self.requests.append((path, request))
+        headers = dict(extra_headers or {})
+        self.request_headers.append((path, headers))
+        if self.require_release_headers and path in {
+            CHANGE_FEED_BOOTSTRAP_ROUTE,
+            CHANGE_FEED_ACK_ROUTE,
+        }:
+            if not headers.get("X-Autostop-Release-Smoke-Revision") or not headers.get(
+                "X-Autostop-Release-Smoke-Proof"
+            ):
+                return {"ok": False, "error": {"code": "maintenance_mode"}}
         consumer_id = request.get("consumer_id")
         if path == CHANGE_FEED_BOOTSTRAP_ROUTE:
             return {
@@ -389,6 +401,49 @@ class GatewayReleaseProbeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(
             {"discover_raw_capabilities", "get_raw_capability_schema", "call_raw_capability"}
             <= set(calls)
+        )
+
+    async def test_maintenance_change_feed_readback_reuses_release_proof_headers(self) -> None:
+        revision = "a" * 40
+        token = "maintenance-release-probe-token"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            marker = Path(temp_dir) / "maintenance.marker"
+            marker.write_text("maintenance", encoding="utf-8")
+            with patch.dict(
+                os.environ,
+                {
+                    **GATEWAY_ENV,
+                    "AUTOSTOP_MAINTENANCE_MARKER": str(marker),
+                    "MINIMAL_KANBAN_MCP_BEARER_TOKEN": token,
+                },
+                clear=False,
+            ):
+                board_api = ReleaseProbeBoardApi()
+                board_api.require_release_headers = True
+                session = InProcessGatewaySession(self._server(board_api))
+                feed = await check_agent_gateway_v2._run_change_feed_probes(
+                    session,
+                    {},
+                    smoke_id="7" * 32,
+                    release_revision=revision,
+                    release_smoke_proof=check_agent_gateway_v2._release_smoke_proof(
+                        token, revision
+                    ),
+                )
+
+        self.assertTrue(feed["ok"])
+        technical_headers = [
+            headers
+            for path, headers in board_api.request_headers
+            if path in {CHANGE_FEED_BOOTSTRAP_ROUTE, CHANGE_FEED_ACK_ROUTE}
+        ]
+        self.assertGreaterEqual(len(technical_headers), 3)
+        self.assertTrue(
+            all(
+                headers.get("X-Autostop-Release-Smoke-Revision") == revision
+                and bool(headers.get("X-Autostop-Release-Smoke-Proof"))
+                for headers in technical_headers
+            )
         )
 
 

@@ -935,7 +935,8 @@ run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_agent_ga
   --require-store \
   --require-web \
   --maintenance-safe \
-  --release-revision "$crm_revision"
+  --release-revision "$crm_revision" \
+  --release-attempt-id "$release_id"
 run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_mcp_oauth.py \
   --mcp-url "$PUBLIC_MCP_URL"
 

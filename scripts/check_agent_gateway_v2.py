@@ -119,14 +119,32 @@ CHANGE_FEED_REQUIRED_EVENT_KEYS = frozenset(
     }
 )
 RELEASE_REVISION_PATTERN = re.compile(r"[0-9a-f]{40,64}")
+RELEASE_ATTEMPT_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{7,159}")
+SAFE_RUNTIME_FAILURE_PREFIXES = (
+    "MCP tool call failed: ",
+    "workflow response ",
+    "store owner ",
+    "safe reversible store owner ",
+    "safe store owner ",
+    "change feed ",
+    "change-feed ",
+    "empty change-feed ",
+    "non-empty change-feed ",
+    "get_cards schema hash ",
+    "start_workflow response ",
+    "deduplicated release workflow ",
+)
 
 
-def _release_smoke_id(release_revision: str) -> str:
+def _release_smoke_id(release_revision: str, release_attempt_id: str) -> str:
     normalized = str(release_revision or "").strip().casefold()
     if RELEASE_REVISION_PATTERN.fullmatch(normalized) is None:
         raise ValueError("release revision must be a 40-64 character lowercase hex digest")
+    normalized_attempt = str(release_attempt_id or "").strip()
+    if RELEASE_ATTEMPT_PATTERN.fullmatch(normalized_attempt) is None:
+        raise ValueError("release attempt id must be an opaque 8-160 character identifier")
     return hashlib.sha256(
-        f"autostop-gateway-v2-release-smoke:v1:{normalized}".encode("ascii")
+        f"autostop-gateway-v2-release-smoke:v2:{normalized}:{normalized_attempt}".encode("ascii")
     ).hexdigest()[:32]
 
 
@@ -155,6 +173,33 @@ def _serialized_size(value: Any) -> int:
             "utf-8"
         )
     )
+
+
+def _failure_diagnostics(exc: BaseException) -> dict[str, Any]:
+    leaves: list[BaseException] = []
+    pending = [exc]
+    while pending:
+        current = pending.pop()
+        if isinstance(current, BaseExceptionGroup):
+            pending.extend(reversed(current.exceptions))
+        else:
+            leaves.append(current)
+
+    diagnostics: dict[str, Any] = {
+        "failure_type": type(exc).__name__,
+        "failure_leaf_types": sorted({type(item).__name__ for item in leaves}),
+    }
+    safe_details = [
+        str(item)[:300]
+        for item in leaves
+        if isinstance(item, RuntimeError) and str(item).startswith(SAFE_RUNTIME_FAILURE_PREFIXES)
+    ]
+    if safe_details:
+        diagnostics["failure_detail"] = safe_details[0]
+    elif isinstance(exc, RuntimeError) and str(exc).startswith(SAFE_RUNTIME_FAILURE_PREFIXES):
+        # Direct RuntimeErrors in this script are fixed contract diagnostics.
+        diagnostics["failure_detail"] = str(exc)[:300]
+    return diagnostics
 
 
 async def _open_session(mcp_url: str, token: str | None):
@@ -221,7 +266,20 @@ async def _call(
     name: str,
     arguments: dict[str, Any] | None = None,
 ) -> Any:
-    result = await session.call_tool(name, arguments or {})
+    effective_arguments = arguments or {}
+    call_label = name
+    if name == "call_raw_capability":
+        raw_name = str(effective_arguments.get("name") or "").strip()
+        if raw_name:
+            call_label = f"{name}[{raw_name}]"
+    try:
+        result = await session.call_tool(name, effective_arguments)
+    except Exception as exc:
+        # Keep production diagnostics actionable without serializing request
+        # arguments, response bodies, auth headers, or exception text that may
+        # contain credentials. Public tool and capability names are fixed,
+        # non-secret contract identifiers.
+        raise RuntimeError(f"MCP tool call failed: {call_label} ({type(exc).__name__})") from exc
     # One public tool may be used for several raw capabilities. Preserve the
     # first failure instead of letting a later successful invocation mask it.
     calls[name] = calls.get(name, True) and _tool_ok(result)
@@ -259,7 +317,59 @@ def _require_raw_write_ledger(result: Any, *, name: str, check: str | None = Non
         or verification.get("passed") is not True
         or verification.get("ledger_closed") is not True
     ):
-        raise RuntimeError(f"{name} raw write ledger did not close cleanly")
+        status = str(outer.get("status") or "missing").casefold()
+        if status not in {
+            "blocked",
+            "cancelled",
+            "completed",
+            "compensating",
+            "executing",
+            "failed",
+            "missing",
+            "planned",
+            "verifying",
+        }:
+            status = "other"
+
+        def flag(key: str) -> str:
+            value = verification.get(key)
+            return "true" if value is True else "false" if value is False else "missing"
+
+        executor = outer.get("data") if isinstance(outer.get("data"), dict) else {}
+        executor_status = str(executor.get("status") or "missing").strip().casefold()
+        if executor_status not in {
+            "blocked",
+            "completed",
+            "degraded",
+            "failed",
+            "missing",
+            "planned",
+        }:
+            executor_status = "other"
+        executor_error = executor.get("error") if isinstance(executor.get("error"), dict) else {}
+        executor_error_code = str(executor_error.get("code") or "missing").strip().casefold()
+        if re.fullmatch(r"[a-z][a-z0-9_.:-]{0,79}", executor_error_code) is None:
+            executor_error_code = "other"
+        executor_meta = executor.get("meta") if isinstance(executor.get("meta"), dict) else {}
+        http_status = executor_meta.get("http_status")
+        if isinstance(http_status, bool) or not isinstance(http_status, int):
+            http_status = 0
+        http_error_code = str(executor_meta.get("http_error_code") or "missing").strip().casefold()
+        if re.fullmatch(r"[a-z][a-z0-9_.:-]{0,79}", http_error_code) is None:
+            http_error_code = "other"
+        warning_codes = [
+            str(item).strip().casefold()
+            for item in outer.get("warnings", [])
+            if isinstance(item, str) and re.fullmatch(r"[a-z][a-z0-9_.:-]{0,79}", item.strip())
+        ][:5]
+        raise RuntimeError(
+            f"{name} raw write ledger did not close cleanly "
+            f"(status={status}, schema={flag('schema_hash_verified')}, "
+            f"executor={flag('executor_ok')}, verification={flag('passed')}, "
+            f"ledger={flag('ledger_closed')}, executor_status={executor_status}, "
+            f"executor_error={executor_error_code}, http_status={http_status}, "
+            f"http_error={http_error_code}, warnings={','.join(warning_codes) or 'none'})"
+        )
     if check is not None and verification.get("check") != check:
         raise RuntimeError(f"{name} exact verification check is missing")
 
@@ -1199,13 +1309,14 @@ async def _run_web_checks(
 
 async def check_gateway(args: argparse.Namespace) -> dict[str, Any]:
     release_revision = str(getattr(args, "release_revision", "") or "").strip().casefold()
+    release_attempt_id = str(getattr(args, "release_attempt_id", "") or "").strip()
     maintenance_safe = bool(getattr(args, "maintenance_safe", False))
     if maintenance_safe and not args.exhaustive:
         return {"ok": False, "error": "--maintenance-safe requires --exhaustive"}
     if args.exhaustive:
         if release_revision:
             try:
-                smoke_id = _release_smoke_id(release_revision)
+                smoke_id = _release_smoke_id(release_revision, release_attempt_id)
             except ValueError as exc:
                 return {"ok": False, "error": str(exc)}
         elif maintenance_safe:
@@ -1333,12 +1444,13 @@ async def check_gateway(args: argparse.Namespace) -> dict[str, Any]:
                             )
                     bootstrap_bytes = _serialized_size(bootstrap) if bootstrap is not None else 0
                     digest_bytes = _serialized_size(digest) if digest is not None else 0
-    except Exception:
+    except Exception as exc:
         return {
             "ok": False,
             "anonymous_access_blocked": anonymous_blocked,
             "anonymous_status_code": anonymous_status,
             "error": "authorized MCP session failed",
+            **_failure_diagnostics(exc),
         }
 
     checks = {
@@ -1475,6 +1587,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--release-revision",
         default="",
         help="Immutable 40-64 character lowercase hex revision required by --maintenance-safe.",
+    )
+    parser.add_argument(
+        "--release-attempt-id",
+        default="",
+        help=(
+            "Unique opaque deploy-attempt identifier required by --maintenance-safe so a "
+            "rolled-back Store dry-run key is never reused."
+        ),
     )
     parser.add_argument(
         "--maintenance-safe",

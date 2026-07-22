@@ -378,6 +378,8 @@ class DeployScriptTests(unittest.TestCase):
         self.assertLess(internal_gateway_index, marker_removal)
         self.assertLess(exhaustive_index, marker_removal)
         self.assertIn("  --maintenance-safe", script[:marker_removal])
+        self.assertIn('  --release-revision "$crm_revision"', script[:marker_removal])
+        self.assertIn('  --release-attempt-id "$release_id"', script[:marker_removal])
         self.assertLess(public_connector_index, marker_removal)
         self.assertLess(public_gateway_index, marker_removal)
         self.assertLess(marker_removal, deployment_succeeded)

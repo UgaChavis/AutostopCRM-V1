@@ -36,6 +36,11 @@ class ScriptSession:
         return self.handler(name, arguments)
 
 
+class FailingScriptSession:
+    async def call_tool(self, _name: str, _arguments: dict):
+        raise ConnectionError("sensitive transport detail")
+
+
 def raw_write_result(executor: dict, *, check: str = "executor_contract_only"):
     return tool_result(
         {
@@ -69,30 +74,41 @@ class AgentGatewayV2SmokeScriptTests(unittest.TestCase):
         self.assertFalse(standard.exhaustive)
         self.assertTrue(exhaustive.exhaustive)
 
-    def test_release_revision_is_required_only_for_maintenance_safe_exhaustive(self) -> None:
+    def test_release_revision_and_attempt_are_required_for_maintenance_safe(self) -> None:
         module = load_script_module()
         ordinary = module.build_parser().parse_args(["--exhaustive"])
-        maintenance = module.build_parser().parse_args(["--exhaustive", "--maintenance-safe"])
+        missing_revision = module.build_parser().parse_args(["--exhaustive", "--maintenance-safe"])
+        missing_attempt = module.build_parser().parse_args(
+            ["--exhaustive", "--maintenance-safe", "--release-revision", "a" * 40]
+        )
 
         with patch.dict(module.os.environ, {}, clear=True):
             ordinary_result = asyncio.run(module.check_gateway(ordinary))
-            maintenance_result = asyncio.run(module.check_gateway(maintenance))
+            missing_revision_result = asyncio.run(module.check_gateway(missing_revision))
+            missing_attempt_result = asyncio.run(module.check_gateway(missing_attempt))
 
         self.assertIn("token environment variable is missing", ordinary_result["error"])
         self.assertEqual(
-            maintenance_result["error"],
+            missing_revision_result["error"],
             "--maintenance-safe requires --release-revision",
         )
+        self.assertEqual(
+            missing_attempt_result["error"],
+            "release attempt id must be an opaque 8-160 character identifier",
+        )
 
-    def test_release_smoke_identity_is_deterministic_and_revision_bound(self) -> None:
+    def test_release_smoke_identity_is_deterministic_and_attempt_bound(self) -> None:
         module = load_script_module()
-        first = module._release_smoke_id("a" * 40)
+        first = module._release_smoke_id("a" * 40, "attempt-0001")
 
-        self.assertEqual(first, module._release_smoke_id("a" * 40))
-        self.assertNotEqual(first, module._release_smoke_id("b" * 40))
+        self.assertEqual(first, module._release_smoke_id("a" * 40, "attempt-0001"))
+        self.assertNotEqual(first, module._release_smoke_id("a" * 40, "attempt-0002"))
+        self.assertNotEqual(first, module._release_smoke_id("b" * 40, "attempt-0001"))
         self.assertEqual(32, len(first))
         with self.assertRaises(ValueError):
-            module._release_smoke_id("not-a-revision")
+            module._release_smoke_id("not-a-revision", "attempt-0001")
+        with self.assertRaises(ValueError):
+            module._release_smoke_id("a" * 40, "short")
 
     def test_store_readiness_gate_is_explicit(self) -> None:
         module = load_script_module()
@@ -113,6 +129,36 @@ class AgentGatewayV2SmokeScriptTests(unittest.TestCase):
         self.assertIn('"store_quote_draft_write_enabled"', source)
         self.assertIn('"store_supplier_lookup_enabled"', source)
         self.assertNotIn('{"scope": "store"', source)
+
+    def test_exception_group_diagnostics_expose_only_wrapped_safe_context(self) -> None:
+        module = load_script_module()
+        failure = ExceptionGroup(
+            "transport group may be sensitive",
+            [
+                ConnectionError("secret transport response"),
+                RuntimeError(
+                    "MCP tool call failed: "
+                    "call_raw_capability[api:/api/change_feed/bootstrap] (ConnectionError)"
+                ),
+            ],
+        )
+
+        diagnostics = module._failure_diagnostics(failure)
+
+        self.assertEqual("ExceptionGroup", diagnostics["failure_type"])
+        self.assertEqual(
+            ["ConnectionError", "RuntimeError"],
+            diagnostics["failure_leaf_types"],
+        )
+        self.assertIn("api:/api/change_feed/bootstrap", diagnostics["failure_detail"])
+        serialized = str(diagnostics)
+        self.assertNotIn("secret transport response", serialized)
+        self.assertNotIn("transport group may be sensitive", serialized)
+
+        unsafe = module._failure_diagnostics(
+            ExceptionGroup("outer secret", [RuntimeError("SDK secret-bearing detail")])
+        )
+        self.assertNotIn("failure_detail", unsafe)
 
     def test_state_version_requires_integer_summary_value(self) -> None:
         module = load_script_module()
@@ -141,6 +187,24 @@ class AgentGatewayV2SmokeScriptTests(unittest.TestCase):
 
 
 class AgentGatewayV2SmokeProbeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_transport_failure_reports_only_fixed_capability_context(self) -> None:
+        module = load_script_module()
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            r"MCP tool call failed: call_raw_capability\[api:/api/change_feed/bootstrap\] "
+            r"\(ConnectionError\)",
+        ) as caught:
+            await module._call(
+                FailingScriptSession(),
+                {},
+                "call_raw_capability",
+                {"name": "api:/api/change_feed/bootstrap", "secret": "must-not-leak"},
+            )
+
+        self.assertNotIn("sensitive transport detail", str(caught.exception))
+        self.assertNotIn("must-not-leak", str(caught.exception))
+
     async def test_repeated_public_tool_failure_cannot_be_masked(self) -> None:
         module = load_script_module()
         results = iter([tool_result({"ok": False}), tool_result({"ok": True, "data": {}})])
