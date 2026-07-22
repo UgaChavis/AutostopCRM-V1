@@ -652,6 +652,24 @@ wait_for_internal_store_gateway() {
   return 1
 }
 
+wait_for_public_mcp_gateway() {
+  local attempt
+
+  for (( attempt = 1; attempt <= 3; attempt++ )); do
+    assert_release_budget || return 1
+    if run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_agent_gateway_v2.py \
+      --mcp-url "$PUBLIC_MCP_URL"; then
+      return 0
+    fi
+
+    if (( attempt < 3 )); then
+      echo "Public MCP session is not ready yet; retrying in ${SMOKE_DELAY_SECONDS}s (${attempt}/3)."
+      run_release sleep "$SMOKE_DELAY_SECONDS" || return 1
+    fi
+  done
+  return 1
+}
+
 reload_deploy_environment() {
   if [[ -f "$ROOT_DIR/.env" ]]; then
     set -a
@@ -913,8 +931,7 @@ run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_live_con
   --skip-mcp \
   --local-api-url http://127.0.0.1:41731 \
   --expect-admin
-run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_agent_gateway_v2.py \
-  --mcp-url "$PUBLIC_MCP_URL"
+wait_for_public_mcp_gateway
 run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_mcp_oauth.py \
   --mcp-url "$PUBLIC_MCP_URL"
 
