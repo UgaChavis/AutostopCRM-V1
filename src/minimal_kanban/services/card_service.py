@@ -1094,9 +1094,16 @@ class CardService(
             prompt_requested = "prompt" in payload or "ai_autofill_prompt" in payload
             previous_enabled = bool(card.ai_autofill_active)
             enabled = self._validated_optional_bool(payload, "enabled", default=previous_enabled)
+            prompt_value = (
+                payload.get("prompt")
+                if "prompt" in payload
+                else payload.get("ai_autofill_prompt")
+                if "ai_autofill_prompt" in payload
+                else card.ai_autofill_prompt
+            )
             prompt_text = normalize_text(
-                payload.get("prompt", payload.get("ai_autofill_prompt", card.ai_autofill_prompt)),
-                default=card.ai_autofill_prompt,
+                prompt_value,
+                default="" if prompt_requested else card.ai_autofill_prompt,
                 limit=800,
             )
             now = utc_now()

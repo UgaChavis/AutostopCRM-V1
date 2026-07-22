@@ -2214,6 +2214,40 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(agent_control.autofill_calls[-1]["purpose"], "full_card_enrichment")
         self.assertEqual(agent_control.autofill_calls[-1]["mode"], "full_card_enrichment")
 
+    def test_set_card_ai_autofill_allows_explicit_prompt_clear(self) -> None:
+        agent_control = _FakeAgentControl()
+        self.service.attach_agent_control(agent_control)
+        created = self.service.create_card(
+            {
+                "title": "Clear AI prompt",
+                "description": "Тест очистки prompt",
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+        set_result = self.service.set_card_ai_autofill(
+            {
+                "card_id": card_id,
+                "enabled": False,
+                "prompt": "Временная ИИ-подсказка",
+                "actor_name": "AI",
+            }
+        )
+        self.assertEqual(set_result["card"]["ai_autofill_prompt"], "Временная ИИ-подсказка")
+
+        cleared = self.service.set_card_ai_autofill(
+            {
+                "card_id": card_id,
+                "prompt": "",
+                "actor_name": "AI",
+            }
+        )
+
+        self.assertTrue(cleared["meta"]["prompt_updated"])
+        self.assertFalse(cleared["meta"]["enabled"])
+        self.assertEqual(cleared["card"]["ai_autofill_prompt"], "")
+        self.assertEqual(agent_control.autofill_calls, [])
+
     def test_set_card_ai_autofill_reports_unavailable_when_agent_status_fails(self) -> None:
         agent_control = _FailingStatusAgentControl()
         self.service.attach_agent_control(agent_control)
