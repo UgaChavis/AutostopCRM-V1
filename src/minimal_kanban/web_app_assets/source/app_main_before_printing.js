@@ -206,6 +206,11 @@
       activeCashbox: null,
       cashboxesLoadController: null,
       cashboxesRequestSeq: 0,
+      cashboxNotification: null,
+      cashboxNotificationRefreshPromise: null,
+      cashboxNotificationSeenPromise: null,
+      cashboxNotificationHighlights: new Map(),
+      cashboxNotificationHighlightTimers: new Map(),
       cashboxJournalData: null,
       cashboxJournalView: 'journal',
       cashboxJournalFilters: { query: '', cashbox: '', type: 'all', period: 'all', periodKind: '', periodKey: '', periodLabel: '' },
@@ -3281,6 +3286,15 @@
       state.unreadSeenDeferredTimers.forEach((timerId) => window.clearTimeout(timerId));
       state.unreadSeenDeferredTimers.clear();
       state.unreadSeenInFlight.clear();
+      if (typeof clearCashboxNotificationHighlights === 'function') {
+        clearCashboxNotificationHighlights();
+      }
+      state.cashboxNotification = null;
+      state.cashboxNotificationRefreshPromise = null;
+      state.cashboxNotificationSeenPromise = null;
+      if (typeof renderCashboxNotificationIndicator === 'function') {
+        renderCashboxNotificationIndicator();
+      }
       clearCardOpenSideEffectTimer();
       state.activeCard = null;
       state.activeCardIsFull = false;
@@ -3348,6 +3362,7 @@
       renderOperatorActivity(data?.recent_actions || []);
       els.operatorAdminButton.classList.toggle('hidden', !data?.user?.is_admin);
       closeOperatorLoginModal();
+      void refreshCashboxNotification();
       if (openModal) pushModal('operator-profile', els.operatorProfileModal);
     }
 
@@ -4093,6 +4108,7 @@
         },
         cashboxes: () => {
           abortCashboxesLoad();
+          clearCashboxNotificationHighlights();
           closeCashboxTransferModal();
           closeCashJournalModal();
           popModal('cashboxes');
@@ -9176,16 +9192,24 @@
       return 'online';
     }
 
+    function compactConnectionStatusText(text, connectionState) {
+      const normalizedText = String(text || '').trim().toUpperCase();
+      if (connectionState === 'offline') return 'НЕТ СВЯЗИ';
+      if (connectionState === 'pending') return 'ОЖИДАНИЕ';
+      if (normalizedText.includes('СЕРВЕР АКТИВЕН') || normalizedText.includes('СОЕДИНЕНИЕ')) return 'СВЯЗЬ ЕСТЬ';
+      return String(text || '').trim();
+    }
+
     function setStatus(text, isError = false, connectionState = '') {
       const nextConnectionState = normalizeConnectionState(connectionState) || connectionStateFromStatusText(text, isError);
-      els.statusLine.textContent = text;
+      els.statusLine.textContent = compactConnectionStatusText(text, nextConnectionState);
       els.statusLine.dataset.connection = nextConnectionState;
       els.statusLine.dataset.tone = isError ? 'error' : 'normal';
       renderMobileStatus();
     }
 
     function showConnectionPendingStatus() {
-      setStatus('СОЕДИНЕНИЕ С ДОСКОЙ...', false, 'pending');
+      setStatus('ОЖИДАНИЕ', false, 'pending');
     }
 
     function normalizeMobileView(view) {
@@ -10047,10 +10071,17 @@
         const transactions = filteredCashboxTransactions().slice(0, 5);
         const transactionHtml = transactions.length
           ? '<div class="mobile-cashbox-transactions">' + transactions.map((item) => {
+              const transactionId = String(item?.id || '').trim();
+              const notificationTone = normalizeCashboxNotificationTone(
+                state.cashboxNotificationHighlights.get(transactionId)
+              );
+              const notificationAttributes = notificationTone
+                ? ' data-cashbox-notification-tone="' + escapeHtml(notificationTone) + '" data-cashbox-notification-transaction-id="' + escapeHtml(transactionId) + '"'
+                : '';
               const direction = item?.direction === 'expense' ? 'expense' : 'income';
               const note = String(item?.note || '').trim() || 'Без комментария';
               const amount = cashboxFormatMinorAmount(item?.amount_minor ?? 0).replace(/^-/, '');
-              return '<div class="mobile-cashbox-transaction">'
+              return '<div class="mobile-cashbox-transaction"' + notificationAttributes + '>'
                 + '<span>' + escapeHtml(note) + '</span>'
                 + '<strong class="mobile-cashbox-transaction__amount" data-direction="' + escapeHtml(direction) + '">' + escapeHtml(direction === 'expense' ? '-' : '+') + escapeHtml(amount) + '</strong>'
               + '</div>';
@@ -10073,6 +10104,7 @@
       if (els.mobileCashboxTransferButton) {
         els.mobileCashboxTransferButton.disabled = !hasCashbox || items.length < 2;
       }
+      scheduleCashboxNotificationHighlightTimers();
       renderMobileCashboxAction();
     }
 
@@ -11382,7 +11414,7 @@
       state.mobileView = normalizeMobileView(view);
       renderMobileShell();
       if (state.mobileView === 'cashboxes') {
-        loadCashboxes(false, { deferDetail: true });
+        loadCashboxes(false, { deferDetail: true, consumeNotifications: true });
       }
       if (state.mobileView === 'inventory' && !state.inventoryLoaded) {
         loadInventoryItems(false);
@@ -11512,7 +11544,7 @@
       els.mobileCardDetail?.addEventListener('click', handleMobileCardDetailClick);
       els.mobileCardDetail?.addEventListener('input', handleMobileCardDetailInput);
       els.mobileCardDetail?.addEventListener('change', handleMobileCardDetailInput);
-      els.mobileCashboxRefreshButton?.addEventListener('click', () => loadCashboxes(false, { deferDetail: true }));
+      els.mobileCashboxRefreshButton?.addEventListener('click', () => loadCashboxes(false, { deferDetail: true, consumeNotifications: true }));
       els.mobileCashboxList?.addEventListener('click', handleMobileCashboxListClick);
       els.mobileCashboxIncomeButton?.addEventListener('click', () => setMobileCashboxAction('income'));
       els.mobileCashboxExpenseButton?.addEventListener('click', () => setMobileCashboxAction('expense'));
@@ -17326,7 +17358,7 @@
       }
       state.pollHandle = window.setTimeout(async () => {
         state.pollHandle = null;
-        await refreshSnapshotRevision();
+        await Promise.all([refreshSnapshotRevision(), refreshCashboxNotification()]);
         scheduleNextSnapshotPoll();
       }, snapshotPollIntervalMs());
     }
@@ -18881,6 +18913,134 @@
       return items[index + 1]?.id || '__end__';
     }
 
+    function normalizeCashboxNotificationTone(value) {
+      const tone = String(value || '').trim().toLowerCase();
+      return ['income', 'transfer', 'expense'].includes(tone) ? tone : '';
+    }
+
+    function renderCashboxNotificationIndicator() {
+      const notification = state.cashboxNotification || {};
+      const tone = notification?.has_unread
+        ? normalizeCashboxNotificationTone(notification?.tone)
+        : '';
+      if (tone) els.cashboxesButton.dataset.cashboxNotificationTone = tone;
+      else delete els.cashboxesButton.dataset.cashboxNotificationTone;
+      const unreadCount = finiteNonNegativeNumber(notification?.unread_count);
+      const label = tone && unreadCount
+        ? ('КАССЫ · НОВЫХ СОБЫТИЙ: ' + unreadCount)
+        : 'КАССЫ';
+      els.cashboxesButton.setAttribute('aria-label', label);
+      if (tone && unreadCount) els.cashboxesButton.title = label;
+      else els.cashboxesButton.removeAttribute('title');
+    }
+
+    function clearCashboxNotificationHighlights() {
+      state.cashboxNotificationHighlightTimers.forEach((timerId) => window.clearTimeout(timerId));
+      state.cashboxNotificationHighlightTimers.clear();
+      state.cashboxNotificationHighlights.clear();
+      document.querySelectorAll('[data-cashbox-notification-transaction-id]').forEach((row) => {
+        row.removeAttribute('data-cashbox-notification-tone');
+        row.removeAttribute('data-cashbox-notification-transaction-id');
+      });
+    }
+
+    function captureCashboxNotificationHighlights(notification) {
+      clearCashboxNotificationHighlights();
+      const items = Array.isArray(notification?.unread_transactions)
+        ? notification.unread_transactions
+        : [];
+      items.forEach((item) => {
+        const transactionId = String(item?.transaction_id || '').trim();
+        const tone = normalizeCashboxNotificationTone(item?.tone);
+        if (transactionId && tone) state.cashboxNotificationHighlights.set(transactionId, tone);
+      });
+    }
+
+    function scheduleCashboxNotificationHighlightTimers() {
+      document.querySelectorAll('[data-cashbox-notification-transaction-id]').forEach((row) => {
+        const transactionId = String(row.getAttribute('data-cashbox-notification-transaction-id') || '').trim();
+        if (!transactionId || state.cashboxNotificationHighlightTimers.has(transactionId)) return;
+        const timerId = window.setTimeout(() => {
+          state.cashboxNotificationHighlightTimers.delete(transactionId);
+          state.cashboxNotificationHighlights.delete(transactionId);
+          document.querySelectorAll('[data-cashbox-notification-transaction-id="' + CSS.escape(transactionId) + '"]').forEach((currentRow) => {
+            currentRow.removeAttribute('data-cashbox-notification-tone');
+            currentRow.removeAttribute('data-cashbox-notification-transaction-id');
+          });
+        }, 3000);
+        state.cashboxNotificationHighlightTimers.set(transactionId, timerId);
+      });
+    }
+
+    function applyCashboxNotification(notification) {
+      state.cashboxNotification = notification && typeof notification === 'object'
+        ? notification
+        : null;
+      renderCashboxNotificationIndicator();
+    }
+
+    async function acknowledgeCashboxNotifications(notification) {
+      if (state.cashboxNotificationSeenPromise) await state.cashboxNotificationSeenPromise;
+      const throughTransactionId = String(notification?.through_transaction_id || '').trim();
+      let request = null;
+      request = api('/api/mark_cashbox_notifications_seen', {
+        method: 'POST',
+        body: {
+          through_transaction_id: throughTransactionId,
+          actor_name: state.actor,
+          source: 'ui',
+        },
+      }).then((data) => {
+        applyCashboxNotification(data?.notification || null);
+        return data;
+      }).finally(() => {
+        if (state.cashboxNotificationSeenPromise === request) {
+          state.cashboxNotificationSeenPromise = null;
+        }
+      });
+      state.cashboxNotificationSeenPromise = request;
+      return request;
+    }
+
+    function consumeCashboxNotifications(notification) {
+      if (!notification || typeof notification !== 'object') return;
+      if (notification.initialized && notification.has_unread) {
+        captureCashboxNotificationHighlights(notification);
+      }
+      const previousNotification = notification;
+      applyCashboxNotification({ ...notification, has_unread: false, tone: '', unread_count: 0 });
+      acknowledgeCashboxNotifications(notification).catch(() => {
+        applyCashboxNotification(previousNotification);
+      });
+    }
+
+    async function refreshCashboxNotification() {
+      if (!state.actor || !state.operatorSessionToken) return null;
+      if (state.cashboxNotificationRefreshPromise) return state.cashboxNotificationRefreshPromise;
+      const viewerStateGeneration = state.viewerStateGeneration;
+      let request = null;
+      request = (async () => {
+        try {
+          const data = await api('/api/list_cashboxes?limit=1');
+          if (viewerStateGeneration !== state.viewerStateGeneration) return null;
+          const notification = data?.notification || null;
+          applyCashboxNotification(notification);
+          if (notification && notification.initialized === false) {
+            await acknowledgeCashboxNotifications(notification);
+          }
+          return notification;
+        } catch (_) {
+          return null;
+        } finally {
+          if (state.cashboxNotificationRefreshPromise === request) {
+            state.cashboxNotificationRefreshPromise = null;
+          }
+        }
+      })();
+      state.cashboxNotificationRefreshPromise = request;
+      return request;
+    }
+
     function syncCashboxInList(cashbox) {
       if (!cashbox?.id) return;
       const nextItems = (state.cashboxes || []).slice();
@@ -18924,6 +19084,13 @@
       const transactions = filteredCashboxTransactions();
       const meta = state.activeCashbox?.meta || {};
       const rowsHtml = transactions.length ? transactions.map((item) => {
+        const transactionId = String(item?.id || '').trim();
+        const notificationTone = normalizeCashboxNotificationTone(
+          state.cashboxNotificationHighlights.get(transactionId)
+        );
+        const notificationAttributes = notificationTone
+          ? ' data-cashbox-notification-tone="' + escapeHtml(notificationTone) + '" data-cashbox-notification-transaction-id="' + escapeHtml(transactionId) + '"'
+          : '';
         const direction = item?.direction === 'expense' ? 'expense' : 'income';
         const note = String(item?.note || '').trim() || 'Без комментария';
         const actor = String(item?.actor_name || '').trim() || '—';
@@ -18939,7 +19106,7 @@
         const cancelHtml = canCancel
           ? '<button class="cashbox-transaction__cancel" type="button" data-cashbox-transaction-cancel="' + escapeHtml(item.id || '') + '" title="Отменить платеж" aria-label="Отменить платеж">&times;</button>'
           : '<button class="cashbox-transaction__cancel" type="button" hidden aria-hidden="true" tabindex="-1">&times;</button>';
-        return '<div class="cashbox-transaction">'
+        return '<div class="cashbox-transaction" data-cashbox-transaction-id="' + escapeHtml(transactionId) + '"' + notificationAttributes + '>'
           + '<div class="cashbox-transaction__badge" data-direction="' + escapeHtml(direction) + '">' + escapeHtml(direction === 'expense' ? 'списание' : 'поступление') + '</div>'
           + '<div class="cashbox-transaction__body"><div class="cashbox-transaction__summary"><div class="cashbox-transaction__note">' + escapeHtml(note) + '</div><div class="cashbox-transaction__context">' + contextHtml + '</div></div><div class="cashbox-transaction__meta">' + escapeHtml(item?.business_datetime_display || formatDate(item?.created_at)) + ' | ' + escapeHtml(actor) + '</div></div>'
           + '<div class="cashbox-transaction__amount" data-direction="' + escapeHtml(direction) + '">' + escapeHtml(direction === 'expense' ? '-' : '+') + escapeHtml(absoluteAmount) + '</div>'
@@ -18952,6 +19119,7 @@
         ? '<button class="btn btn--ghost cashbox-transactions__more" type="button" data-cashbox-transactions-load-more="true">ПОКАЗАТЬ ЕЩЁ · ' + escapeHtml(String(transactions.length)) + '/' + escapeHtml(String(total)) + '</button>'
         : '';
       els.cashboxTransactions.innerHTML = rowsHtml + moreHtml;
+      scheduleCashboxNotificationHighlightTimers();
     }
 
     function renderCashboxDetail() {
@@ -19076,7 +19244,7 @@
       }, CASHBOX_DETAIL_DEFER_DELAY_MS);
     }
 
-    async function loadCashboxes(openModal = false, { deferDetail = false } = {}) {
+    async function loadCashboxes(openModal = false, { deferDetail = false, consumeNotifications = false } = {}) {
       if (openModal) maybeOpenModal(els.cashboxesModal, true);
       const loadContext = beginCashboxesLoad();
       try {
@@ -19085,6 +19253,8 @@
           signal: loadContext.controller.signal,
         });
         if (!isCurrentCashboxesLoad(loadContext)) return null;
+        if (consumeNotifications) consumeCashboxNotifications(data?.notification || null);
+        else applyCashboxNotification(data?.notification || null);
         state.cashboxes = Array.isArray(data?.cashboxes) ? data.cashboxes : [];
         state.cashboxesLoaded = true;
         const nextId = state.cashboxes.some((item) => item.id === state.activeCashboxId)
@@ -19158,7 +19328,7 @@
         renderCashboxesList();
         renderCashboxDetail();
       }
-      loadCashboxes(false, { deferDetail: true });
+      loadCashboxes(false, { deferDetail: true, consumeNotifications: true });
     }
 
     async function loadCashJournalData({ includeMarkdown = false } = {}) {

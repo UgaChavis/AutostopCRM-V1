@@ -118,6 +118,7 @@ EXPECTED_SERVICE_ROUTES = {
     "/api/mark_card_ready",
     "/api/manager_board_scan",
     "/api/mark_card_seen",
+    "/api/mark_cashbox_notifications_seen",
     "/api/move_card",
     "/api/move_column",
     "/api/move_sticky",

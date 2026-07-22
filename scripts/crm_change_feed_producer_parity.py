@@ -38,7 +38,13 @@ EXEMPTION_KINDS = frozenset(
     {"privacy_exemption", "infrastructure_exemption", "non_mutating_exemption"}
 )
 ALLOWED_EXEMPTIONS = {
-    "privacy_exemption": frozenset({"/api/login_operator", "/api/logout_operator"}),
+    "privacy_exemption": frozenset(
+        {
+            "/api/login_operator",
+            "/api/logout_operator",
+            "/api/mark_cashbox_notifications_seen",
+        }
+    ),
     "infrastructure_exemption": frozenset(
         {
             "/api/agent_enqueue_task",
@@ -98,6 +104,7 @@ ALLOWED_ROUTE_CONTRACT_EXEMPTIONS = frozenset(
         "/api/correct_repair_order_number",
         "/api/delete_agent_scheduled_task",
         "/api/finance_audit/apply_safe_fixes",
+        "/api/mark_cashbox_notifications_seen",
         "/api/pause_agent_scheduled_task",
         "/api/preview_repair_order_print_documents",
         "/api/resume_agent_scheduled_task",

@@ -259,6 +259,27 @@
       ]
     },
     {
+      "name": "cashbox_notification_receipt_privacy_boundary",
+      "kind": "privacy_exemption",
+      "producer": "none",
+      "rationale": "Per-operator cashbox notification receipts are private viewer state, not CRM business mutations; projecting them would expose activity and create a self-observation loop when a user opens the cashbox workspace.",
+      "routes": [
+        "/api/mark_cashbox_notifications_seen"
+      ],
+      "route_evidence": {
+        "/api/mark_cashbox_notifications_seen": {
+          "source": "src/minimal_kanban/services/card_service_finance.py",
+          "pattern": "def mark_cashbox_notifications_seen(self, payload: dict | None = None)"
+        }
+      },
+      "test_evidence": [
+        {
+          "source": "tests/test_change_feed_producers.py",
+          "pattern": "test_validation_error_and_notification_seen_state_have_correct_event_semantics"
+        }
+      ]
+    },
+    {
       "name": "manager_agent_runtime_authority_boundary",
       "kind": "infrastructure_exemption",
       "producer": "external Manager agent runtime",

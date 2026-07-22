@@ -135,13 +135,19 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("width: max-content;", BOARD_WEB_APP_HTML)
         self.assertIn("white-space: nowrap;", BOARD_WEB_APP_HTML)
         self.assertIn(
-            'id="statusLine" data-connection="pending" data-tone="normal"',
+            'id="statusLine" data-connection="pending" data-tone="normal">ОЖИДАНИЕ</div>',
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
             "function connectionStateFromStatusText(text, isError = false)", BOARD_WEB_APP_HTML
         )
         self.assertIn("function showConnectionPendingStatus()", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "function compactConnectionStatusText(text, connectionState)", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("if (connectionState === 'offline') return 'НЕТ СВЯЗИ';", BOARD_WEB_APP_HTML)
+        self.assertIn("if (connectionState === 'pending') return 'ОЖИДАНИЕ';", BOARD_WEB_APP_HTML)
+        self.assertIn("return 'СВЯЗЬ ЕСТЬ';", BOARD_WEB_APP_HTML)
         self.assertIn(
             "els.statusLine.dataset.connection = nextConnectionState;", BOARD_WEB_APP_HTML
         )
@@ -1256,7 +1262,10 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("state.pollHandle = window.setTimeout(async () => {", BOARD_WEB_APP_HTML)
-        self.assertIn("await refreshSnapshotRevision();", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "await Promise.all([refreshSnapshotRevision(), refreshCashboxNotification()]);",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("/api/get_board_revision?compact=1&include_archive=0", BOARD_WEB_APP_HTML)
         self.assertIn("scheduleNextSnapshotPoll();", BOARD_WEB_APP_HTML)
         self.assertIn("const SNAPSHOT_POLL_MODAL_INTERVAL_MS = 15000;", BOARD_WEB_APP_HTML)
@@ -4162,10 +4171,14 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("z-index: 17;", BOARD_WEB_APP_HTML)
 
     def test_topbar_repair_orders_list_uses_compact_row_open_flow(self) -> None:
-        self.assertIn(
-            "#repairOrdersModal {\n      background: rgba(7, 10, 8, 0.92);\n    }",
+        modal_backdrop_rule = re.search(
+            r"\.modal \{(?P<body>.*?)\n    \}",
             BOARD_WEB_APP_HTML,
+            re.S,
         )
+        self.assertIsNotNone(modal_backdrop_rule)
+        assert modal_backdrop_rule is not None
+        self.assertIn("background: rgba(7, 10, 8, 0.96);", modal_backdrop_rule.group("body"))
         self.assertIn('id="repairOrdersButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrdersModal"', BOARD_WEB_APP_HTML)
         self.assertIn('id="repairOrdersList"', BOARD_WEB_APP_HTML)
@@ -4313,7 +4326,8 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIsNotNone(toolbar_rule)
         assert toolbar_rule is not None
-        self.assertIn("rgba(28, 36, 30, 0.20);", toolbar_rule.group("body"))
+        self.assertIn("background: transparent;", toolbar_rule.group("body"))
+        self.assertIn("box-shadow: none;", toolbar_rule.group("body"))
         toolbar_action_surface_rule = re.search(
             r"\.repair-orders-toolbar \.tab-btn,\n    \.repair-orders-toolbar \[data-close=\"repair-orders\"\] \{(?P<body>.*?)\n    \}",
             BOARD_WEB_APP_HTML,
@@ -4334,11 +4348,11 @@ class WebAssetsTests(unittest.TestCase):
         )
         for selector, background in (
             ("#repairOrdersOpenTab", "#233024"),
-            ("#repairOrdersOpenTab.is-active", "#334933"),
+            ("#repairOrdersOpenTab.is-active", "#4d8749"),
             ("#repairOrdersReadyTab", "#28302b"),
-            ("#repairOrdersReadyTab.is-active", "#424a47"),
+            ("#repairOrdersReadyTab.is-active", "#5a6862"),
             ("#repairOrdersClosedTab", "#272822"),
-            ("#repairOrdersClosedTab.is-active", "#40322c"),
+            ("#repairOrdersClosedTab.is-active", "#70443b"),
         ):
             tab_rule = re.search(
                 rf"{re.escape(selector)} \{{(?P<body>.*?)\n    \}}",
@@ -4349,6 +4363,7 @@ class WebAssetsTests(unittest.TestCase):
             assert tab_rule is not None
             self.assertIn(f"background: {background};", tab_rule.group("body"))
         self.assertIn(".dialog--repair-orders > .repair-orders-body-scroll {", BOARD_WEB_APP_HTML)
+        self.assertIn("height: min(calc(94vh + 36px), 1016px);", BOARD_WEB_APP_HTML)
         self.assertIn("scrollbar-gutter: stable;", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-body-scroll .repair-orders-table-head {", BOARD_WEB_APP_HTML)
         self.assertIn("top: 0;", BOARD_WEB_APP_HTML)
@@ -4659,9 +4674,9 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("#repairOrdersOpenTab.is-active {", BOARD_WEB_APP_HTML)
         self.assertIn("#repairOrdersReadyTab.is-active {", BOARD_WEB_APP_HTML)
         self.assertIn("#repairOrdersClosedTab.is-active {", BOARD_WEB_APP_HTML)
-        self.assertIn("0 0 12px rgba(105, 196, 95, 0.18)", BOARD_WEB_APP_HTML)
-        self.assertIn("0 0 12px rgba(174, 181, 181, 0.18)", BOARD_WEB_APP_HTML)
-        self.assertIn("0 0 12px rgba(207, 112, 100, 0.18)", BOARD_WEB_APP_HTML)
+        self.assertIn("0 0 18px rgba(105, 196, 95, 0.34)", BOARD_WEB_APP_HTML)
+        self.assertIn("0 0 18px rgba(174, 181, 181, 0.3)", BOARD_WEB_APP_HTML)
+        self.assertIn("0 0 18px rgba(207, 112, 100, 0.32)", BOARD_WEB_APP_HTML)
         self.assertIn("data-repair-orders-filter", BOARD_WEB_APP_HTML)
         self.assertIn("renderRepairOrderListRows = function(items)", BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -4823,7 +4838,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function abortCashboxesLoad()", BOARD_WEB_APP_HTML)
         self.assertIn("state.cashboxesLoadController.abort();", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "abortCashboxesLoad();\n          closeCashboxTransferModal();", BOARD_WEB_APP_HTML
+            "abortCashboxesLoad();\n          clearCashboxNotificationHighlights();",
+            BOARD_WEB_APP_HTML,
         )
         self.assertIn("signal: loadContext.controller.signal", BOARD_WEB_APP_HTML)
         self.assertIn("if (!isCurrentCashboxesLoad(loadContext)) return null;", BOARD_WEB_APP_HTML)
@@ -5022,10 +5038,6 @@ class WebAssetsTests(unittest.TestCase):
             "state.cashboxesLoaded && Array.isArray(state.cashboxes) && state.cashboxes.length",
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn(
-            "async function loadCashboxes(openModal = false, { deferDetail = false } = {})",
-            BOARD_WEB_APP_HTML,
-        )
         self.assertIn("const CASHBOX_DETAIL_DEFER_DELAY_MS = 120;", BOARD_WEB_APP_HTML)
         self.assertIn("cashboxesLoaded: false,", BOARD_WEB_APP_HTML)
         self.assertIn("function scheduleCashboxDetailLoad(", BOARD_WEB_APP_HTML)
@@ -5033,7 +5045,6 @@ class WebAssetsTests(unittest.TestCase):
             "if (!els.cashboxesModal?.classList.contains('is-open')) return;", BOARD_WEB_APP_HTML
         )
         self.assertIn("if (state.cashboxesLoaded) {", BOARD_WEB_APP_HTML)
-        self.assertIn("loadCashboxes(false, { deferDetail: true });", BOARD_WEB_APP_HTML)
         self.assertIn("scheduleCashboxDetailLoad(nextId, { openModal });", BOARD_WEB_APP_HTML)
         self.assertIn(
             "async function loadCashboxDetail(cashboxId, { openModal = false, offset = 0, append = false, loadContext = null } = {})",
@@ -5176,6 +5187,27 @@ class WebAssetsTests(unittest.TestCase):
             "return dd + '.' + mm + '.' + yy + ', ' + hh + ':' + min;", BOARD_WEB_APP_HTML
         )
         self.assertNotIn("window.prompt('Куда перевести деньги?", BOARD_WEB_APP_HTML)
+
+    def test_cashbox_notifications_have_personal_indicator_and_timed_highlights(self) -> None:
+        self.assertIn(
+            "async function loadCashboxes(openModal = false, { deferDetail = false, consumeNotifications = false } = {})",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "loadCashboxes(false, { deferDetail: true, consumeNotifications: true });",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("function renderCashboxNotificationIndicator()", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "function captureCashboxNotificationHighlights(notification)", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("async function refreshCashboxNotification()", BOARD_WEB_APP_HTML)
+        self.assertIn("'/api/mark_cashbox_notifications_seen'", BOARD_WEB_APP_HTML)
+        self.assertIn('data-cashbox-notification-tone="income"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-cashbox-notification-tone="transfer"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-cashbox-notification-tone="expense"', BOARD_WEB_APP_HTML)
+        self.assertIn("@keyframes cashbox-notification-highlight", BOARD_WEB_APP_HTML)
+        self.assertIn("}, 3000);", BOARD_WEB_APP_HTML)
 
     def test_cashbox_cancellation_exposes_inline_feedback(self) -> None:
         self.assertIn('id="cashboxCancelFeedback"', BOARD_WEB_APP_HTML)

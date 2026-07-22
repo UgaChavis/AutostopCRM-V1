@@ -6,6 +6,8 @@ from typing import Any
 
 from ..models import CashTransaction, business_timezone
 
+CASHBOX_NOTIFICATION_SEEN_SETTING_KEY = "_cashbox_notification_seen_by_users"
+
 
 class FinanceReadCore:
     """Read-only finance orchestration behind CardService public facades."""
@@ -26,6 +28,7 @@ class FinanceReadCore:
             ]
             return {
                 "cashboxes": serialized_cashboxes,
+                "notification": service._cashbox_notification_summary(bundle, payload),
                 "meta": {
                     "total": len(cashboxes),
                     "transactions_total": len(transactions),

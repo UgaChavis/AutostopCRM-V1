@@ -2959,6 +2959,56 @@ class ApiServerTests(unittest.TestCase):
         self.assertIn("issues", number_audit["data"])
         self.assertIn("counts_by_code", number_audit["data"]["summary"])
 
+    def test_cashbox_notification_receipt_route_is_scoped_to_current_actor(self) -> None:
+        status, created = self.request(
+            "/api/create_cashbox", {"name": "Касса уведомлений", "actor_name": "ADMIN"}
+        )
+        self.assertEqual(status, 200)
+        cashbox = created["data"]["cashbox"]
+
+        status, baseline = self.request(
+            "/api/mark_cashbox_notifications_seen", {"actor_name": "ADMIN"}
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(baseline["data"]["notification"]["initialized"])
+
+        status, movement = self.request(
+            "/api/create_cash_transaction",
+            {
+                "cashbox_id": cashbox["id"],
+                "direction": "expense",
+                "amount": "700",
+                "note": "Списание другого оператора",
+                "actor_name": "БУХГАЛТЕР",
+            },
+        )
+        self.assertEqual(status, 200)
+        status, listed = self.request("/api/list_cashboxes?limit=20&actor_name=ADMIN", method="GET")
+        self.assertEqual(status, 200)
+        notice = listed["data"]["notification"]
+        self.assertTrue(notice["has_unread"])
+        self.assertEqual(notice["tone"], "expense")
+        self.assertEqual(
+            notice["unread_transactions"][0]["transaction_id"],
+            movement["data"]["transaction"]["id"],
+        )
+
+        status, marked = self.request(
+            "/api/mark_cashbox_notifications_seen",
+            {
+                "actor_name": "ADMIN",
+                "through_transaction_id": notice["through_transaction_id"],
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertFalse(marked["data"]["notification"]["has_unread"])
+
+        status, other_actor = self.request(
+            "/api/list_cashboxes?limit=20&actor_name=DIRECTOR", method="GET"
+        )
+        self.assertEqual(status, 200)
+        self.assertFalse(other_actor["data"]["notification"]["initialized"])
+
     def test_cancel_last_cash_transaction_route_removes_latest_manual_movement(self) -> None:
         status, created = self.request(
             "/api/create_cashbox", {"name": "Касса API", "actor_name": "ADMIN"}

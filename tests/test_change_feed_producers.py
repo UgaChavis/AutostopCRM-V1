@@ -309,6 +309,15 @@ class ChangeFeedProducerContractTests(unittest.TestCase):
         self.assertEqual("state_projection", seen_event["producer"])
         self.assertNotIn(b"OPERATOR-1", self.feed_database_bytes())
 
+        self.service.create_cashbox({"name": "Notification receipt cashbox"})
+        before_cashbox_receipt = self.high_water()
+        receipt = self.service.mark_cashbox_notifications_seen(
+            {"actor_name": "PRIVATE-CASHBOX-VIEWER-71D2"}
+        )
+        self.assertTrue(receipt["meta"]["changed"])
+        self.assertEqual(self.events_after(before_cashbox_receipt), [])
+        self.assertNotIn(b"PRIVATE-CASHBOX-VIEWER-71D2", self.feed_database_bytes())
+
     def test_employee_lifecycle_has_precise_create_update_delete_and_tombstone(self) -> None:
         before = self.high_water()
         employee = self.service.save_employee(

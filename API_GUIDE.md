@@ -128,7 +128,7 @@ handler, selected Gateway path, commit sink, and exact producer tests. Routes
 whose capability readback class is only `executor_contract_only` must also be
 resolved by `tests/test_change_feed_route_contracts.py`: currently 56 execute
 the canonical registry handler against temporary state and replay the durable
-feed result, while 15 model/runtime/render boundaries have exact allowlisted
+feed result, while 16 model/runtime/render/privacy boundaries have exact allowlisted
 reasons. A new or reclassified write route fails the gate until this contract
 is complete; call-graph reachability alone is not treated as end-to-end proof.
 
@@ -223,6 +223,10 @@ positions.
   rows; paired transfer movements are reversed together.
 - `get_cashbox` accepts `transaction_limit` and `transaction_offset`; use
   `meta.has_more` for pagination.
+- `list_cashboxes` returns the current operator's compact `notification`
+  summary. `/api/mark_cashbox_notifications_seen` advances that operator's
+  receipt only through the supplied `through_transaction_id`; operations made
+  by the same operator do not become unread notifications.
 - `/api/create_employee_shift_accrual` records a non-cash payroll accrual and
   does not change a cashbox.
 

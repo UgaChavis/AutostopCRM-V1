@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 _TECHNICAL_ID_PATTERN = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
+_PRIVATE_VIEWER_SETTING_KEYS = frozenset({"_cashbox_notification_seen_by_users"})
 SourceKey = tuple[str, str]
 
 
@@ -291,7 +292,7 @@ def _project_settings(
     board_settings = {
         key: value
         for key, value in settings.items()
-        if key not in {*collection_keys, "ready_column_id"}
+        if key not in {*collection_keys, "ready_column_id", *_PRIVATE_VIEWER_SETTING_KEYS}
     }
     if _selected(sources, "board_settings", "board"):
         _add(
@@ -451,6 +452,7 @@ def project_crm_source_signatures(state: Mapping[str, Any] | object) -> dict[Sou
             "employee_shift_accruals",
             "employee_repair_order_accruals",
             "ready_column_id",
+            *_PRIVATE_VIEWER_SETTING_KEYS,
         }
     }
     signatures[("board_settings", "board")] = _digest(board_settings)

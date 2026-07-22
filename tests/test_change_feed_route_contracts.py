@@ -39,6 +39,7 @@ REASONED_ROUTE_CONTRACT_EXEMPTIONS = {
     "/api/autofill_inspection_sheet_form": "model-dependent write covered by deterministic print projection producer contract",
     "/api/autofill_repair_order": "model-dependent write covered by deterministic state projection producer contract",
     "/api/finance_audit/apply_safe_fixes": "only mutates a deliberately corrupted legacy fixture; dedicated finance repair tests own it",
+    "/api/mark_cashbox_notifications_seen": "private per-operator viewer receipt; deliberately excluded from the business change feed",
     "/api/rollback_manager_run": "manager-led multi-write compensation contract is verified by manager workflow tests",
     "/api/run_full_card_enrichment": "external model and research orchestration boundary",
     "/api/run_manager_operation": "manager-led multi-write orchestration contract is verified by manager workflow tests",
@@ -154,6 +155,14 @@ class ChangeFeedCanonicalRouteContractTests(unittest.TestCase):
         )
         self.covered.add(route)
         return result
+
+    def _mark_cashbox_notifications_seen(self, transaction_id: str) -> None:
+        self.service.mark_cashbox_notifications_seen(
+            {
+                "actor_name": "ROUTE-OPERATOR",
+                "through_transaction_id": transaction_id,
+            }
+        )
 
     def _exercise_operator_user_routes(self, employee_id: str) -> None:
         operator_payload = {"_operator_session": self.admin_session}
@@ -559,6 +568,7 @@ class ChangeFeedCanonicalRouteContractTests(unittest.TestCase):
                 "note": "Route selected cancellation",
             }
         )["transaction"]
+        self._mark_cashbox_notifications_seen(selected_transaction["id"])
         self._invoke(
             "/api/cancel_cash_transaction",
             {

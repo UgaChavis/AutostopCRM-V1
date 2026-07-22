@@ -82,6 +82,7 @@ QUIET_SUCCESS_ROUTES = frozenset(
         "/api/get_board_snapshot",
         "/api/get_display_dashboard",
         "/api/mark_card_seen",
+        "/api/mark_cashbox_notifications_seen",
     }
 )
 

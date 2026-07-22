@@ -25,6 +25,7 @@ from ..models import (
     utc_now_iso,
 )
 from ..storage.json_store import JsonStore
+from .finance_read_core import CASHBOX_NOTIFICATION_SEEN_SETTING_KEY
 from .snapshot_cache import (
     COMPACT_SNAPSHOT_CACHE_TTL_SECONDS,
     PreparedSnapshotData,
@@ -283,6 +284,14 @@ def _json_dumps(
     )
 
 
+def _public_snapshot_settings(settings: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in settings.items()
+        if key != CASHBOX_NOTIFICATION_SEEN_SETTING_KEY
+    }
+
+
 class SnapshotService:
     def __init__(
         self,
@@ -389,12 +398,13 @@ class SnapshotService:
         archive_limit: int,
     ) -> str:
         event_counts = self._event_counts(events) if cards or archive else {}
+        public_settings = _public_snapshot_settings(settings)
         return build_snapshot_revision(
             columns=columns,
             cards=cards,
             archive=archive,
             stickies=stickies,
-            settings=settings,
+            settings=public_settings,
             event_counts=event_counts,
             viewer_username=viewer_username,
             compact_cards=compact_cards,
@@ -748,7 +758,7 @@ class SnapshotService:
                 compact=compact_cards,
             )
             serialized_stickies = [self._serialize_sticky(sticky) for sticky in stickies]
-            serialized_settings = dict(bundle["settings"])
+            serialized_settings = _public_snapshot_settings(bundle["settings"])
             meta = build_snapshot_meta(
                 archive_limit=archive_limit,
                 compact_cards=compact_cards,

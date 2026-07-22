@@ -5264,6 +5264,105 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(deleted["meta"]["removed_transactions"], 0)
         self.assertEqual(self.service.list_cashboxes()["meta"]["total"], 1)
 
+    def test_cashbox_notifications_are_personal_typed_and_marked_through_exact_movement(
+        self,
+    ) -> None:
+        source = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})["cashbox"]
+        target = self.service.create_cashbox({"name": "Безналичный", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+
+        initial = self.service.list_cashboxes({"actor_name": "ALICE"})["notification"]
+        self.assertFalse(initial["initialized"])
+        self.assertFalse(initial["has_unread"])
+        self.service.mark_cashbox_notifications_seen({"actor_name": "ALICE"})
+
+        income = self.service.create_cash_transaction(
+            {
+                "cashbox_id": source["id"],
+                "direction": "income",
+                "amount": "1500",
+                "note": "Новый платёж клиента",
+                "actor_name": "BOB",
+            }
+        )["transaction"]
+        income_notice = self.service.list_cashboxes({"actor_name": "ALICE"})["notification"]
+        self.assertTrue(income_notice["initialized"])
+        self.assertTrue(income_notice["has_unread"])
+        self.assertEqual(income_notice["tone"], "income")
+        self.assertEqual(income_notice["unread_count"], 1)
+        self.assertEqual(income_notice["unread_transactions"][0]["transaction_id"], income["id"])
+
+        self.service.create_cash_transaction(
+            {
+                "cashbox_id": source["id"],
+                "direction": "income",
+                "amount": "100",
+                "note": "Собственное движение",
+                "actor_name": "ALICE",
+            }
+        )
+        self.assertEqual(
+            self.service.list_cashboxes({"actor_name": "ALICE"})["notification"]["unread_count"],
+            1,
+        )
+
+        transferred = self.service.create_cashbox_transfer(
+            {
+                "from_cashbox_id": source["id"],
+                "to_cashbox_id": target["id"],
+                "amount": "250",
+                "note": "Перевод на расчётный счёт",
+                "actor_name": "BOB",
+            }
+        )
+        transfer_notice = self.service.list_cashboxes({"actor_name": "ALICE"})["notification"]
+        self.assertEqual(transfer_notice["tone"], "transfer")
+        self.assertEqual(transfer_notice["unread_count"], 2)
+        transfer_ids = {
+            transferred["source_transaction"]["id"],
+            transferred["target_transaction"]["id"],
+        }
+        self.assertTrue(
+            transfer_ids.issubset(
+                {
+                    item["transaction_id"]
+                    for item in transfer_notice["unread_transactions"]
+                    if item["tone"] == "transfer"
+                }
+            )
+        )
+
+        expense = self.service.create_cash_transaction(
+            {
+                "cashbox_id": source["id"],
+                "direction": "expense",
+                "amount": "300",
+                "note": "Оплата расходных материалов",
+                "actor_name": "BOB",
+            }
+        )["transaction"]
+        expense_notice = self.service.list_cashboxes({"actor_name": "ALICE"})["notification"]
+        self.assertEqual(expense_notice["tone"], "expense")
+        self.assertEqual(expense_notice["unread_count"], 3)
+        self.assertEqual(expense_notice["unread_transactions"][0]["transaction_id"], expense["id"])
+
+        marked = self.service.mark_cashbox_notifications_seen(
+            {
+                "actor_name": "ALICE",
+                "through_transaction_id": expense_notice["through_transaction_id"],
+            }
+        )
+        self.assertTrue(marked["meta"]["changed"])
+        self.assertFalse(marked["notification"]["has_unread"])
+        self.assertFalse(
+            self.service.list_cashboxes({"actor_name": "BOB"})["notification"]["initialized"]
+        )
+        self.assertNotIn(
+            "_cashbox_notification_seen_by_users",
+            self.service.get_board_snapshot({"actor_name": "ALICE"})["settings"],
+        )
+
     def test_manual_cashbox_expense_requires_note_minimum(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
             "cashbox"
