@@ -499,7 +499,7 @@ class ProductionOAuthAuthorizationServerProvider(
         if any(not self._is_allowed_redirect_uri(uri) for uri in redirect_uris):
             raise RegistrationError(
                 "invalid_redirect_uri",
-                "redirect_uri must be a ChatGPT connector or local Codex OAuth callback",
+                "redirect_uri must be a ChatGPT connector, local Codex, or configured Codex relay callback",
             )
 
     def _is_allowed_redirect_uri(self, redirect_uri: object) -> bool:
@@ -520,6 +520,21 @@ class ProductionOAuthAuthorizationServerProvider(
             return parsed.path == CHATGPT_LEGACY_OAUTH_REDIRECT_PATH or parsed.path.startswith(
                 CHATGPT_OAUTH_REDIRECT_PATH_PREFIX
             )
+        issuer = urlsplit(self._issuer_url)
+        issuer_hostname = (issuer.hostname or "").casefold()
+        relay_callback_id = parsed.path.removeprefix("/codex-oauth/callback/")
+        if (
+            parsed.scheme.casefold() == "https"
+            and hostname == issuer_hostname
+            and port is None
+            and parsed.path.startswith("/codex-oauth/callback/")
+            and len(relay_callback_id) == 12
+            and all(
+                character.isascii() and (character.isalnum() or character in "-_")
+                for character in relay_callback_id
+            )
+        ):
+            return True
         if parsed.scheme.casefold() != "http" or hostname not in {
             "127.0.0.1",
             "::1",

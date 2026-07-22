@@ -251,17 +251,19 @@ class OperatorAuthService:
         session = self._required_admin_session(payload)
         payload = payload or {}
         username = self._validated_username(payload.get("username"))
-        password = self._validated_password(payload.get("password"))
+        password_provided = "password" in payload and str(payload.get("password") or "").strip()
+        requested_role = self._validated_role(payload.get("role")) if "role" in payload else None
         now_iso = utc_now_iso()
         with self._lock:
             state = self._read_normalized_state()
             existing = self._find_user(state["users"], username)
             created = existing is None
             if created:
+                password = self._validated_password(payload.get("password"))
                 existing = {
                     "username": username,
                     "password_hash": _password_hash(password),
-                    "role": "operator",
+                    "role": requested_role or "operator",
                     "created_at": now_iso,
                     "updated_at": now_iso,
                     "employee_id": "",
@@ -270,7 +272,22 @@ class OperatorAuthService:
                 }
                 state["users"].append(existing)
             else:
-                existing["password_hash"] = _password_hash(password)
+                if password_provided:
+                    existing["password_hash"] = _password_hash(
+                        self._validated_password(payload.get("password"))
+                    )
+                next_role = requested_role or existing.get("role") or "operator"
+                if (
+                    existing.get("role") == "admin"
+                    and next_role != "admin"
+                    and sum(1 for user in state["users"] if user.get("role") == "admin") <= 1
+                ):
+                    self._fail(
+                        "validation_error",
+                        "Нельзя снять права с последнего администратора.",
+                        status_code=409,
+                    )
+                existing["role"] = next_role
                 existing["updated_at"] = now_iso
                 existing["employee_id"] = normalize_text(
                     existing.get("employee_id"), default="", limit=64
@@ -279,18 +296,21 @@ class OperatorAuthService:
                     existing["stats"] = {OPEN_COUNT_KEY: 0}
                 if not isinstance(existing.get(ACTION_HISTORY_KEY), list):
                     existing[ACTION_HISTORY_KEY] = []
-                current_session_token = (
-                    str(session.get("token") or "") if session["username"] == username else ""
-                )
-                state["sessions"] = [
-                    item
-                    for item in state["sessions"]
-                    if item.get("username") != username
-                    or (
-                        current_session_token
-                        and hmac.compare_digest(str(item.get("token") or ""), current_session_token)
+                if password_provided:
+                    current_session_token = (
+                        str(session.get("token") or "") if session["username"] == username else ""
                     )
-                ]
+                    state["sessions"] = [
+                        item
+                        for item in state["sessions"]
+                        if item.get("username") != username
+                        or (
+                            current_session_token
+                            and hmac.compare_digest(
+                                str(item.get("token") or ""), current_session_token
+                            )
+                        )
+                    ]
             self._write_state(state)
             snapshot = deepcopy(existing)
         self._record_activity_safe(
@@ -301,7 +321,15 @@ class OperatorAuthService:
             object_type="operator",
             object_id=snapshot["username"],
             object_label=snapshot["username"],
-            summary=("Создан пользователь." if created else "Обновлен пароль пользователя."),
+            summary=(
+                "Создан пользователь."
+                if created
+                else "Обновлены права пользователя."
+                if requested_role is not None and not password_provided
+                else "Обновлены пользователь и права."
+                if requested_role is not None
+                else "Обновлен пароль пользователя."
+            ),
             source=str(payload.get("source") or "ui"),
         )
         return {

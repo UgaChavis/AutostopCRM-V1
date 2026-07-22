@@ -356,6 +356,20 @@ class McpOAuthProviderStateTests(unittest.TestCase):
 
             self.assertIsNotNone(asyncio.run(provider.get_client("codex-cli")))
 
+    def test_register_client_accepts_issuer_bound_codex_relay_callback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            provider = self._provider(Path(temp_dir) / "mcp-oauth-state.json")
+            client = OAuthClientInformationFull(
+                client_id="codex-cli-relay",
+                redirect_uris=["https://agent.example/codex-oauth/callback/Abcdef01_-XY"],
+                token_endpoint_auth_method="none",
+                scope="kanban:read kanban:write",
+            )
+
+            asyncio.run(provider.register_client(client))
+
+            self.assertIsNotNone(asyncio.run(provider.get_client("codex-cli-relay")))
+
     def test_authorization_requires_exact_audience_scopes_and_owner_approval(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             provider = self._provider(Path(temp_dir) / "mcp-oauth-state.json")
@@ -443,6 +457,9 @@ class McpOAuthProviderStateTests(unittest.TestCase):
             "http://127.0.0.1:49152/callback/too-short",
             "http://127.0.0.1:49152/callback/Abcdef01_-XY/extra",
             "http://127.0.0.1:49152/callback/Abcdef01_-XY?redirect=evil",
+            "https://example.com/codex-oauth/callback/Abcdef01_-XY",
+            "https://agent.example/codex-oauth/callback/too-short",
+            "https://agent.example/codex-oauth/callback/Abcdef01_-XY/extra",
         ]
         for redirect_uri in blocked_redirects:
             with self.subTest(redirect_uri=redirect_uri):

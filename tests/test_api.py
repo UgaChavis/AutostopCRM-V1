@@ -1096,7 +1096,15 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(saved["data"]["meta"]["created"])
         self.assertEqual(saved["data"]["user"]["username"], "MEKH")
-        self.assertEqual(saved["data"]["user"]["role"], "operator")
+        self.assertEqual(saved["data"]["user"]["role"], "admin")
+
+        status, promoted = self.request(
+            "/api/save_operator_user",
+            {"username": "mekh", "role": "operator"},
+            headers=headers,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(promoted["data"]["user"]["role"], "operator")
 
         status, listed = self.request("/api/list_operator_users", method="GET", headers=headers)
         self.assertEqual(status, 200)
