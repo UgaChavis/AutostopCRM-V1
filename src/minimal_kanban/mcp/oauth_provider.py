@@ -526,7 +526,7 @@ class ProductionOAuthAuthorizationServerProvider(
             parsed.scheme.casefold() == "https"
             and hostname == issuer_hostname
             and port is None
-            and parsed.path == "/codex-oauth"
+            and parsed.path in {"/codex-oauth", "/codex-oauth/"}
         ):
             return True
         relay_callback_id = parsed.path.removeprefix("/codex-oauth/callback/")
