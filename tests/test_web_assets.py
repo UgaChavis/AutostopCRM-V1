@@ -4322,6 +4322,16 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIsNotNone(toolbar_action_surface_rule)
         assert toolbar_action_surface_rule is not None
         self.assertIn("background: #151c17;", toolbar_action_surface_rule.group("body"))
+        self.assertIn("pointer-events: auto;", toolbar_action_surface_rule.group("body"))
+        self.assertIn("transform 120ms ease;", toolbar_action_surface_rule.group("body"))
+        self.assertIn(
+            ".repair-orders-toolbar .tab-btn:hover:not(:disabled),",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            ".repair-orders-toolbar .repair-orders-controls input:focus,",
+            BOARD_WEB_APP_HTML,
+        )
         for selector, background in (
             ("#repairOrdersOpenTab", "#233024"),
             ("#repairOrdersOpenTab.is-active", "#334933"),

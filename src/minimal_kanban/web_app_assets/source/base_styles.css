@@ -1628,7 +1628,41 @@
     }
     .repair-orders-toolbar .tab-btn,
     .repair-orders-toolbar [data-close="repair-orders"] {
+      position: relative;
+      z-index: 4;
+      pointer-events: auto;
       background: #151c17;
+      transition:
+        border-color 160ms ease,
+        background 160ms ease,
+        color 160ms ease,
+        box-shadow 180ms ease,
+        transform 120ms ease;
+    }
+    .repair-orders-toolbar .tab-btn:hover:not(:disabled),
+    .repair-orders-toolbar .tab-btn:focus-visible,
+    .repair-orders-toolbar [data-close="repair-orders"]:hover:not(:disabled),
+    .repair-orders-toolbar [data-close="repair-orders"]:focus-visible {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px rgba(167, 178, 132, 0.12), 0 6px 14px rgba(0, 0, 0, 0.22);
+      transform: translateY(-1px);
+    }
+    .repair-orders-toolbar .tab-btn:active:not(:disabled),
+    .repair-orders-toolbar [data-close="repair-orders"]:active:not(:disabled) {
+      transform: translateY(0);
+      box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.32);
+    }
+    .repair-orders-toolbar .repair-orders-controls input,
+    .repair-orders-toolbar .repair-orders-controls select {
+      position: relative;
+      z-index: 4;
+      pointer-events: auto;
+      transition: border-color 160ms ease, background 160ms ease, box-shadow 180ms ease;
+    }
+    .repair-orders-toolbar .repair-orders-controls input:focus,
+    .repair-orders-toolbar .repair-orders-controls select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(167, 178, 132, 0.16);
     }
     .dialog__tabs--repair-orders {
       margin: 0;
