@@ -128,6 +128,21 @@ from .web_gateway import (
 )
 
 
+def _maintenance_release_smoke_headers(
+    *,
+    technical_allowed: bool,
+    virtual_route: str | None,
+    revision: str,
+    proof: str,
+) -> dict[str, str] | None:
+    if not technical_allowed or virtual_route is None:
+        return None
+    return {
+        "X-Autostop-Release-Smoke-Revision": str(revision).strip(),
+        "X-Autostop-Release-Smoke-Proof": str(proof).strip(),
+    }
+
+
 def register_agent_gateway_v2(
     server: FastMCP,
     board_api: BoardApiClient,
@@ -195,7 +210,12 @@ def register_agent_gateway_v2(
             OAUTH_AUDIT_ASSERTION_HEADER: assertion,
         }
 
-    async def _invoke(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    async def _invoke(
+        name: str,
+        arguments: dict[str, Any],
+        *,
+        extra_headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]:
         if name in WEB_RESEARCH_CAPABILITY_NAMES:
 
             def run_web_research() -> dict[str, Any]:
@@ -215,10 +235,11 @@ def register_agent_gateway_v2(
             service_identity = load_agent_gateway_security_policy().service_identity
             payload["source"] = "mcp_agent_gateway_v2"
             payload["actor_name"] = _effective_audit_actor()
-            extra_headers = {
+            request_headers = {
                 "X-Autostop-Agent-Identity": service_identity,
                 "X-Autostop-Agent-Token": str(agent_bearer_token or ""),
                 **_oauth_audit_headers(route=virtual_route, payload=payload),
+                **dict(extra_headers or {}),
             }
             try:
                 return _as_dict(
@@ -226,7 +247,7 @@ def register_agent_gateway_v2(
                         virtual_route,
                         payload,
                         method="POST",
-                        extra_headers=extra_headers,
+                        extra_headers=request_headers,
                     )
                 )
             except Exception as exc:  # pragma: no cover - transport integration failure
@@ -2029,17 +2050,15 @@ def register_agent_gateway_v2(
                 _envelope(ok=False, status="blocked", warnings=[policy_error]),
                 label="call_raw_capability",
             )
-        if (
-            risk != "read"
-            and is_maintenance_mode()
-            and not _maintenance_technical_write_allowed(
-                capability=normalized_name,
-                arguments=arguments or {},
-                revision=release_smoke_revision,
-                proof=release_smoke_proof,
-                agent_bearer_token=agent_bearer_token,
-            )
-        ):
+        maintenance_mode = risk != "read" and is_maintenance_mode()
+        maintenance_technical_allowed = maintenance_mode and _maintenance_technical_write_allowed(
+            capability=normalized_name,
+            arguments=arguments or {},
+            revision=release_smoke_revision,
+            proof=release_smoke_proof,
+            agent_bearer_token=agent_bearer_token,
+        )
+        if maintenance_mode and not maintenance_technical_allowed:
             return _tool_result(
                 _envelope(
                     ok=False,
@@ -2062,6 +2081,12 @@ def register_agent_gateway_v2(
             )
         run_id: int | None = None
         effective_arguments = dict(arguments or {})
+        maintenance_headers = _maintenance_release_smoke_headers(
+            technical_allowed=maintenance_technical_allowed,
+            virtual_route=virtual_route,
+            revision=release_smoke_revision,
+            proof=release_smoke_proof,
+        )
         owner_binding: dict[str, Any] = {}
         request_fingerprint = ""
         if risk != "read":
@@ -2188,7 +2213,11 @@ def register_agent_gateway_v2(
                     ),
                     label="call_raw_capability",
                 )
-        result = await _invoke(normalized_name, effective_arguments)
+        result = await _invoke(
+            normalized_name,
+            effective_arguments,
+            extra_headers=maintenance_headers,
+        )
         owner_transport_bound = True
         ledger_state_version = _workflow_state_version(executing) if run_id is not None else None
         if normalized_name == "store_owner_api" and run_id is not None:

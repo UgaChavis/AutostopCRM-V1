@@ -18,6 +18,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.api.server import ApiServer  # noqa: E402
+from minimal_kanban.deployment_security import release_smoke_proof  # noqa: E402
 from minimal_kanban.models import AuditEvent, utc_now_iso  # noqa: E402
 from minimal_kanban.services.card_service import CardService  # noqa: E402
 from minimal_kanban.services.change_feed_service import ChangeFeedService  # noqa: E402
@@ -473,10 +474,18 @@ class ChangeFeedHttpContractTests(ChangeFeedTestCase):
         self.server.stop()
         super().tearDown()
 
-    def post(self, path: str, payload: dict, *, authenticate: bool = True) -> tuple[int, dict]:
+    def post(
+        self,
+        path: str,
+        payload: dict,
+        *,
+        authenticate: bool = True,
+        extra_headers: dict[str, str] | None = None,
+    ) -> tuple[int, dict]:
         headers = {"Content-Type": "application/json"}
         if authenticate:
             headers["Authorization"] = "Bearer feed-secret"
+        headers.update(extra_headers or {})
         request = urllib.request.Request(
             self.server.base_url + path,
             data=json.dumps(payload).encode("utf-8"),
@@ -519,6 +528,78 @@ class ChangeFeedHttpContractTests(ChangeFeedTestCase):
         legacy_after = self.card_service.get_board_events({"event_limit": 10})
         self.assertEqual(legacy_before["events"], legacy_after["events"])
         self.assertEqual("event-http", legacy_after["events"][0]["id"])
+
+    def test_maintenance_blocks_checkpoint_writes_but_keeps_feed_reads_available(self) -> None:
+        self.append_event("event-maintenance")
+        marker = self.base_dir / "maintenance.marker"
+        marker.write_text("maintenance", encoding="utf-8")
+
+        mcp_token = "maintenance-release-token"
+        revision = "a" * 40
+        with patch.dict(
+            os.environ,
+            {
+                "AUTOSTOP_MAINTENANCE_MARKER": str(marker),
+                "MINIMAL_KANBAN_MCP_BEARER_TOKEN": mcp_token,
+                "AUTOSTOP_AGENT_GATEWAY_ENABLED": "1",
+                "AUTOSTOP_AGENT_GATEWAY_WRITES_ENABLED": "1",
+                "AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED": "1",
+            },
+        ):
+            status, bootstrap = self.post(
+                "/api/change_feed/bootstrap", {"consumer_id": "maintenance-audit"}
+            )
+            self.assertEqual(503, status)
+            self.assertEqual("maintenance_mode", bootstrap["error"]["code"])
+
+            status, ack = self.post(
+                "/api/change_feed/ack",
+                {"consumer_id": "maintenance-audit", "ack": "not-a-real-ack"},
+            )
+            self.assertEqual(503, status)
+            self.assertEqual("maintenance_mode", ack["error"]["code"])
+
+            status, page = self.post("/api/change_feed/read", {"consumer_id": "maintenance-audit"})
+            self.assertEqual(200, status)
+            self.assertEqual(
+                ["event-maintenance"], [event["event_id"] for event in page["data"]["events"]]
+            )
+
+            smoke_headers = {
+                "X-Autostop-Agent-Identity": "codex-owner-agent",
+                "X-Autostop-Agent-Token": mcp_token,
+                "X-Autostop-Release-Smoke-Revision": revision,
+                "X-Autostop-Release-Smoke-Proof": release_smoke_proof(mcp_token, revision),
+            }
+            status, permitted = self.post(
+                "/api/change_feed/bootstrap",
+                {
+                    "consumer_id": "gateway-release-smoke",
+                    "source": "mcp_agent_gateway_v2",
+                },
+                extra_headers=smoke_headers,
+            )
+            self.assertEqual(200, status)
+            self.assertEqual("gateway-release-smoke", permitted["data"]["consumer_id"])
+
+            status, smoke_page = self.post(
+                "/api/change_feed/read", {"consumer_id": "gateway-release-smoke"}
+            )
+            self.assertEqual(200, status)
+            smoke_ack = smoke_page["data"]["ack"]
+            self.assertIsInstance(smoke_ack, str)
+
+            status, acknowledged = self.post(
+                "/api/change_feed/ack",
+                {
+                    "consumer_id": "gateway-release-smoke",
+                    "ack": smoke_ack,
+                    "source": "mcp_agent_gateway_v2",
+                },
+                extra_headers=smoke_headers,
+            )
+            self.assertEqual(200, status)
+            self.assertTrue(acknowledged["data"]["delivery_complete"])
 
     def test_http_protocol_errors_use_stable_codes(self) -> None:
         status, missing_consumer = self.post("/api/change_feed/read", {})

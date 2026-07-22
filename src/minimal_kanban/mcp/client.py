@@ -1506,6 +1506,8 @@ class BoardApiClient:
                         "X-Autostop-Agent-Token",
                         OAUTH_AUDIT_ACTOR_HEADER,
                         OAUTH_AUDIT_ASSERTION_HEADER,
+                        "X-Autostop-Release-Smoke-Revision",
+                        "X-Autostop-Release-Smoke-Proof",
                     }
                     and normalized_value
                 ):

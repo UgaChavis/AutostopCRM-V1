@@ -59,8 +59,8 @@ services:
     ports:
       - "127.0.0.1:11235:11235"
     environment:
-      CRAWL4AI_API_TOKEN: "${AUTOSTOP_CRAWL4AI_API_TOKEN:-autostop-local-crawl4ai-token-change-me}"
-      SECRET_KEY: "${AUTOSTOP_CRAWL4AI_SECRET_KEY:-autostop-local-crawl4ai-secret-change-me}"
+      CRAWL4AI_API_TOKEN: "${AUTOSTOP_CRAWL4AI_API_TOKEN:?provision a dedicated Crawl4AI API token}"
+      SECRET_KEY: "${AUTOSTOP_CRAWL4AI_SECRET_KEY:?provision a dedicated Crawl4AI secret key}"
     healthcheck:
       test:
         [
@@ -139,7 +139,7 @@ services:
       AUTOSTOP_MARGINALIA_ENABLED: "${AUTOSTOP_MARGINALIA_ENABLED:-1}"
       AUTOSTOP_CRAWL4AI_BASE_URL: "${AUTOSTOP_CRAWL4AI_CONTAINER_URL:-http://crawl4ai:11235}"
       AUTOSTOP_CRAWL4AI_ENABLED: "${AUTOSTOP_CRAWL4AI_ENABLED:-1}"
-      AUTOSTOP_CRAWL4AI_API_TOKEN: "${AUTOSTOP_CRAWL4AI_API_TOKEN:-autostop-local-crawl4ai-token-change-me}"
+      AUTOSTOP_CRAWL4AI_API_TOKEN: "${AUTOSTOP_CRAWL4AI_API_TOKEN:?provision a dedicated Crawl4AI API token}"
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       OPENAI_MODEL: "${OPENAI_MODEL:-gpt-5.4-mini}"
     volumes:

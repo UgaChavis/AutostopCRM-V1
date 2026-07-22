@@ -26,8 +26,9 @@ def load_post_build_verification_module():
 class FakeResponse:
     status = 200
 
-    def __init__(self, body: bytes) -> None:
+    def __init__(self, body: bytes, *, content_type: str = "application/json") -> None:
         self._body = body
+        self.headers = {"Content-Type": content_type}
 
     def __enter__(self):
         return self
@@ -156,6 +157,39 @@ class PostBuildVerificationTests(unittest.TestCase):
                     "http://127.0.0.1:41731",
                     "/api/login_operator",
                     {"username": "verify-admin", "password": "secret"},
+                )
+
+    def test_verify_static_asset_checks_packaged_file_contract(self) -> None:
+        with patch.object(
+            self.module,
+            "_urlopen_no_redirect",
+            return_value=FakeResponse(b"\x89PNG\r\n\x1a\nicon", content_type="image/png"),
+        ):
+            result = self.module.verify_static_asset(
+                "http://127.0.0.1:41731",
+                "/favicon.png",
+                expected_content_type="image/png",
+                expected_signature=b"\x89PNG\r\n\x1a\n",
+            )
+
+        self.assertEqual(result["status"], 200)
+        self.assertEqual(result["content_type"], "image/png")
+
+    def test_verify_static_asset_rejects_invalid_signature(self) -> None:
+        with patch.object(
+            self.module,
+            "_urlopen_no_redirect",
+            return_value=FakeResponse(b"not-an-icon", content_type="image/png"),
+        ):
+            with self.assertRaisesRegex(
+                self.module.VerificationError,
+                "invalid file signature",
+            ):
+                self.module.verify_static_asset(
+                    "http://127.0.0.1:41731",
+                    "/favicon.png",
+                    expected_content_type="image/png",
+                    expected_signature=b"\x89PNG\r\n\x1a\n",
                 )
 
     def test_json_dumps_sanitizes_nonfinite_values(self) -> None:

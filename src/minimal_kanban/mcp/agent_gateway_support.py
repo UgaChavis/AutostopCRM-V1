@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 import re
 from collections.abc import Mapping
@@ -11,7 +9,11 @@ from typing import Any
 from mcp.types import CallToolResult, ToolAnnotations
 from pydantic import BaseModel
 
-from ..deployment_security import load_agent_gateway_security_policy
+from ..deployment_security import (
+    load_agent_gateway_security_policy,
+    release_smoke_proof,
+    release_smoke_proof_matches,
+)
 from .gateway_contract import (
     CARD_FIELD_ALLOWLIST,
     DEFAULT_CARD_FIELDS,
@@ -108,11 +110,7 @@ MAIL_CAPABILITY_NAMES = frozenset(
 
 
 def _release_smoke_proof(token: str, revision: str) -> str:
-    return hmac.new(
-        str(token or "").encode("utf-8"),
-        f"autostop-gateway-v2-release-smoke:v1:{revision}".encode("ascii"),
-        hashlib.sha256,
-    ).hexdigest()
+    return release_smoke_proof(token, revision)
 
 
 def _maintenance_technical_write_allowed(
@@ -141,8 +139,7 @@ def _maintenance_technical_write_allowed(
         and arguments.get("consumer_id") != RELEASE_SMOKE_CHANGE_FEED_CONSUMER_ID
     ):
         return False
-    expected = _release_smoke_proof(agent_bearer_token, normalized_revision)
-    return hmac.compare_digest(expected, str(proof or ""))
+    return release_smoke_proof_matches(agent_bearer_token, normalized_revision, proof)
 
 
 def _read_annotations(title: str) -> ToolAnnotations:

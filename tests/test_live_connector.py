@@ -185,6 +185,34 @@ class LiveConnectorOutputTests(unittest.TestCase):
         self.assertNotIn("/api/get_gpt_wall", calls)
         self.assertNotIn("/api/list_repair_orders", calls)
 
+    def test_unconfigured_api_and_mcp_surfaces_are_printed_as_skipped(self) -> None:
+        module = load_live_connector_module()
+        api_surface = module.check_api_surface("")
+        api_surface.update(
+            {
+                "base_url": "https://crm.autostopcrm.ru",
+                "surface_kind": "public",
+                "error": "public_api_credentials_not_provided",
+            }
+        )
+        mcp_surface = {
+            "checked": False,
+            "ok": False,
+            "mcp_url": "",
+            "error": "mcp_check_skipped",
+        }
+
+        output = io.StringIO()
+        with patch.object(sys, "stdout", output):
+            module._print_api_surface(api_surface)
+            module._print_mcp(mcp_surface)
+
+        printed = output.getvalue()
+        self.assertEqual(printed.count("status: skipped"), 2)
+        self.assertNotIn("status: failed", printed)
+        self.assertIn("public_api_credentials_not_provided", printed)
+        self.assertIn("mcp_check_skipped", printed)
+
     def test_check_site_rejects_redirect_without_following_it(self) -> None:
         module = load_live_connector_module()
         redirect = module.urllib.error.HTTPError(

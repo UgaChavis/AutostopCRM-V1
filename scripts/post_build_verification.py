@@ -142,6 +142,38 @@ def send_request(
         return exc.code, decoded
 
 
+def verify_static_asset(
+    base_url: str,
+    path: str,
+    *,
+    expected_content_type: str,
+    expected_signature: bytes,
+) -> dict[str, object]:
+    request = urllib.request.Request(f"{base_url}{path}", method="GET")
+    try:
+        with _urlopen_no_redirect(request, timeout=5) as response:
+            status = int(response.status)
+            content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0]
+            body = _read_response_body(response)
+    except (OSError, urllib.error.URLError) as exc:
+        raise VerificationError(f"Static asset request failed for {path}: {exc}") from exc
+
+    if status != 200:
+        raise VerificationError(f"Static asset {path} returned HTTP {status}.")
+    if content_type.lower() != expected_content_type.lower():
+        raise VerificationError(
+            f"Static asset {path} returned {content_type or 'no content type'}; "
+            f"expected {expected_content_type}."
+        )
+    if not body.startswith(expected_signature):
+        raise VerificationError(f"Static asset {path} has an invalid file signature.")
+    return {
+        "status": status,
+        "content_type": content_type,
+        "size_bytes": len(body),
+    }
+
+
 def login_operator_headers(base_url: str, *, username: str, password: str) -> dict[str, str]:
     status, response = send_request(
         base_url,
@@ -358,6 +390,19 @@ def _require_api_condition(condition: bool, message: str) -> None:
 
 def run_positive_api_checks(base_url: str, *, operator_headers: dict[str, str]) -> dict:
     report: dict[str, object] = {}
+
+    report["favicon_png"] = verify_static_asset(
+        base_url,
+        "/favicon.png",
+        expected_content_type="image/png",
+        expected_signature=b"\x89PNG\r\n\x1a\n",
+    )
+    report["favicon_ico"] = verify_static_asset(
+        base_url,
+        "/favicon.ico",
+        expected_content_type="image/x-icon",
+        expected_signature=b"\x00\x00\x01\x00",
+    )
 
     status, health = send_request(base_url, "/api/health", method="GET")
     report["health"] = health

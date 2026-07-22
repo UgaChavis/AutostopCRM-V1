@@ -574,7 +574,23 @@ printf 'status=%s\n' "$status"
         self.assertNotIn("AUTOSTOP_AGENT_GATEWAY_ENABLED:-1", compose)
         self.assertNotIn("AUTOSTOP_AGENT_GATEWAY_WRITES_ENABLED:-1", compose)
         self.assertIn("${AUTOSTOP_AGENT_GATEWAY_ENABLED:?set explicitly to 0 or 1}", compose)
-        self.assertIn("validate_gateway_switches", (PROJECT_ROOT / "deploy.sh").read_text())
+        self.assertIn(
+            "${AUTOSTOP_CRAWL4AI_API_TOKEN:?provision a dedicated Crawl4AI API token}",
+            compose,
+        )
+        self.assertIn(
+            "${AUTOSTOP_CRAWL4AI_SECRET_KEY:?provision a dedicated Crawl4AI secret key}",
+            compose,
+        )
+        self.assertNotIn("autostop-local-crawl4ai-token-change-me", compose)
+        self.assertNotIn("autostop-local-crawl4ai-secret-change-me", compose)
+        deploy_script = (PROJECT_ROOT / "deploy.sh").read_text()
+        self.assertIn("validate_gateway_switches", deploy_script)
+        self.assertIn("validate_crawl4ai_credentials", deploy_script)
+        self.assertIn(
+            "AUTOSTOP_CRAWL4AI_API_TOKEN and AUTOSTOP_CRAWL4AI_SECRET_KEY must be distinct.",
+            deploy_script,
+        )
         self.assertIn("/opt/autostop-manager-releases/current", compose)
         self.assertIn("/opt/AutostopManager}:ro", compose)
         self.assertIn("/opt/AutostopManager}/data", compose)
@@ -693,6 +709,23 @@ printf 'status=%s\n' "$status"
         )
         requirements_dev = (PROJECT_ROOT / "requirements-dev.txt").read_text(encoding="utf-8")
 
+        self.assertIn("defaults:\n      run:\n        shell: bash", workflow)
+        self.assertIn("python -m pip install -r requirements-runtime.txt", workflow)
+        self.assertIn("Validate production Compose configuration", workflow)
+        self.assertIn("docker compose config --quiet", workflow)
+        self.assertIn("AUTOSTOP_CRAWL4AI_API_TOKEN", workflow)
+        self.assertIn("AUTOSTOP_CRAWL4AI_SECRET_KEY", workflow)
+        # GitHub's explicit bash invocation adds `-o pipefail`; without it the
+        # exit status of tee could turn a failed Python quality check green.
+        for artifact in (
+            "perf-probe-local.json",
+            "perf-stage1.json",
+            "browser-smoke.json",
+            "perf-probe.json",
+            "finance-audit.json",
+        ):
+            with self.subTest(artifact=artifact):
+                self.assertIn(f"| tee {artifact}", workflow)
         self.assertIn("ruff format --check .", workflow)
         self.assertIn("ruff check .", workflow)
         self.assertIn("python scripts/docs_audit.py --format text", workflow)
@@ -722,6 +755,9 @@ printf 'status=%s\n' "$status"
         self.assertNotIn("scripts\\perf_probe.py --base-url https://crm.autostopcrm.ru", runbook)
         self.assertIn("AUTOSTOP_SMOKE_OPERATOR_USERNAME", runbook)
         self.assertIn("AUTOSTOP_SMOKE_OPERATOR_PASSWORD", runbook)
+        self.assertIn("AUTOSTOP_CRAWL4AI_API_TOKEN", runbook)
+        self.assertIn("AUTOSTOP_CRAWL4AI_SECRET_KEY", runbook)
+        self.assertIn("Crawl4AI credential is absent or they", runbook)
         self.assertNotIn("--operator-username admin --operator-password admin", runbook)
         self.assertIn("docs/OPERATIONS_RUNBOOK.md", readme)
 

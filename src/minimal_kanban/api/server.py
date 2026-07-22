@@ -29,7 +29,11 @@ from ..config import (
     get_api_port_fallback_limit,
     get_mcp_bearer_token,
 )
-from ..deployment_security import is_maintenance_mode, load_agent_gateway_security_policy
+from ..deployment_security import (
+    is_maintenance_mode,
+    load_agent_gateway_security_policy,
+    release_smoke_proof_matches,
+)
 from ..json_safety import reject_deeply_nested_json
 from ..mcp.oauth_provider import (
     OAUTH_AUDIT_ACTOR_HEADER,
@@ -55,7 +59,11 @@ from ..web_assets import (
     BOARD_WEB_APP_JS_PATH,
     DISPLAY_DASHBOARD_HTML,
 )
-from .change_feed import build_change_feed_routes
+from .change_feed import (
+    CHANGE_FEED_ACK_ROUTE,
+    CHANGE_FEED_BOOTSTRAP_ROUTE,
+    build_change_feed_routes,
+)
 from .route_registry import (
     ADMIN_ONLY_ROUTES,
     OPERATOR_SESSION_ROUTES,
@@ -821,6 +829,13 @@ class ApiServer:
         )
         routes.update(build_change_feed_routes(change_feed_service))
         proxied_write_routes = set(PROXIED_WRITE_ROUTES)
+        # Feed bootstrap creates a durable consumer checkpoint and ACK advances it.
+        # Both must honor the same maintenance gate as every other state write.
+        proxied_write_routes.update({CHANGE_FEED_BOOTSTRAP_ROUTE, CHANGE_FEED_ACK_ROUTE})
+        maintenance_technical_write_routes = {
+            CHANGE_FEED_BOOTSTRAP_ROUTE,
+            CHANGE_FEED_ACK_ROUTE,
+        }
         operator_session_routes = set(OPERATOR_SESSION_ROUTES)
         admin_only_routes = set(ADMIN_ONLY_ROUTES)
         readonly_routes = set(READONLY_GET_ROUTES)
@@ -1004,7 +1019,11 @@ class ApiServer:
                         },
                     )
                     return
-                if route in proxied_write_routes and is_maintenance_mode():
+                if (
+                    route in proxied_write_routes
+                    and is_maintenance_mode()
+                    and route not in maintenance_technical_write_routes
+                ):
                     self._drain_request_body(content_length)
                     self._send_error_response(
                         request_id,
@@ -1034,6 +1053,18 @@ class ApiServer:
                         HTTPStatus.BAD_REQUEST,
                         "validation_error",
                         "Тело запроса должно быть JSON-объектом.",
+                    )
+                    return
+                if (
+                    route in maintenance_technical_write_routes
+                    and is_maintenance_mode()
+                    and not self._maintenance_technical_change_feed_write_allowed(route, payload)
+                ):
+                    self._send_error_response(
+                        request_id,
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                        "maintenance_mode",
+                        "Запись временно остановлена на время безопасного обслуживания CRM.",
                     )
                     return
                 self._dispatch(
@@ -1796,6 +1827,21 @@ class ApiServer:
                         )
                     session["audit_actor_name"] = verified_actor
                 return session
+
+            def _maintenance_technical_change_feed_write_allowed(
+                self, route: str, payload: dict
+            ) -> bool:
+                if (
+                    route not in maintenance_technical_write_routes
+                    or str(payload.get("consumer_id") or "").strip() != "gateway-release-smoke"
+                    or self._trusted_agent_session(route, payload) is None
+                ):
+                    return False
+                return release_smoke_proof_matches(
+                    str(get_mcp_bearer_token() or ""),
+                    self.headers.get("X-Autostop-Release-Smoke-Revision", ""),
+                    self.headers.get("X-Autostop-Release-Smoke-Proof", ""),
+                )
 
             def _operator_context_payload_reject(
                 self,

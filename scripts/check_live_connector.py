@@ -995,6 +995,10 @@ def _print_api_surface(report: dict[str, Any]) -> None:
     print_section("API SURFACE")
     print(f"base_url: {report.get('base_url') or '<not found>'}")
     print(f"surface_kind: {report.get('surface_kind') or '<unknown>'}")
+    if not report.get("checked"):
+        print("status: skipped")
+        print(f"reason: {report.get('error') or 'API credentials were not provided'}")
+        return
     if report.get("ok"):
         summary = report.get("summary") or {}
         print("status: ok")
@@ -1098,6 +1102,10 @@ def _print_public_read_protection(report: dict[str, Any]) -> None:
 def _print_mcp(report: dict[str, Any]) -> None:
     print_section("MCP")
     print(f"mcp_url: {report.get('mcp_url') or '<not configured>'}")
+    if not report.get("checked"):
+        print("status: skipped")
+        print(f"reason: {report.get('error') or 'MCP check was not requested'}")
+        return
     if report.get("ok"):
         ping_payload = report.get("ping_data") or {}
         bootstrap_data = report.get("bootstrap_data") or {}
@@ -1224,8 +1232,18 @@ def main() -> int:
     api_probe_kind = _classify_probe_url(api_probe_url)
 
     site_surface = check_site(site_url, expect_https=args.expect_https)
-    api_surface = check_api_surface(api_probe_url, bearer_token=local_api_token or None)
-    api_surface["surface_kind"] = api_probe_kind
+    if api_probe_kind == "public" and not local_api_token:
+        api_surface = check_api_surface("")
+        api_surface.update(
+            {
+                "base_url": api_probe_url,
+                "surface_kind": api_probe_kind,
+                "error": "public_api_credentials_not_provided",
+            }
+        )
+    else:
+        api_surface = check_api_surface(api_probe_url, bearer_token=local_api_token or None)
+        api_surface["surface_kind"] = api_probe_kind
     operator_auth = check_operator_auth(
         api_probe_url,
         username=operator_username,
@@ -1242,6 +1260,8 @@ def main() -> int:
         public_auth_site_url, require_https=args.expect_https
     )
     mcp_surface = asyncio.run(check_mcp(mcp_url, bearer_token=mcp_token or None))
+    if args.skip_mcp:
+        mcp_surface["error"] = "mcp_check_skipped"
 
     report = {
         "settings_file": str(get_settings_file()),

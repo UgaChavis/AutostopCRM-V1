@@ -2677,6 +2677,7 @@ class CardServiceTests(unittest.TestCase):
                 "repair_order": {
                     **closed["repair_order"],
                     "comment": "Правка после закрытия не меняет payroll snapshot",
+                    "client_information": "Правка после закрытия не меняет payroll snapshot",
                     "works": [edited_work],
                 },
             }

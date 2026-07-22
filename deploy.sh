@@ -130,7 +130,23 @@ validate_gateway_switches() {
     export "${switch_name?}"
   done
 }
+
+validate_crawl4ai_credentials() {
+  local api_token="${AUTOSTOP_CRAWL4AI_API_TOKEN-}"
+  local secret_key="${AUTOSTOP_CRAWL4AI_SECRET_KEY-}"
+  if [[ -z "$api_token" || -z "$secret_key" ]]; then
+    echo "ERROR: AUTOSTOP_CRAWL4AI_API_TOKEN and AUTOSTOP_CRAWL4AI_SECRET_KEY must be provisioned." >&2
+    return 2
+  fi
+  if [[ "$api_token" == "$secret_key" ]]; then
+    echo "ERROR: AUTOSTOP_CRAWL4AI_API_TOKEN and AUTOSTOP_CRAWL4AI_SECRET_KEY must be distinct." >&2
+    return 2
+  fi
+  export AUTOSTOP_CRAWL4AI_API_TOKEN AUTOSTOP_CRAWL4AI_SECRET_KEY
+}
+
 validate_gateway_switches
+validate_crawl4ai_credentials
 export AUTOSTOP_MAINTENANCE_MARKER="/home/autostop/.minimal-kanban/.agent-gateway-maintenance"
 export MINIMAL_KANBAN_MCP_PUBLIC_BASE_URL="$PUBLIC_SITE_URL"
 export MINIMAL_KANBAN_MCP_PUBLIC_ENDPOINT_URL="$PUBLIC_MCP_URL"
@@ -681,6 +697,7 @@ reload_deploy_environment() {
   export AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED="0"
   export AUTOSTOP_MCP_OAUTH_ENABLED="1"
   validate_gateway_switches
+  validate_crawl4ai_credentials
   export MINIMAL_KANBAN_MCP_PUBLIC_BASE_URL="$PUBLIC_SITE_URL"
   export MINIMAL_KANBAN_MCP_PUBLIC_ENDPOINT_URL="$PUBLIC_MCP_URL"
   export AUTOSTOP_MANAGER_HOST_DIR="$MANAGER_CURRENT_LINK"

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
+import hmac
 import os
 import re
 from collections import Counter
@@ -35,6 +37,7 @@ GATEWAY_SWITCH_ENV_NAMES = (
 
 _SERVICE_IDENTITY_RE = re.compile(r"^[a-z][a-z0-9._-]{2,63}$")
 _SAFE_BEARER_TOKEN_RE = re.compile(r"^[A-Za-z0-9._~-]{32,512}$")
+_RELEASE_SMOKE_REVISION_RE = re.compile(r"[0-9a-f]{40,64}")
 _PLACEHOLDER_PARTS = (
     "change-me",
     "changeme",
@@ -68,6 +71,26 @@ def bearer_token_is_strong(token: str) -> bool:
         and len(set(token)) >= 20
         and bearer_token_entropy_bits(token) >= 200.0
     )
+
+
+def release_smoke_proof(token: str, revision: str) -> str:
+    """Build the bounded maintenance-smoke proof without exposing its token."""
+
+    normalized_revision = str(revision or "").strip().casefold()
+    return hmac.new(
+        str(token or "").encode("utf-8"),
+        f"autostop-gateway-v2-release-smoke:v1:{normalized_revision}".encode("ascii"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def release_smoke_proof_matches(token: str, revision: str, proof: str) -> bool:
+    """Validate one release-only proof while failing closed on malformed input."""
+
+    normalized_revision = str(revision or "").strip().casefold()
+    if not token or _RELEASE_SMOKE_REVISION_RE.fullmatch(normalized_revision) is None:
+        return False
+    return hmac.compare_digest(release_smoke_proof(token, normalized_revision), str(proof or ""))
 
 
 def oauth_state_key_is_valid(value: str) -> bool:

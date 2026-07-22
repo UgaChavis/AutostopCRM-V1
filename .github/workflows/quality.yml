@@ -21,6 +21,11 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Explicit bash enables `-o pipefail`, so `python ... | tee ...`
+    # steps cannot mask a failed quality gate behind tee's zero status.
+    defaults:
+      run:
+        shell: bash
     env:
       QT_QPA_PLATFORM: offscreen
       QTWEBENGINE_DISABLE_SANDBOX: "1"
@@ -62,8 +67,25 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          python -m pip install -r requirements-runtime.txt
           python -m pip install -r requirements.txt
           python -m pip install -r requirements-dev.txt
+
+      - name: Validate production Compose configuration
+        env:
+          AUTOSTOP_MCP_OAUTH_STATE_KEY: ci-only-oauth-state-key
+          AUTOSTOP_AGENT_GATEWAY_ENABLED: "0"
+          AUTOSTOP_AGENT_GATEWAY_WRITES_ENABLED: "0"
+          AUTOSTOP_AGENT_GATEWAY_FINANCE_ENABLED: "0"
+          AUTOSTOP_AGENT_GATEWAY_MAIL_ENABLED: "0"
+          AUTOSTOP_AGENT_GATEWAY_DESTRUCTIVE_ENABLED: "0"
+          AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED: "0"
+          AUTOSTOP_CRAWL4AI_API_TOKEN: ci-only-crawl4ai-api-token
+          AUTOSTOP_CRAWL4AI_SECRET_KEY: ci-only-crawl4ai-secret-key
+        run: |
+          : > .env
+          trap 'rm -f .env' EXIT
+          docker compose config --quiet
 
       - name: Ruff format
         run: ruff format --check .

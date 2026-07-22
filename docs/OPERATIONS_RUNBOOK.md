@@ -386,10 +386,13 @@ ssh -i $env:AUTOSTOPCRM_SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes root@crm.
 ```
 
 Prerequisites in server `.env` include the six Gateway switches, the three
-Store adapter settings, and
+Store adapter settings, distinct non-empty
+`AUTOSTOP_CRAWL4AI_API_TOKEN` and `AUTOSTOP_CRAWL4AI_SECRET_KEY`, and
 `AUTOSTOP_SMOKE_OPERATOR_USERNAME` /
-`AUTOSTOP_SMOKE_OPERATOR_PASSWORD`. Public HTTPS/API/MCP auth smoke is
-mandatory; there is no skip flag.
+`AUTOSTOP_SMOKE_OPERATOR_PASSWORD`. `deploy.sh` and Compose validation fail
+closed before maintenance when either Crawl4AI credential is absent or they
+are the same. Public HTTPS/API/MCP auth smoke is mandatory; there is no skip
+flag.
 
 The bounded release flow:
 
