@@ -56,6 +56,7 @@ _AUTOSTOP_MANAGER_READ_ONLY_TOOLS = frozenset(
         "estimate_repair_work_cost",
         "get_store_analytics_report",
         "list_manager_runs",
+        "lookup_public_automotive_evidence",
         "lookup_original_parts",
         "memory_context_for",
         "memory_gaps",

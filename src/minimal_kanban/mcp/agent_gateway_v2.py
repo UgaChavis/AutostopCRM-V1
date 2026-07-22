@@ -75,6 +75,7 @@ from .oauth_provider import (
     OwnerAccessToken,
     create_oauth_audit_assertion,
 )
+from .raw_capability_discovery import discovery_phrase, raw_capability_discovery_score
 from .raw_gateway import (
     OPTIMISTIC_WRITE_NAMES,
     RAW_API_ROUTES,
@@ -1831,71 +1832,94 @@ def register_agent_gateway_v2(
 
     @server.tool(
         name="discover_raw_capabilities",
-        description="Search hidden raw CRM/manager capabilities by name or description before using the raw escape hatch.",
+        description=(
+            "Search hidden raw CRM/manager capabilities by exact name or a conservative natural-language intent "
+            "before using the raw escape hatch. Semantic discovery returns read-only capabilities only."
+        ),
         annotations=_read_annotations("Discover Raw Capabilities"),
     )
     def discover_raw_capabilities(query: str = "", limit: int = 25) -> CallToolResult:
         effective_limit = _normalize_limit(limit, default=25, maximum=100)
-        normalized_query = str(query or "").strip().casefold()
-        items: list[dict[str, Any]] = []
+        normalized_query = discovery_phrase(query)
+        normalized_capability_name = normalized_query.replace(" ", "_")
+        if normalized_capability_name in (
+            INTERNAL_ONLY_CAPABILITY_NAMES | PERMANENT_AGENT_GATEWAY_TOOL_NAMES
+        ):
+            payload = _envelope(
+                ok=True,
+                summary={"query": query, "returned": 0},
+                data={"capabilities": []},
+                page={"limit": effective_limit, "has_more": False},
+            )
+            return _tool_result(payload, label="discover_raw_capabilities")
+
+        candidates: list[tuple[int, str, bool, dict[str, Any]]] = []
+
+        def collect(
+            *,
+            name: str,
+            description: str,
+            risk: str,
+            schema: object,
+        ) -> None:
+            score, matched_terms, exact_name = raw_capability_discovery_score(
+                normalized_query,
+                name=name,
+                description=description,
+                schema=schema,
+            )
+            if normalized_query:
+                if not exact_name and (score < 24 or risk != "read"):
+                    return
+            elif risk != "read":
+                return
+            item: dict[str, Any] = {
+                "name": name,
+                "description": description[:300],
+                "risk": risk,
+                "schema_hash": _schema_hash(schema),
+            }
+            if normalized_query and not exact_name and matched_terms:
+                item["matched_terms"] = matched_terms
+            candidates.append((score, name, exact_name, item))
+
         for name in sorted(WEB_RESEARCH_CAPABILITY_NAMES):
             description = WEB_RESEARCH_CAPABILITY_DESCRIPTIONS[name]
-            if normalized_query and normalized_query not in f"{name} {description}".casefold():
-                continue
-            items.append(
-                {
-                    "name": name,
-                    "description": description,
-                    "risk": "read",
-                    "schema_hash": _schema_hash(WEB_RESEARCH_CAPABILITY_SCHEMAS[name]),
-                }
+            collect(
+                name=name,
+                description=description,
+                risk="read",
+                schema=WEB_RESEARCH_CAPABILITY_SCHEMAS[name],
             )
-            if len(items) >= effective_limit:
-                break
         for name, tool in sorted(raw_tools.items()):
-            if len(items) >= effective_limit:
-                break
             if name in PERMANENT_AGENT_GATEWAY_TOOL_NAMES or name in INTERNAL_ONLY_CAPABILITY_NAMES:
                 continue
             description = str(getattr(tool, "description", "") or "")
-            if normalized_query and normalized_query not in f"{name} {description}".casefold():
-                continue
             schema = getattr(tool, "parameters", {}) or {}
-            items.append(
-                {
-                    "name": name,
-                    "description": description[:300],
-                    "risk": _tool_risk(tool),
-                    "schema_hash": _schema_hash(schema),
-                }
+            collect(name=name, description=description, risk=_tool_risk(tool), schema=schema)
+        for route in sorted(RAW_API_ROUTES):
+            name = _virtual_api_name(route)
+            description = (
+                f"Guarded internal CRM fallback for {route}; use only when no focused "
+                "named workflow or MCP capability covers the exact action."
             )
-            if len(items) >= effective_limit:
-                break
-        if len(items) < effective_limit:
-            for route in sorted(RAW_API_ROUTES):
-                name = _virtual_api_name(route)
-                description = (
-                    f"Guarded internal CRM fallback for {route}; use only when no focused "
-                    "named workflow or MCP capability covers the exact action."
-                )
-                if normalized_query and normalized_query not in f"{name} {description}".casefold():
-                    continue
-                risk = _virtual_api_risk(route, name)
-                items.append(
-                    {
-                        "name": name,
-                        "description": description,
-                        "risk": risk,
-                        "schema_hash": _schema_hash(_virtual_api_schema(route)),
-                    }
-                )
-                if len(items) >= effective_limit:
-                    break
+            collect(
+                name=name,
+                description=description,
+                risk=_virtual_api_risk(route, name),
+                schema=_virtual_api_schema(route),
+            )
+
+        exact_candidates = [candidate for candidate in candidates if candidate[2]]
+        if exact_candidates:
+            candidates = exact_candidates
+        candidates.sort(key=lambda item: (-item[0], item[1]))
+        items = [item for _, _, _, item in candidates[:effective_limit]]
         payload = _envelope(
             ok=True,
             summary={"query": query, "returned": len(items)},
             data={"capabilities": items},
-            page={"limit": effective_limit, "has_more": len(items) == effective_limit},
+            page={"limit": effective_limit, "has_more": len(candidates) > effective_limit},
         )
         return _tool_result(payload, label="discover_raw_capabilities")
 

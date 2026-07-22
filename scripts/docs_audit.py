@@ -168,7 +168,7 @@ FORBIDDEN_TEXT_PATTERNS = (
     (
         "stale_deploy_env",
         re.compile(r"\bAUTOSTOP_GIT_BRANCH\b"),
-        "old deploy env var; use AUTOSTOP_DEPLOY_BRANCH",
+        "old deploy env var; the target branch is fixed by CRM_DEPLOY_BRANCH in deploy.sh",
     ),
     (
         "stale_deploy_env",
@@ -357,8 +357,8 @@ RUNBOOK_REQUIRED_TEXT = (
         "production SSH command does not force the documented identity",
     ),
     (
-        "AUTOSTOP_DEPLOY_BRANCH",
-        "deploy branch env var is not documented",
+        "CRM_DEPLOY_BRANCH",
+        "fixed CRM deploy branch is not documented",
     ),
     (
         "AUTOSTOP_DEPLOY_LOCK_PATH",

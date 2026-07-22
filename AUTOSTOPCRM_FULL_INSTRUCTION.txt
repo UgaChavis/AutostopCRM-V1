@@ -15,7 +15,11 @@ Runtime:
 
 Deploy only after the intended commit is on origin/autostopcrm-v1:
 cd /opt/autostopcrm
-AUTOSTOP_DEPLOY_BRANCH=autostopcrm-v1 ./deploy.sh
+./deploy.sh
+
+The target branch is fixed by `CRM_DEPLOY_BRANCH=autostopcrm-v1` inside the
+script. Do not pass a branch or Git-sync override; deployment requires a clean
+checkout at exact remote parity.
 
 Verify:
 git status --short --branch

@@ -293,12 +293,15 @@ class StoreOwnerGatewayTests(unittest.IsolatedAsyncioTestCase):
         capabilities = {
             item["name"]: item for item in discovered.structuredContent["data"]["capabilities"]
         }
-        self.assertEqual(
-            {"store_owner_capabilities", "store_owner_api"},
-            set(capabilities),
-        )
+        self.assertEqual({"store_owner_capabilities"}, set(capabilities))
         self.assertEqual("read", capabilities["store_owner_capabilities"]["risk"])
-        self.assertEqual("write", capabilities["store_owner_api"]["risk"])
+
+        exact_write = await discover.run({"query": "store_owner_api"}, convert_result=False)
+        write_capabilities = {
+            item["name"]: item for item in exact_write.structuredContent["data"]["capabilities"]
+        }
+        self.assertEqual({"store_owner_api"}, set(write_capabilities))
+        self.assertEqual("write", write_capabilities["store_owner_api"]["risk"])
 
         read_schema = await schema.run({"name": "store_owner_capabilities"}, convert_result=False)
         write_schema = await schema.run({"name": "store_owner_api"}, convert_result=False)

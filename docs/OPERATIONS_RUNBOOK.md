@@ -379,10 +379,11 @@ deploy refuses a missing/non-internal network, a missing App member, the
 database, or any unexpected member.
 
 Run the release from a workstation after the intended commit is checked out on
-the server:
+the server. The target is fixed in `deploy.sh` as
+`CRM_DEPLOY_BRANCH=autostopcrm-v1`; do not pass a branch override:
 
 ```powershell
-ssh -i $env:AUTOSTOPCRM_SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes root@crm.autostopcrm.ru "cd /opt/autostopcrm && AUTOSTOP_DEPLOY_BRANCH=autostopcrm-v1 ./deploy.sh"
+ssh -i $env:AUTOSTOPCRM_SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes root@crm.autostopcrm.ru "cd /opt/autostopcrm && ./deploy.sh"
 ```
 
 Prerequisites in server `.env` include the six Gateway switches, the three

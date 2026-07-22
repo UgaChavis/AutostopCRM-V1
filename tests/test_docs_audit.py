@@ -259,7 +259,7 @@ class DocsAuditTests(unittest.TestCase):
                 "audit archive data directory is not documented: audit-archive",
                 "canonical production SSH identity is not documented: autostopcrm_server_ed25519",
                 "production SSH command does not force the documented identity: IdentitiesOnly=yes",
-                "deploy branch env var is not documented: AUTOSTOP_DEPLOY_BRANCH",
+                "fixed CRM deploy branch is not documented: CRM_DEPLOY_BRANCH",
                 "deploy/watchdog lock path env var is not documented: AUTOSTOP_DEPLOY_LOCK_PATH",
                 "deploy smoke retry count env var is not documented: AUTOSTOP_SMOKE_ATTEMPTS",
                 "deploy smoke retry delay env var is not documented: AUTOSTOP_SMOKE_DELAY_SECONDS",
