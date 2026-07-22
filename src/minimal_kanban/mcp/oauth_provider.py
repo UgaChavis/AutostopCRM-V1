@@ -529,12 +529,12 @@ class ProductionOAuthAuthorizationServerProvider(
             and parsed.path in {"/codex-oauth", "/codex-oauth/"}
         ):
             return True
-        relay_callback_id = parsed.path.removeprefix("/codex-oauth/callback/")
+        relay_callback_id = parsed.path.removeprefix("/callback/")
         if (
             parsed.scheme.casefold() == "https"
             and hostname == issuer_hostname
             and port is None
-            and parsed.path.startswith("/codex-oauth/callback/")
+            and parsed.path.startswith("/callback/")
             and len(relay_callback_id) == 12
             and all(
                 character.isascii() and (character.isalnum() or character in "-_")
