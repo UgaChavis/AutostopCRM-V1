@@ -2102,6 +2102,9 @@
       overflow: hidden;
       grid-template-rows: auto minmax(0, 1fr);
     }
+    .dialog--clients > .dialog__head .dialog__title {
+      font-size: 18px;
+    }
     .clients-layout {
       display: grid;
       grid-template-columns: minmax(420px, 40%) minmax(0, 1fr);
@@ -2213,6 +2216,9 @@
       font-size: 12px;
       line-height: 1.4;
     }
+    .client-row__meta {
+      font-size: 14px;
+    }
     .clients-profile-head {
       display: flex;
       justify-content: space-between;
@@ -2253,8 +2259,8 @@
     .client-profile-phone {
       margin-top: 4px;
       color: #eef5d7;
-      font-size: 22px;
-      font-weight: 800;
+      font-size: 16px;
+      font-weight: 600;
       line-height: 1.25;
       letter-spacing: 0.04em;
       text-shadow: 0 0 10px rgba(167, 178, 132, 0.12);
@@ -2281,19 +2287,6 @@
       min-height: 72px;
       height: 72px;
       resize: vertical;
-    }
-    .clients-profile-empty {
-      border: 1px dashed rgba(160, 174, 135, 0.24);
-      background: rgba(16, 22, 18, 0.48);
-      color: var(--text-soft);
-      padding: 12px;
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-    .clients-profile-empty[hidden] {
-      display: none;
     }
     .clients-profile-pane.is-empty .clients-form-grid,
     .clients-profile-pane.is-empty .clients-requisites,
@@ -3615,7 +3608,6 @@
               </div>
             </div>
           </div>
-          <div class="clients-profile-empty" id="clientProfileEmptyState">ВЫБЕРИТЕ КЛИЕНТА СЛЕВА ИЛИ НАЙДИТЕ ЕГО ПО ТЕЛЕФОНУ, ФИО, ГОСНОМЕРУ ИЛИ АВТО.</div>
           <div class="clients-form-grid" id="clientProfileFormFields">
             <div class="field field--compact clients-field--type">
               <label for="clientTypeInput">ТИП</label>

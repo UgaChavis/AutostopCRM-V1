@@ -18,9 +18,10 @@ PRINTING_WEB_MODULE_STYLE = r"""
       z-index: 70;
     }
     .dialog--repair-order-print {
-      width: min(1860px, calc(100% - 18px));
+      width: min(1718px, calc(100% - 18px));
       max-width: none;
-      height: min(96vh, 1160px);
+      height: min(96vh, 1030px);
+      max-height: min(96vh, 1030px);
       overflow: hidden;
       display: grid;
       grid-template-rows: auto minmax(0, 1fr) auto;
@@ -36,10 +37,14 @@ PRINTING_WEB_MODULE_STYLE = r"""
     .repair-order-print-layout {
       min-height: 0;
       display: grid;
-      grid-template-columns: 220px minmax(0, 1fr);
+      grid-template-columns: 220px minmax(0, 1400px);
+      justify-content: center;
       gap: 14px;
       padding: 14px;
       background: rgba(0, 0, 0, 0.08);
+    }
+    .dialog--repair-order-print > .repair-order-print-layout {
+      overflow: hidden;
     }
     .repair-order-print-layout > .repair-order-print-panel:first-child {
       align-items: center;
@@ -70,6 +75,14 @@ PRINTING_WEB_MODULE_STYLE = r"""
       flex-direction: column;
       gap: 10px;
       overflow: hidden;
+    }
+    .repair-order-print-layout > .repair-order-print-panel:nth-child(2) {
+      width: 100%;
+      max-width: 1400px;
+      height: 100%;
+      max-height: 850px;
+      align-self: center;
+      justify-self: center;
     }
     .repair-order-print-panel__title,
     .print-template-editor__title {
@@ -284,11 +297,13 @@ PRINTING_WEB_MODULE_STYLE = r"""
     @media (max-width: 1100px) {
       .dialog--repair-order-print,
       .dialog--print-template-editor { width: min(100%, calc(100% - 12px)); height: min(100vh, 100%); }
+      .dialog--repair-order-print { max-height: min(100vh, 100%); }
       .repair-order-print-layout { grid-template-columns: 1fr; grid-template-areas: "docs" "preview"; grid-auto-rows: auto; align-content: start; overflow: auto; }
+      .dialog--repair-order-print > .repair-order-print-layout { overflow: auto; }
       .repair-order-print-layout > .repair-order-print-panel:first-child { grid-area: docs; }
       .repair-order-print-layout > .repair-order-print-panel:nth-child(2) { grid-area: preview; }
       .repair-order-print-layout > .repair-order-print-panel { min-height: auto; overflow: visible; }
-      .repair-order-print-layout > .repair-order-print-panel:nth-child(2) { min-height: 420px; overflow: hidden; }
+      .repair-order-print-layout > .repair-order-print-panel:nth-child(2) { min-height: 420px; height: auto; max-height: none; align-self: stretch; overflow: hidden; }
       .print-template-editor { grid-template-columns: 1fr; grid-template-areas: "list" "editor" "preview"; align-content: start; overflow: auto; }
       .repair-order-print-documents { max-height: 240px; }
       .repair-order-print-settings { overflow: visible; }

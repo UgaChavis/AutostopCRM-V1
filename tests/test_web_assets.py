@@ -2092,6 +2092,52 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn(".description-editor:empty::before", BOARD_WEB_APP_HTML)
         self.assertNotIn("Описание карточки", BOARD_WEB_APP_HTML)
 
+    def test_card_overview_uses_field_specific_readable_typography(self) -> None:
+        overview_input_rule = re.search(
+            r"#cardVehicle,\s*#cardTitle\s*\{(?P<body>.*?)\n\s*\}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(overview_input_rule)
+        self.assertIn("font-size: 15px;", overview_input_rule.group("body"))
+
+        description_rule = re.search(
+            r"\.description-editor\s*\{(?P<body>.*?)\n\s*\}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(description_rule)
+        self.assertIn("font-size: 15px;", description_rule.group("body"))
+
+        description_strong_rule = re.search(
+            r"\.description-editor b,\s*\.description-editor strong\s*\{(?P<body>.*?)\n\s*\}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(description_strong_rule)
+        self.assertIn("font-weight: 700;", description_strong_rule.group("body"))
+        self.assertNotIn("font-weight: 800;", description_strong_rule.group("body"))
+
+    def test_vehicle_passport_uses_requested_field_specific_font_sizes(self) -> None:
+        readable_rule = re.search(
+            r"#vehicleField_display_name,\s*"
+            r"#vehicleCustomerPhoneFields input,\s*"
+            r"#vehicleField_customer_name,\s*"
+            r"#vehicleField_vin\s*\{(?P<body>.*?)\n\s*\}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(readable_rule)
+        self.assertIn("font-size: 15px;", readable_rule.group("body"))
+
+        registration_plate_rule = re.search(
+            r"#vehicleField_registration_plate\s*\{(?P<body>.*?)\n\s*\}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(registration_plate_rule)
+        self.assertIn("font-size: 12px;", registration_plate_rule.group("body"))
+
     def test_vehicle_passport_identity_fields_are_equal_and_centered(self) -> None:
         for field_name in ("registration_plate", "production_year", "mileage"):
             self.assertRegex(
@@ -2697,6 +2743,33 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("clients-field--type", BOARD_WEB_APP_HTML)
         self.assertIn("clients-name-field", BOARD_WEB_APP_HTML)
         self.assertIn("clientProfilePhone", BOARD_WEB_APP_HTML)
+        self.assertNotIn('id="clientProfileEmptyState"', BOARD_WEB_APP_HTML)
+        self.assertNotIn(
+            "ВЫБЕРИТЕ КЛИЕНТА СЛЕВА ИЛИ НАЙДИТЕ ЕГО ПО ТЕЛЕФОНУ, ФИО, ГОСНОМЕРУ ИЛИ АВТО.",
+            BOARD_WEB_APP_HTML,
+        )
+        client_dialog_title_rule = re.search(
+            r"\.dialog--clients > \.dialog__head \.dialog__title\s*\{(?P<body>.*?)\n\s*\}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(client_dialog_title_rule)
+        self.assertIn("font-size: 18px;", client_dialog_title_rule.group("body"))
+        client_row_meta_rule = re.search(
+            r"\.client-row__meta\s*\{(?P<body>.*?)\n\s*\}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(client_row_meta_rule)
+        self.assertIn("font-size: 14px;", client_row_meta_rule.group("body"))
+        client_profile_phone_rule = re.search(
+            r"\.client-profile-phone\s*\{(?P<body>.*?)\n\s*\}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(client_profile_phone_rule)
+        self.assertIn("font-size: 16px;", client_profile_phone_rule.group("body"))
+        self.assertIn("font-weight: 600;", client_profile_phone_rule.group("body"))
         self.assertIn("function clientTypeDisplayLabel(value)", BOARD_WEB_APP_HTML)
         self.assertIn("'Физ. лицо'", BOARD_WEB_APP_HTML)
         self.assertIn("'Юр. лицо'", BOARD_WEB_APP_HTML)
@@ -2861,7 +2934,8 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIsNotNone(client_profile_phone_rule)
         assert client_profile_phone_rule is not None
-        self.assertIn("font-size: 22px;", client_profile_phone_rule.group("body"))
+        self.assertIn("font-size: 16px;", client_profile_phone_rule.group("body"))
+        self.assertIn("font-weight: 600;", client_profile_phone_rule.group("body"))
         self.assertIn("color: #eef5d7;", client_profile_phone_rule.group("body"))
         client_comment_rule = re.search(
             r"#clientCommentInput \{(?P<body>.*?)\n    \}",
@@ -3966,6 +4040,22 @@ class WebAssetsTests(unittest.TestCase):
 
     def test_repair_order_print_module_exposes_preview_template_editor_and_routes(self) -> None:
         self.assertIn('id="repairOrderPrintModal"', BOARD_WEB_APP_HTML)
+        print_dialog_rule = re.search(
+            r"\.dialog--repair-order-print\s*\{(?P<body>.*?)\n\s*\}",
+            BOARD_WEB_APP_HTML,
+            re.S,
+        )
+        self.assertIsNotNone(print_dialog_rule)
+        self.assertIn("width: min(1718px, calc(100% - 18px));", print_dialog_rule.group("body"))
+        self.assertIn("height: min(96vh, 1030px);", print_dialog_rule.group("body"))
+        self.assertIn("max-height: min(96vh, 1030px);", print_dialog_rule.group("body"))
+        self.assertIn("grid-template-columns: 220px minmax(0, 1400px);", BOARD_WEB_APP_HTML)
+        self.assertIn("max-width: 1400px;", BOARD_WEB_APP_HTML)
+        self.assertIn("max-height: 850px;", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            ".dialog--repair-order-print > .repair-order-print-layout {\n      overflow: hidden;",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertNotIn('id="manualDocumentPrintButton"', BOARD_WEB_APP_HTML)
         self.assertNotIn('id="mobileManualDocumentPrintButton"', BOARD_WEB_APP_HTML)
         topbar_actions = re.search(
@@ -4004,7 +4094,7 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
-            ".repair-order-print-layout > .repair-order-print-panel:nth-child(2) { min-height: 420px; overflow: hidden; }",
+            ".repair-order-print-layout > .repair-order-print-panel:nth-child(2) { min-height: 420px; height: auto; max-height: none; align-self: stretch; overflow: hidden; }",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn('id="repairOrderPrintPreviewStage"', BOARD_WEB_APP_HTML)

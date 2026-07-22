@@ -1957,6 +1957,10 @@
       padding: 6px 8px;
       font-size: 13px;
     }
+    #cardVehicle,
+    #cardTitle {
+      font-size: 15px;
+    }
     input:-webkit-autofill,
     input:-webkit-autofill:hover,
     input:-webkit-autofill:focus,
@@ -1979,6 +1983,7 @@
       color-scheme: dark;
       padding: 9px 10px;
       min-height: 38px;
+      font-size: 15px;
       outline: none;
       overflow-wrap: anywhere;
       white-space: pre-wrap;
@@ -1992,7 +1997,7 @@
     }
     .description-editor b,
     .description-editor strong {
-      font-weight: 800;
+      font-weight: 700;
     }
     .description-editor i,
     .description-editor em {
@@ -4259,6 +4264,15 @@
       padding: 4px 8px;
       box-sizing: border-box;
       font-size: 12.5px;
+    }
+    #vehicleField_display_name,
+    #vehicleCustomerPhoneFields input,
+    #vehicleField_customer_name,
+    #vehicleField_vin {
+      font-size: 15px;
+    }
+    #vehicleField_registration_plate {
+      font-size: 12px;
     }
     .vehicle-field textarea {
       min-height: 56px;

@@ -920,7 +920,6 @@
       clientsList: document.getElementById('clientsList'),
       clientNewButton: document.getElementById('clientNewButton'),
       clientProfilePane: document.querySelector('.clients-profile-pane'),
-      clientProfileEmptyState: document.getElementById('clientProfileEmptyState'),
       clientProfileTitle: document.getElementById('clientProfileTitle'),
       clientProfilePhone: document.getElementById('clientProfilePhone'),
       clientDebtCard: document.getElementById('clientDebtCard'),
@@ -4331,7 +4330,6 @@
     function setClientProfileEmptyState(isEmpty) {
       const empty = Boolean(isEmpty);
       els.clientProfilePane?.classList.toggle('is-empty', empty);
-      if (els.clientProfileEmptyState) els.clientProfileEmptyState.hidden = !empty;
     }
 
     function renderClientProfileEmptyState() {
