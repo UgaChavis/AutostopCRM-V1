@@ -216,6 +216,64 @@ class AgentGatewayV2SmokeProbeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(calls["call_raw_capability"])
 
+    async def test_web_checks_include_read_only_automotive_probes(self) -> None:
+        module = load_script_module()
+        discovery_items = {
+            "search_web_multi": {"name": "search_web_multi", "risk": "read"},
+            "fetch_page_excerpt": {"name": "fetch_page_excerpt", "risk": "read"},
+            "fetch_page_browser": {"name": "fetch_page_browser", "risk": "read"},
+            "как выставить ГРМ на Mercedes": {
+                "name": "recommend_automotive_sources",
+                "risk": "read",
+                "matched_terms": ["грм"],
+            },
+            "официальный отзыв автомобиля": {
+                "name": "lookup_public_automotive_evidence",
+                "risk": "read",
+                "matched_terms": ["официальный отзыв"],
+            },
+        }
+        raw_calls: list[dict] = []
+
+        def handler(name: str, arguments: dict):
+            if name == "discover_raw_capabilities":
+                return tool_result(
+                    {
+                        "ok": True,
+                        "data": {"capabilities": [discovery_items[arguments["query"]]]},
+                    }
+                )
+            if name == "get_raw_capability_schema":
+                return tool_result(
+                    {
+                        "ok": True,
+                        "summary": {"schema_hash": "schema-hash", "risk": "read"},
+                    }
+                )
+            self.assertEqual("call_raw_capability", name)
+            raw_calls.append(arguments)
+            return tool_result({"ok": True, "data": {}})
+
+        checks = await module._run_web_checks(ScriptSession(handler), {})
+
+        self.assertTrue(all(checks.values()))
+        self.assertTrue(checks["automotive_timing_read_only"])
+        self.assertTrue(checks["public_automotive_evidence_read_only"])
+        automotive_call = next(
+            item for item in raw_calls if item["name"] == "lookup_public_automotive_evidence"
+        )
+        self.assertEqual(
+            {
+                "make": "Mercedes-Benz",
+                "system": "automatic transmission",
+                "topics": ["fluids"],
+                "limit": 1,
+            },
+            automotive_call["arguments"],
+        )
+        self.assertNotIn("vin", automotive_call["arguments"])
+        self.assertFalse(automotive_call["allow_large_output"])
+
     def test_change_feed_page_rejects_gap_after_acked_sequence(self) -> None:
         module = load_script_module()
         page = {

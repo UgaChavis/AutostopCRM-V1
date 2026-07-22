@@ -1304,6 +1304,80 @@ async def _run_web_checks(
             },
         )
         checks[f"{capability_name}_call_ok"] = _tool_ok(result)
+
+    automotive_probes = (
+        (
+            "automotive_timing",
+            "как выставить ГРМ на Mercedes",
+            "recommend_automotive_sources",
+        ),
+        (
+            "public_automotive_evidence",
+            "официальный отзыв автомобиля",
+            "lookup_public_automotive_evidence",
+        ),
+    )
+    automotive_schema_hash = ""
+    for check_name, query, capability_name in automotive_probes:
+        discovered = await _call(
+            session,
+            calls,
+            "discover_raw_capabilities",
+            {"query": query, "limit": 5},
+        )
+        discovered_payload = _structured(discovered)
+        capabilities = (
+            (discovered_payload.get("data") or {}).get("capabilities") or []
+            if isinstance(discovered_payload.get("data"), dict)
+            else []
+        )
+        matching = next(
+            (
+                item
+                for item in capabilities
+                if isinstance(item, dict) and item.get("name") == capability_name
+            ),
+            {},
+        )
+        checks[f"{check_name}_discoverable"] = bool(matching)
+        checks[f"{check_name}_read_only"] = matching.get("risk") == "read" and bool(
+            matching.get("matched_terms")
+        )
+        if capability_name != "lookup_public_automotive_evidence":
+            continue
+        schema = await _call(
+            session,
+            calls,
+            "get_raw_capability_schema",
+            {"name": capability_name},
+        )
+        schema_payload = _structured(schema)
+        schema_summary = (
+            schema_payload.get("summary") if isinstance(schema_payload.get("summary"), dict) else {}
+        )
+        automotive_schema_hash = str(schema_summary.get("schema_hash") or "")
+        checks[f"{check_name}_schema_ok"] = bool(automotive_schema_hash) and _tool_ok(schema)
+
+    if automotive_schema_hash:
+        automotive_result = await _call(
+            session,
+            calls,
+            "call_raw_capability",
+            {
+                "name": "lookup_public_automotive_evidence",
+                "arguments": {
+                    "make": "Mercedes-Benz",
+                    "system": "automatic transmission",
+                    "topics": ["fluids"],
+                    "limit": 1,
+                },
+                "schema_hash": automotive_schema_hash,
+                "allow_large_output": False,
+            },
+        )
+        checks["public_automotive_evidence_call_ok"] = _tool_ok(automotive_result)
+    else:
+        checks["public_automotive_evidence_call_ok"] = False
     return checks
 
 
