@@ -58,6 +58,38 @@ class _FakeSearch:
         }
 
 
+class _RankingSearch(_FakeSearch):
+    def search_multi(self, query, *, limit, allowed_domains):  # noqa: ANN001
+        self.search_calls.append(query)
+        self.assert_request(limit, allowed_domains)
+        return {
+            "results": [
+                {
+                    "title": "Стук при включении задней передачи",
+                    "url": "https://www.drive2.ru/l/111111111/",
+                    "snippet": "механика",
+                },
+                {
+                    "title": "Ремонт DSG DQ200",
+                    "url": "https://www.drive2.ru/l/222222222/",
+                    "snippet": "робот DQ200",
+                },
+            ],
+            "providers": [{"provider": "searxng", "status": "success"}],
+        }
+
+    def fetch_page_excerpt(self, url, *, max_chars):  # noqa: ANN001
+        self.fetch_calls.append(url)
+        transmission = "механика" if url.endswith("111111111/") else "робот DQ200"
+        return {
+            "ok": True,
+            "url": url,
+            "excerpt": f"[Skoda Octavia, {transmission}]\n# Repair\nПричина найдена.",
+            "access_flags": [],
+            "engine": "crawl4ai",
+        }
+
+
 class Drive2CaseResearchTests(unittest.TestCase):
     def setUp(self) -> None:
         Drive2CaseResearch.clear_cache()
@@ -93,3 +125,12 @@ class Drive2CaseResearchTests(unittest.TestCase):
         self.assertEqual(3, len(self.search.search_calls))
         self.assertEqual(1, len(self.search.fetch_calls))
         self.assertNotIn("excerpt", second["cases"][0])
+
+    def test_research_ranks_fetched_case_content_before_returning_result(self) -> None:
+        ranking_search = _RankingSearch()
+        service = Drive2CaseResearch(ranking_search)  # type: ignore[arg-type]
+
+        result = service.research(query="рывок задней передачи", transmission="DQ200", max_cases=1)
+
+        self.assertEqual("https://www.drive2.ru/l/222222222/", result["cases"][0]["url"])
+        self.assertEqual(2, len(ranking_search.fetch_calls))

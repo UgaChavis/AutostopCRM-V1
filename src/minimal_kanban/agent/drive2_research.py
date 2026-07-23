@@ -100,10 +100,15 @@ class Drive2CaseResearch:
             candidates.values(),
             key=lambda item: (-self._candidate_score(item, request), str(item.get("url") or "")),
         )
-        cases: list[dict[str, Any]] = []
-        for candidate in ranked[: request["max_cases"]]:
+        fetched_cases: list[dict[str, Any]] = []
+        candidate_fetch_limit = min(_MAX_CASES, request["max_cases"] * 3)
+        for candidate in ranked[:candidate_fetch_limit]:
             page = self._search.fetch_page_excerpt(str(candidate["url"]), max_chars=8000)
-            cases.append(self._case_from_page(candidate, page, request))
+            fetched_cases.append(self._case_from_page(candidate, page, request))
+        cases = sorted(
+            fetched_cases,
+            key=lambda item: (-int(item["relevance_score"]), str(item["url"])),
+        )[: request["max_cases"]]
 
         result = {
             "ok": True,
@@ -228,6 +233,10 @@ class Drive2CaseResearch:
         ):
             if len(token) >= 3 and token in haystack:
                 score += 4
+        for context_key, weight in (("engine", 24), ("transmission", 24)):
+            context_value = str(request[context_key] or "").casefold()
+            if context_value and context_value in haystack:
+                score += weight
         for code in request["dtc_codes"]:
             if code.casefold() in haystack:
                 score += 10
