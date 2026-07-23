@@ -311,8 +311,11 @@ Release verification:
 
 For a Store-enabled release, add `--require-store`. For the guarded web route,
 add `--require-web`; it discovers and calls `search_web_multi`,
-`fetch_page_excerpt`, and `fetch_page_browser` through the existing raw escape
-hatch. These checks do not increase the public surface beyond 24 tools.
+`fetch_page_excerpt`, `fetch_page_browser`, and `research_drive2_cases` through
+the existing raw escape hatch. The Drive2 route searches a bounded set of
+public logbooks, returns compact case evidence with access status, never uses a
+Drive2 account, and does not persist raw pages. These checks do not increase
+the public surface beyond 24 tools.
 
 The Store probe performs a live
 adapter health probe and one bounded `store_state` search without advancing the

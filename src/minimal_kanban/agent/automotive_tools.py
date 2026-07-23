@@ -9,6 +9,7 @@ from urllib.parse import quote
 
 import httpx
 
+from .drive2_research import Drive2CaseResearch
 from .source_registry import PARTS_CATALOG_SOURCES, PARTS_PRICE_SOURCES, trusted_domains
 from .web_tools import DuckDuckGoSearchClient, InternetToolError, _normalize_seconds
 
@@ -88,6 +89,7 @@ class AutomotiveLookupService:
             timeout_seconds, default=12.0, minimum=1.0, maximum=60.0
         )
         self._search = DuckDuckGoSearchClient(timeout_seconds=self._timeout_seconds)
+        self._drive2 = Drive2CaseResearch(self._search)
         self._task_cache: dict[str, dict[str, Any]] = {}
 
     def reset_task_cache(self) -> None:
@@ -569,6 +571,25 @@ class AutomotiveLookupService:
                 max_chars=normalized_max_chars,
                 wait_ms=normalized_wait_ms,
             ),
+        )
+
+    def research_drive2_cases(
+        self,
+        *,
+        query: str,
+        vehicle: str = "",
+        engine: str = "",
+        transmission: str = "",
+        dtc_codes: list[str] | None = None,
+        max_cases: int = 3,
+    ) -> dict[str, Any]:
+        return self._drive2.research(
+            query=self._required_query(query),
+            vehicle=str(vehicle or "").strip(),
+            engine=str(engine or "").strip(),
+            transmission=str(transmission or "").strip(),
+            dtc_codes=dtc_codes,
+            max_cases=self._normalize_limit(max_cases, default=3, maximum=5),
         )
 
     def _search_web_uncached(

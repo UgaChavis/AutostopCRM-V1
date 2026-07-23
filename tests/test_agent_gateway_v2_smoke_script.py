@@ -222,6 +222,7 @@ class AgentGatewayV2SmokeProbeTests(unittest.IsolatedAsyncioTestCase):
             "search_web_multi": {"name": "search_web_multi", "risk": "read"},
             "fetch_page_excerpt": {"name": "fetch_page_excerpt", "risk": "read"},
             "fetch_page_browser": {"name": "fetch_page_browser", "risk": "read"},
+            "research_drive2_cases": {"name": "research_drive2_cases", "risk": "read"},
             "как выставить ГРМ на Mercedes": {
                 "name": "recommend_automotive_sources",
                 "risk": "read",

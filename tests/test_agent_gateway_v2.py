@@ -2219,6 +2219,24 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
         self.assertEqual(["query"], schema.structuredContent["data"]["input_schema"]["required"])
         self.assertFalse(schema.structuredContent["data"]["input_schema"]["additionalProperties"])
 
+    async def test_drive2_research_is_discoverable_as_read_only_web_capability(self) -> None:
+        server, _state = self._create_store_server()
+        discovered = await server._tool_manager.get_tool("discover_raw_capabilities").run(
+            {"query": "Drive2 реальные случаи ремонта"}, convert_result=False
+        )
+        capability = next(
+            item
+            for item in discovered.structuredContent["data"]["capabilities"]
+            if item["name"] == "research_drive2_cases"
+        )
+        schema = await server._tool_manager.get_tool("get_raw_capability_schema").run(
+            {"name": "research_drive2_cases"}, convert_result=False
+        )
+
+        self.assertEqual("read", capability["risk"])
+        self.assertEqual(["query"], schema.structuredContent["data"]["input_schema"]["required"])
+        self.assertEqual(24, len(server._tool_manager.list_tools()))
+
     async def test_web_search_raw_call_uses_schema_hash_and_read_only_envelope(self) -> None:
         schema = await self._call("get_raw_capability_schema", {"name": "search_web_multi"})
         schema_hash = schema.structuredContent["summary"]["schema_hash"]

@@ -7,7 +7,12 @@ from ..agent.tools import AgentToolExecutor
 from .client import BoardApiClient
 
 WEB_RESEARCH_CAPABILITY_NAMES = frozenset(
-    {"search_web_multi", "fetch_page_excerpt", "fetch_page_browser"}
+    {
+        "search_web_multi",
+        "fetch_page_excerpt",
+        "fetch_page_browser",
+        "research_drive2_cases",
+    }
 )
 WEB_RESEARCH_CAPABILITY_DESCRIPTIONS = {
     "search_web_multi": (
@@ -20,6 +25,10 @@ WEB_RESEARCH_CAPABILITY_DESCRIPTIONS = {
     "fetch_page_browser": (
         "Render one public HTTP(S) page in the browser and return a bounded excerpt with access "
         "flags."
+    ),
+    "research_drive2_cases": (
+        "Research bounded public Drive2 logbook cases for a vehicle symptom; returns compact "
+        "case evidence and access status without account use or raw-page retention."
     ),
 }
 WEB_RESEARCH_CAPABILITY_SCHEMAS: dict[str, dict[str, Any]] = {
@@ -77,6 +86,24 @@ WEB_RESEARCH_CAPABILITY_SCHEMAS: dict[str, dict[str, Any]] = {
             },
         },
         "required": ["url"],
+    },
+    "research_drive2_cases": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "query": {"type": "string", "minLength": 2, "maxLength": 480},
+            "vehicle": {"type": "string", "minLength": 1, "maxLength": 240},
+            "engine": {"type": "string", "minLength": 1, "maxLength": 80},
+            "transmission": {"type": "string", "minLength": 1, "maxLength": 80},
+            "dtc_codes": {
+                "type": "array",
+                "items": {"type": "string", "minLength": 3, "maxLength": 16},
+                "maxItems": 8,
+                "uniqueItems": True,
+            },
+            "max_cases": {"type": "integer", "minimum": 1, "maximum": 5, "default": 3},
+        },
+        "required": ["query"],
     },
 }
 

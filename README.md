@@ -64,10 +64,12 @@ The only supported agent sequence is `agent_bootstrap` ->
 `prepare_action_contract` -> named workflow `dry_run`/`apply` -> exact-target
 reread and verification. Guarded raw capability discovery is an escape hatch
 only when no named workflow exists; hidden low-level tools are never called
-directly. It exposes the read-only `search_web_multi`, `fetch_page_excerpt`, and
-`fetch_page_browser` capabilities without adding a 25th public tool. Their
-schemas are hash-bound, arguments are bounded, and page fetches retain the
-public-HTTP(S)/SSRF guard.
+directly. It exposes the read-only `search_web_multi`, `fetch_page_excerpt`,
+`fetch_page_browser`, and `research_drive2_cases` capabilities without adding a
+25th public tool. Drive2 research is bounded, public-only, does not use an
+account or retain raw journal pages, and returns forum case evidence rather
+than procedure authority. Their schemas are hash-bound, arguments are bounded,
+and page fetches retain the public-HTTP(S)/SSRF guard.
 
 AutoStop CRM remains the source of truth for workshop cards, repair orders,
 payments, cashboxes, files, and board state. AutoStop App owns store catalog,

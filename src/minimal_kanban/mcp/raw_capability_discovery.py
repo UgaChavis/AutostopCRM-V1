@@ -49,6 +49,14 @@ _RAW_CAPABILITY_DISCOVERY_ALIASES: dict[str, tuple[str, ...]] = {
         "исследуй",
         "web search",
     ),
+    "research_drive2_cases": (
+        "drive2",
+        "драйв2",
+        "бортжурнал",
+        "журнал ремонта",
+        "форумные кейсы",
+        "реальные случаи ремонта",
+    ),
 }
 
 _RAW_CAPABILITY_DISCOVERY_STOPWORDS = frozenset(

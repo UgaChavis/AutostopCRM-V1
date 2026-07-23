@@ -1260,6 +1260,10 @@ async def _run_web_checks(
             "fetch_page_browser",
             {"url": "https://example.com", "max_chars": 300, "wait_ms": 0},
         ),
+        (
+            "research_drive2_cases",
+            {"query": "ремонт DQ200", "vehicle": "Skoda Octavia", "max_cases": 1},
+        ),
     )
     for capability_name, arguments in probes:
         discovered = await _call(

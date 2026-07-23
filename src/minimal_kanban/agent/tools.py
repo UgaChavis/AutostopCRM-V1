@@ -77,6 +77,7 @@ AUTOMOTIVE_TOOL_NAMES = frozenset(
         "search_web",
         "fetch_page_excerpt",
         "fetch_page_browser",
+        "research_drive2_cases",
     }
 )
 CARD_CONTEXT_EXTRA_TOOL_NAMES = frozenset(
@@ -243,6 +244,7 @@ class AgentToolExecutor:
             "search_web": self._search_web,
             "fetch_page_excerpt": self._fetch_page_excerpt,
             "fetch_page_browser": self._fetch_page_browser,
+            "research_drive2_cases": self._research_drive2_cases,
         }
 
     @property
@@ -855,6 +857,17 @@ class AgentToolExecutor:
             url=self._required_text(args, "url"),
             max_chars=self._maybe_int(args.get("max_chars")) or 2500,
             wait_ms=wait_ms if wait_ms is not None else 750,
+        )
+
+    def _research_drive2_cases(self, args: dict[str, Any]) -> dict[str, Any]:
+        self._consume_external_request_budget()
+        return self._automotive.research_drive2_cases(
+            query=self._required_text(args, "query"),
+            vehicle=self._maybe_text(args.get("vehicle")) or "",
+            engine=self._maybe_text(args.get("engine")) or "",
+            transmission=self._maybe_text(args.get("transmission")) or "",
+            dtc_codes=self._maybe_text_list(args.get("dtc_codes")),
+            max_cases=self._maybe_int(args.get("max_cases")) or 3,
         )
 
     def _required_text(self, args: dict[str, Any], key: str) -> str:
