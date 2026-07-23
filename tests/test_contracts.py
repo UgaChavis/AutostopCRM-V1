@@ -188,12 +188,14 @@ EXPECTED_OPERATOR_ROUTES = {
     "/api/open_card",
     "/api/save_operator_user",
     "/api/set_operator_user_employee",
+    "/api/update_personal_board_preferences",
     "/api/delete_operator_user",
 }
 
 EXPECTED_SMOKE_SCENARIOS = (
     "login_gate_hides_board_until_operator_login",
     "desktop_board_card_roundtrip",
+    "personal_extra_board_column",
     "display_dashboard_popup_1920x1080",
     "card_timer_start_stop",
     "card_long_description_controls_reachable",
@@ -221,6 +223,7 @@ EXPECTED_SMOKE_SCENARIOS = (
     "escape_closes_top_modal_only",
     "operator_admin_employee_binding_returns_to_users",
     "mobile_board_load",
+    "mobile_personal_extra_column",
     "mobile_card_detail",
     "mobile_cashboxes_workspace",
     "mobile_repair_orders_workspace",
@@ -254,6 +257,8 @@ class ContractSnapshotTests(unittest.TestCase):
         self.assertIn("/api/copy_shared_file", PROXIED_WRITE_ROUTES)
         self.assertIn("/api/finance_audit/apply_safe_fixes", ADMIN_ONLY_ROUTES)
         self.assertIn("/api/get_operator_profile", OPERATOR_SESSION_ROUTES)
+        self.assertIn("/api/update_personal_board_preferences", OPERATOR_SESSION_ROUTES)
+        self.assertNotIn("/api/update_personal_board_preferences", PROXIED_WRITE_ROUTES)
 
     def test_auth_route_sets_reference_current_routes(self) -> None:
         service = _FakeService()

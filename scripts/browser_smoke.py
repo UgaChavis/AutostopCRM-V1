@@ -37,6 +37,7 @@ from minimal_kanban.storage.json_store import JsonStore
 SMOKE_SCENARIOS = (
     "login_gate_hides_board_until_operator_login",
     "desktop_board_card_roundtrip",
+    "personal_extra_board_column",
     "display_dashboard_popup_1920x1080",
     "card_timer_start_stop",
     "card_long_description_controls_reachable",
@@ -67,6 +68,7 @@ SMOKE_SCENARIOS = (
 
 MOBILE_SMOKE_SCENARIOS = (
     "mobile_board_load",
+    "mobile_personal_extra_column",
     "mobile_card_detail",
     "mobile_cashboxes_workspace",
     "mobile_repair_orders_workspace",
@@ -190,6 +192,7 @@ class TempRuntime:
     service: CardService
     cashbox_id: str
     card_id: str
+    extra_column_card_id: str
     employee_id: str
     payroll_card_id: str
     payroll_month: str
@@ -329,6 +332,19 @@ def start_temp_runtime(*, start_port: int = 42731) -> TempRuntime:
             "vehicle": "Toyota Smoke",
             "title": "Browser smoke initial",
             "description": "Temporary card created by browser smoke.",
+            "actor_name": "SMOKE",
+        }
+    )["card"]
+    extra_column_card = service.create_card(
+        {
+            "vehicle": "Toyota Extra Column Smoke",
+            "title": "Browser smoke extra column",
+            "tags": [
+                {"label": "ГОТОВ", "color": "green"},
+                {"label": "SMOKE ПЕРВАЯ", "color": "green"},
+                {"label": "SMOKE ВТОРАЯ", "color": "yellow"},
+                {"label": "НАДО ЧТО ТО СДЕЛАТЬ", "color": "red"},
+            ],
             "actor_name": "SMOKE",
         }
     )["card"]
@@ -557,6 +573,7 @@ def start_temp_runtime(*, start_port: int = 42731) -> TempRuntime:
         service=service,
         cashbox_id=cashbox["id"],
         card_id=card["id"],
+        extra_column_card_id=extra_column_card["id"],
         employee_id=employee["id"],
         payroll_card_id=payroll_card["id"],
         payroll_month=payroll_month,
@@ -1278,6 +1295,125 @@ async def _exercise_display_dashboard(page: Any) -> bool:
         await _wait_modal_closed(page, "#boardSettingsModal")
 
 
+async def _exercise_personal_extra_board_column(page: Any, runtime: TempRuntime) -> bool:
+    await page.click("#boardSettingsButton")
+    await _wait_modal_open(page, "#boardSettingsModal")
+    await page.click("#extraBoardColumnFilterButton")
+    await page.wait_for_selector("#extraBoardColumnFilterPanel:not([hidden])")
+
+    async def save_filter(label: str, color: str) -> None:
+        await page.fill("#extraBoardColumnTagLabelInput", label)
+        await page.select_option("#extraBoardColumnTagColorSelect", color)
+        await page.click("#extraBoardColumnFilterSaveButton")
+        await page.wait_for_function(
+            """([expectedLabel, expectedColor]) => {
+              const input = document.querySelector('#extraBoardColumnTagLabelInput');
+              const select = document.querySelector('#extraBoardColumnTagColorSelect');
+              const save = document.querySelector('#extraBoardColumnFilterSaveButton');
+              return input?.value === expectedLabel && select?.value === expectedColor && save && !save.disabled;
+            }""",
+            arg=[label, color],
+        )
+
+    async def wait_for_card_editor(title: str) -> None:
+        await page.wait_for_function(
+            """(expectedTitle) => {
+              const titleInput = document.querySelector('#cardTitle');
+              const saveButton = document.querySelector('#saveCardButton');
+              return titleInput?.value === expectedTitle && !titleInput.disabled && saveButton && !saveButton.disabled;
+            }""",
+            arg=title,
+        )
+
+    await save_filter("БРАУЗЕР SMOKE ФИЛЬТР", "yellow")
+    await save_filter("НАДО ЧТО ТО СДЕЛАТЬ", "red")
+    await page.click("#extraBoardColumnToggleButton")
+    await page.wait_for_selector('[data-virtual-column="extra"]')
+    await page.wait_for_function(
+        """() => {
+          const toggle = document.querySelector('#extraBoardColumnToggleButton');
+          return toggle?.textContent.includes('СКРЫТЬ ДОП. КОЛОНКУ') && !toggle.disabled;
+        }"""
+    )
+    await page.click('[data-close="settings"]')
+    await _wait_modal_closed(page, "#boardSettingsModal")
+
+    card_id = runtime.extra_column_card_id
+    rendered = bool(
+        await page.evaluate(
+            """(cardId) => {
+              const board = document.querySelector('#board');
+              const virtualColumn = board?.querySelector('[data-virtual-column="extra"]');
+              const virtualCards = Array.from(virtualColumn?.querySelectorAll('.card[data-card-id="' + cardId + '"]') || []);
+              const nativeCards = Array.from(document.querySelectorAll('.card[data-card-id="' + cardId + '"]'))
+                .filter((card) => !card.closest('[data-virtual-column]'));
+              const children = Array.from(board?.children || []);
+              const addColumn = children.find((node) => node.classList.contains('board-add-column'));
+              return Boolean(
+                virtualColumn &&
+                virtualCards.length === 1 &&
+                nativeCards.length === 1 &&
+                virtualCards[0].getAttribute('draggable') === 'false' &&
+                virtualCards[0].textContent.includes('НАДО ЧТО ТО СДЕЛАТЬ') &&
+                virtualCards[0].textContent.includes('+1') &&
+                children.indexOf(virtualColumn) === children.indexOf(addColumn) - 1
+              );
+            }""",
+            card_id,
+        )
+    )
+    if not rendered:
+        return False
+
+    virtual_card_selector = f'[data-virtual-column="extra"] .card[data-card-id="{card_id}"]'
+    await page.click(virtual_card_selector)
+    await _wait_modal_open(page, "#cardModal")
+    await wait_for_card_editor("Browser smoke extra column")
+    await page.fill("#cardTitle", "Browser smoke extra clone saved")
+    await page.click("#saveCardButton")
+    await page.wait_for_function(
+        """([cardId, title]) => {
+          const cards = Array.from(document.querySelectorAll('.card[data-card-id="' + cardId + '"]'));
+          return cards.length === 2 && cards.every((card) => card.textContent.includes(title));
+        }""",
+        arg=[card_id, "Browser smoke extra clone saved"],
+    )
+    await _close_card_modal_if_open(page)
+
+    await page.click(virtual_card_selector)
+    await _wait_modal_open(page, "#cardModal")
+    await wait_for_card_editor("Browser smoke extra clone saved")
+    await page.locator('#tagList [data-remove-tag="НАДО ЧТО ТО СДЕЛАТЬ"]').click(force=True)
+    await page.click("#saveCardButton")
+    await page.wait_for_function(
+        """(cardId) => {
+          const virtualCards = document.querySelectorAll('[data-virtual-column="extra"] .card[data-card-id="' + cardId + '"]');
+          const nativeCards = Array.from(document.querySelectorAll('.card[data-card-id="' + cardId + '"]'))
+            .filter((card) => !card.closest('[data-virtual-column]'));
+          return virtualCards.length === 0 && nativeCards.length === 1;
+        }""",
+        arg=card_id,
+    )
+    await _close_card_modal_if_open(page)
+
+    await page.reload(wait_until="domcontentloaded")
+    await page.wait_for_selector("#board")
+    await page.wait_for_selector('[data-virtual-column="extra"]')
+    persisted = bool(
+        await page.evaluate(
+            """(cardId) => {
+              const virtualColumn = document.querySelector('[data-virtual-column="extra"]');
+              const virtualCards = virtualColumn?.querySelectorAll('.card[data-card-id="' + cardId + '"]') || [];
+              const nativeCards = Array.from(document.querySelectorAll('.card[data-card-id="' + cardId + '"]'))
+                .filter((card) => !card.closest('[data-virtual-column]'));
+              return Boolean(virtualColumn && virtualCards.length === 0 && nativeCards.length === 1);
+            }""",
+            card_id,
+        )
+    )
+    return bool(rendered and persisted)
+
+
 async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]:
     scenarios = {name: False for name in DESKTOP_SMOKE_SCENARIOS}
     await page.wait_for_selector("#board")
@@ -1293,6 +1429,9 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     scenarios["card_long_description_controls_reachable"] = bool(controls_ok)
     scenarios["desktop_board_card_roundtrip"] = bool(roundtrip_ok)
     scenarios["card_timer_start_stop"] = bool(timer_ok)
+    scenarios["personal_extra_board_column"] = await _exercise_personal_extra_board_column(
+        page, runtime
+    )
 
     await page.click("#cashboxesButton")
     await _wait_modal_open(page, "#cashboxesModal")
@@ -1452,8 +1591,24 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
 
     await page.click(f'[data-card-id="{runtime.card_id}"]')
     await _wait_modal_open(page, "#cardModal")
-    await page.click("#repairOrderButton")
+    async with page.expect_response(
+        lambda response: (
+            response.request.method == "POST"
+            and response.url.split("?", 1)[0].endswith("/api/get_repair_order")
+        )
+    ) as repair_order_response_info:
+        await page.click("#repairOrderButton")
+    repair_order_response = await repair_order_response_info.value
+    repair_order_payload = _api_data(await repair_order_response.json())
+    repair_order_number = str(
+        (repair_order_payload.get("repair_order") or {}).get("number") or ""
+    ).strip()
     await _wait_modal_open(page, "#repairOrderModal")
+    if repair_order_number:
+        await page.wait_for_function(
+            """(number) => document.querySelector('#repairOrderNumber')?.textContent.trim() === number""",
+            arg=repair_order_number,
+        )
     material_rows_before = int(
         await page.evaluate(
             "() => document.querySelectorAll('#repairOrderMaterialsBody tr[data-repair-order-row]').length"
@@ -1831,6 +1986,9 @@ async def _mobile_scenarios(
         await page.wait_for_selector("#mobileBoardColumns .mobile-column-card")
         scenarios["mobile_board_load"] = bool(
             await page.locator("#mobileBoardColumns [data-mobile-card-id]").count()
+        ) and await _mobile_has_no_horizontal_overflow(page)
+        scenarios["mobile_personal_extra_column"] = bool(
+            await page.locator('#mobileBoardColumns [data-mobile-virtual-column="extra"]').count()
         ) and await _mobile_has_no_horizontal_overflow(page)
 
         await page.locator("#mobileBoardColumns [data-mobile-card-id]").first.click()

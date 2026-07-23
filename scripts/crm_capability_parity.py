@@ -42,12 +42,20 @@ PARITY_TEST_EVIDENCE = (
 PARITY_INVENTORY_TEST_FILES = frozenset(
     {"test_crm_capability_parity.py", "test_crm_parity_inventory_quality.py"}
 )
-ALLOWED_INTENTIONAL_EXEMPTIONS = frozenset({"/api/login_operator", "/api/logout_operator"})
+ALLOWED_INTENTIONAL_EXEMPTIONS = frozenset(
+    {
+        "/api/get_operator_profile",
+        "/api/login_operator",
+        "/api/logout_operator",
+        "/api/update_personal_board_preferences",
+    }
+)
 READ_OPERATION_OVERRIDES = frozenset({"/api/get_repair_order"})
 WRITE_OPERATION_OVERRIDES = frozenset(
     {
         "/api/login_operator",
         "/api/logout_operator",
+        "/api/update_personal_board_preferences",
         "/api/open_card",
         "/api/set_card_ai_autofill",
         "/api/change_feed/ack",
@@ -527,15 +535,15 @@ def build_inventory(
             _issue(
                 "intentional_exemptions_invalid",
                 "manifest",
-                "Only human login/logout may be intentional parity exemptions.",
+                "Only reviewed human-session routes may be intentional parity exemptions.",
             )
         )
-    if len(baseline_gaps) != 11:
+    if len(baseline_gaps) != 13:
         issues.append(
             _issue(
                 "baseline_gap_count_invalid",
                 "manifest",
-                f"Expected the reviewed 11-gap baseline, found {len(baseline_gaps)}.",
+                f"Expected the reviewed 13-gap baseline, found {len(baseline_gaps)}.",
             )
         )
     if not set(exemptions) <= set(baseline_gaps):

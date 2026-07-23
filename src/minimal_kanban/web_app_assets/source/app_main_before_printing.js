@@ -27,11 +27,17 @@
     const MOBILE_CARD_TABS = ['overview', 'vehicle', 'files', 'journal'];
     const MOBILE_REPAIR_ORDER_TABS = ['client', 'works', 'materials', 'payments', 'totals'];
     const MOBILE_CARD_TITLE_REQUIRED_MESSAGE = 'УКАЖИ КРАТКУЮ СУТЬ КАРТОЧКИ.';
+    const EXTRA_BOARD_COLUMN_DEFAULT_TAG_LABEL = 'НАДО ЧТО ТО СДЕЛАТЬ';
+    const EXTRA_BOARD_COLUMN_DEFAULT_TAG_COLOR = 'red';
 
     const state = {
       actor: '',
       operatorSessionToken: localStorage.getItem(OPERATOR_SESSION_STORAGE_KEY) || '',
       operatorProfile: null,
+      personalBoardPreferences: null,
+      personalBoardPreferencesRevision: 0,
+      extraBoardColumnSettingsOpen: false,
+      extraBoardColumnSaving: false,
       operatorUsers: [],
       operatorEmployeeBindingUser: '',
       operatorAdminTab: 'users',
@@ -334,6 +340,8 @@
       { label: 'надо что то сделать', color: 'red' },
     ];
     const CARD_TAG_LIMIT = 3;
+    const CARD_STORED_TAG_LIMIT = 4;
+    const READY_CARD_TAG_LABEL = 'ГОТОВ';
     const READY_COLUMN_LABEL = 'Готовые автомобили';
     const MOBILE_LITE_BREAKPOINT = 760;
     const MOBILE_LITE_MEDIA_QUERY = '(max-width: 760px)';
@@ -866,6 +874,13 @@
       boardScaleValue: document.getElementById('boardScaleValue'),
       boardScaleReset: document.getElementById('boardScaleReset'),
       openDisplayDashboardButton: document.getElementById('openDisplayDashboardButton'),
+      extraBoardColumnToggleButton: document.getElementById('extraBoardColumnToggleButton'),
+      extraBoardColumnFilterButton: document.getElementById('extraBoardColumnFilterButton'),
+      extraBoardColumnFilterPanel: document.getElementById('extraBoardColumnFilterPanel'),
+      extraBoardColumnTagLabelInput: document.getElementById('extraBoardColumnTagLabelInput'),
+      extraBoardColumnTagSuggestions: document.getElementById('extraBoardColumnTagSuggestions'),
+      extraBoardColumnTagColorSelect: document.getElementById('extraBoardColumnTagColorSelect'),
+      extraBoardColumnFilterSaveButton: document.getElementById('extraBoardColumnFilterSaveButton'),
       stickyModal: document.getElementById('stickyModal'),
       stickyModalTitle: document.getElementById('stickyModalTitle'),
       stickyText: document.getElementById('stickyText'),
@@ -3256,6 +3271,10 @@
 
     function resetViewerScopedState() {
       state.viewerStateGeneration += 1;
+      state.personalBoardPreferences = null;
+      state.personalBoardPreferencesRevision += 1;
+      state.extraBoardColumnSettingsOpen = false;
+      state.extraBoardColumnSaving = false;
       state.snapshot = null;
       state.lastSnapshotRevision = '';
       state.refreshInFlight = null;
@@ -3313,6 +3332,9 @@
       resetViewerScopedState();
       state.actor = '';
       state.operatorProfile = null;
+      state.personalBoardPreferences = null;
+      state.extraBoardColumnSettingsOpen = false;
+      state.extraBoardColumnSaving = false;
       state.operatorUsers = [];
       setOperatorSessionToken('');
       applyBoardScalePreference({ fallbackValue: 1, syncInput: true, persistFallback: false });
@@ -3341,33 +3363,53 @@
         : '<div class="log-row__meta">ДЕЙСТВИЙ ПОКА НЕТ.</div>';
     }
 
-    function renderOperatorProfile(data, { openModal = false } = {}) {
-      state.operatorProfile = data;
-      state.actor = data?.user?.username || '';
-      setOperatorSessionToken(data?.session?.token || state.operatorSessionToken);
+    function renderOperatorProfile(data, { openModal = false, preservePersonalBoardPreferences = false } = {}) {
+      const preservedPreferences = preservePersonalBoardPreferences
+        ? personalBoardPreferences()
+        : null;
+      const profile = preservePersonalBoardPreferences && data && typeof data === 'object'
+        ? { ...data, board_preferences: preservedPreferences }
+        : data;
+      state.operatorProfile = profile;
+      if (!preservePersonalBoardPreferences) applyPersonalBoardPreferences(profile?.board_preferences);
+      state.actor = profile?.user?.username || '';
+      setOperatorSessionToken(profile?.session?.token || state.operatorSessionToken);
       applyBoardScalePreference({ fallbackValue: state.snapshot?.settings?.board_scale ?? state.boardScale ?? 1, syncInput: true, persistFallback: true });
       updateOperatorButton();
-      const stats = data?.stats || {};
+      syncExtraBoardColumnSettingsForm();
+      if (state.snapshot) renderBoard();
+      const stats = profile?.stats || {};
       els.operatorProfileMeta.textContent =
-        'ПОЛЬЗОВАТЕЛЬ: ' + (data?.user?.username || '-') +
-        ' | РОЛЬ: ' + (data?.user?.is_admin ? 'АДМИНИСТРАТОР' : 'ОПЕРАТОР') +
-        ' | ОБНОВЛЕНО: ' + formatDate(data?.user?.updated_at);
+        'ПОЛЬЗОВАТЕЛЬ: ' + (profile?.user?.username || '-') +
+        ' | РОЛЬ: ' + (profile?.user?.is_admin ? 'АДМИНИСТРАТОР' : 'ОПЕРАТОР') +
+        ' | ОБНОВЛЕНО: ' + formatDate(profile?.user?.updated_at);
       els.operatorStatsGrid.innerHTML = [
         operatorStatHtml('ОТКРЫТО КАРТОЧЕК', stats.cards_opened ?? 0),
         operatorStatHtml('СОЗДАНО', stats.cards_created ?? 0),
         operatorStatHtml('ЗАКРЫТО', stats.cards_archived ?? 0),
         operatorStatHtml('ПЕРЕМЕЩЕНИЙ', stats.card_moves ?? 0),
       ].join('');
-      renderOperatorActivity(data?.recent_actions || []);
-      els.operatorAdminButton.classList.toggle('hidden', !data?.user?.is_admin);
+      renderOperatorActivity(profile?.recent_actions || []);
+      els.operatorAdminButton.classList.toggle('hidden', !profile?.user?.is_admin);
       closeOperatorLoginModal();
       void refreshCashboxNotification();
       if (openModal) pushModal('operator-profile', els.operatorProfileModal);
     }
 
     async function loadOperatorProfile(openModal = false) {
+      const viewerStateGeneration = state.viewerStateGeneration;
+      const operatorSessionToken = state.operatorSessionToken;
+      const personalBoardPreferencesRevision = state.personalBoardPreferencesRevision;
       const data = await api('/api/get_operator_profile');
-      renderOperatorProfile(data, { openModal });
+      if (
+        viewerStateGeneration !== state.viewerStateGeneration
+        || operatorSessionToken !== state.operatorSessionToken
+      ) return null;
+      renderOperatorProfile(data, {
+        openModal,
+        preservePersonalBoardPreferences:
+          personalBoardPreferencesRevision !== state.personalBoardPreferencesRevision,
+      });
       return data;
     }
 
@@ -9984,9 +10026,19 @@
         els.mobileBoardColumns.innerHTML = '<div class="mobile-empty">ДОСКА ЗАГРУЖАЕТСЯ...</div>';
         return;
       }
-      els.mobileBoardColumns.innerHTML = columns.map((column) => {
+      const mobileColumns = extraBoardColumnIsOpen()
+        ? columns.concat([{
+            id: '__personal_extra_column__',
+            label: 'ДОП. КОЛОНКА · ЛИЧНАЯ',
+            is_personal_extra_column: true,
+          }])
+        : columns;
+      els.mobileBoardColumns.innerHTML = mobileColumns.map((column) => {
         const columnId = String(column?.id || '').trim();
-        const columnCards = cards.filter((card) => String(card?.column || '') === columnId);
+        const isPersonalExtraColumn = Boolean(column?.is_personal_extra_column);
+        const columnCards = isPersonalExtraColumn
+          ? extraBoardColumnCards(snapshot)
+          : cards.filter((card) => String(card?.column || '') === columnId);
         const expanded = mobileColumnIsExpanded(columnId);
         const previewCards = expanded ? columnCards : columnCards.slice(0, 4);
         const hiddenCount = Math.max(0, columnCards.length - previewCards.length);
@@ -9999,7 +10051,8 @@
               return '<button class="mobile-card-mini" type="button" data-mobile-card-id="' + escapeHtml(card?.id || '') + '"><span>' + escapeHtml(mobileCardTitle(card)) + '</span><strong>' + escapeHtml(due) + '</strong></button>';
             }).join('') + '</div>' + toggleHtml
           : '<div class="mobile-card-mini mobile-card-mini--empty"><span>Карточек нет</span></div>';
-        return '<section class="mobile-column-card" data-mobile-column-id="' + escapeHtml(columnId) + '">'
+        const virtualAttribute = isPersonalExtraColumn ? ' data-mobile-virtual-column="extra"' : '';
+        return '<section class="mobile-column-card" data-mobile-column-id="' + escapeHtml(columnId) + '"' + virtualAttribute + '>'
           + '<div class="mobile-column-card__top">'
             + '<div class="mobile-column-card__title">' + escapeHtml(column?.label || column?.title || 'Колонка') + '</div>'
             + '<div class="mobile-column-card__count">' + escapeHtml(String(columnCards.length)) + '</div>'
@@ -12258,24 +12311,25 @@
         card.deadline_heat_border_color = visual.border;
         card.deadline_heat_ring_color = visual.ring;
         card.deadline_heat_glow_color = visual.glow;
-        const article = els.board?.querySelector('.card[data-card-id="' + CSS.escape(String(card.id || '')) + '"]');
-        if (!article) return;
-        article.dataset.timerState = 'running';
-        article.dataset.indicator = visual.indicator;
-        article.dataset.status = visual.status;
-        article.dataset.blink = visual.blinking ? 'true' : 'false';
-        article.dataset.deadlineBucket = String(visual.bucket);
-        article.dataset.deadlineStep = String(visual.step);
-        article.style.setProperty('--deadline-heat-border', visual.border);
-        article.style.setProperty('--deadline-heat-ring', visual.ring);
-        article.style.setProperty('--deadline-heat-glow', visual.glow);
-        const lamp = article.querySelector('.lamp');
-        if (lamp) {
-          const timerTitle = 'Таймер: ' + timerRemainingText(visual.remaining);
-          lamp.dataset.indicator = visual.indicator;
-          lamp.title = timerTitle;
-          lamp.setAttribute('aria-label', timerTitle);
-        }
+        const articles = els.board?.querySelectorAll('.card[data-card-id="' + CSS.escape(String(card.id || '')) + '"]') || [];
+        articles.forEach((article) => {
+          article.dataset.timerState = 'running';
+          article.dataset.indicator = visual.indicator;
+          article.dataset.status = visual.status;
+          article.dataset.blink = visual.blinking ? 'true' : 'false';
+          article.dataset.deadlineBucket = String(visual.bucket);
+          article.dataset.deadlineStep = String(visual.step);
+          article.style.setProperty('--deadline-heat-border', visual.border);
+          article.style.setProperty('--deadline-heat-ring', visual.ring);
+          article.style.setProperty('--deadline-heat-glow', visual.glow);
+          const lamp = article.querySelector('.lamp');
+          if (lamp) {
+            const timerTitle = 'Таймер: ' + timerRemainingText(visual.remaining);
+            lamp.dataset.indicator = visual.indicator;
+            lamp.title = timerTitle;
+            lamp.setAttribute('aria-label', timerTitle);
+          }
+        });
       });
     }
 
@@ -12693,7 +12747,204 @@
     }
 
     function normalizeDraftTags(items, fallbackColor = 'green') {
-      return normalizeUiTags(items, fallbackColor, CARD_TAG_LIMIT);
+      return normalizeUiTags(items, fallbackColor, CARD_STORED_TAG_LIMIT);
+    }
+
+    function normalizeSnapshotTags(items, fallbackColor = 'green') {
+      return normalizeUiTags(items, fallbackColor, CARD_STORED_TAG_LIMIT);
+    }
+
+    function isSystemCardTag(tag) {
+      return String(tag?.label ?? tag ?? '').trim().toUpperCase() === READY_CARD_TAG_LABEL;
+    }
+
+    function cardManualTagCount(tags = state.draftTags) {
+      return normalizeDraftTags(tags).filter((tag) => !isSystemCardTag(tag)).length;
+    }
+
+    function normalizeExtraBoardColumnTagLabel(value) {
+      const normalized = String(value || '')
+        .replace(/,/g, ' ')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toUpperCase();
+      return normalized || EXTRA_BOARD_COLUMN_DEFAULT_TAG_LABEL;
+    }
+
+    function normalizeExtraBoardColumnTagColor(value) {
+      const normalized = String(value || '').trim().toLowerCase();
+      return TAG_COLOR_OPTIONS.some((item) => item.value === normalized)
+        ? normalized
+        : EXTRA_BOARD_COLUMN_DEFAULT_TAG_COLOR;
+    }
+
+    function defaultPersonalBoardPreferences() {
+      return {
+        extra_column: {
+          is_open: false,
+          filter: {
+            tag_label: EXTRA_BOARD_COLUMN_DEFAULT_TAG_LABEL,
+            tag_color: EXTRA_BOARD_COLUMN_DEFAULT_TAG_COLOR,
+          },
+        },
+      };
+    }
+
+    function normalizePersonalBoardPreferences(value) {
+      const defaults = defaultPersonalBoardPreferences();
+      const source = value && typeof value === 'object' ? value : {};
+      const rawExtraColumn = source.extra_column && typeof source.extra_column === 'object'
+        ? source.extra_column
+        : {};
+      const rawFilter = rawExtraColumn.filter && typeof rawExtraColumn.filter === 'object'
+        ? rawExtraColumn.filter
+        : {};
+      return {
+        extra_column: {
+          is_open: rawExtraColumn.is_open === true,
+          filter: {
+            tag_label: normalizeExtraBoardColumnTagLabel(rawFilter.tag_label || defaults.extra_column.filter.tag_label),
+            tag_color: normalizeExtraBoardColumnTagColor(rawFilter.tag_color || defaults.extra_column.filter.tag_color),
+          },
+        },
+      };
+    }
+
+    function personalBoardPreferences() {
+      return normalizePersonalBoardPreferences(
+        state.personalBoardPreferences || state.operatorProfile?.board_preferences,
+      );
+    }
+
+    function extraBoardColumnPreferences() {
+      return personalBoardPreferences().extra_column;
+    }
+
+    function extraBoardColumnIsOpen() {
+      return Boolean(extraBoardColumnPreferences().is_open);
+    }
+
+    function applyPersonalBoardPreferences(preferences) {
+      const normalized = normalizePersonalBoardPreferences(preferences);
+      state.personalBoardPreferences = normalized;
+      if (state.operatorProfile && typeof state.operatorProfile === 'object') {
+        state.operatorProfile = { ...state.operatorProfile, board_preferences: normalized };
+      }
+      return normalized;
+    }
+
+    function cardMatchesExtraBoardColumn(card) {
+      if (!card || card.archived) return false;
+      const filter = extraBoardColumnPreferences().filter;
+      return normalizeSnapshotTags(card.tag_items || card.tags || []).some((tag) =>
+        tag.label === filter.tag_label && tag.color === filter.tag_color
+      );
+    }
+
+    function extraBoardColumnCards(snapshot) {
+      return sortBoardCards((snapshot?.cards || []).filter((card) => cardMatchesExtraBoardColumn(card)));
+    }
+
+    function extraBoardColumnTagSuggestions() {
+      const labels = new Set();
+      (state.snapshot?.cards || []).forEach((card) => {
+        if (card?.archived) return;
+        normalizeSnapshotTags(card.tag_items || card.tags || []).forEach((tag) => labels.add(tag.label));
+      });
+      labels.add(extraBoardColumnPreferences().filter.tag_label);
+      return Array.from(labels).sort((left, right) => left.localeCompare(right, 'ru'));
+    }
+
+    function syncExtraBoardColumnSettingsForm() {
+      const settings = extraBoardColumnPreferences();
+      const filter = settings.filter;
+      const saving = Boolean(state.extraBoardColumnSaving);
+      if (els.extraBoardColumnToggleButton) {
+        els.extraBoardColumnToggleButton.textContent = settings.is_open ? 'СКРЫТЬ ДОП. КОЛОНКУ' : 'ОТКРЫТЬ ДОП. КОЛОНКУ';
+        els.extraBoardColumnToggleButton.disabled = saving;
+      }
+      if (els.extraBoardColumnFilterButton) {
+        els.extraBoardColumnFilterButton.disabled = saving;
+        els.extraBoardColumnFilterButton.setAttribute('aria-expanded', state.extraBoardColumnSettingsOpen ? 'true' : 'false');
+      }
+      if (els.extraBoardColumnFilterPanel) {
+        els.extraBoardColumnFilterPanel.hidden = !state.extraBoardColumnSettingsOpen;
+      }
+      if (els.extraBoardColumnTagLabelInput) {
+        els.extraBoardColumnTagLabelInput.value = filter.tag_label;
+        els.extraBoardColumnTagLabelInput.disabled = saving;
+      }
+      if (els.extraBoardColumnTagColorSelect) {
+        els.extraBoardColumnTagColorSelect.value = filter.tag_color;
+        els.extraBoardColumnTagColorSelect.disabled = saving;
+      }
+      if (els.extraBoardColumnTagSuggestions) {
+        els.extraBoardColumnTagSuggestions.innerHTML = extraBoardColumnTagSuggestions()
+          .map((label) => '<option value="' + escapeHtml(label) + '"></option>')
+          .join('');
+      }
+      if (els.extraBoardColumnFilterSaveButton) els.extraBoardColumnFilterSaveButton.disabled = saving;
+    }
+
+    async function savePersonalBoardPreferences(preferences, { statusMessage = '' } = {}) {
+      if (!requireOperatorSession()) return false;
+      if (state.extraBoardColumnSaving) return false;
+      const viewerStateGeneration = state.viewerStateGeneration;
+      const operatorSessionToken = state.operatorSessionToken;
+      const isCurrentViewer = () => (
+        viewerStateGeneration === state.viewerStateGeneration
+        && operatorSessionToken === state.operatorSessionToken
+      );
+      const nextPreferences = normalizePersonalBoardPreferences(preferences);
+      state.extraBoardColumnSaving = true;
+      syncExtraBoardColumnSettingsForm();
+      try {
+        const data = await api('/api/update_personal_board_preferences', {
+          method: 'POST',
+          body: { board_preferences: nextPreferences, source: 'ui' },
+        });
+        if (!isCurrentViewer()) return false;
+        state.personalBoardPreferencesRevision += 1;
+        applyPersonalBoardPreferences(data?.board_preferences || nextPreferences);
+        renderBoard();
+        if (statusMessage) setStatus(statusMessage, false);
+        return true;
+      } catch (error) {
+        if (!isCurrentViewer()) return false;
+        setStatus(error.message, true);
+        return false;
+      } finally {
+        if (isCurrentViewer()) {
+          state.extraBoardColumnSaving = false;
+          syncExtraBoardColumnSettingsForm();
+        }
+      }
+    }
+
+    async function toggleExtraBoardColumn() {
+      const nextPreferences = personalBoardPreferences();
+      nextPreferences.extra_column.is_open = !nextPreferences.extra_column.is_open;
+      const statusMessage = nextPreferences.extra_column.is_open
+        ? 'ДОПОЛНИТЕЛЬНАЯ КОЛОНКА ОТКРЫТА.'
+        : 'ДОПОЛНИТЕЛЬНАЯ КОЛОНКА СКРЫТА.';
+      await savePersonalBoardPreferences(nextPreferences, { statusMessage });
+    }
+
+    function toggleExtraBoardColumnFilterSettings() {
+      state.extraBoardColumnSettingsOpen = !state.extraBoardColumnSettingsOpen;
+      syncExtraBoardColumnSettingsForm();
+      if (state.extraBoardColumnSettingsOpen) {
+        requestAnimationFrame(() => els.extraBoardColumnTagLabelInput?.focus());
+      }
+    }
+
+    async function saveExtraBoardColumnFilterSettings() {
+      const nextPreferences = personalBoardPreferences();
+      nextPreferences.extra_column.filter = {
+        tag_label: normalizeExtraBoardColumnTagLabel(els.extraBoardColumnTagLabelInput?.value),
+        tag_color: normalizeExtraBoardColumnTagColor(els.extraBoardColumnTagColorSelect?.value),
+      };
+      await savePersonalBoardPreferences(nextPreferences, { statusMessage: 'ФИЛЬТР ДОПОЛНИТЕЛЬНОЙ КОЛОНКИ СОХРАНЁН.' });
     }
 
     function normalizeRepairOrderTags(items, fallbackColor = 'green') {
@@ -12704,7 +12955,8 @@
       const normalized = normalizeDraftTag(tag, state.draftTagColor);
       if (!normalized) return false;
       const exists = state.draftTags.some((item) => item.label === normalized.label);
-      if (!exists && state.draftTags.length >= CARD_TAG_LIMIT) {
+      const manualTagLimitReached = cardManualTagCount() >= CARD_TAG_LIMIT;
+      if (!exists && !isSystemCardTag(normalized) && manualTagLimitReached) {
         setStatus('НА КАРТОЧКЕ МОЖЕТ БЫТЬ НЕ БОЛЕЕ 3 МЕТОК.', true);
         return false;
       }
@@ -15444,13 +15696,14 @@
     }
 
     function renderColorTags() {
-      const atLimit = state.draftTags.length >= CARD_TAG_LIMIT;
+      const manualTagCount = cardManualTagCount();
+      const atLimit = manualTagCount >= CARD_TAG_LIMIT;
       renderTagColorPicker();
       els.tagList.innerHTML = state.draftTags.length
         ? state.draftTags.map((tag) => '<button class="tag" data-tag-color="' + escapeHtml(tag.color) + '" data-remove-tag="' + escapeHtml(tag.label) + '"><span class="tag__dot"></span>' + escapeHtml(tag.label) + ' ?</button>').join('')
         : '<div class="tag tag--muted">МЕТОК НЕТ</div>';
       if (els.tagMeta) {
-        els.tagMeta.textContent = state.draftTags.length + ' / ' + CARD_TAG_LIMIT;
+        els.tagMeta.textContent = manualTagCount + ' / ' + CARD_TAG_LIMIT;
         els.tagMeta.dataset.limitState = atLimit ? 'full' : 'open';
       }
       els.tagInput.disabled = atLimit;
@@ -16789,6 +17042,15 @@
       return '<section class="column" style="' + toneStyle + '" data-column-id="' + escapeHtml(column.id) + '" draggable="true"><div class="column__head" data-drag-column-handle="1"><div class="column__title">' + escapeHtml(column.label) + '</div><div class="column__head-actions"><button class="btn btn--ghost column__rename" type="button" data-rename-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" title="' + escapeHtml(renameTitle) + '" aria-label="' + escapeHtml(renameTitle) + '"' + renameAttrs + '>&#9998;</button><button class="btn btn--ghost column__delete" type="button" data-delete-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" data-card-count="' + cards.length + '" title="' + escapeHtml(deleteTitle) + '" aria-label="' + escapeHtml(deleteTitle) + '"' + deleteAttrs + '>&times;</button><div class="column__count">' + cards.length + '</div></div></div><div class="column__cards">' + (cards.length ? cards.map(renderBoardCardHtml).join('') : '') + '</div><button class="btn" type="button" data-create-in="' + escapeHtml(column.id) + '">+ КАРТОЧКА</button></section>';
     }
 
+    function renderExtraBoardColumnHtml(snapshot) {
+      const cards = extraBoardColumnCards(snapshot);
+      const emptyHtml = '<div class="empty">ПОДХОДЯЩИХ КАРТОЧЕК НЕТ.</div>';
+      return '<section class="column column--virtual" data-virtual-column="extra" draggable="false" aria-label="ЛИЧНАЯ ДОПОЛНИТЕЛЬНАЯ КОЛОНКА">'
+        + '<div class="column__head"><div class="column__title">ДОП. КОЛОНКА</div><div class="column__head-actions"><div class="column__count">' + cards.length + '</div></div></div>'
+        + '<div class="column__cards">' + (cards.length ? cards.map((card) => renderBoardCardHtml(card, { virtual: true })).join('') : emptyHtml) + '</div>'
+      + '</section>';
+    }
+
     function renderBoardColumnById(columnId, cardsByColumn = null) {
       const snapshot = state.snapshot;
       if (!snapshot || !columnId) return false;
@@ -16813,7 +17075,8 @@
       }
       const cardsByColumn = buildBoardCardsByColumn(snapshot);
       const addColumnButtonHtml = '<button class="board-add-column" type="button" data-create-column="true" title="Добавить столбец" aria-label="Добавить столбец">+</button>';
-      els.board.innerHTML = snapshot.columns.map((column, index) => renderBoardColumnHtml(column, index, snapshot, cardsByColumn)).join('') + addColumnButtonHtml + '<div class="sticky-layer" id="stickyLayer"></div>';
+      const extraColumnHtml = extraBoardColumnIsOpen() ? renderExtraBoardColumnHtml(snapshot) : '';
+      els.board.innerHTML = snapshot.columns.map((column, index) => renderBoardColumnHtml(column, index, snapshot, cardsByColumn)).join('') + extraColumnHtml + addColumnButtonHtml + '<div class="sticky-layer" id="stickyLayer"></div>';
       els.stickyLayer = document.getElementById('stickyLayer');
       renderStickies();
       renderMobileShell();
@@ -17050,19 +17313,25 @@
       return request;
     }
 
+    function boardCardElementsById(cardId) {
+      const normalizedCardId = String(cardId || '').trim();
+      if (!normalizedCardId) return [];
+      return Array.from(els.board?.querySelectorAll('.card[data-card-id="' + CSS.escape(normalizedCardId) + '"]') || []);
+    }
+
     function boardCardElementById(cardId) {
-      if (!cardId) return null;
-      return els.board?.querySelector('.card[data-card-id="' + cardId + '"]') || null;
+      return boardCardElementsById(cardId)[0] || null;
     }
 
     function replaceBoardCardElement(nextCard) {
-      const currentCard = boardCardElementById(nextCard?.id);
-      if (!currentCard) return false;
-      const template = document.createElement('template');
-      template.innerHTML = renderBoardCardHtml(nextCard);
-      const nextCardElement = template.content.firstElementChild;
-      if (!nextCardElement) return false;
-      currentCard.replaceWith(nextCardElement);
+      const currentCards = boardCardElementsById(nextCard?.id);
+      if (!currentCards.length) return false;
+      currentCards.forEach((currentCard) => {
+        const template = document.createElement('template');
+        template.innerHTML = renderBoardCardHtml(nextCard, { virtual: currentCard.dataset.virtualCard === 'true' });
+        const nextCardElement = template.content.firstElementChild;
+        if (nextCardElement) currentCard.replaceWith(nextCardElement);
+      });
       return true;
     }
 
@@ -17092,6 +17361,10 @@
       if (state.activeCard?.id) {
         const nextActiveCard = nextCardMap.get(state.activeCard.id);
         if (nextActiveCard) state.activeCard = nextActiveCard;
+      }
+      if (extraBoardColumnIsOpen()) {
+        renderBoard();
+        return true;
       }
       const cardsByColumn = buildBoardCardsByColumn(state.snapshot);
       let renderedAny = false;
@@ -17125,6 +17398,12 @@
         state.snapshot.cards = state.snapshot.cards.concat(suppressedNextCard);
       }
       if (state.activeCard?.id === suppressedNextCard.id) state.activeCard = suppressedNextCard.archived ? null : suppressedNextCard;
+      if (extraBoardColumnIsOpen()) {
+        renderBoard();
+        if (els.archiveModal.classList.contains('is-open')) renderArchive();
+        updateSnapshotStatusLine();
+        return true;
+      }
       const affectedColumnId = String((suppressedNextCard.column || previousCard?.column || '')).trim();
       if (affectedColumnId) {
         const cardsByColumn = buildBoardCardsByColumn(state.snapshot);
@@ -17157,6 +17436,11 @@
       if (state.activeCard?.id === suppressedNextCard.id) state.activeCard = suppressedNextCard;
       const archiveOpen = els.archiveModal.classList.contains('is-open');
       const touchesArchive = previousCard?.archived || suppressedNextCard.archived;
+      if (extraBoardColumnIsOpen()) {
+        if (archiveOpen && touchesArchive) renderArchive();
+        renderBoard();
+        return;
+      }
       if (archiveOpen && touchesArchive) renderArchive();
       if (!previousCard || previousCard.archived || suppressedNextCard.archived) {
         renderBoard();
@@ -17204,6 +17488,11 @@
       }
       if (nextCard.archived) return false;
       state.snapshot.cards = state.snapshot.cards.concat(nextCard);
+      if (extraBoardColumnIsOpen()) {
+        renderBoard();
+        updateSnapshotStatusLine({ showSuccess: true });
+        return true;
+      }
       const cardsByColumn = buildBoardCardsByColumn(state.snapshot);
       const columnId = String(nextCard.column || '').trim();
       if (!columnId || !renderBoardColumnById(columnId, cardsByColumn)) renderBoard();
@@ -17233,12 +17522,12 @@
       if (!normalizedCardId) return false;
       clearUnreadHoverTimer(normalizedCardId);
       const currentCard = snapshotCardById(normalizedCardId);
-      const cardElement = boardCardElementById(normalizedCardId);
+      const cardElements = boardCardElementsById(normalizedCardId);
       const suppressionUpdatedAt = currentCard?.updated_at || (state.activeCard?.id === normalizedCardId ? state.activeCard.updated_at : '');
       const hadMarker = Boolean(
         currentCard?.is_unread
         || currentCard?.has_unseen_update
-        || cardElement?.querySelector('.card__unread-badge, .card__updated-badge')
+        || cardElements.some((cardElement) => cardElement.querySelector('.card__unread-badge, .card__updated-badge'))
       );
       recordCardSeenSuppression(normalizedCardId, suppressionUpdatedAt);
       if (currentCard) {
@@ -17249,11 +17538,11 @@
         state.activeCard.is_unread = false;
         state.activeCard.has_unseen_update = false;
       }
-      if (cardElement) {
+      cardElements.forEach((cardElement) => {
         cardElement.dataset.unread = 'false';
         cardElement.dataset.updatedUnseen = 'false';
         cardElement.querySelectorAll('.card__unread-badge, .card__updated-badge').forEach((badge) => badge.remove());
-      }
+      });
       return hadMarker;
     }
 
@@ -17742,6 +18031,7 @@
     function openBoardSettings() {
       applyBoardScale(normalizeBoardScale(state.boardScale), { syncInput: true });
       syncBoardControlSettingsForm();
+      syncExtraBoardColumnSettingsForm();
       pushModal('settings', els.boardSettingsModal);
     }
 

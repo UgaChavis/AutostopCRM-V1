@@ -19,8 +19,11 @@ from .config import (
     get_users_file,
 )
 from .models import (
+    VALID_TAG_COLORS,
     normalize_actor_name,
     normalize_int,
+    normalize_tag_color,
+    normalize_tag_label,
     normalize_text,
     parse_datetime,
     utc_now,
@@ -45,6 +48,9 @@ OPEN_COUNT_KEY = "cards_opened"
 OPERATOR_STAT_MAX = 1_000_000_000
 ACTION_HISTORY_KEY = "action_history"
 ACTION_HISTORY_RETENTION_DAYS = 15
+PERSONAL_BOARD_PREFERENCES_KEY = "board_preferences"
+EXTRA_BOARD_COLUMN_DEFAULT_TAG_LABEL = "НАДО ЧТО ТО СДЕЛАТЬ"
+EXTRA_BOARD_COLUMN_DEFAULT_TAG_COLOR = "red"
 LEGACY_DEFAULT_ADMIN_PASSWORDS = ("admin123",)
 INSECURE_DEFAULT_ADMIN_PASSWORDS = ("admin", *LEGACY_DEFAULT_ADMIN_PASSWORDS)
 ACTION_TO_STAT_KEY = {
@@ -221,6 +227,13 @@ class OperatorAuthService:
 
     def get_profile(self, payload: dict | None = None) -> dict:
         session = self._required_session(payload)
+        if session.get("service_identity"):
+            self._fail(
+                "forbidden",
+                "Личный профиль оператора доступен только в сеансе оператора.",
+                status_code=403,
+                details={"auth_type": "operator_session"},
+            )
         with self._lock:
             state = self._read_normalized_state()
             user = self._find_user(state["users"], session["username"])
@@ -230,6 +243,56 @@ class OperatorAuthService:
                 )
             snapshot = deepcopy(user)
         return self._build_profile_payload(snapshot, token=session["token"])
+
+    def update_personal_board_preferences(self, payload: dict | None = None) -> dict:
+        """Save only the authenticated operator's board-view preferences.
+
+        These preferences deliberately live with the operator account rather
+        than the shared board settings. A personal virtual column therefore
+        never changes what another operator sees on the common board.
+        """
+
+        session = self._required_session(payload)
+        if session.get("service_identity"):
+            self._fail(
+                "forbidden",
+                "Личные настройки доски доступны только в сеансе оператора.",
+                status_code=403,
+                details={"auth_type": "operator_session"},
+            )
+        payload = payload or {}
+        preferences = self._validated_personal_board_preferences(
+            payload.get(PERSONAL_BOARD_PREFERENCES_KEY)
+        )
+        with self._lock:
+            state = self._read_normalized_state()
+            user = self._find_user(state["users"], session["username"])
+            if user is None:
+                self._fail(
+                    "unauthorized",
+                    "Сессия больше не связана с пользователем.",
+                    status_code=401,
+                )
+            default_preferences = self._default_personal_board_preferences()
+            previous = self._personal_board_preferences(user)
+            stored_preferences = user.get(PERSONAL_BOARD_PREFERENCES_KEY)
+            should_store_preferences = preferences != default_preferences
+            changed = (
+                previous != preferences
+                or (should_store_preferences and stored_preferences != preferences)
+                or (not should_store_preferences and PERSONAL_BOARD_PREFERENCES_KEY in user)
+            )
+            if changed:
+                if should_store_preferences:
+                    user[PERSONAL_BOARD_PREFERENCES_KEY] = preferences
+                else:
+                    user.pop(PERSONAL_BOARD_PREFERENCES_KEY, None)
+                self._write_state(state)
+
+        return {
+            PERSONAL_BOARD_PREFERENCES_KEY: preferences,
+            "meta": {"changed": changed},
+        }
 
     def list_users(self, payload: dict | None = None) -> dict:
         self._required_admin_session(payload)
@@ -723,6 +786,110 @@ class OperatorAuthService:
             "employee_id": normalize_text(user.get("employee_id"), default="", limit=64),
         }
 
+    @staticmethod
+    def _default_personal_board_preferences() -> dict[str, Any]:
+        return {
+            "extra_column": {
+                "is_open": False,
+                "filter": {
+                    "tag_label": EXTRA_BOARD_COLUMN_DEFAULT_TAG_LABEL,
+                    "tag_color": EXTRA_BOARD_COLUMN_DEFAULT_TAG_COLOR,
+                },
+            }
+        }
+
+    @staticmethod
+    def _normalized_stored_bool(value: Any, *, default: bool) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"true", "1", "yes", "y"}:
+                return True
+            if normalized in {"false", "0", "no", "n"}:
+                return False
+        return default
+
+    def _personal_board_preferences(self, user: dict[str, Any]) -> dict[str, Any]:
+        """Return a safe, complete personal-view preference payload.
+
+        Legacy operator records have no preferences, and malformed persisted
+        values must never prevent an operator from logging in.
+        """
+
+        defaults = self._default_personal_board_preferences()
+        raw = user.get(PERSONAL_BOARD_PREFERENCES_KEY)
+        source = raw if isinstance(raw, dict) else {}
+        raw_extra_column = source.get("extra_column")
+        extra_column = raw_extra_column if isinstance(raw_extra_column, dict) else {}
+        raw_filter = extra_column.get("filter")
+        filter_payload = raw_filter if isinstance(raw_filter, dict) else {}
+        tag_label = normalize_tag_label(filter_payload.get("tag_label"))
+        if not tag_label:
+            tag_label = defaults["extra_column"]["filter"]["tag_label"]
+        raw_color = str(filter_payload.get("tag_color") or "").strip().lower()
+        tag_color = (
+            normalize_tag_color(raw_color)
+            if raw_color in VALID_TAG_COLORS
+            else defaults["extra_column"]["filter"]["tag_color"]
+        )
+        return {
+            "extra_column": {
+                "is_open": self._normalized_stored_bool(extra_column.get("is_open"), default=False),
+                "filter": {"tag_label": tag_label, "tag_color": tag_color},
+            }
+        }
+
+    def _validated_personal_board_preferences(self, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            self._fail(
+                "validation_error",
+                "Нужно передать личные настройки доски объектом.",
+                details={"field": PERSONAL_BOARD_PREFERENCES_KEY},
+            )
+        extra_column = value.get("extra_column")
+        if not isinstance(extra_column, dict):
+            self._fail(
+                "validation_error",
+                "Нужно передать настройки дополнительной колонки объектом.",
+                details={"field": "board_preferences.extra_column"},
+            )
+        is_open = extra_column.get("is_open")
+        if not isinstance(is_open, bool):
+            self._fail(
+                "validation_error",
+                "Параметр открытия дополнительной колонки должен иметь тип boolean.",
+                details={"field": "board_preferences.extra_column.is_open"},
+            )
+        filter_payload = extra_column.get("filter")
+        if not isinstance(filter_payload, dict):
+            self._fail(
+                "validation_error",
+                "Нужно передать фильтр дополнительной колонки объектом.",
+                details={"field": "board_preferences.extra_column.filter"},
+            )
+        tag_label = normalize_tag_label(filter_payload.get("tag_label"))
+        if not tag_label:
+            self._fail(
+                "validation_error",
+                "Нужно выбрать метку для дополнительной колонки.",
+                details={"field": "board_preferences.extra_column.filter.tag_label"},
+            )
+        raw_color = filter_payload.get("tag_color")
+        tag_color = str(raw_color or "").strip().lower()
+        if tag_color not in VALID_TAG_COLORS:
+            self._fail(
+                "validation_error",
+                "Цвет метки дополнительной колонки не поддерживается.",
+                details={"field": "board_preferences.extra_column.filter.tag_color"},
+            )
+        return {
+            "extra_column": {
+                "is_open": is_open,
+                "filter": {"tag_label": tag_label, "tag_color": tag_color},
+            }
+        }
+
     def _session_payload(self, *, token: str, user: dict[str, Any]) -> dict[str, Any]:
         return {
             "token": token,
@@ -740,6 +907,7 @@ class OperatorAuthService:
             "stats": user_payload["stats"],
             "recent_actions": user_payload["recent_actions"],
             "security": self._security_payload(user),
+            PERSONAL_BOARD_PREFERENCES_KEY: self._personal_board_preferences(user),
         }
 
     def _security_payload(self, user: dict[str, Any]) -> dict[str, Any]:
@@ -1288,29 +1456,31 @@ class OperatorAuthService:
                 continue
             stats = item.get("stats")
             employee_id = normalize_text(item.get("employee_id"), default="", limit=64)
-            normalized.append(
-                {
-                    "username": username,
-                    "password_hash": password_hash,
-                    "role": role,
-                    "created_at": (parse_datetime(item.get("created_at")) or utc_now()).isoformat(),
-                    "updated_at": (
-                        parse_datetime(item.get("updated_at"))
-                        or parse_datetime(item.get("created_at"))
-                        or utc_now()
-                    ).isoformat(),
-                    "employee_id": employee_id,
-                    "stats": {
-                        OPEN_COUNT_KEY: normalize_int(
-                            (stats or {}).get(OPEN_COUNT_KEY),
-                            default=0,
-                            minimum=0,
-                            maximum=OPERATOR_STAT_MAX,
-                        )
-                    },
-                    ACTION_HISTORY_KEY: self._prune_action_history(item.get(ACTION_HISTORY_KEY)),
-                }
-            )
+            normalized_user = {
+                "username": username,
+                "password_hash": password_hash,
+                "role": role,
+                "created_at": (parse_datetime(item.get("created_at")) or utc_now()).isoformat(),
+                "updated_at": (
+                    parse_datetime(item.get("updated_at"))
+                    or parse_datetime(item.get("created_at"))
+                    or utc_now()
+                ).isoformat(),
+                "employee_id": employee_id,
+                "stats": {
+                    OPEN_COUNT_KEY: normalize_int(
+                        (stats or {}).get(OPEN_COUNT_KEY),
+                        default=0,
+                        minimum=0,
+                        maximum=OPERATOR_STAT_MAX,
+                    )
+                },
+                ACTION_HISTORY_KEY: self._prune_action_history(item.get(ACTION_HISTORY_KEY)),
+            }
+            preferences = self._personal_board_preferences(item)
+            if preferences != self._default_personal_board_preferences():
+                normalized_user[PERSONAL_BOARD_PREFERENCES_KEY] = preferences
+            normalized.append(normalized_user)
             seen.add(username)
         return normalized
 

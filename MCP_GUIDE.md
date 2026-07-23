@@ -68,6 +68,11 @@ Low-level board, client, repair-order, inventory, finance, file, operator, and
 manager functions remain in the raw registry but are not advertised directly.
 Do not call a hidden legacy name from an external agent.
 
+`/api/get_operator_profile` and `/api/update_personal_board_preferences` are
+not MCP capabilities. They control one human operator's private extra
+board-column view, are restricted to that browser session, and cannot be read
+or changed by the Gateway service identity.
+
 The raw board registry includes `start_card_timer` and `stop_card_timer`.
 `create_card` leaves the timer inactive when `deadline` is omitted; an explicit
 positive deadline starts it. Restarting without a deadline reuses the saved

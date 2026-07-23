@@ -748,6 +748,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             "async function fetchFullCard(cardId, expectedUpdatedAt = '')",
             "function boardCardElementById(",
         )
+
         self._run_node(
             f"""
             const assert = require('node:assert/strict');
@@ -794,6 +795,417 @@ class WebAssetsRuntimeTests(unittest.TestCase):
               assert.equal(currentCard.viewer, 'SECOND');
               assert.equal(state.fullCardCache.get('card-1').viewer, 'SECOND');
               assert.equal(state.cardFetchInFlight.size, 0);
+            }})().catch((error) => {{
+              console.error(error);
+              process.exitCode = 1;
+            }});
+            """
+        )
+
+    def test_personal_extra_column_matches_exact_tag_and_color_without_archived_cards(self) -> None:
+        extra_column_helpers = _source_section(
+            self.source,
+            "function normalizeTagColor(color)",
+            "function normalizeRepairOrderTags",
+        )
+        self._run_node(
+            f"""
+            const assert = require('node:assert/strict');
+
+            const CARD_TAG_LIMIT = 3;
+            const CARD_STORED_TAG_LIMIT = 4;
+            const READY_CARD_TAG_LABEL = 'ГОТОВ';
+            const EXTRA_BOARD_COLUMN_DEFAULT_TAG_LABEL = 'НАДО ЧТО ТО СДЕЛАТЬ';
+            const EXTRA_BOARD_COLUMN_DEFAULT_TAG_COLOR = 'red';
+            const TAG_COLOR_OPTIONS = [
+              {{ value: 'green', label: 'ЗЕЛЁНЫЙ' }},
+              {{ value: 'yellow', label: 'ЖЁЛТЫЙ' }},
+              {{ value: 'red', label: 'КРАСНЫЙ' }},
+            ];
+            const state = {{ personalBoardPreferences: null, operatorProfile: null, snapshot: null }};
+            const els = {{}};
+            function finiteNumber(value, fallback = 0) {{
+              const parsed = Number(value);
+              return Number.isFinite(parsed) ? parsed : fallback;
+            }}
+            function sortBoardCards(cards) {{ return Array.from(cards || []); }}
+            function escapeHtml(value) {{ return String(value || ''); }}
+            function requireOperatorSession() {{ return true; }}
+            function renderBoard() {{}}
+            function setStatus() {{}}
+            async function api() {{ return {{}}; }}
+
+            {extra_column_helpers}
+
+            state.personalBoardPreferences = {{
+              extra_column: {{
+                is_open: true,
+                filter: {{ tag_label: 'НАДО ЧТО ТО СДЕЛАТЬ', tag_color: 'red' }},
+              }},
+            }};
+            assert.equal(extraBoardColumnIsOpen(), true);
+            assert.equal(
+              normalizeExtraBoardColumnTagLabel(' надо,  что   то сделать '),
+              'НАДО ЧТО ТО СДЕЛАТЬ',
+            );
+            assert.equal(cardMatchesExtraBoardColumn({{
+              id: 'match',
+              tag_items: [{{ label: 'надо что то сделать', color: 'red' }}],
+            }}), true);
+            assert.equal(cardMatchesExtraBoardColumn({{
+              id: 'wrong-color',
+              tag_items: [{{ label: 'НАДО ЧТО ТО СДЕЛАТЬ', color: 'yellow' }}],
+            }}), false);
+            assert.equal(cardMatchesExtraBoardColumn({{
+              id: 'archived',
+              archived: true,
+              tag_items: [{{ label: 'НАДО ЧТО ТО СДЕЛАТЬ', color: 'red' }}],
+            }}), false);
+            assert.equal(cardMatchesExtraBoardColumn({{
+              id: 'fourth-tag-match',
+              tag_items: [
+                {{ label: 'ПЕРВАЯ', color: 'green' }},
+                {{ label: 'ВТОРАЯ', color: 'green' }},
+                {{ label: 'ТРЕТЬЯ', color: 'yellow' }},
+                {{ label: 'НАДО ЧТО ТО СДЕЛАТЬ', color: 'red' }},
+              ],
+            }}), true);
+            assert.equal(normalizeDraftTags([
+              {{ label: 'ГОТОВ', color: 'green' }},
+              {{ label: 'ПЕРВАЯ', color: 'green' }},
+              {{ label: 'ВТОРАЯ', color: 'yellow' }},
+              {{ label: 'НАДО ЧТО ТО СДЕЛАТЬ', color: 'red' }},
+            ]).length, 4);
+            assert.deepEqual(
+              extraBoardColumnCards({{
+                cards: [
+                  {{ id: 'match', tag_items: [{{ label: 'НАДО ЧТО ТО СДЕЛАТЬ', color: 'red' }}] }},
+                  {{ id: 'wrong-color', tag_items: [{{ label: 'НАДО ЧТО ТО СДЕЛАТЬ', color: 'yellow' }}] }},
+                  {{ id: 'archived', archived: true, tag_items: [{{ label: 'НАДО ЧТО ТО СДЕЛАТЬ', color: 'red' }}] }},
+                  {{ id: 'fourth-tag-match', tag_items: [
+                    {{ label: 'ПЕРВАЯ', color: 'green' }},
+                    {{ label: 'ВТОРАЯ', color: 'green' }},
+                    {{ label: 'ТРЕТЬЯ', color: 'yellow' }},
+                    {{ label: 'НАДО ЧТО ТО СДЕЛАТЬ', color: 'red' }},
+                  ] }},
+                ],
+              }}).map((card) => card.id),
+              ['match', 'fourth-tag-match'],
+            );
+            """
+        )
+
+    def test_personal_extra_column_async_responses_cannot_cross_operator_sessions(
+        self,
+    ) -> None:
+        extra_column_preferences = _source_section(
+            self.source,
+            "function normalizeExtraBoardColumnTagLabel(value)",
+            "function normalizeRepairOrderTags",
+        )
+        profile_loader = _source_section(
+            self.source,
+            "async function loadOperatorProfile(openModal = false)",
+            "async function openOperatorWorkspace()",
+        )
+        profile_renderer = _source_section(
+            self.source,
+            "function renderOperatorProfile(data,",
+            "async function loadOperatorProfile(openModal = false)",
+        )
+        self._run_node(
+            f"""
+            const assert = require('node:assert/strict');
+
+            (async () => {{
+              {{
+                const requests = [];
+                const rendered = [];
+                const statusMessages = [];
+                const CARD_TAG_LIMIT = 3;
+                const CARD_STORED_TAG_LIMIT = 4;
+                const READY_CARD_TAG_LABEL = 'ГОТОВ';
+                const EXTRA_BOARD_COLUMN_DEFAULT_TAG_LABEL = 'НАДО ЧТО ТО СДЕЛАТЬ';
+                const EXTRA_BOARD_COLUMN_DEFAULT_TAG_COLOR = 'red';
+                const TAG_COLOR_OPTIONS = [
+                  {{ value: 'green', label: 'ЗЕЛЁНЫЙ' }},
+                  {{ value: 'yellow', label: 'ЖЁЛТЫЙ' }},
+                  {{ value: 'red', label: 'КРАСНЫЙ' }},
+                ];
+                const state = {{
+                  viewerStateGeneration: 0,
+                  operatorSessionToken: 'first-session',
+                  personalBoardPreferencesRevision: 0,
+                  extraBoardColumnSaving: false,
+                  extraBoardColumnSettingsOpen: false,
+                  personalBoardPreferences: {{
+                    extra_column: {{
+                      is_open: false,
+                      filter: {{ tag_label: 'ПЕРВЫЙ', tag_color: 'red' }},
+                    }},
+                  }},
+                  operatorProfile: {{ user: {{ username: 'FIRST' }} }},
+                  snapshot: {{ cards: [] }},
+                }};
+                const els = {{}};
+                function requireOperatorSession() {{ return true; }}
+                function renderBoard() {{ rendered.push(state.operatorSessionToken); }}
+                function setStatus(message) {{ statusMessages.push(message); }}
+                function sortBoardCards(cards) {{ return Array.from(cards || []); }}
+                function escapeHtml(value) {{ return String(value || ''); }}
+                function finiteNumber(value, fallback = 0) {{
+                  const parsed = Number(value);
+                  return Number.isFinite(parsed) ? parsed : fallback;
+                }}
+                function api(path, options = {{}}) {{
+                  return new Promise((resolve, reject) => requests.push({{ path, options, resolve, reject }}));
+                }}
+
+                {extra_column_preferences}
+
+                const staleSave = savePersonalBoardPreferences({{
+                  extra_column: {{
+                    is_open: true,
+                    filter: {{ tag_label: 'ПЕРВАЯ МЕТКА', tag_color: 'yellow' }},
+                  }},
+                }}, {{ statusMessage: 'ПЕРВАЯ КОЛОНКА СОХРАНЕНА.' }});
+                assert.equal(requests.length, 1);
+                assert.equal(requests[0].path, '/api/update_personal_board_preferences');
+
+                state.viewerStateGeneration = 1;
+                state.operatorSessionToken = 'second-session';
+                state.extraBoardColumnSaving = false;
+                state.personalBoardPreferences = {{
+                  extra_column: {{
+                    is_open: false,
+                    filter: {{ tag_label: 'ВТОРАЯ МЕТКА', tag_color: 'red' }},
+                  }},
+                }};
+                state.operatorProfile = {{ user: {{ username: 'SECOND' }} }};
+                requests[0].resolve({{
+                  board_preferences: {{
+                    extra_column: {{
+                      is_open: true,
+                      filter: {{ tag_label: 'ПЕРВАЯ МЕТКА', tag_color: 'yellow' }},
+                    }},
+                  }},
+                }});
+                assert.equal(await staleSave, false);
+                assert.equal(state.personalBoardPreferences.extra_column.filter.tag_label, 'ВТОРАЯ МЕТКА');
+                assert.equal(state.personalBoardPreferences.extra_column.is_open, false);
+                assert.deepEqual(rendered, [], 'stale save rendered the next operator board');
+                assert.deepEqual(statusMessages, [], 'stale save reported status to the next operator');
+                assert.equal(state.extraBoardColumnSaving, false);
+
+                const currentSave = savePersonalBoardPreferences({{
+                  extra_column: {{
+                    is_open: true,
+                    filter: {{ tag_label: 'ВТОРАЯ МЕТКА', tag_color: 'red' }},
+                  }},
+                }}, {{ statusMessage: 'ВТОРАЯ КОЛОНКА СОХРАНЕНА.' }});
+                assert.equal(requests.length, 2);
+                requests[1].resolve({{
+                  board_preferences: {{
+                    extra_column: {{
+                      is_open: true,
+                      filter: {{ tag_label: 'ВТОРАЯ МЕТКА', tag_color: 'red' }},
+                    }},
+                  }},
+                }});
+                assert.equal(await currentSave, true);
+                assert.equal(state.personalBoardPreferences.extra_column.is_open, true);
+                assert.equal(state.personalBoardPreferencesRevision, 1);
+                assert.deepEqual(rendered, ['second-session']);
+                assert.deepEqual(statusMessages, ['ВТОРАЯ КОЛОНКА СОХРАНЕНА.']);
+              }}
+
+              {{
+                const requests = [];
+                const renderedProfiles = [];
+                const state = {{
+                  viewerStateGeneration: 0,
+                  operatorSessionToken: 'first-session',
+                  personalBoardPreferencesRevision: 0,
+                }};
+                async function api(path) {{
+                  assert.equal(path, '/api/get_operator_profile');
+                  return new Promise((resolve, reject) => requests.push({{ resolve, reject }}));
+                }}
+                function renderOperatorProfile(data, options) {{
+                  renderedProfiles.push([
+                    data.user.username,
+                    Boolean(options?.openModal),
+                    Boolean(options?.preservePersonalBoardPreferences),
+                  ]);
+                }}
+
+                {profile_loader}
+
+                const staleProfile = loadOperatorProfile(true);
+                assert.equal(requests.length, 1);
+                state.viewerStateGeneration = 1;
+                state.operatorSessionToken = 'second-session';
+                requests[0].resolve({{ user: {{ username: 'FIRST' }} }});
+                assert.equal(await staleProfile, null);
+                assert.deepEqual(renderedProfiles, [], 'stale profile opened the next operator view');
+
+                const currentProfile = loadOperatorProfile(false);
+                assert.equal(requests.length, 2);
+                requests[1].resolve({{ user: {{ username: 'SECOND' }} }});
+                assert.deepEqual(await currentProfile, {{ user: {{ username: 'SECOND' }} }});
+                assert.deepEqual(renderedProfiles, [['SECOND', false, false]]);
+
+                const stalePreferencesProfile = loadOperatorProfile(false);
+                assert.equal(requests.length, 3);
+                state.personalBoardPreferencesRevision += 1;
+                requests[2].resolve({{ user: {{ username: 'SECOND' }} }});
+                assert.deepEqual(await stalePreferencesProfile, {{ user: {{ username: 'SECOND' }} }});
+                assert.deepEqual(renderedProfiles, [
+                  ['SECOND', false, false],
+                  ['SECOND', false, true],
+                ]);
+              }}
+
+              {{
+                const state = {{
+                  personalBoardPreferences: {{
+                    extra_column: {{
+                      is_open: true,
+                      filter: {{ tag_label: 'НОВЫЙ ФИЛЬТР', tag_color: 'red' }},
+                    }},
+                  }},
+                  operatorProfile: null,
+                  operatorSessionToken: 'second-session',
+                  snapshot: null,
+                  boardScale: 1,
+                }};
+                const els = {{
+                  operatorProfileMeta: {{ textContent: '' }},
+                  operatorStatsGrid: {{ innerHTML: '' }},
+                  operatorAdminButton: {{ classList: {{ toggle() {{}} }} }},
+                }};
+                function personalBoardPreferences() {{ return state.personalBoardPreferences; }}
+                function applyPersonalBoardPreferences(value) {{ state.personalBoardPreferences = value; }}
+                function setOperatorSessionToken(value) {{ state.operatorSessionToken = value; }}
+                function applyBoardScalePreference() {{}}
+                function updateOperatorButton() {{}}
+                function syncExtraBoardColumnSettingsForm() {{}}
+                function renderBoard() {{}}
+                function operatorStatHtml() {{ return ''; }}
+                function formatDate() {{ return ''; }}
+                function renderOperatorActivity() {{}}
+                function closeOperatorLoginModal() {{}}
+                function refreshCashboxNotification() {{ return Promise.resolve(); }}
+                function pushModal() {{}}
+
+                {profile_renderer}
+
+                renderOperatorProfile({{
+                  session: {{ token: 'second-session' }},
+                  user: {{ username: 'SECOND', is_admin: false, updated_at: '' }},
+                  board_preferences: {{
+                    extra_column: {{
+                      is_open: false,
+                      filter: {{ tag_label: 'СТАРЫЙ ФИЛЬТР', tag_color: 'yellow' }},
+                    }},
+                  }},
+                }}, {{ preservePersonalBoardPreferences: true }});
+                assert.equal(
+                  state.personalBoardPreferences.extra_column.filter.tag_label,
+                  'НОВЫЙ ФИЛЬТР',
+                );
+                assert.equal(
+                  state.operatorProfile.board_preferences.extra_column.filter.tag_label,
+                  'НОВЫЙ ФИЛЬТР',
+                );
+              }}
+
+              {{
+                const requests = [];
+                const CARD_TAG_LIMIT = 3;
+                const CARD_STORED_TAG_LIMIT = 4;
+                const READY_CARD_TAG_LABEL = 'ГОТОВ';
+                const EXTRA_BOARD_COLUMN_DEFAULT_TAG_LABEL = 'НАДО ЧТО ТО СДЕЛАТЬ';
+                const EXTRA_BOARD_COLUMN_DEFAULT_TAG_COLOR = 'red';
+                const TAG_COLOR_OPTIONS = [
+                  {{ value: 'green', label: 'ЗЕЛЁНЫЙ' }},
+                  {{ value: 'yellow', label: 'ЖЁЛТЫЙ' }},
+                  {{ value: 'red', label: 'КРАСНЫЙ' }},
+                ];
+                const oldPreferences = {{
+                  extra_column: {{
+                    is_open: false,
+                    filter: {{ tag_label: 'СТАРЫЙ ФИЛЬТР', tag_color: 'yellow' }},
+                  }},
+                }};
+                const newPreferences = {{
+                  extra_column: {{
+                    is_open: true,
+                    filter: {{ tag_label: 'НОВЫЙ ФИЛЬТР', tag_color: 'red' }},
+                  }},
+                }};
+                const state = {{
+                  viewerStateGeneration: 0,
+                  operatorSessionToken: 'second-session',
+                  personalBoardPreferencesRevision: 0,
+                  extraBoardColumnSaving: false,
+                  extraBoardColumnSettingsOpen: false,
+                  personalBoardPreferences: oldPreferences,
+                  operatorProfile: {{ user: {{ username: 'SECOND' }}, board_preferences: oldPreferences }},
+                  snapshot: null,
+                  boardScale: 1,
+                }};
+                const els = {{
+                  operatorProfileMeta: {{ textContent: '' }},
+                  operatorStatsGrid: {{ innerHTML: '' }},
+                  operatorAdminButton: {{ classList: {{ toggle() {{}} }} }},
+                }};
+                function requireOperatorSession() {{ return true; }}
+                function renderBoard() {{}}
+                function setStatus() {{}}
+                function finiteNumber(value, fallback = 0) {{
+                  const parsed = Number(value);
+                  return Number.isFinite(parsed) ? parsed : fallback;
+                }}
+                function sortBoardCards(cards) {{ return Array.from(cards || []); }}
+                function escapeHtml(value) {{ return String(value || ''); }}
+                function setOperatorSessionToken(value) {{ state.operatorSessionToken = value; }}
+                function applyBoardScalePreference() {{}}
+                function updateOperatorButton() {{}}
+                function operatorStatHtml() {{ return ''; }}
+                function formatDate() {{ return ''; }}
+                function renderOperatorActivity() {{}}
+                function closeOperatorLoginModal() {{}}
+                function refreshCashboxNotification() {{ return Promise.resolve(); }}
+                function pushModal() {{}}
+                function api(path, options = {{}}) {{
+                  return new Promise((resolve, reject) => requests.push({{ path, options, resolve, reject }}));
+                }}
+
+                {extra_column_preferences}
+                {profile_renderer}
+                {profile_loader}
+
+                const delayedProfile = loadOperatorProfile(false);
+                assert.equal(requests.length, 1);
+                assert.equal(requests[0].path, '/api/get_operator_profile');
+                const savedPreferences = savePersonalBoardPreferences(newPreferences);
+                assert.equal(requests.length, 2);
+                assert.equal(requests[1].path, '/api/update_personal_board_preferences');
+                requests[1].resolve({{ board_preferences: newPreferences }});
+                assert.equal(await savedPreferences, true);
+                assert.equal(state.personalBoardPreferencesRevision, 1);
+                assert.equal(state.personalBoardPreferences.extra_column.filter.tag_label, 'НОВЫЙ ФИЛЬТР');
+
+                requests[0].resolve({{
+                  session: {{ token: 'second-session' }},
+                  user: {{ username: 'SECOND', is_admin: false, updated_at: '' }},
+                  board_preferences: oldPreferences,
+                }});
+                await delayedProfile;
+                assert.equal(state.personalBoardPreferences.extra_column.filter.tag_label, 'НОВЫЙ ФИЛЬТР');
+                assert.equal(state.operatorProfile.board_preferences.extra_column.filter.tag_label, 'НОВЫЙ ФИЛЬТР');
+              }}
             }})().catch((error) => {{
               console.error(error);
               process.exitCode = 1;

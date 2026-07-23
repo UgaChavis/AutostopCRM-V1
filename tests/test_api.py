@@ -1123,6 +1123,148 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(deleted["data"]["deleted"])
 
+    def test_personal_board_preferences_are_private_to_the_human_operator_session(self) -> None:
+        preferences = {
+            "extra_column": {
+                "is_open": True,
+                "filter": {"tag_label": "срочно", "tag_color": "yellow"},
+            }
+        }
+        unauthenticated_status, unauthenticated = self.request(
+            "/api/update_personal_board_preferences",
+            {"board_preferences": preferences},
+        )
+        self.assertEqual(unauthenticated_status, 401)
+        self.assertEqual(unauthenticated["error"]["code"], "unauthorized")
+
+        admin_status, admin_login = self.request(
+            "/api/login_operator",
+            {"username": "admin", "password": "admin"},
+        )
+        self.assertEqual(admin_status, 200)
+        admin_headers = {"X-Operator-Session": admin_login["data"]["session"]["token"]}
+        default_profile_status, default_profile = self.request(
+            "/api/get_operator_profile", method="GET", headers=admin_headers
+        )
+        self.assertEqual(default_profile_status, 200)
+        self.assertEqual(
+            {
+                "extra_column": {
+                    "is_open": False,
+                    "filter": {"tag_label": "НАДО ЧТО ТО СДЕЛАТЬ", "tag_color": "red"},
+                }
+            },
+            default_profile["data"]["board_preferences"],
+        )
+
+        created_status, _ = self.request(
+            "/api/save_operator_user",
+            {"username": "personal", "password": "personal-password-71A9"},
+            headers=admin_headers,
+        )
+        self.assertEqual(created_status, 200)
+        personal_status, personal_login = self.request(
+            "/api/login_operator",
+            {"username": "personal", "password": "personal-password-71A9"},
+        )
+        self.assertEqual(personal_status, 200)
+        personal_headers = {"X-Operator-Session": personal_login["data"]["session"]["token"]}
+        before_update_list_status, before_update_list = self.request(
+            "/api/list_operator_users", method="GET", headers=admin_headers
+        )
+        self.assertEqual(before_update_list_status, 200)
+        personal_updated_at_before = next(
+            user["updated_at"]
+            for user in before_update_list["data"]["users"]
+            if user["username"] == "PERSONAL"
+        )
+
+        marker = Path(self.temp_dir.name) / ".agent-gateway-maintenance"
+        marker.touch()
+        with patch.dict(os.environ, {"AUTOSTOP_MAINTENANCE_MARKER": str(marker)}):
+            saved_status, saved = self.request(
+                "/api/update_personal_board_preferences",
+                {"board_preferences": preferences},
+                headers=personal_headers,
+            )
+        self.assertEqual(saved_status, 200)
+        self.assertTrue(saved["data"]["meta"]["changed"])
+        expected_preferences = {
+            "extra_column": {
+                "is_open": True,
+                "filter": {"tag_label": "СРОЧНО", "tag_color": "yellow"},
+            }
+        }
+        self.assertEqual(expected_preferences, saved["data"]["board_preferences"])
+
+        profile_status, profile = self.request(
+            "/api/get_operator_profile", method="GET", headers=personal_headers
+        )
+        self.assertEqual(profile_status, 200)
+        self.assertEqual(expected_preferences, profile["data"]["board_preferences"])
+
+        admin_profile_status, admin_profile = self.request(
+            "/api/get_operator_profile", method="GET", headers=admin_headers
+        )
+        self.assertEqual(admin_profile_status, 200)
+        self.assertFalse(admin_profile["data"]["board_preferences"]["extra_column"]["is_open"])
+        list_status, listed = self.request(
+            "/api/list_operator_users", method="GET", headers=admin_headers
+        )
+        self.assertEqual(list_status, 200)
+        personal_user = next(
+            user for user in listed["data"]["users"] if user["username"] == "PERSONAL"
+        )
+        self.assertNotIn("board_preferences", personal_user)
+        self.assertEqual(personal_updated_at_before, personal_user["updated_at"])
+
+        invalid_status, invalid = self.request(
+            "/api/update_personal_board_preferences",
+            {
+                "board_preferences": {
+                    "extra_column": {
+                        "is_open": True,
+                        "filter": {"tag_label": "СРОЧНО", "tag_color": "blue"},
+                    }
+                }
+            },
+            headers=personal_headers,
+        )
+        self.assertEqual(invalid_status, 400)
+        self.assertEqual(invalid["error"]["code"], "validation_error")
+
+        gateway_token = "agent-service-token-with-strong-test-entropy-0123456789"
+        gateway_env = {
+            "AUTOSTOP_DEPLOYMENT_ENV": "development",
+            "AUTOSTOP_AGENT_GATEWAY_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_WRITES_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED": "1",
+            "AUTOSTOP_AGENT_SERVICE_IDENTITY": "personal",
+            "MINIMAL_KANBAN_MCP_BEARER_TOKEN": gateway_token,
+        }
+        with patch.dict(os.environ, gateway_env, clear=False):
+            agent_profile_status, agent_profile_denied = self.request(
+                "/api/get_operator_profile",
+                {"source": "mcp_agent_gateway_v2"},
+                headers={
+                    "X-Autostop-Agent-Identity": "personal",
+                    "X-Autostop-Agent-Token": gateway_token,
+                },
+            )
+            agent_status, agent_denied = self.request(
+                "/api/update_personal_board_preferences",
+                {"board_preferences": preferences, "source": "mcp_agent_gateway_v2"},
+                headers={
+                    "X-Autostop-Agent-Identity": "personal",
+                    "X-Autostop-Agent-Token": gateway_token,
+                },
+            )
+        self.assertEqual(agent_profile_status, 403)
+        self.assertEqual(agent_profile_denied["error"]["code"], "forbidden")
+        self.assertEqual(agent_profile_denied["error"]["details"]["auth_type"], "operator_session")
+        self.assertEqual(agent_status, 403)
+        self.assertEqual(agent_denied["error"]["code"], "forbidden")
+
     def test_local_agent_service_identity_can_use_admin_route_without_human_session(self) -> None:
         token = "agent-service-token-with-strong-test-entropy-0123456789"
         gateway_env = {

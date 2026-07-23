@@ -40,7 +40,6 @@ RAW_API_READ_ROUTES = frozenset(
         "/api/get_inspection_sheet_form",
         "/api/get_operator_activity_aggregates",
         "/api/get_operator_activity_details",
-        "/api/get_operator_profile",
         "/api/get_operator_user_report",
         "/api/get_payroll_report",
         "/api/get_repair_order_print_workspace",

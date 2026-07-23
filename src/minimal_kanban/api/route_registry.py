@@ -104,6 +104,7 @@ PROXIED_WRITE_ROUTES = {
 OPERATOR_SESSION_ROUTES = {
     "/api/logout_operator",
     "/api/get_operator_profile",
+    "/api/update_personal_board_preferences",
     "/api/get_display_dashboard",
     "/api/open_card",
 }
@@ -283,6 +284,7 @@ def build_operator_routes(operator_service: Any) -> dict[str, RouteHandler]:
         "/api/login_operator": operator_service.login,
         "/api/logout_operator": operator_service.logout,
         "/api/get_operator_profile": operator_service.get_profile,
+        "/api/update_personal_board_preferences": operator_service.update_personal_board_preferences,
         "/api/list_operator_users": operator_service.list_users,
         "/api/save_operator_user": operator_service.save_user,
         "/api/set_operator_user_employee": operator_service.set_user_employee,

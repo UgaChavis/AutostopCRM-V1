@@ -11,17 +11,21 @@ REVIEWED_BASELINE_GAPS = {
     "/api/get_board_revision",
     "/api/get_display_dashboard",
     "/api/get_inspection_sheet_form",
+    "/api/get_operator_profile",
     "/api/get_repair_order_print_workspace",
     "/api/list_employees",
     "/api/login_operator",
     "/api/logout_operator",
+    "/api/update_personal_board_preferences",
     "/api/open_card",
     "/api/set_card_ai_autofill",
 }
 
 INTENTIONAL_HUMAN_SESSION_EXEMPTIONS = {
+    "/api/get_operator_profile",
     "/api/login_operator",
     "/api/logout_operator",
+    "/api/update_personal_board_preferences",
 }
 
 CURRENT_GAPS: set[str] = set()
@@ -63,7 +67,7 @@ class CrmCapabilityParityTests(unittest.TestCase):
             INTENTIONAL_HUMAN_SESSION_EXEMPTIONS,
             set(self.inventory["intentional_exemptions"]),
         )
-        self.assertEqual(11, self.inventory["summary"]["baseline_gaps"])
+        self.assertEqual(13, self.inventory["summary"]["baseline_gaps"])
         self.assertEqual(9, self.inventory["summary"]["baseline_gaps_resolved"])
         self.assertTrue(self.inventory["summary"]["parity_complete"])
 
@@ -92,7 +96,7 @@ class CrmCapabilityParityTests(unittest.TestCase):
                     rows[route]["reachability"]["selected"],
                 )
 
-    def test_only_human_login_and_logout_remain_unreachable(self) -> None:
+    def test_only_reviewed_human_session_routes_remain_unreachable(self) -> None:
         rows = {row["route"]: row for row in self.inventory["matrix"]}
         self.assertEqual(
             INTENTIONAL_HUMAN_SESSION_EXEMPTIONS,

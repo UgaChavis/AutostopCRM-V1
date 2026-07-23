@@ -663,6 +663,20 @@
     }
     .column[draggable="true"] { cursor: grab; }
     .column[draggable="true"]:active { cursor: grabbing; }
+    .column--virtual {
+      --column-tint: #1e1924;
+      --column-head: rgba(72, 54, 91, 0.98);
+      --column-edge: rgba(183, 141, 220, 0.48);
+      --column-empty: rgba(41, 30, 52, 0.36);
+      border-style: dashed;
+      cursor: default;
+      opacity: 0.8;
+    }
+    .column--virtual::before {
+      background: linear-gradient(180deg, rgba(216, 185, 242, 0.42), rgba(73, 42, 92, 0.2));
+    }
+    .column--virtual .column__head { cursor: default; }
+    .card--virtual { cursor: pointer; }
     .column.is-drop-target { outline: 1px solid var(--accent); }
     .column.is-column-drop-target { outline: 1px dashed rgba(167, 178, 132, 0.92); outline-offset: 2px; }
     .column.is-column-dragging { opacity: 0.72; }

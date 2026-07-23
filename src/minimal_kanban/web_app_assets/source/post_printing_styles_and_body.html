@@ -3959,16 +3959,43 @@
         <div class="scale-control">
           <div class="scale-head">
             <label class="scale-head__label" for="boardScaleInput">МАСШТАБ</label>
-            <span class="scale-head__value" id="boardScaleValue">100%</span>
+            <div class="scale-head__controls">
+              <span class="scale-head__value" id="boardScaleValue">100%</span>
+              <button class="btn btn--ghost scale-head__reset" id="boardScaleReset" type="button">СБРОСИТЬ</button>
+            </div>
           </div>
           <div class="scale-track">
             <input id="boardScaleInput" type="range" min="50" max="150" step="5" value="100">
           </div>
         </div>
       </div>
+      <div class="field board-extra-column-settings" id="extraBoardColumnFilterPanel" hidden>
+        <div class="board-extra-column-settings__title">ФИЛЬТР ДОПОЛНИТЕЛЬНОЙ КОЛОНКИ</div>
+        <div class="board-extra-column-settings__fields">
+          <label class="field field--compact" for="extraBoardColumnTagLabelInput">
+            <span>МЕТКА</span>
+            <input id="extraBoardColumnTagLabelInput" type="text" maxlength="24" autocomplete="off" list="extraBoardColumnTagSuggestions" placeholder="НАЗВАНИЕ МЕТКИ">
+            <datalist id="extraBoardColumnTagSuggestions"></datalist>
+          </label>
+          <label class="field field--compact" for="extraBoardColumnTagColorSelect">
+            <span>ЦВЕТ</span>
+            <select id="extraBoardColumnTagColorSelect">
+              <option value="green">ЗЕЛЁНЫЙ</option>
+              <option value="yellow">ЖЁЛТЫЙ</option>
+              <option value="red">КРАСНЫЙ</option>
+            </select>
+          </label>
+        </div>
+        <button class="btn btn--accent" id="extraBoardColumnFilterSaveButton" type="button">СОХРАНИТЬ ФИЛЬТР</button>
+      </div>
       <div class="dialog__foot">
-        <button class="btn btn--accent" id="openDisplayDashboardButton" type="button">ОТКРЫТЬ ДАШБОРД</button>
-        <button class="btn btn--ghost" id="boardScaleReset">СБРОСИТЬ НА 100%</button>
+        <div class="board-settings__actions">
+          <button class="btn btn--accent" id="openDisplayDashboardButton" type="button">ОТКРЫТЬ ДАШБОРД</button>
+          <div class="board-extra-column-actions">
+            <button class="btn btn--accent" id="extraBoardColumnToggleButton" type="button">ОТКРЫТЬ ДОП. КОЛОНКУ</button>
+            <button class="btn btn--ghost board-extra-column-actions__settings" id="extraBoardColumnFilterButton" type="button" title="НАСТРОИТЬ ФИЛЬТР ДОП. КОЛОНКИ" aria-label="НАСТРОИТЬ ФИЛЬТР ДОП. КОЛОНКИ" aria-controls="extraBoardColumnFilterPanel" aria-expanded="false">&#9881;</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>

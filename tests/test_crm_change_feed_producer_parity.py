@@ -34,7 +34,7 @@ class CrmChangeFeedProducerParityTests(unittest.TestCase):
         self.assertEqual([], result["issues"])
         self.assertTrue(result["summary"]["producer_complete"])
         self.assertEqual(0, result["summary"]["gaps"])
-        self.assertEqual(95, result["summary"]["write_actions"])
+        self.assertEqual(96, result["summary"]["write_actions"])
         self.assertEqual(72, result["summary"]["executor_contract_only"])
         self.assertEqual(72, result["summary"]["executor_contract_resolved"])
         self.assertEqual(56, result["summary"]["canonical_route_feed_readback"])

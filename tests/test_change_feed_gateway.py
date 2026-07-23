@@ -163,6 +163,11 @@ class ChangeFeedRawGatewayContractTests(unittest.IsolatedAsyncioTestCase):
     def test_routes_have_exact_schemas_and_risk_classes(self) -> None:
         self.assertIn(CHANGE_FEED_READ_ROUTE, RAW_API_READ_ROUTES)
         self.assertNotIn(CHANGE_FEED_READ_ROUTE, RAW_API_WRITE_ROUTES)
+        self.assertNotIn(
+            "/api/get_operator_profile",
+            RAW_API_READ_ROUTES,
+            "personal operator profiles must not be advertised to the service gateway",
+        )
         for route in (CHANGE_FEED_BOOTSTRAP_ROUTE, CHANGE_FEED_ACK_ROUTE):
             self.assertIn(route, RAW_API_WRITE_ROUTES)
             self.assertNotIn(route, RAW_API_READ_ROUTES)

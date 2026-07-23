@@ -159,6 +159,51 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".topbar__actions .btn,", BOARD_WEB_APP_HTML)
         self.assertIn(".topbar__rare-actions .btn {", BOARD_WEB_APP_HTML)
 
+    def test_personal_extra_board_column_is_private_filterable_and_non_draggable(self) -> None:
+        for element_id in (
+            "extraBoardColumnToggleButton",
+            "extraBoardColumnFilterButton",
+            "extraBoardColumnFilterPanel",
+            "extraBoardColumnTagLabelInput",
+            "extraBoardColumnTagSuggestions",
+            "extraBoardColumnTagColorSelect",
+            "extraBoardColumnFilterSaveButton",
+        ):
+            self.assertIn(f'id="{element_id}"', BOARD_WEB_APP_HTML)
+        self.assertIn("ОТКРЫТЬ ДОП. КОЛОНКУ", BOARD_WEB_APP_HTML)
+        self.assertIn("НАСТРОИТЬ ФИЛЬТР ДОП. КОЛОНКИ", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            'id="extraBoardColumnTagLabelInput" type="text" maxlength="24"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertNotIn("Только вы видите эту колонку", BOARD_WEB_APP_HTML)
+        self.assertIn("#extraBoardColumnFilterPanel[hidden]", BOARD_WEB_APP_HTML)
+        self.assertIn('class="board-settings__actions"', BOARD_WEB_APP_HTML)
+        self.assertIn('class="scale-head__controls"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            'class="btn btn--ghost scale-head__reset" id="boardScaleReset"', BOARD_WEB_APP_HTML
+        )
+        self.assertIn(
+            "const EXTRA_BOARD_COLUMN_DEFAULT_TAG_LABEL = 'НАДО ЧТО ТО СДЕЛАТЬ';",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("const EXTRA_BOARD_COLUMN_DEFAULT_TAG_COLOR = 'red';", BOARD_WEB_APP_HTML)
+        self.assertIn("api('/api/update_personal_board_preferences'", BOARD_WEB_APP_HTML)
+        self.assertIn("function normalizePersonalBoardPreferences(value)", BOARD_WEB_APP_HTML)
+        self.assertIn("function cardMatchesExtraBoardColumn(card)", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderExtraBoardColumnHtml(snapshot)", BOARD_WEB_APP_HTML)
+        self.assertIn('data-virtual-column="extra"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-virtual-card="true"', BOARD_WEB_APP_HTML)
+        self.assertIn('draggable="false"', BOARD_WEB_APP_HTML)
+        self.assertIn("--column-tint: #1e1924;", BOARD_WEB_APP_HTML)
+        self.assertIn("opacity: 0.8;", BOARD_WEB_APP_HTML)
+        self.assertNotIn("column__personal-filter", BOARD_WEB_APP_HTML)
+        self.assertIn("+ extraColumnHtml + addColumnButtonHtml", BOARD_WEB_APP_HTML)
+        self.assertIn("if (column.dataset.virtualColumn)", BOARD_WEB_APP_HTML)
+        self.assertIn("function boardCardElementsById(cardId)", BOARD_WEB_APP_HTML)
+        self.assertIn('data-mobile-virtual-column="extra"', BOARD_WEB_APP_HTML)
+        self.assertIn("if (extraBoardColumnIsOpen()) {\n        renderBoard();", BOARD_WEB_APP_HTML)
+
     def test_shared_files_workspace_is_wired_to_api_routes(self) -> None:
         self.assertIn('id="sharedFilesButton">ФАЙЛЫ</button>', BOARD_WEB_APP_HTML)
         self.assertIn('id="sharedFilesModal"', BOARD_WEB_APP_HTML)
@@ -3573,10 +3618,11 @@ class WebAssetsTests(unittest.TestCase):
 
     def test_tag_editor_limits_cards_to_three_tags(self) -> None:
         self.assertIn("const CARD_TAG_LIMIT = 3;", BOARD_WEB_APP_HTML)
+        self.assertIn("const CARD_STORED_TAG_LIMIT = 4;", BOARD_WEB_APP_HTML)
         self.assertIn("slice(0, CARD_TAG_LIMIT)", BOARD_WEB_APP_HTML)
         self.assertIn("НА КАРТОЧКЕ МОЖЕТ БЫТЬ НЕ БОЛЕЕ 3 МЕТОК.", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "els.tagMeta.textContent = state.draftTags.length + ' / ' + CARD_TAG_LIMIT;",
+            "els.tagMeta.textContent = manualTagCount + ' / ' + CARD_TAG_LIMIT;",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("els.tagInput.disabled = atLimit;", BOARD_WEB_APP_HTML)

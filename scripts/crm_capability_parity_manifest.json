@@ -197,6 +197,11 @@
       "expected_coverage": "typed read or guarded virtual api:/api/get_display_dashboard",
       "reason": "The operator dashboard aggregate is readable in the UI but not through the Gateway."
     },
+    "/api/get_operator_profile": {
+      "kind": "human_private_profile_boundary",
+      "expected_coverage": "intentional exemption",
+      "reason": "The profile includes private per-operator board preferences and is available only to that interactive browser operator session."
+    },
     "/api/get_inspection_sheet_form": {
       "kind": "registered_backend_without_gateway_path",
       "expected_coverage": "typed document read or guarded virtual api:/api/get_inspection_sheet_form",
@@ -222,6 +227,11 @@
       "expected_coverage": "intentional exemption",
       "reason": "Revoking a browser operator session is intentionally separate from the owner's OAuth service-principal session."
     },
+    "/api/update_personal_board_preferences": {
+      "kind": "human_private_preference_boundary",
+      "expected_coverage": "intentional exemption",
+      "reason": "A private board view belongs to its authenticated browser operator and must not be read or changed through the owner service principal."
+    },
     "/api/open_card": {
       "kind": "registered_backend_without_gateway_path",
       "expected_coverage": "typed audited operation or guarded virtual api:/api/open_card",
@@ -243,6 +253,16 @@
       "kind": "human_logout",
       "scope": "interactive browser operator session only",
       "rationale": "The service principal must not revoke or mutate an independent human operator browser session."
+    },
+    "/api/get_operator_profile": {
+      "kind": "human_private_profile",
+      "scope": "interactive browser operator session only",
+      "rationale": "The profile contains private board-view preferences and must not be read through the shared Gateway."
+    },
+    "/api/update_personal_board_preferences": {
+      "kind": "human_private_preference",
+      "scope": "interactive browser operator session only",
+      "rationale": "The preference selects a private card view for one operator and must not be read or changed through the shared Gateway."
     }
   }
 }

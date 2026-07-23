@@ -43,6 +43,7 @@ ALLOWED_EXEMPTIONS = {
             "/api/login_operator",
             "/api/logout_operator",
             "/api/mark_cashbox_notifications_seen",
+            "/api/update_personal_board_preferences",
         }
     ),
     "infrastructure_exemption": frozenset(

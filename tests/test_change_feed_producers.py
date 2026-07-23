@@ -594,6 +594,60 @@ class ChangeFeedProducerContractTests(unittest.TestCase):
         ):
             self.assertNotIn(private_value.encode(), database)
 
+    def test_personal_board_preferences_are_private_and_excluded_from_change_feed(self) -> None:
+        users_file = self.base_dir / "users.json"
+        environment = {
+            "MINIMAL_KANBAN_DEFAULT_ADMIN_USERNAME": "private-view-admin",
+            "MINIMAL_KANBAN_DEFAULT_ADMIN_PASSWORD": "private-view-password-819C",
+        }
+        with patch.dict(os.environ, environment, clear=False):
+            operators = OperatorAuthService(
+                self.store,
+                self.service,
+                users_file=users_file,
+                logger=self.logger,
+            )
+            admin_session = operators.login(
+                {"username": "private-view-admin", "password": "private-view-password-819C"}
+            )["session"]
+            operators.save_user(
+                {
+                    "_operator_session": admin_session,
+                    "username": "private-view-user",
+                    "password": "private-view-user-password-77D1",
+                }
+            )
+            user_session = operators.login(
+                {
+                    "username": "private-view-user",
+                    "password": "private-view-user-password-77D1",
+                }
+            )["session"]
+            before = self.high_water()
+            saved = operators.update_personal_board_preferences(
+                {
+                    "_operator_session": user_session,
+                    "board_preferences": {
+                        "extra_column": {
+                            "is_open": True,
+                            "filter": {
+                                "tag_label": "PRIVATE-EXTRA-TAG-7F2A",
+                                "tag_color": "red",
+                            },
+                        }
+                    },
+                }
+            )
+            self.assertTrue(saved["meta"]["changed"])
+            self.assertEqual([], self.events_after(before))
+            profile = operators.get_profile({"_operator_session": user_session})
+            self.assertEqual(
+                "PRIVATE-EXTRA-TAG-7F2A",
+                profile["board_preferences"]["extra_column"]["filter"]["tag_label"],
+            )
+
+        self.assertNotIn(b"PRIVATE-EXTRA-TAG-7F2A", self.feed_database_bytes())
+
     def test_agent_runtime_routes_are_external_authority_and_do_not_forge_crm_events(self) -> None:
         class ExternalAgentControl:
             def __getattr__(self, name: str):

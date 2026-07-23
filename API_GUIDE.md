@@ -52,7 +52,7 @@ codes include `validation_error`, `not_found`, `unauthorized`, `forbidden`,
 | Cashboxes and payroll | `/api/get_cashbox`, `/api/create_cash_transaction`, `/api/create_employee_shift_accrual` | finance/payroll service mixins |
 | Shared display | `/api/get_display_dashboard` | compact dashboard service mixin |
 | Files | `/api/list_shared_files`, `/api/upload_shared_file`, `/api/attachment` | shared-files and attachment services |
-| Operators | `/api/login_operator`, `/api/list_operator_activity`, `/api/get_operator_user_report` | `OperatorAuthService` |
+| Operators | `/api/login_operator`, `/api/get_operator_profile`, `/api/update_personal_board_preferences`, `/api/list_operator_activity`, `/api/get_operator_user_report` | `OperatorAuthService` |
 | Durable change feed | `/api/change_feed/bootstrap`, `/api/change_feed/read`, `/api/change_feed/ack` | `ChangeFeedService` |
 | Agent compatibility | `/api/get_ai_chat_knowledge`, `/api/set_card_ai_autofill`, scheduled-task and manager-operation routes | `CardService` and agent adapters |
 
@@ -287,6 +287,47 @@ scripts or documentation; smoke scripts read
 `AUTOSTOP_SMOKE_OPERATOR_USERNAME` and
 `AUTOSTOP_SMOKE_OPERATOR_PASSWORD`. Operator activity is stored outside
 `state.json` and is maintained only through the runbook procedure.
+
+### Personal additional board column
+
+`GET /api/get_operator_profile` returns the current operator's top-level
+`board_preferences` only to that browser operator session; a Gateway service
+identity receives `403`, and the route is deliberately absent from raw Gateway
+discovery. It is a private view preference, not a field in shared board settings.
+The current shape is:
+
+```json
+{
+  "board_preferences": {
+    "extra_column": {
+      "is_open": true,
+      "filter": {
+        "tag_label": "НАДО ЧТО ТО СДЕЛАТЬ",
+        "tag_color": "red"
+      }
+    }
+  }
+}
+```
+
+`POST /api/update_personal_board_preferences` accepts that complete
+`board_preferences` object and always writes it for the authenticated operator
+only. It does not accept a target username. `tag_label` is normalized to
+uppercase with collapsed whitespace and is limited to 24 characters;
+`tag_color` must be `green`, `yellow`, or `red`. The default filter is the red
+`НАДО ЧТО ТО СДЕЛАТЬ` tag.
+
+This route is browser-human-session only: it is deliberately absent from
+`PROXIED_WRITE_ROUTES`, raw Gateway discovery, and MCP capabilities; a service
+identity receives HTTP 403. It remains available while business writes are in
+maintenance because it changes neither shared CRM state nor a business change
+feed. The UI renders matching non-archived cards as editable duplicates in the
+operator's final virtual column; only that operator sees the virtual view. The
+match checks every persisted card tag, including the optional system `ГОТОВ`
+tag, rather than only the first three tags shown in a compact card preview.
+Editing, moving, archiving, or removing the matching tag changes the original
+card and immediately updates the duplicate; the virtual column never moves a
+card or creates a real board column.
 
 ## Verification
 

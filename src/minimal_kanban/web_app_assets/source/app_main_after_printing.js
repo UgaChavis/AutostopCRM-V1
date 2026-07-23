@@ -96,6 +96,11 @@
       if (!(target instanceof HTMLElement)) return;
       const card = target.closest('.card');
       if (!card) return;
+      if (card.dataset.virtualCard === 'true') {
+        event.preventDefault();
+        finishCardDrag();
+        return;
+      }
       state.boardDragCardId = card.dataset.cardId || '';
       card.classList.add('is-dragging');
       if (event.dataTransfer) {
@@ -112,6 +117,11 @@
       if (target.closest('button, input, textarea, select, a, label')) return;
       const column = target.closest('.column');
       if (!(column instanceof HTMLElement)) return;
+      if (column.dataset.virtualColumn) {
+        event.preventDefault();
+        finishColumnDrag();
+        return;
+      }
       state.boardDragColumnId = column.dataset.columnId || '';
       column.classList.add('is-column-dragging');
       if (event.dataTransfer) {
@@ -124,8 +134,6 @@
       if (state.mobileLite) return;
       const draggedCardId = state.boardDragCardId || event.dataTransfer?.getData('text/plain') || '';
       if (!draggedCardId) return;
-      event.preventDefault();
-      updateBoardDragAutoScroll(event.clientX, event.clientY);
       const rawTarget = event.target;
       const target = rawTarget instanceof Element
         ? rawTarget
@@ -136,6 +144,12 @@
         clearCardDropState();
         return;
       }
+      if (column.dataset.virtualColumn) {
+        clearCardDropState();
+        return;
+      }
+      event.preventDefault();
+      updateBoardDragAutoScroll(event.clientX, event.clientY);
       const beforeCardId = resolveDropBeforeCardId(column, event.clientY, draggedCardId);
       updateCardDropState(column, beforeCardId);
     }
@@ -144,8 +158,6 @@
       if (state.mobileLite) return;
       const draggedColumnId = state.boardDragColumnId || event.dataTransfer?.getData('application/x-kanban-column') || '';
       if (!draggedColumnId) return;
-      event.preventDefault();
-      updateBoardDragAutoScroll(event.clientX, event.clientY);
       const target = event.target instanceof Element
         ? event.target
         : (event.target instanceof Node ? event.target.parentElement : null);
@@ -155,11 +167,17 @@
         clearColumnDropState();
         return;
       }
+      if (column.dataset.virtualColumn) {
+        clearColumnDropState();
+        return;
+      }
       const hoveredColumnId = String(column.dataset.columnId || '').trim();
       if (!hoveredColumnId || hoveredColumnId === draggedColumnId) {
         clearColumnDropState();
         return;
       }
+      event.preventDefault();
+      updateBoardDragAutoScroll(event.clientX, event.clientY);
       state.boardDropBeforeColumnId = resolveDropBeforeColumnId(column, event.clientX, draggedColumnId);
       document.querySelectorAll('.column.is-column-drop-target').forEach((item) => item.classList.remove('is-column-drop-target'));
       column.classList.add('is-column-drop-target');
@@ -193,6 +211,10 @@
       if (!(target instanceof HTMLElement)) return;
       const column = target.closest('.column');
       if (!column) return;
+      if (column.dataset.virtualColumn) {
+        finishCardDrag();
+        return;
+      }
       event.preventDefault();
       const cardId = state.boardDragCardId || event.dataTransfer?.getData('text/plain') || '';
       const columnId = state.boardDropColumnId || column.dataset.columnId || '';
@@ -215,6 +237,10 @@
       }
       const column = target.closest('.column');
       if (!(column instanceof HTMLElement)) {
+        finishColumnDrag();
+        return;
+      }
+      if (column.dataset.virtualColumn) {
         finishColumnDrag();
         return;
       }
@@ -639,6 +665,9 @@
     els.boardScaleInput.addEventListener('change', persistBoardScaleChange);
     els.boardScaleReset.addEventListener('click', resetBoardScaleToDefault);
     els.openDisplayDashboardButton?.addEventListener('click', openDisplayDashboard);
+    els.extraBoardColumnToggleButton?.addEventListener('click', toggleExtraBoardColumn);
+    els.extraBoardColumnFilterButton?.addEventListener('click', toggleExtraBoardColumnFilterSettings);
+    els.extraBoardColumnFilterSaveButton?.addEventListener('click', saveExtraBoardColumnFilterSettings);
     els.signalDaysIncrementButton.addEventListener('click', () => adjustSignalPart('days', 1));
     els.signalDaysDecrementButton.addEventListener('click', () => adjustSignalPart('days', -1));
     els.signalHoursIncrementButton.addEventListener('click', () => adjustSignalPart('hours', 1));
@@ -760,7 +789,15 @@
     }
 
     function renderBoardCardHtml(card) {
-      const normalizedTags = normalizeDraftTags(card.tag_items || card.tags || []);
+      const { virtual = false } = arguments[1] || {};
+      const allTags = normalizeDraftTags(card.tag_items || card.tags || []);
+      const extraFilter = virtual ? extraBoardColumnPreferences().filter : null;
+      const matchingTagIndex = extraFilter
+        ? allTags.findIndex((tag) => tag.label === extraFilter.tag_label && tag.color === extraFilter.tag_color)
+        : -1;
+      const normalizedTags = matchingTagIndex > 0
+        ? [allTags[matchingTagIndex], ...allTags.filter((_, index) => index !== matchingTagIndex)]
+        : allTags;
       const previewTags = normalizedTags.slice(0, CARD_TAG_LIMIT);
       const extraTags = normalizedTags.length - previewTags.length;
       const tagsHtml = previewTags.length
@@ -775,7 +812,9 @@
         ? '--deadline-heat-border:' + escapeHtml(card.deadline_heat_border_color || 'rgba(83, 191, 122, 0.34)') + ';--deadline-heat-ring:' + escapeHtml(card.deadline_heat_ring_color || 'rgba(83, 191, 122, 0.08)') + ';--deadline-heat-glow:' + escapeHtml(card.deadline_heat_glow_color || 'rgba(83, 191, 122, 0.04)') + ';'
         : '--deadline-heat-border:rgba(78, 73, 61, 0.28);--deadline-heat-ring:rgba(0, 0, 0, 0);--deadline-heat-glow:rgba(0, 0, 0, 0);';
       const timerTitle = timerRunning ? ('Таймер: ' + timerRemainingText(timerRemainingSeconds(card))) : 'Таймер не включён';
-      return '<article class="card" style="' + heatStyle + '" draggable="true" data-card-id="' + escapeHtml(card.id) + '" data-timer-state="' + (timerRunning ? 'running' : 'inactive') + '" data-indicator="' + escapeHtml(indicator) + '" data-status="' + escapeHtml(status) + '" data-blink="' + (timerRunning && card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-updated-unseen="' + (card.has_unseen_update ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(timerRunning ? (card.deadline_progress_bucket ?? 0) : 0) + '" data-deadline-step="' + escapeHtml(timerRunning ? (card.deadline_progress_step_percent ?? 0) : 0) + '">' + badgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(boardCardDescription(card)) + '</div><div class="card__footer"><div class="card__signal"><span class="lamp" data-indicator="' + escapeHtml(indicator) + '" title="' + escapeHtml(timerTitle) + '" aria-label="' + escapeHtml(timerTitle) + '"></span></div><div class="card__tags">' + tagsHtml + '</div></div></article>';
+      const virtualClass = virtual ? ' card--virtual' : '';
+      const virtualAttributes = virtual ? ' data-virtual-card="true"' : '';
+      return '<article class="card' + virtualClass + '" style="' + heatStyle + '" draggable="' + (virtual ? 'false' : 'true') + '"' + virtualAttributes + ' data-card-id="' + escapeHtml(card.id) + '" data-timer-state="' + (timerRunning ? 'running' : 'inactive') + '" data-indicator="' + escapeHtml(indicator) + '" data-status="' + escapeHtml(status) + '" data-blink="' + (timerRunning && card.is_blinking ? "true" : "false") + '" data-unread="' + (card.is_unread ? 'true' : 'false') + '" data-updated-unseen="' + (card.has_unseen_update ? 'true' : 'false') + '" data-deadline-bucket="' + escapeHtml(timerRunning ? (card.deadline_progress_bucket ?? 0) : 0) + '" data-deadline-step="' + escapeHtml(timerRunning ? (card.deadline_progress_step_percent ?? 0) : 0) + '">' + badgeHtml + headingHtml + '<div class="card__desc">' + escapeHtml(boardCardDescription(card)) + '</div><div class="card__footer"><div class="card__signal"><span class="lamp" data-indicator="' + escapeHtml(indicator) + '" title="' + escapeHtml(timerTitle) + '" aria-label="' + escapeHtml(timerTitle) + '"></span></div><div class="card__tags">' + tagsHtml + '</div></div></article>';
     }
 
     function refreshVehiclePanel() {

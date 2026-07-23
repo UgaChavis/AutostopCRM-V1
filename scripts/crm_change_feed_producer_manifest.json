@@ -280,6 +280,27 @@
       ]
     },
     {
+      "name": "personal_board_view_privacy_boundary",
+      "kind": "privacy_exemption",
+      "producer": "none",
+      "rationale": "Per-operator extra-column visibility and tag rules are private UI state, not CRM business mutations; projecting them would reveal a person's private work view.",
+      "routes": [
+        "/api/update_personal_board_preferences"
+      ],
+      "route_evidence": {
+        "/api/update_personal_board_preferences": {
+          "source": "src/minimal_kanban/operator_auth.py",
+          "pattern": "def update_personal_board_preferences(self, payload: dict | None = None)"
+        }
+      },
+      "test_evidence": [
+        {
+          "source": "tests/test_change_feed_producers.py",
+          "pattern": "test_personal_board_preferences_are_private_and_excluded_from_change_feed"
+        }
+      ]
+    },
+    {
       "name": "manager_agent_runtime_authority_boundary",
       "kind": "infrastructure_exemption",
       "producer": "external Manager agent runtime",

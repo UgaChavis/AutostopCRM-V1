@@ -38,7 +38,9 @@ Owner MCP client -> 24-tool Gateway v2 -> mounted AutostopManager adapter
 ```
 
 - Board: columns, cards, deadlines, tags, notes, archive, attachments, and
-  audit history.
+  audit history. Each operator can also enable a personal final virtual column
+  filtered by an exact tag label and color; its cards stay in their original
+  shared columns.
 - CRM: clients, companies, contacts, vehicles, and card links.
 - Repair: immutable order numbers, works, materials, payments, standard print
   templates, and PDF export.
