@@ -261,7 +261,7 @@ class GatewayReleaseProbeIntegrationTests(unittest.IsolatedAsyncioTestCase):
                         "current_revision": None,
                         "revision_kind": "revision_exempt",
                         "expected_revision_required": False,
-                        "contract_version": "store-owner-preflight-v1",
+                        "contract_version": "store-owner-preflight-v2",
                     },
                     "meta": {"readback_required": False},
                 }
@@ -276,7 +276,7 @@ class GatewayReleaseProbeIntegrationTests(unittest.IsolatedAsyncioTestCase):
                     "path": "/api/v1/categories",
                     "current_revision": None,
                     "revision_kind": "revision_exempt",
-                    "contract_version": "store-owner-preflight-v1",
+                    "contract_version": "store-owner-preflight-v2",
                     "dry_run_proof": "d" * 64,
                 },
                 "meta": {
