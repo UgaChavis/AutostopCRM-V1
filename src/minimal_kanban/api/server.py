@@ -599,6 +599,18 @@ def _employee_salary_reconciliation_print_html(report: dict) -> bytes:
     return body.encode("utf-8")
 
 
+def _display_dashboard_shared_file_info(
+    shared_files_service: SharedFilesService,
+    file_id: str,
+) -> dict | None:
+    try:
+        result = shared_files_service.get_shared_file_info({"file_id": file_id})
+    except ServiceError:
+        return None
+    file_info = result.get("file") if isinstance(result, dict) else None
+    return file_info if isinstance(file_info, dict) else None
+
+
 class ApiServer:
     def __init__(
         self,
@@ -774,6 +786,12 @@ class ApiServer:
         if shared_files_service is None:
             shared_files_service = self._build_shared_files_service(service)
             self._shared_files_service = shared_files_service
+        service.configure_display_dashboard_shared_file_resolver(
+            lambda file_id: _display_dashboard_shared_file_info(
+                shared_files_service,
+                file_id,
+            )
+        )
         change_feed_service = self._change_feed_service
         if change_feed_service is None:
             change_feed_service = self._build_change_feed_service(

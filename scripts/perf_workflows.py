@@ -1348,6 +1348,7 @@ def _run_stage1_state_file_benchmark(
     raw_samples: dict[str, list[dict[str, Any]]] = {
         "backend.get_card": [],
         "backend.get_board_revision_cached": [],
+        "backend.list_cashboxes": [],
         "backend.update_card": [],
         "change_feed.read_page": [],
         "change_feed.replay_page": [],
@@ -1378,6 +1379,18 @@ def _run_stage1_state_file_benchmark(
         )
         if collect:
             raw_samples["backend.get_board_revision_cached"].append(
+                {
+                    "duration_ms": duration_ms,
+                    "payload_bytes": response_size(result),
+                    "phase_timings": phase_timings,
+                }
+            )
+
+        duration_ms, result, phase_timings = _timed_with_phases(
+            lambda: service.list_cashboxes({"actor_name": "PERF"})
+        )
+        if collect:
+            raw_samples["backend.list_cashboxes"].append(
                 {
                     "duration_ms": duration_ms,
                     "payload_bytes": response_size(result),
@@ -1589,6 +1602,7 @@ def run_state_file_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                         "column": next_column_id,
                         "actor_name": "PERF",
                         "source": "api",
+                        "response_mode": "delta",
                     }
                 )
             )
@@ -1658,6 +1672,7 @@ def evaluate_thresholds(
         "storage.write_cached_bundle": getattr(args, "max_storage_write_ms", 0.0),
         "backend.get_board_revision_cached": getattr(args, "max_revision_server_ms", 0.0),
         "backend.get_card": getattr(args, "max_get_card_direct_ms", 0.0),
+        "backend.list_cashboxes": getattr(args, "max_list_cashboxes_ms", 0.0),
         "change_feed.read_page": getattr(args, "max_feed_read_ms", 0.0),
         "change_feed.replay_page": getattr(args, "max_feed_replay_ms", 0.0),
     }
@@ -1737,6 +1752,7 @@ def main() -> int:
     parser.add_argument("--max-storage-write-ms", default=0.0)
     parser.add_argument("--max-revision-server-ms", default=0.0)
     parser.add_argument("--max-get-card-direct-ms", default=0.0)
+    parser.add_argument("--max-list-cashboxes-ms", default=0.0)
     parser.add_argument("--max-feed-read-ms", default=0.0)
     parser.add_argument("--max-feed-replay-ms", default=0.0)
     parser.add_argument("--browser-timeout-seconds", default=DEFAULT_BROWSER_TIMEOUT_SECONDS)
@@ -1771,6 +1787,11 @@ def main() -> int:
     )
     args.max_get_card_direct_ms = _bounded_float(
         args.max_get_card_direct_ms,
+        default=0.0,
+        maximum=3_600_000.0,
+    )
+    args.max_list_cashboxes_ms = _bounded_float(
+        args.max_list_cashboxes_ms,
         default=0.0,
         maximum=3_600_000.0,
     )

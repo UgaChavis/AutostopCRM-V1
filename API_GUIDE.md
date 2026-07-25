@@ -72,6 +72,14 @@ Use compact board reads for polling:
 High-traffic writes accept `response_mode=compact` where implemented and then
 return IDs and verification metadata instead of full cards.
 
+`POST /api/move_card` preserves its legacy response by default. The browser
+may opt into `response_mode="delta"`; that response contains the full moved
+`card`, `affected_column_ids`, and `affected_columns` entries shaped as
+`{"column_id":"...","ordered_card_ids":["..."]}`. It omits
+`affected_cards`. A client must refresh the board if the returned ordering
+does not exactly match its affected-card set. The MCP `move_card` contract does
+not expose this UI-specific response mode.
+
 `/api/get_card_log` returns compact event details by default. Set
 `include_full_details=true` only for authorized maintenance/debugging; the
 service may hydrate archived `before`/`after` data from `audit-archive`.
@@ -243,26 +251,40 @@ requires authenticated operator context: a browser operator session or the
 guarded local Gateway service identity. It returns HTTP 401 to an anonymous
 caller, including on a local direct request without that identity.
 
-The compact response contains only the generated time, business timezone,
-current salary-week boundary, visible employee name/position/week accrual,
-four weekly amount/count buckets, and the completed-week average. It must not expose
-employee or card IDs, clients, contacts, vehicles, payments, repair-order
-rows, payroll terms, or formula inputs.
+The compact `display_dashboard.v3` response contains the generated time,
+business timezone, one `message_board`, four weekly amount/count buckets, and
+the completed-week average. It does not expose employee/payroll data, card IDs,
+clients, contacts, vehicles, payments, repair-order rows, or formula inputs.
 
-Employee amounts reuse the regular payroll calculation, including weekly base
-salary, shift, work, material, and repair-order accruals and reversals. They
-represent the amount accrued during the current calendar week, without
-subtracting payouts or advances. The week uses `Asia/Krasnoyarsk`, starts at
-Monday 00:00, and switches at midnight after Sunday. Employees are ordered by
-the accrued amount descending, then by name for equal amounts. Only active
-employees with `dashboard_visible=true` are returned. Existing records without
-the field normalize administrative positions to hidden and other positions to
-visible; after normalization the explicit flag is authoritative. The
-visibility checkbox is shown in the employee profile and changes from a browser
-operator session are administrator-only.
+`message_board` is an optimistic-concurrency record with `body_html`,
+`image_file_ids`, `updated_at`, `updated_by`, and `revision`. The server
+sanitizes the rich text to headings, paragraphs, lists, blockquotes, line
+breaks, bold, italic, underline, and font sizes 1–7. Scripts, styles, links,
+embedded media, event handlers, and arbitrary attributes are removed. Text is
+limited to 12,000 visible characters / 40,000 sanitized HTML characters, and
+the board accepts at most eight shared-file image references. Image bytes stay
+in protected shared-file storage and are fetched with operator authentication.
 
-All monetary values in this shared-display response (employee accruals, weekly
-revenue, and the completed-week average) are presentation-only whole rubles.
+The CRM editor uploads selected photos through `/api/upload_shared_file`, then
+updates the message through `POST /api/update_board_settings`:
+
+```json
+{
+  "expected_revision": "current-message-revision",
+  "display_dashboard_message": {
+    "body_html": "<p><strong>Проверить подъёмник №2</strong></p>",
+    "image_file_ids": ["shared-file-id"]
+  }
+}
+```
+
+`expected_revision` is required; stale updates return HTTP 409. Passing
+`dry_run=true` validates and returns the proposed normalized settings without
+writing them. Applied changes are audited without copying message text into
+the audit event.
+
+All monetary values in this shared-display response (weekly revenue and the
+completed-week average) are presentation-only whole rubles.
 Their precise source amount is rounded upward before being returned; cents and
 underlying payroll or repair-order ledger values are never changed.
 
@@ -301,6 +323,8 @@ The current shape is:
   "board_preferences": {
     "extra_column": {
       "is_open": true,
+      "is_detached": true,
+      "position": {"x": 1480, "y": 90},
       "filter": {
         "tag_label": "НАДО ЧТО ТО СДЕЛАТЬ",
         "tag_color": "red"
@@ -312,7 +336,11 @@ The current shape is:
 
 `POST /api/update_personal_board_preferences` accepts that complete
 `board_preferences` object and always writes it for the authenticated operator
-only. It does not accept a target username. `tag_label` is normalized to
+only. It does not accept a target username. `is_detached` switches the virtual
+column between the final flex position and an absolute overlay inside the board;
+`position.x/y` are non-negative, unscaled board coordinates persisted per
+operator. The header drag handle updates those coordinates when the detached
+column is moved. `tag_label` is normalized to
 uppercase with collapsed whitespace and is limited to 24 characters;
 `tag_color` must be `green`, `yellow`, or `red`. The default filter is the red
 `НАДО ЧТО ТО СДЕЛАТЬ` tag.

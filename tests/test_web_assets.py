@@ -3360,6 +3360,12 @@ class WebAssetsTests(unittest.TestCase):
             ) : BOARD_WEB_APP_HTML.index("async function moveColumn")
         ]
         self.assertIn("clearCardOpenSideEffectTimer();", move_fragment)
+        self.assertIn("response_mode: 'delta'", move_fragment)
+        self.assertIn("applyBoardColumnOrderDelta(", move_fragment)
+        self.assertIn(
+            "function applyBoardColumnOrderDelta(movedCard, affectedColumns, affectedColumnIds)",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn(
             "document.addEventListener('dragstart', handleBoardCardDragStart);", BOARD_WEB_APP_HTML
         )
@@ -3931,6 +3937,9 @@ class WebAssetsTests(unittest.TestCase):
             "function applyRepairOrderCardUpdate(updatedCard, fallbackOrder = {})",
             BOARD_WEB_APP_HTML,
         )
+        self.assertIn("function syncCardArchiveAction(card = state.activeCard)", BOARD_WEB_APP_HTML)
+        self.assertIn("applySavedCardLocalPatch(nextCard);", BOARD_WEB_APP_HTML)
+        self.assertIn("syncCardArchiveAction(nextCard);", BOARD_WEB_APP_HTML)
         self.assertIn(
             "body.insertAdjacentHTML('beforeend', repairOrderRowHtml(section, emptyRepairOrderRow(defaults), rowIndex));",
             BOARD_WEB_APP_HTML,
@@ -5554,6 +5563,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(
             "function applyBoardColumnCardsPatch(nextCards, affectedColumnIds)", BOARD_WEB_APP_HTML
         )
+        self.assertIn(
+            "function applyBoardColumnOrderDelta(movedCard, affectedColumns, affectedColumnIds)",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("function applyArchivedCardPatch(nextCard)", BOARD_WEB_APP_HTML)
         self.assertIn(
             "const previousCard = snapshotCardById(suppressedNextCard.id);",
@@ -5572,7 +5585,11 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("renderBoardColumnById(previousColumnId, cardsByColumn)", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "const patched = applyBoardColumnCardsPatch(data?.affected_cards || [], data?.affected_column_ids || []);",
+            "? applyBoardColumnOrderDelta(data?.card, data.affected_columns, data?.affected_column_ids || [])",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            ": applyBoardColumnCardsPatch(data?.affected_cards || [], data?.affected_column_ids || []);",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("if (!patched && data?.card) {", BOARD_WEB_APP_HTML)

@@ -133,6 +133,7 @@ jobs:
             --max-storage-write-ms 550 \
             --max-revision-server-ms 20 \
             --max-get-card-direct-ms 20 \
+            --max-list-cashboxes-ms 50 \
             --max-feed-read-ms 50 \
             --max-feed-replay-ms 20 | tee perf-stage1.json
 

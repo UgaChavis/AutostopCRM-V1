@@ -10,6 +10,7 @@ from collections.abc import Collection
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
+from functools import lru_cache
 from pathlib import PurePath
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -132,16 +133,25 @@ def utc_now_iso() -> str:
     return utc_now().isoformat()
 
 
+@lru_cache(maxsize=8)
+def _business_timezone_for_name(timezone_name: str):
+    try:
+        return ZoneInfo(timezone_name)
+    except (ValueError, ZoneInfoNotFoundError):
+        return datetime.now().astimezone().tzinfo or UTC
+
+
+def clear_business_timezone_cache() -> None:
+    _business_timezone_for_name.cache_clear()
+
+
 def business_timezone():
     timezone_name = (
         os.environ.get("AUTOSTOPCRM_BUSINESS_TIMEZONE")
         or os.environ.get("AUTOSTOPCRM_TIMEZONE")
         or DEFAULT_BUSINESS_TIMEZONE
     )
-    try:
-        return ZoneInfo(timezone_name)
-    except (ValueError, ZoneInfoNotFoundError):
-        return datetime.now().astimezone().tzinfo or UTC
+    return _business_timezone_for_name(str(timezone_name).strip() or DEFAULT_BUSINESS_TIMEZONE)
 
 
 def parse_business_datetime(value: str | None) -> datetime | None:

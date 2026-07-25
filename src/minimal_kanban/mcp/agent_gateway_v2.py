@@ -54,6 +54,7 @@ from .client import BoardApiClient
 from .gateway_contract import (
     BOARD_WORKFLOW_OPERATIONS,
     DEFAULT_CARD_FIELDS,
+    DOCUMENT_VIRTUAL_OPERATIONS,
     DOCUMENT_WORKFLOW_OPERATIONS,
     FINANCE_VIRTUAL_OPERATIONS,
     FINANCE_WORKFLOW_OPERATIONS,
@@ -932,6 +933,8 @@ def register_agent_gateway_v2(
             target_tool = "run_manager_operation"
         elif workflow_id == "finance" and operation in FINANCE_VIRTUAL_OPERATIONS:
             target_tool = _virtual_api_name(FINANCE_VIRTUAL_OPERATIONS[operation])
+        elif workflow_id == "document" and operation in DOCUMENT_VIRTUAL_OPERATIONS:
+            target_tool = _virtual_api_name(DOCUMENT_VIRTUAL_OPERATIONS[operation])
         else:
             target_tool = operation
         tool = raw_tools.get(target_tool)
@@ -1097,6 +1100,10 @@ def register_agent_gateway_v2(
                 "mode": mode or str(payload.get("mode") or "dry_run"),
                 "actor_name": _effective_audit_actor(),
             }
+        elif workflow_id == "document" and operation in DOCUMENT_VIRTUAL_OPERATIONS:
+            arguments["actor_name"] = _effective_audit_actor()
+            arguments["source"] = "mcp_agent_gateway_v2"
+            arguments["dry_run"] = mode == "dry_run"
         elif (
             risk != "read"
             and tool is not None
@@ -1810,8 +1817,9 @@ def register_agent_gateway_v2(
     @server.tool(
         name="agent_document_workflow",
         description=(
-            "Execute a CRM print/file operation or retrieve an exact Store VIN-photo preview; "
-            "binary payloads are returned only when allow_large_output is explicit."
+            "Execute a CRM print/file/dashboard-message operation or retrieve an exact Store "
+            "VIN-photo preview. Dashboard-message writes support dry_run/apply; binary payloads "
+            "are returned only when allow_large_output is explicit."
         ),
         annotations=_write_annotations("Agent Document Workflow"),
     )
@@ -1820,6 +1828,7 @@ def register_agent_gateway_v2(
         payload: dict[str, Any] | None,
         idempotency_key: str,
         allow_large_output: bool = False,
+        mode: Literal["dry_run", "apply"] | None = None,
     ) -> CallToolResult:
         return await _execute_workflow(
             workflow_id="document",
@@ -1828,6 +1837,7 @@ def register_agent_gateway_v2(
             idempotency_key=idempotency_key,
             allowed=DOCUMENT_WORKFLOW_OPERATIONS,
             allow_large_output=allow_large_output,
+            mode=mode,
         )
 
     @server.tool(

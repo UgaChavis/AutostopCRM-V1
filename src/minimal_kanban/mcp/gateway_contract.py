@@ -93,8 +93,12 @@ DOCUMENT_WORKFLOW_OPERATIONS = frozenset(
         "download_store_quote_vin_photo",
         "upload_shared_file",
         "delete_shared_file",
+        "update_display_dashboard_message",
     }
 )
+DOCUMENT_VIRTUAL_OPERATIONS = {
+    "update_display_dashboard_message": "/api/update_board_settings",
+}
 
 
 __all__ = [
@@ -102,6 +106,7 @@ __all__ = [
     "CARD_FIELD_ALLOWLIST",
     "DEFAULT_CARD_FIELDS",
     "DOCUMENT_WORKFLOW_OPERATIONS",
+    "DOCUMENT_VIRTUAL_OPERATIONS",
     "FINANCE_VIRTUAL_OPERATIONS",
     "FINANCE_WORKFLOW_OPERATIONS",
     "INVENTORY_WORKFLOW_OPERATIONS",

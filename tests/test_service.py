@@ -6291,6 +6291,100 @@ class CardServiceTests(unittest.TestCase):
             [second_target["card"]["id"], source["card"]["id"], first_target["card"]["id"]],
         )
 
+    def test_move_card_delta_returns_only_ordered_ids_and_preserves_legacy_default(self) -> None:
+        source = self.service.create_card(
+            {"title": "Delta source", "column": "inbox", "deadline": {"hours": 2}}
+        )
+        target = self.service.create_card(
+            {"title": "Delta target", "column": "in_progress", "deadline": {"hours": 2}}
+        )
+
+        delta = self.service.move_card(
+            {
+                "card_id": source["card"]["id"],
+                "column": "in_progress",
+                "before_card_id": target["card"]["id"],
+                "response_mode": "delta",
+            }
+        )
+
+        self.assertEqual(delta["meta"]["response_mode"], "delta")
+        self.assertNotIn("affected_cards", delta)
+        self.assertEqual(delta["affected_column_ids"], ["inbox", "in_progress"])
+        self.assertEqual(
+            delta["affected_columns"],
+            [
+                {"column_id": "inbox", "ordered_card_ids": []},
+                {
+                    "column_id": "in_progress",
+                    "ordered_card_ids": [source["card"]["id"], target["card"]["id"]],
+                },
+            ],
+        )
+        self.assertTrue(all(not key.startswith("_") for key in delta["card"]))
+
+        legacy = self.service.move_card({"card_id": source["card"]["id"], "column": "inbox"})
+        self.assertIn("affected_cards", legacy)
+        self.assertNotIn("affected_columns", legacy)
+        self.assertNotIn("response_mode", legacy["meta"])
+
+        with self.assertRaises(ServiceError) as invalid:
+            self.service.move_card(
+                {
+                    "card_id": source["card"]["id"],
+                    "column": "inbox",
+                    "response_mode": "compact",
+                }
+            )
+        self.assertEqual(invalid.exception.details["field"], "response_mode")
+
+    def test_move_card_delta_payload_stays_below_production_scale_budget(self) -> None:
+        bundle = self.store.read_bundle()
+        now = utc_now().isoformat()
+        cards = [
+            Card.from_dict(
+                {
+                    "id": f"perf-card-{index:04d}",
+                    "title": f"Production-scale card {index}",
+                    "description": "Диагностическое описание " * 30,
+                    "column": "inbox" if index < 310 else "in_progress",
+                    "position": index if index < 310 else index - 310,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            )
+            for index in range(620)
+        ]
+        self.store.write_bundle(
+            columns=bundle["columns"],
+            cards=cards,
+            clients=bundle["clients"],
+            stickies=bundle["stickies"],
+            cashboxes=bundle["cashboxes"],
+            cash_transactions=bundle["cash_transactions"],
+            inventory_items=bundle["inventory_items"],
+            inventory_movements=bundle["inventory_movements"],
+            events=bundle["events"],
+            settings=bundle["settings"],
+        )
+
+        delta = self.service.move_card(
+            {
+                "card_id": "perf-card-0000",
+                "column": "in_progress",
+                "response_mode": "delta",
+            }
+        )
+        payload_bytes = len(
+            json.dumps(delta, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        )
+
+        self.assertLessEqual(payload_bytes, 100_000)
+        self.assertEqual(
+            sum(len(item["ordered_card_ids"]) for item in delta["affected_columns"]),
+            620,
+        )
+
     def test_create_card_inserts_new_cards_at_top_of_column(self) -> None:
         first = self.service.create_card(
             {"title": "First", "column": "inbox", "deadline": {"hours": 2}}

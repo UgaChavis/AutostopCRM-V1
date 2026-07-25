@@ -29,6 +29,7 @@
     const MOBILE_CARD_TITLE_REQUIRED_MESSAGE = 'УКАЖИ КРАТКУЮ СУТЬ КАРТОЧКИ.';
     const EXTRA_BOARD_COLUMN_DEFAULT_TAG_LABEL = 'НАДО ЧТО ТО СДЕЛАТЬ';
     const EXTRA_BOARD_COLUMN_DEFAULT_TAG_COLOR = 'red';
+    const DISPLAY_DASHBOARD_MAX_IMAGES = 8;
 
     const state = {
       actor: '',
@@ -38,6 +39,21 @@
       personalBoardPreferencesRevision: 0,
       extraBoardColumnSettingsOpen: false,
       extraBoardColumnSaving: false,
+      extraBoardColumnDrag: {
+        active: false,
+        pointerId: null,
+        startClientX: 0,
+        startClientY: 0,
+        startX: 0,
+        startY: 0,
+        moved: false,
+      },
+      displayDashboardMessage: null,
+      displayDashboardMessageSaving: false,
+      displayDashboardExistingImageIds: [],
+      displayDashboardExistingImageUrls: new Map(),
+      displayDashboardPendingImages: [],
+      displayDashboardSelectionRange: null,
       operatorUsers: [],
       operatorEmployeeBindingUser: '',
       operatorAdminTab: 'users',
@@ -252,7 +268,6 @@
       employeesWorkspaceLoadGeneration: 0,
       activeEmployeeId: '',
       employeeCreateMode: false,
-      employeeDashboardVisibilityTouched: false,
       employeesReportDetailsOpen: false,
       employeeFormBaseline: null,
       payrollMonth: '',
@@ -604,7 +619,6 @@
                       + '<div class="field employees-field--span-4"><label for="employeeNameInput">ИМЯ</label><input id="employeeNameInput" type="text" maxlength="80"></div>'
                       + '<div class="field employees-field--span-4"><label for="employeeMiddleNameInput">ОТЧЕСТВО</label><input id="employeeMiddleNameInput" type="text" maxlength="80"></div>'
                       + '<div class="field employees-field--span-4"><label for="employeePositionInput">ДОЛЖНОСТЬ</label><input id="employeePositionInput" type="text" maxlength="80"></div>'
-                      + '<label class="employees-check employees-field--span-12" id="employeeDashboardVisibleField"><input id="employeeDashboardVisibleInput" type="checkbox" checked> ПОКАЗЫВАТЬ НА ОБЩЕМ ДАШБОРДЕ</label>'
                       + '<input id="employeeSalaryModeInput" type="hidden" value="percent_only">'
                       + '<input id="employeeBaseSalaryInput" type="hidden" value="">'
                       + '<input id="employeeWorkPercentInput" type="hidden" value="">'
@@ -874,6 +888,17 @@
       boardScaleValue: document.getElementById('boardScaleValue'),
       boardScaleReset: document.getElementById('boardScaleReset'),
       openDisplayDashboardButton: document.getElementById('openDisplayDashboardButton'),
+      editDisplayDashboardMessageButton: document.getElementById('editDisplayDashboardMessageButton'),
+      displayDashboardMessageModal: document.getElementById('displayDashboardMessageModal'),
+      displayDashboardMessageMeta: document.getElementById('displayDashboardMessageMeta'),
+      displayDashboardMessageToolbar: document.getElementById('displayDashboardMessageToolbar'),
+      displayDashboardFontSize: document.getElementById('displayDashboardFontSize'),
+      displayDashboardEmojiButton: document.getElementById('displayDashboardEmojiButton'),
+      displayDashboardEmojiPalette: document.getElementById('displayDashboardEmojiPalette'),
+      displayDashboardMessageEditor: document.getElementById('displayDashboardMessageEditor'),
+      displayDashboardImageInput: document.getElementById('displayDashboardImageInput'),
+      displayDashboardMessageImages: document.getElementById('displayDashboardMessageImages'),
+      displayDashboardMessageSaveButton: document.getElementById('displayDashboardMessageSaveButton'),
       extraBoardColumnToggleButton: document.getElementById('extraBoardColumnToggleButton'),
       extraBoardColumnFilterButton: document.getElementById('extraBoardColumnFilterButton'),
       extraBoardColumnFilterPanel: document.getElementById('extraBoardColumnFilterPanel'),
@@ -1035,8 +1060,6 @@
       employeeNameInput: document.getElementById('employeeNameInput'),
       employeeMiddleNameInput: document.getElementById('employeeMiddleNameInput'),
       employeePositionInput: document.getElementById('employeePositionInput'),
-      employeeDashboardVisibleField: document.getElementById('employeeDashboardVisibleField'),
-      employeeDashboardVisibleInput: document.getElementById('employeeDashboardVisibleInput'),
       employeeSalaryModeInput: document.getElementById('employeeSalaryModeInput'),
       employeeBaseSalaryInput: document.getElementById('employeeBaseSalaryInput'),
       employeeWorkPercentInput: document.getElementById('employeeWorkPercentInput'),
@@ -1607,8 +1630,6 @@
       els.employeeNameInput = document.getElementById('employeeNameInput');
       els.employeeMiddleNameInput = document.getElementById('employeeMiddleNameInput');
       els.employeePositionInput = document.getElementById('employeePositionInput');
-      els.employeeDashboardVisibleField = document.getElementById('employeeDashboardVisibleField');
-      els.employeeDashboardVisibleInput = document.getElementById('employeeDashboardVisibleInput');
       els.employeeSalaryModeInput = document.getElementById('employeeSalaryModeInput');
       els.employeeBaseSalaryInput = document.getElementById('employeeBaseSalaryInput');
       els.employeeWorkPercentInput = document.getElementById('employeeWorkPercentInput');
@@ -3974,6 +3995,7 @@
       agentTasksModal: 'agent-tasks',
       gptWallModal: 'wall',
       boardSettingsModal: 'settings',
+      displayDashboardMessageModal: 'display-dashboard-message',
       stickyModal: 'sticky',
       repairOrderModal: 'repair-order',
       repairOrderPaymentsModal: 'repair-order-payments',
@@ -4007,6 +4029,7 @@
         'agent-tasks': els.agentTasksModal,
         wall: els.gptWallModal,
         settings: els.boardSettingsModal,
+        'display-dashboard-message': els.displayDashboardMessageModal,
         sticky: els.stickyModal,
         'repair-order': els.repairOrderModal,
         'repair-order-payments': els.repairOrderPaymentsModal,
@@ -4174,7 +4197,11 @@
         },
         'agent-tasks': () => closeAgentTasksModal(),
         wall: () => popModal('wall'),
-        settings: () => popModal('settings'),
+        settings: () => {
+          if (isModalOpen('display-dashboard-message')) closeDisplayDashboardMessageEditor();
+          popModal('settings');
+        },
+        'display-dashboard-message': () => closeDisplayDashboardMessageEditor(),
         sticky: () => closeStickyModal(),
         'repair-order': () => {
           closeRepairOrderPaymentsModal();
@@ -5929,7 +5956,6 @@
         material_percent: normalizeEmployeeComparableNumber(current?.material_percent),
         repair_order_percent: normalizeEmployeeComparableNumber(current?.repair_order_percent),
         is_active: employee ? Boolean(employee.is_active) : true,
-        dashboard_visible: employee ? Boolean(employee.dashboard_visible) : true,
       };
     }
 
@@ -5950,7 +5976,6 @@
         material_percent: normalizeEmployeeComparableNumber(els.employeeMaterialPercentInput?.value),
         repair_order_percent: normalizeEmployeeComparableNumber(els.employeeRepairOrderPercentInput?.value),
         is_active: Boolean(selectedEmployeeRecord()?.is_active ?? true),
-        dashboard_visible: Boolean(els.employeeDashboardVisibleInput?.checked),
       };
     }
 
@@ -6180,16 +6205,6 @@
       els.employeeNameInput.value = current?.name || '';
       if (els.employeeMiddleNameInput) els.employeeMiddleNameInput.value = '';
       els.employeePositionInput.value = current?.position || '';
-      state.employeeDashboardVisibilityTouched = false;
-      if (els.employeeDashboardVisibleInput) {
-        els.employeeDashboardVisibleInput.checked = current ? Boolean(current.dashboard_visible) : true;
-        els.employeeDashboardVisibleInput.disabled = !state.operatorProfile?.user?.is_admin;
-      }
-      if (els.employeeDashboardVisibleField) {
-        els.employeeDashboardVisibleField.title = state.operatorProfile?.user?.is_admin
-          ? 'Видимость сотрудника на телевизионном дашборде'
-          : 'Эту настройку меняет администратор';
-      }
       els.employeeSalaryModeInput.value = current?.salary_mode || 'percent_only';
       els.employeeBaseSalaryInput.value = current?.base_salary || '';
       els.employeeWorkPercentInput.value = current?.work_percent || '';
@@ -6218,9 +6233,6 @@
         actor_name: state.actor,
         source: 'ui',
       };
-      if (state.operatorProfile?.user?.is_admin && els.employeeDashboardVisibleInput) {
-        payload.dashboard_visible = Boolean(els.employeeDashboardVisibleInput.checked);
-      }
       return payload;
     }
 
@@ -7309,20 +7321,6 @@
         syncEmployeeSalaryModeUi();
         renderEmployeeShiftAccrualDialog();
         return;
-      }
-      if (target === els.employeeDashboardVisibleInput) {
-        state.employeeDashboardVisibilityTouched = true;
-        renderEmployeeProfileMeta();
-        return;
-      }
-      if (
-        target === els.employeePositionInput
-        && state.employeeCreateMode
-        && !state.employeeDashboardVisibilityTouched
-        && els.employeeDashboardVisibleInput
-      ) {
-        const position = String(els.employeePositionInput.value || '').trim().toLowerCase();
-        els.employeeDashboardVisibleInput.checked = !/(^|[^a-zа-яё])(администратор\w*|административ\w*|administrator\w*|admin)($|[^a-zа-яё])/i.test(position);
       }
       if (
         target === els.employeeNameInput
@@ -12687,6 +12685,17 @@
         maxRight = Math.max(maxRight, Math.round((finiteNonNegativeNumber(sticky.x) + stickyWidth + 24) * scale));
         maxBottom = Math.max(maxBottom, Math.round((finiteNonNegativeNumber(sticky.y) + stickyHeight + 24) * scale));
       });
+      const detachedExtraColumn = els.board.querySelector('.column--virtual.is-detached');
+      if (detachedExtraColumn instanceof HTMLElement) {
+        maxRight = Math.max(
+          maxRight,
+          detachedExtraColumn.offsetLeft + detachedExtraColumn.offsetWidth + viewportSlackX,
+        );
+        maxBottom = Math.max(
+          maxBottom,
+          detachedExtraColumn.offsetTop + detachedExtraColumn.offsetHeight + viewportSlackY,
+        );
+      }
       els.board.style.minWidth = Math.max(naturalWidth, maxRight) + 'px';
       els.board.style.minHeight = Math.max(naturalHeight, maxBottom) + 'px';
       clampBoardScroll();
@@ -12782,6 +12791,8 @@
       return {
         extra_column: {
           is_open: false,
+          is_detached: false,
+          position: { x: 0, y: 0 },
           filter: {
             tag_label: EXTRA_BOARD_COLUMN_DEFAULT_TAG_LABEL,
             tag_color: EXTRA_BOARD_COLUMN_DEFAULT_TAG_COLOR,
@@ -12802,6 +12813,11 @@
       return {
         extra_column: {
           is_open: rawExtraColumn.is_open === true,
+          is_detached: rawExtraColumn.is_detached === true,
+          position: {
+            x: Math.max(0, Math.round(finiteNumber(rawExtraColumn.position?.x, defaults.extra_column.position.x))),
+            y: Math.max(0, Math.round(finiteNumber(rawExtraColumn.position?.y, defaults.extra_column.position.y))),
+          },
           filter: {
             tag_label: normalizeExtraBoardColumnTagLabel(rawFilter.tag_label || defaults.extra_column.filter.tag_label),
             tag_color: normalizeExtraBoardColumnTagColor(rawFilter.tag_color || defaults.extra_column.filter.tag_color),
@@ -12822,6 +12838,10 @@
 
     function extraBoardColumnIsOpen() {
       return Boolean(extraBoardColumnPreferences().is_open);
+    }
+
+    function extraBoardColumnIsDetached() {
+      return Boolean(extraBoardColumnPreferences().is_detached);
     }
 
     function applyPersonalBoardPreferences(preferences) {
@@ -12945,6 +12965,92 @@
         tag_color: normalizeExtraBoardColumnTagColor(els.extraBoardColumnTagColorSelect?.value),
       };
       await savePersonalBoardPreferences(nextPreferences, { statusMessage: 'ФИЛЬТР ДОПОЛНИТЕЛЬНОЙ КОЛОНКИ СОХРАНЁН.' });
+    }
+
+    async function toggleExtraBoardColumnDetached() {
+      const nextPreferences = personalBoardPreferences();
+      const nextDetached = !nextPreferences.extra_column.is_detached;
+      if (nextDetached) {
+        const section = els.board?.querySelector('[data-virtual-column="extra"]');
+        const scale = normalizeBoardScale(state.boardScale);
+        nextPreferences.extra_column.position = {
+          x: Math.max(0, Math.round(finiteNumber(section?.offsetLeft, 0) / scale)),
+          y: Math.max(0, Math.round(finiteNumber(section?.offsetTop, 0) / scale)),
+        };
+      }
+      nextPreferences.extra_column.is_detached = nextDetached;
+      await savePersonalBoardPreferences(nextPreferences, {
+        statusMessage: nextDetached
+          ? 'ДОПОЛНИТЕЛЬНАЯ КОЛОНКА ОТКРЕПЛЕНА.'
+          : 'ДОПОЛНИТЕЛЬНАЯ КОЛОНКА ВОЗВРАЩЕНА В РЯД.',
+      });
+    }
+
+    function beginExtraBoardColumnDrag(event) {
+      if (state.mobileLite || !extraBoardColumnIsDetached()) return;
+      if (event.button !== 0 || !(event.target instanceof HTMLElement)) return;
+      const handle = event.target.closest('[data-extra-column-drag-handle]');
+      if (!(handle instanceof HTMLElement)) return;
+      const position = extraBoardColumnPreferences().position;
+      state.extraBoardColumnDrag = {
+        active: true,
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startX: finiteNonNegativeNumber(position.x),
+        startY: finiteNonNegativeNumber(position.y),
+        moved: false,
+      };
+      els.board?.querySelector('[data-virtual-column="extra"]')?.classList.add('is-dragging');
+      event.preventDefault();
+      event.stopPropagation();
+    }
+
+    function extraBoardColumnDragPosition(event, drag = state.extraBoardColumnDrag) {
+      const scale = normalizeBoardScale(state.boardScale);
+      return {
+        x: Math.max(0, Math.round(drag.startX + ((event.clientX - drag.startClientX) / scale))),
+        y: Math.max(0, Math.round(drag.startY + ((event.clientY - drag.startClientY) / scale))),
+      };
+    }
+
+    function moveExtraBoardColumnDrag(event) {
+      const drag = state.extraBoardColumnDrag;
+      if (!drag.active || drag.pointerId !== event.pointerId) return;
+      const dx = event.clientX - drag.startClientX;
+      const dy = event.clientY - drag.startClientY;
+      if (!drag.moved && Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+      if (!drag.moved) return;
+      const position = extraBoardColumnDragPosition(event, drag);
+      const scale = normalizeBoardScale(state.boardScale);
+      const section = els.board?.querySelector('[data-virtual-column="extra"]');
+      if (section instanceof HTMLElement) {
+        section.style.left = Math.round(position.x * scale) + 'px';
+        section.style.top = Math.round(position.y * scale) + 'px';
+      }
+      adjustBoardBounds();
+      event.preventDefault();
+    }
+
+    async function endExtraBoardColumnDrag(event) {
+      const drag = state.extraBoardColumnDrag;
+      if (!drag.active || drag.pointerId !== event.pointerId) return;
+      state.extraBoardColumnDrag = {
+        active: false,
+        pointerId: null,
+        startClientX: 0,
+        startClientY: 0,
+        startX: 0,
+        startY: 0,
+        moved: false,
+      };
+      els.board?.querySelector('[data-virtual-column="extra"]')?.classList.remove('is-dragging');
+      if (!drag.moved) return;
+      const nextPreferences = personalBoardPreferences();
+      nextPreferences.extra_column.position = extraBoardColumnDragPosition(event, drag);
+      await savePersonalBoardPreferences(nextPreferences, {
+        statusMessage: 'ПОЛОЖЕНИЕ ДОПОЛНИТЕЛЬНОЙ КОЛОНКИ СОХРАНЕНО.',
+      });
     }
 
     function normalizeRepairOrderTags(items, fallbackColor = 'green') {
@@ -14382,6 +14488,16 @@
       return '';
     }
 
+    function syncCardArchiveAction(card = state.activeCard) {
+      const currentCard = card || null;
+      const archiveAvailable = cardArchiveAvailability(currentCard);
+      els.archiveAction.classList.toggle('hidden', !currentCard?.id || currentCard.archived);
+      els.archiveAction.disabled = !archiveAvailable;
+      els.archiveAction.dataset.archiveAvailable = archiveAvailable ? 'true' : 'false';
+      els.archiveAction.title = archiveAvailable ? '' : cardArchiveUnavailableTitle(currentCard);
+      return archiveAvailable;
+    }
+
     function ensureRepairOrderRows(rows) {
       const normalized = Array.isArray(rows) ? rows.map(normalizeRepairOrderRow).filter(repairOrderRowHasAnyData) : [];
       return normalized.length ? normalized : [emptyRepairOrderRow()];
@@ -14608,10 +14724,21 @@
     }
 
     function applyRepairOrderCardUpdate(updatedCard, fallbackOrder = {}) {
-      state.activeCard = updatedCard;
-      const nextOrder = repairOrderCardDraft(updatedCard, updatedCard?.repair_order || fallbackOrder);
+      const previousCard = state.activeCard?.id === updatedCard?.id ? state.activeCard : null;
+      const responseOrder = updatedCard?.repair_order || fallbackOrder;
+      const nextCard = {
+        ...(previousCard || {}),
+        ...(updatedCard || {}),
+        repair_order: responseOrder,
+      };
+      state.activeCard = nextCard;
+      state.activeCardIsFull = previousCard ? state.activeCardIsFull : Boolean(nextCard?.id);
+      if (state.mobileCard?.id === nextCard?.id) state.mobileCard = nextCard;
+      applySavedCardLocalPatch(nextCard);
+      syncCardArchiveAction(nextCard);
+      const nextOrder = repairOrderCardDraft(nextCard, responseOrder);
       applyRepairOrderToForm(nextOrder);
-      refreshRepairOrderEntry(updatedCard);
+      refreshRepairOrderEntry(nextCard);
       return nextOrder;
     }
 
@@ -15498,11 +15625,7 @@
       els.signalDays.value = parts.days;
       els.signalHours.value = parts.hours;
       renderSignalPreview();
-      const archiveAvailable = cardArchiveAvailability(currentCard);
-      els.archiveAction.classList.toggle('hidden', !currentCard?.id || currentCard.archived);
-      els.archiveAction.disabled = !archiveAvailable;
-      els.archiveAction.dataset.archiveAvailable = archiveAvailable ? 'true' : 'false';
-      els.archiveAction.title = archiveAvailable ? '' : cardArchiveUnavailableTitle(currentCard);
+      syncCardArchiveAction(currentCard);
       els.restoreAction.classList.toggle('hidden', !currentCard?.id || !currentCard.archived);
       state.vehicleProfileBaseline = cloneVehicleProfile(currentCard?.vehicle_profile || {});
       applyVehicleProfileToForm(currentCard?.vehicle_profile || emptyVehicleProfile());
@@ -17045,8 +17168,19 @@
     function renderExtraBoardColumnHtml(snapshot) {
       const cards = extraBoardColumnCards(snapshot);
       const emptyHtml = '<div class="empty">ПОДХОДЯЩИХ КАРТОЧЕК НЕТ.</div>';
-      return '<section class="column column--virtual" data-virtual-column="extra" draggable="false" aria-label="ЛИЧНАЯ ДОПОЛНИТЕЛЬНАЯ КОЛОНКА">'
-        + '<div class="column__head"><div class="column__title">ДОП. КОЛОНКА</div><div class="column__head-actions"><div class="column__count">' + cards.length + '</div></div></div>'
+      const settings = extraBoardColumnPreferences();
+      const isDetached = settings.is_detached && !state.mobileLite;
+      const scale = normalizeBoardScale(state.boardScale);
+      const detachedClass = isDetached ? ' is-detached' : '';
+      const detachedStyle = isDetached
+        ? ' style="left:' + Math.round(settings.position.x * scale) + 'px;top:' + Math.round(settings.position.y * scale) + 'px;"'
+        : '';
+      const moveButton = isDetached
+        ? '<button class="btn btn--ghost column--virtual__control column--virtual__move" type="button" data-extra-column-drag-handle="true" title="Перетащить колонку по рабочей области">ПЕРЕТАЩИТЬ</button>'
+        : '';
+      const toggleLabel = isDetached ? 'ВЕРНУТЬ' : 'ОТКРЕПИТЬ';
+      return '<section class="column column--virtual' + detachedClass + '" data-virtual-column="extra" draggable="false" aria-label="ЛИЧНАЯ ДОПОЛНИТЕЛЬНАЯ КОЛОНКА"' + detachedStyle + '>'
+        + '<div class="column__head"><div class="column__title">ДОП. КОЛОНКА</div><div class="column__head-actions">' + moveButton + '<button class="btn btn--ghost column--virtual__control" type="button" data-extra-column-detach-toggle="true">' + toggleLabel + '</button><div class="column__count">' + cards.length + '</div></div></div>'
         + '<div class="column__cards">' + (cards.length ? cards.map((card) => renderBoardCardHtml(card, { virtual: true })).join('') : emptyHtml) + '</div>'
       + '</section>';
     }
@@ -17360,7 +17494,7 @@
         .concat(suppressedNextCards);
       if (state.activeCard?.id) {
         const nextActiveCard = nextCardMap.get(state.activeCard.id);
-        if (nextActiveCard) state.activeCard = nextActiveCard;
+        if (nextActiveCard && !state.activeCardIsFull) state.activeCard = nextActiveCard;
       }
       if (extraBoardColumnIsOpen()) {
         renderBoard();
@@ -17372,6 +17506,88 @@
         renderedAny = renderBoardColumnById(columnId, cardsByColumn) || renderedAny;
       }
       return renderedAny;
+    }
+
+    function applyBoardColumnOrderDelta(movedCard, affectedColumns, affectedColumnIds) {
+      if (
+        !movedCard?.id
+        || !Array.isArray(state.snapshot?.cards)
+        || !Array.isArray(affectedColumns)
+        || !Array.isArray(affectedColumnIds)
+      ) return false;
+      const normalizedColumnIds = affectedColumnIds
+        .map((value) => String(value || '').trim())
+        .filter(Boolean);
+      if (!normalizedColumnIds.length || normalizedColumnIds.length !== new Set(normalizedColumnIds).size) return false;
+      const targetColumns = new Set(normalizedColumnIds);
+      const columnsById = new Map();
+      for (const item of affectedColumns) {
+        const columnId = String(item?.column_id || '').trim();
+        const orderedCardIds = Array.isArray(item?.ordered_card_ids)
+          ? item.ordered_card_ids.map((value) => String(value || '').trim()).filter(Boolean)
+          : null;
+        if (
+          !columnId
+          || !targetColumns.has(columnId)
+          || columnsById.has(columnId)
+          || !orderedCardIds
+          || orderedCardIds.length !== new Set(orderedCardIds).size
+        ) return false;
+        columnsById.set(columnId, orderedCardIds);
+      }
+      if (columnsById.size !== normalizedColumnIds.length) return false;
+
+      const existingCards = state.snapshot.cards;
+      const existingById = new Map(
+        existingCards.filter((card) => card?.id).map((card) => [String(card.id), card]),
+      );
+      const expectedAffectedIds = new Set(
+        existingCards
+          .filter((card) => targetColumns.has(String(card?.column || '').trim()))
+          .map((card) => String(card.id || '').trim())
+          .filter(Boolean),
+      );
+      expectedAffectedIds.add(String(movedCard.id));
+      const deltaIds = normalizedColumnIds.flatMap((columnId) => columnsById.get(columnId) || []);
+      const deltaIdSet = new Set(deltaIds);
+      if (
+        deltaIds.length !== deltaIdSet.size
+        || deltaIdSet.size !== expectedAffectedIds.size
+        || Array.from(expectedAffectedIds).some((cardId) => !deltaIdSet.has(cardId))
+        || deltaIds.some((cardId) => cardId !== movedCard.id && !existingById.has(cardId))
+      ) return false;
+
+      const suppressedMovedCard = applyCardSeenSuppression(movedCard);
+      cacheFullCard(suppressedMovedCard);
+      const movedBoardCard = boardCardFromFullCard(suppressedMovedCard);
+      const reorderedCards = [];
+      normalizedColumnIds.forEach((columnId) => {
+        (columnsById.get(columnId) || []).forEach((cardId, position) => {
+          const sourceCard = cardId === movedCard.id ? movedBoardCard : existingById.get(cardId);
+          reorderedCards.push({ ...sourceCard, column: columnId, position });
+        });
+      });
+      state.snapshot.cards = existingCards
+        .filter((card) => !targetColumns.has(String(card?.column || '').trim()))
+        .concat(reorderedCards);
+      if (state.activeCard?.id === movedCard.id) {
+        state.activeCard = state.activeCardIsFull
+          ? { ...state.activeCard, ...suppressedMovedCard }
+          : movedBoardCard;
+      }
+      if (state.mobileCard?.id === movedCard.id) {
+        state.mobileCard = { ...state.mobileCard, ...suppressedMovedCard };
+      }
+      if (extraBoardColumnIsOpen()) {
+        renderBoard();
+        return true;
+      }
+      const cardsByColumn = buildBoardCardsByColumn(state.snapshot);
+      const renderedAll = normalizedColumnIds.every(
+        (columnId) => renderBoardColumnById(columnId, cardsByColumn),
+      );
+      if (!renderedAll) renderBoard();
+      return true;
     }
 
     function applyBoardColumnsPatch(nextColumns) {
@@ -17839,13 +18055,18 @@
               before_card_id: beforeCardId || undefined,
               actor_name: state.actor,
               source: 'ui',
+              response_mode: 'delta',
             },
           });
-          const patched = applyBoardColumnCardsPatch(data?.affected_cards || [], data?.affected_column_ids || []);
-          if (!patched && data?.card) {
+          const hasDelta = Array.isArray(data?.affected_columns);
+          const patched = hasDelta
+            ? applyBoardColumnOrderDelta(data?.card, data.affected_columns, data?.affected_column_ids || [])
+            : applyBoardColumnCardsPatch(data?.affected_cards || [], data?.affected_column_ids || []);
+          if (!patched && hasDelta) {
+            await refreshSnapshot(true);
+          } else if (!patched && data?.card) {
             replaceSnapshotCard(data.card);
-          }
-          if (!patched && !data?.card) {
+          } else if (!patched && !data?.card) {
             await refreshSnapshot(true);
           } else {
             setStatus('ДОСКА ОБНОВЛЕНА · ' + new Date().toLocaleTimeString('ru-RU'), false);
@@ -18042,6 +18263,304 @@
         return;
       }
       popup.focus();
+    }
+
+    function normalizedDisplayDashboardMessage(value) {
+      const source = value && typeof value === 'object' ? value : {};
+      return {
+        schema_version: String(source.schema_version || 'display_dashboard_message.v1'),
+        body_html: String(source.body_html || ''),
+        image_file_ids: Array.isArray(source.image_file_ids)
+          ? Array.from(new Set(source.image_file_ids.map((item) => String(item || '').trim()).filter(Boolean))).slice(0, DISPLAY_DASHBOARD_MAX_IMAGES)
+          : [],
+        updated_at: String(source.updated_at || ''),
+        updated_by: String(source.updated_by || ''),
+        revision: String(source.revision || ''),
+      };
+    }
+
+    function displayDashboardEditorAuthHeaders() {
+      const headers = {};
+      if (state.apiToken) headers.Authorization = 'Bearer ' + state.apiToken;
+      if (state.operatorSessionToken) headers['X-Operator-Session'] = state.operatorSessionToken;
+      return headers;
+    }
+
+    function clearDisplayDashboardImageDrafts() {
+      state.displayDashboardPendingImages.forEach((item) => {
+        if (item?.url) URL.revokeObjectURL(item.url);
+      });
+      state.displayDashboardPendingImages = [];
+      state.displayDashboardExistingImageUrls.forEach((url) => URL.revokeObjectURL(url));
+      state.displayDashboardExistingImageUrls.clear();
+      state.displayDashboardExistingImageIds = [];
+      if (els.displayDashboardImageInput) els.displayDashboardImageInput.value = '';
+      if (els.displayDashboardMessageImages) els.displayDashboardMessageImages.innerHTML = '';
+    }
+
+    function closeDisplayDashboardMessageEditor() {
+      clearDisplayDashboardImageDrafts();
+      state.displayDashboardSelectionRange = null;
+      if (els.displayDashboardEmojiPalette) els.displayDashboardEmojiPalette.hidden = true;
+      if (els.displayDashboardEmojiButton) els.displayDashboardEmojiButton.setAttribute('aria-expanded', 'false');
+      popModal('display-dashboard-message');
+    }
+
+    function appendDisplayDashboardImagePreview({ url, key, existing }) {
+      if (!url || !els.displayDashboardMessageImages) return;
+      const card = document.createElement('div');
+      card.className = 'display-dashboard-editor__image';
+      const image = document.createElement('img');
+      image.src = url;
+      image.alt = 'Фото к сообщению';
+      const removeButton = document.createElement('button');
+      removeButton.type = 'button';
+      removeButton.textContent = '×';
+      removeButton.title = 'Убрать фото';
+      removeButton.setAttribute('aria-label', 'Убрать фото');
+      removeButton.dataset.dashboardImageRemove = key;
+      removeButton.dataset.dashboardImageExisting = existing ? 'true' : 'false';
+      card.append(image, removeButton);
+      els.displayDashboardMessageImages.appendChild(card);
+    }
+
+    function renderDisplayDashboardImageDrafts() {
+      if (!els.displayDashboardMessageImages) return;
+      els.displayDashboardMessageImages.innerHTML = '';
+      state.displayDashboardExistingImageIds.forEach((fileId) => {
+        const url = state.displayDashboardExistingImageUrls.get(fileId);
+        if (url) appendDisplayDashboardImagePreview({ url, key: fileId, existing: true });
+      });
+      state.displayDashboardPendingImages.forEach((item) => {
+        appendDisplayDashboardImagePreview({ url: item.url, key: item.key, existing: false });
+      });
+      const total = state.displayDashboardExistingImageIds.length + state.displayDashboardPendingImages.length;
+      if (els.displayDashboardMessageMeta && state.displayDashboardMessage) {
+        const updatedAt = formatDate(state.displayDashboardMessage.updated_at);
+        els.displayDashboardMessageMeta.textContent = [
+          updatedAt ? ('ОБНОВЛЕНО ' + updatedAt) : 'НОВОЕ СООБЩЕНИЕ',
+          state.displayDashboardMessage.updated_by,
+          'ФОТО: ' + total + '/' + DISPLAY_DASHBOARD_MAX_IMAGES,
+        ].filter(Boolean).join(' · ');
+      }
+    }
+
+    async function loadDisplayDashboardExistingImages(imageIds, revision) {
+      const loaded = await Promise.all(imageIds.map(async (fileId) => {
+        try {
+          const response = await fetch(
+            '/api/shared_file?file_id=' + encodeURIComponent(fileId) + '&disposition=inline',
+            { headers: displayDashboardEditorAuthHeaders(), cache: 'no-store' },
+          );
+          if (!response.ok) return null;
+          const blob = await response.blob();
+          if (!String(blob.type || '').toLowerCase().startsWith('image/')) return null;
+          return { fileId, url: URL.createObjectURL(blob) };
+        } catch (_error) {
+          return null;
+        }
+      }));
+      if (
+        !isModalOpen('display-dashboard-message')
+        || state.displayDashboardMessage?.revision !== revision
+      ) {
+        loaded.filter(Boolean).forEach((item) => URL.revokeObjectURL(item.url));
+        return;
+      }
+      loaded.filter(Boolean).forEach((item) => {
+        state.displayDashboardExistingImageUrls.set(item.fileId, item.url);
+      });
+      renderDisplayDashboardImageDrafts();
+    }
+
+    async function openDisplayDashboardMessageEditor() {
+      if (!requireOperatorSession()) return;
+      try {
+        const data = await api('/api/get_display_dashboard');
+        const message = normalizedDisplayDashboardMessage(data?.message_board);
+        clearDisplayDashboardImageDrafts();
+        state.displayDashboardMessage = message;
+        state.displayDashboardExistingImageIds = message.image_file_ids.slice();
+        if (els.displayDashboardMessageEditor) {
+          els.displayDashboardMessageEditor.innerHTML = message.body_html;
+        }
+        if (els.displayDashboardMessageSaveButton) els.displayDashboardMessageSaveButton.disabled = false;
+        state.displayDashboardSelectionRange = null;
+        if (els.displayDashboardEmojiPalette) els.displayDashboardEmojiPalette.hidden = true;
+        if (els.displayDashboardEmojiButton) els.displayDashboardEmojiButton.setAttribute('aria-expanded', 'false');
+        pushModal('display-dashboard-message', els.displayDashboardMessageModal, { parentKey: 'settings' });
+        renderDisplayDashboardImageDrafts();
+        void loadDisplayDashboardExistingImages(message.image_file_ids, message.revision);
+        requestAnimationFrame(() => els.displayDashboardMessageEditor?.focus({ preventScroll: true }));
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    function rememberDisplayDashboardSelection() {
+      const selection = window.getSelection();
+      if (!selection?.rangeCount || !els.displayDashboardMessageEditor) return;
+      const range = selection.getRangeAt(0);
+      const container = range.commonAncestorContainer;
+      if (!els.displayDashboardMessageEditor.contains(
+        container.nodeType === Node.ELEMENT_NODE ? container : container.parentElement,
+      )) return;
+      state.displayDashboardSelectionRange = range.cloneRange();
+    }
+
+    function restoreDisplayDashboardSelection() {
+      const range = state.displayDashboardSelectionRange;
+      if (!(range instanceof Range)) return;
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    }
+
+    function applyDisplayDashboardFormat(command, value = null) {
+      if (!els.displayDashboardMessageEditor) return;
+      els.displayDashboardMessageEditor.focus({ preventScroll: true });
+      restoreDisplayDashboardSelection();
+      document.execCommand(command, false, value);
+      rememberDisplayDashboardSelection();
+    }
+
+    function handleDisplayDashboardToolbarClick(event) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const formatButton = target.closest('[data-dashboard-format]');
+      if (formatButton instanceof HTMLElement) {
+        applyDisplayDashboardFormat(String(formatButton.dataset.dashboardFormat || ''));
+        return;
+      }
+      const emojiButton = target.closest('[data-dashboard-emoji]');
+      if (emojiButton instanceof HTMLElement) {
+        applyDisplayDashboardFormat('insertText', String(emojiButton.dataset.dashboardEmoji || ''));
+      }
+    }
+
+    function handleDisplayDashboardFontSize() {
+      applyDisplayDashboardFormat('fontSize', String(els.displayDashboardFontSize?.value || '3'));
+    }
+
+    function toggleDisplayDashboardEmojiPalette() {
+      if (!els.displayDashboardEmojiPalette) return;
+      els.displayDashboardEmojiPalette.hidden = !els.displayDashboardEmojiPalette.hidden;
+      els.displayDashboardEmojiButton?.setAttribute(
+        'aria-expanded',
+        els.displayDashboardEmojiPalette.hidden ? 'false' : 'true',
+      );
+    }
+
+    function addDisplayDashboardImages(files) {
+      const selected = Array.from(files || []).filter((file) =>
+        String(file?.type || '').toLowerCase().startsWith('image/')
+      );
+      if (!selected.length) {
+        setStatus('ВЫБЕРИТЕ ИЗОБРАЖЕНИЕ JPG, PNG, WEBP ИЛИ GIF.', true);
+        return;
+      }
+      const available = Math.max(
+        0,
+        DISPLAY_DASHBOARD_MAX_IMAGES
+          - state.displayDashboardExistingImageIds.length
+          - state.displayDashboardPendingImages.length,
+      );
+      if (selected.length > available) {
+        setStatus('НА ДОСКЕ МОЖЕТ БЫТЬ НЕ БОЛЬШЕ 8 ФОТО.', true);
+      }
+      selected.slice(0, available).forEach((file) => {
+        if (file.size > SHARED_FILE_UPLOAD_MAX_SIZE_BYTES) {
+          setStatus('ФОТО СЛИШКОМ БОЛЬШОЕ. ЛИМИТ: 25 МБ.', true);
+          return;
+        }
+        state.displayDashboardPendingImages.push({
+          key: crypto.randomUUID(),
+          file,
+          url: URL.createObjectURL(file),
+        });
+      });
+      if (els.displayDashboardImageInput) els.displayDashboardImageInput.value = '';
+      renderDisplayDashboardImageDrafts();
+    }
+
+    function removeDisplayDashboardImage(event) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const button = target.closest('[data-dashboard-image-remove]');
+      if (!(button instanceof HTMLElement)) return;
+      const key = String(button.dataset.dashboardImageRemove || '');
+      if (button.dataset.dashboardImageExisting === 'true') {
+        state.displayDashboardExistingImageIds = state.displayDashboardExistingImageIds
+          .filter((fileId) => fileId !== key);
+        const url = state.displayDashboardExistingImageUrls.get(key);
+        if (url) URL.revokeObjectURL(url);
+        state.displayDashboardExistingImageUrls.delete(key);
+      } else {
+        const removed = state.displayDashboardPendingImages.find((item) => item.key === key);
+        if (removed?.url) URL.revokeObjectURL(removed.url);
+        state.displayDashboardPendingImages = state.displayDashboardPendingImages
+          .filter((item) => item.key !== key);
+      }
+      renderDisplayDashboardImageDrafts();
+    }
+
+    async function uploadDisplayDashboardImage(file, index) {
+      const buffer = await file.arrayBuffer();
+      const fileName = String(file.name || ('dashboard-image-' + (index + 1) + '.jpg')).slice(0, 240);
+      const uploaded = await api('/api/upload_shared_file', {
+        method: 'POST',
+        body: {
+          actor_name: state.actor,
+          source: 'ui',
+          file_name: fileName,
+          mime_type: String(file.type || 'image/jpeg'),
+          content_base64: arrayBufferToBase64(buffer),
+          x: 0,
+          y: 0,
+        },
+      });
+      const fileId = String(uploaded?.file?.id || '').trim();
+      if (!fileId) throw new Error('НЕ УДАЛОСЬ СОХРАНИТЬ ИЗОБРАЖЕНИЕ.');
+      return fileId;
+    }
+
+    async function saveDisplayDashboardMessage() {
+      if (state.displayDashboardMessageSaving || !state.displayDashboardMessage) return;
+      state.displayDashboardMessageSaving = true;
+      if (els.displayDashboardMessageSaveButton) els.displayDashboardMessageSaveButton.disabled = true;
+      try {
+        const uploadedIds = [];
+        for (let index = 0; index < state.displayDashboardPendingImages.length; index += 1) {
+          uploadedIds.push(await uploadDisplayDashboardImage(
+            state.displayDashboardPendingImages[index].file,
+            index,
+          ));
+        }
+        const imageFileIds = state.displayDashboardExistingImageIds.concat(uploadedIds);
+        const data = await api('/api/update_board_settings', {
+          method: 'POST',
+          body: {
+            actor_name: state.actor,
+            source: 'ui',
+            expected_revision: state.displayDashboardMessage.revision,
+            display_dashboard_message: {
+              body_html: String(els.displayDashboardMessageEditor?.innerHTML || ''),
+              image_file_ids: imageFileIds,
+            },
+          },
+        });
+        state.displayDashboardMessage = normalizedDisplayDashboardMessage(
+          data?.meta?.display_dashboard_message || data?.settings?.display_dashboard_message,
+        );
+        if (state.snapshot && data?.settings) state.snapshot.settings = data.settings;
+        closeDisplayDashboardMessageEditor();
+        setStatus('ДОСКА МЕХАНИКОВ ОБНОВЛЕНА.', false);
+      } catch (error) {
+        setStatus(error.message, true);
+      } finally {
+        state.displayDashboardMessageSaving = false;
+        if (els.displayDashboardMessageSaveButton) els.displayDashboardMessageSaveButton.disabled = false;
+      }
     }
 
     function currentBoardControlSettings() {

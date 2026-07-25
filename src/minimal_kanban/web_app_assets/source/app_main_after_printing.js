@@ -419,6 +419,13 @@
       if (els.repairOrderWorkSalaryPopover?.classList.contains('is-open') && !target.closest('#repairOrderWorkSalaryPopover')) {
         closeRepairOrderWorkSalaryPopover();
       }
+      const extraColumnDetachButton = target.closest('[data-extra-column-detach-toggle]');
+      if (extraColumnDetachButton instanceof HTMLElement) {
+        event.preventDefault();
+        event.stopPropagation();
+        await toggleExtraBoardColumnDetached();
+        return;
+      }
       const removeRepairOrderRowButton = target.closest('[data-remove-repair-order-row]');
       if (removeRepairOrderRowButton) {
         removeRepairOrderRow(
@@ -471,6 +478,10 @@
     document.addEventListener('pointermove', moveStickyDrag);
     document.addEventListener('pointerup', endStickyDrag);
     document.addEventListener('pointercancel', endStickyDrag);
+    document.addEventListener('pointerdown', beginExtraBoardColumnDrag);
+    document.addEventListener('pointermove', moveExtraBoardColumnDrag);
+    document.addEventListener('pointerup', endExtraBoardColumnDrag);
+    document.addEventListener('pointercancel', endExtraBoardColumnDrag);
 
     function remountElement(key) {
       const element = els[key];
@@ -665,6 +676,23 @@
     els.boardScaleInput.addEventListener('change', persistBoardScaleChange);
     els.boardScaleReset.addEventListener('click', resetBoardScaleToDefault);
     els.openDisplayDashboardButton?.addEventListener('click', openDisplayDashboard);
+    els.editDisplayDashboardMessageButton?.addEventListener('click', openDisplayDashboardMessageEditor);
+    els.displayDashboardMessageToolbar?.addEventListener('mousedown', (event) => {
+      if (event.target.closest('button')) event.preventDefault();
+    });
+    els.displayDashboardMessageToolbar?.addEventListener('click', handleDisplayDashboardToolbarClick);
+    ['input', 'keyup', 'mouseup'].forEach((eventName) => {
+      els.displayDashboardMessageEditor?.addEventListener(eventName, rememberDisplayDashboardSelection);
+    });
+    els.displayDashboardEmojiPalette?.addEventListener('mousedown', (event) => event.preventDefault());
+    els.displayDashboardEmojiPalette?.addEventListener('click', handleDisplayDashboardToolbarClick);
+    els.displayDashboardFontSize?.addEventListener('change', handleDisplayDashboardFontSize);
+    els.displayDashboardEmojiButton?.addEventListener('click', toggleDisplayDashboardEmojiPalette);
+    els.displayDashboardImageInput?.addEventListener('change', () => {
+      addDisplayDashboardImages(els.displayDashboardImageInput.files);
+    });
+    els.displayDashboardMessageImages?.addEventListener('click', removeDisplayDashboardImage);
+    els.displayDashboardMessageSaveButton?.addEventListener('click', saveDisplayDashboardMessage);
     els.extraBoardColumnToggleButton?.addEventListener('click', toggleExtraBoardColumn);
     els.extraBoardColumnFilterButton?.addEventListener('click', toggleExtraBoardColumnFilterSettings);
     els.extraBoardColumnFilterSaveButton?.addEventListener('click', saveExtraBoardColumnFilterSettings);

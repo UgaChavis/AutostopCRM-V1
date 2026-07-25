@@ -104,7 +104,10 @@ from ..vehicle_profile import (
     normalize_license_plate,
 )
 from .card_service_clients import CardServiceClientsMixin
-from .card_service_dashboard import CardServiceDashboardMixin
+from .card_service_dashboard import (
+    DISPLAY_DASHBOARD_MESSAGE_KEY,
+    CardServiceDashboardMixin,
+)
 from .card_service_finance import CardServiceFinanceMixin
 from .card_service_inventory import CardServiceInventoryMixin
 from .card_service_payroll import CardServicePayrollMixin
@@ -1384,12 +1387,16 @@ class CardService(
         with self._lock:
             payload = payload or {}
             actor_name, source = self._audit_identity(payload, default_source="ui")
+            dry_run = payload.get("dry_run") is True
             bundle = self._store.read_bundle()
             previous_scale = self._normalized_stored_board_scale(
                 bundle["settings"].get("board_scale")
             )
             previous_board_control = self._normalized_ai_board_control_settings(
                 bundle["settings"].get("ai_board_control")
+            )
+            previous_dashboard_message = self._normalized_display_dashboard_message(
+                bundle["settings"].get(DISPLAY_DASHBOARD_MESSAGE_KEY)
             )
             board_scale = (
                 self._validated_board_scale(payload.get("board_scale"))
@@ -1404,12 +1411,31 @@ class CardService(
                 if board_control_payload is not None
                 else previous_board_control
             )
+            dashboard_message = previous_dashboard_message
+            if DISPLAY_DASHBOARD_MESSAGE_KEY in payload:
+                validated_dashboard_message = self._validated_display_dashboard_message(
+                    payload.get(DISPLAY_DASHBOARD_MESSAGE_KEY),
+                    previous=previous_dashboard_message,
+                    expected_revision=payload.get("expected_revision"),
+                    actor_name=actor_name,
+                )
+                if (
+                    validated_dashboard_message["revision"]
+                    != previous_dashboard_message["revision"]
+                ):
+                    dashboard_message = validated_dashboard_message
             settings = dict(bundle["settings"])
             settings["board_scale"] = board_scale
             settings["ai_board_control"] = board_control_settings
+            settings[DISPLAY_DASHBOARD_MESSAGE_KEY] = dashboard_message
             scale_changed = previous_scale != board_scale
             board_control_changed = previous_board_control != board_control_settings
-            if scale_changed or board_control_changed:
+            dashboard_message_changed = (
+                previous_dashboard_message["revision"] != dashboard_message["revision"]
+            )
+            if (
+                scale_changed or board_control_changed or dashboard_message_changed
+            ) and not dry_run:
                 events = bundle["events"]
                 if scale_changed:
                     self._append_event(
@@ -1431,13 +1457,28 @@ class CardService(
                         card_id=None,
                         details={"before": previous_board_control, "after": board_control_settings},
                     )
+                if dashboard_message_changed:
+                    self._append_event(
+                        events,
+                        actor_name=actor_name,
+                        source=source,
+                        action="display_dashboard_message_updated",
+                        message=f"{actor_name} обновил информационную доску механиков",
+                        card_id=None,
+                        details={
+                            "before_revision": previous_dashboard_message["revision"],
+                            "after_revision": dashboard_message["revision"],
+                            "image_count": len(dashboard_message["image_file_ids"]),
+                            "html_length": len(dashboard_message["body_html"]),
+                        },
+                    )
                 self._store.write_bundle(
                     columns=bundle["columns"],
                     cards=bundle["cards"],
                     events=events,
                     settings=settings,
                 )
-            else:
+            elif not dry_run:
                 self._store.write_bundle(
                     columns=bundle["columns"],
                     cards=bundle["cards"],
@@ -1451,9 +1492,15 @@ class CardService(
                     "previous_board_scale": previous_scale,
                     "ai_board_control": board_control_settings,
                     "previous_ai_board_control": previous_board_control,
-                    "changed": scale_changed or board_control_changed,
+                    "display_dashboard_message": dashboard_message,
+                    "previous_display_dashboard_message": previous_dashboard_message,
+                    "changed": (
+                        scale_changed or board_control_changed or dashboard_message_changed
+                    ),
                     "board_scale_changed": scale_changed,
                     "board_control_changed": board_control_changed,
+                    "display_dashboard_message_changed": dashboard_message_changed,
+                    "dry_run": dry_run,
                 },
             }
 
@@ -3974,6 +4021,13 @@ class CardService(
 
     def move_card(self, payload: dict) -> dict:
         with self._lock:
+            response_mode = str(payload.get("response_mode") or "legacy").strip().casefold()
+            if response_mode not in {"legacy", "delta"}:
+                self._fail(
+                    "validation_error",
+                    "response_mode для перемещения карточки должен быть legacy или delta.",
+                    details={"field": "response_mode"},
+                )
             bundle = self._store.read_bundle()
             cards = bundle["cards"]
             columns = bundle["columns"]
@@ -4042,7 +4096,7 @@ class CardService(
                 )
             )
             affected_column_ids = [column_id for column_id in affected_column_ids if column_id]
-            return {
+            response = {
                 "card": self._serialize_card(
                     card,
                     events,
@@ -4050,13 +4104,6 @@ class CardService(
                     viewer_username=actor_name,
                 ),
                 "affected_column_ids": affected_column_ids,
-                "affected_cards": self._serialize_compact_cards_for_columns(
-                    cards,
-                    events,
-                    affected_column_ids,
-                    column_labels=column_labels,
-                    viewer_username=actor_name,
-                ),
                 "meta": {
                     "changed": changed or ready_state_changed or ready_column_changed,
                     "moved": changed,
@@ -4064,6 +4111,28 @@ class CardService(
                     "warnings": ready_warnings,
                 },
             }
+            if response_mode == "delta":
+                response["affected_columns"] = [
+                    {
+                        "column_id": column_id,
+                        "ordered_card_ids": [
+                            item.id
+                            for item in self._ordered_cards_in_column(cards, column_id)
+                            if not item.archived
+                        ],
+                    }
+                    for column_id in affected_column_ids
+                ]
+                response["meta"]["response_mode"] = "delta"
+            else:
+                response["affected_cards"] = self._serialize_compact_cards_for_columns(
+                    cards,
+                    events,
+                    affected_column_ids,
+                    column_labels=column_labels,
+                    viewer_username=actor_name,
+                )
+            return response
 
     def archive_card(self, payload: dict) -> dict:
         with self._lock:

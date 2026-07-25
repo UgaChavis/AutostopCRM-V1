@@ -1151,6 +1151,8 @@ class ApiServerTests(unittest.TestCase):
             {
                 "extra_column": {
                     "is_open": False,
+                    "is_detached": False,
+                    "position": {"x": 0, "y": 0},
                     "filter": {"tag_label": "НАДО ЧТО ТО СДЕЛАТЬ", "tag_color": "red"},
                 }
             },
@@ -1192,6 +1194,8 @@ class ApiServerTests(unittest.TestCase):
         expected_preferences = {
             "extra_column": {
                 "is_open": True,
+                "is_detached": False,
+                "position": {"x": 0, "y": 0},
                 "filter": {"tag_label": "СРОЧНО", "tag_color": "yellow"},
             }
         }
@@ -2920,6 +2924,37 @@ class ApiServerTests(unittest.TestCase):
                 first["data"]["card"]["id"],
                 second["data"]["card"]["id"],
             ],
+        )
+
+    def test_move_card_route_supports_ui_delta_without_changing_legacy_default(self) -> None:
+        _, source = self.request(
+            "/api/create_card",
+            {"title": "Delta API source", "column": "inbox", "deadline": {"hours": 1}},
+        )
+        _, target = self.request(
+            "/api/create_card",
+            {
+                "title": "Delta API target",
+                "column": "in_progress",
+                "deadline": {"hours": 1},
+            },
+        )
+        status, moved = self.request(
+            "/api/move_card",
+            {
+                "card_id": source["data"]["card"]["id"],
+                "column": "in_progress",
+                "before_card_id": target["data"]["card"]["id"],
+                "response_mode": "delta",
+            },
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(moved["data"]["meta"]["response_mode"], "delta")
+        self.assertNotIn("affected_cards", moved["data"])
+        self.assertEqual(
+            moved["data"]["affected_columns"][1]["ordered_card_ids"][:2],
+            [source["data"]["card"]["id"], target["data"]["card"]["id"]],
         )
 
     def test_cashbox_routes_create_list_transaction_get_and_delete(self) -> None:

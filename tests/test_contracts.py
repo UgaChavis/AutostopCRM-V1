@@ -195,6 +195,7 @@ EXPECTED_OPERATOR_ROUTES = {
 EXPECTED_SMOKE_SCENARIOS = (
     "login_gate_hides_board_until_operator_login",
     "desktop_board_card_roundtrip",
+    "move_card_delta_roundtrip",
     "personal_extra_board_column",
     "display_dashboard_popup_1920x1080",
     "card_timer_start_stop",

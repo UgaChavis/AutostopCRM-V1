@@ -3991,11 +3991,64 @@
       <div class="dialog__foot">
         <div class="board-settings__actions">
           <button class="btn btn--accent" id="openDisplayDashboardButton" type="button">ОТКРЫТЬ ДАШБОРД</button>
+          <button class="btn" id="editDisplayDashboardMessageButton" type="button">РЕДАКТИРОВАТЬ ДОСКУ СООБЩЕНИЙ</button>
           <div class="board-extra-column-actions">
             <button class="btn btn--accent" id="extraBoardColumnToggleButton" type="button">ОТКРЫТЬ ДОП. КОЛОНКУ</button>
             <button class="btn btn--ghost board-extra-column-actions__settings" id="extraBoardColumnFilterButton" type="button" title="НАСТРОИТЬ ФИЛЬТР ДОП. КОЛОНКИ" aria-label="НАСТРОИТЬ ФИЛЬТР ДОП. КОЛОНКИ" aria-controls="extraBoardColumnFilterPanel" aria-expanded="false">&#9881;</button>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="displayDashboardMessageModal">
+    <div class="dialog dialog--display-dashboard-message">
+      <div class="dialog__head">
+        <div>
+          <div class="dialog__title">ДОСКА МЕХАНИКОВ</div>
+          <div class="display-dashboard-editor__meta" id="displayDashboardMessageMeta">ЗАГРУЗКА…</div>
+        </div>
+        <button class="btn" data-close="display-dashboard-message" type="button">ЗАКРЫТЬ</button>
+      </div>
+      <div class="display-dashboard-editor">
+        <div class="display-dashboard-editor__toolbar" id="displayDashboardMessageToolbar" aria-label="Формат сообщения">
+          <button class="description-format-button" data-dashboard-format="bold" type="button" aria-label="Жирный" title="Жирный">B</button>
+          <button class="description-format-button" data-dashboard-format="italic" type="button" aria-label="Курсив" title="Курсив">I</button>
+          <button class="description-format-button" data-dashboard-format="underline" type="button" aria-label="Подчёркивание" title="Подчёркивание">U</button>
+          <label class="display-dashboard-editor__size">
+            <span>РАЗМЕР</span>
+            <select id="displayDashboardFontSize" aria-label="Размер шрифта">
+              <option value="2">14</option>
+              <option value="3" selected>16</option>
+              <option value="4">20</option>
+              <option value="5">26</option>
+              <option value="6">34</option>
+              <option value="7">46</option>
+            </select>
+          </label>
+          <button class="btn btn--ghost" id="displayDashboardEmojiButton" type="button" aria-expanded="false">ЭМОДЗИ</button>
+          <label class="btn btn--ghost display-dashboard-editor__image-button" for="displayDashboardImageInput">+ ФОТО</label>
+          <input id="displayDashboardImageInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden>
+        </div>
+        <div class="display-dashboard-editor__emoji" id="displayDashboardEmojiPalette" hidden>
+          <button type="button" data-dashboard-emoji="🔧">🔧</button>
+          <button type="button" data-dashboard-emoji="⚠️">⚠️</button>
+          <button type="button" data-dashboard-emoji="✅">✅</button>
+          <button type="button" data-dashboard-emoji="❗">❗</button>
+          <button type="button" data-dashboard-emoji="🚗">🚗</button>
+          <button type="button" data-dashboard-emoji="🛠️">🛠️</button>
+          <button type="button" data-dashboard-emoji="📌">📌</button>
+          <button type="button" data-dashboard-emoji="📷">📷</button>
+          <button type="button" data-dashboard-emoji="👍">👍</button>
+          <button type="button" data-dashboard-emoji="👀">👀</button>
+        </div>
+        <div class="display-dashboard-editor__canvas" id="displayDashboardMessageEditor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Сообщение для механиков"></div>
+        <div class="display-dashboard-editor__images" id="displayDashboardMessageImages"></div>
+        <div class="display-dashboard-editor__hint">ДО 8 ФОТО · JPG, PNG, WEBP ИЛИ GIF · ИЗМЕНЕНИЯ УВИДЯТ ВСЕ НА ОБЩЕМ ЭКРАНЕ</div>
+      </div>
+      <div class="dialog__foot">
+        <button class="btn btn--ghost" data-close="display-dashboard-message" type="button">ОТМЕНА</button>
+        <button class="btn btn--accent" id="displayDashboardMessageSaveButton" type="button">СОХРАНИТЬ НА ДОСКЕ</button>
       </div>
     </div>
   </div>

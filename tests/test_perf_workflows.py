@@ -61,6 +61,7 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
             "--max-storage-write-ms",
             "--max-revision-server-ms",
             "--max-get-card-direct-ms",
+            "--max-list-cashboxes-ms",
             "--max-feed-read-ms",
             "--max-feed-replay-ms",
             "--browser-timeout-seconds",
@@ -101,6 +102,7 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
 
         self.assertIn("--max-feed-read-ms 50", stage1)
         self.assertIn("--max-feed-replay-ms 20", stage1)
+        self.assertIn("--max-list-cashboxes-ms 50", stage1)
         self.assertEqual(1, stage1.count("--max-feed-read-ms"))
         self.assertEqual(1, stage1.count("--max-feed-replay-ms"))
 
@@ -203,6 +205,7 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
             max_storage_write_ms=550,
             max_revision_server_ms=20,
             max_get_card_direct_ms=20,
+            max_list_cashboxes_ms=50,
             max_feed_read_ms=15,
             max_feed_replay_ms=10,
         )
@@ -211,6 +214,7 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
             {"scenario": "storage.write_cached_bundle", "p95_ms": 551},
             {"scenario": "backend.get_board_revision_cached", "p95_ms": 21},
             {"scenario": "backend.get_card", "p95_ms": 19},
+            {"scenario": "backend.list_cashboxes", "p95_ms": 51},
             {"scenario": "change_feed.read_page", "p95_ms": 16},
             {"scenario": "change_feed.replay_page", "p95_ms": 9},
         ]
@@ -223,6 +227,7 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
                 "backend.update_card",
                 "storage.write_cached_bundle",
                 "backend.get_board_revision_cached",
+                "backend.list_cashboxes",
                 "change_feed.read_page",
             ],
         )

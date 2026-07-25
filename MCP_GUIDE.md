@@ -73,6 +73,19 @@ not MCP capabilities. They control one human operator's private extra
 board-column view, are restricted to that browser session, and cannot be read
 or changed by the Gateway service identity.
 
+The shared mechanics message board is intentionally different: it is common CRM
+state and is available through the named
+`agent_document_workflow(operation="update_display_dashboard_message")`.
+First read `api:/api/get_display_dashboard` through focused raw discovery to
+obtain `message_board.revision`; upload optional photos with the existing
+`upload_shared_file` document operation; prepare an action contract; then call
+the message operation in `dry_run` and `apply` modes with separate
+idempotency keys. Its payload is the same as `/api/update_board_settings`:
+`expected_revision` plus `display_dashboard_message.body_html` and
+`image_file_ids`. Dry-run proves validation without writing. Apply performs an
+exact `get_display_dashboard` readback and compares the sanitized body,
+ordered image IDs, and resulting revision before closing the workflow ledger.
+
 The raw board registry includes `start_card_timer` and `stop_card_timer`.
 `create_card` leaves the timer inactive when `deadline` is omitted; an explicit
 positive deadline starts it. Restarting without a deadline reuses the saved
@@ -255,6 +268,9 @@ the public 24-tool surface. Never print these settings' values.
   cash transaction.
 - Use `agent_document_workflow` and the CRM renderer for standard AutoStop
   documents, including documents without a card.
+- Use `agent_document_workflow(operation="update_display_dashboard_message")`
+  for shared mechanics-board text and photo references; never embed image
+  bytes or external HTML in the message.
 - Repair-order numbers are immutable; the API compatibility correction route
   is blocked.
 - Finance safe fixes remain maintenance-only.

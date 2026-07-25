@@ -37,6 +37,7 @@ class DisplayDashboardRuntimeTests(unittest.TestCase):
               this.textContent = '';
               this.innerHTMLWrites = 0;
               this._innerHTML = '';
+              this.children = [];
               this.style = { setProperty() {} };
             }
             set innerHTML(value) {
@@ -44,10 +45,15 @@ class DisplayDashboardRuntimeTests(unittest.TestCase):
               this._innerHTML = value;
             }
             get innerHTML() { return this._innerHTML; }
+            appendChild(child) {
+              this.children.push(child);
+              return child;
+            }
           }
 
           const ids = [
-            'dashboard', 'statusBadge', 'updatedAt', 'salaryPeriod', 'salaryList',
+            'dashboard', 'statusBadge', 'updatedAt', 'messageBoard',
+            'messageBoardContent', 'messageBoardImages', 'messageBoardMeta',
             'weeksChart', 'averageNote', 'accessState',
           ];
           const elements = Object.fromEntries(ids.map((id) => [id, new FakeElement()]));
@@ -55,12 +61,16 @@ class DisplayDashboardRuntimeTests(unittest.TestCase):
           const windowListeners = {};
           let nextTimerId = 1;
           let storageFailure = false;
+          const storageValues = new Map();
           const timers = new Map();
           const fetchCalls = [];
+          const createdObjectUrls = [];
+          const revokedObjectUrls = [];
 
           global.document = {
             hidden: false,
             getElementById(id) { return elements[id]; },
+            createElement(tagName) { return new FakeElement(tagName); },
             addEventListener(name, callback) { documentListeners[name] = callback; },
           };
           global.window = {
@@ -75,11 +85,17 @@ class DisplayDashboardRuntimeTests(unittest.TestCase):
             addEventListener(name, callback) { windowListeners[name] = callback; },
           };
           global.localStorage = {
-            getItem() {
+            getItem(key) {
               if (storageFailure) throw new Error('storage unavailable');
-              return '';
+              return storageValues.get(key) || '';
             },
           };
+          global.URL.createObjectURL = () => {
+            const url = 'blob:dashboard-' + (createdObjectUrls.length + 1);
+            createdObjectUrls.push(url);
+            return url;
+          };
+          global.URL.revokeObjectURL = (url) => revokedObjectUrls.push(url);
           global.requestAnimationFrame = (callback) => callback();
           global.fetch = (path, options) => new Promise((resolve, reject) => {
             const call = { path, options, resolve, reject, aborted: false };
@@ -92,13 +108,19 @@ class DisplayDashboardRuntimeTests(unittest.TestCase):
             }, { once: true });
           });
 
-          function makeData(generatedAt) {
+          function makeData(generatedAt, messageBoard = null) {
             return {
-              schema_version: 'display_dashboard.v2',
+              schema_version: 'display_dashboard.v3',
               generated_at: generatedAt,
               timezone: 'Asia/Krasnoyarsk',
-              salary_period: { label: '20.07–26.07', date_from: '2026-07-20', date_to: '2026-07-26' },
-              employees: [{ name: 'Мастер', position: 'Механик', salary: '1000' }],
+              message_board: messageBoard || {
+                schema_version: 'display_dashboard_message.v1',
+                body_html: '',
+                image_file_ids: [],
+                updated_at: '',
+                updated_by: '',
+                revision: 'dashboard-revision-1',
+              },
               weeks: [0, 1, 2, 3].map((index) => ({
                 label: 'W' + index,
                 amount: String((index + 1) * 1000),
@@ -109,11 +131,19 @@ class DisplayDashboardRuntimeTests(unittest.TestCase):
             };
           }
 
-          function respond(callIndex, generatedAt) {
+          function respond(callIndex, generatedAt, messageBoard = null) {
             fetchCalls[callIndex].resolve({
               ok: true,
               status: 200,
-              async json() { return { ok: true, data: makeData(generatedAt) }; },
+              async json() { return { ok: true, data: makeData(generatedAt, messageBoard) }; },
+            });
+          }
+
+          function respondWithImage(callIndex) {
+            fetchCalls[callIndex].resolve({
+              ok: true,
+              status: 200,
+              async blob() { return { type: 'image/png' }; },
             });
           }
 
@@ -242,7 +272,7 @@ class DisplayDashboardRuntimeTests(unittest.TestCase):
               respond(0, '2026-07-21T10:00:00+07:00');
               await drainMicrotasks();
               const firstUpdatedAt = elements.updatedAt.textContent;
-              assert.equal(elements.salaryList.innerHTMLWrites, 1);
+              assert.equal(elements.messageBoardContent.innerHTMLWrites, 1);
               assert.equal(elements.weeksChart.innerHTMLWrites, 1);
 
               const refresh = window.__AUTOSTOP_DISPLAY_DASHBOARD__.refresh();
@@ -250,10 +280,49 @@ class DisplayDashboardRuntimeTests(unittest.TestCase):
               respond(1, '2026-07-21T10:01:00+07:00');
               await refresh;
 
-              assert.equal(elements.salaryList.innerHTMLWrites, 1, 'employees rerendered unchanged data');
+              assert.equal(elements.messageBoardContent.innerHTMLWrites, 1, 'message rerendered unchanged data');
               assert.equal(elements.weeksChart.innerHTMLWrites, 1, 'weeks rerendered unchanged data');
               assert.notEqual(elements.updatedAt.textContent, firstUpdatedAt, 'freshness timestamp stayed stale');
               assert.equal(elements.statusBadge.textContent, 'АКТУАЛЬНО');
+            """
+        )
+
+    def test_authenticated_message_image_is_loaded_and_object_url_is_released(self) -> None:
+        self._run_node(
+            r"""
+              storageValues.set('kanban-operator-session', 'operator-session-test');
+              storageValues.set('kanban-api-token', 'api-token-test');
+              await drainMicrotasks();
+              assert.equal(fetchCalls.length, 1);
+              assert.equal(
+                fetchCalls[0].options.headers['X-Operator-Session'],
+                'operator-session-test',
+              );
+              assert.equal(fetchCalls[0].options.headers.Authorization, 'Bearer api-token-test');
+
+              respond(0, '2026-07-21T10:00:00+07:00', {
+                schema_version: 'display_dashboard_message.v1',
+                body_html: '<p>Смена</p>',
+                image_file_ids: ['shared-image-1'],
+                updated_at: '2026-07-21T09:55:00+07:00',
+                updated_by: 'ADMIN',
+                revision: 'dashboard-revision-2',
+              });
+              await drainMicrotasks();
+              assert.equal(fetchCalls.length, 2, 'message image request did not start');
+              assert.equal(
+                fetchCalls[1].options.headers['X-Operator-Session'],
+                'operator-session-test',
+              );
+              assert.equal(fetchCalls[1].options.headers.Authorization, 'Bearer api-token-test');
+
+              respondWithImage(1);
+              await drainMicrotasks();
+              assert.deepEqual(createdObjectUrls, ['blob:dashboard-1']);
+              assert.equal(elements.messageBoardImages.children.length, 1);
+
+              window.__AUTOSTOP_DISPLAY_DASHBOARD__.stop();
+              assert.deepEqual(revokedObjectUrls, ['blob:dashboard-1']);
             """
         )
 

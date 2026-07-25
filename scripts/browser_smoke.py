@@ -37,6 +37,7 @@ from minimal_kanban.storage.json_store import JsonStore
 SMOKE_SCENARIOS = (
     "login_gate_hides_board_until_operator_login",
     "desktop_board_card_roundtrip",
+    "move_card_delta_roundtrip",
     "personal_extra_board_column",
     "display_dashboard_popup_1920x1080",
     "card_timer_start_stop",
@@ -1153,22 +1154,25 @@ async def _exercise_display_dashboard(page: Any) -> bool:
     try:
         await dashboard_page.set_viewport_size({"width": 1920, "height": 1080})
         await dashboard_page.wait_for_selector("h1", state="visible")
-        await dashboard_page.wait_for_selector(".salary-row", state="visible")
+        await dashboard_page.wait_for_selector(".message-board", state="visible")
+        await dashboard_page.wait_for_selector(".week-card", state="visible")
         await dashboard_page.wait_for_function(
             """() => (
-              document.querySelectorAll('.salary-row').length === 16 &&
               document.querySelectorAll('.week-card').length === 4 &&
               document.querySelectorAll('.week-card[data-current="true"]').length === 1 &&
+              !document.querySelector('.salary-row') &&
               document.querySelector('#statusBadge')?.textContent.trim() === 'АКТУАЛЬНО'
             )"""
         )
-        initial_salary_text = await dashboard_page.locator("#salaryList").inner_text()
+        initial_dashboard_text = await dashboard_page.locator(
+            "#messageBoard, #weeksChart"
+        ).all_inner_texts()
         whole_ruble_display_ok = bool(
             await dashboard_page.evaluate(
                 r"""() => {
-                  const amount = document.querySelector('.salary-row[data-rank="1"] .salary-row__amount')?.textContent || '';
+                  const amount = document.querySelector('.week-card .week-amount')?.textContent || '';
                   const normalized = amount.replace(/[\s\u00a0\u202f]/g, '');
-                  return normalized === '15001₽';
+                  return /^\d+₽$/.test(normalized);
                 }"""
             )
         )
@@ -1178,10 +1182,10 @@ async def _exercise_display_dashboard(page: Any) -> bool:
                   const dashboard = document.querySelector('#dashboard');
                   const header = document.querySelector('.dashboard-header');
                   const panels = Array.from(document.querySelectorAll('.panel'));
-                  const salaryRows = Array.from(document.querySelectorAll('.salary-row'));
+                  const messageBoard = document.querySelector('.message-board');
                   const weekCards = Array.from(document.querySelectorAll('.week-card'));
                   const majorNodes = [header, ...panels].filter(Boolean);
-                  const insideViewport = [...salaryRows, ...weekCards].every((node) => {
+                  const insideViewport = [messageBoard, ...weekCards].filter(Boolean).every((node) => {
                     const rect = node.getBoundingClientRect();
                     return rect.left >= -0.5 && rect.top >= -0.5 && rect.right <= innerWidth + 0.5 && rect.bottom <= innerHeight + 0.5;
                   });
@@ -1192,24 +1196,18 @@ async def _exercise_display_dashboard(page: Any) -> bool:
                       return rect.right <= next.left + 0.5 || next.right <= rect.left + 0.5 || rect.bottom <= next.top + 0.5 || next.bottom <= rect.top + 0.5;
                     });
                   });
-                  const salaryRatios = salaryRows.map((node) => Number(
-                    node.querySelector('.salary-row__fill')?.style.getPropertyValue('--ratio') || 0
-                  ));
-                  const salaryOrderIsDescending = salaryRatios.every(
-                    (ratio, index) => index === 0 || ratio <= salaryRatios[index - 1] + 0.0001
-                  );
                   return Boolean(
                     dashboard &&
                     document.title === 'Результаты автосервиса' &&
                     document.querySelector('h1')?.textContent.trim().toUpperCase() === 'РЕЗУЛЬТАТЫ АВТОСЕРВИСА' &&
+                    document.querySelector('#weeksTitle')?.textContent.includes('4 недели') &&
+                    !document.querySelector('.salary-row') &&
                     document.documentElement.scrollHeight <= innerHeight + 1 &&
                     document.body.scrollHeight <= innerHeight + 1 &&
                     document.documentElement.scrollWidth <= innerWidth + 1 &&
                     insideViewport &&
-                    salaryRows.length === 16 &&
-                    salaryOrderIsDescending &&
+                    weekCards.length === 4 &&
                     cardsDoNotOverlap(majorNodes) &&
-                    cardsDoNotOverlap(salaryRows) &&
                     cardsDoNotOverlap(weekCards)
                   );
                 }"""
@@ -1229,10 +1227,12 @@ async def _exercise_display_dashboard(page: Any) -> bool:
                       const rect = node.getBoundingClientRect();
                       return [rect.left, rect.top, rect.right, rect.bottom];
                     }),
-                  salaryRects: Array.from(document.querySelectorAll('.salary-row')).map((node) => {
+                  messageBoardRect: (() => {
+                    const node = document.querySelector('.message-board');
+                    if (!node) return null;
                     const rect = node.getBoundingClientRect();
                     return [rect.left, rect.top, rect.right, rect.bottom];
-                  }),
+                  })(),
                   weekRects: Array.from(document.querySelectorAll('.week-card')).map((node) => {
                     const rect = node.getBoundingClientRect();
                     return [rect.left, rect.top, rect.right, rect.bottom];
@@ -1264,14 +1264,16 @@ async def _exercise_display_dashboard(page: Any) -> bool:
             "() => document.querySelector('#statusBadge')?.textContent.trim() === 'НЕТ ОБНОВЛЕНИЯ'"
         )
         retained_ok = bool(
-            await dashboard_page.locator("#salaryList").inner_text() == initial_salary_text
+            await dashboard_page.locator("#messageBoard, #weeksChart").all_inner_texts()
+            == initial_dashboard_text
         )
         await dashboard_page.evaluate("() => window.__AUTOSTOP_DISPLAY_DASHBOARD__.refresh()")
         await dashboard_page.wait_for_function(
             "() => document.querySelector('#statusBadge')?.textContent.trim() === 'АКТУАЛЬНО'"
         )
         recovered_ok = bool(
-            await dashboard_page.locator("#salaryList").inner_text() == initial_salary_text
+            await dashboard_page.locator("#messageBoard, #weeksChart").all_inner_texts()
+            == initial_dashboard_text
         )
         await dashboard_page.wait_for_timeout(950)
 
@@ -1293,6 +1295,103 @@ async def _exercise_display_dashboard(page: Any) -> bool:
         await dashboard_page.close()
         await page.click('[data-close="settings"]')
         await _wait_modal_closed(page, "#boardSettingsModal")
+
+
+async def _exercise_move_card_delta(page: Any, runtime: TempRuntime) -> bool:
+    snapshot = _api_data(
+        _read_json(f"{runtime.base_url}/api/get_board_snapshot?compact=1&include_archive=0")
+    )
+    card = next(
+        (item for item in snapshot.get("cards", []) if item.get("id") == runtime.card_id),
+        None,
+    )
+    if not card:
+        return False
+    source_column_id = str(card.get("column") or card.get("column_id") or "")
+    target_column = next(
+        (
+            column
+            for column in snapshot.get("columns", [])
+            if str(column.get("id") or "") != source_column_id
+            and not column.get("is_system_locked")
+        ),
+        None,
+    )
+    if not source_column_id or not target_column:
+        return False
+    target_column_id = str(target_column.get("id") or "")
+    card_selector = f'.card[data-card-id="{runtime.card_id}"]'
+    source_card_selector = (
+        f'.column[data-column-id="{source_column_id}"] .column__cards {card_selector}'
+    )
+    target_selector = f'.column[data-column-id="{target_column_id}"] .column__cards'
+
+    async with page.expect_response(
+        lambda response: response.url.split("?", 1)[0].endswith("/api/move_card")
+    ) as response_info:
+        await page.evaluate(
+            """([sourceSelector, targetSelector]) => {
+              const source = document.querySelector(sourceSelector);
+              const target = document.querySelector(targetSelector);
+              if (!source || !target) throw new Error('move_card_smoke_dom_missing');
+              const transfer = new DataTransfer();
+              source.dispatchEvent(new DragEvent('dragstart', {
+                bubbles: true,
+                cancelable: true,
+                dataTransfer: transfer,
+              }));
+              const rect = target.getBoundingClientRect();
+              target.dispatchEvent(new DragEvent('dragover', {
+                bubbles: true,
+                cancelable: true,
+                dataTransfer: transfer,
+                clientX: rect.left + Math.max(1, rect.width / 2),
+                clientY: rect.top + Math.max(1, rect.height / 2),
+              }));
+              target.dispatchEvent(new DragEvent('drop', {
+                bubbles: true,
+                cancelable: true,
+                dataTransfer: transfer,
+                clientX: rect.left + Math.max(1, rect.width / 2),
+                clientY: rect.top + Math.max(1, rect.height / 2),
+              }));
+            }""",
+            [source_card_selector, target_selector],
+        )
+    moved_response = await response_info.value
+    moved_data = _api_data(await moved_response.json())
+    await page.wait_for_timeout(250)
+    rendered_column_id = await page.evaluate(
+        """(cardId) => document.querySelector(
+          '.card[data-card-id="' + cardId + '"]:not([data-virtual-card="true"])'
+        )?.closest('.column')?.dataset.columnId || ''""",
+        runtime.card_id,
+    )
+    delta_ok = bool(
+        moved_response.ok
+        and (moved_data.get("meta") or {}).get("response_mode") == "delta"
+        and isinstance(moved_data.get("affected_columns"), list)
+        and moved_data.get("card", {}).get("id") == runtime.card_id
+        and rendered_column_id == target_column_id
+    )
+    if not delta_ok:
+        raise AssertionError(
+            "move_card_delta_failed: "
+            + json.dumps(
+                {
+                    "response_ok": moved_response.ok,
+                    "response_mode": (moved_data.get("meta") or {}).get("response_mode"),
+                    "has_affected_columns": isinstance(moved_data.get("affected_columns"), list),
+                    "response_card_id": moved_data.get("card", {}).get("id"),
+                    "request_payload": moved_response.request.post_data_json,
+                    "expected_card_id": runtime.card_id,
+                    "rendered_column_id": rendered_column_id,
+                    "target_column_id": target_column_id,
+                },
+                ensure_ascii=False,
+            )
+        )
+    return delta_ok
 
 
 async def _exercise_personal_extra_board_column(page: Any, runtime: TempRuntime) -> bool:
@@ -1429,6 +1528,7 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     scenarios["card_long_description_controls_reachable"] = bool(controls_ok)
     scenarios["desktop_board_card_roundtrip"] = bool(roundtrip_ok)
     scenarios["card_timer_start_stop"] = bool(timer_ok)
+    scenarios["move_card_delta_roundtrip"] = await _exercise_move_card_delta(page, runtime)
     scenarios["personal_extra_board_column"] = await _exercise_personal_extra_board_column(
         page, runtime
     )

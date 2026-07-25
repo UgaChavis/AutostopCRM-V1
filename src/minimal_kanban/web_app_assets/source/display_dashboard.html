@@ -166,109 +166,116 @@
       white-space: nowrap;
     }
 
-    .salary-list {
-      min-height: 0;
-      display: flex;
-      flex-direction: column;
-      gap: clamp(4px, 0.55vh, 8px);
-    }
-
-    .salary-row {
-      min-width: 0;
+    .message-board {
       min-height: 0;
       overflow: hidden;
       display: grid;
-      grid-template-columns: 30px minmax(150px, 0.95fr) minmax(120px, 1.3fr) minmax(104px, auto);
-      align-items: center;
-      gap: clamp(7px, 0.65vw, 12px);
-      padding: clamp(5px, 0.55vh, 9px) clamp(8px, 0.7vw, 13px);
-      border-left: 4px solid #94a496;
-      background: #f8f7ef;
+      grid-template-rows: minmax(90px, 0.9fr) minmax(120px, 1.1fr);
+      gap: clamp(10px, 1.2vh, 18px);
+      padding: clamp(16px, 1.5vw, 28px);
+      border-left: 5px solid var(--green);
       outline: 1px solid #d8d8cc;
-      flex: 1 1 0;
-      min-height: 34px;
-      max-height: 58px;
+      background:
+        linear-gradient(135deg, rgba(49, 95, 67, 0.08), transparent 44%),
+        #f8f7ef;
     }
 
-    .salary-row[data-rank="1"] {
-      border-left-color: var(--green);
-      background: #f0f6ed;
-      outline-color: #9db3a1;
-    }
-
-    .salary-row__rank {
-      color: var(--muted);
-      font-family: Consolas, "Courier New", monospace;
-      font-size: clamp(13px, 0.9vw, 17px);
-      font-weight: 800;
-      text-align: center;
-    }
-
-    .salary-row[data-rank="1"] .salary-row__rank { color: var(--green); }
-
-    .salary-row__person { min-width: 0; }
-
-    .salary-row__name {
-      overflow: hidden;
-      color: var(--ink);
-      font-size: clamp(14px, 1vw, 19px);
-      font-weight: 800;
-      line-height: 1.05;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .salary-row__position {
-      overflow: hidden;
-      margin-top: 3px;
-      color: var(--muted);
-      font-size: clamp(9px, 0.65vw, 12px);
-      text-overflow: ellipsis;
-      text-transform: uppercase;
-      white-space: nowrap;
-    }
-
-    .salary-row__meter {
+    .message-board__content {
       min-width: 0;
-      height: clamp(10px, 1.25vh, 15px);
-      overflow: hidden;
-      border: 1px solid #aeb8ae;
-      background: #e5e7df;
+      min-height: 0;
+      overflow: auto;
+      color: var(--ink);
+      font-size: clamp(16px, 1.35vw, 26px);
+      line-height: 1.35;
+      overflow-wrap: anywhere;
     }
 
-    .salary-row__fill {
-      width: calc(var(--ratio) * 100%);
-      height: 100%;
-      background: linear-gradient(90deg, #78997e, var(--green));
-      transform: scaleX(0);
-      transform-origin: left;
-      transition: transform 850ms cubic-bezier(0.2, 0.8, 0.2, 1);
-    }
-
-    .salary-row[data-rank="1"] .salary-row__fill {
-      background: linear-gradient(90deg, #64a071, #1f743f);
-      box-shadow: 0 0 16px rgba(35, 115, 67, 0.22);
-    }
-
-    .dashboard[data-ready="true"] .salary-row__fill { transform: scaleX(1); }
-
-    .salary-row__amount {
-      color: var(--green);
+    .message-board__content:empty::before {
+      content: "Здесь появятся инструкции и сообщения для механиков";
+      display: grid;
+      min-height: 100%;
+      place-items: center;
+      color: var(--muted);
       font-family: Consolas, "Courier New", monospace;
-      font-size: clamp(16px, 1.25vw, 24px);
-      font-weight: 800;
-      line-height: 1;
-      text-align: right;
-      white-space: nowrap;
+      font-size: clamp(14px, 1vw, 19px);
+      letter-spacing: 0.06em;
+      text-align: center;
+      text-transform: uppercase;
     }
 
-    .salary-list[data-density="compact"] .salary-row {
-      min-height: 22px;
-      max-height: 40px;
-      padding-block: 2px;
+    .message-board__content h2,
+    .message-board__content h3 {
+      margin: 0 0 0.5em;
+      text-transform: none;
     }
 
-    .salary-list[data-density="compact"] .salary-row__position { display: none; }
+    .message-board__content p,
+    .message-board__content div,
+    .message-board__content blockquote,
+    .message-board__content ul,
+    .message-board__content ol {
+      margin-block: 0 0.65em;
+    }
+
+    .message-board__content blockquote {
+      margin-inline: 0;
+      padding-left: 0.8em;
+      border-left: 4px solid rgba(49, 95, 67, 0.45);
+      color: #37473d;
+    }
+
+    .message-board__content font[size="1"] { font-size: 11px; }
+    .message-board__content font[size="2"] { font-size: 14px; }
+    .message-board__content font[size="3"] { font-size: 16px; }
+    .message-board__content font[size="4"] { font-size: 20px; }
+    .message-board__content font[size="5"] { font-size: 26px; }
+    .message-board__content font[size="6"] { font-size: 34px; }
+    .message-board__content font[size="7"] { font-size: 46px; }
+
+    .message-board__images {
+      min-width: 0;
+      min-height: 0;
+      overflow: auto;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      align-content: start;
+      gap: clamp(8px, 0.8vw, 14px);
+    }
+
+    .message-board__images:empty { display: none; }
+    .message-board__images[data-count="1"] { grid-template-columns: 1fr; }
+
+    .message-board__image {
+      width: 100%;
+      max-height: min(34vh, 360px);
+      object-fit: contain;
+      border: 1px solid #b7bbb0;
+      background: #ecebe4;
+    }
+
+    .message-board[data-has-text="false"] {
+      grid-template-rows: minmax(0, 1fr);
+    }
+
+    .message-board[data-has-text="false"] .message-board__content { display: none; }
+
+    .message-board[data-has-images="false"] {
+      grid-template-rows: minmax(0, 1fr);
+    }
+
+    .message-board[data-has-images="false"] .message-board__content {
+      display: block;
+    }
+
+    .message-board[data-has-text="false"] .message-board__images {
+      grid-template-columns: 1fr;
+      align-content: stretch;
+    }
+
+    .message-board[data-has-text="false"] .message-board__image {
+      height: 100%;
+      max-height: none;
+    }
 
     .weeks-chart {
       min-height: 0;
@@ -408,15 +415,13 @@
       .dashboard-header,
       .panel-head { align-items: flex-start; }
       .dashboard-content { grid-template-columns: 1fr; }
-      .salary-list { display: grid; grid-template-rows: repeat(var(--salary-count), minmax(54px, auto)); }
-      .salary-row { grid-template-columns: 28px minmax(120px, 0.9fr) minmax(100px, 1.2fr) auto; }
+      .message-board { min-height: 420px; }
       .weeks-chart { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .bar-stage { min-height: 180px; }
     }
 
     @media (prefers-reduced-motion: reduce) {
-      .bar,
-      .salary-row__fill { transition: none; }
+      .bar { transition: none; }
     }
   </style>
 </head>
@@ -434,16 +439,17 @@
     </header>
 
     <div class="dashboard-content">
-      <section class="panel salary-panel" aria-labelledby="salaryTitle">
+      <section class="panel message-panel" aria-labelledby="messageBoardTitle">
         <div class="panel-head">
           <div>
-            <div class="section-kicker" id="salaryPeriod">ТЕКУЩАЯ НЕДЕЛЯ</div>
-            <h2 id="salaryTitle">Начислено за текущую неделю</h2>
+            <div class="section-kicker">ИНФОРМАЦИЯ ДЛЯ КОМАНДЫ</div>
+            <h2 id="messageBoardTitle">Доска механиков</h2>
           </div>
-          <div class="panel-note">БОЛЬШЕ СВЕРХУ · МЕНЬШЕ СНИЗУ</div>
+          <div class="panel-note" id="messageBoardMeta">СООБЩЕНИЙ ПОКА НЕТ</div>
         </div>
-        <div class="salary-list" id="salaryList" aria-live="polite">
-          <div class="empty-state">Загрузка сотрудников…</div>
+        <div class="message-board" id="messageBoard" data-has-text="false" data-has-images="false" aria-live="polite">
+          <div class="message-board__content" id="messageBoardContent"></div>
+          <div class="message-board__images" id="messageBoardImages"></div>
         </div>
       </section>
 
@@ -484,13 +490,17 @@
         controller: null,
         stopped: false,
         renderSignature: '',
+        messageImageUrls: new Map(),
+        messageRenderToken: 0,
       };
       const els = {
         dashboard: document.getElementById('dashboard'),
         statusBadge: document.getElementById('statusBadge'),
         updatedAt: document.getElementById('updatedAt'),
-        salaryPeriod: document.getElementById('salaryPeriod'),
-        salaryList: document.getElementById('salaryList'),
+        messageBoard: document.getElementById('messageBoard'),
+        messageBoardContent: document.getElementById('messageBoardContent'),
+        messageBoardImages: document.getElementById('messageBoardImages'),
+        messageBoardMeta: document.getElementById('messageBoardMeta'),
         weeksChart: document.getElementById('weeksChart'),
         averageNote: document.getElementById('averageNote'),
         accessState: document.getElementById('accessState'),
@@ -520,11 +530,6 @@
         }).format(wholeRubles(value));
       }
 
-      function salaryPeriodLabel(period) {
-        const label = String(period?.label || '').trim();
-        return label ? 'НЕДЕЛЯ · ' + label : 'ТЕКУЩАЯ НЕДЕЛЯ';
-      }
-
       function ordersLabel(count) {
         const value = Math.max(0, Number(count) || 0);
         const mod10 = value % 10;
@@ -537,29 +542,75 @@
         return value + ' ' + word;
       }
 
-      function renderEmployees(employees) {
-        const items = Array.isArray(employees) ? employees : [];
-        const maximum = Math.max(0, ...items.map((employee) => wholeRubles(employee.salary)));
-        els.salaryList.style.setProperty('--salary-count', String(Math.max(1, items.length)));
-        els.salaryList.dataset.density = items.length > 20 ? 'compact' : 'normal';
-        els.salaryList.innerHTML = items.length
-          ? items.map((employee, index) => {
-            const amount = wholeRubles(employee.salary);
-            const ratio = maximum > 0 && amount > 0 ? Math.max(0.018, amount / maximum) : 0;
-            const rank = index + 1;
-            return (
-            '<article class="salary-row" data-rank="' + rank + '">'
-              + '<div class="salary-row__rank">' + rank + '</div>'
-              + '<div class="salary-row__person">'
-                + '<div class="salary-row__name" title="' + escapeHtml(employee.name) + '">' + escapeHtml(employee.name || 'Сотрудник') + '</div>'
-                + '<div class="salary-row__position" title="' + escapeHtml(employee.position) + '">' + escapeHtml(employee.position || 'Сотрудник') + '</div>'
-              + '</div>'
-              + '<div class="salary-row__meter" aria-hidden="true"><div class="salary-row__fill" style="--ratio:' + ratio.toFixed(4) + '"></div></div>'
-              + '<div class="salary-row__amount">' + escapeHtml(money(employee.salary)) + '</div>'
-            + '</article>'
+      function requestHeaders() {
+        const headers = { Accept: 'application/json' };
+        const session = localStorage.getItem(OPERATOR_SESSION_STORAGE_KEY) || '';
+        const apiToken = localStorage.getItem(API_TOKEN_STORAGE_KEY) || '';
+        if (session) headers['X-Operator-Session'] = session;
+        if (apiToken) headers.Authorization = 'Bearer ' + apiToken;
+        return headers;
+      }
+
+      function releaseMessageImageUrls() {
+        state.messageImageUrls.forEach((url) => URL.revokeObjectURL(url));
+        state.messageImageUrls.clear();
+      }
+
+      async function renderMessageBoard(messageBoard) {
+        const renderToken = ++state.messageRenderToken;
+        const message = messageBoard && typeof messageBoard === 'object' ? messageBoard : {};
+        const bodyHtml = String(message.body_html || '').trim();
+        const imageIds = Array.isArray(message.image_file_ids)
+          ? message.image_file_ids.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 8)
+          : [];
+        els.messageBoardContent.innerHTML = bodyHtml;
+        els.messageBoard.dataset.hasText = bodyHtml ? 'true' : 'false';
+        els.messageBoard.dataset.hasImages = imageIds.length ? 'true' : 'false';
+        const updatedAt = new Date(message.updated_at);
+        const updatedBy = String(message.updated_by || '').trim();
+        els.messageBoardMeta.textContent = !bodyHtml && !imageIds.length
+          ? 'СООБЩЕНИЙ ПОКА НЕТ'
+          : [
+            Number.isNaN(updatedAt.getTime())
+              ? 'ОБНОВЛЕНО'
+              : updatedAt.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }),
+            updatedBy,
+          ].filter(Boolean).join(' · ').toUpperCase();
+
+        releaseMessageImageUrls();
+        els.messageBoardImages.innerHTML = '';
+        els.messageBoardImages.dataset.count = '0';
+        if (!imageIds.length) return;
+        const loaded = await Promise.all(imageIds.map(async (fileId) => {
+          try {
+            const response = await fetch(
+              '/api/shared_file?file_id=' + encodeURIComponent(fileId) + '&disposition=inline',
+              { headers: requestHeaders(), cache: 'no-store' },
             );
-          }).join('')
-          : '<div class="empty-state">Нет сотрудников, выбранных для общего дашборда</div>';
+            if (!response.ok) return null;
+            const blob = await response.blob();
+            if (!String(blob.type || '').toLowerCase().startsWith('image/')) return null;
+            return { fileId, url: URL.createObjectURL(blob) };
+          } catch (_error) {
+            return null;
+          }
+        }));
+        if (renderToken !== state.messageRenderToken) {
+          loaded.filter(Boolean).forEach(({ url }) => URL.revokeObjectURL(url));
+          return;
+        }
+        const visibleImages = loaded.filter(Boolean);
+        els.messageBoard.dataset.hasImages = visibleImages.length ? 'true' : 'false';
+        els.messageBoardImages.dataset.count = String(visibleImages.length);
+        visibleImages.forEach(({ fileId, url }) => {
+          state.messageImageUrls.set(fileId, url);
+          const image = document.createElement('img');
+          image.className = 'message-board__image';
+          image.src = url;
+          image.alt = 'Изображение к сообщению';
+          image.loading = 'eager';
+          els.messageBoardImages.appendChild(image);
+        });
       }
 
       function renderWeeks(weeks) {
@@ -594,8 +645,7 @@
         return JSON.stringify([
           data?.schema_version || '',
           data?.timezone || '',
-          data?.salary_period || null,
-          Array.isArray(data?.employees) ? data.employees : [],
+          data?.message_board || null,
           Array.isArray(data?.weeks) ? data.weeks : [],
           data?.completed_week_average ?? null,
         ]);
@@ -613,8 +663,7 @@
         const signature = dashboardRenderSignature(data);
         if (signature === state.renderSignature) return false;
         state.renderSignature = signature;
-        els.salaryPeriod.textContent = salaryPeriodLabel(data.salary_period);
-        renderEmployees(data.employees);
+        void renderMessageBoard(data.message_board);
         renderWeeks(data.weeks);
         els.averageNote.textContent = 'СРЕДНЕЕ ЗА 3 НЕДЕЛИ · ' + money(data.completed_week_average);
         els.dashboard.dataset.ready = 'false';
@@ -639,14 +688,9 @@
 
         const refreshPromise = Promise.resolve().then(async () => {
           try {
-            const headers = { Accept: 'application/json' };
-            const session = localStorage.getItem(OPERATOR_SESSION_STORAGE_KEY) || '';
-            const apiToken = localStorage.getItem(API_TOKEN_STORAGE_KEY) || '';
-            if (session) headers['X-Operator-Session'] = session;
-            if (apiToken) headers.Authorization = 'Bearer ' + apiToken;
             const response = await fetch('/api/get_display_dashboard', {
               method: 'GET',
-              headers,
+              headers: requestHeaders(),
               cache: 'no-store',
               signal: controller.signal,
             });
@@ -734,7 +778,9 @@
 
       function stop() {
         state.stopped = true;
+        state.messageRenderToken += 1;
         pause();
+        releaseMessageImageUrls();
       }
 
       window.__AUTOSTOP_DISPLAY_DASHBOARD__ = { refresh, render, stop, state };

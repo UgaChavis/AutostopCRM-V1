@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import sys
@@ -21,6 +22,8 @@ from minimal_kanban.models import Card, business_timezone
 from minimal_kanban.operator_activity import OperatorActivityService
 from minimal_kanban.operator_auth import OperatorAuthService
 from minimal_kanban.services.card_service import CardService
+from minimal_kanban.services.errors import ServiceError
+from minimal_kanban.services.shared_files_service import SharedFilesService
 from minimal_kanban.storage.json_store import JsonStore
 from minimal_kanban.web_assets import (
     BOARD_WEB_APP_CONTRACT_TEXT as BOARD_WEB_APP_HTML,
@@ -41,6 +44,21 @@ class DisplayDashboardServiceTests(unittest.TestCase):
             self.logger,
             attachments_dir=self.base_dir / "attachments",
             repair_orders_dir=self.base_dir / "repair-orders",
+        )
+        self.shared_files = SharedFilesService(
+            storage_dir=self.base_dir / "shared-files",
+            index_file=self.base_dir / "shared_files_index.json",
+            logger=self.logger,
+        )
+        self.service.configure_display_dashboard_shared_file_resolver(
+            lambda file_id: (
+                self.shared_files.get_shared_file_info({"file_id": file_id})["file"]
+                if any(
+                    item["id"] == file_id
+                    for item in self.shared_files.list_shared_files({})["files"]
+                )
+                else None
+            )
         )
 
     def tearDown(self) -> None:
@@ -108,134 +126,147 @@ class DisplayDashboardServiceTests(unittest.TestCase):
         self.assertEqual([item["is_current"] for item in weeks], [False, False, False, True])
         self.assertEqual(weeks[-1]["date_to"], "2026-07-20")
 
-    def test_dashboard_uses_current_payroll_week_ranking_and_explicit_visibility(self) -> None:
+    def test_dashboard_v3_contains_default_message_board_and_no_payroll_data(self) -> None:
         fixed_now = datetime(2026, 7, 24, 21, 0, tzinfo=business_timezone())
-        employees = [
+        self.service.save_employee(
             {
-                "name": "Борис Мастер",
+                "name": "Скрытый в v3 сотрудник",
                 "position": "Механик",
                 "salary_mode": "salary_only",
                 "base_salary": "1000",
-                "created_at": "2026-07-01T09:00:00+07:00",
-            },
-            {
-                "name": "Анна Администратор",
-                "position": "Администратор",
-                "salary_mode": "none",
-            },
-            {
-                "name": "Вера Офис",
-                "position": "Администратор",
-                "salary_mode": "none",
-                "dashboard_visible": True,
-            },
-            {
-                "name": "Глеб Скрытый",
-                "position": "Механик",
-                "salary_mode": "none",
-                "dashboard_visible": False,
-            },
-            {
-                "name": "Денис Бывший",
-                "position": "Механик",
-                "salary_mode": "none",
-                "is_active": False,
-            },
-        ]
+            }
+        )
+
         with patch("minimal_kanban.models.utc_now", return_value=fixed_now):
-            saved = [self.service.save_employee(item)["employee"] for item in employees]
-            self.service.create_employee_shift_accrual(
-                {"employee_id": saved[2]["id"], "amount": "3000"}
-            )
             dashboard = self.service.get_display_dashboard()
 
-        self.assertFalse(saved[1]["dashboard_visible"])
-        self.assertTrue(saved[2]["dashboard_visible"])
-        self.assertFalse(saved[3]["dashboard_visible"])
-        self.assertEqual(dashboard["schema_version"], "display_dashboard.v2")
-        self.assertEqual(
-            dashboard["salary_period"],
-            {
-                "date_from": "2026-07-20",
-                "date_to": "2026-07-26",
-                "starts_at": "2026-07-20T00:00:00+07:00",
-                "ends_at": "2026-07-27T00:00:00+07:00",
-                "label": "20.07–26.07",
-                "is_open": True,
-            },
-        )
-        self.assertEqual(
-            [item["name"] for item in dashboard["employees"]],
-            ["Вера Офис", "Борис Мастер"],
-        )
-        self.assertEqual(
-            [item["salary"] for item in dashboard["employees"]],
-            ["3000", "1000"],
-        )
+        self.assertEqual(dashboard["schema_version"], "display_dashboard.v3")
         self.assertEqual(dashboard["timezone"], "Asia/Krasnoyarsk")
         self.assertEqual(len(dashboard["weeks"]), 4)
-
-    def test_salary_period_rolls_over_at_midnight_after_sunday(self) -> None:
-        timezone = business_timezone()
-        sunday = self.service._display_dashboard_salary_period(
-            now=datetime(2026, 7, 26, 23, 59, 59, tzinfo=timezone)
-        )
-        monday = self.service._display_dashboard_salary_period(
-            now=datetime(2026, 7, 27, 0, 0, 0, tzinfo=timezone)
-        )
-
-        self.assertEqual(sunday["starts_at"].isoformat(), "2026-07-20T00:00:00+07:00")
-        self.assertEqual(sunday["ends_at"].isoformat(), "2026-07-27T00:00:00+07:00")
-        self.assertEqual(monday["starts_at"].isoformat(), "2026-07-27T00:00:00+07:00")
-        self.assertEqual(monday["ends_at"].isoformat(), "2026-08-03T00:00:00+07:00")
-
-    def test_salary_amount_resets_when_monday_starts(self) -> None:
-        employee = self.service.save_employee(
+        self.assertEqual(
+            set(dashboard["message_board"]),
             {
-                "name": "Недельный Мастер",
-                "position": "Механик",
-                "salary_mode": "none",
-                "created_at": "2026-07-20T00:00:00+07:00",
-            }
-        )["employee"]
-        self.service.create_employee_shift_accrual(
+                "schema_version",
+                "body_html",
+                "image_file_ids",
+                "updated_at",
+                "updated_by",
+                "revision",
+            },
+        )
+        self.assertEqual(dashboard["message_board"]["body_html"], "")
+        self.assertEqual(dashboard["message_board"]["image_file_ids"], [])
+        self.assertNotIn("employees", dashboard)
+        self.assertNotIn("salary_period", dashboard)
+
+    def test_message_update_sanitizes_html_validates_images_and_uses_revision(self) -> None:
+        image = self.shared_files.upload_shared_file(
             {
-                "employee_id": employee["id"],
-                "amount": "1000",
-                "created_at": "2026-07-26T23:59:59+07:00",
+                "file_name": "dashboard.png",
+                "mime_type": "image/png",
+                "content_base64": base64.b64encode(b"\x89PNG\r\n\x1a\n").decode("ascii"),
+            }
+        )["file"]
+        current = self.service.get_display_dashboard()["message_board"]
+        updated = self.service.update_board_settings(
+            {
+                "expected_revision": current["revision"],
+                "actor_name": "МАСТЕР",
+                "display_dashboard_message": {
+                    "body_html": (
+                        '<h2 onclick="alert(1)">План</h2>'
+                        '<p><b>Подъёмник 2</b> <font size="7" color="red">срочно</font>'
+                        '<a href="https://example.test">ссылка</a></p>'
+                        "<script>secret()</script><style>body{display:none}</style>"
+                        '<img src="https://example.test/x.png">'
+                    ),
+                    "image_file_ids": [image["id"]],
+                },
             }
         )
-        timezone = business_timezone()
-        with patch(
-            "minimal_kanban.models.utc_now",
-            return_value=datetime(2026, 7, 26, 23, 59, 59, tzinfo=timezone),
-        ):
-            sunday = self.service.get_display_dashboard()
-        with patch(
-            "minimal_kanban.models.utc_now",
-            return_value=datetime(2026, 7, 27, 0, 0, 0, tzinfo=timezone),
-        ):
-            monday = self.service.get_display_dashboard()
 
-        self.assertEqual(sunday["employees"][0]["salary"], "1000")
-        self.assertEqual(monday["employees"][0]["salary"], "0")
+        message = updated["settings"]["display_dashboard_message"]
+        self.assertEqual(message["image_file_ids"], [image["id"]])
+        self.assertIn("<h2>План</h2>", message["body_html"])
+        self.assertIn('<font size="7">срочно</font>', message["body_html"])
+        self.assertIn("ссылка", message["body_html"])
+        for forbidden in ("onclick", "script", "style", "href", "<img", "secret"):
+            self.assertNotIn(forbidden, message["body_html"].casefold())
+        self.assertNotEqual(message["revision"], current["revision"])
+
+        events = self.store.read_bundle()["events"]
+        audit_event = next(
+            event for event in events if event.action == "display_dashboard_message_updated"
+        )
+        audit_payload = json.dumps(audit_event.to_dict(), ensure_ascii=False)
+        self.assertNotIn("Подъёмник", audit_payload)
+        self.assertNotIn(message["body_html"], audit_payload)
+
+        with self.assertRaises(ServiceError) as stale:
+            self.service.update_board_settings(
+                {
+                    "expected_revision": current["revision"],
+                    "display_dashboard_message": {"body_html": "<p>Устарело</p>"},
+                }
+            )
+        self.assertEqual(stale.exception.code, "revision_conflict")
+        self.assertEqual(stale.exception.status_code, 409)
+
+    def test_message_dry_run_validates_without_writing(self) -> None:
+        before = self.service.get_display_dashboard()["message_board"]
+        preview = self.service.update_board_settings(
+            {
+                "expected_revision": before["revision"],
+                "dry_run": True,
+                "display_dashboard_message": {"body_html": "<p><u>Предпросмотр</u></p>"},
+            }
+        )
+        after = self.service.get_display_dashboard()["message_board"]
+
+        self.assertTrue(preview["meta"]["dry_run"])
+        self.assertTrue(preview["meta"]["display_dashboard_message_changed"])
+        self.assertEqual(
+            preview["settings"]["display_dashboard_message"]["body_html"],
+            "<p><u>Предпросмотр</u></p>",
+        )
+        self.assertEqual(after, before)
+        self.assertFalse(
+            any(
+                event.action == "display_dashboard_message_updated"
+                for event in self.store.read_bundle()["events"]
+            )
+        )
+
+    def test_message_rejects_non_image_missing_and_oversized_content(self) -> None:
+        text_file = self.shared_files.upload_shared_file(
+            {
+                "file_name": "dashboard.txt",
+                "mime_type": "text/plain",
+                "content_base64": base64.b64encode(b"text").decode("ascii"),
+            }
+        )["file"]
+        revision = self.service.get_display_dashboard()["message_board"]["revision"]
+        cases = (
+            {"body_html": "<p>Файл</p>", "image_file_ids": [text_file["id"]]},
+            {"body_html": "<p>Файл</p>", "image_file_ids": ["missing-image"]},
+            {"body_html": "<p>" + ("x" * 12_001) + "</p>", "image_file_ids": []},
+            {
+                "body_html": "<p>Много</p>",
+                "image_file_ids": [text_file["id"]] * 9,
+            },
+        )
+        for message in cases:
+            with self.subTest(message_size=len(message["body_html"])):
+                with self.assertRaises(ServiceError) as invalid:
+                    self.service.update_board_settings(
+                        {
+                            "expected_revision": revision,
+                            "display_dashboard_message": message,
+                        }
+                    )
+                self.assertEqual(invalid.exception.code, "validation_error")
 
     def test_dashboard_money_is_rounded_up_to_whole_rubles(self) -> None:
-        employee = self.service.save_employee(
-            {
-                "name": "Копеечный Мастер",
-                "position": "Механик",
-                "salary_mode": "none",
-                "created_at": "2026-07-20T00:00:00+07:00",
-            }
-        )["employee"]
-        self.service.create_employee_shift_accrual(
-            {
-                "employee_id": employee["id"],
-                "amount": "1500.01",
-                "created_at": "2026-07-20T10:00:00+07:00",
-            }
-        )
         dashboard_cards = [
             self._card(
                 status="closed",
@@ -245,13 +276,10 @@ class DisplayDashboardServiceTests(unittest.TestCase):
         ]
         now = datetime(2026, 7, 20, 12, 30, tzinfo=business_timezone())
 
-        with patch("minimal_kanban.models.utc_now", return_value=now):
-            dashboard = self.service.get_display_dashboard()
         weeks = self.service._display_dashboard_week_buckets(dashboard_cards, now=now)
 
-        self.assertEqual(dashboard["employees"][0]["salary"], "1501")
         self.assertEqual(weeks[-1]["amount"], "1001")
-        self.assertTrue(dashboard["completed_week_average"].isdigit())
+        self.assertEqual(self.service._format_display_dashboard_rubles("1500.01"), "1501")
 
     def test_non_admin_session_cannot_change_dashboard_visibility(self) -> None:
         employee = self.service.save_employee({"name": "Мастер", "position": "Механик"})["employee"]
@@ -275,13 +303,11 @@ class DisplayDashboardServiceTests(unittest.TestCase):
                 "schema_version",
                 "generated_at",
                 "timezone",
-                "salary_period",
-                "employees",
+                "message_board",
                 "weeks",
                 "completed_week_average",
             },
         )
-        self.assertEqual(set(payload["employees"][0]), {"name", "position", "salary"})
         encoded = json.dumps(payload, ensure_ascii=False)
         forbidden_fields = (
             '"employee_id"',
@@ -294,6 +320,8 @@ class DisplayDashboardServiceTests(unittest.TestCase):
             '"materials"',
             '"salary_mode"',
             '"work_percent"',
+            '"employee"',
+            '"salary"',
         )
         for field in forbidden_fields:
             self.assertNotIn(field, encoded)
@@ -377,9 +405,11 @@ class DisplayDashboardApiTests(unittest.TestCase):
         self.assertEqual(login_status, 200)
         self.assertEqual(allowed_status, 200)
         dashboard = json.loads(allowed)["data"]
-        self.assertEqual(dashboard["schema_version"], "display_dashboard.v2")
+        self.assertEqual(dashboard["schema_version"], "display_dashboard.v3")
         self.assertEqual(len(dashboard["weeks"]), 4)
-        self.assertIn("salary_period", dashboard)
+        self.assertIn("message_board", dashboard)
+        self.assertNotIn("employees", dashboard)
+        self.assertNotIn("salary_period", dashboard)
 
 
 class DisplayDashboardWebContractTests(unittest.TestCase):
@@ -390,10 +420,13 @@ class DisplayDashboardWebContractTests(unittest.TestCase):
 
     def test_dashboard_has_required_content_polling_and_recovery_contract(self) -> None:
         self.assertIn("Результаты автосервиса", DISPLAY_DASHBOARD_HTML)
-        self.assertIn("Начислено за текущую неделю", DISPLAY_DASHBOARD_HTML)
+        self.assertIn("Доска механиков", DISPLAY_DASHBOARD_HTML)
         self.assertIn("Валовая выручка · 4 недели", DISPLAY_DASHBOARD_HTML)
-        self.assertIn('class="salary-row"', DISPLAY_DASHBOARD_HTML)
-        self.assertIn("maximum > 0 && amount > 0", DISPLAY_DASHBOARD_HTML)
+        self.assertIn('class="message-board__content"', DISPLAY_DASHBOARD_HTML)
+        self.assertIn("renderMessageBoard(data.message_board)", DISPLAY_DASHBOARD_HTML)
+        self.assertIn("/api/shared_file?file_id=", DISPLAY_DASHBOARD_HTML)
+        self.assertIn("URL.revokeObjectURL", DISPLAY_DASHBOARD_HTML)
+        self.assertIn("headers: requestHeaders()", DISPLAY_DASHBOARD_HTML)
         self.assertIn("function wholeRubles(value)", DISPLAY_DASHBOARD_HTML)
         self.assertIn("maximumFractionDigits: 0", DISPLAY_DASHBOARD_HTML)
         self.assertIn("REFRESH_INTERVAL_MS = 45000", DISPLAY_DASHBOARD_HTML)

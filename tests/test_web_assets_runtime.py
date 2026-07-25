@@ -48,6 +48,180 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_repair_order_mutation_updates_archive_action_without_reopening_card(self) -> None:
+        archive_helpers = _source_section(
+            self.source,
+            "function cardArchiveAvailability(card)",
+            "function ensureRepairOrderRows(",
+        )
+        apply_update = _source_section(
+            self.source,
+            "function applyRepairOrderCardUpdate(updatedCard, fallbackOrder = {})",
+            "function repairOrderRowInputHtml(",
+        )
+        self._run_node(
+            f"""
+            const assert = require('node:assert/strict');
+
+            const state = {{
+              activeCard: {{
+                id: 'card-1',
+                title: 'Полная карточка',
+                description: 'Несокращённое описание',
+                repair_order: {{ status: 'open', is_fully_paid: true }},
+              }},
+              activeCardIsFull: true,
+              mobileCard: null,
+            }};
+            const classes = new Set();
+            const els = {{
+              archiveAction: {{
+                disabled: true,
+                dataset: {{}},
+                title: '',
+                classList: {{
+                  toggle(name, enabled) {{
+                    if (enabled) classes.add(name); else classes.delete(name);
+                  }},
+                }},
+              }},
+            }};
+            function repairOrderHasAnyData() {{ return true; }}
+            function repairOrderIsEmptyForArchive() {{ return false; }}
+            function normalizeRepairOrderStatus(value) {{ return String(value || '').toLowerCase(); }}
+            function repairOrderIsFullyPaid(order) {{ return order?.is_fully_paid === true; }}
+            function repairOrderCardDraft(card, order) {{ return order || card?.repair_order || {{}}; }}
+            function applyRepairOrderToForm() {{}}
+            function refreshRepairOrderEntry() {{}}
+            let patchedCard = null;
+            function applySavedCardLocalPatch(card) {{ patchedCard = card; return true; }}
+
+            {archive_helpers}
+            {apply_update}
+
+            applyRepairOrderCardUpdate({{
+              id: 'card-1',
+              repair_order: {{ status: 'closed', is_fully_paid: true }},
+            }});
+            assert.equal(els.archiveAction.disabled, false);
+            assert.equal(els.archiveAction.dataset.archiveAvailable, 'true');
+            assert.equal(state.activeCard.description, 'Несокращённое описание');
+            assert.equal(state.activeCardIsFull, true);
+            assert.equal(patchedCard.id, 'card-1');
+
+            applyRepairOrderCardUpdate({{
+              id: 'card-1',
+              repair_order: {{ status: 'open', is_fully_paid: true }},
+            }});
+            assert.equal(els.archiveAction.disabled, true);
+            assert.match(els.archiveAction.title, /открыт/i);
+
+            applyRepairOrderCardUpdate({{
+              id: 'card-1',
+              repair_order: {{ status: 'closed', is_fully_paid: false }},
+            }});
+            assert.equal(els.archiveAction.disabled, true);
+            assert.match(els.archiveAction.title, /не оплачен/i);
+            """
+        )
+
+    def test_move_card_delta_reorders_snapshot_and_preserves_full_active_card(self) -> None:
+        board_patch_helpers = _source_section(
+            self.source,
+            "function applyBoardColumnCardsPatch(nextCards, affectedColumnIds)",
+            "function applyBoardColumnsPatch(nextColumns)",
+        )
+        self._run_node(
+            f"""
+            const assert = require('node:assert/strict');
+
+            const state = {{
+              snapshot: {{
+                cards: [
+                  {{ id: 'a', column: 'inbox', position: 0, description: 'A' }},
+                  {{ id: 'b', column: 'inbox', position: 1, description: 'board preview' }},
+                  {{ id: 'c', column: 'in_progress', position: 0, description: 'C' }},
+                ],
+              }},
+              activeCard: {{ id: 'b', column: 'inbox', description: 'Полное описание', private_full: true }},
+              activeCardIsFull: true,
+              mobileCard: null,
+              fullCardCache: new Map(),
+            }};
+            function applyCardSeenSuppressionsToCards(cards) {{ return cards; }}
+            function applyCardSeenSuppression(card) {{ return card; }}
+            function cacheFullCard(card) {{ state.fullCardCache.set(card.id, card); return card; }}
+            function boardCardFromFullCard(card) {{
+              return {{ ...card, description: 'board:' + card.description }};
+            }}
+            function extraBoardColumnIsOpen() {{ return false; }}
+            function buildBoardCardsByColumn(snapshot) {{ return snapshot.cards; }}
+            function renderBoardColumnById() {{ return true; }}
+            function renderBoard() {{ throw new Error('unexpected full render'); }}
+
+            {board_patch_helpers}
+
+            assert.equal(
+              applyBoardColumnCardsPatch(
+                [{{ id: 'a', column: 'inbox' }}, {{ id: 'b', column: 'inbox', description: 'compact' }}],
+                ['inbox'],
+              ),
+              true,
+            );
+            assert.equal(
+              state.activeCard.description,
+              'Полное описание',
+              'legacy compact patch downgraded the full active card',
+            );
+
+            state.snapshot.cards = [
+              {{ id: 'a', column: 'inbox', position: 0, description: 'A' }},
+              {{ id: 'b', column: 'inbox', position: 1, description: 'board preview' }},
+              {{ id: 'c', column: 'in_progress', position: 0, description: 'C' }},
+            ];
+            const patched = applyBoardColumnOrderDelta(
+              {{ id: 'b', column: 'in_progress', description: 'Серверное полное описание' }},
+              [
+                {{ column_id: 'inbox', ordered_card_ids: ['a'] }},
+                {{ column_id: 'in_progress', ordered_card_ids: ['b', 'c'] }},
+              ],
+              ['inbox', 'in_progress'],
+            );
+            assert.equal(patched, true);
+            assert.deepEqual(
+              state.snapshot.cards
+                .filter((card) => card.column === 'inbox')
+                .sort((left, right) => left.position - right.position)
+                .map((card) => card.id),
+              ['a'],
+            );
+            assert.deepEqual(
+              state.snapshot.cards
+                .filter((card) => card.column === 'in_progress')
+                .sort((left, right) => left.position - right.position)
+                .map((card) => card.id),
+              ['b', 'c'],
+            );
+            assert.equal(state.activeCard.description, 'Серверное полное описание');
+            assert.equal(state.activeCard.private_full, true);
+            assert.equal(state.activeCardIsFull, true);
+
+            const snapshotBeforeInvalid = JSON.stringify(state.snapshot.cards);
+            assert.equal(
+              applyBoardColumnOrderDelta(
+                {{ id: 'b', column: 'in_progress' }},
+                [
+                  {{ column_id: 'inbox', ordered_card_ids: ['a'] }},
+                  {{ column_id: 'in_progress', ordered_card_ids: ['b', 'missing'] }},
+                ],
+                ['inbox', 'in_progress'],
+              ),
+              false,
+            );
+            assert.equal(JSON.stringify(state.snapshot.cards), snapshotBeforeInvalid);
+            """
+        )
+
     def test_operator_session_reset_and_login_refresh_are_viewer_scoped(self) -> None:
         reset_helper = _optional_source_section(
             self.source,

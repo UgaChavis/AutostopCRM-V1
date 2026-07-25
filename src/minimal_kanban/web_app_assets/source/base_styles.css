@@ -2226,8 +2226,13 @@
       flex-wrap: wrap;
     }
     .board-extra-column-actions__settings {
-      min-width: 34px;
-      padding: 0 9px;
+      width: 36px;
+      min-width: 36px;
+      height: 36px;
+      min-height: 36px;
+      padding: 0;
+      display: inline-grid;
+      place-items: center;
       font-size: 18px;
       line-height: 1;
     }
@@ -2251,6 +2256,128 @@
     @media (max-width: 520px) {
       .board-extra-column-settings__fields { grid-template-columns: 1fr; }
       .board-extra-column-actions { width: 100%; }
+    }
+    .dialog--display-dashboard-message {
+      width: min(980px, 100%);
+      max-height: min(940px, calc(100dvh - 30px));
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+    }
+    .display-dashboard-editor {
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto auto minmax(300px, 1fr) auto auto;
+      gap: 10px;
+      overflow: hidden;
+    }
+    .display-dashboard-editor__meta,
+    .display-dashboard-editor__hint {
+      margin-top: 3px;
+      color: var(--text-soft);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.06em;
+    }
+    .display-dashboard-editor__toolbar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      padding: 8px;
+      border: 1px solid var(--line);
+      background: rgba(13, 19, 15, 0.48);
+    }
+    .display-dashboard-editor__size {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      color: var(--text-soft);
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: 0.06em;
+    }
+    .display-dashboard-editor__size select {
+      width: 62px;
+      min-height: 28px;
+      padding: 4px 7px;
+    }
+    .display-dashboard-editor__image-button {
+      cursor: pointer;
+    }
+    .display-dashboard-editor__emoji {
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+      padding: 7px;
+      border: 1px dashed rgba(167, 178, 132, 0.45);
+      background: rgba(36, 45, 34, 0.32);
+    }
+    .display-dashboard-editor__emoji[hidden] { display: none; }
+    .display-dashboard-editor__emoji button {
+      width: 34px;
+      height: 34px;
+      padding: 0;
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 18px;
+    }
+    .display-dashboard-editor__canvas {
+      min-height: 300px;
+      overflow: auto;
+      padding: 18px;
+      border: 1px solid rgba(167, 178, 132, 0.62);
+      outline: none;
+      background: #f7f4e9;
+      color: #17231c;
+      font-family: Arial, sans-serif;
+      font-size: 16px;
+      line-height: 1.4;
+      overflow-wrap: anywhere;
+    }
+    .display-dashboard-editor__canvas:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px rgba(167, 178, 132, 0.28);
+    }
+    .display-dashboard-editor__canvas:empty::before {
+      content: "Напишите сообщение или инструкцию для механиков…";
+      color: #6c756e;
+    }
+    .display-dashboard-editor__images {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      max-height: 190px;
+      overflow: auto;
+    }
+    .display-dashboard-editor__images:empty { display: none; }
+    .display-dashboard-editor__image {
+      position: relative;
+      min-width: 0;
+      aspect-ratio: 4 / 3;
+      border: 1px solid var(--line);
+      background: #0e1511;
+    }
+    .display-dashboard-editor__image img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    .display-dashboard-editor__image button {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border: 1px solid rgba(255, 220, 210, 0.55);
+      background: rgba(82, 24, 18, 0.88);
+      color: #fff0e8;
+      cursor: pointer;
+    }
+    @media (max-width: 720px) {
+      .display-dashboard-editor__images { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     .scale-head {
       display: flex;

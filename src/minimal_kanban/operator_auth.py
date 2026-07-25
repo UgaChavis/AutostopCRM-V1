@@ -791,6 +791,8 @@ class OperatorAuthService:
         return {
             "extra_column": {
                 "is_open": False,
+                "is_detached": False,
+                "position": {"x": 0, "y": 0},
                 "filter": {
                     "tag_label": EXTRA_BOARD_COLUMN_DEFAULT_TAG_LABEL,
                     "tag_color": EXTRA_BOARD_COLUMN_DEFAULT_TAG_COLOR,
@@ -833,9 +835,18 @@ class OperatorAuthService:
             if raw_color in VALID_TAG_COLORS
             else defaults["extra_column"]["filter"]["tag_color"]
         )
+        raw_position = extra_column.get("position")
+        position = raw_position if isinstance(raw_position, dict) else {}
         return {
             "extra_column": {
                 "is_open": self._normalized_stored_bool(extra_column.get("is_open"), default=False),
+                "is_detached": self._normalized_stored_bool(
+                    extra_column.get("is_detached"), default=False
+                ),
+                "position": {
+                    "x": normalize_int(position.get("x"), default=0, minimum=0, maximum=100_000),
+                    "y": normalize_int(position.get("y"), default=0, minimum=0, maximum=100_000),
+                },
                 "filter": {"tag_label": tag_label, "tag_color": tag_color},
             }
         }
@@ -861,6 +872,40 @@ class OperatorAuthService:
                 "Параметр открытия дополнительной колонки должен иметь тип boolean.",
                 details={"field": "board_preferences.extra_column.is_open"},
             )
+        is_detached = extra_column.get("is_detached", False)
+        if not isinstance(is_detached, bool):
+            self._fail(
+                "validation_error",
+                "Параметр открепления дополнительной колонки должен иметь тип boolean.",
+                details={"field": "board_preferences.extra_column.is_detached"},
+            )
+        raw_position = extra_column.get("position", {"x": 0, "y": 0})
+        if not isinstance(raw_position, dict):
+            self._fail(
+                "validation_error",
+                "Позиция дополнительной колонки должна быть объектом.",
+                details={"field": "board_preferences.extra_column.position"},
+            )
+        position: dict[str, int] = {}
+        for axis in ("x", "y"):
+            raw_value = raw_position.get(axis, 0)
+            if isinstance(raw_value, bool):
+                self._fail(
+                    "validation_error",
+                    "Координаты дополнительной колонки должны быть целыми числами.",
+                    details={"field": f"board_preferences.extra_column.position.{axis}"},
+                )
+            try:
+                numeric_value = float(raw_value)
+            except (OverflowError, TypeError, ValueError):
+                numeric_value = -1
+            if not numeric_value.is_integer() or numeric_value < 0 or numeric_value > 100_000:
+                self._fail(
+                    "validation_error",
+                    "Координаты дополнительной колонки должны быть от 0 до 100000.",
+                    details={"field": f"board_preferences.extra_column.position.{axis}"},
+                )
+            position[axis] = int(numeric_value)
         filter_payload = extra_column.get("filter")
         if not isinstance(filter_payload, dict):
             self._fail(
@@ -886,6 +931,8 @@ class OperatorAuthService:
         return {
             "extra_column": {
                 "is_open": is_open,
+                "is_detached": is_detached,
+                "position": position,
                 "filter": {"tag_label": tag_label, "tag_color": tag_color},
             }
         }

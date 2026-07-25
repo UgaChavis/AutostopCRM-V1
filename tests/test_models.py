@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -17,19 +18,75 @@ from minimal_kanban.models import (  # noqa: E402
     InventoryMovement,
     _clamp_ratio,
     _rgb_to_rgba,
+    business_timezone,
     calculate_deadline_progress_bucket,
     calculate_deadline_progress_ratio,
+    clear_business_timezone_cache,
     deadline_heat_border_color_for_bucket,
     deadline_heat_color_for_bucket,
     format_money_minor,
     format_remaining_seconds,
     normalize_int,
     normalize_money_minor,
+    parse_business_datetime,
     split_seconds_to_days_hours,
 )
 
 
 class ModelsTests(unittest.TestCase):
+    def tearDown(self) -> None:
+        clear_business_timezone_cache()
+
+    def test_business_timezone_cache_is_keyed_by_current_environment_name(self) -> None:
+        clear_business_timezone_cache()
+        krasnoyarsk_zone = object()
+        utc_zone = object()
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "AUTOSTOPCRM_BUSINESS_TIMEZONE": "Asia/Krasnoyarsk",
+                    "AUTOSTOPCRM_TIMEZONE": "",
+                },
+                clear=False,
+            ),
+            patch(
+                "minimal_kanban.models.ZoneInfo",
+                side_effect=lambda name: {
+                    "Asia/Krasnoyarsk": krasnoyarsk_zone,
+                    "UTC": utc_zone,
+                }[name],
+            ) as constructor,
+        ):
+            first = business_timezone()
+            second = business_timezone()
+            os.environ["AUTOSTOPCRM_BUSINESS_TIMEZONE"] = "UTC"
+            changed = business_timezone()
+
+        self.assertIs(first, second)
+        self.assertIs(first, krasnoyarsk_zone)
+        self.assertIs(changed, utc_zone)
+        self.assertEqual(constructor.call_count, 2)
+
+    def test_business_timezone_invalid_name_uses_fallback_and_parsing_is_unchanged(self) -> None:
+        clear_business_timezone_cache()
+        with patch.dict(
+            os.environ,
+            {"AUTOSTOPCRM_BUSINESS_TIMEZONE": "Invalid/Autostop-Zone"},
+            clear=False,
+        ):
+            fallback = business_timezone()
+            repeated = business_timezone()
+        self.assertIs(fallback, repeated)
+
+        with patch.dict(
+            os.environ,
+            {"AUTOSTOPCRM_BUSINESS_TIMEZONE": "Asia/Krasnoyarsk"},
+            clear=False,
+        ):
+            parsed = parse_business_datetime("26.07.2026 14:35")
+        self.assertEqual(parsed.isoformat(), "2026-07-26T14:35:00+07:00")
+
     def test_clamp_ratio_rejects_non_finite_and_invalid_values(self) -> None:
         self.assertEqual(_clamp_ratio(True), 0.0)
         self.assertEqual(_clamp_ratio(float("nan")), 0.0)

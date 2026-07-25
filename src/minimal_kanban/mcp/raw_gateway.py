@@ -167,6 +167,57 @@ async def verify_virtual_api_write_readback(
 ) -> dict[str, Any] | None:
     """Return exact verification for virtual writes that have a stable readback."""
 
+    if operation == "update_display_dashboard_message":
+        expected_revision = str(arguments.get("expected_revision") or "").strip()
+        dry_run = arguments.get("dry_run") is True
+        proposed = _find_mapping(
+            result,
+            "schema_version",
+            "display_dashboard_message.v1",
+        )
+        readback = await invoke("api:/api/get_display_dashboard", {})
+        actual = _find_mapping(
+            readback,
+            "schema_version",
+            "display_dashboard_message.v1",
+        )
+        if dry_run:
+            dry_run_receipt = _find_mapping(result, "dry_run", True)
+            passed = bool(
+                result.get("ok")
+                and readback.get("ok")
+                and dry_run_receipt
+                and expected_revision
+                and str((actual or {}).get("revision") or "") == expected_revision
+            )
+            check = "display_dashboard_message_dry_run_without_write"
+        else:
+            expected_state = {
+                key: (proposed or {}).get(key)
+                for key in ("revision", "body_html", "image_file_ids")
+            }
+            passed = bool(
+                result.get("ok")
+                and readback.get("ok")
+                and proposed
+                and expected_state.get("revision")
+                and _mapping_subset_matches(expected_state, actual)
+            )
+            check = "exact_display_dashboard_message_readback"
+        return {
+            "required": True,
+            "passed": passed,
+            "check": check,
+            "evidence": {
+                "expected_revision": expected_revision,
+                "proposed_revision": str((proposed or {}).get("revision") or ""),
+                "actual_revision": str((actual or {}).get("revision") or ""),
+                "image_count": len((actual or {}).get("image_file_ids") or []),
+                "readback_ok": bool(readback.get("ok")),
+                "dry_run": dry_run,
+            },
+        }
+
     if operation in {
         f"api:{CHANGE_FEED_BOOTSTRAP_ROUTE}",
         f"api:{CHANGE_FEED_ACK_ROUTE}",
