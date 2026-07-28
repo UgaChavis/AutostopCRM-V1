@@ -1216,6 +1216,36 @@ def register_agent_gateway_v2(
                     ),
                     label=workflow_id,
                 )
+        if workflow_id == "finance" and operation == "delete_cashbox":
+            missing_fields = [
+                field
+                for field in (
+                    "expected_cashbox_updated_at",
+                    "expected_transaction_ids",
+                )
+                if (
+                    not str(payload.get(field) or "").strip()
+                    if field == "expected_cashbox_updated_at"
+                    else not isinstance(payload.get(field), list)
+                )
+            ]
+            if missing_fields:
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=[
+                            "cashbox_delete_snapshot_required_reread_exact_cashbox_first"
+                        ],
+                        summary={
+                            "workflow_id": workflow_id,
+                            "operation": operation,
+                            "missing_fields": missing_fields,
+                        },
+                        next_actions=["get_cashbox before deleting the exact cashbox"],
+                    ),
+                    label=workflow_id,
+                )
         if workflow_id == "inventory" and operation in {
             "save_inventory_item",
             "replenish_inventory_item",

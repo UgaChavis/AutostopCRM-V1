@@ -5860,12 +5860,16 @@ class CardServiceTests(unittest.TestCase):
                 "actor_name": "ADMIN",
             }
         )
+        source_current = self.service.get_cashbox(
+            {"cashbox_id": source_cashbox["id"], "transaction_limit": 10}
+        )["cashbox"]
 
         cancelled = self.service.cancel_cash_transaction(
             {
                 "cashbox_id": target_cashbox["id"],
                 "transaction_id": transferred["target_transaction"]["id"],
                 "reason": "Перемещение выбрано ошибочно",
+                "expected_related_cashbox_updated_at": source_current["updated_at"],
                 "actor_name": "ADMIN",
             }
         )
@@ -6264,6 +6268,71 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(reread["transactions"], [])
         self.assertEqual(reread["cashbox"]["statistics"]["balance_minor"], 0)
         self.assertNotEqual(reread["cashbox"]["updated_at"], current["updated_at"])
+
+    def test_delete_synthetic_cashbox_requires_zero_balance_and_exact_journal(self) -> None:
+        run_id = "AST-GWAT-20260728T165722Z"
+        cashbox = self.service.create_cashbox(
+            {"name": f"{run_id}-cashbox-delete", "actor_name": "CODEX"}
+        )["cashbox"]
+        transaction = self.service.create_cash_transaction(
+            {
+                "cashbox_id": cashbox["id"],
+                "direction": "income",
+                "amount_minor": 100,
+                "note": f"{run_id} delete fixture",
+                "actor_name": "CODEX",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )["transaction"]
+        nonzero = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+        )
+        with self.assertRaises(ServiceError) as blocked:
+            self.service.delete_cashbox(
+                {
+                    "cashbox_id": cashbox["id"],
+                    "expected_cashbox_updated_at": nonzero["cashbox"]["updated_at"],
+                    "expected_transaction_ids": [transaction["id"]],
+                    "attestation_run_id": run_id,
+                    "actor_name": "CODEX",
+                    "source": "mcp_agent_gateway_v2",
+                }
+            )
+        self.assertEqual(blocked.exception.code, "cashbox_attestation_balance_not_zero")
+
+        self.service.cancel_cash_transaction(
+            {
+                "cashbox_id": cashbox["id"],
+                "transaction_id": transaction["id"],
+                "reason": f"{run_id} delete compensation",
+                "expected_cashbox_updated_at": nonzero["cashbox"]["updated_at"],
+                "attestation_run_id": run_id,
+                "actor_name": "CODEX",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )
+        current = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+        )
+        transaction_ids = [item["id"] for item in current["transactions"]]
+        deleted = self.service.delete_cashbox(
+            {
+                "cashbox_id": cashbox["id"],
+                "expected_cashbox_updated_at": current["cashbox"]["updated_at"],
+                "expected_transaction_ids": transaction_ids,
+                "attestation_run_id": run_id,
+                "actor_name": "CODEX",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )
+        self.assertTrue(deleted["meta"]["deleted"])
+        self.assertTrue(deleted["meta"]["attestation_cleanup"])
+        self.assertEqual(deleted["meta"]["removed_transactions"], 2)
+        with self.assertRaises(ServiceError) as missing:
+            self.service.get_cashbox(
+                {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+            )
+        self.assertEqual(missing.exception.code, "not_found")
 
     def test_cancel_last_cash_transaction_removes_linked_repair_order_payment(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Безналичный", "actor_name": "ADMIN"})[

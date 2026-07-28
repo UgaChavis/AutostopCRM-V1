@@ -447,6 +447,83 @@ async def verify_virtual_api_write_readback(
             if cancellation_id
             else None
         )
+        related_transaction_id = str(
+            (
+                _find_mapping_matching(
+                    result,
+                    lambda item: "related_transaction_id" in item
+                    and "related_cashbox_id" in item,
+                )
+                or {}
+            ).get("related_transaction_id")
+            or ""
+        )
+        related_cashbox_id = str(
+            (
+                _find_mapping_matching(
+                    result,
+                    lambda item: "related_transaction_id" in item
+                    and "related_cashbox_id" in item,
+                )
+                or {}
+            ).get("related_cashbox_id")
+            or ""
+        )
+        related_cancellation = _find_mapping_matching(
+            result,
+            lambda item: bool(
+                related_transaction_id
+                and str(item.get("id") or "").strip()
+                and str(item.get("transaction_kind") or "") == "cashbox_cancellation"
+                and str(item.get("related_transaction_id") or "")
+                == related_transaction_id
+            ),
+        )
+        related_cancellation_id = str((related_cancellation or {}).get("id") or "")
+        related_readback_ok = True
+        if related_transaction_id or related_cashbox_id:
+            related_cashbox_readback = await invoke(
+                "get_cashbox",
+                {"cashbox_id": related_cashbox_id, "transaction_limit": 50},
+            )
+            related_cashbox = (
+                _find_mapping(related_cashbox_readback, "id", related_cashbox_id)
+                if related_cashbox_id
+                else None
+            )
+            related_cancelled_readback = (
+                _find_mapping(
+                    related_cashbox_readback,
+                    "id",
+                    related_transaction_id,
+                )
+                if related_transaction_id
+                else None
+            )
+            related_cancellation_readback = (
+                _find_mapping(
+                    related_cashbox_readback,
+                    "id",
+                    related_cancellation_id,
+                )
+                if related_cancellation_id
+                else None
+            )
+            related_readback_ok = bool(
+                related_cashbox_readback.get("ok")
+                and isinstance(related_cashbox, dict)
+                and str(related_cashbox.get("updated_at") or "")
+                != str(arguments.get("expected_related_cashbox_updated_at") or "")
+                and isinstance(related_cancelled_readback, dict)
+                and str(related_cancelled_readback.get("transaction_kind") or "")
+                == "cashbox_cancelled"
+                and isinstance(related_cancellation_readback, dict)
+                and str(
+                    related_cancellation_readback.get("related_transaction_id")
+                    or ""
+                )
+                == related_transaction_id
+            )
         payment_card_id = str(
             (
                 _find_mapping_matching(
@@ -480,6 +557,7 @@ async def verify_virtual_api_write_readback(
             and isinstance(cashbox, dict)
             and str(cashbox.get("updated_at") or "") != expected_cashbox_updated_at
             and payment_readback_ok
+            and related_readback_ok
         )
         return {
             "required": True,
@@ -498,6 +576,7 @@ async def verify_virtual_api_write_readback(
                 "cashbox_revision_changed": str((cashbox or {}).get("updated_at") or "")
                 != expected_cashbox_updated_at,
                 "payment_readback_ok": payment_readback_ok,
+                "related_readback_ok": related_readback_ok,
             },
         }
 

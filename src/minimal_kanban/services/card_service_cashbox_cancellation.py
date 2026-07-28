@@ -119,6 +119,11 @@ class CardServiceCashboxCancellationMixin:
                     reason=reason,
                     actor_name=actor_name,
                     source=source,
+                    expected_related_cashbox_updated_at=normalize_text(
+                        payload.get("expected_related_cashbox_updated_at"),
+                        default="",
+                        limit=80,
+                    ),
                 )
             linked_card, linked_payment = self._find_repair_order_payment_by_cash_transaction(
                 cards, transaction.id
@@ -219,6 +224,7 @@ class CardServiceCashboxCancellationMixin:
         reason: str,
         actor_name: str,
         source: str,
+        expected_related_cashbox_updated_at: str,
     ) -> dict:
         transactions = bundle["cash_transactions"]
         cashboxes = bundle["cashboxes"]
@@ -309,6 +315,20 @@ class CardServiceCashboxCancellationMixin:
                 },
             )
         related_cashbox = self._find_cashbox(cashboxes, related_transaction.cashbox_id)
+        if not expected_related_cashbox_updated_at:
+            self._fail(
+                "cashbox_transfer_related_revision_required",
+                "Для отмены перемещения нужно перечитать связанную кассу.",
+                status_code=409,
+                details={"related_cashbox_id": related_cashbox.id},
+            )
+        if related_cashbox.updated_at != expected_related_cashbox_updated_at:
+            self._fail(
+                "cashbox_update_conflict",
+                "Связанная касса уже изменилась. Обновите данные и повторите действие.",
+                status_code=409,
+                details={"cashbox_id": related_cashbox.id},
+            )
         cancellation_note = self._cash_cancellation_note(reason)
         cancellation_created_at = (
             model_helpers.utc_now().astimezone(business_timezone()).isoformat()

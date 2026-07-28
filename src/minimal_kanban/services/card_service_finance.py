@@ -663,10 +663,114 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="api")
             cashbox = self._find_cashbox(cashboxes, payload.get("cashbox_id"))
+            expected_cashbox_updated_at = normalize_text(
+                payload.get("expected_cashbox_updated_at"),
+                default="",
+                limit=80,
+            )
+            if (
+                expected_cashbox_updated_at
+                and cashbox.updated_at != expected_cashbox_updated_at
+            ):
+                self._fail(
+                    "cashbox_update_conflict",
+                    "Касса уже изменилась. Обновите данные и повторите действие.",
+                    status_code=409,
+                    details={"cashbox_id": cashbox.id},
+                )
             related_transactions = self._cashbox_transactions(transactions, cashbox.id)
-            if related_transactions:
-                raise ValueError("Нельзя удалить кассу, пока в ней есть движения.")
+            expected_transaction_ids = payload.get("expected_transaction_ids")
+            if expected_transaction_ids is not None:
+                if (
+                    not isinstance(expected_transaction_ids, list)
+                    or any(
+                        not isinstance(item, str) or not item.strip()
+                        for item in expected_transaction_ids
+                    )
+                    or len(set(expected_transaction_ids)) != len(expected_transaction_ids)
+                ):
+                    self._fail(
+                        "validation_error",
+                        "Поле expected_transaction_ids должно содержать ID движений кассы.",
+                        details={"field": "expected_transaction_ids"},
+                    )
+                current_transaction_ids = [
+                    transaction.id for transaction in related_transactions
+                ]
+                if expected_transaction_ids != current_transaction_ids:
+                    self._fail(
+                        "cashbox_transaction_snapshot_conflict",
+                        "Журнал кассы уже изменился. Обновите данные и повторите действие.",
+                        status_code=409,
+                        details={"cashbox_id": cashbox.id},
+                    )
             statistics = self._cashbox_statistics(cashbox, transactions)
+            attestation_run_id = normalize_text(
+                payload.get("attestation_run_id"),
+                default="",
+                limit=64,
+            )
+            attestation_cleanup = bool(attestation_run_id)
+            if attestation_cleanup and statistics["balance_minor"] != 0:
+                self._fail(
+                    "cashbox_attestation_balance_not_zero",
+                    "Синтетическую кассу можно удалить только с нулевым остатком.",
+                    status_code=409,
+                    details={"cashbox_id": cashbox.id},
+                )
+            payment_links = self._finance_payment_links(bundle["cards"])
+            related_ids = {transaction.id for transaction in related_transactions}
+            linked_payment_ids = related_ids.intersection(payment_links)
+            peer_transactions = [
+                transaction
+                for transaction in transactions
+                if transaction.id not in related_ids
+                and (
+                    transaction.related_transaction_id in related_ids
+                    or any(
+                        peer_id
+                        and transaction.id == peer_id
+                        for peer_id in (
+                            candidate.related_transaction_id
+                            for candidate in related_transactions
+                        )
+                    )
+                )
+            ]
+            peer_cashboxes = {
+                item.id: item for item in cashboxes if item.id != cashbox.id
+            }
+            if attestation_cleanup and not (
+                _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
+                and expected_cashbox_updated_at
+                and isinstance(expected_transaction_ids, list)
+                and cashbox.name.startswith(f"{attestation_run_id}-")
+                and not linked_payment_ids
+                and all(
+                    transaction.amount_minor == 100
+                    and attestation_run_id in transaction.note
+                    for transaction in related_transactions
+                )
+                and all(
+                    peer.amount_minor == 100
+                    and attestation_run_id in peer.note
+                    and peer.cashbox_id in peer_cashboxes
+                    and peer_cashboxes[peer.cashbox_id].name.startswith(
+                        f"{attestation_run_id}-"
+                    )
+                    for peer in peer_transactions
+                )
+                and str(payload.get("source") or "").strip().casefold()
+                == "mcp_agent_gateway_v2"
+                and actor_name
+            ):
+                self._fail(
+                    "cashbox_delete_attestation_scope_invalid",
+                    "Удаление кассы не соответствует синтетическому контуру аттестации.",
+                    status_code=403,
+                )
+            if related_transactions and not attestation_cleanup:
+                raise ValueError("Нельзя удалить кассу, пока в ней есть движения.")
             remaining_cashboxes = self._ordered_cashboxes(
                 [item for item in cashboxes if item.id != cashbox.id]
             )
@@ -701,6 +805,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 "meta": {
                     "deleted": True,
                     "removed_transactions": len(related_transactions),
+                    "attestation_cleanup": attestation_cleanup,
                 },
             }
 

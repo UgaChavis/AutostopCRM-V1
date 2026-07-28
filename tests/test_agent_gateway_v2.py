@@ -2918,6 +2918,30 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
         )
         self.assertEqual(before_count, len(self.board_api.raw_requests))
 
+    async def test_finance_delete_cashbox_requires_revision_and_journal_snapshot(
+        self,
+    ) -> None:
+        before_count = len(self.board_api.raw_requests)
+        rejected = await self._call(
+            "agent_finance_workflow",
+            {
+                "operation": "delete_cashbox",
+                "payload": {"cashbox_id": "cashbox-1"},
+                "idempotency_key": "delete-cashbox-without-snapshot",
+            },
+        )
+
+        self.assertFalse(rejected.structuredContent["ok"])
+        self.assertEqual(
+            ["expected_cashbox_updated_at", "expected_transaction_ids"],
+            rejected.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertIn(
+            "cashbox_delete_snapshot_required_reread_exact_cashbox_first",
+            rejected.structuredContent["warnings"],
+        )
+        self.assertEqual(before_count, len(self.board_api.raw_requests))
+
     async def test_raw_attestation_employee_requires_ordered_snapshot_before_executor(
         self,
     ) -> None:
