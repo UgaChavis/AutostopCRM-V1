@@ -2944,7 +2944,12 @@ class McpServerRuntimeTests(unittest.TestCase):
             client.list_cashboxes()
             client.list_cashboxes(limit=50)
             client.get_cash_journal()
-            client.get_cash_journal(months=6, limit=250)
+            client.get_cash_journal(
+                months=6,
+                limit=250,
+                include_markdown=False,
+                compact_groups=True,
+            )
             client.get_cashbox("CB-1", transaction_limit=25, transaction_offset=50)
             client.create_cashbox("Наличный", actor_name="ОПЕРАТОР")
             client.create_cash_transaction(
@@ -2963,7 +2968,14 @@ class McpServerRuntimeTests(unittest.TestCase):
                 unittest.mock.call("/api/list_cashboxes", {"limit": 50}, method="POST"),
                 unittest.mock.call("/api/get_cash_journal", method="GET"),
                 unittest.mock.call(
-                    "/api/get_cash_journal", {"months": 6, "limit": 250}, method="POST"
+                    "/api/get_cash_journal",
+                    {
+                        "months": 6,
+                        "limit": 250,
+                        "include_markdown": False,
+                        "compact_groups": True,
+                    },
+                    method="POST",
                 ),
                 unittest.mock.call(
                     "/api/get_cashbox",

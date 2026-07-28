@@ -621,12 +621,23 @@ class BoardApiClient:
             "/api/return_inventory_movement", payload, actor_name=actor_name
         )
 
-    def get_cash_journal(self, *, months: int | None = None, limit: int | None = None) -> dict:
+    def get_cash_journal(
+        self,
+        *,
+        months: int | None = None,
+        limit: int | None = None,
+        include_markdown: bool | None = None,
+        compact_groups: bool | None = None,
+    ) -> dict:
         payload: dict[str, object] = {}
         if months is not None:
             payload["months"] = months
         if limit is not None:
             payload["limit"] = limit
+        if include_markdown is not None:
+            payload["include_markdown"] = include_markdown
+        if compact_groups is not None:
+            payload["compact_groups"] = compact_groups
         if not payload:
             return self._request("/api/get_cash_journal", method="GET")
         return self._request("/api/get_cash_journal", payload, method="POST")

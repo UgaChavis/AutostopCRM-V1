@@ -259,7 +259,15 @@ class McpServerHardeningTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self._last_call("audit_client_links")["candidate_limit"], 10)
 
     async def test_finance_inventory_client_and_search_limits_are_clamped(self) -> None:
-        await self._call("get_cash_journal", {"months": 1e308, "limit": 1e308})
+        await self._call(
+            "get_cash_journal",
+            {
+                "months": 1e308,
+                "limit": 1e308,
+                "include_markdown": False,
+                "compact_groups": True,
+            },
+        )
         await self._call(
             "get_cashbox",
             {
@@ -277,7 +285,15 @@ class McpServerHardeningTests(unittest.IsolatedAsyncioTestCase):
         await self._call("list_archived_cards", {"limit": 999999})
         await self._call("search_cards", {"query": "x", "limit": 999999})
 
-        self.assertEqual(self._last_call("get_cash_journal"), {"months": 12, "limit": 10000})
+        self.assertEqual(
+            self._last_call("get_cash_journal"),
+            {
+                "months": 12,
+                "limit": 10000,
+                "include_markdown": False,
+                "compact_groups": True,
+            },
+        )
         self.assertEqual(self._last_call("get_cashbox")["transaction_limit"], 5000)
         self.assertEqual(self._last_call("get_cashbox")["transaction_offset"], 1_000_000)
         self.assertEqual(self._last_call("list_inventory_items")["limit"], 500)

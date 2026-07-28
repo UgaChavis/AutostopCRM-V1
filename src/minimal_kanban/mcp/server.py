@@ -2380,20 +2380,36 @@ def create_mcp_server(
         name="get_cash_journal",
         description=_scoped_description(
             "Return the cashbox journal for the current board as machine-readable JSON "
-            "with entries/days/weeks/months/totals plus a human-readable Markdown report. "
-            "Use this for cashbox audit, reconciliation, and readable journal review."
+            "with entries/days/weeks/months/totals. Set include_markdown=false and "
+            "compact_groups=true for bounded agent reads; request Markdown only for an "
+            "explicit human-readable journal review."
         ),
         annotations=_read_tool_annotations("Get Cash Journal"),
         structured_output=True,
     )
-    def get_cash_journal(months: McpInt = 3, limit: McpInt = 5000) -> JsonEnvelope:
+    def get_cash_journal(
+        months: McpInt = 3,
+        limit: McpInt = 5000,
+        include_markdown: bool = True,
+        compact_groups: bool = False,
+    ) -> JsonEnvelope:
         effective_months = _normalize_limit(months, default=3, maximum=12)
         effective_limit = _normalize_limit(limit, default=5000, maximum=10000)
         return _relay_board_call(
             "get_cash_journal",
-            lambda: board_api.get_cash_journal(months=effective_months, limit=effective_limit),
+            lambda: board_api.get_cash_journal(
+                months=effective_months,
+                limit=effective_limit,
+                include_markdown=include_markdown,
+                compact_groups=compact_groups,
+            ),
             error_code="cash_journal_unreachable",
-            params={"months": effective_months, "limit": effective_limit},
+            params={
+                "months": effective_months,
+                "limit": effective_limit,
+                "include_markdown": include_markdown,
+                "compact_groups": compact_groups,
+            },
         )
 
     @server.tool(
