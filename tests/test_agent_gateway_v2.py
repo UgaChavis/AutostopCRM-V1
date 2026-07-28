@@ -128,6 +128,34 @@ class FakeBoardApi:
             },
         }
 
+    def get_card_context(
+        self,
+        card_id: str,
+        *,
+        event_limit: int = 10,
+        include_repair_order_text: bool = False,
+    ) -> dict:
+        del event_limit, include_repair_order_text
+        return {
+            "ok": True,
+            "data": {
+                "card": {
+                    "id": card_id,
+                    "title": "Task",
+                    "updated_at": self.card_updated_at,
+                    "repair_order": {
+                        "materials": [
+                            {
+                                "name": "Synthetic material",
+                                "inventory_item_id": "inventory-1",
+                                "inventory_movement_id": "movement-1",
+                            }
+                        ]
+                    },
+                }
+            },
+        }
+
     def run_manager_operation(
         self,
         *,
@@ -1372,6 +1400,20 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
         )
         self.assertEqual({"status": "IN_PROGRESS"}, search_call["filters"])
         self.assertEqual("opaque-search", search_call["cursor"])
+
+    async def test_full_crm_card_context_preserves_nested_repair_order_refs(self) -> None:
+        context = await self._call(
+            "agent_entity_context",
+            {"entity": "card", "entity_id": "card-1", "detail": "full"},
+        )
+
+        material = context.structuredContent["data"]["card"]["repair_order"]["materials"][0]
+        self.assertEqual("inventory-1", material["inventory_item_id"])
+        self.assertEqual("movement-1", material["inventory_movement_id"])
+        self.assertNotIn(
+            "<max-depth>",
+            json.dumps(context.structuredContent, ensure_ascii=False),
+        )
 
     async def test_store_vin_photo_preview_uses_existing_document_tool_and_never_leaks_base64(
         self,

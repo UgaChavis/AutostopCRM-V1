@@ -1787,7 +1787,11 @@ def register_agent_gateway_v2(
                 "detail": detail,
                 "scope": "crm",
             },
-            data=_compact_object(data, item_limit=50 if detail == "full" else 15),
+            data=_compact_object(
+                data,
+                item_limit=50 if detail == "full" else 15,
+                max_depth=8 if detail == "full" else 5,
+            ),
             warnings=[] if ok else [str(error or "entity_read_failed")],
             meta={"source_meta": _compact_object(meta)},
         )
