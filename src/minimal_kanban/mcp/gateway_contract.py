@@ -63,6 +63,7 @@ FINANCE_WORKFLOW_OPERATIONS = frozenset(
     }
 )
 FINANCE_VIRTUAL_OPERATIONS = {
+    "delete_cashbox": "/api/delete_cashbox",
     "reorder_cashboxes": "/api/reorder_cashboxes",
     "create_cashbox_transfer": "/api/create_cashbox_transfer",
     "create_employee_salary_transaction": "/api/create_employee_salary_transaction",

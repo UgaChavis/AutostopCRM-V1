@@ -24,6 +24,7 @@ if str(SRC) not in sys.path:
 
 from minimal_kanban.mcp.agent_gateway_support import _subset_matches
 from minimal_kanban.mcp.agent_gateway_v2 import register_agent_gateway_v2
+from minimal_kanban.mcp.gateway_contract import FINANCE_VIRTUAL_OPERATIONS
 from minimal_kanban.mcp.oauth_provider import (
     OAUTH_AUDIT_ACTOR_HEADER,
     OAUTH_AUDIT_ASSERTION_HEADER,
@@ -1188,6 +1189,12 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
     def tearDown(self) -> None:
         self.manager_patch.stop()
         self.env.stop()
+
+    def test_delete_cashbox_uses_guarded_virtual_route(self) -> None:
+        self.assertEqual(
+            "/api/delete_cashbox",
+            FINANCE_VIRTUAL_OPERATIONS["delete_cashbox"],
+        )
 
     async def _call(self, name: str, arguments: dict | None = None):
         tool = self.server._tool_manager.get_tool(name)
