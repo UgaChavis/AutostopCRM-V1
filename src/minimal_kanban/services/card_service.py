@@ -1856,6 +1856,13 @@ class CardService(
             column_labels = self._column_labels(bundle["columns"])
             now = utc_now()
             items = []
+            client_search_index = self._client_search_index_for(clients)
+            related_fields_by_client_id = self._client_related_vehicle_fields_index_for(
+                clients, cards
+            )
+            related_search_index_by_client_id = self._client_related_search_index(
+                related_fields_by_client_id
+            )
             for card in cards:
                 if card.archived or card.client_id:
                     continue
@@ -1869,9 +1876,14 @@ class CardService(
                             client, redact_private=redact_private
                         ),
                     }
-                    for score, client in self._rank_client_matches(clients, query, cards)[
-                        :candidate_limit
-                    ]
+                    for score, client in self._rank_client_matches(
+                        clients,
+                        query,
+                        cards,
+                        client_search_index=client_search_index,
+                        related_fields_by_client_id=related_fields_by_client_id,
+                        related_search_index_by_client_id=related_search_index_by_client_id,
+                    )[:candidate_limit]
                     if score > 1
                 ]
                 if not matches:
@@ -8287,14 +8299,22 @@ class CardService(
         )
         phone_match = _PHONE_PATTERN.search(source_text)
         plate_match = _LICENSE_PLATE_PATTERN.search(source_text)
-        parts = [
+        # Use the strongest single identifier. Combining phone, plate, client
+        # name, and vehicle into one query disables the phone-optimized client
+        # index and turns this bounded audit into repeated full-directory text
+        # scans on production-sized boards.
+        candidates = (
             phone_match.group(0) if phone_match else "",
             plate_match.group(0) if plate_match else "",
             card.repair_order.client,
             card.vehicle_profile.customer_name,
             card.vehicle_display(),
-        ]
-        return normalize_text(" ".join(part for part in parts if part), default="", limit=500)
+        )
+        for candidate in candidates:
+            normalized = normalize_text(candidate, default="", limit=500)
+            if normalized:
+                return normalized
+        return ""
 
     def _manager_client_candidate_item(
         self, client: ClientProfile, *, redact_private: bool

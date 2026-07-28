@@ -1052,23 +1052,36 @@ class CardServiceClientsMixin:
         self._client_related_vehicle_fields_index_cache = related_fields
         return related_fields
 
+    def _client_related_search_index(
+        self, fields_by_client_id: dict[str, list[str]]
+    ) -> dict[str, dict[str, Any]]:
+        index: dict[str, dict[str, Any]] = {}
+        for client_id, fields in fields_by_client_id.items():
+            searchable = [self._normalize_search_text(value) for value in fields if value]
+            compact_searchable = [re.sub(r"[\W_]+", "", value) for value in searchable if value]
+            phone_keys: set[str] = set()
+            for value in fields:
+                phone_keys.update(self._phone_match_keys(value))
+            index[client_id] = {
+                "searchable": searchable,
+                "compact_searchable": compact_searchable,
+                "phone_keys": phone_keys,
+            }
+        return index
+
     def _score_client_related_search_fields(
         self,
-        fields: list[str],
+        indexed_fields: dict[str, Any] | None,
         *,
         query_variants: list[str],
         query_digits: str,
         query_phone_variants: set[str],
     ) -> int:
-        if not fields:
+        if not indexed_fields:
             return 0
-        related_searchable = [self._normalize_search_text(value) for value in fields if value]
-        related_compact_searchable = [
-            re.sub(r"[\W_]+", "", value) for value in related_searchable if value
-        ]
-        related_phone_keys: set[str] = set()
-        for value in fields:
-            related_phone_keys.update(self._phone_match_keys(value))
+        related_searchable = indexed_fields.get("searchable", [])
+        related_compact_searchable = indexed_fields.get("compact_searchable", [])
+        related_phone_keys = indexed_fields.get("phone_keys", set())
         score = 0
         for variant in query_variants:
             if not variant:
@@ -1594,7 +1607,14 @@ class CardServiceClientsMixin:
         return raw
 
     def _rank_client_matches(
-        self, clients: list[ClientProfile], query: str, cards: list[Card] | None = None
+        self,
+        clients: list[ClientProfile],
+        query: str,
+        cards: list[Card] | None = None,
+        *,
+        client_search_index: dict[str, dict[str, Any]] | None = None,
+        related_fields_by_client_id: dict[str, list[str]] | None = None,
+        related_search_index_by_client_id: dict[str, dict[str, Any]] | None = None,
     ) -> list[tuple[int, ClientProfile]]:
         query = normalize_text(query, default="", limit=500)
         if not query:
@@ -1603,10 +1623,16 @@ class CardServiceClientsMixin:
         query_digits = re.sub(r"\D+", "", query)
         query_phone_variants = self._phone_search_variants(query)
         phone_like_query = bool(query_digits) and not re.search(r"[A-Za-zА-Яа-я]", query)
-        client_search_index = self._client_search_index_for(clients)
-        related_fields_by_client_id = (
-            self._client_related_vehicle_fields_index_for(clients, cards) if cards else {}
-        )
+        if client_search_index is None:
+            client_search_index = self._client_search_index_for(clients)
+        if related_fields_by_client_id is None:
+            related_fields_by_client_id = (
+                self._client_related_vehicle_fields_index_for(clients, cards) if cards else {}
+            )
+        if related_search_index_by_client_id is None:
+            related_search_index_by_client_id = self._client_related_search_index(
+                related_fields_by_client_id
+            )
 
         if phone_like_query:
             return self._rank_client_matches_phone_like(
@@ -1614,7 +1640,7 @@ class CardServiceClientsMixin:
                 query_digits=query_digits,
                 query_phone_variants=query_phone_variants,
                 client_search_index=client_search_index,
-                related_fields_by_client_id=related_fields_by_client_id,
+                related_search_index_by_client_id=related_search_index_by_client_id,
                 query_variants=query_variants,
             )
 
@@ -1624,7 +1650,7 @@ class CardServiceClientsMixin:
             query_digits=query_digits,
             query_phone_variants=query_phone_variants,
             client_search_index=client_search_index,
-            related_fields_by_client_id=related_fields_by_client_id,
+            related_search_index_by_client_id=related_search_index_by_client_id,
         )
 
     def _rank_client_matches_phone_like(
@@ -1634,7 +1660,7 @@ class CardServiceClientsMixin:
         query_digits: str,
         query_phone_variants: set[str],
         client_search_index: dict[str, dict[str, Any]],
-        related_fields_by_client_id: dict[str, list[str]],
+        related_search_index_by_client_id: dict[str, dict[str, Any]],
         query_variants: list[str],
     ) -> list[tuple[int, ClientProfile]]:
         ranked: list[tuple[int, ClientProfile]] = []
@@ -1644,7 +1670,7 @@ class CardServiceClientsMixin:
                 query_digits=query_digits,
                 query_phone_variants=query_phone_variants,
                 client_search_index=client_search_index,
-                related_fields_by_client_id=related_fields_by_client_id,
+                related_search_index_by_client_id=related_search_index_by_client_id,
                 query_variants=query_variants,
             )
             if score > 0:
@@ -1659,7 +1685,7 @@ class CardServiceClientsMixin:
         query_digits: str,
         query_phone_variants: set[str],
         client_search_index: dict[str, dict[str, Any]],
-        related_fields_by_client_id: dict[str, list[str]],
+        related_search_index_by_client_id: dict[str, dict[str, Any]],
         query_variants: list[str],
     ) -> int:
         score = 0
@@ -1678,7 +1704,7 @@ class CardServiceClientsMixin:
         if digits_blob and query_digits in digits_blob:
             score += 10
         score += self._score_client_related_search_fields(
-            related_fields_by_client_id.get(client.id, []),
+            related_search_index_by_client_id.get(client.id),
             query_variants=query_variants,
             query_digits=query_digits,
             query_phone_variants=query_phone_variants,
@@ -1693,7 +1719,7 @@ class CardServiceClientsMixin:
         query_digits: str,
         query_phone_variants: set[str],
         client_search_index: dict[str, dict[str, Any]],
-        related_fields_by_client_id: dict[str, list[str]],
+        related_search_index_by_client_id: dict[str, dict[str, Any]],
     ) -> list[tuple[int, ClientProfile]]:
         ranked: list[tuple[int, ClientProfile]] = []
         for client in clients:
@@ -1703,7 +1729,7 @@ class CardServiceClientsMixin:
                 query_digits=query_digits,
                 query_phone_variants=query_phone_variants,
                 client_search_index=client_search_index,
-                related_fields_by_client_id=related_fields_by_client_id,
+                related_search_index_by_client_id=related_search_index_by_client_id,
             )
             if score > 0:
                 ranked.append((score, client))
@@ -1718,7 +1744,7 @@ class CardServiceClientsMixin:
         query_digits: str,
         query_phone_variants: set[str],
         client_search_index: dict[str, dict[str, Any]],
-        related_fields_by_client_id: dict[str, list[str]],
+        related_search_index_by_client_id: dict[str, dict[str, Any]],
     ) -> int:
         indexed = client_search_index.get(client.id, {})
         searchable = indexed.get("searchable", [])
@@ -1746,7 +1772,7 @@ class CardServiceClientsMixin:
             elif query_phone_variants.intersection(indexed.get("match_keys", set())):
                 score += 10
         score += self._score_client_related_search_fields(
-            related_fields_by_client_id.get(client.id, []),
+            related_search_index_by_client_id.get(client.id),
             query_variants=query_variants,
             query_digits=query_digits,
             query_phone_variants=query_phone_variants,

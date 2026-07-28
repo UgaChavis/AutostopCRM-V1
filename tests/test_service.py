@@ -534,6 +534,73 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(restarted["card"]["deadline_total_seconds"], 7200)
         self.assertEqual(restarted["card"]["timer_state"], "running")
 
+    def test_manager_client_link_query_prefers_one_strong_identifier(self) -> None:
+        created = self.service.create_card(
+            {
+                "vehicle": "Toyota Camry",
+                "title": "Диагностика",
+                "description": "Клиент Тестовый, госномер А123ВС124",
+                "deadline": {"hours": 1},
+                "vehicle_profile": {
+                    "customer_name": "Клиент Тестовый",
+                    "customer_phone": "+7 913 000-11-22",
+                    "registration_plate": "А123ВС124",
+                },
+            }
+        )
+        card = next(item for item in self.store.read_cards() if item.id == created["card"]["id"])
+
+        query = self.service._manager_client_link_query(card)
+
+        self.assertEqual(query, "+7 913 000-11-22")
+        self.assertNotIn("Toyota", query)
+        self.assertNotIn("Клиент", query)
+
+    def test_audit_client_links_prepares_search_indexes_once(self) -> None:
+        client = self.service.create_client(
+            {
+                "client_type": "person",
+                "last_name": "Тестовый",
+                "first_name": "Клиент",
+                "phone": "+7 913 000-11-22",
+            }
+        )["client"]
+        for suffix in ("22", "23"):
+            self.service.create_card(
+                {
+                    "vehicle": "Toyota Camry",
+                    "title": f"Диагностика {suffix}",
+                    "deadline": {"hours": 1},
+                    "vehicle_profile": {
+                        "customer_phone": f"+7 913 000-11-{suffix}",
+                    },
+                }
+            )
+
+        with (
+            patch.object(
+                self.service,
+                "_client_search_index_for",
+                wraps=self.service._client_search_index_for,
+            ) as search_index,
+            patch.object(
+                self.service,
+                "_client_related_vehicle_fields_index_for",
+                wraps=self.service._client_related_vehicle_fields_index_for,
+            ) as related_index,
+            patch.object(
+                self.service,
+                "_client_related_search_index",
+                wraps=self.service._client_related_search_index,
+            ) as related_search_index,
+        ):
+            result = self.service.audit_client_links({"limit": 10})
+
+        self.assertEqual(search_index.call_count, 1)
+        self.assertEqual(related_index.call_count, 1)
+        self.assertEqual(related_search_index.call_count, 1)
+        self.assertEqual(result["cards"][0]["candidates"][0]["client"]["id"], client["id"])
+
     def test_clients_can_be_created_searched_and_linked_to_card(self) -> None:
         client = self.service.create_client(
             {
