@@ -601,6 +601,76 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(related_search_index.call_count, 1)
         self.assertEqual(result["cards"][0]["candidates"][0]["client"]["id"], client["id"])
 
+    def test_ready_unpaid_followups_respects_exact_card_filter(self) -> None:
+        selected = self.service.create_card(
+            {
+                "title": "AST-GWAT selected",
+                "deadline": {"minutes": 1},
+                "tags": [{"label": "Готов", "color": "green"}],
+            }
+        )["card"]
+        untouched = self.service.create_card(
+            {
+                "title": "AST-GWAT untouched",
+                "deadline": {"minutes": 1},
+                "tags": [{"label": "Готов", "color": "green"}],
+            }
+        )["card"]
+        for card in (selected, untouched):
+            self.service.update_repair_order(
+                {
+                    "card_id": card["id"],
+                    "repair_order": {
+                        "works": [
+                            {
+                                "name": "Synthetic",
+                                "quantity": "1",
+                                "price": "1",
+                            }
+                        ]
+                    },
+                }
+            )
+
+        result = self.service.apply_ready_unpaid_followups(
+            {
+                "mode": "apply",
+                "actor_name": "CODEX MCP QA",
+                "card_ids": [selected["id"]],
+                "target_total_seconds": 600,
+            }
+        )
+
+        self.assertEqual(result["scanned"], 1)
+        self.assertEqual(result["eligible"], 1)
+        self.assertEqual(result["changed"], 1)
+        selected_card = self.service.get_card({"card_id": selected["id"]})["card"]
+        untouched_card = self.service.get_card({"card_id": untouched["id"]})["card"]
+        self.assertIn("ЖДЕТ ОПЛАТЫ", selected_card["tags"])
+        self.assertNotIn("ЖДЕТ ОПЛАТЫ", untouched_card["tags"])
+
+    def test_manager_batch_write_rejects_stale_expected_updated_at(self) -> None:
+        created = self.service.create_card(
+            {
+                "title": "AST-GWAT stale",
+                "deadline": {"minutes": 1},
+            }
+        )["card"]
+
+        with self.assertRaises(ServiceError) as raised:
+            self.service.bulk_set_deadline_if_below(
+                {
+                    "mode": "apply",
+                    "actor_name": "CODEX MCP QA",
+                    "card_ids": [created["id"]],
+                    "expected_updated_at_by_card_id": {created["id"]: "2000-01-01T00:00:00+00:00"},
+                    "min_total_seconds": 600,
+                    "target_total_seconds": 600,
+                }
+            )
+
+        self.assertEqual(raised.exception.code, "card_update_conflict")
+
     def test_clients_can_be_created_searched_and_linked_to_card(self) -> None:
         client = self.service.create_client(
             {

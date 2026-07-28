@@ -1932,6 +1932,7 @@ class CardService(
                 payload, "include_archived", default=False
             )
             target_ids = self._manager_card_id_filter(payload)
+            expected_updated_at_by_card_id = self._manager_expected_updated_at_by_card_id(payload)
             bundle = self._store.read_bundle()
             cards = bundle["cards"]
             events = bundle["events"]
@@ -1948,6 +1949,11 @@ class CardService(
                 for card in scanned_cards
                 if card.timer_is_running() and card.remaining_seconds(now) < minimum_seconds
             ][:limit]
+            if mode == "apply":
+                self._ensure_manager_cards_expected_updated_at(
+                    eligible_cards,
+                    expected_updated_at_by_card_id,
+                )
             changed_cards: list[Card] = []
             items = []
             for card in eligible_cards:
@@ -2013,6 +2019,7 @@ class CardService(
             only_missing = self._validated_optional_bool(payload, "only_missing", default=False)
             only_stale = self._validated_optional_bool(payload, "only_stale", default=False)
             target_ids = self._manager_card_id_filter(payload)
+            expected_updated_at_by_card_id = self._manager_expected_updated_at_by_card_id(payload)
             bundle = self._store.read_bundle()
             cards = bundle["cards"]
             events = bundle["events"]
@@ -2035,6 +2042,11 @@ class CardService(
                     continue
                 eligible_cards.append(card)
             eligible_cards = eligible_cards[:limit]
+            if mode == "apply":
+                self._ensure_manager_cards_expected_updated_at(
+                    eligible_cards,
+                    expected_updated_at_by_card_id,
+                )
             changed_cards: list[Card] = []
             items = []
             for card in eligible_cards:
@@ -2177,6 +2189,8 @@ class CardService(
             refresh_summary = self._validated_optional_bool(
                 payload, "refresh_summary", default=True
             )
+            target_ids = self._manager_card_id_filter(payload)
+            expected_updated_at_by_card_id = self._manager_expected_updated_at_by_card_id(payload)
             bundle = self._store.read_bundle()
             cards = bundle["cards"]
             events = bundle["events"]
@@ -2185,9 +2199,18 @@ class CardService(
             ready_column_ids = self._manager_ready_column_ids(columns)
             now = utc_now()
             eligible_cards = self._manager_ready_unpaid_cards(
-                [card for card in cards if not card.archived],
+                [
+                    card
+                    for card in cards
+                    if not card.archived and (not target_ids or card.id in target_ids)
+                ],
                 ready_column_ids=ready_column_ids,
             )[:limit]
+            if mode == "apply":
+                self._ensure_manager_cards_expected_updated_at(
+                    eligible_cards,
+                    expected_updated_at_by_card_id,
+                )
             changed_cards: list[Card] = []
             errors: list[dict[str, Any]] = []
             items = []
@@ -2250,7 +2273,13 @@ class CardService(
                 "apply_ready_unpaid_followups",
                 mode,
                 actor_name=actor_name,
-                scanned=len([card for card in cards if not card.archived]),
+                scanned=len(
+                    [
+                        card
+                        for card in cards
+                        if not card.archived and (not target_ids or card.id in target_ids)
+                    ]
+                ),
                 eligible=len(eligible_cards),
                 changed=len(changed_cards),
                 skipped=max(len(eligible_cards) - len(changed_cards), 0),
@@ -7961,6 +7990,54 @@ class CardService(
             for card_id in (normalize_text(value, default="", limit=128) for value in raw_card_ids)
             if card_id
         }
+
+    def _manager_expected_updated_at_by_card_id(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, str]:
+        raw_expected = payload.get("expected_updated_at_by_card_id")
+        if raw_expected in (None, ""):
+            return {}
+        if not isinstance(raw_expected, dict):
+            self._fail(
+                "validation_error",
+                "Поле expected_updated_at_by_card_id должно быть объектом.",
+                details={"field": "expected_updated_at_by_card_id"},
+            )
+        expected: dict[str, str] = {}
+        for raw_card_id, raw_updated_at in raw_expected.items():
+            card_id = normalize_text(raw_card_id, default="", limit=128)
+            updated_at = normalize_text(raw_updated_at, default="", limit=80)
+            if not card_id or not updated_at:
+                self._fail(
+                    "validation_error",
+                    "Каждая ожидаемая ревизия должна содержать card_id и updated_at.",
+                    details={"field": "expected_updated_at_by_card_id"},
+                )
+            expected[card_id] = updated_at
+        return expected
+
+    def _ensure_manager_cards_expected_updated_at(
+        self,
+        cards: list[Card],
+        expected_updated_at_by_card_id: dict[str, str],
+    ) -> None:
+        for card in cards:
+            expected_updated_at = expected_updated_at_by_card_id.get(card.id)
+            if expected_updated_at and expected_updated_at != card.updated_at:
+                self._fail(
+                    "card_update_conflict",
+                    (
+                        "Карточка уже изменена другим оператором. "
+                        "Обновите карточку и повторите пакетную правку."
+                    ),
+                    status_code=409,
+                    details={
+                        "card_id": card.id,
+                        "expected_updated_at": expected_updated_at,
+                        "current_updated_at": card.updated_at,
+                    },
+                )
 
     def _manager_ready_column_ids(self, columns: list[Column]) -> set[str]:
         ready_label = READY_COLUMN_LABEL.casefold()

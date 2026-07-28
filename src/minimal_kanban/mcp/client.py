@@ -1275,6 +1275,7 @@ class BoardApiClient:
         limit: int | None = None,
         include_archived: bool | None = None,
         card_ids: list[str] | None = None,
+        expected_updated_at_by_card_id: dict[str, str] | None = None,
         actor_name: str | None = None,
     ) -> dict:
         payload: dict[str, object] = {}
@@ -1290,6 +1291,8 @@ class BoardApiClient:
             payload["include_archived"] = include_archived
         if card_ids is not None:
             payload["card_ids"] = card_ids
+        if expected_updated_at_by_card_id is not None:
+            payload["expected_updated_at_by_card_id"] = expected_updated_at_by_card_id
         return self._request_with_identity(
             "/api/bulk_set_deadline_if_below", payload, actor_name=actor_name
         )
@@ -1302,6 +1305,7 @@ class BoardApiClient:
         only_missing: bool | None = None,
         only_stale: bool | None = None,
         card_ids: list[str] | None = None,
+        expected_updated_at_by_card_id: dict[str, str] | None = None,
         actor_name: str | None = None,
     ) -> dict:
         payload: dict[str, object] = {}
@@ -1315,6 +1319,8 @@ class BoardApiClient:
             payload["only_stale"] = only_stale
         if card_ids is not None:
             payload["card_ids"] = card_ids
+        if expected_updated_at_by_card_id is not None:
+            payload["expected_updated_at_by_card_id"] = expected_updated_at_by_card_id
         return self._request_with_identity(
             "/api/bulk_refresh_board_summaries", payload, actor_name=actor_name
         )
@@ -1361,6 +1367,8 @@ class BoardApiClient:
         target_total_seconds: int | None = None,
         limit: int | None = None,
         refresh_summary: bool | None = None,
+        card_ids: list[str] | None = None,
+        expected_updated_at_by_card_id: dict[str, str] | None = None,
         actor_name: str | None = None,
     ) -> dict:
         payload: dict[str, object] = {}
@@ -1372,6 +1380,10 @@ class BoardApiClient:
             payload["limit"] = limit
         if refresh_summary is not None:
             payload["refresh_summary"] = refresh_summary
+        if card_ids is not None:
+            payload["card_ids"] = card_ids
+        if expected_updated_at_by_card_id is not None:
+            payload["expected_updated_at_by_card_id"] = expected_updated_at_by_card_id
         return self._request_with_identity(
             "/api/apply_ready_unpaid_followups", payload, actor_name=actor_name
         )

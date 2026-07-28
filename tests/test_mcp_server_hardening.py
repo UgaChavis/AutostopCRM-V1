@@ -292,12 +292,23 @@ class McpServerHardeningTests(unittest.IsolatedAsyncioTestCase):
     async def test_bulk_manager_operation_numbers_are_normalized_before_backend_call(self) -> None:
         await self._call(
             "bulk_set_deadline_if_below",
-            {"min_total_seconds": 999999999, "target_total_seconds": 1, "limit": 999999},
+            {
+                "min_total_seconds": 999999999,
+                "target_total_seconds": 1,
+                "limit": 999999,
+                "card_ids": ["card-1"],
+                "expected_updated_at_by_card_id": {"card-1": "revision-1"},
+            },
         )
         await self._call("bulk_refresh_board_summaries", {"limit": 999999})
         await self._call(
             "apply_ready_unpaid_followups",
-            {"target_total_seconds": 999999999, "limit": 999999},
+            {
+                "target_total_seconds": 999999999,
+                "limit": 999999,
+                "card_ids": ["card-1"],
+                "expected_updated_at_by_card_id": {"card-1": "revision-1"},
+            },
         )
         await self._call(
             "run_manager_operation",
@@ -316,7 +327,8 @@ class McpServerHardeningTests(unittest.IsolatedAsyncioTestCase):
                 "target_total_seconds": 31_536_000,
                 "limit": 1000,
                 "include_archived": False,
-                "card_ids": None,
+                "card_ids": ["card-1"],
+                "expected_updated_at_by_card_id": {"card-1": "revision-1"},
                 "actor_name": None,
             },
         )
@@ -326,6 +338,14 @@ class McpServerHardeningTests(unittest.IsolatedAsyncioTestCase):
             31_536_000,
         )
         self.assertEqual(self._last_call("apply_ready_unpaid_followups")["limit"], 200)
+        self.assertEqual(
+            self._last_call("apply_ready_unpaid_followups")["card_ids"],
+            ["card-1"],
+        )
+        self.assertEqual(
+            self._last_call("apply_ready_unpaid_followups")["expected_updated_at_by_card_id"],
+            {"card-1": "revision-1"},
+        )
         manager_call = self._last_call("run_manager_operation")
         self.assertEqual(manager_call["payload"]["limit"], 50)
         self.assertEqual(manager_call["limit"], 200)

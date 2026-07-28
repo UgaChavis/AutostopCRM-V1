@@ -3446,6 +3446,7 @@ def create_mcp_server(
         limit: McpInt = 200,
         include_archived: bool = False,
         card_ids: list[str] | None = None,
+        expected_updated_at_by_card_id: dict[str, str] | None = None,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
         effective_min_total_seconds = _normalize_limit(
@@ -3469,6 +3470,7 @@ def create_mcp_server(
                 limit=effective_limit,
                 include_archived=include_archived,
                 card_ids=card_ids,
+                expected_updated_at_by_card_id=expected_updated_at_by_card_id,
                 actor_name=actor_name,
             ),
             params={
@@ -3478,6 +3480,7 @@ def create_mcp_server(
                 "limit": effective_limit,
                 "include_archived": include_archived,
                 "card_ids": card_ids,
+                "expected_updated_at_by_card_id": expected_updated_at_by_card_id,
             },
             transform=lambda response: _with_data_meta(
                 response,
@@ -3500,6 +3503,7 @@ def create_mcp_server(
         only_missing: bool = False,
         only_stale: bool = False,
         card_ids: list[str] | None = None,
+        expected_updated_at_by_card_id: dict[str, str] | None = None,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
         effective_limit = _normalize_limit(limit, default=100, maximum=500)
@@ -3511,6 +3515,7 @@ def create_mcp_server(
                 only_missing=only_missing,
                 only_stale=only_stale,
                 card_ids=card_ids,
+                expected_updated_at_by_card_id=expected_updated_at_by_card_id,
                 actor_name=actor_name,
             ),
             params={
@@ -3519,6 +3524,7 @@ def create_mcp_server(
                 "only_missing": only_missing,
                 "only_stale": only_stale,
                 "card_ids": card_ids,
+                "expected_updated_at_by_card_id": expected_updated_at_by_card_id,
             },
             transform=lambda response: _with_data_meta(
                 response,
@@ -3593,6 +3599,8 @@ def create_mcp_server(
         target_total_seconds: McpInt = 172800,
         limit: McpInt = 50,
         refresh_summary: bool = True,
+        card_ids: list[str] | None = None,
+        expected_updated_at_by_card_id: dict[str, str] | None = None,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
         effective_target_total_seconds = _normalize_limit(
@@ -3608,6 +3616,8 @@ def create_mcp_server(
                 target_total_seconds=effective_target_total_seconds,
                 limit=effective_limit,
                 refresh_summary=refresh_summary,
+                card_ids=card_ids,
+                expected_updated_at_by_card_id=expected_updated_at_by_card_id,
                 actor_name=actor_name,
             ),
             params={
@@ -3615,6 +3625,8 @@ def create_mcp_server(
                 "target_total_seconds": effective_target_total_seconds,
                 "limit": effective_limit,
                 "refresh_summary": refresh_summary,
+                "card_ids": card_ids,
+                "expected_updated_at_by_card_id": expected_updated_at_by_card_id,
             },
             transform=lambda response: _with_data_meta(
                 response,
