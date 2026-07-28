@@ -27,6 +27,7 @@ class BoardApiClientTests(unittest.TestCase):
                 expected_updated_at="card-revision-1",
                 expected_cashbox_id="cashbox-1",
                 expected_cashbox_updated_at="cashbox-revision-1",
+                attestation_run_id="AST-GWAT-20260728T165722Z",
                 actor_name="CODEX",
             )
 
@@ -38,6 +39,7 @@ class BoardApiClientTests(unittest.TestCase):
                 "expected_updated_at": "card-revision-1",
                 "expected_cashbox_id": "cashbox-1",
                 "expected_cashbox_updated_at": "cashbox-revision-1",
+                "attestation_run_id": "AST-GWAT-20260728T165722Z",
             },
             actor_name="CODEX",
         )

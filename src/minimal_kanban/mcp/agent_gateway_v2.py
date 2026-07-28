@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Mapping
 from decimal import Decimal
 from typing import Any, Literal
@@ -128,6 +129,8 @@ from .web_gateway import (
     invoke_web_research,
     web_research_argument_error,
 )
+
+_GATEWAY_ATTESTATION_RUN_RE = re.compile(r"^AST-GWAT-\d{8}T\d{6}Z$")
 
 
 def _maintenance_release_smoke_headers(
@@ -456,6 +459,7 @@ def register_agent_gateway_v2(
         expected_cashbox_updated_at = str(
             payload.get("expected_cashbox_updated_at") or ""
         ).strip()
+        attestation_run_id = str(payload.get("attestation_run_id") or "").strip()
         payment_method = str(payload.get("payment_method") or "").strip().casefold()
         amount = _positive_decimal(payload.get("amount"))
         if amount is None and payload.get("amount_minor") is not None:
@@ -512,6 +516,19 @@ def register_agent_gateway_v2(
         cashbox = (
             cashbox_data.get("cashbox") if isinstance(cashbox_data.get("cashbox"), dict) else {}
         )
+        if attestation_run_id and not (
+            _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
+            and str(card.get("title") or "").startswith(attestation_run_id)
+            and str(cashbox.get("name") or "").startswith(f"{attestation_run_id}-")
+            and str(payload.get("note") or "").startswith(attestation_run_id)
+        ):
+            return {
+                "ok": False,
+                "error": {
+                    "code": "payment_attestation_scope_invalid",
+                    "message": "attestation_card_cashbox_and_note_must_match_the_run",
+                },
+            }
         resolved_cashbox_method = repair_order_payment_method_from_cashbox_name(
             cashbox.get("name"),
             default=payment_method,
@@ -595,6 +612,7 @@ def register_agent_gateway_v2(
                 "expected_updated_at": expected_updated_at,
                 "expected_cashbox_id": cashbox_id,
                 "expected_cashbox_updated_at": expected_cashbox_updated_at,
+                "attestation_run_id": attestation_run_id,
                 "actor_name": _effective_audit_actor(),
             },
         )

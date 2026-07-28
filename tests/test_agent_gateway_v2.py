@@ -254,9 +254,10 @@ class FakeBoardApi:
         expected_updated_at: str | None = None,
         expected_cashbox_id: str | None = None,
         expected_cashbox_updated_at: str | None = None,
+        attestation_run_id: str | None = None,
         actor_name: str | None = None,
     ) -> dict:
-        del actor_name
+        del actor_name, attestation_run_id
         if expected_updated_at != self.card_updated_at:
             return {"ok": False, "error": {"code": "card_update_conflict"}}
         if expected_cashbox_id != "cashbox-main":

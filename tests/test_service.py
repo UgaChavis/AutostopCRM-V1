@@ -6166,6 +6166,75 @@ class CardServiceTests(unittest.TestCase):
         )
         self.assertEqual(cashbox_reread["transactions"], [])
 
+    def test_gateway_attestation_payment_stays_in_exact_synthetic_cashbox(self) -> None:
+        run_id = "AST-GWAT-20260728T165722Z"
+        real_cashbox = self.service.create_cashbox(
+            {"name": "Касса наличных оплат", "actor_name": "ADMIN"}
+        )["cashbox"]
+        listed = self.service.list_cashboxes({"limit": 20})["cashboxes"]
+        synthetic_cashbox = self.service.create_cashbox(
+            {
+                "name": f"{run_id}-cashbox-1",
+                "expected_cashbox_ids": [item["id"] for item in listed],
+                "attestation_run_id": run_id,
+                "source": "mcp",
+                "actor_name": "codex-owner-agent",
+            }
+        )["cashbox"]
+        card = self.service.create_card(
+            {
+                "vehicle": "AutoStop Synthetic",
+                "title": f"{run_id} payment",
+                "deadline": {"hours": 1},
+            }
+        )["card"]
+        prepared = self.service.update_repair_order(
+            {
+                "card_id": card["id"],
+                "repair_order": {
+                    "works": [{"name": "Тест", "quantity": "1", "price": "1"}]
+                },
+                "expected_updated_at": card["updated_at"],
+                "actor_name": "ADMIN",
+            }
+        )["card"]
+
+        paid = self.service.update_repair_order(
+            {
+                "card_id": card["id"],
+                "repair_order": {
+                    "payments": [
+                        {
+                            "amount": "1",
+                            "payment_method": "cash",
+                            "cashbox_id": synthetic_cashbox["id"],
+                            "note": f"{run_id} exact payment",
+                        }
+                    ]
+                },
+                "expected_updated_at": prepared["updated_at"],
+                "expected_cashbox_id": synthetic_cashbox["id"],
+                "expected_cashbox_updated_at": synthetic_cashbox["updated_at"],
+                "attestation_run_id": run_id,
+                "source": "mcp",
+                "actor_name": "codex-owner-agent",
+            }
+        )
+
+        payment = paid["repair_order"]["payments"][0]
+        self.assertEqual(payment["cashbox_id"], synthetic_cashbox["id"])
+        self.assertEqual(
+            self.service.get_cashbox(
+                {"cashbox_id": real_cashbox["id"], "transaction_limit": 10}
+            )["transactions"],
+            [],
+        )
+        synthetic_transactions = self.service.get_cashbox(
+            {"cashbox_id": synthetic_cashbox["id"], "transaction_limit": 10}
+        )["transactions"]
+        self.assertEqual(len(synthetic_transactions), 1)
+        self.assertEqual(synthetic_transactions[0]["amount_minor"], 100)
+
     def test_get_cashbox_paginates_transactions_with_stable_order(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
             "cashbox"

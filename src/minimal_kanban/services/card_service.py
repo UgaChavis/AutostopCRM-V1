@@ -108,7 +108,10 @@ from .card_service_dashboard import (
     DISPLAY_DASHBOARD_MESSAGE_KEY,
     CardServiceDashboardMixin,
 )
-from .card_service_finance import CardServiceFinanceMixin
+from .card_service_finance import (
+    _GATEWAY_ATTESTATION_RUN_RE,
+    CardServiceFinanceMixin,
+)
 from .card_service_inventory import CardServiceInventoryMixin
 from .card_service_payroll import CardServicePayrollMixin
 from .column_service import ColumnService
@@ -2768,6 +2771,9 @@ class CardService(
                         },
                     )
             actor_name, source = self._audit_identity(payload, default_source="api")
+            attestation_run_id = normalize_text(
+                payload.get("attestation_run_id"), default="", limit=64
+            )
             next_payload = self._merged_repair_order_storage(
                 card.repair_order.to_storage_dict(), patch
             )
@@ -2781,6 +2787,7 @@ class CardService(
                 cashboxes=bundle["cashboxes"],
                 cash_transactions=bundle["cash_transactions"],
                 settings=bundle["settings"],
+                attestation_run_id=attestation_run_id,
             )
             numbering_changed = self._synchronize_repair_order_numbers(cards)
             if changed or numbering_changed:
@@ -6337,6 +6344,7 @@ class CardService(
         cashboxes: list[CashBox] | None = None,
         cash_transactions: list[CashTransaction] | None = None,
         settings: dict[str, Any] | None = None,
+        attestation_run_id: str = "",
     ) -> bool:
         previous_order = RepairOrder.from_dict(card.repair_order.to_storage_dict())
         value = self._repair_order_payload_with_immutable_number(card, value)
@@ -6362,6 +6370,7 @@ class CardService(
                 events,
                 actor_name,
                 source,
+                attestation_run_id=attestation_run_id,
             )
         payroll_sync: dict[str, Any] = {"changed": False, "entries": []}
         if settings is not None:
@@ -6579,17 +6588,44 @@ class CardService(
         events: list[AuditEvent],
         actor_name: str,
         source: str,
+        *,
+        attestation_run_id: str = "",
     ) -> RepairOrder:
+        attestation_mode = bool(
+            _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
+            and source == "mcp"
+            and actor_name
+            and card.title.startswith(attestation_run_id)
+        )
         next_payments = [
             RepairOrderPayment.from_dict(payment.to_storage_dict())
             for payment in next_order.payments
         ]
         for payment in next_payments:
-            cashbox, payment_method = self._repair_order_payment_target_cashbox(
-                cashboxes,
-                payment,
-                default_method=next_order.payment_method,
+            exact_attestation_cashbox = (
+                self._find_cashbox(cashboxes, payment.cashbox_id)
+                if attestation_mode
+                and payment.cashbox_id
+                and payment.note.startswith(attestation_run_id)
+                else None
             )
+            if (
+                exact_attestation_cashbox is not None
+                and exact_attestation_cashbox.name.startswith(
+                    f"{attestation_run_id}-"
+                )
+            ):
+                cashbox = exact_attestation_cashbox
+                payment_method = repair_order_payment_method_from_cashbox_name(
+                    cashbox.name,
+                    default=payment.payment_method or next_order.payment_method,
+                )
+            else:
+                cashbox, payment_method = self._repair_order_payment_target_cashbox(
+                    cashboxes,
+                    payment,
+                    default_method=next_order.payment_method,
+                )
             payment.payment_method = payment_method
             if cashbox is not None:
                 payment.cashbox_id = cashbox.id
