@@ -1179,6 +1179,43 @@ def register_agent_gateway_v2(
                 ),
                 label=workflow_id,
             )
+        if workflow_id == "finance" and operation == "apply_finance_audit_safe_fixes":
+            expected_issue_ids = payload.get("expected_issue_ids")
+            issue_ids = payload.get("issue_ids")
+            missing_fields = []
+            if (
+                not isinstance(expected_issue_ids, list)
+                or any(
+                    not isinstance(item, str) or not item.strip()
+                    for item in expected_issue_ids
+                )
+                or len(set(expected_issue_ids)) != len(expected_issue_ids)
+            ):
+                missing_fields.append("expected_issue_ids")
+            if (
+                not isinstance(issue_ids, list)
+                or not issue_ids
+                or any(not isinstance(item, str) or not item.strip() for item in issue_ids)
+                or len(set(issue_ids)) != len(issue_ids)
+            ):
+                missing_fields.append("issue_ids")
+            if missing_fields:
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=[
+                            "finance_audit_issue_snapshot_required_reread_exact_audit_first"
+                        ],
+                        summary={
+                            "workflow_id": workflow_id,
+                            "operation": operation,
+                            "missing_fields": missing_fields,
+                        },
+                        next_actions=["read api:/api/finance_audit before applying safe fixes"],
+                    ),
+                    label=workflow_id,
+                )
         if workflow_id == "inventory" and operation in {
             "save_inventory_item",
             "replenish_inventory_item",

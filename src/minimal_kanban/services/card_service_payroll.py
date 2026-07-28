@@ -2434,8 +2434,76 @@ class CardServicePayrollMixin:
                     status_code=404,
                     details={"employee_id": employee_id},
                 )
+            expected_updated_at = normalize_text(
+                payload.get("expected_updated_at"),
+                default="",
+                limit=80,
+            )
+            if expected_updated_at and str(target.get("updated_at") or "") != expected_updated_at:
+                self._fail(
+                    "employee_update_conflict",
+                    "Сотрудник уже изменился. Обновите данные и повторите действие.",
+                    status_code=409,
+                    details={"employee_id": employee_id},
+                )
             usage = self._employee_delete_usage_counts(bundle, employee_id)
-            if any(usage.values()):
+            attestation_run_id = normalize_text(
+                payload.get("attestation_run_id"),
+                default="",
+                limit=64,
+            )
+            detach_transaction_id = normalize_text(
+                payload.get("attestation_detach_salary_transaction_id"),
+                default="",
+                limit=128,
+            )
+            detach_transaction = next(
+                (
+                    item
+                    for item in bundle["cash_transactions"]
+                    if item.id == detach_transaction_id
+                ),
+                None,
+            )
+            detach_cashbox = (
+                next(
+                    (
+                        item
+                        for item in bundle["cashboxes"]
+                        if detach_transaction is not None
+                        and item.id == detach_transaction.cashbox_id
+                    ),
+                    None,
+                )
+                if detach_transaction_id
+                else None
+            )
+            attestation_detach_allowed = bool(
+                attestation_run_id
+                and _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
+                and expected_updated_at
+                and str(target.get("name") or "").startswith(f"{attestation_run_id}-")
+                and detach_transaction is not None
+                and detach_cashbox is not None
+                and detach_cashbox.name.startswith(f"{attestation_run_id}-")
+                and detach_transaction.employee_id == employee_id
+                and detach_transaction.employee_name == str(target.get("name") or "")
+                and detach_transaction.note.startswith(attestation_run_id)
+                and detach_transaction.amount_minor == 100
+                and detach_transaction.transaction_kind == "salary_payout"
+                and detach_transaction.direction == "expense"
+                and usage
+                == {
+                    "repair_order_works": 0,
+                    "repair_order_materials": 0,
+                    "salary_transactions": 1,
+                    "shift_accruals": 0,
+                }
+                and str(payload.get("source") or "").strip().casefold()
+                == "mcp_agent_gateway_v2"
+                and actor_name
+            )
+            if any(usage.values()) and not attestation_detach_allowed:
                 self._fail(
                     "validation_error",
                     "Сотрудника нельзя удалить: есть связанные заказ-наряды, начисления или кассовые операции.",
@@ -2447,10 +2515,25 @@ class CardServicePayrollMixin:
                 bundle["events"],
                 actor_name=actor_name,
                 source=source,
-                action="employee_deleted",
-                message=f"{actor_name} удалил сотрудника",
+                action=(
+                    "employee_attestation_detached"
+                    if attestation_detach_allowed
+                    else "employee_deleted"
+                ),
+                message=(
+                    f"{actor_name} временно отсоединил синтетического сотрудника"
+                    if attestation_detach_allowed
+                    else f"{actor_name} удалил сотрудника"
+                ),
                 card_id=None,
-                details={"employee_id": employee_id, "name": target["name"]},
+                details={
+                    "employee_id": employee_id,
+                    "name": target["name"],
+                    "attestation_detach": attestation_detach_allowed,
+                    "salary_transaction_id": detach_transaction_id
+                    if attestation_detach_allowed
+                    else "",
+                },
             )
             self._save_bundle(
                 bundle,
@@ -2464,6 +2547,7 @@ class CardServicePayrollMixin:
             return {
                 "deleted": True,
                 "employee_id": employee_id,
+                "attestation_detach": attestation_detach_allowed,
                 "employees": [
                     self._employee_with_current_payroll_term(item) for item in next_employees
                 ],

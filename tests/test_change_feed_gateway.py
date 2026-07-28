@@ -737,6 +737,62 @@ class ChangeFeedRawGatewayContractTests(unittest.IsolatedAsyncioTestCase):
             (verification or {})["check"],
         )
 
+    async def test_finance_audit_selected_fix_has_exact_readback(self) -> None:
+        issue_id = "salary_transaction_missing_employee:transaction-1"
+
+        async def invoke(name: str, arguments: dict) -> dict:
+            self.assertEqual(arguments, {})
+            if name == "api:/api/finance_audit":
+                return {"ok": True, "data": {"issues": []}}
+            self.assertEqual(name, "api:/api/list_employees")
+            return {
+                "ok": True,
+                "data": {
+                    "employees": [
+                        {
+                            "id": "employee-1",
+                            "name": "AST-GWAT-20260728T165722Z-audit-employee",
+                            "is_active": False,
+                            "updated_at": "2026-07-28T20:00:01+00:00",
+                        }
+                    ]
+                },
+            }
+
+        verification = await verify_virtual_api_write_readback(
+            "apply_finance_audit_safe_fixes",
+            {
+                "dry_run": False,
+                "issue_ids": [issue_id],
+                "expected_issue_ids": [issue_id],
+            },
+            {
+                "ok": True,
+                "data": {
+                    "safe_fixes": [
+                        {
+                            "kind": "restore_missing_employee",
+                            "employee_id": "employee-1",
+                            "employee_name": "AST-GWAT-20260728T165722Z-audit-employee",
+                        }
+                    ],
+                    "meta": {
+                        "dry_run": False,
+                        "changed": True,
+                        "planned": 1,
+                        "applied": 1,
+                    },
+                },
+            },
+            invoke,
+        )
+
+        self.assertTrue((verification or {})["passed"])
+        self.assertEqual(
+            "finance_audit_selected_fix_exact_readback",
+            (verification or {})["check"],
+        )
+
     def test_parity_manifest_has_exact_guarded_coverage_and_zero_new_gaps(self) -> None:
         inventory = crm_capability_parity.build_inventory()
         rows = {row["route"]: row for row in inventory["matrix"]}

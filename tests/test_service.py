@@ -10886,6 +10886,73 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(employee["name"], "Удаленный сотрудник")
         self.assertFalse(employee["is_active"])
 
+    def test_finance_audit_attestation_restores_exact_detached_employee(self) -> None:
+        run_id = "AST-GWAT-20260728T165722Z"
+        cashbox = self.service.create_cashbox(
+            {"name": f"{run_id}-cashbox-1", "actor_name": "CODEX"}
+        )["cashbox"]
+        employee = self.service.save_employee(
+            {
+                "create_mode": True,
+                "name": f"{run_id}-audit-employee",
+                "is_active": True,
+                "salary_mode": "none",
+                "actor_name": "CODEX",
+            }
+        )["employee"]
+        salary = self.service.create_employee_salary_transaction(
+            {
+                "employee_id": employee["id"],
+                "transaction_kind": "salary_payout",
+                "amount_minor": 100,
+                "cashbox_id": cashbox["id"],
+                "note": f"{run_id} audit salary fixture",
+                "attestation_run_id": run_id,
+                "actor_name": "CODEX",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )["transaction"]
+
+        detached = self.service.delete_employee(
+            {
+                "employee_id": employee["id"],
+                "expected_updated_at": employee["updated_at"],
+                "attestation_run_id": run_id,
+                "attestation_detach_salary_transaction_id": salary["id"],
+                "actor_name": "CODEX",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )
+        self.assertTrue(detached["attestation_detach"])
+        audit = self.service.get_finance_audit()
+        issue = next(
+            item
+            for item in audit["issues"]
+            if item["code"] == "salary_transaction_missing_employee"
+            and item["cash_transaction_id"] == salary["id"]
+        )
+
+        applied = self.service.apply_finance_audit_safe_fixes(
+            {
+                "dry_run": False,
+                "issue_ids": [issue["id"]],
+                "expected_issue_ids": [item["id"] for item in audit["issues"]],
+                "attestation_run_id": run_id,
+                "actor_name": "CODEX",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )
+
+        self.assertEqual(applied["meta"]["applied"], 1)
+        restored = next(
+            item
+            for item in self.service.list_employees()["employees"]
+            if item["id"] == employee["id"]
+        )
+        self.assertEqual(restored["name"], f"{run_id}-audit-employee")
+        self.assertFalse(restored["is_active"])
+        self.assertNotIn(issue["id"], {item["id"] for item in applied["issues"]})
+
     def test_finance_audit_reports_salary_transaction_with_wrong_direction(self) -> None:
         employee = self.service.save_employee({"name": "Мастер выплаты"})["employee"]
         cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[

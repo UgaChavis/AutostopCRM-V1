@@ -260,6 +260,26 @@ async def verify_virtual_api_write_readback(
             },
         }
 
+    if operation == "api:/api/delete_employee":
+        employee_id = str(arguments.get("employee_id") or "").strip()
+        readback = await invoke("api:/api/list_employees", {})
+        employee = _find_mapping(readback, "id", employee_id) if employee_id else None
+        return {
+            "required": True,
+            "passed": bool(
+                result.get("ok")
+                and readback.get("ok")
+                and employee_id
+                and employee is None
+            ),
+            "check": "exact_employee_absence_readback",
+            "evidence": {
+                "employee_id": employee_id,
+                "employee_absent": employee is None,
+                "readback_ok": bool(readback.get("ok")),
+            },
+        }
+
     if operation in {
         "create_employee_salary_transaction",
         "api:/api/create_employee_salary_transaction",
@@ -539,6 +559,94 @@ async def verify_virtual_api_write_readback(
                 "cashbox_revision_changed": str((cashbox or {}).get("updated_at") or "")
                 != expected_cashbox_updated_at,
                 "payment_readback_ok": payment_readback_ok,
+            },
+        }
+
+    if operation in {
+        "apply_finance_audit_safe_fixes",
+        "api:/api/finance_audit/apply_safe_fixes",
+    }:
+        selected_issue_ids = [
+            str(item)
+            for item in arguments.get("issue_ids", [])
+            if isinstance(item, str) and item
+        ]
+        expected_issue_ids = [
+            str(item)
+            for item in arguments.get("expected_issue_ids", [])
+            if isinstance(item, str) and item
+        ]
+        dry_run = bool(arguments.get("dry_run", True))
+        audit_readback = await invoke("api:/api/finance_audit", {})
+        actual_issue_ids = [
+            str(item.get("id") or "")
+            for item in (
+                _find_mapping(audit_readback, "issues", None) or {}
+            ).get("issues", [])
+            if isinstance(item, Mapping) and str(item.get("id") or "")
+        ]
+        if not actual_issue_ids:
+            audit_payload = _find_mapping_matching(
+                audit_readback,
+                lambda item: isinstance(item.get("issues"), list),
+            )
+            actual_issue_ids = [
+                str(item.get("id") or "")
+                for item in (audit_payload or {}).get("issues", [])
+                if isinstance(item, Mapping) and str(item.get("id") or "")
+            ]
+        safe_fix = _find_mapping_matching(
+            result,
+            lambda item: str(item.get("kind") or "") == "restore_missing_employee",
+        )
+        employee_id = str((safe_fix or {}).get("employee_id") or "")
+        employee_readback = await invoke("api:/api/list_employees", {})
+        employee = (
+            _find_mapping(employee_readback, "id", employee_id) if employee_id else None
+        )
+        expected_after = (
+            expected_issue_ids
+            if dry_run
+            else [
+                issue_id
+                for issue_id in expected_issue_ids
+                if issue_id not in set(selected_issue_ids)
+            ]
+        )
+        meta = _find_mapping(result, "dry_run", dry_run)
+        passed = bool(
+            result.get("ok")
+            and audit_readback.get("ok")
+            and employee_readback.get("ok")
+            and selected_issue_ids
+            and expected_issue_ids
+            and isinstance(meta, dict)
+            and bool(meta.get("dry_run")) is dry_run
+            and actual_issue_ids == expected_after
+            and (
+                (dry_run and employee is None and not bool(meta.get("changed")))
+                or (
+                    not dry_run
+                    and isinstance(employee, dict)
+                    and not bool(employee.get("is_active"))
+                    and bool(meta.get("changed"))
+                )
+            )
+        )
+        return {
+            "required": True,
+            "passed": passed,
+            "check": (
+                "finance_audit_dry_run_exact_no_change_readback"
+                if dry_run
+                else "finance_audit_selected_fix_exact_readback"
+            ),
+            "evidence": {
+                "selected_count": len(selected_issue_ids),
+                "issue_snapshot_exact": actual_issue_ids == expected_after,
+                "employee_id": employee_id,
+                "employee_present": isinstance(employee, dict),
+                "dry_run": dry_run,
             },
         }
 

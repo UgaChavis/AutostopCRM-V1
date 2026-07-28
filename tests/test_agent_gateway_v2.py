@@ -2891,6 +2891,33 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
         )
         self.assertEqual(before_count, len(self.board_api.raw_requests))
 
+    async def test_finance_audit_fix_requires_exact_issue_snapshot_before_executor(
+        self,
+    ) -> None:
+        before_count = len(self.board_api.raw_requests)
+        rejected = await self._call(
+            "agent_finance_workflow",
+            {
+                "operation": "apply_finance_audit_safe_fixes",
+                "payload": {
+                    "dry_run": False,
+                    "issue_ids": ["synthetic-issue"],
+                },
+                "idempotency_key": "audit-fix-without-snapshot",
+            },
+        )
+
+        self.assertFalse(rejected.structuredContent["ok"])
+        self.assertEqual(
+            ["expected_issue_ids"],
+            rejected.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertIn(
+            "finance_audit_issue_snapshot_required_reread_exact_audit_first",
+            rejected.structuredContent["warnings"],
+        )
+        self.assertEqual(before_count, len(self.board_api.raw_requests))
+
     async def test_raw_attestation_employee_requires_ordered_snapshot_before_executor(
         self,
     ) -> None:

@@ -134,6 +134,32 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             actor_name, source = self._audit_identity(payload, default_source="api")
             bundle = self._store.read_bundle()
             audit = self._build_finance_audit(bundle)
+            expected_issue_ids = payload.get("expected_issue_ids")
+            current_issue_ids = [str(issue.get("id") or "") for issue in audit["issues"]]
+            if expected_issue_ids is not None:
+                if (
+                    not isinstance(expected_issue_ids, list)
+                    or any(
+                        not isinstance(item, str) or not item.strip()
+                        for item in expected_issue_ids
+                    )
+                    or len(set(expected_issue_ids)) != len(expected_issue_ids)
+                ):
+                    self._fail(
+                        "validation_error",
+                        "Поле expected_issue_ids должно содержать упорядоченные ID проблем.",
+                        details={"field": "expected_issue_ids"},
+                    )
+                if expected_issue_ids != current_issue_ids:
+                    self._fail(
+                        "finance_audit_snapshot_conflict",
+                        "Финансовая сверка уже изменилась. Обновите её и повторите действие.",
+                        status_code=409,
+                        details={
+                            "expected_count": len(expected_issue_ids),
+                            "current_count": len(current_issue_ids),
+                        },
+                    )
             safe_issues = [
                 issue
                 for issue in audit["issues"]
@@ -141,6 +167,63 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 and (selected_issue_ids is None or str(issue.get("id") or "") in selected_issue_ids)
             ]
             planned_fixes = [issue["safe_fix"] for issue in safe_issues if issue.get("safe_fix")]
+            attestation_run_id = normalize_text(
+                payload.get("attestation_run_id"),
+                default="",
+                limit=64,
+            )
+            if attestation_run_id:
+                selected_issue = safe_issues[0] if len(safe_issues) == 1 else None
+                selected_fix = (
+                    selected_issue.get("safe_fix")
+                    if isinstance(selected_issue, dict)
+                    and isinstance(selected_issue.get("safe_fix"), dict)
+                    else {}
+                )
+                transaction_id = str(
+                    (selected_issue or {}).get("cash_transaction_id") or ""
+                )
+                transaction = next(
+                    (
+                        item
+                        for item in bundle["cash_transactions"]
+                        if item.id == transaction_id
+                    ),
+                    None,
+                )
+                cashbox = next(
+                    (
+                        item
+                        for item in bundle["cashboxes"]
+                        if transaction is not None and item.id == transaction.cashbox_id
+                    ),
+                    None,
+                )
+                employee_name = str(selected_fix.get("employee_name") or "")
+                if not (
+                    _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
+                    and isinstance(requested_issue_ids, list)
+                    and len(requested_issue_ids) == 1
+                    and selected_issue is not None
+                    and selected_issue.get("code")
+                    == "salary_transaction_missing_employee"
+                    and selected_fix.get("kind") == "restore_missing_employee"
+                    and employee_name.startswith(f"{attestation_run_id}-")
+                    and transaction is not None
+                    and cashbox is not None
+                    and cashbox.name.startswith(f"{attestation_run_id}-")
+                    and transaction.note.startswith(attestation_run_id)
+                    and transaction.amount_minor == 100
+                    and transaction.transaction_kind == "salary_payout"
+                    and str(payload.get("source") or "").strip().casefold()
+                    == "mcp_agent_gateway_v2"
+                    and actor_name
+                ):
+                    self._fail(
+                        "finance_audit_attestation_scope_invalid",
+                        "Безопасная правка не соответствует синтетическому контуру аттестации.",
+                        status_code=403,
+                    )
             if dry_run:
                 return {
                     "issues": audit["issues"],
