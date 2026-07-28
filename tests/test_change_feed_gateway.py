@@ -585,6 +585,58 @@ class ChangeFeedRawGatewayContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((verification or {})["passed"])
         self.assertEqual("exact_employee_list_readback", (verification or {})["check"])
 
+    async def test_shift_accrual_has_exact_employee_and_ledger_readback(self) -> None:
+        accrual = {
+            "id": "shift-accrual-1",
+            "employee_id": "employee-1",
+            "amount_minor": 100,
+        }
+
+        async def invoke(name: str, _arguments: dict) -> dict:
+            if name == "api:/api/list_employees":
+                return {
+                    "ok": True,
+                    "data": {
+                        "employees": [
+                            {
+                                "id": "employee-1",
+                                "name": "Synthetic",
+                                "updated_at": "2026-07-28T20:00:00+00:00",
+                            }
+                        ]
+                    },
+                }
+            self.assertEqual(name, "api:/api/get_employee_salary_ledger")
+            return {
+                "ok": True,
+                "data": {
+                    "journal_rows": [
+                        {
+                            "kind": "shift_accrual",
+                            "accrual_id": "shift-accrual-1",
+                            "amount_minor": 100,
+                        }
+                    ]
+                },
+            }
+
+        verification = await verify_virtual_api_write_readback(
+            "create_employee_shift_accrual",
+            {
+                "employee_id": "employee-1",
+                "amount_minor": 100,
+                "expected_employee_updated_at": "2026-07-28T20:00:00+00:00",
+            },
+            {"ok": True, "data": {"accrual": accrual}},
+            invoke,
+        )
+
+        self.assertTrue((verification or {})["passed"])
+        self.assertEqual(
+            "exact_shift_accrual_employee_and_ledger_readback",
+            (verification or {})["check"],
+        )
+
     def test_parity_manifest_has_exact_guarded_coverage_and_zero_new_gaps(self) -> None:
         inventory = crm_capability_parity.build_inventory()
         rows = {row["route"]: row for row in inventory["matrix"]}

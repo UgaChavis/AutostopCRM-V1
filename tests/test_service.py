@@ -4182,6 +4182,52 @@ class CardServiceTests(unittest.TestCase):
         )
         self.assertEqual(reread["cashbox"]["statistics"]["balance_minor"], -100)
 
+    def test_employee_shift_accrual_rejects_stale_employee_atomically(self) -> None:
+        run_id = "AST-GWAT-20260728T165722Z"
+        employee = self.service.save_employee(
+            {
+                "name": f"{run_id}-employee",
+                "position": "Synthetic",
+                "salary_mode": "none",
+            }
+        )["employee"]
+        payload = {
+            "employee_id": employee["id"],
+            "amount_minor": 100,
+            "note": f"{run_id} synthetic shift accrual",
+            "expected_employee_updated_at": employee["updated_at"],
+            "attestation_run_id": run_id,
+            "source": "mcp_agent_gateway_v2",
+            "actor_name": "codex-owner-agent",
+        }
+
+        with self.assertRaises(ServiceError) as conflict:
+            self.service.create_employee_shift_accrual(
+                {
+                    **payload,
+                    "expected_employee_updated_at": "2000-01-01T00:00:00+00:00",
+                }
+            )
+        self.assertEqual(conflict.exception.code, "employee_update_conflict")
+        before_apply = self.service.get_employee_salary_ledger(
+            {"employee_id": employee["id"], "months": 1}
+        )
+        self.assertFalse(
+            any(item.get("kind") == "shift_accrual" for item in before_apply["journal_rows"])
+        )
+
+        applied = self.service.create_employee_shift_accrual(payload)["accrual"]
+        ledger = self.service.get_employee_salary_ledger(
+            {"employee_id": employee["id"], "months": 1}
+        )
+        exact = next(
+            item
+            for item in ledger["journal_rows"]
+            if item.get("accrual_id") == applied["id"]
+        )
+        self.assertEqual(exact["amount_minor"], 100)
+        self.assertEqual(exact["kind"], "shift_accrual")
+
     def test_employee_salary_report_builds_monthly_accrual_register(self) -> None:
         employee = self.service.save_employee(
             {

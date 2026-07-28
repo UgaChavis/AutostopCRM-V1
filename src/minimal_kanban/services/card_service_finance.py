@@ -866,6 +866,20 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     status_code=404,
                     details={"employee_id": employee_id},
                 )
+            expected_employee_updated_at = normalize_text(
+                payload.get("expected_employee_updated_at"),
+                default="",
+                limit=80,
+            )
+            if expected_employee_updated_at and str(employee.get("updated_at") or "") != (
+                expected_employee_updated_at
+            ):
+                self._fail(
+                    "employee_update_conflict",
+                    "Сотрудник уже изменился. Обновите данные и повторите действие.",
+                    status_code=409,
+                    details={"employee_id": employee_id},
+                )
             if not employee.get("is_active", True):
                 self._fail(
                     "validation_error",
@@ -877,6 +891,25 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             note = self._validated_cash_transaction_note(
                 payload.get("note") or EMPLOYEE_SHIFT_ACCRUAL_NOTE
             )
+            attestation_run_id = normalize_text(
+                payload.get("attestation_run_id"),
+                default="",
+                limit=64,
+            )
+            if attestation_run_id and not (
+                _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
+                and str(employee.get("name") or "").startswith(f"{attestation_run_id}-")
+                and note.startswith(attestation_run_id)
+                and amount_minor == 100
+                and str(payload.get("source") or "").strip().casefold()
+                == "mcp_agent_gateway_v2"
+                and actor_name
+            ):
+                self._fail(
+                    "shift_accrual_attestation_scope_invalid",
+                    "Синтетическое начисление не соответствует контуру аттестации.",
+                    status_code=403,
+                )
             created_at = (
                 parse_business_datetime(payload.get("created_at")) or model_helpers.utc_now()
             )

@@ -341,6 +341,60 @@ async def verify_virtual_api_write_readback(
             },
         }
 
+    if operation in {
+        "create_employee_shift_accrual",
+        "api:/api/create_employee_shift_accrual",
+    }:
+        employee_id = str(arguments.get("employee_id") or "").strip()
+        expected_employee_updated_at = str(
+            arguments.get("expected_employee_updated_at") or ""
+        ).strip()
+        requested_amount_minor = int(arguments.get("amount_minor") or 0)
+        accrual = _find_mapping_matching(
+            result,
+            lambda item: bool(
+                str(item.get("id") or "").strip()
+                and str(item.get("employee_id") or "") == employee_id
+                and int(item.get("amount_minor") or 0) == requested_amount_minor
+            ),
+        )
+        accrual_id = str((accrual or {}).get("id") or "")
+        employee_readback = await invoke("api:/api/list_employees", {})
+        ledger_readback = await invoke(
+            "api:/api/get_employee_salary_ledger",
+            {"employee_id": employee_id, "months": 1},
+        )
+        employee = _find_mapping(employee_readback, "id", employee_id) if employee_id else None
+        ledger_row = (
+            _find_mapping(ledger_readback, "accrual_id", accrual_id) if accrual_id else None
+        )
+        passed = bool(
+            result.get("ok")
+            and employee_readback.get("ok")
+            and ledger_readback.get("ok")
+            and accrual_id
+            and requested_amount_minor > 0
+            and isinstance(employee, dict)
+            and str(employee.get("updated_at") or "") == expected_employee_updated_at
+            and isinstance(ledger_row, dict)
+            and int(ledger_row.get("amount_minor") or 0) == requested_amount_minor
+            and str(ledger_row.get("kind") or "") == "shift_accrual"
+        )
+        return {
+            "required": True,
+            "passed": passed,
+            "check": "exact_shift_accrual_employee_and_ledger_readback",
+            "evidence": {
+                "accrual_id": accrual_id,
+                "employee_id": employee_id,
+                "amount_exact": int((accrual or {}).get("amount_minor") or 0)
+                == requested_amount_minor,
+                "employee_revision_exact": str((employee or {}).get("updated_at") or "")
+                == expected_employee_updated_at,
+                "ledger_row_present": isinstance(ledger_row, dict),
+            },
+        }
+
     if operation == "reorder_cashboxes":
         expected_before = [
             str(item)

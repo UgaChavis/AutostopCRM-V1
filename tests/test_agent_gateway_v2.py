@@ -2813,6 +2813,31 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
             rejected.structuredContent["warnings"],
         )
 
+    async def test_finance_shift_accrual_requires_employee_revision_before_ledger(
+        self,
+    ) -> None:
+        rejected = await self._call(
+            "agent_finance_workflow",
+            {
+                "operation": "create_employee_shift_accrual",
+                "payload": {
+                    "employee_id": "employee-1",
+                    "amount_minor": 100,
+                },
+                "idempotency_key": "shift-without-revision",
+            },
+        )
+
+        self.assertFalse(rejected.structuredContent["ok"])
+        self.assertEqual(
+            ["expected_employee_updated_at"],
+            rejected.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertIn(
+            "shift_accrual_expected_employee_revision_required_reread_exact_employee_first",
+            rejected.structuredContent["warnings"],
+        )
+
     async def test_raw_attestation_employee_requires_ordered_snapshot_before_executor(
         self,
     ) -> None:

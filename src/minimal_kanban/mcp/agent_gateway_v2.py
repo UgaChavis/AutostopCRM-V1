@@ -1131,6 +1131,27 @@ def register_agent_gateway_v2(
                     ),
                     label=workflow_id,
                 )
+        if (
+            workflow_id == "finance"
+            and operation == "create_employee_shift_accrual"
+            and not str(payload.get("expected_employee_updated_at") or "").strip()
+        ):
+            return _tool_result(
+                _envelope(
+                    ok=False,
+                    status="blocked",
+                    warnings=[
+                        "shift_accrual_expected_employee_revision_required_reread_exact_employee_first"
+                    ],
+                    summary={
+                        "workflow_id": workflow_id,
+                        "operation": operation,
+                        "missing_fields": ["expected_employee_updated_at"],
+                    },
+                    next_actions=["list_employees for the exact employee"],
+                ),
+                label=workflow_id,
+            )
         if workflow_id == "inventory" and operation in {
             "save_inventory_item",
             "replenish_inventory_item",
@@ -2452,6 +2473,20 @@ def register_agent_gateway_v2(
                     ),
                     label="call_raw_capability",
                 )
+        if normalized_name == "api:/api/create_employee_shift_accrual" and not str(
+            (arguments or {}).get("expected_employee_updated_at") or ""
+        ).strip():
+            return _tool_result(
+                _envelope(
+                    ok=False,
+                    status="blocked",
+                    warnings=[
+                        "shift_accrual_expected_employee_revision_required_reread_exact_employee_first"
+                    ],
+                    summary={"missing_fields": ["expected_employee_updated_at"]},
+                ),
+                label="call_raw_capability",
+            )
         if (
             normalized_name in OPTIMISTIC_WRITE_NAMES
             and not str((arguments or {}).get("expected_updated_at") or "").strip()
