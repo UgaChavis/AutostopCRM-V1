@@ -22,6 +22,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from minimal_kanban.mcp.agent_gateway_support import _subset_matches
 from minimal_kanban.mcp.agent_gateway_v2 import register_agent_gateway_v2
 from minimal_kanban.mcp.oauth_provider import (
     OAUTH_AUDIT_ACTOR_HEADER,
@@ -1071,6 +1072,31 @@ def register_fake_store_manager_tools(server, logger, state: dict) -> None:
 
 
 class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsyncioTestCase):
+    def test_subset_verification_allows_normalized_fields_inside_order_rows(self) -> None:
+        expected = {
+            "works": [
+                {
+                    "name": "Synthetic",
+                    "quantity": "1",
+                    "price": "1",
+                }
+            ]
+        }
+        actual = {
+            "works": [
+                {
+                    "name": "Synthetic",
+                    "quantity": "1",
+                    "price": "1",
+                    "total": "1",
+                    "catalog_number": "",
+                }
+            ]
+        }
+
+        self.assertTrue(_subset_matches(expected, actual))
+        self.assertFalse(_subset_matches(expected, {"works": [*actual["works"], {}]}))
+
     def setUp(self) -> None:
         self.logger = logging.getLogger(self._testMethodName)
         self.logger.addHandler(logging.NullHandler())

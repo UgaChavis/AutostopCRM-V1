@@ -398,7 +398,14 @@ def _subset_matches(expected: Any, actual: Any) -> bool:
             for key, value in expected.items()
         )
     if isinstance(expected, list):
-        return isinstance(actual, list) and expected == actual
+        return (
+            isinstance(actual, list)
+            and len(expected) == len(actual)
+            and all(
+                _subset_matches(expected_item, actual_item)
+                for expected_item, actual_item in zip(expected, actual, strict=True)
+            )
+        )
     return expected == actual
 
 
