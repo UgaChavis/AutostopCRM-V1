@@ -1154,16 +1154,22 @@ def register_agent_gateway_v2(
             )
         if (
             workflow_id == "finance"
-            and operation == "cancel_cash_transaction"
+            and operation in {
+                "cancel_cash_transaction",
+                "cancel_last_cash_transaction",
+            }
             and not str(payload.get("expected_cashbox_updated_at") or "").strip()
         ):
+            warning = (
+                "cash_cancellation_expected_revision_required_reread_exact_cashbox_first"
+                if operation == "cancel_cash_transaction"
+                else "cancel_last_cash_transaction_expected_revision_required_reread_exact_cashbox_first"
+            )
             return _tool_result(
                 _envelope(
                     ok=False,
                     status="blocked",
-                    warnings=[
-                        "cash_cancellation_expected_revision_required_reread_exact_cashbox_first"
-                    ],
+                    warnings=[warning],
                     summary={
                         "workflow_id": workflow_id,
                         "operation": operation,

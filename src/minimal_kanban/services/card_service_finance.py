@@ -980,6 +980,18 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             settings = bundle["settings"]
             actor_name, source = self._audit_identity(payload, default_source="ui")
             cashbox = self._find_cashbox(cashboxes, payload.get("cashbox_id"))
+            expected_cashbox_updated_at = normalize_text(
+                payload.get("expected_cashbox_updated_at"),
+                default="",
+                limit=80,
+            )
+            if expected_cashbox_updated_at and cashbox.updated_at != expected_cashbox_updated_at:
+                self._fail(
+                    "cashbox_update_conflict",
+                    "Касса уже изменилась. Обновите данные и повторите действие.",
+                    status_code=409,
+                    details={"cashbox_id": cashbox.id},
+                )
             related_transactions = self._cashbox_transactions(transactions, cashbox.id)
             if not related_transactions:
                 self._fail(
@@ -988,10 +1000,26 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     details={"field": "cashbox_id"},
                 )
             latest_transaction = related_transactions[0]
-            requested_transaction = (
-                self._find_cash_transaction(transactions, payload.get("transaction_id"))
-                or latest_transaction
+            requested_transaction_id = normalize_text(
+                payload.get("transaction_id"),
+                default="",
+                limit=128,
             )
+            requested_transaction = (
+                self._find_cash_transaction(transactions, requested_transaction_id)
+                if requested_transaction_id
+                else latest_transaction
+            )
+            if requested_transaction is None:
+                self._fail(
+                    "not_found",
+                    "Кассовое движение не найдено.",
+                    status_code=404,
+                    details={
+                        "cashbox_id": cashbox.id,
+                        "transaction_id": requested_transaction_id,
+                    },
+                )
             if requested_transaction.id != latest_transaction.id:
                 self._fail(
                     "validation_error",
@@ -1001,6 +1029,28 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                         "cashbox_id": cashbox.id,
                         "latest_transaction_id": latest_transaction.id,
                     },
+                )
+            attestation_run_id = normalize_text(
+                payload.get("attestation_run_id"),
+                default="",
+                limit=64,
+            )
+            if attestation_run_id and not (
+                _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
+                and cashbox.name.startswith(f"{attestation_run_id}-")
+                and requested_transaction.note.startswith(attestation_run_id)
+                and requested_transaction.amount_minor == 100
+                and not requested_transaction.transaction_kind
+                and requested_transaction.source in {"api", "mcp"}
+                and requested_transaction.actor_name == actor_name
+                and str(payload.get("source") or "").strip().casefold()
+                == "mcp_agent_gateway_v2"
+                and actor_name
+            ):
+                self._fail(
+                    "cancel_last_cash_transaction_attestation_scope_invalid",
+                    "Синтетическая отмена последнего движения не соответствует контуру аттестации.",
+                    status_code=403,
                 )
             if self._is_cashbox_transfer_transaction(latest_transaction):
                 return self._cancel_cashbox_transfer_pair(

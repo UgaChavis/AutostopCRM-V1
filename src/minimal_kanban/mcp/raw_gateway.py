@@ -481,6 +481,67 @@ async def verify_virtual_api_write_readback(
             },
         }
 
+    if operation in {
+        "cancel_last_cash_transaction",
+        "api:/api/cancel_last_cash_transaction",
+    }:
+        transaction_id = str(arguments.get("transaction_id") or "").strip()
+        cashbox_id = str(arguments.get("cashbox_id") or "").strip()
+        expected_cashbox_updated_at = str(
+            arguments.get("expected_cashbox_updated_at") or ""
+        ).strip()
+        cancelled = _find_mapping(result, "id", transaction_id) if transaction_id else None
+        cashbox_readback = await invoke(
+            "get_cashbox",
+            {"cashbox_id": cashbox_id, "transaction_limit": 50},
+        )
+        cashbox = _find_mapping(cashbox_readback, "id", cashbox_id) if cashbox_id else None
+        removed_readback = (
+            _find_mapping(cashbox_readback, "id", transaction_id) if transaction_id else None
+        )
+        payment_card_id = str(
+            (
+                _find_mapping_matching(
+                    result,
+                    lambda item: "repair_order_card_id" in item,
+                )
+                or {}
+            ).get("repair_order_card_id")
+            or ""
+        )
+        payment_readback_ok = True
+        if payment_card_id:
+            payment_readback = await invoke(
+                "get_repair_order",
+                {"card_id": payment_card_id},
+            )
+            payment_readback_ok = bool(
+                payment_readback.get("ok")
+                and _find_mapping(payment_readback, "cash_transaction_id", transaction_id) is None
+            )
+        passed = bool(
+            result.get("ok")
+            and cashbox_readback.get("ok")
+            and isinstance(cancelled, dict)
+            and removed_readback is None
+            and isinstance(cashbox, dict)
+            and str(cashbox.get("updated_at") or "") != expected_cashbox_updated_at
+            and payment_readback_ok
+        )
+        return {
+            "required": True,
+            "passed": passed,
+            "check": "exact_cancelled_last_transaction_absence_readback",
+            "evidence": {
+                "transaction_id": transaction_id,
+                "cashbox_id": cashbox_id,
+                "transaction_absent": removed_readback is None,
+                "cashbox_revision_changed": str((cashbox or {}).get("updated_at") or "")
+                != expected_cashbox_updated_at,
+                "payment_readback_ok": payment_readback_ok,
+            },
+        }
+
     if operation == "reorder_cashboxes":
         expected_before = [
             str(item)

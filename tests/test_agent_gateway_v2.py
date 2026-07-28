@@ -2864,6 +2864,33 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
             rejected.structuredContent["warnings"],
         )
 
+    async def test_finance_cancel_last_requires_cashbox_revision_before_executor(
+        self,
+    ) -> None:
+        before_count = len(self.board_api.raw_requests)
+        rejected = await self._call(
+            "agent_finance_workflow",
+            {
+                "operation": "cancel_last_cash_transaction",
+                "payload": {
+                    "cashbox_id": "cashbox-1",
+                    "transaction_id": "transaction-1",
+                },
+                "idempotency_key": "cancel-last-without-revision",
+            },
+        )
+
+        self.assertFalse(rejected.structuredContent["ok"])
+        self.assertEqual(
+            ["expected_cashbox_updated_at"],
+            rejected.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertIn(
+            "cancel_last_cash_transaction_expected_revision_required_reread_exact_cashbox_first",
+            rejected.structuredContent["warnings"],
+        )
+        self.assertEqual(before_count, len(self.board_api.raw_requests))
+
     async def test_raw_attestation_employee_requires_ordered_snapshot_before_executor(
         self,
     ) -> None:

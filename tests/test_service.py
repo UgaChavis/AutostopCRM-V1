@@ -6202,6 +6202,69 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(details["cashbox"]["statistics"]["balance_minor"], 100000)
         self.assertEqual(details["transactions"][0]["id"], first["id"])
 
+    def test_cancel_last_synthetic_transaction_requires_revision_and_exact_scope(self) -> None:
+        run_id = "AST-GWAT-20260728T165722Z"
+        cashbox = self.service.create_cashbox(
+            {"name": f"{run_id}-cashbox-2", "actor_name": "CODEX"}
+        )["cashbox"]
+        transaction = self.service.create_cash_transaction(
+            {
+                "cashbox_id": cashbox["id"],
+                "direction": "income",
+                "amount_minor": 100,
+                "note": f"{run_id} cancel-last fixture",
+                "actor_name": "CODEX",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )["transaction"]
+        current = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+        )["cashbox"]
+
+        with self.assertRaises(ServiceError) as stale:
+            self.service.cancel_last_cash_transaction(
+                {
+                    "cashbox_id": cashbox["id"],
+                    "transaction_id": transaction["id"],
+                    "expected_cashbox_updated_at": "2000-01-01T00:00:00+00:00",
+                    "attestation_run_id": run_id,
+                    "actor_name": "CODEX",
+                    "source": "mcp_agent_gateway_v2",
+                }
+            )
+        self.assertEqual(stale.exception.code, "cashbox_update_conflict")
+
+        with self.assertRaises(ServiceError) as missing:
+            self.service.cancel_last_cash_transaction(
+                {
+                    "cashbox_id": cashbox["id"],
+                    "transaction_id": "missing-synthetic-transaction",
+                    "expected_cashbox_updated_at": current["updated_at"],
+                    "attestation_run_id": run_id,
+                    "actor_name": "CODEX",
+                    "source": "mcp_agent_gateway_v2",
+                }
+            )
+        self.assertEqual(missing.exception.code, "not_found")
+
+        cancelled = self.service.cancel_last_cash_transaction(
+            {
+                "cashbox_id": cashbox["id"],
+                "transaction_id": transaction["id"],
+                "expected_cashbox_updated_at": current["updated_at"],
+                "attestation_run_id": run_id,
+                "actor_name": "CODEX",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )
+        self.assertEqual(cancelled["cancelled_transaction"]["id"], transaction["id"])
+        reread = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+        )
+        self.assertEqual(reread["transactions"], [])
+        self.assertEqual(reread["cashbox"]["statistics"]["balance_minor"], 0)
+        self.assertNotEqual(reread["cashbox"]["updated_at"], current["updated_at"])
+
     def test_cancel_last_cash_transaction_removes_linked_repair_order_payment(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Безналичный", "actor_name": "ADMIN"})[
             "cashbox"
