@@ -10440,7 +10440,7 @@ class CardService(
             self._fail(
                 "validation_error", "Нужно передать сумму операции.", details={"field": "amount"}
             )
-        amount_minor = normalize_money_minor(raw_value, minimum=1)
+        amount_minor = normalize_money_minor(raw_value)
         if amount_minor < 1:
             self._fail(
                 "validation_error",

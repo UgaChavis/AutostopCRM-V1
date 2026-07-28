@@ -2645,6 +2645,32 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
             rejected.structuredContent["warnings"],
         )
 
+    async def test_finance_cash_transaction_requires_cashbox_revision_before_ledger(
+        self,
+    ) -> None:
+        rejected = await self._call(
+            "agent_finance_workflow",
+            {
+                "operation": "create_cash_transaction",
+                "payload": {
+                    "cashbox_id": "cashbox-main",
+                    "direction": "income",
+                    "amount_minor": 100,
+                },
+                "idempotency_key": "cash-transaction-without-revision",
+            },
+        )
+
+        self.assertFalse(rejected.structuredContent["ok"])
+        self.assertEqual(
+            ["expected_updated_at"],
+            rejected.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertIn(
+            "cashbox_expected_revision_required_reread_exact_cashbox_first",
+            rejected.structuredContent["warnings"],
+        )
+
     async def test_virtual_raw_capability_covers_hidden_internal_crm_writes(self) -> None:
         discovered = await self._call(
             "discover_raw_capabilities", {"query": "create_employee_salary_transaction"}

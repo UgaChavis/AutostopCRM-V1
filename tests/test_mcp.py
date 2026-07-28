@@ -2962,6 +2962,7 @@ class McpServerRuntimeTests(unittest.TestCase):
                 direction="income",
                 amount="1000",
                 note="Предоплата",
+                expected_updated_at="cashbox-revision-1",
                 actor_name="ОПЕРАТОР",
             )
             client.delete_cashbox("CB-1", actor_name="ОПЕРАТОР")
@@ -3007,6 +3008,7 @@ class McpServerRuntimeTests(unittest.TestCase):
                         "direction": "income",
                         "note": "Предоплата",
                         "amount": "1000",
+                        "expected_updated_at": "cashbox-revision-1",
                         "source": "mcp",
                         "actor_name": "ОПЕРАТОР",
                     },

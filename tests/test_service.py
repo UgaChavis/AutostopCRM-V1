@@ -6048,6 +6048,39 @@ class CardServiceTests(unittest.TestCase):
                 }
             )
 
+    def test_cash_transaction_rejects_zero_and_stale_cashbox_revision(self) -> None:
+        cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+        with self.assertRaises(ServiceError) as zero_amount:
+            self.service.create_cash_transaction(
+                {
+                    "cashbox_id": cashbox["id"],
+                    "direction": "income",
+                    "amount_minor": 0,
+                    "expected_updated_at": cashbox["updated_at"],
+                    "actor_name": "ADMIN",
+                }
+            )
+        self.assertEqual(zero_amount.exception.code, "validation_error")
+
+        with self.assertRaises(ServiceError) as stale:
+            self.service.create_cash_transaction(
+                {
+                    "cashbox_id": cashbox["id"],
+                    "direction": "income",
+                    "amount_minor": 100,
+                    "expected_updated_at": "2000-01-01T00:00:00+00:00",
+                    "actor_name": "ADMIN",
+                }
+            )
+        self.assertEqual(stale.exception.code, "cashbox_update_conflict")
+        reread = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+        )
+        self.assertEqual(reread["cashbox"]["updated_at"], cashbox["updated_at"])
+        self.assertEqual(reread["transactions"], [])
+
     def test_get_cashbox_paginates_transactions_with_stable_order(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
             "cashbox"

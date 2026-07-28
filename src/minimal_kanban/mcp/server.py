@@ -2494,6 +2494,7 @@ def create_mcp_server(
         amount_minor: McpInt | None = None,
         amount: str | None = None,
         note: str = "",
+        expected_updated_at: str | None = None,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
         return _relay_board_call(
@@ -2504,6 +2505,7 @@ def create_mcp_server(
                 amount_minor=amount_minor,
                 amount=amount,
                 note=note,
+                expected_updated_at=expected_updated_at,
                 actor_name=actor_name,
             ),
             error_code="cashbox_write_unreachable",

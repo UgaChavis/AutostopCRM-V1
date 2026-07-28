@@ -579,6 +579,22 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="api")
             cashbox = self._find_cashbox(cashboxes, payload.get("cashbox_id"))
+            expected_updated_at = normalize_text(
+                payload.get("expected_updated_at"),
+                default="",
+                limit=80,
+            )
+            if expected_updated_at and expected_updated_at != cashbox.updated_at:
+                self._fail(
+                    "cashbox_update_conflict",
+                    "Касса уже изменилась. Обновите её и повторите операцию.",
+                    status_code=409,
+                    details={
+                        "cashbox_id": cashbox.id,
+                        "expected_updated_at": expected_updated_at,
+                        "current_updated_at": cashbox.updated_at,
+                    },
+                )
             note = self._validated_cash_transaction_note(payload.get("note"))
             direction = normalize_cash_direction(payload.get("direction"), default="income")
             transaction_kind = normalize_text(payload.get("transaction_kind"), default="", limit=32)

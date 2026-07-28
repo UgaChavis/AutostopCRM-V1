@@ -817,6 +817,7 @@ class BoardApiClient:
         amount_minor: int | None = None,
         amount: str | int | float | None = None,
         note: str = "",
+        expected_updated_at: str | None = None,
         actor_name: str | None = None,
     ) -> dict:
         payload: dict[str, object] = {
@@ -828,6 +829,8 @@ class BoardApiClient:
             payload["amount_minor"] = amount_minor
         elif amount is not None:
             payload["amount"] = amount
+        if expected_updated_at is not None:
+            payload["expected_updated_at"] = expected_updated_at
         return self._request_with_identity(
             "/api/create_cash_transaction", payload, actor_name=actor_name
         )
