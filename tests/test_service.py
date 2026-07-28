@@ -5918,6 +5918,104 @@ class CardServiceTests(unittest.TestCase):
         self.assertIn(cancelled["cancellation_transaction"]["id"], journal_ids)
         self.assertIn(cancelled["related_cancellation_transaction"]["id"], journal_ids)
 
+    def test_cancel_synthetic_transfer_accepts_generated_notes_and_checks_both_cashboxes(
+        self,
+    ) -> None:
+        run_id = "AST-GWAT-20260728T165722Z"
+        source_cashbox = self.service.create_cashbox(
+            {"name": f"{run_id}-cashbox-1", "actor_name": "CODEX"}
+        )["cashbox"]
+        target_cashbox = self.service.create_cashbox(
+            {"name": f"{run_id}-cashbox-2", "actor_name": "CODEX"}
+        )["cashbox"]
+        transferred = self.service.create_cashbox_transfer(
+            {
+                "from_cashbox_id": source_cashbox["id"],
+                "to_cashbox_id": target_cashbox["id"],
+                "amount_minor": 100,
+                "note": f"{run_id} synthetic transfer",
+                "expected_from_updated_at": source_cashbox["updated_at"],
+                "expected_to_updated_at": target_cashbox["updated_at"],
+                "actor_name": "codex-owner-agent",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )
+        source_current = self.service.get_cashbox(
+            {"cashbox_id": source_cashbox["id"], "transaction_limit": 10}
+        )["cashbox"]
+        target_current = self.service.get_cashbox(
+            {"cashbox_id": target_cashbox["id"], "transaction_limit": 10}
+        )["cashbox"]
+
+        cancelled = self.service.cancel_cash_transaction(
+            {
+                "cashbox_id": target_cashbox["id"],
+                "transaction_id": transferred["target_transaction"]["id"],
+                "reason": f"{run_id} transfer compensation",
+                "expected_cashbox_updated_at": target_current["updated_at"],
+                "expected_related_cashbox_updated_at": source_current["updated_at"],
+                "attestation_run_id": run_id,
+                "actor_name": "codex-owner-agent",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )
+
+        self.assertTrue(cancelled["meta"]["cancelled_pair"])
+        source_after = self.service.get_cashbox(
+            {"cashbox_id": source_cashbox["id"], "transaction_limit": 10}
+        )
+        target_after = self.service.get_cashbox(
+            {"cashbox_id": target_cashbox["id"], "transaction_limit": 10}
+        )
+        self.assertEqual(source_after["cashbox"]["statistics"]["balance_minor"], 0)
+        self.assertEqual(target_after["cashbox"]["statistics"]["balance_minor"], 0)
+
+        real_cashbox = self.service.create_cashbox(
+            {"name": "Рабочая касса", "actor_name": "ADMIN"}
+        )["cashbox"]
+        target_current = target_after["cashbox"]
+        unsafe_transfer = self.service.create_cashbox_transfer(
+            {
+                "from_cashbox_id": real_cashbox["id"],
+                "to_cashbox_id": target_cashbox["id"],
+                "amount_minor": 100,
+                "note": f"{run_id} must not cross scope",
+                "expected_from_updated_at": real_cashbox["updated_at"],
+                "expected_to_updated_at": target_current["updated_at"],
+                "actor_name": "codex-owner-agent",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )
+        real_current = self.service.get_cashbox(
+            {"cashbox_id": real_cashbox["id"], "transaction_limit": 10}
+        )["cashbox"]
+        target_current = self.service.get_cashbox(
+            {"cashbox_id": target_cashbox["id"], "transaction_limit": 10}
+        )["cashbox"]
+        with self.assertRaises(ServiceError) as blocked:
+            self.service.cancel_cash_transaction(
+                {
+                    "cashbox_id": target_cashbox["id"],
+                    "transaction_id": unsafe_transfer["target_transaction"]["id"],
+                    "reason": f"{run_id} blocked cross-scope compensation",
+                    "expected_cashbox_updated_at": target_current["updated_at"],
+                    "expected_related_cashbox_updated_at": real_current["updated_at"],
+                    "attestation_run_id": run_id,
+                    "actor_name": "codex-owner-agent",
+                    "source": "mcp_agent_gateway_v2",
+                }
+            )
+        self.assertEqual(
+            blocked.exception.code,
+            "cash_cancellation_attestation_scope_invalid",
+        )
+        self.assertEqual(
+            self.service.get_cashbox(
+                {"cashbox_id": target_cashbox["id"], "transaction_limit": 10}
+            )["cashbox"]["statistics"]["balance_minor"],
+            100,
+        )
+
     def test_manual_cash_transaction_cannot_impersonate_repair_order_payment(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
             "cashbox"

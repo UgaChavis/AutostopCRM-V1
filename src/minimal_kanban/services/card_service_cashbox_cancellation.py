@@ -71,7 +71,7 @@ class CardServiceCashboxCancellationMixin:
             if attestation_run_id and not (
                 _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
                 and cashbox.name.startswith(f"{attestation_run_id}-")
-                and transaction.note.startswith(attestation_run_id)
+                and attestation_run_id in transaction.note
                 and reason.startswith(attestation_run_id)
                 and transaction.amount_minor == 100
                 and str(payload.get("source") or "").strip().casefold()
@@ -124,6 +124,7 @@ class CardServiceCashboxCancellationMixin:
                         default="",
                         limit=80,
                     ),
+                    attestation_run_id=attestation_run_id,
                 )
             linked_card, linked_payment = self._find_repair_order_payment_by_cash_transaction(
                 cards, transaction.id
@@ -225,6 +226,7 @@ class CardServiceCashboxCancellationMixin:
         actor_name: str,
         source: str,
         expected_related_cashbox_updated_at: str,
+        attestation_run_id: str,
     ) -> dict:
         transactions = bundle["cash_transactions"]
         cashboxes = bundle["cashboxes"]
@@ -315,6 +317,16 @@ class CardServiceCashboxCancellationMixin:
                 },
             )
         related_cashbox = self._find_cashbox(cashboxes, related_transaction.cashbox_id)
+        if attestation_run_id and not (
+            related_cashbox.name.startswith(f"{attestation_run_id}-")
+            and attestation_run_id in related_transaction.note
+            and related_transaction.amount_minor == 100
+        ):
+            self._fail(
+                "cash_cancellation_attestation_scope_invalid",
+                "Синтетическая отмена не соответствует контуру аттестации.",
+                status_code=403,
+            )
         if not expected_related_cashbox_updated_at:
             self._fail(
                 "cashbox_transfer_related_revision_required",
