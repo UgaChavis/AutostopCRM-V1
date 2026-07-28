@@ -2800,8 +2800,80 @@ def register_agent_gateway_v2(
                     ],
                     summary={"missing_fields": ["expected_cashbox_updated_at"]},
                 ),
-                label="call_raw_capability",
+                    label="call_raw_capability",
+                )
+        if (
+            normalized_name == "api:/api/delete_employee"
+            and "attestation_cleanup_shift_accrual_ids" in (arguments or {})
+        ):
+            missing_fields = [
+                field
+                for field in (
+                    "expected_updated_at",
+                    "attestation_run_id",
+                )
+                if not str((arguments or {}).get(field) or "").strip()
+            ]
+            shift_accrual_ids = (arguments or {}).get(
+                "attestation_cleanup_shift_accrual_ids"
             )
+            if (
+                not isinstance(shift_accrual_ids, list)
+                or not shift_accrual_ids
+                or any(
+                    not isinstance(item, str) or not item.strip()
+                    for item in shift_accrual_ids
+                )
+                or len(set(shift_accrual_ids)) != len(shift_accrual_ids)
+            ):
+                missing_fields.append("attestation_cleanup_shift_accrual_ids")
+            if missing_fields:
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=[
+                            "attestation_shift_cleanup_snapshot_required_reread_exact_employee_first"
+                        ],
+                        summary={"missing_fields": missing_fields},
+                    ),
+                    label="call_raw_capability",
+                )
+        if normalized_name == "api:/api/delete_gateway_attestation_payment_fixture":
+            missing_fields = [
+                field
+                for field in (
+                    "expected_updated_at",
+                    "expected_cashbox_updated_at",
+                )
+                if not str((arguments or {}).get(field) or "").strip()
+            ]
+            expected_transaction_ids = (arguments or {}).get(
+                "expected_transaction_ids"
+            )
+            if (
+                not isinstance(expected_transaction_ids, list)
+                or not expected_transaction_ids
+                or any(
+                    not isinstance(item, str) or not item.strip()
+                    for item in expected_transaction_ids
+                )
+                or len(set(expected_transaction_ids))
+                != len(expected_transaction_ids)
+            ):
+                missing_fields.append("expected_transaction_ids")
+            if missing_fields:
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=[
+                            "attestation_payment_cleanup_snapshot_required_reread_exact_targets_first"
+                        ],
+                        summary={"missing_fields": missing_fields},
+                    ),
+                    label="call_raw_capability",
+                )
         if normalized_name == "link_card_to_client":
             missing_revisions = [
                 field

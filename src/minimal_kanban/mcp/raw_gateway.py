@@ -63,6 +63,7 @@ OPTIMISTIC_WRITE_NAMES = frozenset(
         "api:/api/replace_repair_order_works",
         "api:/api/replace_repair_order_materials",
         "api:/api/set_card_ai_autofill",
+        "api:/api/delete_gateway_attestation_payment_fixture",
     }
 )
 DESTRUCTIVE_CAPABILITY_MARKERS = ("delete_", "cancel_", "archive_", "remove_")
@@ -264,6 +265,27 @@ async def verify_virtual_api_write_readback(
         employee_id = str(arguments.get("employee_id") or "").strip()
         readback = await invoke("api:/api/list_employees", {})
         employee = _find_mapping(readback, "id", employee_id) if employee_id else None
+        requested_shift_accrual_ids = {
+            str(item)
+            for item in arguments.get("attestation_cleanup_shift_accrual_ids")
+            or []
+            if str(item)
+        }
+        cleanup_meta = _find_mapping_matching(
+            result,
+            lambda item: "attestation_shift_cleanup" in item
+            and "removed_shift_accrual_ids" in item,
+        )
+        shift_cleanup_exact = not requested_shift_accrual_ids or bool(
+            isinstance(cleanup_meta, dict)
+            and cleanup_meta.get("attestation_shift_cleanup") is True
+            and {
+                str(item)
+                for item in cleanup_meta.get("removed_shift_accrual_ids") or []
+                if str(item)
+            }
+            == requested_shift_accrual_ids
+        )
         return {
             "required": True,
             "passed": bool(
@@ -271,12 +293,104 @@ async def verify_virtual_api_write_readback(
                 and readback.get("ok")
                 and employee_id
                 and employee is None
+                and shift_cleanup_exact
             ),
             "check": "exact_employee_absence_readback",
             "evidence": {
                 "employee_id": employee_id,
                 "employee_absent": employee is None,
+                "shift_cleanup_count": len(requested_shift_accrual_ids),
+                "shift_cleanup_exact": shift_cleanup_exact,
                 "readback_ok": bool(readback.get("ok")),
+            },
+        }
+
+    if operation == "api:/api/delete_gateway_attestation_payment_fixture":
+        card_id = str(arguments.get("card_id") or "").strip()
+        cashbox_id = str(
+            (
+                _find_mapping_matching(
+                    result,
+                    lambda item: "removed_transaction_ids" in item
+                    and "cashbox_id" in item,
+                )
+                or {}
+            ).get("cashbox_id")
+            or ""
+        )
+        expected_transaction_ids = {
+            str(item)
+            for item in arguments.get("expected_transaction_ids") or []
+            if str(item)
+        }
+        result_meta = _find_mapping_matching(
+            result,
+            lambda item: "balance_minor_before" in item
+            and "balance_minor_after" in item
+            and "removed_effect_minor" in item
+            and "removed_transaction_ids" in item,
+        )
+        card_readback = await invoke("get_card", {"card_id": card_id})
+        cashbox_readback = await invoke(
+            "get_cashbox",
+            {"cashbox_id": cashbox_id, "transaction_limit": 100},
+        )
+        card = _find_mapping(card_readback, "id", card_id) if card_id else None
+        cashbox = (
+            _find_mapping(cashbox_readback, "id", cashbox_id)
+            if cashbox_id
+            else None
+        )
+        order = (
+            card.get("repair_order")
+            if isinstance(card, dict) and isinstance(card.get("repair_order"), Mapping)
+            else {}
+        )
+        removed_absent = all(
+            _find_mapping(cashbox_readback, "id", transaction_id) is None
+            for transaction_id in expected_transaction_ids
+        )
+        balance_restored = bool(
+            isinstance(result_meta, dict)
+            and int(result_meta.get("removed_effect_minor") or 0) == 100
+            and int(result_meta.get("balance_minor_before") or 0)
+            - int(result_meta.get("balance_minor_after") or 0)
+            == int(result_meta.get("removed_effect_minor") or 0)
+            and int(result_meta.get("balance_minor_after") or 0)
+            == (
+                (cashbox.get("statistics") or {}).get("balance_minor")
+                if isinstance(cashbox, dict)
+                else None
+            )
+        )
+        return {
+            "required": True,
+            "passed": bool(
+                result.get("ok")
+                and card_readback.get("ok")
+                and cashbox_readback.get("ok")
+                and isinstance(card, dict)
+                and isinstance(cashbox, dict)
+                and not order.get("works")
+                and not order.get("materials")
+                and not order.get("payments")
+                and removed_absent
+                and balance_restored
+            ),
+            "check": "exact_attestation_payment_fixture_absence_readback",
+            "evidence": {
+                "card_id": card_id,
+                "cashbox_id": cashbox_id,
+                "transaction_count": len(expected_transaction_ids),
+                "repair_order_empty": bool(order)
+                and not order.get("works")
+                and not order.get("materials")
+                and not order.get("payments"),
+                "transactions_absent": removed_absent,
+                "removed_effect_minor": int(
+                    (result_meta or {}).get("removed_effect_minor") or 0
+                ),
+                "balance_restored": balance_restored,
             },
         }
 

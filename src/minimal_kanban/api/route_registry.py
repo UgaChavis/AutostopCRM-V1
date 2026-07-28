@@ -30,6 +30,7 @@ PROXIED_WRITE_ROUTES = {
     "/api/upsert_client_vehicle",
     "/api/delete_client_vehicle",
     "/api/delete_cashbox",
+    "/api/delete_gateway_attestation_payment_fixture",
     "/api/create_cash_transaction",
     "/api/save_inventory_item",
     "/api/replenish_inventory_item",
@@ -185,6 +186,9 @@ def build_service_routes(
         "/api/create_cashbox_transfer": service.create_cashbox_transfer,
         "/api/mark_cashbox_notifications_seen": service.mark_cashbox_notifications_seen,
         "/api/delete_cashbox": service.delete_cashbox,
+        "/api/delete_gateway_attestation_payment_fixture": (
+            service.delete_gateway_attestation_payment_fixture
+        ),
         "/api/create_cash_transaction": service.create_cash_transaction,
         "/api/list_inventory_items": service.list_inventory_items,
         "/api/search_inventory_items": service.search_inventory_items,

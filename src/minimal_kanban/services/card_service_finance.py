@@ -809,6 +809,198 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 },
             }
 
+    def delete_gateway_attestation_payment_fixture(
+        self, payload: dict | None = None
+    ) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            cards = bundle["cards"]
+            cashboxes = bundle["cashboxes"]
+            transactions = bundle["cash_transactions"]
+            events = bundle["events"]
+            actor_name, source = self._audit_identity(payload, default_source="api")
+            card = self._find_card(cards, payload.get("card_id"))
+            expected_updated_at = normalize_text(
+                payload.get("expected_updated_at"), default="", limit=80
+            )
+            if not expected_updated_at or card.updated_at != expected_updated_at:
+                self._fail(
+                    "card_update_conflict",
+                    "Карточка уже изменилась. Обновите данные и повторите действие.",
+                    status_code=409,
+                    details={"card_id": card.id},
+                )
+            payment_id = normalize_text(
+                payload.get("payment_id"), default="", limit=128
+            )
+            payment = next(
+                (item for item in card.repair_order.payments if item.id == payment_id),
+                None,
+            )
+            if payment is None:
+                self._fail(
+                    "not_found",
+                    "Синтетическая оплата не найдена.",
+                    status_code=404,
+                    details={"card_id": card.id, "payment_id": payment_id},
+                )
+            cashbox = self._find_cashbox(cashboxes, payment.cashbox_id)
+            expected_cashbox_updated_at = normalize_text(
+                payload.get("expected_cashbox_updated_at"),
+                default="",
+                limit=80,
+            )
+            if (
+                not expected_cashbox_updated_at
+                or cashbox.updated_at != expected_cashbox_updated_at
+            ):
+                self._fail(
+                    "cashbox_update_conflict",
+                    "Касса уже изменилась. Обновите данные и повторите действие.",
+                    status_code=409,
+                    details={"cashbox_id": cashbox.id},
+                )
+            expected_transaction_ids = payload.get("expected_transaction_ids")
+            if (
+                not isinstance(expected_transaction_ids, list)
+                or not expected_transaction_ids
+                or any(
+                    not isinstance(item, str) or not item.strip()
+                    for item in expected_transaction_ids
+                )
+                or len(set(expected_transaction_ids)) != len(expected_transaction_ids)
+            ):
+                self._fail(
+                    "validation_error",
+                    "Нужен точный снимок синтетических движений.",
+                    details={"field": "expected_transaction_ids"},
+                )
+            attestation_run_id = normalize_text(
+                payload.get("attestation_run_id"), default="", limit=64
+            )
+            scoped_transactions = [
+                item
+                for item in transactions
+                if item.cashbox_id == cashbox.id
+                and attestation_run_id in item.note
+            ]
+            scoped_ids = {item.id for item in scoped_transactions}
+            if scoped_ids != set(expected_transaction_ids):
+                self._fail(
+                    "cashbox_transaction_snapshot_conflict",
+                    "Синтетический журнал уже изменился. Перечитайте кассу.",
+                    status_code=409,
+                    details={"cashbox_id": cashbox.id},
+                )
+            payment_links = self._finance_payment_links(cards)
+            linked_scoped = {
+                transaction_id: link
+                for transaction_id, link in payment_links.items()
+                if transaction_id in scoped_ids
+            }
+            before_balance = int(
+                self._cashbox_statistics(cashbox, transactions)["balance_minor"]
+            )
+            removed_effect_minor = sum(
+                item.amount_minor
+                if item.direction == "income"
+                else -item.amount_minor
+                for item in scoped_transactions
+            )
+            remaining_transactions = [
+                item for item in transactions if item.id not in scoped_ids
+            ]
+            after_balance = int(
+                self._cashbox_statistics(cashbox, remaining_transactions)[
+                    "balance_minor"
+                ]
+            )
+            current_transaction = self._find_cash_transaction(
+                transactions, payment.cash_transaction_id
+            )
+            if not (
+                _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
+                and card.title.startswith(attestation_run_id)
+                and payment.note.startswith(attestation_run_id)
+                and normalize_money_minor(payment.amount) == 100
+                and current_transaction is not None
+                and current_transaction.id in scoped_ids
+                and current_transaction.transaction_kind == "repair_order_payment"
+                and all(
+                    item.amount_minor == 100
+                    and attestation_run_id in item.note
+                    and (
+                        not item.related_transaction_id
+                        or item.related_transaction_id in scoped_ids
+                    )
+                    for item in scoped_transactions
+                )
+                and set(linked_scoped) == {current_transaction.id}
+                and linked_scoped[current_transaction.id][0].id == card.id
+                and linked_scoped[current_transaction.id][1].id == payment.id
+                and removed_effect_minor == 100
+                and before_balance - after_balance == removed_effect_minor
+                and str(payload.get("source") or "").strip().casefold()
+                == "mcp_agent_gateway_v2"
+                and actor_name
+            ):
+                self._fail(
+                    "gateway_attestation_payment_cleanup_scope_invalid",
+                    "Очистка оплаты не соответствует синтетическому контуру.",
+                    status_code=403,
+                )
+            card.repair_order = RepairOrder()
+            self._touch_card(card, actor_name)
+            if self._card_has_repair_order(card):
+                self._ensure_repair_order_text_file(card, force=True)
+            self._refresh_cashbox_updated_at(cashbox, remaining_transactions)
+            self._append_event(
+                events,
+                actor_name=actor_name,
+                source=source,
+                action="gateway_attestation_payment_fixture_deleted",
+                message=f"{actor_name} удалил синтетический финансовый контур",
+                card_id=card.id,
+                details={
+                    "attestation_run_id": attestation_run_id,
+                    "payment_id": payment.id,
+                    "cashbox_id": cashbox.id,
+                    "removed_transaction_ids": sorted(scoped_ids),
+                    "removed_effect_minor": removed_effect_minor,
+                    "balance_minor_before": before_balance,
+                    "balance_minor_after": after_balance,
+                },
+            )
+            self._save_bundle(
+                bundle,
+                columns=bundle["columns"],
+                cards=cards,
+                cashboxes=cashboxes,
+                cash_transactions=remaining_transactions,
+                events=events,
+            )
+            return {
+                "card": self._serialize_card(
+                    card,
+                    events,
+                    column_labels=self._column_labels(bundle["columns"]),
+                    include_removed_attachments=True,
+                ),
+                "cashbox": self._serialize_cashbox(
+                    cashbox, remaining_transactions
+                ),
+                "meta": {
+                    "deleted": True,
+                    "payment_id": payment.id,
+                    "cashbox_id": cashbox.id,
+                    "removed_transaction_ids": sorted(scoped_ids),
+                    "removed_effect_minor": removed_effect_minor,
+                    "balance_minor_before": before_balance,
+                    "balance_minor_after": after_balance,
+                },
+            }
+
     def create_cash_transaction(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}

@@ -31,6 +31,7 @@ from minimal_kanban.mcp.oauth_provider import (
     OwnerAccessToken,
     ProductionOAuthAuthorizationServerProvider,
 )
+from minimal_kanban.mcp.raw_gateway import verify_virtual_api_write_readback
 from minimal_kanban.mcp.server import create_mcp_server
 from minimal_kanban.mcp.store_gateway import (
     INTERNAL_ONLY_CAPABILITY_NAMES,
@@ -3047,6 +3048,149 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
             "shift_accrual_expected_employee_revision_required_reread_exact_employee_first",
             rejected.structuredContent["warnings"],
         )
+
+    async def test_raw_attestation_cleanup_requires_exact_snapshots(self) -> None:
+        employee_schema = await self._call(
+            "get_raw_capability_schema",
+            {"name": "api:/api/delete_employee"},
+        )
+        payment_schema = await self._call(
+            "get_raw_capability_schema",
+            {"name": "api:/api/delete_gateway_attestation_payment_fixture"},
+        )
+        before_count = len(self.board_api.raw_requests)
+
+        employee_rejected = await self._call(
+            "call_raw_capability",
+            {
+                "name": "api:/api/delete_employee",
+                "arguments": {
+                    "employee_id": "employee-1",
+                    "attestation_cleanup_shift_accrual_ids": [],
+                },
+                "schema_hash": employee_schema.structuredContent["summary"][
+                    "schema_hash"
+                ],
+                "idempotency_key": "attestation-employee-cleanup-missing-snapshot",
+            },
+        )
+        payment_rejected = await self._call(
+            "call_raw_capability",
+            {
+                "name": "api:/api/delete_gateway_attestation_payment_fixture",
+                "arguments": {
+                    "card_id": "card-1",
+                    "payment_id": "payment-1",
+                },
+                "schema_hash": payment_schema.structuredContent["summary"][
+                    "schema_hash"
+                ],
+                "idempotency_key": "attestation-payment-cleanup-missing-snapshot",
+            },
+        )
+
+        self.assertFalse(employee_rejected.structuredContent["ok"])
+        self.assertIn(
+            "attestation_shift_cleanup_snapshot_required_reread_exact_employee_first",
+            employee_rejected.structuredContent["warnings"],
+        )
+        self.assertEqual(
+            [
+                "expected_updated_at",
+                "attestation_run_id",
+                "attestation_cleanup_shift_accrual_ids",
+            ],
+            employee_rejected.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertFalse(payment_rejected.structuredContent["ok"])
+        self.assertIn(
+            "attestation_payment_cleanup_snapshot_required_reread_exact_targets_first",
+            payment_rejected.structuredContent["warnings"],
+        )
+        self.assertEqual(before_count, len(self.board_api.raw_requests))
+
+    async def test_raw_attestation_cleanup_verifiers_require_exact_absence(
+        self,
+    ) -> None:
+        async def invoke(name: str, arguments: dict) -> dict:
+            if name == "api:/api/list_employees":
+                return {"ok": True, "data": {"employees": []}}
+            if name == "get_card":
+                return {
+                    "ok": True,
+                    "data": {
+                        "card": {
+                            "id": arguments["card_id"],
+                            "repair_order": {
+                                "works": [],
+                                "materials": [],
+                                "payments": [],
+                            },
+                        }
+                    },
+                }
+            if name == "get_cashbox":
+                return {
+                    "ok": True,
+                    "data": {
+                        "cashbox": {
+                            "id": arguments["cashbox_id"],
+                            "statistics": {"balance_minor": 500},
+                        },
+                        "transactions": [],
+                    },
+                }
+            raise AssertionError(name)
+
+        employee_verification = await verify_virtual_api_write_readback(
+            operation="api:/api/delete_employee",
+            arguments={
+                "employee_id": "employee-1",
+                "attestation_cleanup_shift_accrual_ids": ["accrual-1"],
+            },
+            result={
+                "ok": True,
+                "data": {
+                    "deleted": True,
+                    "attestation_shift_cleanup": True,
+                    "removed_shift_accrual_ids": ["accrual-1"],
+                },
+            },
+            invoke=invoke,
+        )
+        payment_verification = await verify_virtual_api_write_readback(
+            operation="api:/api/delete_gateway_attestation_payment_fixture",
+            arguments={
+                "card_id": "card-1",
+                "expected_transaction_ids": [
+                    "transaction-1",
+                    "transaction-2",
+                    "transaction-3",
+                ],
+            },
+            result={
+                "ok": True,
+                "data": {
+                    "meta": {
+                        "cashbox_id": "cashbox-1",
+                        "removed_transaction_ids": [
+                            "transaction-1",
+                            "transaction-2",
+                            "transaction-3",
+                        ],
+                        "removed_effect_minor": 100,
+                        "balance_minor_before": 600,
+                        "balance_minor_after": 500,
+                    }
+                },
+            },
+            invoke=invoke,
+        )
+
+        self.assertTrue(employee_verification["passed"])
+        self.assertTrue(employee_verification["evidence"]["shift_cleanup_exact"])
+        self.assertTrue(payment_verification["passed"])
+        self.assertTrue(payment_verification["evidence"]["balance_restored"])
 
     async def test_finance_cash_cancellation_requires_cashbox_revision_before_ledger(
         self,

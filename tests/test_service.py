@@ -4271,6 +4271,81 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(exact["amount_minor"], 100)
         self.assertEqual(exact["kind"], "shift_accrual")
 
+    def test_delete_synthetic_employee_removes_exact_shift_accrual(self) -> None:
+        run_id = "AST-GWAT-20260728T165722Z"
+        employee = self.service.save_employee(
+            {
+                "name": f"{run_id}-cleanup-employee",
+                "position": "Synthetic",
+                "salary_mode": "none",
+                "actor_name": "CODEX",
+            }
+        )["employee"]
+        accrual = self.service.create_employee_shift_accrual(
+            {
+                "employee_id": employee["id"],
+                "amount_minor": 100,
+                "note": f"{run_id} cleanup shift accrual",
+                "expected_employee_updated_at": employee["updated_at"],
+                "attestation_run_id": run_id,
+                "source": "mcp_agent_gateway_v2",
+                "actor_name": "CODEX",
+            }
+        )["accrual"]
+
+        with self.assertRaises(ServiceError) as stale_snapshot:
+            self.service.delete_employee(
+                {
+                    "employee_id": employee["id"],
+                    "expected_updated_at": employee["updated_at"],
+                    "attestation_run_id": run_id,
+                    "attestation_cleanup_shift_accrual_ids": [
+                        accrual["id"],
+                        "missing-accrual",
+                    ],
+                    "source": "mcp_agent_gateway_v2",
+                    "actor_name": "CODEX",
+                }
+            )
+        self.assertEqual(
+            stale_snapshot.exception.code,
+            "employee_shift_accrual_snapshot_conflict",
+        )
+        self.assertTrue(
+            any(
+                item["id"] == employee["id"]
+                for item in self.service.list_employees()["employees"]
+            )
+        )
+
+        deleted = self.service.delete_employee(
+            {
+                "employee_id": employee["id"],
+                "expected_updated_at": employee["updated_at"],
+                "attestation_run_id": run_id,
+                "attestation_cleanup_shift_accrual_ids": [accrual["id"]],
+                "source": "mcp_agent_gateway_v2",
+                "actor_name": "CODEX",
+            }
+        )
+
+        self.assertTrue(deleted["deleted"])
+        self.assertTrue(deleted["attestation_shift_cleanup"])
+        self.assertEqual(deleted["removed_shift_accrual_ids"], [accrual["id"]])
+        self.assertFalse(
+            any(
+                item["id"] == employee["id"]
+                for item in self.service.list_employees()["employees"]
+            )
+        )
+        stored_shift_ids = {
+            item["id"]
+            for item in self.store.read_bundle()["settings"].get(
+                "employee_shift_accruals", []
+            )
+        }
+        self.assertNotIn(accrual["id"], stored_shift_ids)
+
     def test_employee_salary_report_builds_monthly_accrual_register(self) -> None:
         employee = self.service.save_employee(
             {
@@ -6474,6 +6549,142 @@ class CardServiceTests(unittest.TestCase):
                 {"cashbox_id": cashbox["id"], "transaction_limit": 10}
             )
         self.assertEqual(missing.exception.code, "not_found")
+
+    def test_delete_gateway_attestation_payment_fixture_restores_baseline(
+        self,
+    ) -> None:
+        run_id = "AST-GWAT-20260728T165722Z"
+        cashbox = self.service.create_cashbox(
+            {"name": "Рабочая касса", "actor_name": "ADMIN"}
+        )["cashbox"]
+        unrelated = self.service.create_cash_transaction(
+            {
+                "cashbox_id": cashbox["id"],
+                "direction": "income",
+                "amount_minor": 500,
+                "note": "Обычное тестовое движение",
+                "actor_name": "ADMIN",
+            }
+        )["transaction"]
+        card = self.service.create_card(
+            {
+                "vehicle": "SYNTHETIC",
+                "title": f"{run_id}-payment-cleanup",
+                "deadline": {"hours": 2},
+            }
+        )["card"]
+        card = self.service.update_card(
+            {
+                "card_id": card["id"],
+                "repair_order": {
+                    "works": [
+                        {
+                            "name": f"{run_id} synthetic work",
+                            "quantity": "1",
+                            "price": "1",
+                        }
+                    ],
+                    "payments": [
+                        {
+                            "amount": "1",
+                            "paid_at": "28.07.2026 12:00",
+                            "note": f"{run_id} synthetic payment",
+                            "payment_method": "cash",
+                            "cashbox_id": cashbox["id"],
+                            "actor_name": "CODEX",
+                        }
+                    ],
+                },
+                "actor_name": "CODEX",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )["card"]
+        payment = card["repair_order"]["payments"][0]
+        compensation_source = self.service.create_cash_transaction(
+            {
+                "cashbox_id": cashbox["id"],
+                "direction": "income",
+                "amount_minor": 100,
+                "note": f"{run_id} compensation source",
+                "actor_name": "CODEX",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )["transaction"]
+        cashbox_before_cancel = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 20}
+        )["cashbox"]
+        self.service.cancel_cash_transaction(
+            {
+                "cashbox_id": cashbox["id"],
+                "transaction_id": compensation_source["id"],
+                "reason": f"{run_id} compensation cancellation",
+                "expected_cashbox_updated_at": cashbox_before_cancel["updated_at"],
+                "actor_name": "CODEX",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )
+        current_card = self.service.get_card({"card_id": card["id"]})["card"]
+        current_cashbox_response = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 20}
+        )
+        current_cashbox = current_cashbox_response["cashbox"]
+        target_transaction_ids = sorted(
+            item["id"]
+            for item in current_cashbox_response["transactions"]
+            if run_id in item.get("note", "")
+        )
+        self.assertEqual(len(target_transaction_ids), 3)
+        balance_before = current_cashbox["statistics"]["balance_minor"]
+
+        with self.assertRaises(ServiceError) as stale:
+            self.service.delete_gateway_attestation_payment_fixture(
+                {
+                    "card_id": card["id"],
+                    "payment_id": payment["id"],
+                    "expected_updated_at": "2000-01-01T00:00:00+00:00",
+                    "expected_cashbox_updated_at": current_cashbox["updated_at"],
+                    "expected_transaction_ids": target_transaction_ids,
+                    "attestation_run_id": run_id,
+                    "actor_name": "CODEX",
+                    "source": "mcp_agent_gateway_v2",
+                }
+            )
+        self.assertEqual(stale.exception.code, "card_update_conflict")
+
+        deleted = self.service.delete_gateway_attestation_payment_fixture(
+            {
+                "card_id": card["id"],
+                "payment_id": payment["id"],
+                "expected_updated_at": current_card["updated_at"],
+                "expected_cashbox_updated_at": current_cashbox["updated_at"],
+                "expected_transaction_ids": target_transaction_ids,
+                "attestation_run_id": run_id,
+                "actor_name": "CODEX",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )
+
+        self.assertTrue(deleted["meta"]["deleted"])
+        self.assertEqual(deleted["meta"]["removed_effect_minor"], 100)
+        self.assertEqual(
+            deleted["meta"]["balance_minor_before"]
+            - deleted["meta"]["balance_minor_after"],
+            100,
+        )
+        reread_card = self.service.get_card({"card_id": card["id"]})["card"]
+        self.assertEqual(reread_card["repair_order"]["works"], [])
+        self.assertEqual(reread_card["repair_order"]["materials"], [])
+        self.assertEqual(reread_card["repair_order"]["payments"], [])
+        reread_cashbox = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 20}
+        )
+        self.assertEqual(
+            reread_cashbox["cashbox"]["statistics"]["balance_minor"],
+            balance_before - 100,
+        )
+        remaining_ids = {item["id"] for item in reread_cashbox["transactions"]}
+        self.assertIn(unrelated["id"], remaining_ids)
+        self.assertTrue(set(target_transaction_ids).isdisjoint(remaining_ids))
 
     def test_cancel_last_cash_transaction_removes_linked_repair_order_payment(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Безналичный", "actor_name": "ADMIN"})[
