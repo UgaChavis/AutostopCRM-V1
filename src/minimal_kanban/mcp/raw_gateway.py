@@ -160,6 +160,29 @@ def _mapping_subset_matches(expected: Mapping[str, Any], actual: Any) -> bool:
     return all(key in actual and actual.get(key) == value for key, value in expected.items())
 
 
+def _find_mapping_matching(
+    value: Any,
+    predicate: Callable[[Mapping[str, Any]], bool],
+    *,
+    depth: int = 0,
+) -> dict[str, Any] | None:
+    if depth > 7:
+        return None
+    if isinstance(value, Mapping):
+        if predicate(value):
+            return dict(value)
+        for item in value.values():
+            found = _find_mapping_matching(item, predicate, depth=depth + 1)
+            if found is not None:
+                return found
+    elif isinstance(value, list):
+        for item in value[:200]:
+            found = _find_mapping_matching(item, predicate, depth=depth + 1)
+            if found is not None:
+                return found
+    return None
+
+
 def _cashbox_order_ids(value: Any, *, depth: int = 0) -> list[str]:
     if depth > 7:
         return []
@@ -200,6 +223,123 @@ async def verify_virtual_api_write_readback(
     invoke: VirtualInvoker,
 ) -> dict[str, Any] | None:
     """Return exact verification for virtual writes that have a stable readback."""
+
+    if operation == "api:/api/save_employee":
+        created = _find_mapping_matching(
+            result,
+            lambda item: bool(
+                str(item.get("id") or "").strip()
+                and str(item.get("name") or "").strip()
+                and str(item.get("updated_at") or "").strip()
+            ),
+        )
+        employee_id = str((created or {}).get("id") or "")
+        readback = await invoke("api:/api/list_employees", {})
+        employee = _find_mapping(readback, "id", employee_id) if employee_id else None
+        passed = bool(
+            result.get("ok")
+            and readback.get("ok")
+            and employee_id
+            and isinstance(employee, dict)
+            and str(employee.get("name") or "") == str(arguments.get("name") or "")
+            and str(employee.get("updated_at") or "")
+            == str((created or {}).get("updated_at") or "")
+        )
+        return {
+            "required": True,
+            "passed": passed,
+            "check": "exact_employee_list_readback",
+            "evidence": {
+                "employee_id": employee_id,
+                "employee_present": isinstance(employee, dict),
+                "name_exact": str((employee or {}).get("name") or "")
+                == str(arguments.get("name") or ""),
+                "revision_exact": str((employee or {}).get("updated_at") or "")
+                == str((created or {}).get("updated_at") or ""),
+                "readback_ok": bool(readback.get("ok")),
+            },
+        }
+
+    if operation in {
+        "create_employee_salary_transaction",
+        "api:/api/create_employee_salary_transaction",
+    }:
+        employee_id = str(arguments.get("employee_id") or "").strip()
+        cashbox_id = str(arguments.get("cashbox_id") or "").strip()
+        expected_employee_updated_at = str(
+            arguments.get("expected_employee_updated_at") or ""
+        ).strip()
+        expected_cashbox_updated_at = str(
+            arguments.get("expected_cashbox_updated_at") or ""
+        ).strip()
+        transaction = _find_mapping_matching(
+            result,
+            lambda item: bool(
+                str(item.get("id") or "").strip()
+                and str(item.get("employee_id") or "") == employee_id
+                and str(item.get("cashbox_id") or "") == cashbox_id
+                and str(item.get("direction") or "") == "expense"
+                and str(item.get("transaction_kind") or "")
+                in {"salary_payout", "salary_advance"}
+            ),
+        )
+        transaction_id = str((transaction or {}).get("id") or "")
+        cashbox_readback = await invoke(
+            "get_cashbox",
+            {"cashbox_id": cashbox_id, "transaction_limit": 50},
+        )
+        employee_readback = await invoke("api:/api/list_employees", {})
+        ledger_readback = await invoke(
+            "api:/api/get_employee_salary_ledger",
+            {"employee_id": employee_id, "months": 1},
+        )
+        cash_transaction = (
+            _find_mapping(cashbox_readback, "id", transaction_id) if transaction_id else None
+        )
+        employee = _find_mapping(employee_readback, "id", employee_id) if employee_id else None
+        ledger_row = (
+            _find_mapping(ledger_readback, "transaction_id", transaction_id)
+            if transaction_id
+            else None
+        )
+        cashbox = _find_mapping(cashbox_readback, "id", cashbox_id) if cashbox_id else None
+        amount_minor = int((transaction or {}).get("amount_minor") or 0)
+        requested_amount_minor = int(arguments.get("amount_minor") or 0)
+        passed = bool(
+            result.get("ok")
+            and cashbox_readback.get("ok")
+            and employee_readback.get("ok")
+            and ledger_readback.get("ok")
+            and transaction_id
+            and requested_amount_minor > 0
+            and amount_minor == requested_amount_minor
+            and isinstance(cash_transaction, dict)
+            and int(cash_transaction.get("amount_minor") or 0) == requested_amount_minor
+            and str(cash_transaction.get("employee_id") or "") == employee_id
+            and isinstance(employee, dict)
+            and str(employee.get("updated_at") or "") == expected_employee_updated_at
+            and isinstance(cashbox, dict)
+            and str(cashbox.get("updated_at") or "") != expected_cashbox_updated_at
+            and isinstance(ledger_row, dict)
+            and int(ledger_row.get("amount_minor") or 0) == requested_amount_minor
+        )
+        return {
+            "required": True,
+            "passed": passed,
+            "check": "exact_salary_cashbox_employee_and_ledger_readback",
+            "evidence": {
+                "transaction_id": transaction_id,
+                "cashbox_id": cashbox_id,
+                "employee_id": employee_id,
+                "amount_exact": amount_minor == requested_amount_minor,
+                "cash_transaction_present": isinstance(cash_transaction, dict),
+                "employee_revision_exact": str((employee or {}).get("updated_at") or "")
+                == expected_employee_updated_at,
+                "cashbox_revision_changed": str((cashbox or {}).get("updated_at") or "")
+                != expected_cashbox_updated_at,
+                "ledger_row_present": isinstance(ledger_row, dict),
+            },
+        }
 
     if operation == "reorder_cashboxes":
         expected_before = [

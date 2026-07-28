@@ -4123,6 +4123,65 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(supplier_details["cashbox"]["statistics"]["balance_minor"], -1000000)
         self.assertEqual(cash_details["cashbox"]["statistics"]["balance_minor"], 0)
 
+    def test_employee_salary_transaction_rejects_stale_targets_atomically(self) -> None:
+        run_id = "AST-GWAT-20260728T165722Z"
+        employee = self.service.save_employee(
+            {
+                "name": f"{run_id}-employee",
+                "position": "Synthetic",
+                "salary_mode": "none",
+            }
+        )["employee"]
+        cashbox = self.service.create_cashbox(
+            {"name": f"{run_id}-cashbox-1", "actor_name": "ADMIN"}
+        )["cashbox"]
+        payload = {
+            "employee_id": employee["id"],
+            "transaction_kind": "salary_payout",
+            "amount_minor": 100,
+            "cashbox_id": cashbox["id"],
+            "note": f"{run_id} synthetic salary payout",
+            "expected_employee_updated_at": employee["updated_at"],
+            "expected_cashbox_updated_at": cashbox["updated_at"],
+            "attestation_run_id": run_id,
+            "source": "mcp",
+            "actor_name": "codex-owner-agent",
+        }
+
+        with self.assertRaises(ServiceError) as employee_conflict:
+            self.service.create_employee_salary_transaction(
+                {
+                    **payload,
+                    "expected_employee_updated_at": "2000-01-01T00:00:00+00:00",
+                }
+            )
+        self.assertEqual(employee_conflict.exception.code, "employee_update_conflict")
+
+        with self.assertRaises(ServiceError) as cashbox_conflict:
+            self.service.create_employee_salary_transaction(
+                {
+                    **payload,
+                    "expected_cashbox_updated_at": "2000-01-01T00:00:00+00:00",
+                }
+            )
+        self.assertEqual(cashbox_conflict.exception.code, "cashbox_update_conflict")
+        before_apply = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+        )
+        self.assertEqual(before_apply["transactions"], [])
+
+        applied = self.service.create_employee_salary_transaction(payload)
+        self.assertEqual(applied["transaction"]["amount_minor"], 100)
+        self.assertEqual(applied["transaction"]["employee_id"], employee["id"])
+        reread = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+        )
+        self.assertEqual(
+            [item["id"] for item in reread["transactions"]],
+            [applied["transaction"]["id"]],
+        )
+        self.assertEqual(reread["cashbox"]["statistics"]["balance_minor"], -100)
+
     def test_employee_salary_report_builds_monthly_accrual_register(self) -> None:
         employee = self.service.save_employee(
             {
@@ -5032,6 +5091,36 @@ class CardServiceTests(unittest.TestCase):
         listed = self.service.list_employees()
         listed_employee = next(item for item in listed["employees"] if item["id"] == employee["id"])
         self.assertEqual(listed_employee["balance_total"], "0")
+
+    def test_gateway_attestation_employee_requires_exact_ordered_snapshot(self) -> None:
+        existing = self.service.save_employee(
+            {"name": "Existing employee", "position": "Mechanic"}
+        )["employee"]
+        run_id = "AST-GWAT-20260728T165722Z"
+        payload = {
+            "create_mode": True,
+            "name": f"{run_id}-employee",
+            "position": "Synthetic",
+            "expected_employee_ids": [existing["id"]],
+            "attestation_run_id": run_id,
+            "source": "mcp",
+            "actor_name": "codex-owner-agent",
+        }
+
+        with self.assertRaises(ServiceError) as conflict:
+            self.service.save_employee(
+                {
+                    **payload,
+                    "expected_employee_ids": [existing["id"], "stale-id"],
+                }
+            )
+        self.assertEqual(conflict.exception.code, "employee_snapshot_conflict")
+        self.assertEqual(len(self.service.list_employees()["employees"]), 1)
+
+        created = self.service.save_employee(payload)["employee"]
+        self.assertEqual(created["name"], f"{run_id}-employee")
+        listed = self.service.list_employees()["employees"]
+        self.assertEqual({item["id"] for item in listed}, {existing["id"], created["id"]})
 
     def test_employee_supports_max_records_without_overwrite(self) -> None:
         checkpoints = {1, 2, 3, 10, 15, EMPLOYEES_MAX_COUNT}

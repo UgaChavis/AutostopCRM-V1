@@ -52,6 +52,7 @@ EMPLOYEE_SALARY_RECONCILIATION_MAX_DAYS = 366
 PAYROLL_DECIMAL_ABS_MAX = Decimal("1000000000000")
 PAYROLL_TERMS_LIMIT = 50
 PAYROLL_POLICY_2026_07_13_CUTOFF = "2026-07-13T00:00:00+07:00"
+_GATEWAY_ATTESTATION_RUN_RE = re.compile(r"^AST-GWAT-\d{8}T\d{6}Z$")
 PAYROLL_POLICY_2026_07_13_TERMS: dict[str, dict[str, str]] = {
     "Александр Баландин": {
         "salary_mode": "percent_only",
@@ -2261,6 +2262,51 @@ class CardServicePayrollMixin:
             actor_name, source = self._audit_identity(payload, default_source="api")
             settings = dict(bundle["settings"])
             employees = self._employees_from_settings(settings)
+            expected_employee_ids = payload.get("expected_employee_ids")
+            if expected_employee_ids is not None:
+                if (
+                    not isinstance(expected_employee_ids, list)
+                    or any(
+                        not isinstance(item, str) or not item.strip()
+                        for item in expected_employee_ids
+                    )
+                    or len(set(expected_employee_ids)) != len(expected_employee_ids)
+                ):
+                    self._fail(
+                        "validation_error",
+                        "Поле expected_employee_ids должно содержать упорядоченные ID сотрудников.",
+                        details={"field": "expected_employee_ids"},
+                    )
+                current_employee_ids = [str(item["id"]) for item in employees]
+                if expected_employee_ids != current_employee_ids:
+                    self._fail(
+                        "employee_snapshot_conflict",
+                        "Список сотрудников уже изменился. Обновите его и повторите действие.",
+                        status_code=409,
+                        details={
+                            "expected_count": len(expected_employee_ids),
+                            "current_count": len(current_employee_ids),
+                        },
+                    )
+            attestation_run_id = normalize_text(
+                payload.get("attestation_run_id"),
+                default="",
+                limit=64,
+            )
+            if attestation_run_id and not (
+                _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
+                and normalize_text(payload.get("name"), default="", limit=80).startswith(
+                    f"{attestation_run_id}-"
+                )
+                and normalize_bool(payload.get("create_mode"), default=False)
+                and source == "mcp"
+                and actor_name
+            ):
+                self._fail(
+                    "employee_attestation_scope_invalid",
+                    "Синтетический сотрудник не соответствует контуру аттестации.",
+                    status_code=403,
+                )
             create_mode = normalize_bool(payload.get("create_mode"), default=False)
             if create_mode:
                 payload = dict(payload)

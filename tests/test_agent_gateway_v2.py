@@ -2786,6 +2786,60 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
         )
         self.assertEqual(before_count, len(self.board_api.raw_requests))
 
+    async def test_finance_salary_requires_employee_and_cashbox_revisions_before_ledger(
+        self,
+    ) -> None:
+        rejected = await self._call(
+            "agent_finance_workflow",
+            {
+                "operation": "create_employee_salary_transaction",
+                "payload": {
+                    "employee_id": "employee-1",
+                    "cashbox_id": "cashbox-1",
+                    "transaction_kind": "salary_payout",
+                    "amount_minor": 100,
+                },
+                "idempotency_key": "salary-without-revisions",
+            },
+        )
+
+        self.assertFalse(rejected.structuredContent["ok"])
+        self.assertEqual(
+            ["expected_cashbox_updated_at", "expected_employee_updated_at"],
+            rejected.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertIn(
+            "salary_transaction_expected_revisions_required_reread_exact_targets_first",
+            rejected.structuredContent["warnings"],
+        )
+
+    async def test_raw_attestation_employee_requires_ordered_snapshot_before_executor(
+        self,
+    ) -> None:
+        name = "api:/api/save_employee"
+        schema = await self._call("get_raw_capability_schema", {"name": name})
+        before_count = len(self.board_api.raw_requests)
+        rejected = await self._call(
+            "call_raw_capability",
+            {
+                "name": name,
+                "arguments": {
+                    "create_mode": True,
+                    "name": "AST-GWAT-20260728T165722Z-employee",
+                    "attestation_run_id": "AST-GWAT-20260728T165722Z",
+                },
+                "schema_hash": schema.structuredContent["summary"]["schema_hash"],
+                "idempotency_key": "raw-save-employee-without-snapshot",
+            },
+        )
+
+        self.assertFalse(rejected.structuredContent["ok"])
+        self.assertIn(
+            "employee_snapshot_required_reread_exact_list_first",
+            rejected.structuredContent["warnings"],
+        )
+        self.assertEqual(before_count, len(self.board_api.raw_requests))
+
     async def test_virtual_raw_capability_covers_hidden_internal_crm_writes(self) -> None:
         discovered = await self._call(
             "discover_raw_capabilities", {"query": "create_employee_salary_transaction"}

@@ -493,6 +493,98 @@ class ChangeFeedRawGatewayContractTests(unittest.IsolatedAsyncioTestCase):
             (verification or {})["check"],
         )
 
+    async def test_salary_transaction_has_exact_cashbox_employee_and_ledger_readback(
+        self,
+    ) -> None:
+        transaction = {
+            "id": "salary-transaction-1",
+            "cashbox_id": "cashbox-1",
+            "employee_id": "employee-1",
+            "direction": "expense",
+            "transaction_kind": "salary_payout",
+            "amount_minor": 100,
+        }
+
+        async def invoke(name: str, arguments: dict) -> dict:
+            if name == "get_cashbox":
+                self.assertEqual(arguments["cashbox_id"], "cashbox-1")
+                return {
+                    "ok": True,
+                    "data": {
+                        "cashbox": {
+                            "id": "cashbox-1",
+                            "updated_at": "2026-07-28T20:00:01+00:00",
+                        },
+                        "transactions": [transaction],
+                    },
+                }
+            if name == "api:/api/list_employees":
+                return {
+                    "ok": True,
+                    "data": {
+                        "employees": [
+                            {
+                                "id": "employee-1",
+                                "name": "Synthetic",
+                                "updated_at": "2026-07-28T20:00:00+00:00",
+                            }
+                        ]
+                    },
+                }
+            self.assertEqual(name, "api:/api/get_employee_salary_ledger")
+            return {
+                "ok": True,
+                "data": {
+                    "journal_rows": [
+                        {
+                            "transaction_id": "salary-transaction-1",
+                            "amount_minor": 100,
+                        }
+                    ]
+                },
+            }
+
+        verification = await verify_virtual_api_write_readback(
+            "create_employee_salary_transaction",
+            {
+                "employee_id": "employee-1",
+                "cashbox_id": "cashbox-1",
+                "amount_minor": 100,
+                "expected_employee_updated_at": "2026-07-28T20:00:00+00:00",
+                "expected_cashbox_updated_at": "2026-07-28T20:00:00+00:00",
+            },
+            {"ok": True, "data": {"transaction": transaction}},
+            invoke,
+        )
+
+        self.assertTrue((verification or {})["passed"])
+        self.assertEqual(
+            "exact_salary_cashbox_employee_and_ledger_readback",
+            (verification or {})["check"],
+        )
+
+    async def test_save_employee_has_exact_list_readback(self) -> None:
+        employee = {
+            "id": "employee-1",
+            "name": "AST-GWAT-20260728T165722Z-employee",
+            "updated_at": "2026-07-28T20:00:00+00:00",
+        }
+
+        async def invoke(name: str, arguments: dict) -> dict:
+            self.assertEqual(name, "api:/api/list_employees")
+            self.assertEqual(arguments, {})
+            return {"ok": True, "data": {"employees": [employee]}}
+
+        verification = await verify_virtual_api_write_readback(
+            "api:/api/save_employee",
+            {"name": employee["name"]},
+            {"ok": True, "data": {"employee": employee}},
+            invoke,
+        )
+
+        self.assertTrue((verification or {})["passed"])
+        self.assertEqual("exact_employee_list_readback", (verification or {})["check"])
+
     def test_parity_manifest_has_exact_guarded_coverage_and_zero_new_gaps(self) -> None:
         inventory = crm_capability_parity.build_inventory()
         rows = {row["route"]: row for row in inventory["matrix"]}

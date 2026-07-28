@@ -730,6 +730,20 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     status_code=404,
                     details={"employee_id": employee_id},
                 )
+            expected_employee_updated_at = normalize_text(
+                payload.get("expected_employee_updated_at"),
+                default="",
+                limit=80,
+            )
+            if expected_employee_updated_at and str(employee.get("updated_at") or "") != (
+                expected_employee_updated_at
+            ):
+                self._fail(
+                    "employee_update_conflict",
+                    "Сотрудник уже изменился. Обновите данные и повторите действие.",
+                    status_code=409,
+                    details={"employee_id": employee_id},
+                )
             kind = self._normalize_salary_transaction_kind(
                 payload.get("transaction_kind") or payload.get("kind")
             )
@@ -750,10 +764,41 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     "Для выплат зарплаты нужно выбрать кассу.",
                     details={"field": "cashbox_id"},
                 )
+            expected_cashbox_updated_at = normalize_text(
+                payload.get("expected_cashbox_updated_at"),
+                default="",
+                limit=80,
+            )
+            if expected_cashbox_updated_at and cashbox.updated_at != expected_cashbox_updated_at:
+                self._fail(
+                    "cashbox_update_conflict",
+                    "Касса уже изменилась. Обновите данные и повторите действие.",
+                    status_code=409,
+                    details={"cashbox_id": cashbox.id},
+                )
             note_prefix = "Выплата зарплаты" if kind == "salary_payout" else "Аванс"
             note = self._validated_cash_transaction_note(
                 payload.get("note") or f"{note_prefix}: {employee['name']}",
             )
+            attestation_run_id = normalize_text(
+                payload.get("attestation_run_id"),
+                default="",
+                limit=64,
+            )
+            if attestation_run_id and not (
+                _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
+                and str(employee.get("name") or "").startswith(f"{attestation_run_id}-")
+                and cashbox.name.startswith(f"{attestation_run_id}-")
+                and note.startswith(attestation_run_id)
+                and amount_minor == 100
+                and source == "mcp"
+                and actor_name
+            ):
+                self._fail(
+                    "salary_attestation_scope_invalid",
+                    "Синтетическая выплата не соответствует контуру аттестации.",
+                    status_code=403,
+                )
             transaction = self._append_cash_transaction(
                 transactions=transactions,
                 cashbox=cashbox,

@@ -1105,6 +1105,32 @@ def register_agent_gateway_v2(
                     ),
                     label=workflow_id,
                 )
+        if workflow_id == "finance" and operation == "create_employee_salary_transaction":
+            missing_revisions = [
+                field
+                for field in (
+                    "expected_cashbox_updated_at",
+                    "expected_employee_updated_at",
+                )
+                if not str(payload.get(field) or "").strip()
+            ]
+            if missing_revisions:
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=[
+                            "salary_transaction_expected_revisions_required_reread_exact_targets_first"
+                        ],
+                        summary={
+                            "workflow_id": workflow_id,
+                            "operation": operation,
+                            "missing_fields": missing_revisions,
+                        },
+                        next_actions=["get_cashbox and list_employees for the exact targets"],
+                    ),
+                    label=workflow_id,
+                )
         if workflow_id == "inventory" and operation in {
             "save_inventory_item",
             "replenish_inventory_item",
@@ -2382,6 +2408,47 @@ def register_agent_gateway_v2(
                         warnings=[
                             "cashbox_order_snapshot_required_reread_exact_list_first"
                         ],
+                    ),
+                    label="call_raw_capability",
+                )
+        if normalized_name == "api:/api/save_employee" and str(
+            (arguments or {}).get("attestation_run_id") or ""
+        ).strip():
+            expected_employee_ids = (arguments or {}).get("expected_employee_ids")
+            if (
+                not isinstance(expected_employee_ids, list)
+                or any(
+                    not isinstance(item, str) or not item.strip()
+                    for item in expected_employee_ids
+                )
+                or len(set(expected_employee_ids)) != len(expected_employee_ids)
+            ):
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=["employee_snapshot_required_reread_exact_list_first"],
+                    ),
+                    label="call_raw_capability",
+                )
+        if normalized_name == "api:/api/create_employee_salary_transaction":
+            missing_revisions = [
+                field
+                for field in (
+                    "expected_cashbox_updated_at",
+                    "expected_employee_updated_at",
+                )
+                if not str((arguments or {}).get(field) or "").strip()
+            ]
+            if missing_revisions:
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=[
+                            "salary_transaction_expected_revisions_required_reread_exact_targets_first"
+                        ],
+                        summary={"missing_fields": missing_revisions},
                     ),
                     label="call_raw_capability",
                 )
