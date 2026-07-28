@@ -489,8 +489,29 @@ def run_normalization(
                 else "",
             }
         )
+    post_apply_state = _read_json(state_file)
+    post_apply_events = post_apply_state.get("events")
+    if not isinstance(post_apply_events, list):
+        post_apply_events = []
+    if not any(
+        isinstance(item, dict) and str(item.get("id") or "") == event_id
+        for item in post_apply_events
+    ):
+        # JsonStore may age the already verified historical audit event out of
+        # state while persisting the normalization transactions. Keep that
+        # event only in this in-memory reread so post-apply verification uses
+        # the same immutable source proof; do not write it back into CRM.
+        source_event = _find_target_event(
+            state,
+            archive_dir=archive_dir,
+            event_id=event_id,
+        )
+        post_apply_state = {
+            **post_apply_state,
+            "events": [*post_apply_events, source_event],
+        }
     result["post_apply_plan"] = calculate_normalization_plan(
-        _read_json(state_file),
+        post_apply_state,
         archive_dir=archive_dir,
         event_id=event_id,
         expected_source_count=expected_source_count,

@@ -32,7 +32,11 @@ SKIP_DIRS = {
 }
 
 ALLOWED_LARGE_MODULES = {
+    "scripts/attest_agent_gateway_v2.py": "Gateway attestation scenario suite split target",
+    "src/minimal_kanban/mcp/agent_gateway_v2.py": "Gateway workflow executor split target",
+    "src/minimal_kanban/mcp/raw_gateway.py": "raw readback verifier split target",
     "src/minimal_kanban/services/card_service.py": "domain facade split target",
+    "src/minimal_kanban/services/card_service_finance.py": "finance domain split target",
     "src/minimal_kanban/services/card_service_payroll.py": "payroll domain split target",
     "src/minimal_kanban/services/snapshot_service.py": "snapshot serialization split target",
     "src/minimal_kanban/agent/runner.py": "agent orchestration split target",
@@ -41,23 +45,30 @@ ALLOWED_LARGE_MODULES = {
     "tests/test_service.py": "legacy broad service coverage pending domain split",
     "tests/test_api.py": "legacy broad API coverage pending route split",
     "tests/test_mcp.py": "legacy broad MCP coverage pending contract split",
+    "tests/test_agent_gateway_v2.py": "Gateway contract coverage pending family split",
     "tests/test_web_assets.py": "web asset contract coverage pending chunk split",
 }
 
 ALLOWED_LARGE_CLASSES = {
     "src/minimal_kanban/services/card_service.py:CardService": "domain facade split target",
     "src/minimal_kanban/services/card_service_payroll.py:CardServicePayrollMixin": "payroll domain split target",
+    "src/minimal_kanban/services/card_service_finance.py:CardServiceFinanceMixin": "finance domain split target",
     "src/minimal_kanban/agent/runner.py:AgentRunner": "agent orchestration split target",
     "tests/test_api.py:ApiServerTests": "legacy broad API coverage pending route split",
+    "tests/test_agent_gateway_v2.py:AgentGatewayV2Tests": "Gateway contract coverage pending family split",
     "tests/test_service.py:CardServiceTests": "legacy broad service coverage pending domain split",
     "tests/test_web_assets.py:WebAssetsTests": "web asset contract coverage pending chunk split",
 }
 
 ALLOWED_LARGE_FUNCTIONS = {
+    "scripts/attest_agent_gateway_v2.py:_finance_apply_audit_safe_fixes_case": "finance attestation scenario split target",
     "scripts/browser_smoke.py:_desktop_scenarios": "browser smoke scenario split target",
     "src/minimal_kanban/api/server.py:_make_handler": "API handler split target",
     "src/minimal_kanban/demo_seed.py:_demo_specs": "demo seed data split target",
     "src/minimal_kanban/mcp/agent_gateway_v2.py:register_agent_gateway_v2": "Gateway v2 registry split target",
+    "src/minimal_kanban/mcp/agent_gateway_v2.py:_execute_workflow": "Gateway workflow executor split target",
+    "src/minimal_kanban/mcp/agent_gateway_v2.py:call_raw_capability": "raw capability executor split target",
+    "src/minimal_kanban/mcp/raw_gateway.py:verify_virtual_api_write_readback": "raw readback verifier split target",
     "src/minimal_kanban/mcp/server.py:create_mcp_server": "MCP registry split target",
     "src/minimal_kanban/printing/defaults.py:builtin_template_records": "print template data split target",
     "tests/test_mcp.py:test_mcp_tools_reach_backend": "MCP contract test split target",

@@ -70,6 +70,7 @@
         "/api/delete_client_vehicle",
         "/api/delete_column",
         "/api/delete_employee",
+        "/api/delete_gateway_attestation_payment_fixture",
         "/api/delete_sticky",
         "/api/finance_audit/apply_safe_fixes",
         "/api/link_card_to_client",
@@ -124,6 +125,10 @@
         {
           "source": "tests/test_change_feed_producers.py",
           "pattern": "test_validation_error_and_notification_seen_state_have_correct_event_semantics"
+        },
+        {
+          "source": "tests/test_service.py",
+          "pattern": "test_delete_gateway_attestation_payment_fixture_restores_baseline"
         }
       ]
     },
