@@ -1480,6 +1480,11 @@ class BoardApiClient:
             "minutes": self._normalize_deadline_part(deadline.get("minutes"), maximum=59),
             "seconds": self._normalize_deadline_part(deadline.get("seconds"), maximum=59),
         }
+        total_seconds = self._normalize_deadline_part(
+            deadline.get("total_seconds"), maximum=31_536_000
+        )
+        if total_seconds > 0:
+            return {**normalized, "total_seconds": total_seconds}
         if not any(normalized.values()):
             return {"days": 1, "hours": 0, "minutes": 0, "seconds": 0}
         return normalized

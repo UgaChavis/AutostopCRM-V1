@@ -134,6 +134,29 @@ class BoardApiClientTests(unittest.TestCase):
             },
         )
 
+    def test_create_card_deadline_preserves_total_seconds(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with patch.object(client, "_request", return_value={"ok": True}) as request:
+            client.create_card(title="Запись", deadline={"total_seconds": 160_982})
+
+        request.assert_called_once_with(
+            "/api/create_card",
+            {
+                "vehicle": "",
+                "title": "Запись",
+                "description": "",
+                "deadline": {
+                    "days": 0,
+                    "hours": 0,
+                    "minutes": 0,
+                    "seconds": 0,
+                    "total_seconds": 160_982,
+                },
+                "source": "mcp",
+            },
+        )
+
     def test_create_card_deadline_rejects_bool_and_fractional_numeric_parts(self) -> None:
         client = BoardApiClient("https://board.example/api", bearer_token="secret")
 
