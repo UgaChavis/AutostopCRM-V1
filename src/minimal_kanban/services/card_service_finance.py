@@ -371,6 +371,32 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             transactions = bundle["cash_transactions"]
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="api")
+            expected_cashbox_ids = payload.get("expected_cashbox_ids")
+            if expected_cashbox_ids is not None:
+                if (
+                    not isinstance(expected_cashbox_ids, list)
+                    or any(
+                        not isinstance(item, str) or not item.strip()
+                        for item in expected_cashbox_ids
+                    )
+                    or len(set(expected_cashbox_ids)) != len(expected_cashbox_ids)
+                ):
+                    self._fail(
+                        "validation_error",
+                        "Поле expected_cashbox_ids должно содержать упорядоченные ID касс.",
+                        details={"field": "expected_cashbox_ids"},
+                    )
+                current_cashbox_ids = [item.id for item in cashboxes]
+                if expected_cashbox_ids != current_cashbox_ids:
+                    self._fail(
+                        "cashbox_order_conflict",
+                        "Порядок касс уже изменился. Обновите список и повторите действие.",
+                        status_code=409,
+                        details={
+                            "expected_count": len(expected_cashbox_ids),
+                            "current_count": len(current_cashbox_ids),
+                        },
+                    )
             cashbox = self._find_cashbox(cashboxes, payload.get("cashbox_id"))
             before_cashbox_id = (
                 payload.get("before_cashbox_id")

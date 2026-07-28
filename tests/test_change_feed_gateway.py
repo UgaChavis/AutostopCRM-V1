@@ -452,6 +452,47 @@ class ChangeFeedRawGatewayContractTests(unittest.IsolatedAsyncioTestCase):
             (verification or {})["check"],
         )
 
+    async def test_cashbox_reorder_has_exact_order_readback(self) -> None:
+        expected_order = ["cashbox-3", "cashbox-1", "cashbox-2"]
+
+        async def invoke(name: str, arguments: dict) -> dict:
+            self.assertEqual(name, "list_cashboxes")
+            self.assertGreaterEqual(arguments["limit"], 3)
+            return {
+                "ok": True,
+                "data": {
+                    "cashboxes": [
+                        {"id": cashbox_id, "order": index}
+                        for index, cashbox_id in enumerate(expected_order)
+                    ]
+                },
+            }
+
+        verification = await verify_virtual_api_write_readback(
+            "reorder_cashboxes",
+            {
+                "cashbox_id": "cashbox-3",
+                "before_cashbox_id": "cashbox-1",
+                "expected_cashbox_ids": ["cashbox-1", "cashbox-2", "cashbox-3"],
+            },
+            {
+                "ok": True,
+                "data": {
+                    "cashboxes": [
+                        {"id": cashbox_id, "order": index}
+                        for index, cashbox_id in enumerate(expected_order)
+                    ]
+                },
+            },
+            invoke,
+        )
+
+        self.assertTrue((verification or {})["passed"])
+        self.assertEqual(
+            "exact_cashbox_order_readback",
+            (verification or {})["check"],
+        )
+
     def test_parity_manifest_has_exact_guarded_coverage_and_zero_new_gaps(self) -> None:
         inventory = crm_capability_parity.build_inventory()
         rows = {row["route"]: row for row in inventory["matrix"]}

@@ -160,6 +160,39 @@ def _mapping_subset_matches(expected: Mapping[str, Any], actual: Any) -> bool:
     return all(key in actual and actual.get(key) == value for key, value in expected.items())
 
 
+def _cashbox_order_ids(value: Any, *, depth: int = 0) -> list[str]:
+    if depth > 7:
+        return []
+    if isinstance(value, Mapping):
+        cashboxes = value.get("cashboxes")
+        if isinstance(cashboxes, list):
+            rows = [
+                item
+                for item in cashboxes
+                if isinstance(item, Mapping)
+                and str(item.get("id") or "").strip()
+                and isinstance(item.get("order"), int)
+            ]
+            if len(rows) == len(cashboxes):
+                return [
+                    str(item["id"])
+                    for item in sorted(
+                        rows,
+                        key=lambda item: (int(item["order"]), str(item["id"])),
+                    )
+                ]
+        for item in value.values():
+            found = _cashbox_order_ids(item, depth=depth + 1)
+            if found:
+                return found
+    elif isinstance(value, list):
+        for item in value[:200]:
+            found = _cashbox_order_ids(item, depth=depth + 1)
+            if found:
+                return found
+    return []
+
+
 async def verify_virtual_api_write_readback(
     operation: str,
     arguments: Mapping[str, Any],
@@ -167,6 +200,57 @@ async def verify_virtual_api_write_readback(
     invoke: VirtualInvoker,
 ) -> dict[str, Any] | None:
     """Return exact verification for virtual writes that have a stable readback."""
+
+    if operation == "reorder_cashboxes":
+        expected_before = [
+            str(item)
+            for item in arguments.get("expected_cashbox_ids", [])
+            if isinstance(item, str) and item
+        ]
+        cashbox_id = str(arguments.get("cashbox_id") or "").strip()
+        before_cashbox_id = str(
+            arguments.get("before_cashbox_id")
+            or arguments.get("before_id")
+            or arguments.get("target_cashbox_id")
+            or ""
+        ).strip()
+        expected_after = list(expected_before)
+        if cashbox_id in expected_after:
+            expected_after.remove(cashbox_id)
+            if before_cashbox_id and before_cashbox_id in expected_after:
+                expected_after.insert(expected_after.index(before_cashbox_id), cashbox_id)
+            elif not before_cashbox_id:
+                expected_after.append(cashbox_id)
+            else:
+                expected_after = []
+        else:
+            expected_after = []
+        readback = await invoke(
+            "list_cashboxes",
+            {"limit": max(20, len(expected_before))},
+        )
+        result_order = _cashbox_order_ids(result)
+        actual_order = _cashbox_order_ids(readback)
+        passed = bool(
+            result.get("ok")
+            and readback.get("ok")
+            and expected_after
+            and result_order == expected_after
+            and actual_order == expected_after
+        )
+        return {
+            "required": True,
+            "passed": passed,
+            "check": "exact_cashbox_order_readback",
+            "evidence": {
+                "cashbox_id": cashbox_id,
+                "before_cashbox_id": before_cashbox_id,
+                "expected_count": len(expected_after),
+                "result_order_exact": result_order == expected_after,
+                "readback_order_exact": actual_order == expected_after,
+                "readback_ok": bool(readback.get("ok")),
+            },
+        }
 
     if operation == "create_cashbox_transfer":
         source_cashbox_id = str(

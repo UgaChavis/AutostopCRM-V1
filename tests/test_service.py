@@ -5567,6 +5567,24 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual([item["id"] for item in listed], [third["id"], first["id"], second["id"]])
         self.assertEqual([item["order"] for item in listed], [0, 1, 2])
 
+    def test_cashbox_reorder_rejects_stale_ordered_snapshot_without_write(self) -> None:
+        first = self.service.create_cashbox({"name": "Касса A", "actor_name": "ADMIN"})["cashbox"]
+        second = self.service.create_cashbox({"name": "Касса B", "actor_name": "ADMIN"})["cashbox"]
+
+        with self.assertRaises(ServiceError) as conflict:
+            self.service.reorder_cashboxes(
+                {
+                    "cashbox_id": second["id"],
+                    "before_cashbox_id": first["id"],
+                    "expected_cashbox_ids": [first["id"], "stale-id"],
+                    "actor_name": "ADMIN",
+                }
+            )
+
+        self.assertEqual(conflict.exception.code, "cashbox_order_conflict")
+        listed = self.service.list_cashboxes({"limit": 20})["cashboxes"]
+        self.assertEqual([item["id"] for item in listed], [first["id"], second["id"]])
+
     def test_cashbox_transfer_rejects_zero_and_stale_cashbox_revision(self) -> None:
         source = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
             "cashbox"

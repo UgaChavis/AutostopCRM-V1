@@ -2735,6 +2735,57 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
             rejected.structuredContent["warnings"],
         )
 
+    async def test_finance_reorder_requires_ordered_cashbox_snapshot_before_ledger(
+        self,
+    ) -> None:
+        rejected = await self._call(
+            "agent_finance_workflow",
+            {
+                "operation": "reorder_cashboxes",
+                "payload": {
+                    "cashbox_id": "cashbox-2",
+                    "before_cashbox_id": "cashbox-1",
+                },
+                "idempotency_key": "reorder-without-snapshot",
+            },
+        )
+
+        self.assertFalse(rejected.structuredContent["ok"])
+        self.assertEqual(
+            ["expected_cashbox_ids"],
+            rejected.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertIn(
+            "cashbox_order_snapshot_required_reread_exact_list_first",
+            rejected.structuredContent["warnings"],
+        )
+
+    async def test_raw_cashbox_reorder_requires_ordered_snapshot_before_executor(
+        self,
+    ) -> None:
+        name = "api:/api/reorder_cashboxes"
+        schema = await self._call("get_raw_capability_schema", {"name": name})
+        before_count = len(self.board_api.raw_requests)
+        rejected = await self._call(
+            "call_raw_capability",
+            {
+                "name": name,
+                "arguments": {
+                    "cashbox_id": "cashbox-2",
+                    "before_cashbox_id": "cashbox-1",
+                },
+                "schema_hash": schema.structuredContent["summary"]["schema_hash"],
+                "idempotency_key": "raw-reorder-without-snapshot",
+            },
+        )
+
+        self.assertFalse(rejected.structuredContent["ok"])
+        self.assertIn(
+            "cashbox_order_snapshot_required_reread_exact_list_first",
+            rejected.structuredContent["warnings"],
+        )
+        self.assertEqual(before_count, len(self.board_api.raw_requests))
+
     async def test_virtual_raw_capability_covers_hidden_internal_crm_writes(self) -> None:
         discovered = await self._call(
             "discover_raw_capabilities", {"query": "create_employee_salary_transaction"}
