@@ -453,6 +453,9 @@ def register_agent_gateway_v2(
         card_id = str(payload.get("card_id") or "").strip()
         cashbox_id = str(payload.get("cashbox_id") or "").strip()
         expected_updated_at = str(payload.get("expected_updated_at") or "").strip()
+        expected_cashbox_updated_at = str(
+            payload.get("expected_cashbox_updated_at") or ""
+        ).strip()
         payment_method = str(payload.get("payment_method") or "").strip().casefold()
         amount = _positive_decimal(payload.get("amount"))
         if amount is None and payload.get("amount_minor") is not None:
@@ -464,6 +467,7 @@ def register_agent_gateway_v2(
                 ("card_id", card_id),
                 ("cashbox_id", cashbox_id),
                 ("expected_updated_at", expected_updated_at),
+                ("expected_cashbox_updated_at", expected_cashbox_updated_at),
                 ("payment_method", payment_method),
                 ("amount", amount),
             )
@@ -531,6 +535,18 @@ def register_agent_gateway_v2(
                     "message": "reread_the_repair_order_before_retry",
                 },
             }
+        current_cashbox_updated_at = str(cashbox.get("updated_at") or "").strip()
+        if (
+            not current_cashbox_updated_at
+            or current_cashbox_updated_at != expected_cashbox_updated_at
+        ):
+            return {
+                "ok": False,
+                "error": {
+                    "code": "cashbox_update_conflict",
+                    "message": "reread_the_cashbox_before_retry",
+                },
+            }
         payment_summary = (
             repair_order.get("payment_summary")
             if isinstance(repair_order.get("payment_summary"), dict)
@@ -577,6 +593,8 @@ def register_agent_gateway_v2(
                 "card_id": card_id,
                 "repair_order": {"payments": payments},
                 "expected_updated_at": expected_updated_at,
+                "expected_cashbox_id": cashbox_id,
+                "expected_cashbox_updated_at": expected_cashbox_updated_at,
                 "actor_name": _effective_audit_actor(),
             },
         )
@@ -595,6 +613,7 @@ def register_agent_gateway_v2(
         )
         checks = {
             "repair_order_reread": bool(order_readback.get("ok")),
+            "cashbox_reread": bool(cashbox_readback.get("ok")),
             "payment_id_present": recorded_payment is not None,
             "amount_exact": str((recorded_payment or {}).get("amount") or "")
             == _decimal_text(amount),
@@ -603,6 +622,18 @@ def register_agent_gateway_v2(
             "cash_transaction_linked": bool(transaction_id),
             "cash_journal_entry_present": bool(transaction_id)
             and _contains_value(cashbox_readback, "id", transaction_id),
+            "cashbox_revision_changed": str(
+                (
+                    (
+                        cashbox_readback.get("data")
+                        if isinstance(cashbox_readback.get("data"), dict)
+                        else {}
+                    ).get("cashbox")
+                    or {}
+                ).get("updated_at")
+                or ""
+            )
+            != expected_cashbox_updated_at,
         }
         return {
             "ok": all(checks.values()),
@@ -997,6 +1028,34 @@ def register_agent_gateway_v2(
                         },
                         next_actions=[
                             "agent_entity_context for both exact cashboxes"
+                        ],
+                    ),
+                    label=workflow_id,
+                )
+        if workflow_id == "finance" and operation == "record_repair_order_payment":
+            missing_revisions = [
+                field
+                for field in (
+                    "expected_updated_at",
+                    "expected_cashbox_updated_at",
+                )
+                if not str(payload.get(field) or "").strip()
+            ]
+            if missing_revisions:
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=[
+                            "payment_expected_revisions_required_reread_exact_targets_first"
+                        ],
+                        summary={
+                            "workflow_id": workflow_id,
+                            "operation": operation,
+                            "missing_fields": missing_revisions,
+                        },
+                        next_actions=[
+                            "agent_entity_context for the exact repair order and cashbox"
                         ],
                     ),
                     label=workflow_id,

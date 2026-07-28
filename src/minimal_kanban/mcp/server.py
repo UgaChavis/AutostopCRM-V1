@@ -3783,6 +3783,8 @@ def create_mcp_server(
         card_id: str,
         repair_order: RepairOrderPatchPayload,
         expected_updated_at: str | None = None,
+        expected_cashbox_id: str | None = None,
+        expected_cashbox_updated_at: str | None = None,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
         repair_order_payload = (
@@ -3796,6 +3798,8 @@ def create_mcp_server(
                 card_id=card_id,
                 repair_order=repair_order_payload.model_dump(exclude_none=True),
                 expected_updated_at=expected_updated_at,
+                expected_cashbox_id=expected_cashbox_id,
+                expected_cashbox_updated_at=expected_cashbox_updated_at,
                 actor_name=actor_name,
             ),
         )

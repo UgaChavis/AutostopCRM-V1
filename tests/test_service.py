@@ -6120,6 +6120,52 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(reread["cashbox"]["updated_at"], cashbox["updated_at"])
         self.assertEqual(reread["transactions"], [])
 
+    def test_repair_order_payment_rejects_stale_cashbox_revision_atomically(self) -> None:
+        cashbox = self.service.create_cashbox(
+            {"name": "Касса наличных оплат", "actor_name": "ADMIN"}
+        )["cashbox"]
+        card = self.service.create_card(
+            {"vehicle": "TEST", "title": "Оплата", "deadline": {"hours": 1}}
+        )["card"]
+        prepared = self.service.update_repair_order(
+            {
+                "card_id": card["id"],
+                "repair_order": {
+                    "works": [{"name": "Тест", "quantity": "1", "price": "1"}]
+                },
+                "expected_updated_at": card["updated_at"],
+                "actor_name": "ADMIN",
+            }
+        )["card"]
+
+        with self.assertRaises(ServiceError) as stale:
+            self.service.update_repair_order(
+                {
+                    "card_id": card["id"],
+                    "repair_order": {
+                        "payments": [
+                            {
+                                "amount": "1",
+                                "payment_method": "cash",
+                                "cashbox_id": cashbox["id"],
+                            }
+                        ]
+                    },
+                    "expected_updated_at": prepared["updated_at"],
+                    "expected_cashbox_id": cashbox["id"],
+                    "expected_cashbox_updated_at": "2000-01-01T00:00:00+00:00",
+                    "actor_name": "ADMIN",
+                }
+            )
+
+        self.assertEqual(stale.exception.code, "cashbox_update_conflict")
+        reread = self.service.get_repair_order({"card_id": card["id"]})
+        self.assertEqual(reread["repair_order"]["payments"], [])
+        cashbox_reread = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+        )
+        self.assertEqual(cashbox_reread["transactions"], [])
+
     def test_get_cashbox_paginates_transactions_with_stable_order(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
             "cashbox"

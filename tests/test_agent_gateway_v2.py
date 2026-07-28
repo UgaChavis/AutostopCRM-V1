@@ -57,6 +57,7 @@ class FakeBoardApi:
     def __init__(self) -> None:
         self.raw_requests: list[dict] = []
         self.card_updated_at = "2026-07-11T00:00:00+00:00"
+        self.cashbox_updated_at = "2026-07-11T00:00:00+00:00"
         self.card_ai_state = {
             "ai_autofill_active": False,
             "ai_autofill_until": "",
@@ -239,6 +240,7 @@ class FakeBoardApi:
                 "cashbox": {
                     "id": cashbox_id,
                     "name": "Наличный",
+                    "updated_at": self.cashbox_updated_at,
                     "transactions": [dict(item) for item in self.cash_transactions],
                 }
             },
@@ -250,11 +252,17 @@ class FakeBoardApi:
         card_id: str,
         repair_order: dict,
         expected_updated_at: str | None = None,
+        expected_cashbox_id: str | None = None,
+        expected_cashbox_updated_at: str | None = None,
         actor_name: str | None = None,
     ) -> dict:
         del actor_name
         if expected_updated_at != self.card_updated_at:
             return {"ok": False, "error": {"code": "card_update_conflict"}}
+        if expected_cashbox_id != "cashbox-main":
+            return {"ok": False, "error": {"code": "cashbox_not_found"}}
+        if expected_cashbox_updated_at != self.cashbox_updated_at:
+            return {"ok": False, "error": {"code": "cashbox_update_conflict"}}
         self.repair_order_payments = [dict(item) for item in repair_order.get("payments", [])]
         payment = self.repair_order_payments[-1]
         transaction_id = "cash-transaction-payment-1"
@@ -267,6 +275,7 @@ class FakeBoardApi:
             }
         )
         self.card_updated_at = "2026-07-11T00:01:00+00:00"
+        self.cashbox_updated_at = "2026-07-11T00:01:00+00:00"
         return {
             "ok": True,
             "data": {
@@ -2697,6 +2706,34 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
             rejected.structuredContent["warnings"],
         )
 
+    async def test_finance_payment_requires_card_and_cashbox_revisions_before_ledger(
+        self,
+    ) -> None:
+        rejected = await self._call(
+            "agent_finance_workflow",
+            {
+                "operation": "record_repair_order_payment",
+                "payload": {
+                    "card_id": "card-1",
+                    "cashbox_id": "cashbox-main",
+                    "amount_minor": 100,
+                    "payment_method": "cash",
+                    "expected_updated_at": "2026-07-11T00:00:00+00:00",
+                },
+                "idempotency_key": "payment-without-cashbox-revision",
+            },
+        )
+
+        self.assertFalse(rejected.structuredContent["ok"])
+        self.assertEqual(
+            ["expected_cashbox_updated_at"],
+            rejected.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertIn(
+            "payment_expected_revisions_required_reread_exact_targets_first",
+            rejected.structuredContent["warnings"],
+        )
+
     async def test_virtual_raw_capability_covers_hidden_internal_crm_writes(self) -> None:
         discovered = await self._call(
             "discover_raw_capabilities", {"query": "create_employee_salary_transaction"}
@@ -3134,6 +3171,7 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
                     "amount": "1000",
                     "payment_method": "cash",
                     "expected_updated_at": "2026-07-11T00:00:00+00:00",
+                    "expected_cashbox_updated_at": "2026-07-11T00:00:00+00:00",
                     "note": "Полная оплата заказ-наряда 42",
                 },
                 "idempotency_key": "payment-card-1-full-v1",
@@ -3209,6 +3247,7 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
                     "amount": "1000",
                     "payment_method": "cash",
                     "expected_updated_at": "2026-07-11T00:00:00+00:00",
+                    "expected_cashbox_updated_at": "2026-07-11T00:00:00+00:00",
                 },
                 "idempotency_key": "payment-card-1-mismatch-v1",
             },

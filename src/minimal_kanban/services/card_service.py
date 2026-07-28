@@ -2735,6 +2735,38 @@ class CardService(
                         "current_updated_at": card.updated_at,
                     },
                 )
+            expected_cashbox_id = normalize_text(
+                payload.get("expected_cashbox_id"), default="", limit=128
+            )
+            expected_cashbox_updated_at = normalize_text(
+                payload.get("expected_cashbox_updated_at"), default="", limit=80
+            )
+            if bool(expected_cashbox_id) is not bool(expected_cashbox_updated_at):
+                self._fail(
+                    "validation_error",
+                    "Для проверки кассы нужны её идентификатор и ревизия.",
+                    details={
+                        "fields": [
+                            "expected_cashbox_id",
+                            "expected_cashbox_updated_at",
+                        ]
+                    },
+                )
+            if expected_cashbox_id:
+                expected_cashbox = self._find_cashbox(
+                    bundle["cashboxes"], expected_cashbox_id
+                )
+                if expected_cashbox.updated_at != expected_cashbox_updated_at:
+                    self._fail(
+                        "cashbox_update_conflict",
+                        "Касса уже изменена другим оператором. Обновите кассу и повторите действие.",
+                        status_code=409,
+                        details={
+                            "cashbox_id": expected_cashbox.id,
+                            "expected_updated_at": expected_cashbox_updated_at,
+                            "current_updated_at": expected_cashbox.updated_at,
+                        },
+                    )
             actor_name, source = self._audit_identity(payload, default_source="api")
             next_payload = self._merged_repair_order_storage(
                 card.repair_order.to_storage_dict(), patch

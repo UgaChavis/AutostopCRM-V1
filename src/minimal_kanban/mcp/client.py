@@ -1147,11 +1147,17 @@ class BoardApiClient:
         card_id: str,
         repair_order: dict[str, object],
         expected_updated_at: str | None = None,
+        expected_cashbox_id: str | None = None,
+        expected_cashbox_updated_at: str | None = None,
         actor_name: str | None = None,
     ) -> dict:
         payload: dict[str, object] = {"card_id": card_id, "repair_order": repair_order}
         if expected_updated_at:
             payload["expected_updated_at"] = expected_updated_at
+        if expected_cashbox_id:
+            payload["expected_cashbox_id"] = expected_cashbox_id
+        if expected_cashbox_updated_at:
+            payload["expected_cashbox_updated_at"] = expected_cashbox_updated_at
         return self._request_with_identity(
             "/api/update_repair_order", payload, actor_name=actor_name
         )

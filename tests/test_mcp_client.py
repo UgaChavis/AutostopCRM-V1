@@ -15,6 +15,33 @@ from minimal_kanban.mcp.client import BoardApiClient, BoardApiTransportError, _n
 
 
 class BoardApiClientTests(unittest.TestCase):
+    def test_update_repair_order_forwards_card_and_cashbox_revisions(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with patch.object(
+            client, "_request_with_identity", return_value={"ok": True}
+        ) as request:
+            client.update_repair_order(
+                card_id="card-1",
+                repair_order={"payments": []},
+                expected_updated_at="card-revision-1",
+                expected_cashbox_id="cashbox-1",
+                expected_cashbox_updated_at="cashbox-revision-1",
+                actor_name="CODEX",
+            )
+
+        request.assert_called_once_with(
+            "/api/update_repair_order",
+            {
+                "card_id": "card-1",
+                "repair_order": {"payments": []},
+                "expected_updated_at": "card-revision-1",
+                "expected_cashbox_id": "cashbox-1",
+                "expected_cashbox_updated_at": "cashbox-revision-1",
+            },
+            actor_name="CODEX",
+        )
+
     def test_create_card_without_deadline_keeps_timer_inactive(self) -> None:
         client = BoardApiClient("https://board.example/api", bearer_token="secret")
 
