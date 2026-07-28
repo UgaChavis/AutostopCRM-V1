@@ -5998,6 +5998,56 @@ class CardServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Нельзя создать больше 6 касс"):
             self.service.create_cashbox({"name": "Касса 7", "actor_name": "ADMIN"})
 
+    def test_cashbox_creation_rejects_stale_ordered_snapshot_without_write(self) -> None:
+        first = self.service.create_cashbox({"name": "Касса 1", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+
+        with self.assertRaises(ServiceError) as conflict:
+            self.service.create_cashbox(
+                {
+                    "name": "Касса 2",
+                    "expected_cashbox_ids": [],
+                    "actor_name": "ADMIN",
+                }
+            )
+
+        self.assertEqual(conflict.exception.code, "cashbox_snapshot_conflict")
+        listed = self.service.list_cashboxes({"limit": 20})["cashboxes"]
+        self.assertEqual([item["id"] for item in listed], [first["id"]])
+
+    def test_gateway_attestation_cashboxes_have_two_strict_extra_slots(self) -> None:
+        for index in range(6):
+            self.service.create_cashbox(
+                {"name": f"Касса {index + 1}", "actor_name": "ADMIN"}
+            )
+        run_id = "AST-GWAT-20260728T165722Z"
+
+        for index in range(2):
+            cashboxes = self.service.list_cashboxes({"limit": 20})["cashboxes"]
+            created = self.service.create_cashbox(
+                {
+                    "name": f"{run_id}-cashbox-{index + 1}",
+                    "expected_cashbox_ids": [item["id"] for item in cashboxes],
+                    "attestation_run_id": run_id,
+                    "source": "mcp",
+                    "actor_name": "codex-owner-agent",
+                }
+            )
+            self.assertEqual(created["cashbox"]["order"], 6 + index)
+
+        cashboxes = self.service.list_cashboxes({"limit": 20})["cashboxes"]
+        with self.assertRaisesRegex(ValueError, "Нельзя создать больше 6 касс"):
+            self.service.create_cashbox(
+                {
+                    "name": f"{run_id}-cashbox-3",
+                    "expected_cashbox_ids": [item["id"] for item in cashboxes],
+                    "attestation_run_id": run_id,
+                    "source": "mcp",
+                    "actor_name": "codex-owner-agent",
+                }
+            )
+
     def test_get_cashbox_paginates_transactions_with_stable_order(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
             "cashbox"

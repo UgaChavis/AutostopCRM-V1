@@ -926,6 +926,32 @@ def register_agent_gateway_v2(
                 ),
                 label=workflow_id,
             )
+        if workflow_id == "finance" and operation == "create_cashbox":
+            expected_cashbox_ids = payload.get("expected_cashbox_ids")
+            if (
+                not isinstance(expected_cashbox_ids, list)
+                or any(
+                    not isinstance(item, str) or not item.strip()
+                    for item in expected_cashbox_ids
+                )
+                or len(set(expected_cashbox_ids)) != len(expected_cashbox_ids)
+            ):
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=[
+                            "cashbox_snapshot_required_reread_exact_list_first"
+                        ],
+                        summary={
+                            "workflow_id": workflow_id,
+                            "operation": operation,
+                            "missing_fields": ["expected_cashbox_ids"],
+                        },
+                        next_actions=["list_cashboxes before creating a cashbox"],
+                    ),
+                    label=workflow_id,
+                )
         if workflow_id == "inventory" and operation in {
             "save_inventory_item",
             "replenish_inventory_item",

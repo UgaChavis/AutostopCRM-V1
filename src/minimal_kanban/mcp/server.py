@@ -2450,10 +2450,20 @@ def create_mcp_server(
         annotations=_write_tool_annotations("Create Cashbox"),
         structured_output=True,
     )
-    def create_cashbox(name: str, actor_name: str | None = None) -> JsonEnvelope:
+    def create_cashbox(
+        name: str,
+        expected_cashbox_ids: list[str] | None = None,
+        attestation_run_id: str | None = None,
+        actor_name: str | None = None,
+    ) -> JsonEnvelope:
         return _relay_board_call(
             "create_cashbox",
-            lambda: board_api.create_cashbox(name, actor_name=actor_name),
+            lambda: board_api.create_cashbox(
+                name,
+                expected_cashbox_ids=expected_cashbox_ids,
+                attestation_run_id=attestation_run_id,
+                actor_name=actor_name,
+            ),
             error_code="cashbox_write_unreachable",
         )
 

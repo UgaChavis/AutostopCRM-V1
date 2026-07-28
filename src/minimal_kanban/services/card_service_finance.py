@@ -39,6 +39,9 @@ EMPLOYEES_SETTING_KEY = "employees"
 EMPLOYEE_SHIFT_ACCRUALS_SETTING_KEY = "employee_shift_accruals"
 _CASH_EXPENSE_NOTE_MIN_CHARS = 10
 _CASHBOX_NOTIFICATION_UNREAD_LIMIT = 500
+_GATEWAY_ATTESTATION_RUN_RE = re.compile(r"^AST-GWAT-\d{8}T\d{6}Z$")
+_MAX_REGULAR_CASHBOXES = 6
+_MAX_GATEWAY_ATTESTATION_CASHBOXES = 2
 
 
 class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
@@ -281,12 +284,61 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             transactions = bundle["cash_transactions"]
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="api")
-            if len(cashboxes) >= 6:
+            expected_cashbox_ids = payload.get("expected_cashbox_ids")
+            if expected_cashbox_ids is not None:
+                if not isinstance(expected_cashbox_ids, list) or any(
+                    not isinstance(item, str) or not item.strip()
+                    for item in expected_cashbox_ids
+                ):
+                    self._fail(
+                        "validation_error",
+                        "Поле expected_cashbox_ids должно содержать ID касс.",
+                        details={"field": "expected_cashbox_ids"},
+                    )
+                current_cashbox_ids = [item.id for item in cashboxes]
+                if expected_cashbox_ids != current_cashbox_ids:
+                    self._fail(
+                        "cashbox_snapshot_conflict",
+                        "Список касс уже изменился. Обновите его и повторите создание.",
+                        status_code=409,
+                        details={
+                            "expected_count": len(expected_cashbox_ids),
+                            "current_count": len(current_cashbox_ids),
+                        },
+                    )
+            requested_name = normalize_text(payload.get("name"), default="", limit=80)
+            attestation_run_id = normalize_text(
+                payload.get("attestation_run_id"),
+                default="",
+                limit=64,
+            )
+            attestation_mode = bool(
+                _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
+                and requested_name.startswith(f"{attestation_run_id}-")
+                and source == "mcp"
+                and actor_name
+            )
+            existing_attestation_cashboxes = [
+                item
+                for item in cashboxes
+                if item.name.startswith(f"{attestation_run_id}-")
+            ]
+            attestation_capacity_available = bool(
+                attestation_mode
+                and len(cashboxes)
+                < _MAX_REGULAR_CASHBOXES + _MAX_GATEWAY_ATTESTATION_CASHBOXES
+                and len(existing_attestation_cashboxes)
+                < _MAX_GATEWAY_ATTESTATION_CASHBOXES
+            )
+            if (
+                len(cashboxes) >= _MAX_REGULAR_CASHBOXES
+                and not attestation_capacity_available
+            ):
                 raise ValueError("Нельзя создать больше 6 касс.")
             now_iso = model_helpers.utc_now_iso()
             cashbox = CashBox(
                 id=str(uuid.uuid4()),
-                name=self._validated_cashbox_name(payload.get("name"), cashboxes),
+                name=self._validated_cashbox_name(requested_name, cashboxes),
                 order=len(cashboxes),
                 created_at=now_iso,
                 updated_at=now_iso,

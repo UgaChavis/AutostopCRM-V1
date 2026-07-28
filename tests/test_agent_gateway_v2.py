@@ -2623,6 +2623,28 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
             rejected.structuredContent["warnings"],
         )
 
+    async def test_finance_cashbox_create_requires_exact_ordered_snapshot_before_ledger(
+        self,
+    ) -> None:
+        rejected = await self._call(
+            "agent_finance_workflow",
+            {
+                "operation": "create_cashbox",
+                "payload": {"name": "AST-GWAT-fixture"},
+                "idempotency_key": "create-cashbox-without-snapshot",
+            },
+        )
+
+        self.assertFalse(rejected.structuredContent["ok"])
+        self.assertEqual(
+            ["expected_cashbox_ids"],
+            rejected.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertIn(
+            "cashbox_snapshot_required_reread_exact_list_first",
+            rejected.structuredContent["warnings"],
+        )
+
     async def test_virtual_raw_capability_covers_hidden_internal_crm_writes(self) -> None:
         discovered = await self._call(
             "discover_raw_capabilities", {"query": "create_employee_salary_transaction"}

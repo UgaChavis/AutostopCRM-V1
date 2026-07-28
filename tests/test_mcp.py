@@ -2951,7 +2951,12 @@ class McpServerRuntimeTests(unittest.TestCase):
                 compact_groups=True,
             )
             client.get_cashbox("CB-1", transaction_limit=25, transaction_offset=50)
-            client.create_cashbox("Наличный", actor_name="ОПЕРАТОР")
+            client.create_cashbox(
+                "Наличный",
+                expected_cashbox_ids=["CB-0"],
+                attestation_run_id="AST-GWAT-20260728T165722Z",
+                actor_name="ОПЕРАТОР",
+            )
             client.create_cash_transaction(
                 cashbox_id="CB-1",
                 direction="income",
@@ -2987,7 +2992,13 @@ class McpServerRuntimeTests(unittest.TestCase):
                 ),
                 unittest.mock.call(
                     "/api/create_cashbox",
-                    {"name": "Наличный", "source": "mcp", "actor_name": "ОПЕРАТОР"},
+                    {
+                        "name": "Наличный",
+                        "expected_cashbox_ids": ["CB-0"],
+                        "attestation_run_id": "AST-GWAT-20260728T165722Z",
+                        "source": "mcp",
+                        "actor_name": "ОПЕРАТОР",
+                    },
                 ),
                 unittest.mock.call(
                     "/api/create_cash_transaction",

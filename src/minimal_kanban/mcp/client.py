@@ -787,9 +787,21 @@ class BoardApiClient:
             )
         return self._request("/api/get_cashbox", payload)
 
-    def create_cashbox(self, name: str, *, actor_name: str | None = None) -> dict:
+    def create_cashbox(
+        self,
+        name: str,
+        *,
+        expected_cashbox_ids: list[str] | None = None,
+        attestation_run_id: str | None = None,
+        actor_name: str | None = None,
+    ) -> dict:
+        payload: dict[str, object] = {"name": name}
+        if expected_cashbox_ids is not None:
+            payload["expected_cashbox_ids"] = expected_cashbox_ids
+        if attestation_run_id is not None:
+            payload["attestation_run_id"] = attestation_run_id
         return self._request_with_identity(
-            "/api/create_cashbox", {"name": name}, actor_name=actor_name
+            "/api/create_cashbox", payload, actor_name=actor_name
         )
 
     def delete_cashbox(self, cashbox_id: str, *, actor_name: str | None = None) -> dict:
