@@ -156,6 +156,29 @@ class FakeBoardApi:
             },
         }
 
+    def get_shared_file_info(self, file_id: str) -> dict:
+        if file_id == "missing-file":
+            return {
+                "ok": False,
+                "error": {
+                    "code": "not_found",
+                    "message": "private backend error text",
+                    "details": {"file_id": file_id},
+                },
+            }
+        return {
+            "ok": True,
+            "data": {
+                "file": {
+                    "id": file_id,
+                    "original_name": "fixture.pdf",
+                    "updated_at": "2026-07-28T18:00:00+00:00",
+                    "size_bytes": 42,
+                    "exists_on_disk": True,
+                }
+            },
+        }
+
     def create_document_without_card_pdf(self, **_: object) -> dict:
         return {
             "ok": True,
@@ -1422,6 +1445,19 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
         self.assertEqual("movement-1", material["inventory_movement_id"])
         self.assertNotIn(
             "<max-depth>",
+            json.dumps(context.structuredContent, ensure_ascii=False),
+        )
+
+    async def test_entity_context_exposes_only_structured_backend_error_code(self) -> None:
+        context = await self._call(
+            "agent_entity_context",
+            {"entity": "file", "entity_id": "missing-file", "detail": "full"},
+        )
+
+        self.assertFalse(context.structuredContent["ok"])
+        self.assertEqual(["not_found"], context.structuredContent["warnings"])
+        self.assertNotIn(
+            "private backend error text",
             json.dumps(context.structuredContent, ensure_ascii=False),
         )
 

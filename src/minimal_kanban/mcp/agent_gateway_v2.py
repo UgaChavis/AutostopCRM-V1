@@ -1624,7 +1624,7 @@ def register_agent_gateway_v2(
                 "fields": list(selected),
             },
             data={"cards": page_items},
-            warnings=[] if ok else [str(error or "board_digest_failed")],
+            warnings=[] if ok else [_error_code({"error": error}) or "board_digest_failed"],
             page={
                 "cursor": str(offset),
                 "next_cursor": str(next_offset) if has_more else None,
@@ -1726,7 +1726,7 @@ def register_agent_gateway_v2(
                 "scope": "crm",
             },
             data={"items": items},
-            warnings=[] if ok else [str(error or "search_failed")],
+            warnings=[] if ok else [_error_code({"error": error}) or "search_failed"],
             page={"limit": effective_limit, "has_more": False},
             meta={"source_meta": _compact_object(meta)},
         )
@@ -1819,7 +1819,7 @@ def register_agent_gateway_v2(
                 item_limit=50 if detail == "full" else 15,
                 max_depth=8 if detail == "full" else 5,
             ),
-            warnings=[] if ok else [str(error or "entity_read_failed")],
+            warnings=[] if ok else [_error_code({"error": error}) or "entity_read_failed"],
             meta={"source_meta": _compact_object(meta)},
         )
         return _tool_result(payload, label="agent_entity_context")
