@@ -168,6 +168,83 @@ async def verify_virtual_api_write_readback(
 ) -> dict[str, Any] | None:
     """Return exact verification for virtual writes that have a stable readback."""
 
+    if operation == "create_cashbox_transfer":
+        source_cashbox_id = str(
+            arguments.get("from_cashbox_id") or arguments.get("cashbox_id") or ""
+        ).strip()
+        target_cashbox_id = str(
+            arguments.get("to_cashbox_id")
+            or arguments.get("target_cashbox_id")
+            or ""
+        ).strip()
+        source_transaction = (
+            _find_mapping(result, "cashbox_id", source_cashbox_id)
+            if source_cashbox_id
+            else None
+        )
+        target_transaction = (
+            _find_mapping(result, "cashbox_id", target_cashbox_id)
+            if target_cashbox_id
+            else None
+        )
+        source_transaction_id = str((source_transaction or {}).get("id") or "")
+        target_transaction_id = str((target_transaction or {}).get("id") or "")
+        source_readback = (
+            await invoke(
+                "get_cashbox",
+                {"cashbox_id": source_cashbox_id, "transaction_limit": 50},
+            )
+            if source_cashbox_id
+            else {}
+        )
+        target_readback = (
+            await invoke(
+                "get_cashbox",
+                {"cashbox_id": target_cashbox_id, "transaction_limit": 50},
+            )
+            if target_cashbox_id
+            else {}
+        )
+        same_group = bool(
+            (source_transaction or {}).get("transfer_group_id")
+            and (source_transaction or {}).get("transfer_group_id")
+            == (target_transaction or {}).get("transfer_group_id")
+        )
+        pair_linked = bool(
+            source_transaction_id
+            and target_transaction_id
+            and str((source_transaction or {}).get("related_transaction_id") or "")
+            == target_transaction_id
+            and str((target_transaction or {}).get("related_transaction_id") or "")
+            == source_transaction_id
+        )
+        passed = bool(
+            result.get("ok")
+            and source_readback.get("ok")
+            and target_readback.get("ok")
+            and str((source_transaction or {}).get("direction") or "") == "expense"
+            and str((target_transaction or {}).get("direction") or "") == "income"
+            and same_group
+            and pair_linked
+            and _find_mapping(source_readback, "id", source_transaction_id)
+            and _find_mapping(target_readback, "id", target_transaction_id)
+        )
+        return {
+            "required": True,
+            "passed": passed,
+            "check": "exact_cashbox_transfer_pair_readback",
+            "evidence": {
+                "source_cashbox_id": source_cashbox_id,
+                "target_cashbox_id": target_cashbox_id,
+                "source_transaction_id": source_transaction_id,
+                "target_transaction_id": target_transaction_id,
+                "same_group": same_group,
+                "pair_linked": pair_linked,
+                "source_readback_ok": bool(source_readback.get("ok")),
+                "target_readback_ok": bool(target_readback.get("ok")),
+            },
+        }
+
     if operation == "update_display_dashboard_message":
         expected_revision = str(arguments.get("expected_revision") or "").strip()
         dry_run = arguments.get("dry_run") is True

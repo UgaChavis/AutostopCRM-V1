@@ -398,6 +398,60 @@ class ChangeFeedRawGatewayContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((ack_result or {})["passed"])
         self.assertEqual("exact_change_feed_ack_checkpoint", (ack_result or {})["check"])
 
+    async def test_cashbox_transfer_has_exact_pair_readback(self) -> None:
+        source_transaction = {
+            "id": "transaction-out",
+            "cashbox_id": "cashbox-source",
+            "direction": "expense",
+            "amount_minor": 100,
+            "transfer_group_id": "transfer-1",
+            "related_transaction_id": "transaction-in",
+        }
+        target_transaction = {
+            "id": "transaction-in",
+            "cashbox_id": "cashbox-target",
+            "direction": "income",
+            "amount_minor": 100,
+            "transfer_group_id": "transfer-1",
+            "related_transaction_id": "transaction-out",
+        }
+
+        async def invoke(_name: str, arguments: dict) -> dict:
+            transaction = (
+                source_transaction
+                if arguments["cashbox_id"] == "cashbox-source"
+                else target_transaction
+            )
+            return {
+                "ok": True,
+                "data": {
+                    "cashbox": {"id": arguments["cashbox_id"]},
+                    "transactions": [transaction],
+                },
+            }
+
+        verification = await verify_virtual_api_write_readback(
+            "create_cashbox_transfer",
+            {
+                "from_cashbox_id": "cashbox-source",
+                "to_cashbox_id": "cashbox-target",
+            },
+            {
+                "ok": True,
+                "data": {
+                    "source_transaction": source_transaction,
+                    "target_transaction": target_transaction,
+                },
+            },
+            invoke,
+        )
+
+        self.assertTrue((verification or {})["passed"])
+        self.assertEqual(
+            "exact_cashbox_transfer_pair_readback",
+            (verification or {})["check"],
+        )
+
     def test_parity_manifest_has_exact_guarded_coverage_and_zero_new_gaps(self) -> None:
         inventory = crm_capability_parity.build_inventory()
         rows = {row["route"]: row for row in inventory["matrix"]}

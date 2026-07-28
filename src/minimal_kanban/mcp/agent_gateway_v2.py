@@ -973,6 +973,34 @@ def register_agent_gateway_v2(
                 ),
                 label=workflow_id,
             )
+        if workflow_id == "finance" and operation == "create_cashbox_transfer":
+            missing_revisions = [
+                field
+                for field in (
+                    "expected_from_updated_at",
+                    "expected_to_updated_at",
+                )
+                if not str(payload.get(field) or "").strip()
+            ]
+            if missing_revisions:
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=[
+                            "cashbox_transfer_expected_revisions_required_reread_exact_cashboxes_first"
+                        ],
+                        summary={
+                            "workflow_id": workflow_id,
+                            "operation": operation,
+                            "missing_fields": missing_revisions,
+                        },
+                        next_actions=[
+                            "agent_entity_context for both exact cashboxes"
+                        ],
+                    ),
+                    label=workflow_id,
+                )
         if workflow_id == "inventory" and operation in {
             "save_inventory_item",
             "replenish_inventory_item",

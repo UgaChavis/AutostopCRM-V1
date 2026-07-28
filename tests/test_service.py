@@ -5567,6 +5567,45 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual([item["id"] for item in listed], [third["id"], first["id"], second["id"]])
         self.assertEqual([item["order"] for item in listed], [0, 1, 2])
 
+    def test_cashbox_transfer_rejects_zero_and_stale_cashbox_revision(self) -> None:
+        source = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+        target = self.service.create_cashbox({"name": "Безналичный", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+        with self.assertRaises(ServiceError) as zero_amount:
+            self.service.create_cashbox_transfer(
+                {
+                    "from_cashbox_id": source["id"],
+                    "to_cashbox_id": target["id"],
+                    "amount_minor": 0,
+                    "expected_from_updated_at": source["updated_at"],
+                    "expected_to_updated_at": target["updated_at"],
+                    "actor_name": "ADMIN",
+                }
+            )
+        self.assertEqual(zero_amount.exception.code, "validation_error")
+
+        with self.assertRaises(ServiceError) as stale:
+            self.service.create_cashbox_transfer(
+                {
+                    "from_cashbox_id": source["id"],
+                    "to_cashbox_id": target["id"],
+                    "amount_minor": 100,
+                    "expected_from_updated_at": "2000-01-01T00:00:00+00:00",
+                    "expected_to_updated_at": target["updated_at"],
+                    "actor_name": "ADMIN",
+                }
+            )
+        self.assertEqual(stale.exception.code, "cashbox_update_conflict")
+        for cashbox in (source, target):
+            reread = self.service.get_cashbox(
+                {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+            )
+            self.assertEqual(reread["cashbox"]["updated_at"], cashbox["updated_at"])
+            self.assertEqual(reread["transactions"], [])
+
     def test_cashbox_transfer_moves_money_between_cashboxes(self) -> None:
         source_cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
             "cashbox"

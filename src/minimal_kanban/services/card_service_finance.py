@@ -444,6 +444,31 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             target_cashbox = self._find_cashbox(
                 cashboxes, payload.get("to_cashbox_id") or payload.get("target_cashbox_id")
             )
+            expected_from_updated_at = normalize_text(
+                payload.get("expected_from_updated_at"),
+                default="",
+                limit=80,
+            )
+            expected_to_updated_at = normalize_text(
+                payload.get("expected_to_updated_at"),
+                default="",
+                limit=80,
+            )
+            revision_conflicts = [
+                cashbox.id
+                for cashbox, expected in (
+                    (source_cashbox, expected_from_updated_at),
+                    (target_cashbox, expected_to_updated_at),
+                )
+                if expected and expected != cashbox.updated_at
+            ]
+            if revision_conflicts:
+                self._fail(
+                    "cashbox_update_conflict",
+                    "Одна из касс уже изменилась. Обновите обе кассы и повторите перевод.",
+                    status_code=409,
+                    details={"cashbox_ids": revision_conflicts},
+                )
             if source_cashbox.id == target_cashbox.id:
                 self._fail(
                     "validation_error",
