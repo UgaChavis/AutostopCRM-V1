@@ -278,6 +278,18 @@ class SharedFilesService:
         actor_name, source = self._audit_identity(payload)
         with self._locked_files(write=True) as files:
             item = self._find_file(files, payload.get("file_id"))
+            expected_updated_at = str(payload.get("expected_updated_at") or "").strip()
+            if expected_updated_at and expected_updated_at != item.updated_at:
+                raise ServiceError(
+                    "shared_file_update_conflict",
+                    "Файл уже изменён. Обновите его метаданные и повторите удаление.",
+                    status_code=HTTPStatus.CONFLICT,
+                    details={
+                        "file_id": item.id,
+                        "expected_updated_at": expected_updated_at,
+                        "current_updated_at": item.updated_at,
+                    },
+                )
             file_path = self._storage_path(item.stored_name)
             remaining = [candidate for candidate in files if candidate.id != item.id]
             files[:] = remaining

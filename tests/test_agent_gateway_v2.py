@@ -1495,6 +1495,30 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
         self.assertTrue(explicit.structuredContent["ok"])
         self.assertIn("pdf_base64", json.dumps(explicit.structuredContent))
 
+    async def test_document_delete_requires_exact_file_revision_before_ledger(self) -> None:
+        server, state = self._create_store_server()
+        document = server._tool_manager.get_tool("agent_document_workflow")
+
+        result = await document.run(
+            {
+                "operation": "delete_shared_file",
+                "payload": {"file_id": "file-1"},
+                "idempotency_key": "delete-file-missing-revision",
+            },
+            convert_result=False,
+        )
+
+        self.assertFalse(result.structuredContent["ok"])
+        self.assertEqual(
+            ["expected_updated_at"],
+            result.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertIn(
+            "shared_file_expected_revision_required_reread_exact_file_first",
+            result.structuredContent["warnings"],
+        )
+        self.assertFalse(any(name == "start_workflow" for name, _ in state["calls"]))
+
     async def test_store_outage_degrades_store_without_breaking_crm(self) -> None:
         server, state = self._create_store_server({"store_available": False})
 

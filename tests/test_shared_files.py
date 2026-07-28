@@ -165,6 +165,26 @@ class SharedFilesServiceTests(unittest.TestCase):
             (self.base_dir / "shared-files" / uploaded["file"]["stored_name"]).exists()
         )
 
+    def test_delete_shared_file_rejects_stale_revision(self) -> None:
+        uploaded = self.service.upload_shared_file(
+            {"file_name": "revision.pdf", "content_base64": b64(b"%PDF revision")}
+        )
+        file_id = uploaded["file"]["id"]
+
+        with self.assertRaises(ServiceError) as conflict:
+            self.service.delete_shared_file(
+                {
+                    "file_id": file_id,
+                    "expected_updated_at": "2000-01-01T00:00:00+00:00",
+                }
+            )
+
+        self.assertEqual(conflict.exception.code, "shared_file_update_conflict")
+        self.assertEqual(
+            self.service.get_shared_file_info({"file_id": file_id})["file"]["id"],
+            file_id,
+        )
+
     def test_fetch_and_download_treat_symlink_as_missing_file(self) -> None:
         uploaded = self.service.upload_shared_file(
             {"file_name": "link.txt", "content_base64": b64(b"stored")}

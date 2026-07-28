@@ -56,6 +56,7 @@ OPTIMISTIC_WRITE_NAMES = frozenset(
         "update_card",
         "update_repair_order",
         "set_repair_order_status",
+        "delete_shared_file",
         "api:/api/update_card",
         "api:/api/update_repair_order",
         "api:/api/set_repair_order_status",

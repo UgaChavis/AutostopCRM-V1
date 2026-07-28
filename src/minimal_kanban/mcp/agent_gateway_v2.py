@@ -964,6 +964,27 @@ def register_agent_gateway_v2(
                     ),
                     label=workflow_id,
                 )
+        if (
+            workflow_id == "document"
+            and operation == "delete_shared_file"
+            and not str(payload.get("expected_updated_at") or "").strip()
+        ):
+            return _tool_result(
+                _envelope(
+                    ok=False,
+                    status="blocked",
+                    warnings=[
+                        "shared_file_expected_revision_required_reread_exact_file_first"
+                    ],
+                    summary={
+                        "workflow_id": workflow_id,
+                        "operation": operation,
+                        "missing_fields": ["expected_updated_at"],
+                    },
+                    next_actions=["get_shared_file_info for the exact file"],
+                ),
+                label=workflow_id,
+            )
         logical_payment = workflow_id == "finance" and operation == "record_repair_order_payment"
         if store_operation:
             target_tool = STORE_MANAGEMENT_CAPABILITY_NAME
@@ -2168,11 +2189,16 @@ def register_agent_gateway_v2(
             normalized_name in OPTIMISTIC_WRITE_NAMES
             and not str((arguments or {}).get("expected_updated_at") or "").strip()
         ):
+            revision_warning = (
+                "expected_updated_at_required_reread_exact_file_first"
+                if normalized_name == "delete_shared_file"
+                else "expected_updated_at_required_reread_exact_card_first"
+            )
             return _tool_result(
                 _envelope(
                     ok=False,
                     status="blocked",
-                    warnings=["expected_updated_at_required_reread_exact_card_first"],
+                    warnings=[revision_warning],
                 ),
                 label="call_raw_capability",
             )

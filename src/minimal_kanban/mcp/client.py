@@ -399,9 +399,18 @@ class BoardApiClient:
             actor_name=actor_name,
         )
 
-    def delete_shared_file(self, file_id: str, *, actor_name: str | None = None) -> dict:
+    def delete_shared_file(
+        self,
+        file_id: str,
+        *,
+        expected_updated_at: str | None = None,
+        actor_name: str | None = None,
+    ) -> dict:
+        payload: dict[str, object] = {"file_id": file_id}
+        if expected_updated_at is not None:
+            payload["expected_updated_at"] = expected_updated_at
         return self._request_with_identity(
-            "/api/delete_shared_file", {"file_id": file_id}, actor_name=actor_name
+            "/api/delete_shared_file", payload, actor_name=actor_name
         )
 
     def update_shared_file_position(

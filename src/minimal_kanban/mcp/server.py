@@ -2036,10 +2036,18 @@ def create_mcp_server(
         annotations=_write_tool_annotations("Delete Shared File", destructive=True),
         structured_output=True,
     )
-    def delete_shared_file(file_id: str, actor_name: str | None = None) -> JsonEnvelope:
+    def delete_shared_file(
+        file_id: str,
+        expected_updated_at: str | None = None,
+        actor_name: str | None = None,
+    ) -> JsonEnvelope:
         return _relay_board_call(
             "delete_shared_file",
-            lambda: board_api.delete_shared_file(file_id, actor_name=actor_name),
+            lambda: board_api.delete_shared_file(
+                file_id,
+                expected_updated_at=expected_updated_at,
+                actor_name=actor_name,
+            ),
             params={"file_id": file_id},
         )
 
