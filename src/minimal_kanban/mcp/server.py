@@ -3047,6 +3047,8 @@ def create_mcp_server(
     def link_card_to_client(
         card_id: str,
         client_id: str,
+        expected_card_updated_at: str,
+        expected_client_updated_at: str,
         client_vehicle_id: str | None = None,
         create_vehicle_from_card: bool = False,
         sync_vehicle_fields: bool = True,
@@ -3059,6 +3061,8 @@ def create_mcp_server(
             lambda: board_api.link_card_to_client(
                 card_id,
                 client_id,
+                expected_card_updated_at=expected_card_updated_at,
+                expected_client_updated_at=expected_client_updated_at,
                 client_vehicle_id=client_vehicle_id,
                 create_vehicle_from_card=create_vehicle_from_card,
                 sync_vehicle_fields=sync_vehicle_fields,

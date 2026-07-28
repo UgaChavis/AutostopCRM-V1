@@ -1377,6 +1377,49 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(linked["card"]["vehicle_profile"]["registration_plate"], "у867ру124")
         self.assertEqual(linked["card"]["vehicle_profile"]["make_display"], "Mercedes-Benz")
 
+    def test_link_card_to_client_rejects_stale_card_and_client_revisions(self) -> None:
+        client = self.service.create_client(
+            {"display_name": "Revision Client"}
+        )["client"]
+        card = self.service.create_card(
+            {
+                "title": "Revision link",
+                "vehicle": "Synthetic Vehicle",
+                "deadline": {"hours": 1},
+            }
+        )["card"]
+        payload = {
+            "card_id": card["id"],
+            "client_id": client["id"],
+            "expected_card_updated_at": card["updated_at"],
+            "expected_client_updated_at": client["updated_at"],
+            "sync_fields": False,
+        }
+
+        with self.assertRaises(ServiceError) as stale_card:
+            self.service.link_card_to_client(
+                {
+                    **payload,
+                    "expected_card_updated_at": "2000-01-01T00:00:00+00:00",
+                }
+            )
+        self.assertEqual(stale_card.exception.code, "card_update_conflict")
+        with self.assertRaises(ServiceError) as stale_client:
+            self.service.link_card_to_client(
+                {
+                    **payload,
+                    "expected_client_updated_at": "2000-01-01T00:00:00+00:00",
+                }
+            )
+        self.assertEqual(stale_client.exception.code, "client_update_conflict")
+        self.assertEqual(
+            self.service.get_card({"card_id": card["id"]})["card"]["client_id"],
+            "",
+        )
+
+        linked = self.service.link_card_to_client(payload)
+        self.assertEqual(linked["card"]["client_id"], client["id"])
+
     def test_link_card_to_client_can_create_vehicle_from_card_and_sync_back(self) -> None:
         client = self.service.create_client(
             {"display_name": "Клиент с новым авто", "phone": "+7 913 111-22-33"}

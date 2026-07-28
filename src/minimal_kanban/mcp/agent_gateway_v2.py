@@ -740,6 +740,213 @@ def register_agent_gateway_v2(
         )
         if virtual_verification is not None:
             return virtual_verification
+        if operation == "create_client":
+            result_data = result.get("data") if isinstance(result.get("data"), dict) else {}
+            created = (
+                result_data.get("client")
+                if isinstance(result_data.get("client"), dict)
+                else {}
+            )
+            client_id = str(created.get("id") or "")
+            readback = (
+                await _invoke("get_client", {"client_id": client_id})
+                if client_id
+                else {}
+            )
+            actual = _find_mapping(readback, "id", client_id) if client_id else None
+            requested = (
+                arguments.get("client")
+                if isinstance(arguments.get("client"), dict)
+                else {}
+            )
+            persisted_state = {
+                key: created[key]
+                for key in (
+                    "id",
+                    "client_type",
+                    "last_name",
+                    "first_name",
+                    "middle_name",
+                    "display_name",
+                    "phone",
+                    "phones",
+                    "email",
+                    "emails",
+                    "comment",
+                    "legal_name",
+                    "short_name",
+                    "vehicles",
+                    "updated_at",
+                )
+                if key in created
+            }
+            passed = bool(
+                result.get("ok")
+                and client_id
+                and readback.get("ok")
+                and isinstance(actual, dict)
+                and _subset_matches(requested, actual)
+                and _subset_matches(persisted_state, actual)
+            )
+            return {
+                "required": True,
+                "passed": passed,
+                "check": "exact_created_client_readback",
+                "evidence": {
+                    "client_id": client_id,
+                    "requested_fields_exact": _subset_matches(requested, actual),
+                    "persisted_state_exact": _subset_matches(persisted_state, actual),
+                    "readback_ok": bool(readback.get("ok")),
+                },
+            }
+        if operation == "create_card":
+            result_data = result.get("data") if isinstance(result.get("data"), dict) else {}
+            created = (
+                result_data.get("card")
+                if isinstance(result_data.get("card"), dict)
+                else {}
+            )
+            card_id = str(created.get("id") or "")
+            readback = (
+                await _invoke("get_card", {"card_id": card_id})
+                if card_id
+                else {}
+            )
+            actual = _find_mapping(readback, "id", card_id) if card_id else None
+            requested = {
+                key: arguments[key]
+                for key in ("title", "vehicle", "description")
+                if key in arguments
+            }
+            persisted_state = {
+                key: created[key]
+                for key in (
+                    "id",
+                    "title",
+                    "vehicle",
+                    "description",
+                    "column",
+                    "tags",
+                    "deadline",
+                    "deadline_timestamp",
+                    "updated_at",
+                )
+                if key in created
+            }
+            passed = bool(
+                result.get("ok")
+                and card_id
+                and readback.get("ok")
+                and isinstance(actual, dict)
+                and _subset_matches(requested, actual)
+                and _subset_matches(persisted_state, actual)
+            )
+            return {
+                "required": True,
+                "passed": passed,
+                "check": "exact_created_card_readback",
+                "evidence": {
+                    "card_id": card_id,
+                    "requested_fields_exact": _subset_matches(requested, actual),
+                    "persisted_state_exact": _subset_matches(persisted_state, actual),
+                    "readback_ok": bool(readback.get("ok")),
+                },
+            }
+        if operation == "link_card_to_client":
+            result_data = result.get("data") if isinstance(result.get("data"), dict) else {}
+            result_card = (
+                result_data.get("card")
+                if isinstance(result_data.get("card"), dict)
+                else {}
+            )
+            result_client = (
+                result_data.get("client")
+                if isinstance(result_data.get("client"), dict)
+                else {}
+            )
+            card_id = str(arguments.get("card_id") or "")
+            client_id = str(arguments.get("client_id") or "")
+            card_readback = (
+                await _invoke("get_card", {"card_id": card_id})
+                if card_id
+                else {}
+            )
+            client_readback = (
+                await _invoke("get_client", {"client_id": client_id})
+                if client_id
+                else {}
+            )
+            actual_card = _find_mapping(card_readback, "id", card_id) if card_id else None
+            actual_client = (
+                _find_mapping(client_readback, "id", client_id)
+                if client_id
+                else None
+            )
+            result_vehicle_id = str(
+                result_card.get("client_vehicle_id")
+                or (result_data.get("meta") or {}).get("client_vehicle_id")
+                or ""
+            )
+            requested_vehicle_id = str(arguments.get("client_vehicle_id") or "")
+            if requested_vehicle_id:
+                vehicle_exact = (
+                    str((actual_card or {}).get("client_vehicle_id") or "")
+                    == requested_vehicle_id
+                )
+            elif arguments.get("create_vehicle_from_card") is True:
+                vehicle_exact = bool(
+                    result_vehicle_id
+                    and str((actual_card or {}).get("client_vehicle_id") or "")
+                    == result_vehicle_id
+                    and _contains_value(actual_client, "id", result_vehicle_id)
+                )
+            else:
+                vehicle_exact = True
+            card_state = {
+                key: result_card[key]
+                for key in (
+                    "id",
+                    "client_id",
+                    "client_vehicle_id",
+                    "updated_at",
+                )
+                if key in result_card
+            }
+            client_state = {
+                key: result_client[key]
+                for key in ("id", "updated_at", "vehicles")
+                if key in result_client
+            }
+            passed = bool(
+                result.get("ok")
+                and card_id
+                and client_id
+                and card_readback.get("ok")
+                and client_readback.get("ok")
+                and isinstance(actual_card, dict)
+                and isinstance(actual_client, dict)
+                and str(actual_card.get("client_id") or "") == client_id
+                and _subset_matches(card_state, actual_card)
+                and _subset_matches(client_state, actual_client)
+                and vehicle_exact
+            )
+            return {
+                "required": True,
+                "passed": passed,
+                "check": "exact_card_client_link_readback",
+                "evidence": {
+                    "card_id": card_id,
+                    "client_id": client_id,
+                    "card_link_exact": str((actual_card or {}).get("client_id") or "")
+                    == client_id,
+                    "card_state_exact": _subset_matches(card_state, actual_card),
+                    "client_state_exact": _subset_matches(client_state, actual_client),
+                    "vehicle_link_exact": vehicle_exact,
+                    "readback_ok": bool(
+                        card_readback.get("ok") and client_readback.get("ok")
+                    ),
+                },
+            }
         if operation == "record_repair_order_payment":
             checks = (
                 result.get("verification") if isinstance(result.get("verification"), dict) else {}
@@ -2595,6 +2802,27 @@ def register_agent_gateway_v2(
                 ),
                 label="call_raw_capability",
             )
+        if normalized_name == "link_card_to_client":
+            missing_revisions = [
+                field
+                for field in (
+                    "expected_card_updated_at",
+                    "expected_client_updated_at",
+                )
+                if not str((arguments or {}).get(field) or "").strip()
+            ]
+            if missing_revisions:
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=[
+                            "card_client_link_expected_revisions_required_reread_exact_targets_first"
+                        ],
+                        summary={"missing_fields": missing_revisions},
+                    ),
+                    label="call_raw_capability",
+                )
         if (
             normalized_name in OPTIMISTIC_WRITE_NAMES
             and not str((arguments or {}).get("expected_updated_at") or "").strip()

@@ -71,6 +71,8 @@ class FakeBoardApi:
         self.repair_order_payments: list[dict] = []
         self.cash_transactions: list[dict] = []
         self.manager_operations: list[dict] = []
+        self.created_clients: dict[str, dict] = {}
+        self.created_cards: dict[str, dict] = {}
 
     def get_board_context(self) -> dict:
         return {
@@ -118,6 +120,11 @@ class FakeBoardApi:
         return {"ok": True, "data": {"items": [{"id": "inventory-1", "name": "Filter"}]}}
 
     def get_card(self, card_id: str) -> dict:
+        if card_id in self.created_cards:
+            return {
+                "ok": True,
+                "data": {"card": dict(self.created_cards[card_id])},
+            }
         return {
             "ok": True,
             "data": {
@@ -127,6 +134,99 @@ class FakeBoardApi:
                     "updated_at": self.card_updated_at,
                     **self.card_ai_state,
                 }
+            },
+        }
+
+    def get_client(self, client_id: str, *, order_limit: int | None = None) -> dict:
+        del order_limit
+        client = self.created_clients.get(client_id)
+        if client is None:
+            return {"ok": False, "error": {"code": "not_found"}}
+        return {"ok": True, "data": {"client": dict(client)}}
+
+    def create_client(self, client: dict, *, actor_name: str | None = None) -> dict:
+        del actor_name
+        client_id = f"client-created-{len(self.created_clients) + 1}"
+        created = {
+            "id": client_id,
+            "client_type": "person",
+            "display_name": "",
+            "vehicles": [],
+            **dict(client),
+            "updated_at": "2026-07-28T20:00:00+00:00",
+        }
+        self.created_clients[client_id] = created
+        return {
+            "ok": True,
+            "data": {"client": dict(created), "meta": {"created": True}},
+        }
+
+    def create_card(
+        self,
+        *,
+        vehicle: str = "",
+        title: str,
+        description: str = "",
+        column: str | None = None,
+        tags: list[str | dict] | None = None,
+        deadline: dict | None = None,
+        vehicle_profile: dict | None = None,
+        actor_name: str | None = None,
+    ) -> dict:
+        del actor_name
+        card_id = f"card-created-{len(self.created_cards) + 1}"
+        created = {
+            "id": card_id,
+            "vehicle": vehicle,
+            "title": title,
+            "description": description,
+            "column": column or "inbox",
+            "tags": list(tags or []),
+            "deadline": dict(deadline or {}),
+            "vehicle_profile": dict(vehicle_profile or {}),
+            "client_id": "",
+            "client_vehicle_id": "",
+            "updated_at": "2026-07-28T20:01:00+00:00",
+        }
+        self.created_cards[card_id] = created
+        return {"ok": True, "data": {"card": dict(created)}}
+
+    def link_card_to_client(
+        self,
+        card_id: str,
+        client_id: str,
+        *,
+        expected_card_updated_at: str,
+        expected_client_updated_at: str,
+        client_vehicle_id: str | None = None,
+        create_vehicle_from_card: bool = False,
+        sync_vehicle_fields: bool = True,
+        sync_fields: bool = True,
+        overwrite_card_fields: bool = False,
+        actor_name: str | None = None,
+    ) -> dict:
+        del (
+            create_vehicle_from_card,
+            sync_vehicle_fields,
+            sync_fields,
+            overwrite_card_fields,
+            actor_name,
+        )
+        card = self.created_cards[card_id]
+        client = self.created_clients[client_id]
+        if card["updated_at"] != expected_card_updated_at:
+            return {"ok": False, "error": {"code": "card_update_conflict"}}
+        if client["updated_at"] != expected_client_updated_at:
+            return {"ok": False, "error": {"code": "client_update_conflict"}}
+        card["client_id"] = client_id
+        card["client_vehicle_id"] = client_vehicle_id or ""
+        card["updated_at"] = "2026-07-28T20:02:00+00:00"
+        return {
+            "ok": True,
+            "data": {
+                "card": dict(card),
+                "client": dict(client),
+                "meta": {"changed": True, "client_vehicle_id": card["client_vehicle_id"]},
             },
         }
 
@@ -2597,6 +2697,109 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
         self.assertIn(
             "idempotency_key_required_for_raw_write",
             rejected.structuredContent["warnings"],
+        )
+
+    async def test_manager_raw_client_card_link_writes_use_exact_readback(self) -> None:
+        server, state = self._create_store_server()
+
+        async def capability(name: str) -> dict:
+            discovered = await server._tool_manager.get_tool(
+                "discover_raw_capabilities"
+            ).run({"query": name, "limit": 10}, convert_result=False)
+            return next(
+                item
+                for item in discovered.structuredContent["data"]["capabilities"]
+                if item["name"] == name
+            )
+
+        async def raw_call(
+            name: str,
+            arguments: dict,
+            idempotency_key: str,
+        ):
+            selected = await capability(name)
+            return await server._tool_manager.get_tool("call_raw_capability").run(
+                {
+                    "name": name,
+                    "arguments": arguments,
+                    "schema_hash": selected["schema_hash"],
+                    "idempotency_key": idempotency_key,
+                },
+                convert_result=False,
+            )
+
+        missing_revisions = await raw_call(
+            "link_card_to_client",
+            {"card_id": "card-created-1", "client_id": "client-created-1"},
+            "raw-link-missing-revisions",
+        )
+        self.assertFalse(missing_revisions.structuredContent["ok"])
+        self.assertEqual(
+            [
+                "expected_card_updated_at",
+                "expected_client_updated_at",
+            ],
+            missing_revisions.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertFalse(
+            any(
+                name == "start_workflow"
+                and arguments["idempotency_key"] == "raw-link-missing-revisions"
+                for name, arguments in state["calls"]
+            )
+        )
+
+        created_client = await raw_call(
+            "create_client",
+            {
+                "client": {
+                    "display_name": "AST-GWAT synthetic client",
+                    "comment": "AST-GWAT exact readback",
+                }
+            },
+            "raw-create-client-exact",
+        )
+        self.assertTrue(created_client.structuredContent["ok"])
+        self.assertEqual(
+            "exact_created_client_readback",
+            created_client.structuredContent["verification"]["check"],
+        )
+        client = created_client.structuredContent["data"]["data"]["client"]
+
+        created_card = await raw_call(
+            "create_card",
+            {
+                "title": "AST-GWAT synthetic card",
+                "vehicle": "AutoStop Synthetic",
+                "description": "AST-GWAT exact readback",
+            },
+            "raw-create-card-exact",
+        )
+        self.assertTrue(created_card.structuredContent["ok"])
+        self.assertEqual(
+            "exact_created_card_readback",
+            created_card.structuredContent["verification"]["check"],
+        )
+        card = created_card.structuredContent["data"]["data"]["card"]
+
+        linked = await raw_call(
+            "link_card_to_client",
+            {
+                "card_id": card["id"],
+                "client_id": client["id"],
+                "expected_card_updated_at": card["updated_at"],
+                "expected_client_updated_at": client["updated_at"],
+                "sync_fields": False,
+            },
+            "raw-link-card-client-exact",
+        )
+        self.assertTrue(linked.structuredContent["ok"])
+        self.assertEqual(
+            "exact_card_client_link_readback",
+            linked.structuredContent["verification"]["check"],
+        )
+        self.assertTrue(
+            linked.structuredContent["verification"]["evidence"]["card_link_exact"]
         )
 
     async def test_raw_write_fails_closed_when_durable_manager_ledger_is_missing(self) -> None:

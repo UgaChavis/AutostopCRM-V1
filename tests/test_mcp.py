@@ -2191,6 +2191,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertFalse(created_card.isError)
                 card_id = created_card.structuredContent["data"]["card"]["id"]
+                card_updated_at = created_card.structuredContent["data"]["card"]["updated_at"]
 
                 suggestions = await session.call_tool(
                     "suggest_clients_for_card",
@@ -2206,6 +2207,10 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                     {
                         "card_id": card_id,
                         "client_id": client_id,
+                        "expected_card_updated_at": card_updated_at,
+                        "expected_client_updated_at": updated.structuredContent["data"]["client"][
+                            "updated_at"
+                        ],
                         "client_vehicle_id": vehicle_id,
                         "actor_name": "ОПЕРАТОР",
                     },

@@ -196,6 +196,30 @@ class CardServiceClientsMixin:
             card = self._find_card(cards, payload.get("card_id"))
             client = self._find_client(clients, payload.get("client_id"))
             actor_name, source = self._audit_identity(payload, default_source="api")
+            expected_card_updated_at = normalize_text(
+                payload.get("expected_card_updated_at"),
+                default="",
+                limit=80,
+            )
+            expected_client_updated_at = normalize_text(
+                payload.get("expected_client_updated_at"),
+                default="",
+                limit=80,
+            )
+            if expected_card_updated_at and card.updated_at != expected_card_updated_at:
+                self._fail(
+                    "card_update_conflict",
+                    "Карточка уже изменилась. Обновите данные и повторите действие.",
+                    status_code=409,
+                    details={"card_id": card.id},
+                )
+            if expected_client_updated_at and client.updated_at != expected_client_updated_at:
+                self._fail(
+                    "client_update_conflict",
+                    "Клиент уже изменился. Обновите данные и повторите действие.",
+                    status_code=409,
+                    details={"client_id": client.id},
+                )
             sync_fields = self._validated_optional_bool(payload, "sync_fields", default=True)
             overwrite = self._validated_optional_bool(
                 payload, "overwrite_card_fields", default=False
