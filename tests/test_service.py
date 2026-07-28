@@ -4144,7 +4144,7 @@ class CardServiceTests(unittest.TestCase):
             "expected_employee_updated_at": employee["updated_at"],
             "expected_cashbox_updated_at": cashbox["updated_at"],
             "attestation_run_id": run_id,
-            "source": "mcp",
+            "source": "mcp_agent_gateway_v2",
             "actor_name": "codex-owner-agent",
         }
 
@@ -5103,7 +5103,7 @@ class CardServiceTests(unittest.TestCase):
             "position": "Synthetic",
             "expected_employee_ids": [existing["id"]],
             "attestation_run_id": run_id,
-            "source": "mcp",
+            "source": "mcp_agent_gateway_v2",
             "actor_name": "codex-owner-agent",
         }
 

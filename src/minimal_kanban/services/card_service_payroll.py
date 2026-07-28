@@ -2299,7 +2299,8 @@ class CardServicePayrollMixin:
                     f"{attestation_run_id}-"
                 )
                 and normalize_bool(payload.get("create_mode"), default=False)
-                and source == "mcp"
+                and str(payload.get("source") or "").strip().casefold()
+                == "mcp_agent_gateway_v2"
                 and actor_name
             ):
                 self._fail(

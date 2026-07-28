@@ -791,7 +791,8 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 and cashbox.name.startswith(f"{attestation_run_id}-")
                 and note.startswith(attestation_run_id)
                 and amount_minor == 100
-                and source == "mcp"
+                and str(payload.get("source") or "").strip().casefold()
+                == "mcp_agent_gateway_v2"
                 and actor_name
             ):
                 self._fail(
