@@ -926,6 +926,44 @@ def register_agent_gateway_v2(
                 ),
                 label=workflow_id,
             )
+        if workflow_id == "inventory" and operation in {
+            "save_inventory_item",
+            "replenish_inventory_item",
+            "write_off_inventory_item",
+            "return_inventory_movement",
+        }:
+            missing_revisions: list[str] = []
+            item_revision_required = operation != "save_inventory_item" or bool(
+                str(payload.get("item_id") or "").strip()
+            )
+            if item_revision_required and not str(
+                payload.get("expected_updated_at") or ""
+            ).strip():
+                missing_revisions.append("expected_updated_at")
+            if operation in {"write_off_inventory_item", "return_inventory_movement"}:
+                if not str(payload.get("card_id") or "").strip():
+                    missing_revisions.append("card_id")
+                if not str(payload.get("expected_card_updated_at") or "").strip():
+                    missing_revisions.append("expected_card_updated_at")
+            if missing_revisions:
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=[
+                            "inventory_expected_revisions_required_reread_exact_targets_first"
+                        ],
+                        summary={
+                            "workflow_id": workflow_id,
+                            "operation": operation,
+                            "missing_fields": missing_revisions,
+                        },
+                        next_actions=[
+                            "get_inventory_item and agent_entity_context for the exact targets"
+                        ],
+                    ),
+                    label=workflow_id,
+                )
         logical_payment = workflow_id == "finance" and operation == "record_repair_order_payment"
         if store_operation:
             target_tool = STORE_MANAGEMENT_CAPABILITY_NAME

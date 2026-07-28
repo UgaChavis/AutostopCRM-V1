@@ -2561,6 +2561,7 @@ def create_mcp_server(
         quantity: str = "0",
         cost_price: str = "0",
         sale_price: str = "0",
+        expected_updated_at: str | None = None,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
         payload: dict[str, object] = {
@@ -2573,6 +2574,8 @@ def create_mcp_server(
         }
         if item_id:
             payload["item_id"] = item_id
+        if expected_updated_at is not None:
+            payload["expected_updated_at"] = expected_updated_at
         return _relay_board_call(
             "save_inventory_item",
             lambda: board_api.save_inventory_item(payload, actor_name=actor_name),
@@ -2590,6 +2593,7 @@ def create_mcp_server(
     def replenish_inventory_item(
         item_id: str,
         quantity: str,
+        expected_updated_at: str | None = None,
         cost_price: str | None = None,
         sale_price: str | None = None,
         note: str | None = None,
@@ -2600,6 +2604,7 @@ def create_mcp_server(
             lambda: board_api.replenish_inventory_item(
                 item_id,
                 quantity,
+                expected_updated_at=expected_updated_at,
                 cost_price=cost_price,
                 sale_price=sale_price,
                 note=note,
@@ -2622,6 +2627,8 @@ def create_mcp_server(
         card_id: str,
         quantity: str,
         row_index: McpInt | None = None,
+        expected_updated_at: str | None = None,
+        expected_card_updated_at: str | None = None,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
         return _relay_board_call(
@@ -2631,6 +2638,8 @@ def create_mcp_server(
                 card_id=card_id,
                 quantity=quantity,
                 row_index=row_index,
+                expected_updated_at=expected_updated_at,
+                expected_card_updated_at=expected_card_updated_at,
                 actor_name=actor_name,
             ),
             error_code="inventory_write_unreachable",
@@ -2647,12 +2656,18 @@ def create_mcp_server(
     def return_inventory_movement(
         movement_id: str,
         card_id: str | None = None,
+        expected_updated_at: str | None = None,
+        expected_card_updated_at: str | None = None,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
         return _relay_board_call(
             "return_inventory_movement",
             lambda: board_api.return_inventory_movement(
-                movement_id, card_id=card_id, actor_name=actor_name
+                movement_id,
+                card_id=card_id,
+                expected_updated_at=expected_updated_at,
+                expected_card_updated_at=expected_card_updated_at,
+                actor_name=actor_name,
             ),
             error_code="inventory_write_unreachable",
         )

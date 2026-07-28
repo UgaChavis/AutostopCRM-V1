@@ -2190,6 +2190,47 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
         self.assertEqual("apply", result.structuredContent["summary"]["mode"])
         self.assertFalse(any(name == "store_management_action" for name, _ in state["calls"]))
 
+    async def test_crm_inventory_writes_require_exact_item_and_card_revisions(self) -> None:
+        server, state = self._create_store_server()
+        tool = server._tool_manager.get_tool("agent_inventory_workflow")
+
+        missing_item_revision = await tool.run(
+            {
+                "operation": "replenish_inventory_item",
+                "payload": {"item_id": "inventory-1", "quantity": "1"},
+                "idempotency_key": "inventory-replenish-missing-revision",
+            },
+            convert_result=False,
+        )
+        missing_card_revisions = await tool.run(
+            {
+                "operation": "write_off_inventory_item",
+                "payload": {
+                    "item_id": "inventory-1",
+                    "quantity": "1",
+                    "expected_updated_at": "item-revision-1",
+                },
+                "idempotency_key": "inventory-write-off-missing-revisions",
+            },
+            convert_result=False,
+        )
+
+        self.assertFalse(missing_item_revision.structuredContent["ok"])
+        self.assertEqual(
+            ["expected_updated_at"],
+            missing_item_revision.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertFalse(missing_card_revisions.structuredContent["ok"])
+        self.assertEqual(
+            ["card_id", "expected_card_updated_at"],
+            missing_card_revisions.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertIn(
+            "inventory_expected_revisions_required_reread_exact_targets_first",
+            missing_card_revisions.structuredContent["warnings"],
+        )
+        self.assertFalse(any(name == "start_workflow" for name, _ in state["calls"]))
+
     async def test_board_digest_is_paginated_and_omits_ui_fields(self) -> None:
         result = await self._call("agent_board_digest", {"limit": 2})
         payload = result.structuredContent

@@ -547,12 +547,15 @@ class BoardApiClient:
         item_id: str,
         quantity: str,
         *,
+        expected_updated_at: str | None = None,
         cost_price: str | None = None,
         sale_price: str | None = None,
         note: str | None = None,
         actor_name: str | None = None,
     ) -> dict:
         payload: dict[str, object] = {"item_id": item_id, "quantity": quantity}
+        if expected_updated_at is not None:
+            payload["expected_updated_at"] = expected_updated_at
         if cost_price is not None:
             payload["cost_price"] = cost_price
         if sale_price is not None:
@@ -570,6 +573,8 @@ class BoardApiClient:
         card_id: str,
         quantity: str,
         row_index: int | None = None,
+        expected_updated_at: str | None = None,
+        expected_card_updated_at: str | None = None,
         actor_name: str | None = None,
     ) -> dict:
         payload: dict[str, object] = {
@@ -579,6 +584,10 @@ class BoardApiClient:
         }
         if row_index is not None:
             payload["row_index"] = row_index
+        if expected_updated_at is not None:
+            payload["expected_updated_at"] = expected_updated_at
+        if expected_card_updated_at is not None:
+            payload["expected_card_updated_at"] = expected_card_updated_at
         return self._request_with_identity(
             "/api/write_off_inventory_item", payload, actor_name=actor_name
         )
@@ -588,11 +597,17 @@ class BoardApiClient:
         movement_id: str,
         *,
         card_id: str | None = None,
+        expected_updated_at: str | None = None,
+        expected_card_updated_at: str | None = None,
         actor_name: str | None = None,
     ) -> dict:
         payload: dict[str, object] = {"movement_id": movement_id}
         if card_id is not None:
             payload["card_id"] = card_id
+        if expected_updated_at is not None:
+            payload["expected_updated_at"] = expected_updated_at
+        if expected_card_updated_at is not None:
+            payload["expected_card_updated_at"] = expected_card_updated_at
         return self._request_with_identity(
             "/api/return_inventory_movement", payload, actor_name=actor_name
         )

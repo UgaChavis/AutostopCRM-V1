@@ -76,6 +76,8 @@ class CardServiceInventoryMixin:
             )
             existing_index = self._inventory_item_index(items, item_id) if item_id else -1
             existing = items[existing_index] if existing_index >= 0 else None
+            if existing is not None:
+                self._ensure_inventory_item_expected_updated_at(existing, payload)
             item = self._build_inventory_item_from_payload(payload, existing=existing)
             movement: InventoryMovement | None = None
             if existing is None:
@@ -128,6 +130,7 @@ class CardServiceInventoryMixin:
             events = bundle["events"]
             item_index = self._inventory_required_item_index(items, payload.get("item_id"))
             item = items[item_index]
+            self._ensure_inventory_item_expected_updated_at(item, payload)
             cost_price = self._optional_inventory_money(payload, "cost_price") or item.cost_price
             sale_price = self._optional_inventory_money(payload, "sale_price") or item.sale_price
             updated_item = InventoryItem(
@@ -191,6 +194,7 @@ class CardServiceInventoryMixin:
             movements: list[InventoryMovement] = list(bundle["inventory_movements"])
             item_index = self._inventory_required_item_index(items, payload.get("item_id"))
             item = items[item_index]
+            self._ensure_inventory_item_expected_updated_at(item, payload)
             available = self._inventory_decimal(item.quantity)
             if quantity > available:
                 self._fail(
@@ -204,6 +208,7 @@ class CardServiceInventoryMixin:
                 )
             card = self._find_card(cards, payload.get("card_id"))
             self._ensure_not_archived(card)
+            self._ensure_inventory_card_expected_updated_at(card, payload)
             movement_id = str(uuid.uuid4())
             rows = [row.to_dict() for row in card.repair_order.materials]
             row_index = self._inventory_target_row_index(payload.get("row_index"), rows)
@@ -343,6 +348,7 @@ class CardServiceInventoryMixin:
                 )
             item_index = self._inventory_required_item_index(items, source_movement.item_id)
             item = items[item_index]
+            self._ensure_inventory_item_expected_updated_at(item, payload)
             quantity = self._inventory_decimal(source_movement.quantity)
             updated_item = InventoryItem(
                 id=item.id,
@@ -366,6 +372,7 @@ class CardServiceInventoryMixin:
             changed = False
             if card is not None:
                 self._ensure_not_archived(card)
+                self._ensure_inventory_card_expected_updated_at(card, payload)
                 rows = [row.to_dict() for row in card.repair_order.materials]
                 row_index = self._inventory_row_index_by_movement(
                     rows, source_movement.id, row_index
@@ -567,6 +574,46 @@ class CardServiceInventoryMixin:
 
     def _find_inventory_item(self, items: list[InventoryItem], item_id: Any) -> InventoryItem:
         return items[self._inventory_required_item_index(items, item_id)]
+
+    def _ensure_inventory_item_expected_updated_at(
+        self,
+        item: InventoryItem,
+        payload: dict[str, Any],
+    ) -> None:
+        expected_updated_at = normalize_text(
+            payload.get("expected_updated_at"), default="", limit=80
+        )
+        if expected_updated_at and expected_updated_at != item.updated_at:
+            self._fail(
+                "inventory_item_update_conflict",
+                "Складская позиция уже изменена. Обновите её и повторите действие.",
+                status_code=409,
+                details={
+                    "item_id": item.id,
+                    "expected_updated_at": expected_updated_at,
+                    "current_updated_at": item.updated_at,
+                },
+            )
+
+    def _ensure_inventory_card_expected_updated_at(
+        self,
+        card: Any,
+        payload: dict[str, Any],
+    ) -> None:
+        expected_updated_at = normalize_text(
+            payload.get("expected_card_updated_at"), default="", limit=80
+        )
+        if expected_updated_at and expected_updated_at != card.updated_at:
+            self._fail(
+                "card_update_conflict",
+                "Карточка уже изменена другим оператором. Обновите карточку и повторите действие.",
+                status_code=409,
+                details={
+                    "card_id": card.id,
+                    "expected_updated_at": expected_updated_at,
+                    "current_updated_at": card.updated_at,
+                },
+            )
 
     def _find_inventory_movement(
         self, movements: list[InventoryMovement], movement_id: str
