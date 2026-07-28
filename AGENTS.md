@@ -91,6 +91,14 @@ The production connector is scoped to one current CRM board.
   named workflow in `dry_run`, then `apply`, and reread the exact target.
 - Use `discover_raw_capabilities` -> `get_raw_capability_schema` ->
   `call_raw_capability` only when no named workflow covers the operation.
+- Natural-language raw discovery intentionally returns read capabilities only.
+  For a required raw write, query the exact literal capability name, use the
+  returned live schema hash, and provide a unique idempotency key. In
+  particular, `create_card` is not an `agent_board_workflow` operation: create
+  through this guarded raw route and require its exact readback. Before
+  `link_card_to_client`, reread both targets, pass the current card and client
+  revisions, use a new idempotency key, and require exact readback of both.
+  Never call a legacy direct tool.
 - Call `get_runtime_status` only when runtime or auth is unclear.
 - Read live context before every write and use confirmed IDs.
 - Use a unique idempotency key for an applied workflow.

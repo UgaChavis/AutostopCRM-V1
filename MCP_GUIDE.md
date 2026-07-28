@@ -13,6 +13,8 @@ Source of truth:
 - `src/minimal_kanban/mcp/tool_registry.py` — raw CRM registry;
 - `src/minimal_kanban/mcp/agent_gateway_v2.py` — production surface;
 - `scripts/check_agent_gateway_v2.py` — exact release contract;
+- `scripts/attest_agent_gateway_v2.py` — stop-the-line per-command
+  certification runner;
 - live `tools/list`.
 
 ## Runtime And Authentication
@@ -67,6 +69,23 @@ Production advertises exactly 24 tools:
 Low-level board, client, repair-order, inventory, finance, file, operator, and
 manager functions remain in the raw registry but are not advertised directly.
 Do not call a hidden legacy name from an external agent.
+
+### Guarded raw writes
+
+Use the raw escape only when no named workflow covers the exact operation.
+Natural-language discovery is deliberately read-only; for a raw write, query
+the exact literal capability name, retrieve its current schema, and invoke it
+only through `call_raw_capability` with that schema hash and a unique
+idempotency key. The Gateway opens and closes the durable write ledger for that
+call.
+
+For example, `create_card` is not an `agent_board_workflow` operation. Search
+the intended client and duplicate card/vehicle first, discover the exact
+`create_card` schema, create via the guarded raw call, and require its exact
+card readback. Before `link_card_to_client`, reread both targets and pass
+`expected_card_updated_at` and `expected_client_updated_at` with a new
+idempotency key; require exact readback of both card and client. Do not fall
+back to a cached legacy App/connector tool or to the local HTTP API.
 
 `/api/get_operator_profile` and `/api/update_personal_board_preferences` are
 not MCP capabilities. They control one human operator's private extra
@@ -324,6 +343,25 @@ Release verification:
 .\.venv\Scripts\python.exe scripts\check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --token-env AUTOSTOPCRM_MCP_TOKEN --exhaustive
 .\.venv\Scripts\python.exe scripts\check_mcp_oauth.py --mcp-url https://crm.autostopcrm.ru/mcp
 ```
+
+Stop-the-line production attestation is separate from release smoke. It freezes
+the live 24 public tools, 43 CRM workflow operations and Manager-used CRM raw
+capabilities, then executes one case per invocation:
+
+```bash
+.venv/bin/python scripts/attest_agent_gateway_v2.py --run-id AST-GWAT-YYYYMMDDTHHMMSSZ --mcp-url https://crm.autostopcrm.ru/mcp --inventory
+.venv/bin/python scripts/attest_agent_gateway_v2.py --run-id AST-GWAT-YYYYMMDDTHHMMSSZ --mcp-url https://crm.autostopcrm.ru/mcp --next --apply-synthetic
+.venv/bin/python scripts/attest_agent_gateway_v2.py --run-id AST-GWAT-YYYYMMDDTHHMMSSZ --mcp-url https://crm.autostopcrm.ru/mcp --retry --apply-synthetic
+.venv/bin/python scripts/attest_agent_gateway_v2.py --run-id AST-GWAT-YYYYMMDDTHHMMSSZ --mcp-url https://crm.autostopcrm.ru/mcp --cleanup
+.venv/bin/python scripts/attest_agent_gateway_v2.py --run-id AST-GWAT-YYYYMMDDTHHMMSSZ --summary
+```
+
+The token is read only from the configured environment. Mutating cases require
+the run prefix and explicit `--apply-synthetic`; any defect blocks later cases.
+Reports are mode `0600` and live outside Git under
+`/var/lib/autostop-manager/integration/gateway-attestation/<run-id>/`. They
+store hashes, sizes, timings, statuses and compact refs, never request/response
+bodies, tokens, full cards or financial journals.
 
 For a Store-enabled release, add `--require-store`. For the guarded web route,
 add `--require-web`; it discovers and calls `search_web_multi`,
