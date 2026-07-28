@@ -637,6 +637,61 @@ class ChangeFeedRawGatewayContractTests(unittest.IsolatedAsyncioTestCase):
             (verification or {})["check"],
         )
 
+    async def test_cash_cancellation_has_exact_reversal_readback(self) -> None:
+        cancelled = {
+            "id": "transaction-1",
+            "cashbox_id": "cashbox-1",
+            "direction": "expense",
+            "amount_minor": 100,
+            "transaction_kind": "cashbox_cancelled",
+        }
+        cancellation = {
+            "id": "cancellation-1",
+            "cashbox_id": "cashbox-1",
+            "direction": "income",
+            "amount_minor": 100,
+            "transaction_kind": "cashbox_cancellation",
+            "related_transaction_id": "transaction-1",
+        }
+
+        async def invoke(name: str, arguments: dict) -> dict:
+            self.assertEqual(name, "get_cashbox")
+            self.assertEqual(arguments["cashbox_id"], "cashbox-1")
+            return {
+                "ok": True,
+                "data": {
+                    "cashbox": {
+                        "id": "cashbox-1",
+                        "updated_at": "2026-07-28T20:00:01+00:00",
+                    },
+                    "transactions": [cancelled, cancellation],
+                },
+            }
+
+        verification = await verify_virtual_api_write_readback(
+            "cancel_cash_transaction",
+            {
+                "cashbox_id": "cashbox-1",
+                "transaction_id": "transaction-1",
+                "expected_cashbox_updated_at": "2026-07-28T20:00:00+00:00",
+            },
+            {
+                "ok": True,
+                "data": {
+                    "cancelled_transaction": cancelled,
+                    "cancellation_transaction": cancellation,
+                    "meta": {"repair_order_card_id": None},
+                },
+            },
+            invoke,
+        )
+
+        self.assertTrue((verification or {})["passed"])
+        self.assertEqual(
+            "exact_cash_cancellation_and_optional_payment_readback",
+            (verification or {})["check"],
+        )
+
     def test_parity_manifest_has_exact_guarded_coverage_and_zero_new_gaps(self) -> None:
         inventory = crm_capability_parity.build_inventory()
         rows = {row["route"]: row for row in inventory["matrix"]}

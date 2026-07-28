@@ -6011,6 +6011,74 @@ class CardServiceTests(unittest.TestCase):
         self.assertIn(first["id"], journal_ids)
         self.assertIn(reversal["id"], journal_ids)
 
+    def test_cancel_synthetic_salary_transaction_requires_cashbox_revision(self) -> None:
+        run_id = "AST-GWAT-20260728T165722Z"
+        employee = self.service.save_employee(
+            {"name": f"{run_id}-employee", "salary_mode": "none"}
+        )["employee"]
+        cashbox = self.service.create_cashbox(
+            {"name": f"{run_id}-cashbox-1", "actor_name": "ADMIN"}
+        )["cashbox"]
+        salary = self.service.create_employee_salary_transaction(
+            {
+                "employee_id": employee["id"],
+                "transaction_kind": "salary_payout",
+                "amount_minor": 100,
+                "cashbox_id": cashbox["id"],
+                "note": f"{run_id} synthetic salary payout",
+                "expected_employee_updated_at": employee["updated_at"],
+                "expected_cashbox_updated_at": cashbox["updated_at"],
+                "attestation_run_id": run_id,
+                "source": "mcp_agent_gateway_v2",
+                "actor_name": "codex-owner-agent",
+            }
+        )["transaction"]
+        before = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+        )
+        payload = {
+            "cashbox_id": cashbox["id"],
+            "transaction_id": salary["id"],
+            "reason": f"{run_id} synthetic salary compensation",
+            "expected_cashbox_updated_at": before["cashbox"]["updated_at"],
+            "attestation_run_id": run_id,
+            "source": "mcp_agent_gateway_v2",
+            "actor_name": "codex-owner-agent",
+        }
+
+        with self.assertRaises(ServiceError) as conflict:
+            self.service.cancel_cash_transaction(
+                {
+                    **payload,
+                    "expected_cashbox_updated_at": "2000-01-01T00:00:00+00:00",
+                }
+            )
+        self.assertEqual(conflict.exception.code, "cashbox_update_conflict")
+        unchanged = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+        )
+        self.assertEqual(unchanged["cashbox"]["updated_at"], before["cashbox"]["updated_at"])
+
+        cancelled = self.service.cancel_cash_transaction(payload)
+        self.assertEqual(
+            cancelled["cancelled_transaction"]["transaction_kind"],
+            "cashbox_cancelled",
+        )
+        self.assertEqual(
+            cancelled["cancellation_transaction"]["related_transaction_id"],
+            salary["id"],
+        )
+        after = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+        )
+        self.assertEqual(after["cashbox"]["statistics"]["balance_minor"], 0)
+        ledger = self.service.get_employee_salary_ledger(
+            {"employee_id": employee["id"], "months": 1}
+        )
+        self.assertFalse(
+            any(item.get("transaction_id") == salary["id"] for item in ledger["journal_rows"])
+        )
+
     def test_cancel_cash_transaction_requires_reason_with_ten_visible_chars(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
             "cashbox"

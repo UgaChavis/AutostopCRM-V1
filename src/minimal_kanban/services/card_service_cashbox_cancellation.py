@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .. import models as model_helpers
@@ -15,6 +16,7 @@ from ..repair_order import REPAIR_ORDER_STATUS_CLOSED, REPAIR_ORDER_STATUS_OPEN,
 _CASH_CANCEL_REASON_MIN_CHARS = 10
 _CASH_TRANSACTION_KIND_CANCELLED = "cashbox_cancelled"
 _CASH_TRANSACTION_KIND_CANCELLATION = "cashbox_cancellation"
+_GATEWAY_ATTESTATION_RUN_RE = re.compile(r"^AST-GWAT-\d{8}T\d{6}Z$")
 
 
 class CardServiceCashboxCancellationMixin:
@@ -48,7 +50,39 @@ class CardServiceCashboxCancellationMixin:
                     },
                 )
             cashbox = self._find_cashbox(cashboxes, transaction.cashbox_id)
+            expected_cashbox_updated_at = normalize_text(
+                payload.get("expected_cashbox_updated_at"),
+                default="",
+                limit=80,
+            )
+            if expected_cashbox_updated_at and cashbox.updated_at != expected_cashbox_updated_at:
+                self._fail(
+                    "cashbox_update_conflict",
+                    "Касса уже изменилась. Обновите данные и повторите действие.",
+                    status_code=409,
+                    details={"cashbox_id": cashbox.id},
+                )
             reason = self._validated_cash_cancellation_reason(payload)
+            attestation_run_id = normalize_text(
+                payload.get("attestation_run_id"),
+                default="",
+                limit=64,
+            )
+            if attestation_run_id and not (
+                _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
+                and cashbox.name.startswith(f"{attestation_run_id}-")
+                and transaction.note.startswith(attestation_run_id)
+                and reason.startswith(attestation_run_id)
+                and transaction.amount_minor == 100
+                and str(payload.get("source") or "").strip().casefold()
+                == "mcp_agent_gateway_v2"
+                and actor_name
+            ):
+                self._fail(
+                    "cash_cancellation_attestation_scope_invalid",
+                    "Синтетическая отмена не соответствует контуру аттестации.",
+                    status_code=403,
+                )
             transaction_kind = normalize_text(transaction.transaction_kind, default="", limit=32)
             if transaction_kind in {
                 _CASH_TRANSACTION_KIND_CANCELLED,
