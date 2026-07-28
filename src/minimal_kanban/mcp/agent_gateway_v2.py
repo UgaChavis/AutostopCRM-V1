@@ -1254,9 +1254,15 @@ def register_agent_gateway_v2(
                 ledger_error = failed
         overall_ok = result_ok and ledger_closed
         result_data = normalized_store_data(result) if store_operation else result
+        binary_document_operation = workflow_id == "document" and operation in {
+            "create_document_without_card_pdf",
+            "download_repair_order_print_pdf",
+            "download_shared_file",
+        }
         safe_result = (
             _without_binary_content(result_data)
             if is_store_vin_photo_preview
+            or (binary_document_operation and not allow_large_output)
             else result_data
             if allow_large_output
             else _compact_object(result_data)

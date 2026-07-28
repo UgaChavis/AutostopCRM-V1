@@ -156,6 +156,16 @@ class FakeBoardApi:
             },
         }
 
+    def create_document_without_card_pdf(self, **_: object) -> dict:
+        return {
+            "ok": True,
+            "data": {
+                "file_name": "synthetic.pdf",
+                "mime_type": "application/pdf",
+                "pdf_base64": base64.b64encode(b"%PDF-synthetic").decode("ascii"),
+            },
+        }
+
     def run_manager_operation(
         self,
         *,
@@ -1452,6 +1462,38 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
             {"quote_request_id": "quote-1", "expected_photo_sha256": "a" * 64},
             preview_call[1],
         )
+
+    async def test_document_binary_requires_explicit_large_output(self) -> None:
+        server, _state = self._create_store_server()
+        document = server._tool_manager.get_tool("agent_document_workflow")
+        payload = {
+            "request_text": "Synthetic repair order PDF",
+            "document_type": "repair_order",
+        }
+
+        compact = await document.run(
+            {
+                "operation": "create_document_without_card_pdf",
+                "payload": payload,
+                "idempotency_key": "document-binary-compact",
+                "allow_large_output": False,
+            },
+            convert_result=False,
+        )
+        explicit = await document.run(
+            {
+                "operation": "create_document_without_card_pdf",
+                "payload": payload,
+                "idempotency_key": "document-binary-explicit",
+                "allow_large_output": True,
+            },
+            convert_result=False,
+        )
+
+        self.assertTrue(compact.structuredContent["ok"])
+        self.assertNotIn("pdf_base64", json.dumps(compact.structuredContent))
+        self.assertTrue(explicit.structuredContent["ok"])
+        self.assertIn("pdf_base64", json.dumps(explicit.structuredContent))
 
     async def test_store_outage_degrades_store_without_breaking_crm(self) -> None:
         server, state = self._create_store_server({"store_available": False})
