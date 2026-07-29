@@ -1786,6 +1786,40 @@ class ApiServerTests(unittest.TestCase):
         self.assertNotIn("padding", self.users_file.read_text(encoding="utf-8"))
         self.assertTrue(any(user["role"] == "admin" for user in state["users"]))
 
+    def test_operator_auth_reads_legacy_crlf_state_within_logical_size_limit(self) -> None:
+        state = self.operator_service._read_normalized_state()
+        state["sessions"] = [
+            {
+                "token": f"legacy-token-{index}",
+                "username": "ADMIN",
+                "created_at": utc_now().isoformat(),
+                "expires_at": (utc_now() + timedelta(days=1)).isoformat(),
+            }
+            for index in range(4)
+        ]
+        payload = json.dumps(state, ensure_ascii=False, indent=2, allow_nan=False)
+        crlf_payload = payload.replace("\n", "\r\n").encode("utf-8")
+        logical_size = len(payload.encode("utf-8"))
+        self.assertGreater(len(crlf_payload), logical_size)
+        self.users_file.write_bytes(crlf_payload)
+
+        with patch(
+            "minimal_kanban.operator_auth.OPERATOR_AUTH_STATE_MAX_BYTES",
+            logical_size,
+        ):
+            restored = self.operator_service._read_normalized_state()
+
+        self.assertEqual(len(restored["sessions"]), 4)
+        self.assertFalse(self.users_file.with_suffix(".corrupted.json").exists())
+
+    def test_operator_auth_writes_the_exact_validated_utf8_payload(self) -> None:
+        state = self.operator_service._read_normalized_state()
+        payload = json.dumps(state, ensure_ascii=False, indent=2, allow_nan=False)
+
+        self.operator_service._write_state(state)
+
+        self.assertEqual(self.users_file.read_bytes(), payload.encode("utf-8"))
+
     def test_operator_auth_rejects_oversized_state_write_without_clobbering_users_file(
         self,
     ) -> None:

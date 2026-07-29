@@ -37,7 +37,7 @@ from .services.errors import ServiceError
 from .storage.change_feed_projection import project_operator_users
 from .storage.file_lock import ProcessFileLock
 from .storage.json_store import JsonStore
-from .storage.limited_io import read_text_limited
+from .storage.limited_io import read_bytes_limited, read_text_limited
 
 USER_ROLE_VALUES = frozenset({"operator", "admin"})
 OPERATOR_AUTH_STATE_MAX_BYTES = 1 * 1024 * 1024
@@ -1474,11 +1474,25 @@ class OperatorAuthService:
         return state
 
     def _read_users_text(self) -> str:
-        return read_text_limited(
-            self._users_file,
-            max_bytes=OPERATOR_AUTH_STATE_MAX_BYTES,
-            label="operator users file",
-        )
+        try:
+            return read_text_limited(
+                self._users_file,
+                max_bytes=OPERATOR_AUTH_STATE_MAX_BYTES,
+                label="operator users file",
+            )
+        except ValueError as exc:
+            legacy_payload = read_bytes_limited(
+                self._users_file,
+                max_bytes=OPERATOR_AUTH_STATE_MAX_BYTES * 2,
+                label="operator users file",
+            )
+            normalized_payload = legacy_payload.replace(b"\r\n", b"\n")
+            if (
+                normalized_payload == legacy_payload
+                or len(normalized_payload) > OPERATOR_AUTH_STATE_MAX_BYTES
+            ):
+                raise exc
+            return normalized_payload.decode("utf-8")
 
     def _state_payload_text(self, state: dict[str, Any]) -> str:
         payload = json.dumps(state, ensure_ascii=False, indent=2, allow_nan=False)
@@ -1574,7 +1588,7 @@ class OperatorAuthService:
             f".{self._users_file.name}.{secrets.token_hex(8)}.tmp"
         )
         try:
-            temp_file.write_text(payload, encoding="utf-8")
+            temp_file.write_bytes(payload.encode("utf-8"))
             temp_file.replace(self._users_file)
             self._sync_change_feed(state)
         finally:
