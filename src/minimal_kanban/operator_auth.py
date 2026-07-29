@@ -45,6 +45,7 @@ PASSWORD_MIN_LENGTH = 4
 PASSWORD_HASH_ITERATIONS = 200_000
 PASSWORD_HASH_MAX_ITERATIONS = 1_000_000
 SESSION_TTL_DAYS = 30
+OPERATOR_SESSION_MAX_COUNT_PER_USER = 16
 STATS_WINDOW_DAYS = 15
 OPEN_COUNT_KEY = "cards_opened"
 OPERATOR_STAT_MAX = 1_000_000_000
@@ -174,6 +175,7 @@ class OperatorAuthService:
                     "expires_at": (now + timedelta(days=SESSION_TTL_DAYS)).isoformat(),
                 }
             )
+            state["sessions"] = self._limit_sessions_per_user(state["sessions"])
             self._write_state(state)
             snapshot = deepcopy(user)
         profile = self._build_profile_payload(snapshot, token=token)
@@ -1580,7 +1582,20 @@ class OperatorAuthService:
                 }
             )
             seen_tokens.add(token)
-        return normalized
+        return self._limit_sessions_per_user(normalized)
+
+    def _limit_sessions_per_user(self, sessions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        retained_reversed: list[dict[str, Any]] = []
+        counts: dict[str, int] = {}
+        for session in reversed(sessions):
+            username = _normalized_username(session.get("username"))
+            count = counts.get(username, 0)
+            if count >= OPERATOR_SESSION_MAX_COUNT_PER_USER:
+                continue
+            retained_reversed.append(session)
+            counts[username] = count + 1
+        retained_reversed.reverse()
+        return retained_reversed
 
     def _write_state(self, state: dict[str, Any]) -> None:
         payload = self._state_payload_text(state)

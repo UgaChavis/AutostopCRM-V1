@@ -1654,6 +1654,48 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(new_password["data"]["user"]["username"], "PARTS")
 
+    def test_operator_auth_limits_active_sessions_per_user(self) -> None:
+        self.operator_service._record_activity_safe = Mock()
+        with patch("minimal_kanban.operator_auth._verify_password", return_value=True):
+            sessions = [
+                self.operator_service.login({"username": "admin", "password": "test"})["session"]
+                for _ in range(3)
+            ]
+            self.operator_service.save_user(
+                {
+                    "_operator_session": sessions[0],
+                    "username": "other",
+                    "password": "test",
+                }
+            )
+            other_session = self.operator_service.login({"username": "other", "password": "test"})[
+                "session"
+            ]
+
+            with patch(
+                "minimal_kanban.operator_auth.OPERATOR_SESSION_MAX_COUNT_PER_USER",
+                2,
+            ):
+                normalized = self.operator_service._read_normalized_state()
+                self.assertEqual(
+                    [item["token"] for item in normalized["sessions"]],
+                    [
+                        sessions[1]["token"],
+                        sessions[2]["token"],
+                        other_session["token"],
+                    ],
+                )
+                self.assertIsNone(self.operator_service.resolve_session(sessions[0]["token"]))
+
+                newest = self.operator_service.login({"username": "admin", "password": "test"})[
+                    "session"
+                ]
+
+                self.assertIsNone(self.operator_service.resolve_session(sessions[1]["token"]))
+                self.assertIsNotNone(self.operator_service.resolve_session(sessions[2]["token"]))
+                self.assertIsNotNone(self.operator_service.resolve_session(newest["token"]))
+                self.assertIsNotNone(self.operator_service.resolve_session(other_session["token"]))
+
     def test_operator_auth_backs_up_non_object_users_file_before_bootstrap(self) -> None:
         self.users_file.write_text("[]", encoding="utf-8")
 
