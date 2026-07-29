@@ -125,6 +125,7 @@ def _new_authorization(
         raise RuntimeError("authorization did not enter the owner consent route")
     consent_response = client.post(
         consent_url,
+        headers={"Origin": _origin(mcp_url)},
         data={
             "request_id": (parse_qs(urlsplit(consent_url).query).get("request_id") or [""])[0],
             "username": username,
