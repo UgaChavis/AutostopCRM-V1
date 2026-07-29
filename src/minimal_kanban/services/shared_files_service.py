@@ -841,7 +841,25 @@ def _normalize_byte_count(value: Any) -> int:
 
 def _normalize_mime_type(value: Any) -> str:
     text = str(value or "").strip().lower()
-    if not text or "/" not in text or len(text) > 120:
+    if (
+        not text
+        or len(text) > 120
+        or any(ord(character) < 32 or ord(character) > 126 for character in text)
+    ):
+        return "application/octet-stream"
+    media_type = text.split(";", 1)[0].strip()
+    type_name, separator, subtype_name = media_type.partition("/")
+    token_characters = frozenset("!#$%&'*+-.^_`|~")
+    if (
+        separator != "/"
+        or "/" in subtype_name
+        or not type_name
+        or not subtype_name
+        or not all(character.isalnum() or character in token_characters for character in type_name)
+        or not all(
+            character.isalnum() or character in token_characters for character in subtype_name
+        )
+    ):
         return "application/octet-stream"
     return text
 

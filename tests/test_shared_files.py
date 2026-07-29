@@ -779,6 +779,29 @@ class SharedFilesApiTests(unittest.TestCase):
             self.assertEqual(response.headers.get("X-Content-Type-Options"), "nosniff")
             self.assertEqual(response.read(), b"<script>alert(1)</script>")
 
+    def test_shared_file_download_rejects_header_injection_in_mime_type(self) -> None:
+        status, upload = self.request(
+            "/api/upload_shared_file",
+            {
+                "file_name": "probe.txt",
+                "mime_type": "text/plain\r\nX-Injected-Probe: confirmed",
+                "content_base64": b64(b"probe"),
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(upload["data"]["file"]["mime_type"], "application/octet-stream")
+        file_id = upload["data"]["file"]["id"]
+
+        download = urllib.request.Request(
+            f"{self.base_url}/api/shared_file?file_id={file_id}&access_token=secret-token",
+            method="GET",
+        )
+        with urllib.request.urlopen(download, timeout=5) as response:
+            self.assertEqual(response.status, http.client.OK)
+            self.assertEqual(response.headers.get_content_type(), "application/octet-stream")
+            self.assertIsNone(response.headers.get("X-Injected-Probe"))
+            self.assertEqual(response.read(), b"probe")
+
     def test_shared_file_download_route_rejects_oversized_disk_file_before_reading(self) -> None:
         status, upload = self.request(
             "/api/upload_shared_file",
