@@ -2585,8 +2585,8 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
             with patch(
                 "minimal_kanban.mcp.server._authenticate_oauth_owner",
                 return_value="admin",
-            ):
-                approved = await client.post(
+            ) as authenticate_owner:
+                missing_origin = await client.post(
                     f"{auth_base}/oauth/authorize",
                     data={
                         "request_id": request_id,
@@ -2594,6 +2594,31 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                         "password": "not-persisted",
                     },
                 )
+                self.assertEqual(missing_origin.status_code, 403)
+                authenticate_owner.assert_not_called()
+
+                blocked = await client.post(
+                    f"{auth_base}/oauth/authorize",
+                    headers={"Origin": "https://evil.example"},
+                    data={
+                        "request_id": request_id,
+                        "username": "admin",
+                        "password": "not-persisted",
+                    },
+                )
+                self.assertEqual(blocked.status_code, 403)
+                authenticate_owner.assert_not_called()
+
+                approved = await client.post(
+                    f"{auth_base}/oauth/authorize",
+                    headers={"Origin": "https://agent.example"},
+                    data={
+                        "request_id": request_id,
+                        "username": "admin",
+                        "password": "not-persisted",
+                    },
+                )
+                authenticate_owner.assert_called_once()
             self.assertEqual(approved.status_code, 302)
             query = parse_qs(urlsplit(approved.headers["location"]).query)
             self.assertEqual(query["state"][0], "demo-state")

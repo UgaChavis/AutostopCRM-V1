@@ -566,6 +566,24 @@ _OAUTH_CONSENT_HEADERS = {
 }
 
 
+def _oauth_consent_origin_allowed(origin: str, allowed_origins: list[str]) -> bool:
+    supplied = str(origin or "").strip()
+    if not supplied or supplied == "null":
+        return False
+    if supplied in allowed_origins:
+        return True
+    for allowed in allowed_origins:
+        if not allowed.endswith(":*"):
+            continue
+        base = allowed[:-2]
+        if not supplied.startswith(f"{base}:"):
+            continue
+        port = supplied[len(base) + 1 :]
+        if port.isdigit() and 1 <= int(port) <= 65535:
+            return True
+    return False
+
+
 def _oauth_consent_page(
     request_id: str,
     *,
@@ -820,6 +838,15 @@ def create_mcp_server(
             request_id = str(request.query_params.get("request_id") or "").strip()
             form: dict[str, list[str]] = {}
             if request.method == "POST":
+                if not _oauth_consent_origin_allowed(
+                    request.headers.get("origin", ""),
+                    transport_security.allowed_origins,
+                ):
+                    return HTMLResponse(
+                        "Invalid request origin.",
+                        status_code=403,
+                        headers=_OAUTH_CONSENT_HEADERS,
+                    )
                 content_type = request.headers.get("content-type", "").split(";", 1)[0].strip()
                 if content_type != "application/x-www-form-urlencoded":
                     return HTMLResponse(
