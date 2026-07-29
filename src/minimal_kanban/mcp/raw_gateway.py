@@ -267,14 +267,14 @@ async def verify_virtual_api_write_readback(
         employee = _find_mapping(readback, "id", employee_id) if employee_id else None
         requested_shift_accrual_ids = {
             str(item)
-            for item in arguments.get("attestation_cleanup_shift_accrual_ids")
-            or []
+            for item in arguments.get("attestation_cleanup_shift_accrual_ids") or []
             if str(item)
         }
         cleanup_meta = _find_mapping_matching(
             result,
-            lambda item: "attestation_shift_cleanup" in item
-            and "removed_shift_accrual_ids" in item,
+            lambda item: (
+                "attestation_shift_cleanup" in item and "removed_shift_accrual_ids" in item
+            ),
         )
         shift_cleanup_exact = not requested_shift_accrual_ids or bool(
             isinstance(cleanup_meta, dict)
@@ -311,24 +311,23 @@ async def verify_virtual_api_write_readback(
             (
                 _find_mapping_matching(
                     result,
-                    lambda item: "removed_transaction_ids" in item
-                    and "cashbox_id" in item,
+                    lambda item: "removed_transaction_ids" in item and "cashbox_id" in item,
                 )
                 or {}
             ).get("cashbox_id")
             or ""
         )
         expected_transaction_ids = {
-            str(item)
-            for item in arguments.get("expected_transaction_ids") or []
-            if str(item)
+            str(item) for item in arguments.get("expected_transaction_ids") or [] if str(item)
         }
         result_meta = _find_mapping_matching(
             result,
-            lambda item: "balance_minor_before" in item
-            and "balance_minor_after" in item
-            and "removed_effect_minor" in item
-            and "removed_transaction_ids" in item,
+            lambda item: (
+                "balance_minor_before" in item
+                and "balance_minor_after" in item
+                and "removed_effect_minor" in item
+                and "removed_transaction_ids" in item
+            ),
         )
         card_readback = await invoke("get_card", {"card_id": card_id})
         cashbox_readback = await invoke(
@@ -336,11 +335,7 @@ async def verify_virtual_api_write_readback(
             {"cashbox_id": cashbox_id, "transaction_limit": 100},
         )
         card = _find_mapping(card_readback, "id", card_id) if card_id else None
-        cashbox = (
-            _find_mapping(cashbox_readback, "id", cashbox_id)
-            if cashbox_id
-            else None
-        )
+        cashbox = _find_mapping(cashbox_readback, "id", cashbox_id) if cashbox_id else None
         order = (
             card.get("repair_order")
             if isinstance(card, dict) and isinstance(card.get("repair_order"), Mapping)
@@ -387,9 +382,7 @@ async def verify_virtual_api_write_readback(
                 and not order.get("materials")
                 and not order.get("payments"),
                 "transactions_absent": removed_absent,
-                "removed_effect_minor": int(
-                    (result_meta or {}).get("removed_effect_minor") or 0
-                ),
+                "removed_effect_minor": int((result_meta or {}).get("removed_effect_minor") or 0),
                 "balance_restored": balance_restored,
             },
         }
@@ -413,8 +406,7 @@ async def verify_virtual_api_write_readback(
                 and str(item.get("employee_id") or "") == employee_id
                 and str(item.get("cashbox_id") or "") == cashbox_id
                 and str(item.get("direction") or "") == "expense"
-                and str(item.get("transaction_kind") or "")
-                in {"salary_payout", "salary_advance"}
+                and str(item.get("transaction_kind") or "") in {"salary_payout", "salary_advance"}
             ),
         )
         transaction_id = str((transaction or {}).get("id") or "")
@@ -557,16 +549,13 @@ async def verify_virtual_api_write_readback(
             _find_mapping(cashbox_readback, "id", transaction_id) if transaction_id else None
         )
         cancellation_readback = (
-            _find_mapping(cashbox_readback, "id", cancellation_id)
-            if cancellation_id
-            else None
+            _find_mapping(cashbox_readback, "id", cancellation_id) if cancellation_id else None
         )
         related_transaction_id = str(
             (
                 _find_mapping_matching(
                     result,
-                    lambda item: "related_transaction_id" in item
-                    and "related_cashbox_id" in item,
+                    lambda item: "related_transaction_id" in item and "related_cashbox_id" in item,
                 )
                 or {}
             ).get("related_transaction_id")
@@ -576,8 +565,7 @@ async def verify_virtual_api_write_readback(
             (
                 _find_mapping_matching(
                     result,
-                    lambda item: "related_transaction_id" in item
-                    and "related_cashbox_id" in item,
+                    lambda item: "related_transaction_id" in item and "related_cashbox_id" in item,
                 )
                 or {}
             ).get("related_cashbox_id")
@@ -589,8 +577,7 @@ async def verify_virtual_api_write_readback(
                 related_transaction_id
                 and str(item.get("id") or "").strip()
                 and str(item.get("transaction_kind") or "") == "cashbox_cancellation"
-                and str(item.get("related_transaction_id") or "")
-                == related_transaction_id
+                and str(item.get("related_transaction_id") or "") == related_transaction_id
             ),
         )
         related_cancellation_id = str((related_cancellation or {}).get("id") or "")
@@ -632,10 +619,7 @@ async def verify_virtual_api_write_readback(
                 and str(related_cancelled_readback.get("transaction_kind") or "")
                 == "cashbox_cancelled"
                 and isinstance(related_cancellation_readback, dict)
-                and str(
-                    related_cancellation_readback.get("related_transaction_id")
-                    or ""
-                )
+                and str(related_cancellation_readback.get("related_transaction_id") or "")
                 == related_transaction_id
             )
         payment_card_id = str(
@@ -681,7 +665,9 @@ async def verify_virtual_api_write_readback(
                 "transaction_id": transaction_id,
                 "cancellation_transaction_id": cancellation_id,
                 "cashbox_id": cashbox_id,
-                "cancelled_kind_exact": str((cancelled_readback or {}).get("transaction_kind") or "")
+                "cancelled_kind_exact": str(
+                    (cancelled_readback or {}).get("transaction_kind") or ""
+                )
                 == "cashbox_cancelled",
                 "cancellation_pair_exact": str(
                     (cancellation_readback or {}).get("related_transaction_id") or ""
@@ -760,9 +746,7 @@ async def verify_virtual_api_write_readback(
         "api:/api/finance_audit/apply_safe_fixes",
     }:
         selected_issue_ids = [
-            str(item)
-            for item in arguments.get("issue_ids", [])
-            if isinstance(item, str) and item
+            str(item) for item in arguments.get("issue_ids", []) if isinstance(item, str) and item
         ]
         expected_issue_ids = [
             str(item)
@@ -773,9 +757,7 @@ async def verify_virtual_api_write_readback(
         audit_readback = await invoke("api:/api/finance_audit", {})
         actual_issue_ids = [
             str(item.get("id") or "")
-            for item in (
-                _find_mapping(audit_readback, "issues", None) or {}
-            ).get("issues", [])
+            for item in (_find_mapping(audit_readback, "issues", None) or {}).get("issues", [])
             if isinstance(item, Mapping) and str(item.get("id") or "")
         ]
         if not actual_issue_ids:
@@ -794,9 +776,7 @@ async def verify_virtual_api_write_readback(
         )
         employee_id = str((safe_fix or {}).get("employee_id") or "")
         employee_readback = await invoke("api:/api/list_employees", {})
-        employee = (
-            _find_mapping(employee_readback, "id", employee_id) if employee_id else None
-        )
+        employee = _find_mapping(employee_readback, "id", employee_id) if employee_id else None
         expected_after = (
             expected_issue_ids
             if dry_run
@@ -899,19 +879,13 @@ async def verify_virtual_api_write_readback(
             arguments.get("from_cashbox_id") or arguments.get("cashbox_id") or ""
         ).strip()
         target_cashbox_id = str(
-            arguments.get("to_cashbox_id")
-            or arguments.get("target_cashbox_id")
-            or ""
+            arguments.get("to_cashbox_id") or arguments.get("target_cashbox_id") or ""
         ).strip()
         source_transaction = (
-            _find_mapping(result, "cashbox_id", source_cashbox_id)
-            if source_cashbox_id
-            else None
+            _find_mapping(result, "cashbox_id", source_cashbox_id) if source_cashbox_id else None
         )
         target_transaction = (
-            _find_mapping(result, "cashbox_id", target_cashbox_id)
-            if target_cashbox_id
-            else None
+            _find_mapping(result, "cashbox_id", target_cashbox_id) if target_cashbox_id else None
         )
         source_transaction_id = str((source_transaction or {}).get("id") or "")
         target_transaction_id = str((target_transaction or {}).get("id") or "")

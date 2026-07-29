@@ -5264,9 +5264,7 @@ async def _finance_create_employee_salary_transaction_case(
             },
             "idempotency_key": f"{prefix}-{spec.operation}-missing-revisions-a{attempt}"[:160],
         },
-        expected_code=(
-            "salary_transaction_expected_revisions_required_reread_exact_targets_first"
-        ),
+        expected_code=("salary_transaction_expected_revisions_required_reread_exact_targets_first"),
         evidence=evidence,
     )
     await _inventory_expected_failure(
@@ -5315,8 +5313,7 @@ async def _finance_create_employee_salary_transaction_case(
     )
     if (
         str(after_negative.get("updated_at") or "") != before_revision
-        or int((after_negative.get("statistics") or {}).get("balance_minor") or 0)
-        != before_balance
+        or int((after_negative.get("statistics") or {}).get("balance_minor") or 0) != before_balance
     ):
         raise AttestationError(
             "salary_transaction_negative_case_changed_backend",
@@ -5510,11 +5507,7 @@ async def _finance_create_employee_shift_accrual_case(
         evidence=evidence,
     )
     employee_after_negative = next(
-        (
-            item
-            for item in employees_after_negative
-            if str(item.get("id") or "") == employee_id
-        ),
+        (item for item in employees_after_negative if str(item.get("id") or "") == employee_id),
         None,
     )
     if (
@@ -5696,15 +5689,11 @@ async def _finance_cancel_cash_transaction_case(
         arguments={
             "operation": spec.operation,
             "payload": {
-                key: value
-                for key, value in payload.items()
-                if key != "expected_cashbox_updated_at"
+                key: value for key, value in payload.items() if key != "expected_cashbox_updated_at"
             },
             "idempotency_key": f"{prefix}-{spec.operation}-missing-revision-a{attempt}"[:160],
         },
-        expected_code=(
-            "cash_cancellation_expected_revision_required_reread_exact_cashbox_first"
-        ),
+        expected_code=("cash_cancellation_expected_revision_required_reread_exact_cashbox_first"),
         evidence=evidence,
     )
     await _inventory_expected_failure(
@@ -5739,8 +5728,7 @@ async def _finance_cancel_cash_transaction_case(
     )
     if (
         str(after_negative.get("updated_at") or "") != before_revision
-        or int((after_negative.get("statistics") or {}).get("balance_minor") or 0)
-        != before_balance
+        or int((after_negative.get("statistics") or {}).get("balance_minor") or 0) != before_balance
     ):
         raise AttestationError(
             "cash_cancellation_negative_case_changed_backend",
@@ -5811,12 +5799,10 @@ async def _finance_cancel_cash_transaction_case(
         not isinstance(cancelled, dict)
         or str(cancelled.get("transaction_kind") or "") != "cashbox_cancelled"
         or not isinstance(cancellation_reread, dict)
-        or str(cancellation_reread.get("transaction_kind") or "")
-        != "cashbox_cancellation"
+        or str(cancellation_reread.get("transaction_kind") or "") != "cashbox_cancellation"
         or str(cancellation_reread.get("related_transaction_id") or "") != transaction_id
         or ledger_row is not None
-        or int((after.get("statistics") or {}).get("balance_minor") or 0)
-        != before_balance + 100
+        or int((after.get("statistics") or {}).get("balance_minor") or 0) != before_balance + 100
         or str(after.get("updated_at") or "") == before_revision
     ):
         raise AttestationError(
@@ -5845,8 +5831,7 @@ async def _finance_cancel_cash_transaction_case(
     )
     if (
         str(final.get("updated_at") or "") != str(after.get("updated_at") or "")
-        or int((final.get("statistics") or {}).get("balance_minor") or 0)
-        != before_balance + 100
+        or int((final.get("statistics") or {}).get("balance_minor") or 0) != before_balance + 100
     ):
         raise AttestationError(
             "cash_cancellation_repeat_changed_backend",
@@ -5991,9 +5976,7 @@ async def _finance_cancel_last_cash_transaction_case(
         arguments={
             "operation": spec.operation,
             "payload": {
-                key: value
-                for key, value in payload.items()
-                if key != "expected_cashbox_updated_at"
+                key: value for key, value in payload.items() if key != "expected_cashbox_updated_at"
             },
             "idempotency_key": f"{prefix}-{spec.operation}-missing-revision-a{attempt}"[:160],
         },
@@ -6034,8 +6017,7 @@ async def _finance_cancel_last_cash_transaction_case(
     )
     if (
         str(after_negative.get("updated_at") or "") != ready_revision
-        or int((after_negative.get("statistics") or {}).get("balance_minor") or 0)
-        != ready_balance
+        or int((after_negative.get("statistics") or {}).get("balance_minor") or 0) != ready_balance
         or _cash_transaction_mapping(after_negative_structured, transaction_id) is None
     ):
         raise AttestationError(
@@ -6062,8 +6044,7 @@ async def _finance_cancel_last_cash_transaction_case(
     )
     if (
         _cash_transaction_mapping(after_structured, transaction_id) is not None
-        or int((after.get("statistics") or {}).get("balance_minor") or 0)
-        != ready_balance - 100
+        or int((after.get("statistics") or {}).get("balance_minor") or 0) != ready_balance - 100
         or str(after.get("updated_at") or "") == ready_revision
     ):
         raise AttestationError(
@@ -6092,8 +6073,7 @@ async def _finance_cancel_last_cash_transaction_case(
     )
     if (
         str(final.get("updated_at") or "") != str(after.get("updated_at") or "")
-        or int((final.get("statistics") or {}).get("balance_minor") or 0)
-        != ready_balance - 100
+        or int((final.get("statistics") or {}).get("balance_minor") or 0) != ready_balance - 100
         or _cash_transaction_mapping(final_structured, transaction_id) is not None
     ):
         raise AttestationError(
@@ -6110,19 +6090,13 @@ async def _finance_cancel_last_cash_transaction_case(
 
 def _finance_audit_issue_mappings(value: Any) -> list[dict[str, Any]]:
     container = next(
-        (
-            mapping
-            for mapping in _walk_mappings(value)
-            if isinstance(mapping.get("issues"), list)
-        ),
+        (mapping for mapping in _walk_mappings(value) if isinstance(mapping.get("issues"), list)),
         None,
     )
     return [
         item
         for item in (container or {}).get("issues", [])
-        if isinstance(item, dict)
-        and str(item.get("id") or "")
-        and str(item.get("code") or "")
+        if isinstance(item, dict) and str(item.get("id") or "") and str(item.get("code") or "")
     ]
 
 
@@ -6180,19 +6154,14 @@ async def _finance_apply_audit_safe_fixes_case(
     employee_already_detached = bool(
         preexisting_salary
         and not any(
-            str(item.get("id") or "")
-            == str(preexisting_salary.get("employee_id") or "")
+            str(item.get("id") or "") == str(preexisting_salary.get("employee_id") or "")
             for item in employees_before
         )
     )
     if preexisting_salary:
-        if (
-            str(preexisting_salary.get("employee_name") or "") != employee_name
-            or (
-                employee is not None
-                and str(employee.get("id") or "")
-                != str(preexisting_salary.get("employee_id") or "")
-            )
+        if str(preexisting_salary.get("employee_name") or "") != employee_name or (
+            employee is not None
+            and str(employee.get("id") or "") != str(preexisting_salary.get("employee_id") or "")
         ):
             raise AttestationError(
                 "audit_salary_fixture_identity_mismatch",
@@ -6220,9 +6189,7 @@ async def _finance_apply_audit_safe_fixes_case(
                 "work_percent": "0",
                 "material_percent": "0",
                 "repair_order_percent": "0",
-                "expected_employee_ids": [
-                    str(item["id"]) for item in employees_before
-                ],
+                "expected_employee_ids": [str(item["id"]) for item in employees_before],
                 "attestation_run_id": prefix,
             },
             idempotency_key=f"{prefix}-audit-fixture-save-employee-a{attempt}"[:160],
@@ -6248,9 +6215,9 @@ async def _finance_apply_audit_safe_fixes_case(
     state["refs"]["synthetic_audit_employee_id"] = employee_id
 
     before_cashbox = initial_cashbox
-    before_balance = int(
-        (initial_cashbox.get("statistics") or {}).get("balance_minor") or 0
-    ) + (100 if preexisting_salary else 0)
+    before_balance = int((initial_cashbox.get("statistics") or {}).get("balance_minor") or 0) + (
+        100 if preexisting_salary else 0
+    )
     existing_salary = preexisting_salary
     salary_transaction_id = str((existing_salary or {}).get("id") or "")
     if not salary_transaction_id:
@@ -6402,9 +6369,7 @@ async def _finance_apply_audit_safe_fixes_case(
             },
             "idempotency_key": f"{prefix}-{spec.operation}-missing-snapshot-a{attempt}"[:160],
         },
-        expected_code=(
-            "finance_audit_issue_snapshot_required_reread_exact_audit_first"
-        ),
+        expected_code=("finance_audit_issue_snapshot_required_reread_exact_audit_first"),
         evidence=evidence,
     )
     await _inventory_expected_failure(
@@ -6440,9 +6405,7 @@ async def _finance_apply_audit_safe_fixes_case(
         purpose="after-audit-dry-run",
         evidence=evidence,
     )
-    if any(
-        str(item.get("id") or "") == employee_id for item in employees_after_dry_run
-    ):
+    if any(str(item.get("id") or "") == employee_id for item in employees_after_dry_run):
         raise AttestationError(
             "finance_audit_dry_run_changed_backend",
             classification="backend_effect",
@@ -6464,11 +6427,7 @@ async def _finance_apply_audit_safe_fixes_case(
         evidence=evidence,
     )
     restored = next(
-        (
-            item
-            for item in employees_restored
-            if str(item.get("id") or "") == employee_id
-        ),
+        (item for item in employees_restored if str(item.get("id") or "") == employee_id),
         None,
     )
     if (
@@ -6489,9 +6448,7 @@ async def _finance_apply_audit_safe_fixes_case(
         evidence=evidence,
         allow_large_output=True,
     )
-    if issue_id in {
-        str(item["id"]) for item in _finance_audit_issue_mappings(audit_after)
-    }:
+    if issue_id in {str(item["id"]) for item in _finance_audit_issue_mappings(audit_after)}:
         raise AttestationError(
             "finance_audit_issue_still_present_after_apply",
             classification="backend_effect",
@@ -6509,9 +6466,7 @@ async def _finance_apply_audit_safe_fixes_case(
             "cashbox_id": cashbox_id,
             "transaction_id": salary_transaction_id,
             "reason": f"{prefix} audit salary compensation",
-            "expected_cashbox_updated_at": str(
-                cashbox_before_compensation["updated_at"]
-            ),
+            "expected_cashbox_updated_at": str(cashbox_before_compensation["updated_at"]),
             "attestation_run_id": prefix,
         },
         "idempotency_key": f"{prefix}-audit-salary-compensation-a{attempt}"[:160],
@@ -6538,8 +6493,7 @@ async def _finance_apply_audit_safe_fixes_case(
             mapping
             for mapping in _walk_mappings(_structured(cancelled))
             if str(mapping.get("transaction_kind") or "") == "cashbox_cancellation"
-            and str(mapping.get("related_transaction_id") or "")
-            == salary_transaction_id
+            and str(mapping.get("related_transaction_id") or "") == salary_transaction_id
         ),
         None,
     )
@@ -6591,8 +6545,7 @@ async def _finance_apply_audit_safe_fixes_case(
     )
     if (
         any(str(item.get("id") or "") == employee_id for item in final_employees)
-        or int((final_cashbox.get("statistics") or {}).get("balance_minor") or 0)
-        != before_balance
+        or int((final_cashbox.get("statistics") or {}).get("balance_minor") or 0) != before_balance
     ):
         raise AttestationError(
             "finance_audit_fixture_cleanup_failed",
@@ -6635,15 +6588,9 @@ async def _finance_delete_cashbox_case(
     prefix = str(state["refs"]["synthetic_prefix"])
     primary_id = str(state["refs"].get("synthetic_cashbox_id") or "")
     second_id = str(state["refs"].get("synthetic_second_cashbox_id") or "")
-    transfer_source_id = str(
-        state["refs"].get("synthetic_transfer_source_transaction_id") or ""
-    )
-    transfer_target_id = str(
-        state["refs"].get("synthetic_transfer_target_transaction_id") or ""
-    )
-    manual_transaction_id = str(
-        state["refs"].get("synthetic_cash_transaction_id") or ""
-    )
+    transfer_source_id = str(state["refs"].get("synthetic_transfer_source_transaction_id") or "")
+    transfer_target_id = str(state["refs"].get("synthetic_transfer_target_transaction_id") or "")
+    manual_transaction_id = str(state["refs"].get("synthetic_cash_transaction_id") or "")
     if not all(
         (
             primary_id,
@@ -6692,9 +6639,7 @@ async def _finance_delete_cashbox_case(
             },
             "idempotency_key": f"{prefix}-{spec.operation}-missing-snapshot-a{attempt}"[:160],
         },
-        expected_code=(
-            "cashbox_delete_snapshot_required_reread_exact_cashbox_first"
-        ),
+        expected_code=("cashbox_delete_snapshot_required_reread_exact_cashbox_first"),
         evidence=evidence,
     )
     await _inventory_expected_failure(
@@ -6722,21 +6667,14 @@ async def _finance_delete_cashbox_case(
         expected_code="cashbox_attestation_balance_not_zero",
         evidence=evidence,
     )
-    second_after_negative, second_after_negative_structured = (
-        await _finance_cashbox_context(
-            session,
-            cashbox_id=second_id,
-            evidence=evidence,
-        )
+    second_after_negative, second_after_negative_structured = await _finance_cashbox_context(
+        session,
+        cashbox_id=second_id,
+        evidence=evidence,
     )
     if (
-        str(second_after_negative.get("updated_at") or "")
-        != str(second.get("updated_at") or "")
-        or int(
-            (second_after_negative.get("statistics") or {}).get("balance_minor")
-            or 0
-        )
-        != 100
+        str(second_after_negative.get("updated_at") or "") != str(second.get("updated_at") or "")
+        or int((second_after_negative.get("statistics") or {}).get("balance_minor") or 0) != 100
         or _cash_transaction_mapping(
             second_after_negative_structured,
             transfer_target_id,
@@ -6786,10 +6724,10 @@ async def _finance_delete_cashbox_case(
         in {transfer_source_id, transfer_target_id}
         and str(mapping.get("id") or "")
     ]
-    if {
-        str(item.get("related_transaction_id") or "")
-        for item in transfer_cancellations
-    } != {transfer_source_id, transfer_target_id}:
+    if {str(item.get("related_transaction_id") or "") for item in transfer_cancellations} != {
+        transfer_source_id,
+        transfer_target_id,
+    }:
         raise AttestationError(
             "transfer_compensation_pair_missing",
             classification="backend_effect",
@@ -6824,16 +6762,8 @@ async def _finance_delete_cashbox_case(
         evidence=evidence,
     )
     if (
-        int(
-            (primary_after_transfer.get("statistics") or {}).get("balance_minor")
-            or 0
-        )
-        != 100
-        or int(
-            (second_after_transfer.get("statistics") or {}).get("balance_minor")
-            or 0
-        )
-        != 0
+        int((primary_after_transfer.get("statistics") or {}).get("balance_minor") or 0) != 100
+        or int((second_after_transfer.get("statistics") or {}).get("balance_minor") or 0) != 0
     ):
         raise AttestationError(
             "transfer_compensation_balance_invalid",
@@ -6873,10 +6803,8 @@ async def _finance_delete_cashbox_case(
         (
             mapping
             for mapping in _walk_mappings(_structured(manual_cancelled))
-            if str(mapping.get("transaction_kind") or "")
-            == "cashbox_cancellation"
-            and str(mapping.get("related_transaction_id") or "")
-            == manual_transaction_id
+            if str(mapping.get("transaction_kind") or "") == "cashbox_cancellation"
+            and str(mapping.get("related_transaction_id") or "") == manual_transaction_id
         ),
         None,
     )
@@ -6923,8 +6851,7 @@ async def _finance_delete_cashbox_case(
         "cashbox_id": second_id,
         "expected_cashbox_updated_at": str(second_zero["updated_at"]),
         "expected_transaction_ids": [
-            str(item["id"])
-            for item in _cashbox_transaction_rows(second_zero_structured, second_id)
+            str(item["id"]) for item in _cashbox_transaction_rows(second_zero_structured, second_id)
         ],
         "attestation_run_id": prefix,
     }
@@ -6940,12 +6867,10 @@ async def _finance_delete_cashbox_case(
         cashbox_id=second_id,
         status="deleted_cleanup",
     )
-    primary_after_second, primary_after_second_structured = (
-        await _finance_cashbox_context(
-            session,
-            cashbox_id=primary_id,
-            evidence=evidence,
-        )
+    primary_after_second, primary_after_second_structured = await _finance_cashbox_context(
+        session,
+        cashbox_id=primary_id,
+        evidence=evidence,
     )
     primary_delete_payload = {
         "cashbox_id": primary_id,
@@ -7278,10 +7203,7 @@ async def _operation_case(
                 spec=spec,
                 state=state,
             )
-        if (
-            spec.family == "finance"
-            and spec.operation == "create_employee_salary_transaction"
-        ):
+        if spec.family == "finance" and spec.operation == "create_employee_salary_transaction":
             return await _finance_create_employee_salary_transaction_case(
                 session,
                 spec=spec,
@@ -7305,10 +7227,7 @@ async def _operation_case(
                 spec=spec,
                 state=state,
             )
-        if (
-            spec.family == "finance"
-            and spec.operation == "apply_finance_audit_safe_fixes"
-        ):
+        if spec.family == "finance" and spec.operation == "apply_finance_audit_safe_fixes":
             return await _finance_apply_audit_safe_fixes_case(
                 session,
                 spec=spec,
@@ -7625,11 +7544,7 @@ async def _raw_search_client(
         mapping
         for mapping in _walk_mappings(structured)
         if str(mapping.get("id") or "")
-        and (
-            "display_name" in mapping
-            or "last_name" in mapping
-            or "legal_name" in mapping
-        )
+        and ("display_name" in mapping or "last_name" in mapping or "legal_name" in mapping)
     ]
 
 
@@ -7753,8 +7668,7 @@ async def _raw_create_client_case(
     )
     if (
         str(client.get("display_name") or "") != display_name
-        or str(client.get("comment") or "")
-        != f"{prefix} isolated Gateway attestation fixture"
+        or str(client.get("comment") or "") != f"{prefix} isolated Gateway attestation fixture"
     ):
         raise AttestationError(
             "raw_create_client_exact_readback_mismatch",
@@ -7842,8 +7756,7 @@ async def _raw_create_card_case(
         existing = [
             mapping
             for mapping in _walk_mappings(_structured(searched))
-            if str(mapping.get("id") or "")
-            and str(mapping.get("title") or "") == title
+            if str(mapping.get("id") or "") and str(mapping.get("title") or "") == title
         ]
         if len(existing) > 1:
             raise AttestationError(
@@ -7984,9 +7897,7 @@ async def _raw_link_card_to_client_case(
         arguments={"card_id": card_id, "client_id": client_id},
         schema_hash=schema_hash,
         idempotency_key=f"{prefix}-raw-link-missing-revisions-a{attempt}"[:160],
-        expected_code=(
-            "card_client_link_expected_revisions_required_reread_exact_targets_first"
-        ),
+        expected_code=("card_client_link_expected_revisions_required_reread_exact_targets_first"),
         evidence=evidence,
     )
     if str(card.get("client_id") or "") != client_id:
@@ -8025,8 +7936,7 @@ async def _raw_link_card_to_client_case(
             evidence=evidence,
         )
         if (
-            str(card_after_conflicts.get("updated_at") or "")
-            != str(card.get("updated_at") or "")
+            str(card_after_conflicts.get("updated_at") or "") != str(card.get("updated_at") or "")
             or str(card_after_conflicts.get("client_id") or "")
             or str(client_after_conflicts.get("updated_at") or "")
             != str(client.get("updated_at") or "")
@@ -8306,8 +8216,7 @@ def _payment_amount_minor(payment: dict[str, Any]) -> int:
     try:
         return int(
             (
-                Decimal(str(payment.get("amount") or "0").replace(",", "."))
-                * Decimal("100")
+                Decimal(str(payment.get("amount") or "0").replace(",", ".")) * Decimal("100")
             ).to_integral_value()
         )
     except (InvalidOperation, TypeError, ValueError):
@@ -8360,15 +8269,12 @@ async def _cleanup_payment_fixture(
     removed_transaction_count = 0
     if not bool(card.get("archived")) and _synthetic_repair_order_needs_cleanup(card):
         repair_order = (
-            card.get("repair_order")
-            if isinstance(card.get("repair_order"), dict)
-            else {}
+            card.get("repair_order") if isinstance(card.get("repair_order"), dict) else {}
         )
         matching_payments = [
             item
             for item in repair_order.get("payments") or []
-            if isinstance(item, dict)
-            and str(item.get("id") or "") == payment_id
+            if isinstance(item, dict) and str(item.get("id") or "") == payment_id
         ]
         if (
             len(matching_payments) != 1
@@ -8418,9 +8324,7 @@ async def _cleanup_payment_fixture(
                 evidence=evidence,
             )
         cashbox_revision = str(cashbox.get("updated_at") or "")
-        balance_before = int(
-            (cashbox.get("statistics") or {}).get("balance_minor") or 0
-        )
+        balance_before = int((cashbox.get("statistics") or {}).get("balance_minor") or 0)
         if not cashbox_revision:
             raise AttestationError(
                 "cleanup_payment_cashbox_revision_missing",
@@ -8450,12 +8354,8 @@ async def _cleanup_payment_fixture(
                 "attestation_run_id": prefix,
             },
             schema_hash=schema_hash,
-            idempotency_key=(
-                f"{prefix}-global-cleanup-payment-a{attempt}"
-            )[:160],
-            expected_check=(
-                "exact_attestation_payment_fixture_absence_readback"
-            ),
+            idempotency_key=(f"{prefix}-global-cleanup-payment-a{attempt}")[:160],
+            expected_check=("exact_attestation_payment_fixture_absence_readback"),
             evidence=evidence,
         )
         card = await _card_context(
@@ -8476,9 +8376,7 @@ async def _cleanup_payment_fixture(
                 cashbox_id,
             )
         }
-        balance_after = int(
-            (cashbox_after.get("statistics") or {}).get("balance_minor") or 0
-        )
+        balance_after = int((cashbox_after.get("statistics") or {}).get("balance_minor") or 0)
         if (
             _synthetic_repair_order_needs_cleanup(card)
             or not set(scoped_ids).isdisjoint(remaining_ids)
@@ -8552,17 +8450,12 @@ async def _cleanup_employee_fixture(
         evidence=evidence,
     )
     employee = next(
-        (
-            item
-            for item in employees
-            if str(item.get("id") or "") == employee_id
-        ),
+        (item for item in employees if str(item.get("id") or "") == employee_id),
         None,
     )
     if isinstance(employee, dict):
-        if (
-            not str(employee.get("name") or "").startswith(f"{prefix}-")
-            or not str(employee.get("updated_at") or "")
+        if not str(employee.get("name") or "").startswith(f"{prefix}-") or not str(
+            employee.get("updated_at") or ""
         ):
             raise AttestationError(
                 "cleanup_employee_exact_fixture_invalid",
@@ -8590,9 +8483,7 @@ async def _cleanup_employee_fixture(
                 "attestation_cleanup_shift_accrual_ids": [accrual_id],
             },
             schema_hash=schema_hash,
-            idempotency_key=(
-                f"{prefix}-global-cleanup-employee-a{attempt}"
-            )[:160],
+            idempotency_key=(f"{prefix}-global-cleanup-employee-a{attempt}")[:160],
             expected_check="exact_employee_absence_readback",
             evidence=evidence,
         )
@@ -8603,9 +8494,7 @@ async def _cleanup_employee_fixture(
         purpose="global-cleanup-after",
         evidence=evidence,
     )
-    if any(
-        str(item.get("id") or "") == employee_id for item in final_employees
-    ):
+    if any(str(item.get("id") or "") == employee_id for item in final_employees):
         raise AttestationError(
             "cleanup_employee_exact_reread_failed",
             classification="backend_effect",
@@ -8648,9 +8537,7 @@ async def _verify_global_cleanup(
         )
         item["status"] = "archived"
 
-    employee_spec = _case_spec(
-        _find_case(state, "operation:finance:create_employee_shift_accrual")
-    )
+    employee_spec = _case_spec(_find_case(state, "operation:finance:create_employee_shift_accrual"))
     employees = await _finance_employee_snapshot(
         session,
         spec=employee_spec,
@@ -8658,19 +8545,14 @@ async def _verify_global_cleanup(
         purpose="global-cleanup-verify",
         evidence=evidence,
     )
-    if any(
-        str(item.get("name") or "").startswith(f"{prefix}-")
-        for item in employees
-    ):
+    if any(str(item.get("name") or "").startswith(f"{prefix}-") for item in employees):
         raise AttestationError(
             "cleanup_synthetic_employee_residual",
             classification="backend_effect",
             evidence=evidence,
         )
 
-    cashbox_spec = _case_spec(
-        _find_case(state, "operation:finance:delete_cashbox")
-    )
+    cashbox_spec = _case_spec(_find_case(state, "operation:finance:delete_cashbox"))
     cashboxes = await _finance_cashbox_snapshot(
         session,
         spec=cashbox_spec,
@@ -8678,10 +8560,7 @@ async def _verify_global_cleanup(
         purpose="global-cleanup-verify",
         evidence=evidence,
     )
-    if any(
-        str(item.get("name") or "").startswith(f"{prefix}-")
-        for item in cashboxes
-    ):
+    if any(str(item.get("name") or "").startswith(f"{prefix}-") for item in cashboxes):
         raise AttestationError(
             "cleanup_synthetic_cashbox_residual",
             classification="backend_effect",
@@ -8705,9 +8584,7 @@ async def _verify_global_cleanup(
             evidence=evidence,
         )
 
-    document_spec = _case_spec(
-        _find_case(state, "operation:document:list_shared_files")
-    )
+    document_spec = _case_spec(_find_case(state, "operation:document:list_shared_files"))
     files_result, files_evidence = await _attested_call(
         session,
         document_spec.workflow_tool,
@@ -8729,12 +8606,8 @@ async def _verify_global_cleanup(
             evidence=evidence,
         )
 
-    inventory_spec = _case_spec(
-        _find_case(state, "operation:inventory:save_inventory_item")
-    )
-    inventory_id = str(
-        state["refs"].get("synthetic_inventory_item_id") or ""
-    )
+    inventory_spec = _case_spec(_find_case(state, "operation:inventory:save_inventory_item"))
+    inventory_id = str(state["refs"].get("synthetic_inventory_item_id") or "")
     if not inventory_id:
         raise AttestationError(
             "cleanup_inventory_ref_missing",
@@ -8749,10 +8622,9 @@ async def _verify_global_cleanup(
         purpose="global-cleanup-verify",
         evidence=evidence,
     )
-    if (
-        _inventory_decimal(inventory_item.get("quantity")) != Decimal("0")
-        or not str(inventory_item.get("name") or "").startswith(prefix)
-    ):
+    if _inventory_decimal(inventory_item.get("quantity")) != Decimal("0") or not str(
+        inventory_item.get("name") or ""
+    ).startswith(prefix):
         raise AttestationError(
             "cleanup_inventory_compensation_invalid",
             classification="backend_effect",
@@ -8859,9 +8731,7 @@ async def _run_cleanup(
             state=state,
             evidence=evidence,
         )
-        state["cleanup"]["removed_shift_accruals"] = (
-            removed_shift_accruals
-        )
+        state["cleanup"]["removed_shift_accruals"] = removed_shift_accruals
         state["cleanup"]["last_evidence"] = list(evidence)
         state["updated_at"] = _utc_now()
         _atomic_json_write(state_path, state)
@@ -8880,11 +8750,7 @@ async def _run_cleanup(
             "classification": exc.classification,
         }
         state["cleanup"] = {
-            **(
-                state.get("cleanup")
-                if isinstance(state.get("cleanup"), dict)
-                else {}
-            ),
+            **(state.get("cleanup") if isinstance(state.get("cleanup"), dict) else {}),
             "status": "blocked",
             "verified": False,
             "error_code": exc.code,
@@ -8915,11 +8781,7 @@ async def _run_cleanup(
 
 
 def _safe_summary(state: dict[str, Any]) -> dict[str, Any]:
-    cleanup = (
-        state.get("cleanup")
-        if isinstance(state.get("cleanup"), dict)
-        else {}
-    )
+    cleanup = state.get("cleanup") if isinstance(state.get("cleanup"), dict) else {}
     compact_cleanup = {
         key: cleanup[key]
         for key in (
@@ -8937,8 +8799,7 @@ def _safe_summary(state: dict[str, Any]) -> dict[str, Any]:
         if key in cleanup
     }
     return {
-        "ok": state.get("status")
-        in {"ready", "completed_pending_cleanup", "completed"},
+        "ok": state.get("status") in {"ready", "completed_pending_cleanup", "completed"},
         "format": ATTESTATION_FORMAT,
         "run_id": state.get("run_id"),
         "status": state.get("status"),
@@ -9036,10 +8897,7 @@ async def _refresh_manifest_after_release(
             "manifest_refresh_raw_schema_change_set_mismatch",
             classification="schema",
         )
-    if any(
-        old_raw[name].get("risk") != live_raw[name].get("risk")
-        for name in changed
-    ):
+    if any(old_raw[name].get("risk") != live_raw[name].get("risk") for name in changed):
         raise AttestationError(
             "manifest_refresh_raw_risk_change_forbidden",
             classification="policy",
@@ -9058,12 +8916,10 @@ async def _refresh_manifest_after_release(
             "old_manifest_sha256": old_manifest_hash,
             "new_manifest_sha256": new_manifest_hash,
             "old_schema_hashes": {
-                name: str(old_raw[name].get("schema_hash") or "")
-                for name in sorted(changed)
+                name: str(old_raw[name].get("schema_hash") or "") for name in sorted(changed)
             },
             "new_schema_hashes": {
-                name: str(live_raw[name].get("schema_hash") or "")
-                for name in sorted(changed)
+                name: str(live_raw[name].get("schema_hash") or "") for name in sorted(changed)
             },
         }
     )

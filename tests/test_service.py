@@ -1378,9 +1378,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(linked["card"]["vehicle_profile"]["make_display"], "Mercedes-Benz")
 
     def test_link_card_to_client_rejects_stale_card_and_client_revisions(self) -> None:
-        client = self.service.create_client(
-            {"display_name": "Revision Client"}
-        )["client"]
+        client = self.service.create_client({"display_name": "Revision Client"})["client"]
         card = self.service.create_card(
             {
                 "title": "Revision link",
@@ -4216,9 +4214,7 @@ class CardServiceTests(unittest.TestCase):
         applied = self.service.create_employee_salary_transaction(payload)
         self.assertEqual(applied["transaction"]["amount_minor"], 100)
         self.assertEqual(applied["transaction"]["employee_id"], employee["id"])
-        reread = self.service.get_cashbox(
-            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
-        )
+        reread = self.service.get_cashbox({"cashbox_id": cashbox["id"], "transaction_limit": 10})
         self.assertEqual(
             [item["id"] for item in reread["transactions"]],
             [applied["transaction"]["id"]],
@@ -4264,9 +4260,7 @@ class CardServiceTests(unittest.TestCase):
             {"employee_id": employee["id"], "months": 1}
         )
         exact = next(
-            item
-            for item in ledger["journal_rows"]
-            if item.get("accrual_id") == applied["id"]
+            item for item in ledger["journal_rows"] if item.get("accrual_id") == applied["id"]
         )
         self.assertEqual(exact["amount_minor"], 100)
         self.assertEqual(exact["kind"], "shift_accrual")
@@ -4312,10 +4306,7 @@ class CardServiceTests(unittest.TestCase):
             "employee_shift_accrual_snapshot_conflict",
         )
         self.assertTrue(
-            any(
-                item["id"] == employee["id"]
-                for item in self.service.list_employees()["employees"]
-            )
+            any(item["id"] == employee["id"] for item in self.service.list_employees()["employees"])
         )
 
         deleted = self.service.delete_employee(
@@ -4333,16 +4324,11 @@ class CardServiceTests(unittest.TestCase):
         self.assertTrue(deleted["attestation_shift_cleanup"])
         self.assertEqual(deleted["removed_shift_accrual_ids"], [accrual["id"]])
         self.assertFalse(
-            any(
-                item["id"] == employee["id"]
-                for item in self.service.list_employees()["employees"]
-            )
+            any(item["id"] == employee["id"] for item in self.service.list_employees()["employees"])
         )
         stored_shift_ids = {
             item["id"]
-            for item in self.store.read_bundle()["settings"].get(
-                "employee_shift_accruals", []
-            )
+            for item in self.store.read_bundle()["settings"].get("employee_shift_accruals", [])
         }
         self.assertNotIn(accrual["id"], stored_shift_ids)
 
@@ -5839,9 +5825,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual([item["id"] for item in listed], [first["id"], second["id"]])
 
     def test_cashbox_transfer_rejects_zero_and_stale_cashbox_revision(self) -> None:
-        source = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
-            "cashbox"
-        ]
+        source = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})["cashbox"]
         target = self.service.create_cashbox({"name": "Безналичный", "actor_name": "ADMIN"})[
             "cashbox"
         ]
@@ -6128,9 +6112,9 @@ class CardServiceTests(unittest.TestCase):
             "cash_cancellation_attestation_scope_invalid",
         )
         self.assertEqual(
-            self.service.get_cashbox(
-                {"cashbox_id": target_cashbox["id"], "transaction_limit": 10}
-            )["cashbox"]["statistics"]["balance_minor"],
+            self.service.get_cashbox({"cashbox_id": target_cashbox["id"], "transaction_limit": 10})[
+                "cashbox"
+            ]["statistics"]["balance_minor"],
             100,
         )
 
@@ -6253,9 +6237,7 @@ class CardServiceTests(unittest.TestCase):
                 "actor_name": "codex-owner-agent",
             }
         )["transaction"]
-        before = self.service.get_cashbox(
-            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
-        )
+        before = self.service.get_cashbox({"cashbox_id": cashbox["id"], "transaction_limit": 10})
         payload = {
             "cashbox_id": cashbox["id"],
             "transaction_id": salary["id"],
@@ -6274,9 +6256,7 @@ class CardServiceTests(unittest.TestCase):
                 }
             )
         self.assertEqual(conflict.exception.code, "cashbox_update_conflict")
-        unchanged = self.service.get_cashbox(
-            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
-        )
+        unchanged = self.service.get_cashbox({"cashbox_id": cashbox["id"], "transaction_limit": 10})
         self.assertEqual(unchanged["cashbox"]["updated_at"], before["cashbox"]["updated_at"])
 
         cancelled = self.service.cancel_cash_transaction(payload)
@@ -6288,9 +6268,7 @@ class CardServiceTests(unittest.TestCase):
             cancelled["cancellation_transaction"]["related_transaction_id"],
             salary["id"],
         )
-        after = self.service.get_cashbox(
-            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
-        )
+        after = self.service.get_cashbox({"cashbox_id": cashbox["id"], "transaction_limit": 10})
         self.assertEqual(after["cashbox"]["statistics"]["balance_minor"], 0)
         ledger = self.service.get_employee_salary_ledger(
             {"employee_id": employee["id"], "months": 1}
@@ -6437,9 +6415,9 @@ class CardServiceTests(unittest.TestCase):
                 "source": "mcp_agent_gateway_v2",
             }
         )["transaction"]
-        current = self.service.get_cashbox(
-            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
-        )["cashbox"]
+        current = self.service.get_cashbox({"cashbox_id": cashbox["id"], "transaction_limit": 10})[
+            "cashbox"
+        ]
 
         with self.assertRaises(ServiceError) as stale:
             self.service.cancel_last_cash_transaction(
@@ -6478,9 +6456,7 @@ class CardServiceTests(unittest.TestCase):
             }
         )
         self.assertEqual(cancelled["cancelled_transaction"]["id"], transaction["id"])
-        reread = self.service.get_cashbox(
-            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
-        )
+        reread = self.service.get_cashbox({"cashbox_id": cashbox["id"], "transaction_limit": 10})
         self.assertEqual(reread["transactions"], [])
         self.assertEqual(reread["cashbox"]["statistics"]["balance_minor"], 0)
         self.assertNotEqual(reread["cashbox"]["updated_at"], current["updated_at"])
@@ -6500,9 +6476,7 @@ class CardServiceTests(unittest.TestCase):
                 "source": "mcp_agent_gateway_v2",
             }
         )["transaction"]
-        nonzero = self.service.get_cashbox(
-            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
-        )
+        nonzero = self.service.get_cashbox({"cashbox_id": cashbox["id"], "transaction_limit": 10})
         with self.assertRaises(ServiceError) as blocked:
             self.service.delete_cashbox(
                 {
@@ -6527,9 +6501,7 @@ class CardServiceTests(unittest.TestCase):
                 "source": "mcp_agent_gateway_v2",
             }
         )
-        current = self.service.get_cashbox(
-            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
-        )
+        current = self.service.get_cashbox({"cashbox_id": cashbox["id"], "transaction_limit": 10})
         transaction_ids = [item["id"] for item in current["transactions"]]
         deleted = self.service.delete_cashbox(
             {
@@ -6545,18 +6517,16 @@ class CardServiceTests(unittest.TestCase):
         self.assertTrue(deleted["meta"]["attestation_cleanup"])
         self.assertEqual(deleted["meta"]["removed_transactions"], 2)
         with self.assertRaises(ServiceError) as missing:
-            self.service.get_cashbox(
-                {"cashbox_id": cashbox["id"], "transaction_limit": 10}
-            )
+            self.service.get_cashbox({"cashbox_id": cashbox["id"], "transaction_limit": 10})
         self.assertEqual(missing.exception.code, "not_found")
 
     def test_delete_gateway_attestation_payment_fixture_restores_baseline(
         self,
     ) -> None:
         run_id = "AST-GWAT-20260728T165722Z"
-        cashbox = self.service.create_cashbox(
-            {"name": "Рабочая касса", "actor_name": "ADMIN"}
-        )["cashbox"]
+        cashbox = self.service.create_cashbox({"name": "Рабочая касса", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
         unrelated = self.service.create_cash_transaction(
             {
                 "cashbox_id": cashbox["id"],
@@ -6667,8 +6637,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertTrue(deleted["meta"]["deleted"])
         self.assertEqual(deleted["meta"]["removed_effect_minor"], 100)
         self.assertEqual(
-            deleted["meta"]["balance_minor_before"]
-            - deleted["meta"]["balance_minor_after"],
+            deleted["meta"]["balance_minor_before"] - deleted["meta"]["balance_minor_after"],
             100,
         )
         reread_card = self.service.get_card({"card_id": card["id"]})["card"]
@@ -6743,9 +6712,7 @@ class CardServiceTests(unittest.TestCase):
             self.service.create_cashbox({"name": "Касса 7", "actor_name": "ADMIN"})
 
     def test_cashbox_creation_rejects_stale_ordered_snapshot_without_write(self) -> None:
-        first = self.service.create_cashbox({"name": "Касса 1", "actor_name": "ADMIN"})[
-            "cashbox"
-        ]
+        first = self.service.create_cashbox({"name": "Касса 1", "actor_name": "ADMIN"})["cashbox"]
 
         with self.assertRaises(ServiceError) as conflict:
             self.service.create_cashbox(
@@ -6762,9 +6729,7 @@ class CardServiceTests(unittest.TestCase):
 
     def test_gateway_attestation_cashboxes_have_two_strict_extra_slots(self) -> None:
         for index in range(6):
-            self.service.create_cashbox(
-                {"name": f"Касса {index + 1}", "actor_name": "ADMIN"}
-            )
+            self.service.create_cashbox({"name": f"Касса {index + 1}", "actor_name": "ADMIN"})
         run_id = "AST-GWAT-20260728T165722Z"
 
         for index in range(2):
@@ -6819,9 +6784,7 @@ class CardServiceTests(unittest.TestCase):
                 }
             )
         self.assertEqual(stale.exception.code, "cashbox_update_conflict")
-        reread = self.service.get_cashbox(
-            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
-        )
+        reread = self.service.get_cashbox({"cashbox_id": cashbox["id"], "transaction_limit": 10})
         self.assertEqual(reread["cashbox"]["updated_at"], cashbox["updated_at"])
         self.assertEqual(reread["transactions"], [])
 
@@ -6835,9 +6798,7 @@ class CardServiceTests(unittest.TestCase):
         prepared = self.service.update_repair_order(
             {
                 "card_id": card["id"],
-                "repair_order": {
-                    "works": [{"name": "Тест", "quantity": "1", "price": "1"}]
-                },
+                "repair_order": {"works": [{"name": "Тест", "quantity": "1", "price": "1"}]},
                 "expected_updated_at": card["updated_at"],
                 "actor_name": "ADMIN",
             }
@@ -6896,9 +6857,7 @@ class CardServiceTests(unittest.TestCase):
         prepared = self.service.update_repair_order(
             {
                 "card_id": card["id"],
-                "repair_order": {
-                    "works": [{"name": "Тест", "quantity": "1", "price": "1"}]
-                },
+                "repair_order": {"works": [{"name": "Тест", "quantity": "1", "price": "1"}]},
                 "expected_updated_at": card["updated_at"],
                 "actor_name": "ADMIN",
             }
@@ -6929,9 +6888,9 @@ class CardServiceTests(unittest.TestCase):
         payment = paid["repair_order"]["payments"][0]
         self.assertEqual(payment["cashbox_id"], synthetic_cashbox["id"])
         self.assertEqual(
-            self.service.get_cashbox(
-                {"cashbox_id": real_cashbox["id"], "transaction_limit": 10}
-            )["transactions"],
+            self.service.get_cashbox({"cashbox_id": real_cashbox["id"], "transaction_limit": 10})[
+                "transactions"
+            ],
             [],
         )
         synthetic_transactions = self.service.get_cashbox(

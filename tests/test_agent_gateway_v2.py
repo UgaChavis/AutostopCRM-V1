@@ -2704,9 +2704,9 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
         server, state = self._create_store_server()
 
         async def capability(name: str) -> dict:
-            discovered = await server._tool_manager.get_tool(
-                "discover_raw_capabilities"
-            ).run({"query": name, "limit": 10}, convert_result=False)
+            discovered = await server._tool_manager.get_tool("discover_raw_capabilities").run(
+                {"query": name, "limit": 10}, convert_result=False
+            )
             return next(
                 item
                 for item in discovered.structuredContent["data"]["capabilities"]
@@ -2799,9 +2799,7 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
             "exact_card_client_link_readback",
             linked.structuredContent["verification"]["check"],
         )
-        self.assertTrue(
-            linked.structuredContent["verification"]["evidence"]["card_link_exact"]
-        )
+        self.assertTrue(linked.structuredContent["verification"]["evidence"]["card_link_exact"])
 
     async def test_raw_write_fails_closed_when_durable_manager_ledger_is_missing(self) -> None:
         discovered = await self._call(
@@ -3068,9 +3066,7 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
                     "employee_id": "employee-1",
                     "attestation_cleanup_shift_accrual_ids": [],
                 },
-                "schema_hash": employee_schema.structuredContent["summary"][
-                    "schema_hash"
-                ],
+                "schema_hash": employee_schema.structuredContent["summary"]["schema_hash"],
                 "idempotency_key": "attestation-employee-cleanup-missing-snapshot",
             },
         )
@@ -3082,9 +3078,7 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
                     "card_id": "card-1",
                     "payment_id": "payment-1",
                 },
-                "schema_hash": payment_schema.structuredContent["summary"][
-                    "schema_hash"
-                ],
+                "schema_hash": payment_schema.structuredContent["summary"]["schema_hash"],
                 "idempotency_key": "attestation-payment-cleanup-missing-snapshot",
             },
         )

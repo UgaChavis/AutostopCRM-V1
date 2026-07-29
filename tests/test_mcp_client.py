@@ -18,9 +18,7 @@ class BoardApiClientTests(unittest.TestCase):
     def test_update_repair_order_forwards_card_and_cashbox_revisions(self) -> None:
         client = BoardApiClient("https://board.example/api", bearer_token="secret")
 
-        with patch.object(
-            client, "_request_with_identity", return_value={"ok": True}
-        ) as request:
+        with patch.object(client, "_request_with_identity", return_value={"ok": True}) as request:
             client.update_repair_order(
                 card_id="card-1",
                 repair_order={"payments": []},

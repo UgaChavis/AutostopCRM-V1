@@ -2756,9 +2756,7 @@ class CardService(
                     },
                 )
             if expected_cashbox_id:
-                expected_cashbox = self._find_cashbox(
-                    bundle["cashboxes"], expected_cashbox_id
-                )
+                expected_cashbox = self._find_cashbox(bundle["cashboxes"], expected_cashbox_id)
                 if expected_cashbox.updated_at != expected_cashbox_updated_at:
                     self._fail(
                         "cashbox_update_conflict",
@@ -6609,11 +6607,8 @@ class CardService(
                 and payment.note.startswith(attestation_run_id)
                 else None
             )
-            if (
-                exact_attestation_cashbox is not None
-                and exact_attestation_cashbox.name.startswith(
-                    f"{attestation_run_id}-"
-                )
+            if exact_attestation_cashbox is not None and exact_attestation_cashbox.name.startswith(
+                f"{attestation_run_id}-"
             ):
                 cashbox = exact_attestation_cashbox
                 payment_method = repair_order_payment_method_from_cashbox_name(

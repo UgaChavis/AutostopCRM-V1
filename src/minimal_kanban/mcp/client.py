@@ -804,9 +804,7 @@ class BoardApiClient:
             payload["expected_cashbox_ids"] = expected_cashbox_ids
         if attestation_run_id is not None:
             payload["attestation_run_id"] = attestation_run_id
-        return self._request_with_identity(
-            "/api/create_cashbox", payload, actor_name=actor_name
-        )
+        return self._request_with_identity("/api/create_cashbox", payload, actor_name=actor_name)
 
     def delete_cashbox(self, cashbox_id: str, *, actor_name: str | None = None) -> dict:
         return self._request_with_identity(

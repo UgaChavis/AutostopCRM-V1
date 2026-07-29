@@ -53,6 +53,18 @@ def _register_automotive_manager_tools(server, logger) -> None:
     def lookup_public_automotive_evidence(make: str = "", model: str = "") -> dict:
         return {"ok": True, "make": make, "model": model}
 
+    @server.tool(name="decode_vehicle_identity", description="Read vehicle identity evidence.")
+    def decode_vehicle_identity(identifier: str = "") -> dict:
+        return {"ok": True, "identifier": identifier}
+
+    @server.tool(name="partsapi_catalog_lookup", description="Read PartsAPI catalog evidence.")
+    def partsapi_catalog_lookup(operation: str = "") -> dict:
+        return {"ok": True, "operation": operation}
+
+    @server.tool(name="lookup_oem_catalog_candidates", description="Read OEM catalog candidates.")
+    def lookup_oem_catalog_candidates(identifier: str = "") -> dict:
+        return {"ok": True, "identifier": identifier}
+
 
 class RawCapabilityDiscoveryTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
@@ -116,3 +128,24 @@ class RawCapabilityDiscoveryTests(unittest.IsolatedAsyncioTestCase):
             if item["name"] == "create_sticky"
         )
         self.assertEqual("write", selected["risk"])
+
+    async def test_vin_and_oem_read_tools_do_not_require_raw_write_metadata(self) -> None:
+        server = self._server()
+        discover = server._tool_manager.get_tool("discover_raw_capabilities")
+        schema = server._tool_manager.get_tool("get_raw_capability_schema")
+
+        for name in (
+            "decode_vehicle_identity",
+            "partsapi_catalog_lookup",
+            "lookup_oem_catalog_candidates",
+        ):
+            with self.subTest(name=name):
+                discovered = await discover.run({"query": name}, convert_result=False)
+                capability = next(
+                    item
+                    for item in discovered.structuredContent["data"]["capabilities"]
+                    if item["name"] == name
+                )
+                self.assertEqual("read", capability["risk"])
+                described = await schema.run({"name": name}, convert_result=False)
+                self.assertEqual("read", described.structuredContent["summary"]["risk"])

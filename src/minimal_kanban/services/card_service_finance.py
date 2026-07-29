@@ -140,8 +140,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 if (
                     not isinstance(expected_issue_ids, list)
                     or any(
-                        not isinstance(item, str) or not item.strip()
-                        for item in expected_issue_ids
+                        not isinstance(item, str) or not item.strip() for item in expected_issue_ids
                     )
                     or len(set(expected_issue_ids)) != len(expected_issue_ids)
                 ):
@@ -180,15 +179,9 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     and isinstance(selected_issue.get("safe_fix"), dict)
                     else {}
                 )
-                transaction_id = str(
-                    (selected_issue or {}).get("cash_transaction_id") or ""
-                )
+                transaction_id = str((selected_issue or {}).get("cash_transaction_id") or "")
                 transaction = next(
-                    (
-                        item
-                        for item in bundle["cash_transactions"]
-                        if item.id == transaction_id
-                    ),
+                    (item for item in bundle["cash_transactions"] if item.id == transaction_id),
                     None,
                 )
                 cashbox = next(
@@ -205,8 +198,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     and isinstance(requested_issue_ids, list)
                     and len(requested_issue_ids) == 1
                     and selected_issue is not None
-                    and selected_issue.get("code")
-                    == "salary_transaction_missing_employee"
+                    and selected_issue.get("code") == "salary_transaction_missing_employee"
                     and selected_fix.get("kind") == "restore_missing_employee"
                     and employee_name.startswith(f"{attestation_run_id}-")
                     and transaction is not None
@@ -370,8 +362,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             expected_cashbox_ids = payload.get("expected_cashbox_ids")
             if expected_cashbox_ids is not None:
                 if not isinstance(expected_cashbox_ids, list) or any(
-                    not isinstance(item, str) or not item.strip()
-                    for item in expected_cashbox_ids
+                    not isinstance(item, str) or not item.strip() for item in expected_cashbox_ids
                 ):
                     self._fail(
                         "validation_error",
@@ -402,21 +393,14 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 and actor_name
             )
             existing_attestation_cashboxes = [
-                item
-                for item in cashboxes
-                if item.name.startswith(f"{attestation_run_id}-")
+                item for item in cashboxes if item.name.startswith(f"{attestation_run_id}-")
             ]
             attestation_capacity_available = bool(
                 attestation_mode
-                and len(cashboxes)
-                < _MAX_REGULAR_CASHBOXES + _MAX_GATEWAY_ATTESTATION_CASHBOXES
-                and len(existing_attestation_cashboxes)
-                < _MAX_GATEWAY_ATTESTATION_CASHBOXES
+                and len(cashboxes) < _MAX_REGULAR_CASHBOXES + _MAX_GATEWAY_ATTESTATION_CASHBOXES
+                and len(existing_attestation_cashboxes) < _MAX_GATEWAY_ATTESTATION_CASHBOXES
             )
-            if (
-                len(cashboxes) >= _MAX_REGULAR_CASHBOXES
-                and not attestation_capacity_available
-            ):
+            if len(cashboxes) >= _MAX_REGULAR_CASHBOXES and not attestation_capacity_available:
                 raise ValueError("Нельзя создать больше 6 касс.")
             now_iso = model_helpers.utc_now_iso()
             cashbox = CashBox(
@@ -668,10 +652,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 default="",
                 limit=80,
             )
-            if (
-                expected_cashbox_updated_at
-                and cashbox.updated_at != expected_cashbox_updated_at
-            ):
+            if expected_cashbox_updated_at and cashbox.updated_at != expected_cashbox_updated_at:
                 self._fail(
                     "cashbox_update_conflict",
                     "Касса уже изменилась. Обновите данные и повторите действие.",
@@ -694,9 +675,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                         "Поле expected_transaction_ids должно содержать ID движений кассы.",
                         details={"field": "expected_transaction_ids"},
                     )
-                current_transaction_ids = [
-                    transaction.id for transaction in related_transactions
-                ]
+                current_transaction_ids = [transaction.id for transaction in related_transactions]
                 if expected_transaction_ids != current_transaction_ids:
                     self._fail(
                         "cashbox_transaction_snapshot_conflict",
@@ -728,18 +707,14 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 and (
                     transaction.related_transaction_id in related_ids
                     or any(
-                        peer_id
-                        and transaction.id == peer_id
+                        peer_id and transaction.id == peer_id
                         for peer_id in (
-                            candidate.related_transaction_id
-                            for candidate in related_transactions
+                            candidate.related_transaction_id for candidate in related_transactions
                         )
                     )
                 )
             ]
-            peer_cashboxes = {
-                item.id: item for item in cashboxes if item.id != cashbox.id
-            }
+            peer_cashboxes = {item.id: item for item in cashboxes if item.id != cashbox.id}
             if attestation_cleanup and not (
                 _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
                 and expected_cashbox_updated_at
@@ -747,21 +722,17 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 and cashbox.name.startswith(f"{attestation_run_id}-")
                 and not linked_payment_ids
                 and all(
-                    transaction.amount_minor == 100
-                    and attestation_run_id in transaction.note
+                    transaction.amount_minor == 100 and attestation_run_id in transaction.note
                     for transaction in related_transactions
                 )
                 and all(
                     peer.amount_minor == 100
                     and attestation_run_id in peer.note
                     and peer.cashbox_id in peer_cashboxes
-                    and peer_cashboxes[peer.cashbox_id].name.startswith(
-                        f"{attestation_run_id}-"
-                    )
+                    and peer_cashboxes[peer.cashbox_id].name.startswith(f"{attestation_run_id}-")
                     for peer in peer_transactions
                 )
-                and str(payload.get("source") or "").strip().casefold()
-                == "mcp_agent_gateway_v2"
+                and str(payload.get("source") or "").strip().casefold() == "mcp_agent_gateway_v2"
                 and actor_name
             ):
                 self._fail(
@@ -809,9 +780,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 },
             }
 
-    def delete_gateway_attestation_payment_fixture(
-        self, payload: dict | None = None
-    ) -> dict:
+    def delete_gateway_attestation_payment_fixture(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
             bundle = self._store.read_bundle()
@@ -831,9 +800,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     status_code=409,
                     details={"card_id": card.id},
                 )
-            payment_id = normalize_text(
-                payload.get("payment_id"), default="", limit=128
-            )
+            payment_id = normalize_text(payload.get("payment_id"), default="", limit=128)
             payment = next(
                 (item for item in card.repair_order.payments if item.id == payment_id),
                 None,
@@ -851,10 +818,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 default="",
                 limit=80,
             )
-            if (
-                not expected_cashbox_updated_at
-                or cashbox.updated_at != expected_cashbox_updated_at
-            ):
+            if not expected_cashbox_updated_at or cashbox.updated_at != expected_cashbox_updated_at:
                 self._fail(
                     "cashbox_update_conflict",
                     "Касса уже изменилась. Обновите данные и повторите действие.",
@@ -882,8 +846,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             scoped_transactions = [
                 item
                 for item in transactions
-                if item.cashbox_id == cashbox.id
-                and attestation_run_id in item.note
+                if item.cashbox_id == cashbox.id and attestation_run_id in item.note
             ]
             scoped_ids = {item.id for item in scoped_transactions}
             if scoped_ids != set(expected_transaction_ids):
@@ -899,22 +862,14 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 for transaction_id, link in payment_links.items()
                 if transaction_id in scoped_ids
             }
-            before_balance = int(
-                self._cashbox_statistics(cashbox, transactions)["balance_minor"]
-            )
+            before_balance = int(self._cashbox_statistics(cashbox, transactions)["balance_minor"])
             removed_effect_minor = sum(
-                item.amount_minor
-                if item.direction == "income"
-                else -item.amount_minor
+                item.amount_minor if item.direction == "income" else -item.amount_minor
                 for item in scoped_transactions
             )
-            remaining_transactions = [
-                item for item in transactions if item.id not in scoped_ids
-            ]
+            remaining_transactions = [item for item in transactions if item.id not in scoped_ids]
             after_balance = int(
-                self._cashbox_statistics(cashbox, remaining_transactions)[
-                    "balance_minor"
-                ]
+                self._cashbox_statistics(cashbox, remaining_transactions)["balance_minor"]
             )
             current_transaction = self._find_cash_transaction(
                 transactions, payment.cash_transaction_id
@@ -931,8 +886,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     item.amount_minor == 100
                     and attestation_run_id in item.note
                     and (
-                        not item.related_transaction_id
-                        or item.related_transaction_id in scoped_ids
+                        not item.related_transaction_id or item.related_transaction_id in scoped_ids
                     )
                     for item in scoped_transactions
                 )
@@ -941,8 +895,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 and linked_scoped[current_transaction.id][1].id == payment.id
                 and removed_effect_minor == 100
                 and before_balance - after_balance == removed_effect_minor
-                and str(payload.get("source") or "").strip().casefold()
-                == "mcp_agent_gateway_v2"
+                and str(payload.get("source") or "").strip().casefold() == "mcp_agent_gateway_v2"
                 and actor_name
             ):
                 self._fail(
@@ -987,9 +940,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     column_labels=self._column_labels(bundle["columns"]),
                     include_removed_attachments=True,
                 ),
-                "cashbox": self._serialize_cashbox(
-                    cashbox, remaining_transactions
-                ),
+                "cashbox": self._serialize_cashbox(cashbox, remaining_transactions),
                 "meta": {
                     "deleted": True,
                     "payment_id": payment.id,
@@ -1171,8 +1122,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 and cashbox.name.startswith(f"{attestation_run_id}-")
                 and note.startswith(attestation_run_id)
                 and amount_minor == 100
-                and str(payload.get("source") or "").strip().casefold()
-                == "mcp_agent_gateway_v2"
+                and str(payload.get("source") or "").strip().casefold() == "mcp_agent_gateway_v2"
                 and actor_name
             ):
                 self._fail(
@@ -1281,8 +1231,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 and str(employee.get("name") or "").startswith(f"{attestation_run_id}-")
                 and note.startswith(attestation_run_id)
                 and amount_minor == 100
-                and str(payload.get("source") or "").strip().casefold()
-                == "mcp_agent_gateway_v2"
+                and str(payload.get("source") or "").strip().casefold() == "mcp_agent_gateway_v2"
                 and actor_name
             ):
                 self._fail(
@@ -1423,8 +1372,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 and not requested_transaction.transaction_kind
                 and requested_transaction.source in {"api", "mcp"}
                 and requested_transaction.actor_name == actor_name
-                and str(payload.get("source") or "").strip().casefold()
-                == "mcp_agent_gateway_v2"
+                and str(payload.get("source") or "").strip().casefold() == "mcp_agent_gateway_v2"
                 and actor_name
             ):
                 self._fail(

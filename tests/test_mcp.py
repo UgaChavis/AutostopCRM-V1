@@ -395,7 +395,7 @@ async def open_mcp_session(url: str, *, http_client: httpx.AsyncClient | None = 
     raise last_error
 
 
-class McpServerTests(unittest.IsolatedAsyncioTestCase):
+class _McpServerFixtureMixin:
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         state_file = Path(self.temp_dir.name) / "state.json"
@@ -458,16 +458,6 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
         loop = asyncio.get_running_loop()
         loop.set_debug(False)
 
-    def test_tool_path_alias_normalization_prefers_canonical_short_path(self) -> None:
-        self.assertEqual(
-            _normalize_tool_path_alias("/AutoStopCRM/link_abc123/bootstrap_context"),
-            "/AutoStopCRM/bootstrap_context",
-        )
-        self.assertEqual(
-            _normalize_tool_path_alias("/AutoStopCRM/get_runtime_status"),
-            "/AutoStopCRM/get_runtime_status",
-        )
-
     async def asyncTearDown(self) -> None:
         self.runtime.stop()
         self.api_server.stop()
@@ -479,6 +469,18 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
+
+
+class McpServerBackendTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTestCase):
+    def test_tool_path_alias_normalization_prefers_canonical_short_path(self) -> None:
+        self.assertEqual(
+            _normalize_tool_path_alias("/AutoStopCRM/link_abc123/bootstrap_context"),
+            "/AutoStopCRM/bootstrap_context",
+        )
+        self.assertEqual(
+            _normalize_tool_path_alias("/AutoStopCRM/get_runtime_status"),
+            "/AutoStopCRM/get_runtime_status",
+        )
 
     async def test_mcp_tools_reach_backend(self) -> None:
         async with create_test_mcp_http_client(
@@ -2392,6 +2394,8 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                     ],
                 )
 
+
+class McpServerTransportTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTestCase):
     async def test_mcp_bootstrap_transport_fallback_keeps_identity_context(self) -> None:
         runtime = None
 

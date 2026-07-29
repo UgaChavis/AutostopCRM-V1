@@ -456,9 +456,7 @@ def register_agent_gateway_v2(
         card_id = str(payload.get("card_id") or "").strip()
         cashbox_id = str(payload.get("cashbox_id") or "").strip()
         expected_updated_at = str(payload.get("expected_updated_at") or "").strip()
-        expected_cashbox_updated_at = str(
-            payload.get("expected_cashbox_updated_at") or ""
-        ).strip()
+        expected_cashbox_updated_at = str(payload.get("expected_cashbox_updated_at") or "").strip()
         attestation_run_id = str(payload.get("attestation_run_id") or "").strip()
         payment_method = str(payload.get("payment_method") or "").strip().casefold()
         amount = _positive_decimal(payload.get("amount"))
@@ -743,22 +741,12 @@ def register_agent_gateway_v2(
         if operation == "create_client":
             result_data = result.get("data") if isinstance(result.get("data"), dict) else {}
             created = (
-                result_data.get("client")
-                if isinstance(result_data.get("client"), dict)
-                else {}
+                result_data.get("client") if isinstance(result_data.get("client"), dict) else {}
             )
             client_id = str(created.get("id") or "")
-            readback = (
-                await _invoke("get_client", {"client_id": client_id})
-                if client_id
-                else {}
-            )
+            readback = await _invoke("get_client", {"client_id": client_id}) if client_id else {}
             actual = _find_mapping(readback, "id", client_id) if client_id else None
-            requested = (
-                arguments.get("client")
-                if isinstance(arguments.get("client"), dict)
-                else {}
-            )
+            requested = arguments.get("client") if isinstance(arguments.get("client"), dict) else {}
             persisted_state = {
                 key: created[key]
                 for key in (
@@ -801,17 +789,9 @@ def register_agent_gateway_v2(
             }
         if operation == "create_card":
             result_data = result.get("data") if isinstance(result.get("data"), dict) else {}
-            created = (
-                result_data.get("card")
-                if isinstance(result_data.get("card"), dict)
-                else {}
-            )
+            created = result_data.get("card") if isinstance(result_data.get("card"), dict) else {}
             card_id = str(created.get("id") or "")
-            readback = (
-                await _invoke("get_card", {"card_id": card_id})
-                if card_id
-                else {}
-            )
+            readback = await _invoke("get_card", {"card_id": card_id}) if card_id else {}
             actual = _find_mapping(readback, "id", card_id) if card_id else None
             requested = {
                 key: arguments[key]
@@ -855,33 +835,19 @@ def register_agent_gateway_v2(
         if operation == "link_card_to_client":
             result_data = result.get("data") if isinstance(result.get("data"), dict) else {}
             result_card = (
-                result_data.get("card")
-                if isinstance(result_data.get("card"), dict)
-                else {}
+                result_data.get("card") if isinstance(result_data.get("card"), dict) else {}
             )
             result_client = (
-                result_data.get("client")
-                if isinstance(result_data.get("client"), dict)
-                else {}
+                result_data.get("client") if isinstance(result_data.get("client"), dict) else {}
             )
             card_id = str(arguments.get("card_id") or "")
             client_id = str(arguments.get("client_id") or "")
-            card_readback = (
-                await _invoke("get_card", {"card_id": card_id})
-                if card_id
-                else {}
-            )
+            card_readback = await _invoke("get_card", {"card_id": card_id}) if card_id else {}
             client_readback = (
-                await _invoke("get_client", {"client_id": client_id})
-                if client_id
-                else {}
+                await _invoke("get_client", {"client_id": client_id}) if client_id else {}
             )
             actual_card = _find_mapping(card_readback, "id", card_id) if card_id else None
-            actual_client = (
-                _find_mapping(client_readback, "id", client_id)
-                if client_id
-                else None
-            )
+            actual_client = _find_mapping(client_readback, "id", client_id) if client_id else None
             result_vehicle_id = str(
                 result_card.get("client_vehicle_id")
                 or (result_data.get("meta") or {}).get("client_vehicle_id")
@@ -890,14 +856,12 @@ def register_agent_gateway_v2(
             requested_vehicle_id = str(arguments.get("client_vehicle_id") or "")
             if requested_vehicle_id:
                 vehicle_exact = (
-                    str((actual_card or {}).get("client_vehicle_id") or "")
-                    == requested_vehicle_id
+                    str((actual_card or {}).get("client_vehicle_id") or "") == requested_vehicle_id
                 )
             elif arguments.get("create_vehicle_from_card") is True:
                 vehicle_exact = bool(
                     result_vehicle_id
-                    and str((actual_card or {}).get("client_vehicle_id") or "")
-                    == result_vehicle_id
+                    and str((actual_card or {}).get("client_vehicle_id") or "") == result_vehicle_id
                     and _contains_value(actual_client, "id", result_vehicle_id)
                 )
             else:
@@ -937,14 +901,11 @@ def register_agent_gateway_v2(
                 "evidence": {
                     "card_id": card_id,
                     "client_id": client_id,
-                    "card_link_exact": str((actual_card or {}).get("client_id") or "")
-                    == client_id,
+                    "card_link_exact": str((actual_card or {}).get("client_id") or "") == client_id,
                     "card_state_exact": _subset_matches(card_state, actual_card),
                     "client_state_exact": _subset_matches(client_state, actual_client),
                     "vehicle_link_exact": vehicle_exact,
-                    "readback_ok": bool(
-                        card_readback.get("ok") and client_readback.get("ok")
-                    ),
+                    "readback_ok": bool(card_readback.get("ok") and client_readback.get("ok")),
                 },
             }
         if operation == "record_repair_order_payment":
@@ -1187,8 +1148,7 @@ def register_agent_gateway_v2(
             if (
                 not isinstance(expected_cashbox_ids, list)
                 or any(
-                    not isinstance(item, str) or not item.strip()
-                    for item in expected_cashbox_ids
+                    not isinstance(item, str) or not item.strip() for item in expected_cashbox_ids
                 )
                 or len(set(expected_cashbox_ids)) != len(expected_cashbox_ids)
             ):
@@ -1196,9 +1156,7 @@ def register_agent_gateway_v2(
                     _envelope(
                         ok=False,
                         status="blocked",
-                        warnings=[
-                            "cashbox_snapshot_required_reread_exact_list_first"
-                        ],
+                        warnings=["cashbox_snapshot_required_reread_exact_list_first"],
                         summary={
                             "workflow_id": workflow_id,
                             "operation": operation,
@@ -1217,9 +1175,7 @@ def register_agent_gateway_v2(
                 _envelope(
                     ok=False,
                     status="blocked",
-                    warnings=[
-                        "cashbox_expected_revision_required_reread_exact_cashbox_first"
-                    ],
+                    warnings=["cashbox_expected_revision_required_reread_exact_cashbox_first"],
                     summary={
                         "workflow_id": workflow_id,
                         "operation": operation,
@@ -1251,9 +1207,7 @@ def register_agent_gateway_v2(
                             "operation": operation,
                             "missing_fields": missing_revisions,
                         },
-                        next_actions=[
-                            "agent_entity_context for both exact cashboxes"
-                        ],
+                        next_actions=["agent_entity_context for both exact cashboxes"],
                     ),
                     label=workflow_id,
                 )
@@ -1271,9 +1225,7 @@ def register_agent_gateway_v2(
                     _envelope(
                         ok=False,
                         status="blocked",
-                        warnings=[
-                            "payment_expected_revisions_required_reread_exact_targets_first"
-                        ],
+                        warnings=["payment_expected_revisions_required_reread_exact_targets_first"],
                         summary={
                             "workflow_id": workflow_id,
                             "operation": operation,
@@ -1291,8 +1243,7 @@ def register_agent_gateway_v2(
                 not isinstance(expected_cashbox_ids, list)
                 or not expected_cashbox_ids
                 or any(
-                    not isinstance(item, str) or not item.strip()
-                    for item in expected_cashbox_ids
+                    not isinstance(item, str) or not item.strip() for item in expected_cashbox_ids
                 )
                 or len(set(expected_cashbox_ids)) != len(expected_cashbox_ids)
             ):
@@ -1300,9 +1251,7 @@ def register_agent_gateway_v2(
                     _envelope(
                         ok=False,
                         status="blocked",
-                        warnings=[
-                            "cashbox_order_snapshot_required_reread_exact_list_first"
-                        ],
+                        warnings=["cashbox_order_snapshot_required_reread_exact_list_first"],
                         summary={
                             "workflow_id": workflow_id,
                             "operation": operation,
@@ -1361,7 +1310,8 @@ def register_agent_gateway_v2(
             )
         if (
             workflow_id == "finance"
-            and operation in {
+            and operation
+            in {
                 "cancel_cash_transaction",
                 "cancel_last_cash_transaction",
             }
@@ -1392,10 +1342,7 @@ def register_agent_gateway_v2(
             missing_fields = []
             if (
                 not isinstance(expected_issue_ids, list)
-                or any(
-                    not isinstance(item, str) or not item.strip()
-                    for item in expected_issue_ids
-                )
+                or any(not isinstance(item, str) or not item.strip() for item in expected_issue_ids)
                 or len(set(expected_issue_ids)) != len(expected_issue_ids)
             ):
                 missing_fields.append("expected_issue_ids")
@@ -1411,9 +1358,7 @@ def register_agent_gateway_v2(
                     _envelope(
                         ok=False,
                         status="blocked",
-                        warnings=[
-                            "finance_audit_issue_snapshot_required_reread_exact_audit_first"
-                        ],
+                        warnings=["finance_audit_issue_snapshot_required_reread_exact_audit_first"],
                         summary={
                             "workflow_id": workflow_id,
                             "operation": operation,
@@ -1441,9 +1386,7 @@ def register_agent_gateway_v2(
                     _envelope(
                         ok=False,
                         status="blocked",
-                        warnings=[
-                            "cashbox_delete_snapshot_required_reread_exact_cashbox_first"
-                        ],
+                        warnings=["cashbox_delete_snapshot_required_reread_exact_cashbox_first"],
                         summary={
                             "workflow_id": workflow_id,
                             "operation": operation,
@@ -1463,9 +1406,7 @@ def register_agent_gateway_v2(
             item_revision_required = operation != "save_inventory_item" or bool(
                 str(payload.get("item_id") or "").strip()
             )
-            if item_revision_required and not str(
-                payload.get("expected_updated_at") or ""
-            ).strip():
+            if item_revision_required and not str(payload.get("expected_updated_at") or "").strip():
                 missing_revisions.append("expected_updated_at")
             if operation in {"write_off_inventory_item", "return_inventory_movement"}:
                 if not str(payload.get("card_id") or "").strip():
@@ -1500,9 +1441,7 @@ def register_agent_gateway_v2(
                 _envelope(
                     ok=False,
                     status="blocked",
-                    warnings=[
-                        "shared_file_expected_revision_required_reread_exact_file_first"
-                    ],
+                    warnings=["shared_file_expected_revision_required_reread_exact_file_first"],
                     summary={
                         "workflow_id": workflow_id,
                         "operation": operation,
@@ -1809,8 +1748,7 @@ def register_agent_gateway_v2(
         }
         safe_result = (
             _without_binary_content(result_data)
-            if is_store_vin_photo_preview
-            or (binary_document_operation and not allow_large_output)
+            if is_store_vin_photo_preview or (binary_document_operation and not allow_large_output)
             else result_data
             if allow_large_output
             else _compact_object(result_data)
@@ -2718,8 +2656,7 @@ def register_agent_gateway_v2(
                 not isinstance(expected_cashbox_ids, list)
                 or not expected_cashbox_ids
                 or any(
-                    not isinstance(item, str) or not item.strip()
-                    for item in expected_cashbox_ids
+                    not isinstance(item, str) or not item.strip() for item in expected_cashbox_ids
                 )
                 or len(set(expected_cashbox_ids)) != len(expected_cashbox_ids)
             ):
@@ -2727,21 +2664,19 @@ def register_agent_gateway_v2(
                     _envelope(
                         ok=False,
                         status="blocked",
-                        warnings=[
-                            "cashbox_order_snapshot_required_reread_exact_list_first"
-                        ],
+                        warnings=["cashbox_order_snapshot_required_reread_exact_list_first"],
                     ),
                     label="call_raw_capability",
                 )
-        if normalized_name == "api:/api/save_employee" and str(
-            (arguments or {}).get("attestation_run_id") or ""
-        ).strip():
+        if (
+            normalized_name == "api:/api/save_employee"
+            and str((arguments or {}).get("attestation_run_id") or "").strip()
+        ):
             expected_employee_ids = (arguments or {}).get("expected_employee_ids")
             if (
                 not isinstance(expected_employee_ids, list)
                 or any(
-                    not isinstance(item, str) or not item.strip()
-                    for item in expected_employee_ids
+                    not isinstance(item, str) or not item.strip() for item in expected_employee_ids
                 )
                 or len(set(expected_employee_ids)) != len(expected_employee_ids)
             ):
@@ -2774,9 +2709,10 @@ def register_agent_gateway_v2(
                     ),
                     label="call_raw_capability",
                 )
-        if normalized_name == "api:/api/create_employee_shift_accrual" and not str(
-            (arguments or {}).get("expected_employee_updated_at") or ""
-        ).strip():
+        if (
+            normalized_name == "api:/api/create_employee_shift_accrual"
+            and not str((arguments or {}).get("expected_employee_updated_at") or "").strip()
+        ):
             return _tool_result(
                 _envelope(
                     ok=False,
@@ -2788,9 +2724,10 @@ def register_agent_gateway_v2(
                 ),
                 label="call_raw_capability",
             )
-        if normalized_name == "api:/api/cancel_cash_transaction" and not str(
-            (arguments or {}).get("expected_cashbox_updated_at") or ""
-        ).strip():
+        if (
+            normalized_name == "api:/api/cancel_cash_transaction"
+            and not str((arguments or {}).get("expected_cashbox_updated_at") or "").strip()
+        ):
             return _tool_result(
                 _envelope(
                     ok=False,
@@ -2800,8 +2737,8 @@ def register_agent_gateway_v2(
                     ],
                     summary={"missing_fields": ["expected_cashbox_updated_at"]},
                 ),
-                    label="call_raw_capability",
-                )
+                label="call_raw_capability",
+            )
         if (
             normalized_name == "api:/api/delete_employee"
             and "attestation_cleanup_shift_accrual_ids" in (arguments or {})
@@ -2814,16 +2751,11 @@ def register_agent_gateway_v2(
                 )
                 if not str((arguments or {}).get(field) or "").strip()
             ]
-            shift_accrual_ids = (arguments or {}).get(
-                "attestation_cleanup_shift_accrual_ids"
-            )
+            shift_accrual_ids = (arguments or {}).get("attestation_cleanup_shift_accrual_ids")
             if (
                 not isinstance(shift_accrual_ids, list)
                 or not shift_accrual_ids
-                or any(
-                    not isinstance(item, str) or not item.strip()
-                    for item in shift_accrual_ids
-                )
+                or any(not isinstance(item, str) or not item.strip() for item in shift_accrual_ids)
                 or len(set(shift_accrual_ids)) != len(shift_accrual_ids)
             ):
                 missing_fields.append("attestation_cleanup_shift_accrual_ids")
@@ -2848,9 +2780,7 @@ def register_agent_gateway_v2(
                 )
                 if not str((arguments or {}).get(field) or "").strip()
             ]
-            expected_transaction_ids = (arguments or {}).get(
-                "expected_transaction_ids"
-            )
+            expected_transaction_ids = (arguments or {}).get("expected_transaction_ids")
             if (
                 not isinstance(expected_transaction_ids, list)
                 or not expected_transaction_ids
@@ -2858,8 +2788,7 @@ def register_agent_gateway_v2(
                     not isinstance(item, str) or not item.strip()
                     for item in expected_transaction_ids
                 )
-                or len(set(expected_transaction_ids))
-                != len(expected_transaction_ids)
+                or len(set(expected_transaction_ids)) != len(expected_transaction_ids)
             ):
                 missing_fields.append("expected_transaction_ids")
             if missing_fields:

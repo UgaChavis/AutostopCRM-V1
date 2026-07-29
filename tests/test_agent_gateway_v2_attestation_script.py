@@ -733,8 +733,7 @@ def test_inventory_save_executor_proves_conflict_replay_and_exact_reread() -> No
         }
     ]
     assert any(
-        item.get("expected_error_code") == "inventory_item_update_conflict"
-        for item in evidence
+        item.get("expected_error_code") == "inventory_item_update_conflict" for item in evidence
     )
     assert len(evidence) == 7
 
@@ -859,8 +858,7 @@ def test_document_delete_executor_proves_conflict_replay_and_absence() -> None:
     assert state["refs"]["synthetic_file_id"] == ""
     assert state["synthetic_entities"]["files"][0]["status"] == "deleted"
     assert any(
-        item.get("expected_error_code") == "shared_file_update_conflict"
-        for item in evidence
+        item.get("expected_error_code") == "shared_file_update_conflict" for item in evidence
     )
     assert evidence[-1]["error_code"] == "not_found"
     assert len(calls) == 8

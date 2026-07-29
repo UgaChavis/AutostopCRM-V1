@@ -74,8 +74,7 @@ class CardServiceCashboxCancellationMixin:
                 and attestation_run_id in transaction.note
                 and reason.startswith(attestation_run_id)
                 and transaction.amount_minor == 100
-                and str(payload.get("source") or "").strip().casefold()
-                == "mcp_agent_gateway_v2"
+                and str(payload.get("source") or "").strip().casefold() == "mcp_agent_gateway_v2"
                 and actor_name
             ):
                 self._fail(

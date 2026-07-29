@@ -330,10 +330,7 @@ class CashboxNormalizationTests(unittest.TestCase):
 
             stored_state = json.loads(state_file.read_text(encoding="utf-8"))
             self.assertFalse(
-                any(
-                    item.get("id") == TARGET_EVENT_ID
-                    for item in stored_state.get("events", [])
-                )
+                any(item.get("id") == TARGET_EVENT_ID for item in stored_state.get("events", []))
             )
             self.assertEqual(
                 result["post_apply_plan"]["summary"]["proposed_adjustment_minor"],
