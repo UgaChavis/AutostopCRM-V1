@@ -42,6 +42,9 @@ OAUTH_STATE_MAX_BYTES = 2 * 1024 * 1024
 OAUTH_STATE_PLAINTEXT_MAX_BYTES = 1 * 1024 * 1024
 OAUTH_REGISTERED_CLIENT_MAX_COUNT = 128
 OAUTH_CLIENT_METADATA_MAX_BYTES = 4 * 1024
+OAUTH_PENDING_AUTHORIZATION_MAX_COUNT = 64
+OAUTH_PENDING_AUTHORIZATION_PER_CLIENT_MAX_COUNT = 4
+OAUTH_PENDING_AUTHORIZATION_MAX_BYTES = 4 * 1024
 CHATGPT_OAUTH_REDIRECT_PATH_PREFIX = "/connector/oauth/"
 CHATGPT_LEGACY_OAUTH_REDIRECT_PATH = "/connector_platform_oauth_redirect"
 OAUTH_CONSENT_PATH = "/oauth/authorize"
@@ -264,11 +267,25 @@ class ProductionOAuthAuthorizationServerProvider(
             "resource": self._resource_url,
             "state": params.state,
         }
+        pending_payload_size = len(
+            json.dumps(
+                pending,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        )
+        if pending_payload_size > OAUTH_PENDING_AUTHORIZATION_MAX_BYTES:
+            raise AuthorizeError("invalid_request", "authorization request is too large")
+
         with self._lock:
             with self._process_lock.acquire():
                 state = self._prune_state(self._read_state_unlocked())
+                evicted = self._make_room_for_pending_authorization(state, client.client_id)
                 state["pending_authorizations"][self._token_digest(request_id)] = pending
                 self._write_state_unlocked(state)
+        if evicted:
+            self._log("oauth.authorize pruned_pending=%d", evicted)
         return f"{self._issuer_url}{OAUTH_CONSENT_PATH}?{urlencode({'request_id': request_id})}"
 
     def get_pending_authorization(self, request_id: str) -> dict[str, object] | None:
@@ -848,6 +865,28 @@ class ProductionOAuthAuthorizationServerProvider(
                 "invalid_client_metadata",
                 "OAuth client registration capacity is temporarily unavailable",
             )
+        return evicted
+
+    def _make_room_for_pending_authorization(self, state: dict[str, object], client_id: str) -> int:
+        pending_authorizations = state["pending_authorizations"]
+        per_client_limit = max(1, OAUTH_PENDING_AUTHORIZATION_PER_CLIENT_MAX_COUNT)
+        same_client_keys = [
+            key
+            for key, payload in pending_authorizations.items()
+            if isinstance(payload, dict) and payload.get("client_id") == client_id
+        ]
+        evicted = 0
+        while len(same_client_keys) >= per_client_limit:
+            pending_authorizations.pop(same_client_keys.pop(0), None)
+            evicted += 1
+
+        global_limit = max(1, OAUTH_PENDING_AUTHORIZATION_MAX_COUNT)
+        while len(pending_authorizations) >= global_limit:
+            oldest_key = next(iter(pending_authorizations), None)
+            if oldest_key is None:
+                break
+            pending_authorizations.pop(oldest_key, None)
+            evicted += 1
         return evicted
 
     def _json_safe_value(self, value: object, *, depth: int = 8) -> object:

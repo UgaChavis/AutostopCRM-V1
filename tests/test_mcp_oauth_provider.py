@@ -519,6 +519,102 @@ class McpOAuthProviderStateTests(unittest.TestCase):
                     )
                 )
 
+    def test_authorize_rotates_oldest_pending_request_per_client(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            provider = self._provider(Path(temp_dir) / "mcp-oauth-state.json")
+            client = OAuthClientInformationFull(
+                client_id="client-1",
+                client_name="Codex Test",
+                redirect_uris=["http://127.0.0.1:18765/callback"],
+                scope="kanban:read kanban:write",
+            )
+            params = AuthorizationParams(
+                state="state-1",
+                scopes=["kanban:read", "kanban:write"],
+                code_challenge="pkce-challenge",
+                redirect_uri=AnyUrl("http://127.0.0.1:18765/callback"),
+                redirect_uri_provided_explicitly=True,
+                resource="https://agent.example/mcp",
+            )
+
+            request_ids = []
+            with (
+                patch(
+                    "minimal_kanban.mcp.oauth_provider."
+                    "OAUTH_PENDING_AUTHORIZATION_PER_CLIENT_MAX_COUNT",
+                    2,
+                ),
+                patch(
+                    "minimal_kanban.mcp.oauth_provider.OAUTH_STATE_PLAINTEXT_MAX_BYTES",
+                    3200,
+                ),
+            ):
+                for _ in range(10):
+                    consent_url = asyncio.run(provider.authorize(client, params))
+                    request_ids.append(consent_url.rsplit("request_id=", 1)[1])
+
+            state = provider._read_state()
+            self.assertEqual(2, len(state["pending_authorizations"]))
+            self.assertIsNone(provider.get_pending_authorization(request_ids[0]))
+            self.assertIsNotNone(provider.get_pending_authorization(request_ids[-1]))
+
+    def test_authorize_caps_pending_requests_across_clients(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            provider = self._provider(Path(temp_dir) / "mcp-oauth-state.json")
+            params = AuthorizationParams(
+                state="state-1",
+                scopes=["kanban:read", "kanban:write"],
+                code_challenge="pkce-challenge",
+                redirect_uri=AnyUrl("http://127.0.0.1:18765/callback"),
+                redirect_uri_provided_explicitly=True,
+                resource="https://agent.example/mcp",
+            )
+            request_ids = []
+
+            with patch(
+                "minimal_kanban.mcp.oauth_provider.OAUTH_PENDING_AUTHORIZATION_MAX_COUNT",
+                2,
+            ):
+                for index in range(3):
+                    client = OAuthClientInformationFull(
+                        client_id=f"client-{index}",
+                        redirect_uris=["http://127.0.0.1:18765/callback"],
+                        scope="kanban:read kanban:write",
+                    )
+                    consent_url = asyncio.run(provider.authorize(client, params))
+                    request_ids.append(consent_url.rsplit("request_id=", 1)[1])
+
+            state = provider._read_state()
+            self.assertEqual(2, len(state["pending_authorizations"]))
+            self.assertIsNone(provider.get_pending_authorization(request_ids[0]))
+            self.assertIsNotNone(provider.get_pending_authorization(request_ids[-1]))
+
+    def test_authorize_rejects_oversized_pending_request_without_writing_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            provider = self._provider(Path(temp_dir) / "mcp-oauth-state.json")
+            client = OAuthClientInformationFull(
+                client_id="client-1",
+                redirect_uris=["http://127.0.0.1:18765/callback"],
+                scope="kanban:read kanban:write",
+            )
+            params = AuthorizationParams(
+                state="x" * 1024,
+                scopes=["kanban:read", "kanban:write"],
+                code_challenge="pkce-challenge",
+                redirect_uri=AnyUrl("http://127.0.0.1:18765/callback"),
+                redirect_uri_provided_explicitly=True,
+                resource="https://agent.example/mcp",
+            )
+
+            with patch(
+                "minimal_kanban.mcp.oauth_provider.OAUTH_PENDING_AUTHORIZATION_MAX_BYTES",
+                256,
+            ):
+                with self.assertRaisesRegex(AuthorizeError, "request is too large"):
+                    asyncio.run(provider.authorize(client, params))
+
+            self.assertEqual({}, provider._read_state()["pending_authorizations"])
+
     def test_state_file_is_private_and_encrypted_at_rest(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             state_file = Path(temp_dir) / "mcp-oauth-state.json"
