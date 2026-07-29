@@ -255,6 +255,21 @@ class ApiServerTests(unittest.TestCase):
             _same_host_cors_origin("http://localhost:bad", "localhost:41731"),
             "",
         )
+        self.assertEqual(
+            _same_host_cors_origin(
+                "http://rebind.evil:41731",
+                "rebind.evil:41731",
+            ),
+            "",
+        )
+        self.assertEqual(
+            _same_host_cors_origin(
+                "https://crm.autostopcrm.ru",
+                "crm.autostopcrm.ru",
+                allow_named_host=True,
+            ),
+            "https://crm.autostopcrm.ru",
+        )
 
     def test_api_cors_rejects_cross_origin_preflight(self) -> None:
         connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
@@ -274,6 +289,100 @@ class ApiServerTests(unittest.TestCase):
 
         self.assertEqual(response.status, 403)
         self.assertIsNone(response.getheader("Access-Control-Allow-Origin"))
+
+    def test_api_cors_allows_named_origin_from_reverse_proxy(self) -> None:
+        proxy_headers = {
+            "Host": "crm.autostopcrm.ru",
+            "Origin": "https://crm.autostopcrm.ru",
+            "X-Forwarded-For": "203.0.113.10",
+        }
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        try:
+            connection.request(
+                "OPTIONS",
+                "/api/create_card",
+                headers={
+                    **proxy_headers,
+                    "Access-Control-Request-Method": "POST",
+                },
+            )
+            response = connection.getresponse()
+            response.read()
+        finally:
+            connection.close()
+
+        self.assertEqual(response.status, 204)
+        self.assertEqual(
+            response.getheader("Access-Control-Allow-Origin"),
+            "https://crm.autostopcrm.ru",
+        )
+        status, logged_in = self.request(
+            "/api/login_operator",
+            {"username": "admin", "password": "admin"},
+            headers=proxy_headers,
+        )
+        self.assertEqual(status, 200)
+        status, created = self.request(
+            "/api/create_card",
+            {"title": "Proxied same-origin card", "deadline": {"hours": 1}},
+            headers={
+                **proxy_headers,
+                "X-Operator-Session": logged_in["data"]["session"]["token"],
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(created["data"]["card"]["title"], "Proxied same-origin card")
+
+    def test_api_cors_rejects_simple_cross_origin_and_rebinding_posts(self) -> None:
+        status, _ = self.request(
+            "/api/create_card",
+            {"title": "Same-origin card", "deadline": {"hours": 1}},
+            headers={"Origin": self.base_url},
+        )
+        self.assertEqual(status, 200)
+
+        body = json.dumps({"title": "Cross-origin card", "deadline": {"hours": 1}}).encode("utf-8")
+        cases = (
+            (
+                "foreign-origin",
+                {
+                    "Origin": "https://evil.example",
+                    "Content-Type": "text/plain",
+                },
+            ),
+            (
+                "rebinding-host",
+                {
+                    "Host": f"rebind.evil:{self.port}",
+                    "Origin": f"http://rebind.evil:{self.port}",
+                    "Content-Type": "text/plain",
+                },
+            ),
+        )
+        for label, headers in cases:
+            with self.subTest(label=label):
+                connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+                try:
+                    connection.request(
+                        "POST",
+                        "/api/create_card",
+                        body=body,
+                        headers=headers,
+                    )
+                    response = connection.getresponse()
+                    payload = json.loads(response.read().decode("utf-8"))
+                finally:
+                    connection.close()
+
+                self.assertEqual(response.status, 403)
+                self.assertEqual(payload["error"]["code"], "forbidden")
+                self.assertIsNone(response.getheader("Access-Control-Allow-Origin"))
+
+        status, cards = self.request("/api/get_cards", method="GET")
+        self.assertEqual(status, 200)
+        self.assertFalse(
+            any(card.get("title") == "Cross-origin card" for card in cards["data"]["cards"])
+        )
 
     def test_snapshot_success_route_uses_debug_log_level(self) -> None:
         self.assertEqual(_success_log_level("/api/get_board_snapshot"), logging.DEBUG)

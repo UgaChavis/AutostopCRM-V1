@@ -3,6 +3,7 @@ from __future__ import annotations
 import gzip
 import hmac
 import html
+import ipaddress
 import json
 import logging
 import math
@@ -270,7 +271,12 @@ def _origin_default_port(scheme: str) -> int | None:
     return None
 
 
-def _same_host_cors_origin(origin: object, host: object) -> str:
+def _same_host_cors_origin(
+    origin: object,
+    host: object,
+    *,
+    allow_named_host: bool = False,
+) -> str:
     raw_origin = str(origin or "").strip()
     raw_host = str(host or "").strip()
     if not raw_origin or not raw_host:
@@ -287,6 +293,11 @@ def _same_host_cors_origin(origin: object, host: object) -> str:
     request_host = (host_parts.hostname or "").lower().rstrip(".")
     if not origin_host or origin_host != request_host:
         return ""
+    if not allow_named_host and request_host != "localhost":
+        try:
+            ipaddress.ip_address(request_host)
+        except ValueError:
+            return ""
     default_port = _origin_default_port(scheme)
     try:
         origin_port = origin_parts.port or default_port
@@ -982,6 +993,14 @@ class ApiServer:
 
             def do_POST(self) -> None:
                 request_id = str(uuid.uuid4())
+                if self.headers.get("Origin") and not self._cors_allowed_origin():
+                    self._send_error_response(
+                        request_id,
+                        HTTPStatus.FORBIDDEN,
+                        "forbidden",
+                        "Cross-origin API request is not allowed.",
+                    )
+                    return
                 parsed = _request_target_parts(self.path)
                 if parsed is None:
                     self._send_error_response(
@@ -1649,6 +1668,7 @@ class ApiServer:
                 return _same_host_cors_origin(
                     self.headers.get("Origin", ""),
                     self.headers.get("Host", ""),
+                    allow_named_host=self._is_proxied_request(),
                 )
 
             def _prepare_response_body(
