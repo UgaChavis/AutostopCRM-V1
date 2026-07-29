@@ -95,6 +95,9 @@ STATIC_ASSET_MAX_BYTES = 1 * 1024 * 1024
 IMMUTABLE_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
 MAX_QUERY_STRING_BYTES = 16 * 1024
 MAX_QUERY_FIELDS = 128
+OPERATOR_LOGIN_FAILURE_WINDOW_SECONDS = 5 * 60
+OPERATOR_LOGIN_FAILURE_LIMIT_PER_CLIENT = 8
+OPERATOR_LOGIN_RATE_LIMIT_MAX_CLIENTS = 2048
 HTTP_QVALUE_RE = re.compile(r"^(?:0(?:\.\d{0,3})?|1(?:\.0{0,3})?)$")
 BOOLEAN_QUERY_KEYS = frozenset(
     {
@@ -813,6 +816,45 @@ class ApiServer:
         bearer_token = self._bearer_token
         operator_service = self._operator_service
         api_server = self
+        operator_login_attempts: dict[str, list[tuple[float, str]]] = {}
+        operator_login_attempts_lock = threading.Lock()
+
+        def reserve_operator_login_attempt(client_key: str, request_id: str) -> bool:
+            now = perf_counter()
+            with operator_login_attempts_lock:
+                recent = [
+                    attempt
+                    for attempt in operator_login_attempts.pop(client_key, [])
+                    if now - attempt[0] < OPERATOR_LOGIN_FAILURE_WINDOW_SECONDS
+                ]
+                if len(recent) >= OPERATOR_LOGIN_FAILURE_LIMIT_PER_CLIENT:
+                    operator_login_attempts[client_key] = recent
+                    return False
+                recent.append((now, request_id))
+                operator_login_attempts[client_key] = recent
+                while len(operator_login_attempts) > OPERATOR_LOGIN_RATE_LIMIT_MAX_CLIENTS:
+                    operator_login_attempts.pop(next(iter(operator_login_attempts)), None)
+                return True
+
+        def release_operator_login_attempt(
+            client_key: str,
+            request_id: str,
+            *,
+            clear_client: bool = False,
+        ) -> None:
+            with operator_login_attempts_lock:
+                if clear_client:
+                    operator_login_attempts.pop(client_key, None)
+                    return
+                retained = [
+                    attempt
+                    for attempt in operator_login_attempts.get(client_key, [])
+                    if attempt[1] != request_id
+                ]
+                if retained:
+                    operator_login_attempts[client_key] = retained
+                else:
+                    operator_login_attempts.pop(client_key, None)
 
         def paste_shared_files_from_clipboard(payload: dict | None = None) -> dict:
             payload = payload or {}
@@ -1379,6 +1421,8 @@ class ApiServer:
                             return
                         if route == "/api/get_board_snapshot":
                             result = service.get_board_snapshot_for_http(payload)
+                        elif route == "/api/login_operator":
+                            result = self._login_operator(payload, request_id)
                         else:
                             result = self.ROUTES[route](payload)
                         if isinstance(result, PreparedSnapshotData):
@@ -1500,6 +1544,46 @@ class ApiServer:
                                 app_duration_ms=app_duration_ms
                             ),
                         )
+
+            def _login_operator(self, payload: dict, request_id: str) -> dict:
+                client_key = self._operator_login_client_key()
+                if not reserve_operator_login_attempt(client_key, request_id):
+                    raise ServiceError(
+                        "rate_limited",
+                        "Слишком много неуспешных попыток входа. Повторите позже.",
+                        status_code=HTTPStatus.TOO_MANY_REQUESTS,
+                        details={
+                            "retry_after_seconds": OPERATOR_LOGIN_FAILURE_WINDOW_SECONDS,
+                        },
+                    )
+                try:
+                    result = self.ROUTES["/api/login_operator"](payload)
+                except ServiceError as exc:
+                    if exc.code != "unauthorized":
+                        release_operator_login_attempt(client_key, request_id)
+                    raise
+                except Exception:
+                    release_operator_login_attempt(client_key, request_id)
+                    raise
+                release_operator_login_attempt(client_key, request_id, clear_client=True)
+                return result
+
+            def _operator_login_client_key(self) -> str:
+                peer_host = str(self.client_address[0] if self.client_address else "unknown")
+                try:
+                    peer_ip = ipaddress.ip_address(peer_host)
+                except ValueError:
+                    return peer_host
+                if peer_ip.is_loopback or peer_ip.is_private:
+                    real_ip_header = str(self.headers.get("X-Real-IP", "") or "").strip()
+                    try:
+                        real_ip = ipaddress.ip_address(real_ip_header)
+                    except ValueError:
+                        pass
+                    else:
+                        if not real_ip.is_unspecified:
+                            return real_ip.compressed
+                return peer_ip.compressed
 
             def _serve_employee_salary_reconciliation_print(
                 self, request_id: str, query: dict

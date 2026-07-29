@@ -1696,6 +1696,67 @@ class ApiServerTests(unittest.TestCase):
                 self.assertIsNotNone(self.operator_service.resolve_session(newest["token"]))
                 self.assertIsNotNone(self.operator_service.resolve_session(other_session["token"]))
 
+    def test_operator_login_rate_limit_is_per_client_and_resets_after_success(self) -> None:
+        def login(client_ip: str, password: str = "wrong") -> tuple[int, dict]:
+            return self.request(
+                "/api/login_operator",
+                {"username": "admin", "password": password},
+                headers={"X-Forwarded-For": client_ip, "X-Real-IP": client_ip},
+            )
+
+        with (
+            patch("minimal_kanban.api.server.OPERATOR_LOGIN_FAILURE_LIMIT_PER_CLIENT", 2),
+            patch(
+                "minimal_kanban.operator_auth._verify_password",
+                wraps=_verify_password,
+            ) as verify_password,
+        ):
+            self.assertEqual([login("203.0.113.10")[0] for _ in range(2)], [401, 401])
+            calls_before_limit = verify_password.call_count
+            limited_status, limited = login("203.0.113.10")
+            self.assertEqual(limited_status, 429)
+            self.assertEqual(limited["error"]["code"], "rate_limited")
+            self.assertEqual(verify_password.call_count, calls_before_limit)
+            self.assertEqual(login("203.0.113.11")[0], 401)
+            self.assertEqual(login("203.0.113.12")[0], 401)
+            self.assertEqual(login("203.0.113.12", "admin")[0], 200)
+            self.assertEqual([login("203.0.113.12")[0] for _ in range(2)], [401, 401])
+
+        verification_started = threading.Event()
+        allow_verification = threading.Event()
+        first_result: list[tuple[int, dict]] = []
+
+        def blocked_verification(_password: str, _password_hash: str) -> bool:
+            verification_started.set()
+            if not allow_verification.wait(timeout=5):
+                raise TimeoutError("test did not release password verification")
+            return False
+
+        def first_login() -> None:
+            first_result.append(login("203.0.113.20"))
+
+        with (
+            patch("minimal_kanban.api.server.OPERATOR_LOGIN_FAILURE_LIMIT_PER_CLIENT", 1),
+            patch(
+                "minimal_kanban.operator_auth._verify_password",
+                side_effect=blocked_verification,
+            ) as verify_password,
+        ):
+            first_thread = threading.Thread(target=first_login)
+            first_thread.start()
+            try:
+                self.assertTrue(verification_started.wait(timeout=5))
+                concurrent_status, concurrent = login("203.0.113.20")
+                self.assertEqual(concurrent_status, 429)
+                self.assertEqual(concurrent["error"]["code"], "rate_limited")
+                self.assertEqual(verify_password.call_count, 1)
+            finally:
+                allow_verification.set()
+                first_thread.join(timeout=5)
+
+        self.assertFalse(first_thread.is_alive())
+        self.assertEqual(first_result[0][0], 401)
+
     def test_operator_auth_backs_up_non_object_users_file_before_bootstrap(self) -> None:
         self.users_file.write_text("[]", encoding="utf-8")
 

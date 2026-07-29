@@ -38,7 +38,7 @@ Error response:
 
 Clients must branch on `ok` and `error.code`, not localized messages. Common
 codes include `validation_error`, `not_found`, `unauthorized`, `forbidden`,
-`archived_card`, `maintenance_mode`, `storage_limit_exceeded`, and
+`rate_limited`, `archived_card`, `maintenance_mode`, `storage_limit_exceeded`, and
 `internal_error`.
 
 ## Route Families
@@ -309,6 +309,9 @@ scripts or documentation; smoke scripts read
 `AUTOSTOP_SMOKE_OPERATOR_USERNAME` and
 `AUTOSTOP_SMOKE_OPERATOR_PASSWORD`. Operator activity is stored outside
 `state.json` and is maintained only through the runbook procedure.
+Failed `login_operator` attempts are bounded per client address. Exceeding the
+window returns HTTP 429 with `rate_limited`; a successful login clears that
+client's failures without locking the operator account.
 
 ### Personal additional board column
 
