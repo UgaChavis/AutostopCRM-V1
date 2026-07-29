@@ -7,6 +7,7 @@ import os
 import secrets
 import shutil
 import threading
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import timedelta
 from logging import Logger
@@ -138,15 +139,15 @@ class OperatorAuthService:
         self._users_file.parent.mkdir(parents=True, exist_ok=True)
         if not self._users_file.exists():
             with self._process_lock.acquire():
-                self._write_state(self._bootstrap_state())
+                if not self._users_file.exists():
+                    self._write_state(self._bootstrap_state())
         self._sync_change_feed(self._read_normalized_state(), initialize=True)
 
     def login(self, payload: dict | None = None) -> dict:
         payload = payload or {}
         username = self._validated_username(payload.get("username"))
         password = self._validated_password(payload.get("password"))
-        with self._lock:
-            state = self._read_normalized_state()
+        with self._locked_state() as state:
             user = self._find_user(state["users"], username)
             password_hash = str(user.get("password_hash", "")) if user is not None else ""
             password_ok = user is not None and _verify_password(password, password_hash)
@@ -191,8 +192,7 @@ class OperatorAuthService:
 
     def logout(self, payload: dict | None = None) -> dict:
         session = self._required_session(payload)
-        with self._lock:
-            state = self._read_normalized_state()
+        with self._locked_state() as state:
             before = len(state["sessions"])
             state["sessions"] = [
                 item for item in state["sessions"] if item.get("token") != session["token"]
@@ -235,8 +235,7 @@ class OperatorAuthService:
                 status_code=403,
                 details={"auth_type": "operator_session"},
             )
-        with self._lock:
-            state = self._read_normalized_state()
+        with self._locked_state() as state:
             user = self._find_user(state["users"], session["username"])
             if user is None:
                 self._fail(
@@ -265,8 +264,7 @@ class OperatorAuthService:
         preferences = self._validated_personal_board_preferences(
             payload.get(PERSONAL_BOARD_PREFERENCES_KEY)
         )
-        with self._lock:
-            state = self._read_normalized_state()
+        with self._locked_state() as state:
             user = self._find_user(state["users"], session["username"])
             if user is None:
                 self._fail(
@@ -297,8 +295,7 @@ class OperatorAuthService:
 
     def list_users(self, payload: dict | None = None) -> dict:
         self._required_admin_session(payload)
-        with self._lock:
-            state = self._read_normalized_state()
+        with self._locked_state() as state:
             users = [deepcopy(item) for item in state["users"]]
         bundle = self._state_store.read_bundle()
         event_activity_index = self._build_event_activity_index(bundle["events"])
@@ -318,8 +315,7 @@ class OperatorAuthService:
         password_provided = "password" in payload and str(payload.get("password") or "").strip()
         requested_role = self._validated_role(payload.get("role")) if "role" in payload else None
         now_iso = utc_now_iso()
-        with self._lock:
-            state = self._read_normalized_state()
+        with self._locked_state() as state:
             existing = self._find_user(state["users"], username)
             created = existing is None
             if created:
@@ -411,8 +407,7 @@ class OperatorAuthService:
         employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
         employee = self._employee_for_binding(employee_id) if employee_id else None
         now_iso = utc_now_iso()
-        with self._lock:
-            state = self._read_normalized_state()
+        with self._locked_state() as state:
             target = self._find_user(state["users"], username)
             if target is None:
                 self._fail("not_found", "Пользователь не найден.", status_code=404)
@@ -476,8 +471,7 @@ class OperatorAuthService:
                 "Нельзя удалить текущую активную учётную запись.",
                 status_code=409,
             )
-        with self._lock:
-            state = self._read_normalized_state()
+        with self._locked_state() as state:
             target = self._find_user(state["users"], username)
             if target is None:
                 self._fail("not_found", "Пользователь не найден.", status_code=404)
@@ -604,8 +598,7 @@ class OperatorAuthService:
         raw_token = str(token or "").strip()
         if not raw_token:
             return None
-        with self._lock:
-            state = self._read_normalized_state()
+        with self._locked_state() as state:
             for item in state["sessions"]:
                 if not hmac.compare_digest(str(item.get("token") or ""), raw_token):
                     continue
@@ -627,8 +620,7 @@ class OperatorAuthService:
         normalized = _normalized_username(username)
         if not normalized:
             return None
-        with self._lock:
-            state = self._read_normalized_state()
+        with self._locked_state() as state:
             user = self._find_user(state["users"], normalized)
             if user is None or user.get("role") != "admin":
                 return None
@@ -665,8 +657,7 @@ class OperatorAuthService:
         card_id: str | None = None,
         counter_key: str | None = None,
     ) -> None:
-        with self._lock:
-            state = self._read_normalized_state()
+        with self._locked_state() as state:
             user = self._find_user(state["users"], username)
             if user is None:
                 return
@@ -1193,8 +1184,7 @@ class OperatorAuthService:
         self._required_admin_session(payload)
         payload = payload or {}
         username = self._validated_username(payload.get("username"))
-        with self._lock:
-            state = self._read_normalized_state()
+        with self._locked_state() as state:
             user = self._user_snapshot(state["users"], username)
         if user is None:
             self._fail("not_found", "Пользователь не найден.", status_code=404)
@@ -1422,7 +1412,16 @@ class OperatorAuthService:
             f"{stem}.corrupted-{utc_now().strftime('%Y%m%d%H%M%S%f')}.json"
         )
 
+    @contextmanager
+    def _locked_state(self):
+        with self._lock, self._process_lock.acquire():
+            yield self._read_normalized_state_unlocked()
+
     def _read_normalized_state(self) -> dict[str, Any]:
+        with self._locked_state() as state:
+            return state
+
+    def _read_normalized_state_unlocked(self) -> dict[str, Any]:
         if not self._users_file.exists():
             state = self._bootstrap_state()
             self._write_state(state)
@@ -1582,8 +1581,8 @@ class OperatorAuthService:
             temp_file.unlink(missing_ok=True)
 
     def reconcile_change_feed(self) -> None:
-        with self._lock:
-            self._sync_change_feed(self._read_normalized_state())
+        with self._locked_state() as state:
+            self._sync_change_feed(state)
 
     def _sync_change_feed(self, state: dict[str, Any], *, initialize: bool = False) -> None:
         projected = project_operator_users(state)

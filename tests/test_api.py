@@ -13,6 +13,7 @@ import struct
 import sys
 import tempfile
 import http.client
+import threading
 import time
 import unittest
 import urllib.error
@@ -1580,6 +1581,73 @@ class ApiServerTests(unittest.TestCase):
         self.assertNotIn("DAMAGED", self.users_file.read_text(encoding="utf-8"))
         self.assertNotIn("DAMAGED", [user["username"] for user in state["users"]])
         self.assertTrue(any(user["role"] == "admin" for user in state["users"]))
+
+    def test_operator_auth_serializes_concurrent_service_instances(self) -> None:
+        logger = logging.getLogger(f"test.api.{self._testMethodName}.operator_auth")
+        first = OperatorAuthService(
+            self.store,
+            self.service,
+            users_file=self.users_file,
+            logger=logger,
+        )
+        second = OperatorAuthService(
+            self.store,
+            self.service,
+            users_file=self.users_file,
+            logger=logger,
+        )
+        first._sync_change_feed = Mock()
+        second._sync_change_feed = Mock()
+        first_write_started = threading.Event()
+        allow_first_write = threading.Event()
+        second_finished = threading.Event()
+        errors: list[BaseException] = []
+        original_first_write = first._write_state
+
+        def paused_first_write(state) -> None:
+            first_write_started.set()
+            if not allow_first_write.wait(timeout=5):
+                raise TimeoutError("test did not release the first operator-auth write")
+            original_first_write(state)
+
+        first._write_state = paused_first_write
+        admin_session = {"username": "ADMIN", "is_admin": True, "token": "test"}
+
+        def save_user(service: OperatorAuthService, username: str) -> None:
+            try:
+                service.save_user(
+                    {
+                        "_operator_session": admin_session,
+                        "username": username,
+                        "password": "safe-password",
+                    }
+                )
+            except BaseException as exc:
+                errors.append(exc)
+            finally:
+                if service is second:
+                    second_finished.set()
+
+        with patch(
+            "minimal_kanban.operator_auth._password_hash",
+            return_value="pbkdf2_sha256$1$test$00",
+        ):
+            first_thread = threading.Thread(target=save_user, args=(first, "FIRST"))
+            second_thread = threading.Thread(target=save_user, args=(second, "SECOND"))
+            first_thread.start()
+            self.assertTrue(first_write_started.wait(timeout=5))
+            second_thread.start()
+            self.assertFalse(second_finished.wait(timeout=0.5))
+            allow_first_write.set()
+            first_thread.join(timeout=5)
+            second_thread.join(timeout=5)
+
+        self.assertFalse(first_thread.is_alive())
+        self.assertFalse(second_thread.is_alive())
+        self.assertEqual(errors, [])
+        state = json.loads(self.users_file.read_text(encoding="utf-8"))
+        usernames = {user["username"] for user in state["users"]}
+        self.assertTrue({"FIRST", "SECOND"}.issubset(usernames))
 
     def test_operator_auth_clamps_oversized_open_count_stat(self) -> None:
         users = self.operator_service._normalize_users(
