@@ -760,6 +760,70 @@ class McpOAuthProviderStateTests(unittest.TestCase):
             self.assertEqual(1, len(state["access_tokens"]))
             self.assertEqual(1, len(state["refresh_tokens"]))
 
+    def test_exchange_refresh_token_bounds_access_tokens_per_family(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            provider = self._provider(Path(temp_dir) / "mcp-oauth-state.json")
+            client = OAuthClientInformationFull(
+                client_id="client-1",
+                redirect_uris=["https://chatgpt.com/callback"],
+            )
+            refresh = OwnerRefreshToken(
+                token="refresh-1",
+                client_id="client-1",
+                scopes=["kanban:read", "kanban:write"],
+                expires_at=int(time.time()) + 300,
+                subject="admin",
+                family_id="family-1",
+                resource="https://agent.example/mcp",
+            )
+            unrelated_access = provider._issue_access_token(
+                client_id="client-2",
+                subject="admin",
+                scopes=["kanban:read", "kanban:write"],
+                family_id="family-2",
+            )
+            state = provider._default_state()
+            state["access_tokens"][provider._token_digest(unrelated_access.token)] = (
+                provider._stored_secret_model(unrelated_access)
+            )
+            state["refresh_tokens"][provider._token_digest(refresh.token)] = (
+                provider._stored_secret_model(refresh)
+            )
+            provider._write_state_unlocked(state)
+
+            first_access_token = ""
+            latest_access_token = ""
+            with (
+                patch(
+                    "minimal_kanban.mcp.oauth_provider.OAUTH_ACCESS_TOKEN_PER_FAMILY_MAX_COUNT",
+                    2,
+                ),
+                patch(
+                    "minimal_kanban.mcp.oauth_provider.OAUTH_STATE_PLAINTEXT_MAX_BYTES",
+                    4200,
+                ),
+            ):
+                for index in range(20):
+                    issued = asyncio.run(provider.exchange_refresh_token(client, refresh, []))
+                    if index == 0:
+                        first_access_token = issued.access_token
+                    latest_access_token = issued.access_token
+                    refresh = asyncio.run(provider.load_refresh_token(client, issued.refresh_token))
+
+            state = provider._read_state()
+            family_access_tokens = [
+                payload
+                for payload in state["access_tokens"].values()
+                if payload.get("family_id") == "family-1"
+            ]
+            self.assertEqual(2, len(family_access_tokens))
+            self.assertIn(
+                provider._token_digest(unrelated_access.token),
+                state["access_tokens"],
+            )
+            self.assertIsNone(asyncio.run(provider.load_access_token(first_access_token)))
+            self.assertIsNotNone(asyncio.run(provider.load_access_token(latest_access_token)))
+
     def test_exchange_refresh_token_rejects_scope_expansion(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             provider = self._provider(Path(temp_dir) / "mcp-oauth-state.json")

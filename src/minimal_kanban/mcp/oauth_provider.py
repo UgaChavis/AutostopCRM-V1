@@ -45,6 +45,7 @@ OAUTH_CLIENT_METADATA_MAX_BYTES = 4 * 1024
 OAUTH_PENDING_AUTHORIZATION_MAX_COUNT = 64
 OAUTH_PENDING_AUTHORIZATION_PER_CLIENT_MAX_COUNT = 4
 OAUTH_PENDING_AUTHORIZATION_MAX_BYTES = 4 * 1024
+OAUTH_ACCESS_TOKEN_PER_FAMILY_MAX_COUNT = 16
 CHATGPT_OAUTH_REDIRECT_PATH_PREFIX = "/connector/oauth/"
 CHATGPT_LEGACY_OAUTH_REDIRECT_PATH = "/connector_platform_oauth_redirect"
 OAUTH_CONSENT_PATH = "/oauth/authorize"
@@ -452,6 +453,7 @@ class ProductionOAuthAuthorizationServerProvider(
             raise TokenError("invalid_client", "client_id is required")
 
         token_error: TokenError | None = None
+        evicted_access_tokens = 0
         with self._lock:
             with self._process_lock.acquire():
                 state = self._prune_state(self._read_state_unlocked())
@@ -485,6 +487,9 @@ class ProductionOAuthAuthorizationServerProvider(
                             family_id=stored_refresh.family_id,
                         )
                         state["refresh_tokens"].pop(self._token_digest(stored_refresh.token), None)
+                        evicted_access_tokens = self._make_room_for_access_token(
+                            state, stored_refresh.family_id
+                        )
                         state["access_tokens"][self._token_digest(access_token.token)] = (
                             self._stored_secret_model(access_token)
                         )
@@ -495,6 +500,11 @@ class ProductionOAuthAuthorizationServerProvider(
 
         if token_error is not None:
             raise token_error
+        if evicted_access_tokens:
+            self._log(
+                "oauth.exchange_refresh pruned_access_tokens=%d",
+                evicted_access_tokens,
+            )
         self._log("oauth.exchange_refresh completed=true")
         return OAuthToken(
             access_token=access_token.token,
@@ -886,6 +896,20 @@ class ProductionOAuthAuthorizationServerProvider(
             if oldest_key is None:
                 break
             pending_authorizations.pop(oldest_key, None)
+            evicted += 1
+        return evicted
+
+    def _make_room_for_access_token(self, state: dict[str, object], family_id: str) -> int:
+        access_tokens = state["access_tokens"]
+        family_limit = max(1, OAUTH_ACCESS_TOKEN_PER_FAMILY_MAX_COUNT)
+        family_keys = [
+            key
+            for key, payload in access_tokens.items()
+            if isinstance(payload, dict) and payload.get("family_id") == family_id
+        ]
+        evicted = 0
+        while len(family_keys) >= family_limit:
+            access_tokens.pop(family_keys.pop(0), None)
             evicted += 1
         return evicted
 
