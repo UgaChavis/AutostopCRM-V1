@@ -564,6 +564,10 @@ _OAUTH_CONSENT_HEADERS = {
         "base-uri 'none'; frame-ancestors 'none'"
     ),
 }
+_OAUTH_CONSENT_FAILURE_WINDOW_SECONDS = 300
+_OAUTH_CONSENT_REQUEST_FAILURE_LIMIT = 5
+_OAUTH_CONSENT_HOST_FAILURE_LIMIT = 20
+_OAUTH_CONSENT_RATE_LIMIT_MAX_KEYS = 2048
 
 
 def _oauth_consent_origin_allowed(origin: str, allowed_origins: list[str]) -> bool:
@@ -830,7 +834,8 @@ def create_mcp_server(
         log_level="WARNING",
     )
     if isinstance(auth_server_provider, ProductionOAuthAuthorizationServerProvider):
-        failed_attempts: dict[str, list[float]] = {}
+        failed_attempts_by_request: dict[str, list[float]] = {}
+        failed_attempts_by_host: dict[str, list[float]] = {}
         failed_attempts_lock = threading.Lock()
 
         @server.custom_route(OAUTH_CONSENT_PATH, methods=["GET", "POST"])
@@ -878,14 +883,34 @@ def create_mcp_server(
             client_host = str(request.client.host if request.client else "unknown")
             now = time.monotonic()
             with failed_attempts_lock:
-                recent = [item for item in failed_attempts.get(client_host, []) if now - item < 300]
-                failed_attempts[client_host] = recent
-                rate_limited = len(recent) >= 5
+                for attempts_by_key in (
+                    failed_attempts_by_request,
+                    failed_attempts_by_host,
+                ):
+                    for key, attempts in list(attempts_by_key.items()):
+                        recent = [
+                            item
+                            for item in attempts
+                            if now - item < _OAUTH_CONSENT_FAILURE_WINDOW_SECONDS
+                        ]
+                        if recent:
+                            attempts_by_key[key] = recent
+                        else:
+                            attempts_by_key.pop(key, None)
+                request_failures = failed_attempts_by_request.get(request_id, [])
+                host_failures = failed_attempts_by_host.get(client_host, [])
+                rate_limited = (
+                    len(request_failures) >= _OAUTH_CONSENT_REQUEST_FAILURE_LIMIT
+                    or len(host_failures) >= _OAUTH_CONSENT_HOST_FAILURE_LIMIT
+                )
             if rate_limited:
                 return HTMLResponse(
                     "Too many failed attempts. Try again later.",
                     status_code=429,
-                    headers={**_OAUTH_CONSENT_HEADERS, "Retry-After": "300"},
+                    headers={
+                        **_OAUTH_CONSENT_HEADERS,
+                        "Retry-After": str(_OAUTH_CONSENT_FAILURE_WINDOW_SECONDS),
+                    },
                 )
 
             username = str((form.get("username") or [""])[0]).strip()
@@ -897,7 +922,15 @@ def create_mcp_server(
                 owner = None
             if owner is None:
                 with failed_attempts_lock:
-                    failed_attempts.setdefault(client_host, []).append(now)
+                    for attempts_by_key, key in (
+                        (failed_attempts_by_request, request_id),
+                        (failed_attempts_by_host, client_host),
+                    ):
+                        attempts = attempts_by_key.pop(key, [])
+                        attempts.append(now)
+                        attempts_by_key[key] = attempts
+                        while len(attempts_by_key) > _OAUTH_CONSENT_RATE_LIMIT_MAX_KEYS:
+                            attempts_by_key.pop(next(iter(attempts_by_key)), None)
                 return HTMLResponse(
                     _oauth_consent_page(
                         request_id,
@@ -909,7 +942,8 @@ def create_mcp_server(
                     headers=_OAUTH_CONSENT_HEADERS,
                 )
             with failed_attempts_lock:
-                failed_attempts.pop(client_host, None)
+                failed_attempts_by_request.pop(request_id, None)
+                failed_attempts_by_host.pop(client_host, None)
             try:
                 callback_url = auth_server_provider.approve_authorization(request_id, subject=owner)
             except AuthorizeError:

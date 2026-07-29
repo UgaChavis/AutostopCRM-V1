@@ -2582,6 +2582,23 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(consent.status_code, 200)
             self.assertIn("Подключить AutoStop CRM", consent.text)
 
+            second_authorize = await client.get(
+                f"{auth_base}/authorize",
+                params={
+                    "client_id": client_info["client_id"],
+                    "redirect_uri": redirect_uri,
+                    "response_type": "code",
+                    "code_challenge": challenge,
+                    "code_challenge_method": "S256",
+                    "state": "approved-state",
+                    "resource": "https://agent.example/bridge",
+                },
+            )
+            self.assertEqual(second_authorize.status_code, 302)
+            second_request_id = parse_qs(urlsplit(second_authorize.headers["location"]).query)[
+                "request_id"
+            ][0]
+
             with patch(
                 "minimal_kanban.mcp.server._authenticate_oauth_owner",
                 return_value="admin",
@@ -2609,7 +2626,28 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(blocked.status_code, 403)
                 authenticate_owner.assert_not_called()
 
-                approved = await client.post(
+            with patch(
+                "minimal_kanban.mcp.server._authenticate_oauth_owner",
+                return_value=None,
+            ) as reject_owner:
+                for _ in range(5):
+                    rejected = await client.post(
+                        f"{auth_base}/oauth/authorize",
+                        headers={"Origin": "https://agent.example"},
+                        data={
+                            "request_id": request_id,
+                            "username": "admin",
+                            "password": "wrong",
+                        },
+                    )
+                    self.assertEqual(rejected.status_code, 401)
+                self.assertEqual(reject_owner.call_count, 5)
+
+            with patch(
+                "minimal_kanban.mcp.server._authenticate_oauth_owner",
+                return_value="admin",
+            ) as authenticate_owner:
+                rate_limited = await client.post(
                     f"{auth_base}/oauth/authorize",
                     headers={"Origin": "https://agent.example"},
                     data={
@@ -2618,10 +2656,22 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                         "password": "not-persisted",
                     },
                 )
+                self.assertEqual(rate_limited.status_code, 429)
+                authenticate_owner.assert_not_called()
+
+                approved = await client.post(
+                    f"{auth_base}/oauth/authorize",
+                    headers={"Origin": "https://agent.example"},
+                    data={
+                        "request_id": second_request_id,
+                        "username": "admin",
+                        "password": "not-persisted",
+                    },
+                )
                 authenticate_owner.assert_called_once()
             self.assertEqual(approved.status_code, 302)
             query = parse_qs(urlsplit(approved.headers["location"]).query)
-            self.assertEqual(query["state"][0], "demo-state")
+            self.assertEqual(query["state"][0], "approved-state")
             code = query["code"][0]
 
             token = await client.post(
