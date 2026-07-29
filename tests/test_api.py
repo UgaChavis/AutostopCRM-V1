@@ -1567,6 +1567,20 @@ class ApiServerTests(unittest.TestCase):
         self.assertNotIn("NaN", self.users_file.read_text(encoding="utf-8"))
         self.assertTrue(any(user["role"] == "admin" for user in state["users"]))
 
+    def test_operator_auth_backs_up_partially_corrupted_users_before_normalizing(self) -> None:
+        payload = json.loads(self.users_file.read_text(encoding="utf-8"))
+        payload["users"].append({"username": "DAMAGED", "role": "operator"})
+        original = json.dumps(payload, ensure_ascii=False)
+        self.users_file.write_text(original, encoding="utf-8")
+
+        state = self.operator_service._read_normalized_state()
+
+        backup = self.users_file.with_suffix(".corrupted.json")
+        self.assertEqual(backup.read_text(encoding="utf-8"), original)
+        self.assertNotIn("DAMAGED", self.users_file.read_text(encoding="utf-8"))
+        self.assertNotIn("DAMAGED", [user["username"] for user in state["users"]])
+        self.assertTrue(any(user["role"] == "admin" for user in state["users"]))
+
     def test_operator_auth_clamps_oversized_open_count_stat(self) -> None:
         users = self.operator_service._normalize_users(
             [

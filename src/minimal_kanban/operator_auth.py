@@ -5,6 +5,7 @@ import hmac
 import json
 import os
 import secrets
+import shutil
 import threading
 from copy import deepcopy
 from datetime import timedelta
@@ -1449,7 +1450,8 @@ class OperatorAuthService:
         users = self._normalize_users(raw_users)
         user_names = {user["username"] for user in users}
         sessions = self._normalize_sessions(raw_sessions, valid_usernames=user_names)
-        if not isinstance(raw_users, list) or len(users) != len(raw_users):
+        users_corrupted = not isinstance(raw_users, list) or len(users) != len(raw_users)
+        if users_corrupted:
             changed = True
         if not isinstance(raw_sessions, list) or len(sessions) != len(raw_sessions):
             changed = True
@@ -1467,6 +1469,8 @@ class OperatorAuthService:
             "sessions": sessions,
         }
         if changed or payload.get("schema_version") != 1:
+            if users_corrupted:
+                shutil.copy2(self._users_file, self._corrupted_users_backup_path())
             self._write_state(state)
         return state
 
