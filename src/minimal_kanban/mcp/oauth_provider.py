@@ -40,6 +40,8 @@ REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60
 OAUTH_EXPIRATION_MAX_SECONDS = 4_102_444_800  # 2100-01-01T00:00:00Z
 OAUTH_STATE_MAX_BYTES = 2 * 1024 * 1024
 OAUTH_STATE_PLAINTEXT_MAX_BYTES = 1 * 1024 * 1024
+OAUTH_REGISTERED_CLIENT_MAX_COUNT = 128
+OAUTH_CLIENT_METADATA_MAX_BYTES = 4 * 1024
 CHATGPT_OAUTH_REDIRECT_PATH_PREFIX = "/connector/oauth/"
 CHATGPT_LEGACY_OAUTH_REDIRECT_PATH = "/connector_platform_oauth_redirect"
 OAUTH_CONSENT_PATH = "/oauth/authorize"
@@ -212,14 +214,29 @@ class ProductionOAuthAuthorizationServerProvider(
                 "invalid_client_metadata",
                 "client must request the complete AutoStop CRM scope set",
             )
+        client_payload = client_info.model_dump(mode="json", exclude_none=True)
+        client_payload_size = len(
+            json.dumps(
+                client_payload,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        )
+        if client_payload_size > OAUTH_CLIENT_METADATA_MAX_BYTES:
+            raise RegistrationError(
+                "invalid_client_metadata",
+                "client metadata is too large",
+            )
 
         with self._lock:
             with self._process_lock.acquire():
                 state = self._prune_state(self._read_state_unlocked())
-                state["clients"][client_info.client_id] = client_info.model_dump(
-                    mode="json", exclude_none=True
-                )
+                evicted = self._make_room_for_client(state, client_info.client_id)
+                state["clients"][client_info.client_id] = client_payload
                 self._write_state_unlocked(state)
+        if evicted:
+            self._log("oauth.register_client pruned_inactive=%d", evicted)
         self._log("oauth.register_client completed=true")
 
     async def authorize(
@@ -798,6 +815,40 @@ class ProductionOAuthAuthorizationServerProvider(
                 if expires_at is None or self._int_or_zero(expires_at) >= now:
                     pruned[bucket_name][key] = value
         return pruned
+
+    def _make_room_for_client(self, state: dict[str, object], client_id: str) -> int:
+        clients = state["clients"]
+        limit = max(1, OAUTH_REGISTERED_CLIENT_MAX_COUNT)
+        target_count = limit if client_id in clients else limit - 1
+        active_client_ids: set[str] = set()
+        for bucket_name in (
+            "pending_authorizations",
+            "authorization_codes",
+            "access_tokens",
+            "refresh_tokens",
+        ):
+            for payload in state[bucket_name].values():
+                if not isinstance(payload, dict):
+                    continue
+                active_client_id = str(payload.get("client_id") or "").strip()
+                if active_client_id:
+                    active_client_ids.add(active_client_id)
+
+        removable = [
+            stored_client_id
+            for stored_client_id in clients
+            if stored_client_id != client_id and stored_client_id not in active_client_ids
+        ]
+        evicted = 0
+        while len(clients) > target_count and removable:
+            clients.pop(removable.pop(0), None)
+            evicted += 1
+        if len(clients) > target_count:
+            raise RegistrationError(
+                "invalid_client_metadata",
+                "OAuth client registration capacity is temporarily unavailable",
+            )
+        return evicted
 
     def _json_safe_value(self, value: object, *, depth: int = 8) -> object:
         if depth <= 0:

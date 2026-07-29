@@ -342,6 +342,83 @@ class McpOAuthProviderStateTests(unittest.TestCase):
             self.assertIsNotNone(stored)
             self.assertEqual(stored.client_id, "client-1")
 
+    def test_register_client_rotates_inactive_registrations_before_state_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            provider = self._provider(Path(temp_dir) / "mcp-oauth-state.json")
+
+            with (
+                patch(
+                    "minimal_kanban.mcp.oauth_provider.OAUTH_REGISTERED_CLIENT_MAX_COUNT",
+                    2,
+                ),
+                patch(
+                    "minimal_kanban.mcp.oauth_provider.OAUTH_STATE_PLAINTEXT_MAX_BYTES",
+                    2400,
+                ),
+            ):
+                for index in range(10):
+                    asyncio.run(
+                        provider.register_client(
+                            OAuthClientInformationFull(
+                                client_id=f"client-{index}",
+                                redirect_uris=["https://chatgpt.com/connector/oauth/test-callback"],
+                                scope="kanban:read kanban:write",
+                            )
+                        )
+                    )
+
+            state = provider._read_state()
+            self.assertEqual({"client-8", "client-9"}, set(state["clients"]))
+
+    def test_register_client_rotation_preserves_clients_with_live_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            provider = self._provider(Path(temp_dir) / "mcp-oauth-state.json")
+            clients = [
+                OAuthClientInformationFull(
+                    client_id=f"client-{index}",
+                    redirect_uris=["https://chatgpt.com/connector/oauth/test-callback"],
+                    scope="kanban:read kanban:write",
+                )
+                for index in range(3)
+            ]
+
+            with patch(
+                "minimal_kanban.mcp.oauth_provider.OAUTH_REGISTERED_CLIENT_MAX_COUNT",
+                2,
+            ):
+                asyncio.run(provider.register_client(clients[0]))
+                asyncio.run(provider.register_client(clients[1]))
+                state = provider._read_state()
+                state["pending_authorizations"]["live-request"] = {
+                    "client_id": "client-0",
+                    "expires_at": time.time() + 300,
+                }
+                provider._write_state_unlocked(state)
+
+                asyncio.run(provider.register_client(clients[2]))
+
+            state = provider._read_state()
+            self.assertEqual({"client-0", "client-2"}, set(state["clients"]))
+
+    def test_register_client_rejects_oversized_metadata_without_writing_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            provider = self._provider(Path(temp_dir) / "mcp-oauth-state.json")
+            client = OAuthClientInformationFull(
+                client_id="client-1",
+                client_name="x" * 1024,
+                redirect_uris=["https://chatgpt.com/connector/oauth/test-callback"],
+                scope="kanban:read kanban:write",
+            )
+
+            with patch(
+                "minimal_kanban.mcp.oauth_provider.OAUTH_CLIENT_METADATA_MAX_BYTES",
+                256,
+            ):
+                with self.assertRaisesRegex(RegistrationError, "metadata is too large"):
+                    asyncio.run(provider.register_client(client))
+
+            self.assertIsNone(asyncio.run(provider.get_client("client-1")))
+
     def test_register_client_accepts_codex_versioned_loopback_callback(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             provider = self._provider(Path(temp_dir) / "mcp-oauth-state.json")
