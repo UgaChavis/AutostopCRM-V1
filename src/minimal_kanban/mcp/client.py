@@ -891,8 +891,11 @@ class BoardApiClient:
             payload["include_full_details"] = include_full_details
         return self._request("/api/get_card_log", payload)
 
-    def get_repair_order(self, card_id: str) -> dict:
-        return self._request("/api/get_repair_order", {"card_id": card_id})
+    def get_repair_order(self, card_id: str, *, create_if_missing: bool | None = None) -> dict:
+        payload: dict[str, object] = {"card_id": card_id}
+        if create_if_missing is not None:
+            payload["create_if_missing"] = create_if_missing
+        return self._request("/api/get_repair_order", payload)
 
     def get_repair_order_text(self, card_id: str) -> dict:
         return self._request("/api/get_repair_order_text", {"card_id": card_id})
