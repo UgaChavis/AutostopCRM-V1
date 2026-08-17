@@ -124,6 +124,7 @@ EXPECTED_MCP_TOOLS = {
     "delete_sticky",
     "get_board_content",
     "get_board_context",
+    "get_board_event_page",
     "get_board_events",
     "get_board_snapshot",
     "get_card",
@@ -490,7 +491,7 @@ class McpServerBackendTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTest
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
                 self.assertTrue(EXPECTED_MCP_TOOLS.issubset(tool_names))
-                self.assertEqual(len(EXPECTED_MCP_TOOLS), 94)
+                self.assertEqual(len(EXPECTED_MCP_TOOLS), 95)
                 tool_map = {tool.name: tool for tool in tools.tools}
                 legacy_descriptions = [
                     tool.name
@@ -512,6 +513,7 @@ class McpServerBackendTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTest
                 self.assertIn("hidden machine wall", tool_map["get_board_content"].description)
                 self.assertIn("Markdown", tool_map["get_board_content"].description)
                 self.assertIn("hidden machine wall", tool_map["get_board_events"].description)
+                self.assertTrue(tool_map["get_board_event_page"].annotations.readOnlyHint)
                 self.assertIn(
                     "default event_limit is 100", tool_map["get_board_events"].description
                 )

@@ -5,6 +5,7 @@ MCP_TOOL_GROUPS: dict[str, tuple[str, ...]] = {
         "bootstrap_context",
         "get_board_content",
         "get_board_context",
+        "get_board_event_page",
         "get_board_events",
         "get_connector_identity",
         "get_gpt_wall",

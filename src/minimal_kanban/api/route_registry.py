@@ -154,6 +154,7 @@ def build_service_routes(
         "/api/audit_client_links": service.audit_client_links,
         "/api/get_board_content": service.get_board_content,
         "/api/get_board_events": service.get_board_events,
+        "/api/get_board_event_page": service.get_board_event_page,
         "/api/list_cashboxes": service.list_cashboxes,
         "/api/get_cash_journal": service.get_cash_journal,
         "/api/finance_audit": service.get_finance_audit,

@@ -2865,6 +2865,37 @@ def create_mcp_server(
         )
 
     @server.tool(
+        name="get_board_event_page",
+        description=_scoped_description(
+            "Return one stable, read-only, privacy-safe page of the current CRM audit journal. "
+            "It returns only anonymized event metadata, never CRM content or real entity identifiers."
+        ),
+        annotations=_read_tool_annotations("Board Event Page"),
+        structured_output=True,
+    )
+    def get_board_event_page(
+        cursor: str | None = None,
+        limit: McpInt = 200,
+        include_archived: bool = True,
+    ) -> JsonEnvelope:
+        effective_limit = _normalize_limit(limit, default=200, maximum=500)
+        return _relay_board_call(
+            "get_board_event_page",
+            lambda: board_api.get_board_event_page(
+                cursor=cursor,
+                limit=effective_limit,
+                include_archived=include_archived,
+            ),
+            error_code="board_event_page_unreachable",
+            params={
+                "cursor": cursor,
+                "limit": effective_limit,
+                "include_archived": include_archived,
+            },
+            transform=_with_connector_identity,
+        )
+
+    @server.tool(
         name="get_gpt_wall",
         description=_scoped_description(
             "Return the hidden machine wall aggregate for the current AutoStop CRM board as Markdown: full card text, structured board state, newest-first recent events, compact 1.1 vehicle profile summaries for each card, and separated board_content / event_log sections. "

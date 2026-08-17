@@ -77,6 +77,7 @@ EXPECTED_SERVICE_ROUTES = {
     "/api/repair_order_number_audit",
     "/api/get_board_content",
     "/api/get_board_context",
+    "/api/get_board_event_page",
     "/api/get_board_events",
     "/api/get_board_revision",
     "/api/get_board_snapshot",
@@ -276,7 +277,7 @@ class ContractSnapshotTests(unittest.TestCase):
         self.assertLessEqual(ADMIN_ONLY_ROUTES, all_routes)
 
     def test_mcp_public_tool_snapshot_keeps_current_surface(self) -> None:
-        self.assertEqual(94, len(PUBLIC_MCP_TOOL_NAMES))
+        self.assertEqual(95, len(PUBLIC_MCP_TOOL_NAMES))
         self.assertIn("bootstrap_context", PUBLIC_MCP_TOOL_NAMES)
         self.assertIn("update_repair_order", PUBLIC_MCP_TOOL_NAMES)
         self.assertIn("download_shared_file", PUBLIC_MCP_TOOL_NAMES)

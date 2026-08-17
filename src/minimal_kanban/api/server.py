@@ -146,6 +146,7 @@ READONLY_GET_ROUTES = frozenset(
         "/api/review_board",
         "/api/get_board_content",
         "/api/get_board_events",
+        "/api/get_board_event_page",
         "/api/list_cashboxes",
         "/api/get_cash_journal",
         "/api/finance_audit",

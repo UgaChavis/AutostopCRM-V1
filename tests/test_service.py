@@ -2,6 +2,7 @@ from __future__ import annotations
 # ruff: noqa: I001,E402,F401,UP017,F841,UP012
 
 import base64
+import hashlib
 import json
 import math
 from datetime import datetime, timedelta, timezone
@@ -238,6 +239,74 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(
             self.service._repair_orders_dir, Path(self.temp_dir.name) / "repair-orders"
         )
+
+    def test_board_event_page_redacts_sensitive_data_and_paginates_without_gaps(self) -> None:
+        occurred_at = utc_now().isoformat()
+        sensitive_values = ("Иванов Иван", "+79991234567", "WVWZZZ1JZXW000001", "50000")
+        events = [
+            AuditEvent(
+                id=f"event-{index}",
+                timestamp=occurred_at,
+                actor_name=sensitive_values[0],
+                source="mcp",
+                action="card_moved" if index == 2 else "repair_order_updated",
+                message=" ".join(sensitive_values),
+                details={
+                    "before_column": "inbox",
+                    "after_column": "work",
+                    "phone": sensitive_values[1],
+                    "vin": sensitive_values[2],
+                    "amount": sensitive_values[3],
+                },
+                card_id=f"card-private-{index}",
+            )
+            for index in range(5)
+        ]
+        self.store.write_events(events)
+
+        page = self.service.get_board_event_page({"limit": 2, "include_archived": True})
+        collected = list(page["events"])
+        while page["has_more"]:
+            page = self.service.get_board_event_page(
+                {"cursor": page["next_cursor"], "limit": 2, "include_archived": True}
+            )
+            collected.extend(page["events"])
+
+        self.assertEqual(
+            [f"event-{index}" for index in range(5)], [item["event_id"] for item in collected]
+        )
+        self.assertEqual(5, len({item["event_id"] for item in collected}))
+        self.assertEqual("board_event_page.v1", page["schema_version"])
+        self.assertEqual(5, page["total_count"])
+        self.assertEqual(
+            {
+                "event_id",
+                "occurred_at_utc",
+                "actor_key",
+                "source",
+                "action_type",
+                "entity_type",
+                "entity_ref_hash",
+                "changed_field_categories",
+                "is_financial_action",
+                "is_destructive_action",
+                "operation_result",
+            },
+            set(collected[0]),
+        )
+        self.assertNotIn("card_column_before", collected[0])
+        moved = next(item for item in collected if item["action_type"] == "card_moved")
+        self.assertEqual("inbox", moved["card_column_before"])
+        self.assertEqual("work", moved["card_column_after"])
+        rendered = json.dumps(collected, ensure_ascii=False)
+        for value in sensitive_values:
+            self.assertNotIn(value, rendered)
+        self.assertNotIn("card-private", rendered)
+        self.assertEqual(
+            "ACTOR_" + hashlib.sha256("ИВАНОВ ИВАН".encode()).hexdigest()[:12].upper(),
+            collected[0]["actor_key"],
+        )
+        self.assertTrue(all(item["is_financial_action"] for item in collected))
 
     def test_money_minor_normalization_preserves_decimal_zero(self) -> None:
         self.assertEqual(normalize_money_minor(Decimal("0"), default=500), 0)

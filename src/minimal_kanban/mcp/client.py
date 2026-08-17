@@ -485,6 +485,19 @@ class BoardApiClient:
         }
         return self._request("/api/get_board_events", payload, method="POST")
 
+    def get_board_event_page(
+        self,
+        *,
+        cursor: str | None = None,
+        limit: int = 200,
+        include_archived: bool = True,
+    ) -> dict:
+        return self._request(
+            "/api/get_board_event_page",
+            {"cursor": cursor, "limit": limit, "include_archived": include_archived},
+            method="POST",
+        )
+
     def review_board(
         self,
         *,

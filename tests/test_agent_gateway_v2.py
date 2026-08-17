@@ -88,6 +88,25 @@ class FakeBoardApi:
             },
         }
 
+    def get_board_event_page(
+        self,
+        *,
+        cursor: str | None = None,
+        limit: int = 200,
+        include_archived: bool = True,
+    ) -> dict:
+        del cursor, limit, include_archived
+        return {
+            "ok": True,
+            "data": {
+                "events": [],
+                "next_cursor": None,
+                "has_more": False,
+                "total_count": 0,
+                "schema_version": "board_event_page.v1",
+            },
+        }
+
     def health(self) -> dict:
         return {"ok": True, "data": {"status": "healthy"}}
 
@@ -1369,6 +1388,28 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
         self.assertIn("ping_connector", names)
         self.assertNotIn("get_cards", names)
         self.assertNotIn("create_cash_transaction", names)
+
+    async def test_board_event_page_is_hidden_raw_read_capability(self) -> None:
+        discovered = await self._call(
+            "discover_raw_capabilities", {"query": "get_board_event_page"}
+        )
+        capability = discovered.structuredContent["data"]["capabilities"][0]
+        self.assertEqual("get_board_event_page", capability["name"])
+        self.assertEqual("read", capability["risk"])
+        self.assertNotIn(
+            "get_board_event_page", {tool.name for tool in self.server._tool_manager.list_tools()}
+        )
+
+        schema = await self._call("get_raw_capability_schema", {"name": "get_board_event_page"})
+        result = await self._call(
+            "call_raw_capability",
+            {
+                "name": "get_board_event_page",
+                "arguments": {"limit": 2, "include_archived": True},
+                "schema_hash": schema.structuredContent["summary"]["schema_hash"],
+            },
+        )
+        self.assertTrue(result.structuredContent["ok"])
 
     async def test_store_enabled_surface_remains_exactly_24_tools(self) -> None:
         server, _state = self._create_store_server()

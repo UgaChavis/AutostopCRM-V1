@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import math
 import time
 from collections.abc import Callable
 from copy import deepcopy
-from datetime import datetime
+from datetime import UTC, datetime
 from threading import RLock
 from typing import Any
 
@@ -1196,6 +1198,211 @@ class SnapshotService:
         )
         section["meta"] = meta
         return section
+
+    def get_board_event_page(self, payload: dict | None = None) -> dict:
+        """Return a stable, deliberately minimal audit-event page for Manager."""
+
+        payload = payload or {}
+        limit = self._validated_limit(payload.get("limit"), default=200, maximum=500)
+        include_archived = self._validated_optional_bool(payload, "include_archived", default=True)
+        cursor_key = self._decode_event_page_cursor(payload.get("cursor"))
+        with self._lock:
+            bundle = self._store.read_bundle()
+            archived_by_card_id = {card.id: card.archived for card in bundle["cards"]}
+            events = [
+                event
+                for event in bundle["events"]
+                if include_archived or not archived_by_card_id.get(event.card_id or "", False)
+            ]
+            ordered = sorted(events, key=self._event_page_key)
+            if cursor_key is not None:
+                ordered = [event for event in ordered if self._event_page_key(event) > cursor_key]
+            page_events = ordered[:limit]
+            has_more = len(ordered) > len(page_events)
+            next_cursor = (
+                self._encode_event_page_cursor(self._event_page_key(page_events[-1]))
+                if has_more and page_events
+                else None
+            )
+            return {
+                "events": [self._redacted_event_page_item(event) for event in page_events],
+                "next_cursor": next_cursor,
+                "has_more": has_more,
+                "total_count": len(events),
+                "schema_version": "board_event_page.v1",
+            }
+
+    def _event_page_key(self, event: AuditEvent) -> tuple[str, str]:
+        occurred_at = (parse_datetime(event.timestamp) or utc_now()).astimezone(UTC).isoformat()
+        return occurred_at, event.id
+
+    def _encode_event_page_cursor(self, key: tuple[str, str]) -> str:
+        raw = json.dumps({"v": 1, "at": key[0], "id": key[1]}, separators=(",", ":"))
+        return base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii").rstrip("=")
+
+    def _decode_event_page_cursor(self, value: object) -> tuple[str, str] | None:
+        if value in (None, ""):
+            return None
+        if not isinstance(value, str) or len(value) > 512:
+            self._fail("validation_error", "Некорректный cursor.", details={"field": "cursor"})
+        try:
+            padding = "=" * (-len(value) % 4)
+            decoded = json.loads(base64.urlsafe_b64decode(f"{value}{padding}").decode("utf-8"))
+            if (
+                not isinstance(decoded, dict)
+                or decoded.get("v") != 1
+                or not isinstance(decoded.get("at"), str)
+                or not isinstance(decoded.get("id"), str)
+                or parse_datetime(decoded["at"]) is None
+                or not decoded["id"]
+            ):
+                raise ValueError("invalid cursor")
+            return decoded["at"], decoded["id"]
+        except (TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+            self._fail("validation_error", "Некорректный cursor.", details={"field": "cursor"})
+        return None
+
+    @staticmethod
+    def _event_page_hash(value: str) -> str:
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+    def _redacted_event_page_item(self, event: AuditEvent) -> dict[str, Any]:
+        entity_type, entity_ref = self._event_page_entity(event)
+        details = event.details if isinstance(event.details, dict) else {}
+        before_column = details.get("before_column") if event.action == "card_moved" else None
+        after_column = details.get("after_column") if event.action == "card_moved" else None
+        item = {
+            "event_id": event.id,
+            "occurred_at_utc": self._event_page_key(event)[0],
+            "actor_key": self._event_page_actor_key(event.actor_name),
+            "source": event.source,
+            "action_type": event.action,
+            "entity_type": entity_type,
+            "entity_ref_hash": self._event_page_hash(f"{entity_type}:{entity_ref}"),
+            "changed_field_categories": self._event_page_changed_categories(event),
+            "is_financial_action": self._event_page_is_financial(event),
+            "is_destructive_action": self._event_page_is_destructive(event),
+            "operation_result": self._event_page_operation_result(event),
+        }
+        if isinstance(before_column, str):
+            item["card_column_before"] = before_column
+        if isinstance(after_column, str):
+            item["card_column_after"] = after_column
+        return item
+
+    def _event_page_actor_key(self, actor_name: str) -> str:
+        normalized = normalize_actor_name(actor_name, default="SYSTEM").strip().upper()
+        aliases = {
+            "КАТЯ": "KATYA",
+            "KATYA": "KATYA",
+            "UGA": "UGA",
+            "CODEX": "CODEX",
+            "СИСТЕМА": "SYSTEM",
+            "SYSTEM": "SYSTEM",
+        }
+        return aliases.get(normalized, f"ACTOR_{self._event_page_hash(normalized)[:12].upper()}")
+
+    @staticmethod
+    def _event_page_entity(event: AuditEvent) -> tuple[str, str]:
+        action = event.action.casefold()
+        details = event.details if isinstance(event.details, dict) else {}
+        for entity_type, detail_key in (
+            ("cashbox", "cashbox_id"),
+            ("attachment", "attachment_id"),
+            ("sticky", "sticky_id"),
+            ("client", "client_id"),
+            ("inventory_item", "item_id"),
+            ("column", "column_id"),
+        ):
+            value = details.get(detail_key)
+            if isinstance(value, str) and value:
+                return entity_type, value
+        if event.card_id:
+            return "card", event.card_id
+        if "cash" in action or "payment" in action or "salary" in action:
+            return "finance", "board"
+        if "column" in action:
+            return "column", "board"
+        return "board", "board"
+
+    @staticmethod
+    def _event_page_changed_categories(event: AuditEvent) -> list[str]:
+        action = event.action.casefold()
+        details = event.details if isinstance(event.details, dict) else {}
+        categories: set[str] = set()
+        category_by_field = {
+            "title": "card_content",
+            "description": "card_content",
+            "board_summary": "card_content",
+            "vehicle": "vehicle",
+            "vehicle_profile": "vehicle",
+            "column": "column",
+            "before_column": "column",
+            "after_column": "column",
+            "deadline": "deadline",
+            "indicator": "deadline",
+            "timer": "deadline",
+            "tag": "tags",
+            "tags": "tags",
+            "attachment": "attachment",
+            "attachment_id": "attachment",
+            "repair_order": "repair_order",
+            "cashbox_id": "finance",
+            "amount": "finance",
+            "payment": "finance",
+            "client_id": "client",
+            "client": "client",
+            "sticky_id": "sticky",
+            "item_id": "inventory",
+            "column_id": "column",
+        }
+        fields = details.get("fields")
+        if isinstance(fields, list):
+            categories.update(
+                category_by_field.get(str(field).casefold(), "unknown") for field in fields
+            )
+        categories.update(category_by_field[key] for key in details if key in category_by_field)
+        action_categories = (
+            ("cash", "finance"),
+            ("payment", "finance"),
+            ("salary", "finance"),
+            ("repair_order", "repair_order"),
+            ("client", "client"),
+            ("vehicle", "vehicle"),
+            ("attachment", "attachment"),
+            ("sticky", "sticky"),
+            ("column", "column"),
+            ("card_moved", "column"),
+            ("tag", "tags"),
+            ("deadline", "deadline"),
+            ("timer", "deadline"),
+            ("inventory", "inventory"),
+        )
+        categories.update(category for marker, category in action_categories if marker in action)
+        return sorted(categories or {"unknown"})
+
+    @staticmethod
+    def _event_page_is_financial(event: AuditEvent) -> bool:
+        action = event.action.casefold()
+        details = event.details if isinstance(event.details, dict) else {}
+        return any(
+            marker in action for marker in ("cash", "payment", "salary", "payroll", "finance")
+        ) or any(
+            key in details
+            for key in ("amount", "amount_minor", "payment", "payments", "price", "total")
+        )
+
+    @staticmethod
+    def _event_page_is_destructive(event: AuditEvent) -> bool:
+        action = event.action.casefold()
+        return any(marker in action for marker in ("archived", "deleted", "removed", "write_off"))
+
+    @staticmethod
+    def _event_page_operation_result(event: AuditEvent) -> str:
+        action = event.action.casefold()
+        if "failed" in action or "error" in action:
+            return "failed"
+        return "success"
 
     def list_archived_cards(self, payload: dict | None = None) -> dict:
         with self._lock:

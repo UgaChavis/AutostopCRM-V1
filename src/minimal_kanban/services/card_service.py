@@ -1386,6 +1386,9 @@ class CardService(
     def get_board_events(self, payload: dict | None = None) -> dict:
         return self._snapshot_service.get_board_events(payload)
 
+    def get_board_event_page(self, payload: dict | None = None) -> dict:
+        return self._snapshot_service.get_board_event_page(payload)
+
     def update_board_settings(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
