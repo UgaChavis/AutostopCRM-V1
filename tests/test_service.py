@@ -10818,6 +10818,8 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(duplicate.exception.code, "repair_order_number_duplicate")
 
     def test_repair_order_number_correction_route_is_blocked(self) -> None:
+        payment_at = datetime.now().astimezone().replace(second=0, microsecond=0)
+        payment_at_text = payment_at.strftime("%d.%m.%Y %H:%M")
         cashbox = self.service.create_cashbox({"name": "Карта Мария", "actor_name": "ADMIN"})[
             "cashbox"
         ]
@@ -10838,7 +10840,7 @@ class CardServiceTests(unittest.TestCase):
                     "payments": [
                         {
                             "amount": "4000",
-                            "paid_at": "18.05.2026 12:39",
+                            "paid_at": payment_at_text,
                             "payment_method": "card",
                             "cashbox_id": cashbox["id"],
                             "actor_name": "KATYA",
@@ -10882,8 +10884,8 @@ class CardServiceTests(unittest.TestCase):
         journal = self.service.get_cash_journal({"months": 3, "limit": 100})
         self.assertEqual(journal["entries"][0]["repair_order_number"], "257")
         self.assertEqual(journal["entries"][0]["note"], "Заказ-наряд №257")
-        self.assertEqual(journal["entries"][0]["business_date"], "2026-05-18")
-        self.assertEqual(journal["entries"][0]["business_time"], "12:39:00")
+        self.assertEqual(journal["entries"][0]["business_date"], payment_at.strftime("%Y-%m-%d"))
+        self.assertEqual(journal["entries"][0]["business_time"], payment_at.strftime("%H:%M:00"))
 
     def test_finance_audit_finds_legacy_payment_links_and_safe_fixes_them(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Карта Мария", "actor_name": "ADMIN"})[

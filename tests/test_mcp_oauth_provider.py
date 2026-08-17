@@ -558,7 +558,7 @@ class McpOAuthProviderStateTests(unittest.TestCase):
             self.assertIsNone(provider.get_pending_authorization(request_ids[0]))
             self.assertIsNotNone(provider.get_pending_authorization(request_ids[-1]))
 
-    def test_authorize_caps_pending_requests_across_clients(self) -> None:
+    def test_authorize_rejects_new_client_without_evicting_pending_requests(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             provider = self._provider(Path(temp_dir) / "mcp-oauth-state.json")
             params = AuthorizationParams(
@@ -575,7 +575,7 @@ class McpOAuthProviderStateTests(unittest.TestCase):
                 "minimal_kanban.mcp.oauth_provider.OAUTH_PENDING_AUTHORIZATION_MAX_COUNT",
                 2,
             ):
-                for index in range(3):
+                for index in range(2):
                     client = OAuthClientInformationFull(
                         client_id=f"client-{index}",
                         redirect_uris=["http://127.0.0.1:18765/callback"],
@@ -584,9 +584,21 @@ class McpOAuthProviderStateTests(unittest.TestCase):
                     consent_url = asyncio.run(provider.authorize(client, params))
                     request_ids.append(consent_url.rsplit("request_id=", 1)[1])
 
+                with self.assertRaisesRegex(AuthorizeError, "capacity"):
+                    asyncio.run(
+                        provider.authorize(
+                            OAuthClientInformationFull(
+                                client_id="client-2",
+                                redirect_uris=["http://127.0.0.1:18765/callback"],
+                                scope="kanban:read kanban:write",
+                            ),
+                            params,
+                        )
+                    )
+
             state = provider._read_state()
             self.assertEqual(2, len(state["pending_authorizations"]))
-            self.assertIsNone(provider.get_pending_authorization(request_ids[0]))
+            self.assertIsNotNone(provider.get_pending_authorization(request_ids[0]))
             self.assertIsNotNone(provider.get_pending_authorization(request_ids[-1]))
 
     def test_authorize_rejects_oversized_pending_request_without_writing_it(self) -> None:

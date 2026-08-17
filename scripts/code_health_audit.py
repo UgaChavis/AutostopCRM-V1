@@ -53,6 +53,7 @@ ALLOWED_LARGE_CLASSES = {
     "src/minimal_kanban/services/card_service.py:CardService": "domain facade split target",
     "src/minimal_kanban/services/card_service_payroll.py:CardServicePayrollMixin": "payroll domain split target",
     "src/minimal_kanban/services/card_service_finance.py:CardServiceFinanceMixin": "finance domain split target",
+    "src/minimal_kanban/services/snapshot_service.py:SnapshotService": "snapshot serialization split target",
     "src/minimal_kanban/agent/runner.py:AgentRunner": "agent orchestration split target",
     "tests/test_api.py:ApiServerTests": "legacy broad API coverage pending route split",
     "tests/test_agent_gateway_v2.py:AgentGatewayV2Tests": "Gateway contract coverage pending family split",

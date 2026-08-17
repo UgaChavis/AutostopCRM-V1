@@ -4,7 +4,9 @@ import logging
 import sys
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -13,6 +15,8 @@ if str(SRC) not in sys.path:
 
 from minimal_kanban.services.card_service import CardService
 from minimal_kanban.storage.json_store import JsonStore
+
+FROZEN_PAYROLL_NOW = datetime.fromisoformat("2026-07-18T12:00:00+07:00")
 
 
 class RepairOrderPayrollAccrualTests(unittest.TestCase):
@@ -74,7 +78,14 @@ class RepairOrderPayrollAccrualTests(unittest.TestCase):
             {"card_id": card["id"], "status": "closed", "actor_name": "ADMIN"}
         )["card"]
 
-    def test_two_independent_four_percent_accruals_exclude_cashless_fees(self) -> None:
+    @patch(
+        "minimal_kanban.services.card_service.utc_now",
+        return_value=FROZEN_PAYROLL_NOW,
+    )
+    @patch("minimal_kanban.models.utc_now", return_value=FROZEN_PAYROLL_NOW)
+    def test_two_independent_four_percent_accruals_exclude_cashless_fees(
+        self, _models_clock, _service_clock
+    ) -> None:
         sergey = self._employee("Сергей Гелингер", repair_order_percent="4")
         alexey = self._employee("Алексей Мацурко", repair_order_percent="4")
         worker = self._employee("Исполнитель", salary_mode="percent_only", work_percent="50")
@@ -143,7 +154,14 @@ class RepairOrderPayrollAccrualTests(unittest.TestCase):
             2,
         )
 
-    def test_four_percent_rounds_each_employee_half_up_to_kopecks(self) -> None:
+    @patch(
+        "minimal_kanban.services.card_service.utc_now",
+        return_value=FROZEN_PAYROLL_NOW,
+    )
+    @patch("minimal_kanban.models.utc_now", return_value=FROZEN_PAYROLL_NOW)
+    def test_four_percent_rounds_each_employee_half_up_to_kopecks(
+        self, _models_clock, _service_clock
+    ) -> None:
         self._employee("Сергей Гелингер", repair_order_percent="4")
         self._employee("Алексей Мацурко", repair_order_percent="4")
         card = self.service.create_card(

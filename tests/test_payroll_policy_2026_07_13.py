@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -20,6 +21,16 @@ from minimal_kanban.storage.json_store import JsonStore
 
 class PayrollPolicyMigrationTests(unittest.TestCase):
     def setUp(self) -> None:
+        self._frozen_now = datetime.fromisoformat("2026-07-18T12:00:00+07:00")
+        self._clock_patches = [
+            patch("minimal_kanban.models.utc_now", return_value=self._frozen_now),
+            patch(
+                "minimal_kanban.services.card_service.utc_now",
+                return_value=self._frozen_now,
+            ),
+        ]
+        for clock_patch in self._clock_patches:
+            clock_patch.start()
         self.temp_dir = tempfile.TemporaryDirectory()
         self.state_file = Path(self.temp_dir.name) / "state.json"
         self.logger = logging.getLogger(f"test.payroll-policy.{self._testMethodName}")
@@ -61,6 +72,8 @@ class PayrollPolicyMigrationTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
+        for clock_patch in reversed(self._clock_patches):
+            clock_patch.stop()
 
     def _qualified_order(self) -> str:
         worker = self.employees["Александр Баландин"]

@@ -283,8 +283,14 @@ class ProductionOAuthAuthorizationServerProvider(
             with self._process_lock.acquire():
                 state = self._prune_state(self._read_state_unlocked())
                 evicted = self._make_room_for_pending_authorization(state, client.client_id)
-                state["pending_authorizations"][self._token_digest(request_id)] = pending
-                self._write_state_unlocked(state)
+                if evicted is not None:
+                    state["pending_authorizations"][self._token_digest(request_id)] = pending
+                    self._write_state_unlocked(state)
+        if evicted is None:
+            raise AuthorizeError(
+                "temporarily_unavailable",
+                "OAuth authorization capacity is temporarily unavailable",
+            )
         if evicted:
             self._log("oauth.authorize pruned_pending=%d", evicted)
         return f"{self._issuer_url}{OAUTH_CONSENT_PATH}?{urlencode({'request_id': request_id})}"
@@ -877,7 +883,9 @@ class ProductionOAuthAuthorizationServerProvider(
             )
         return evicted
 
-    def _make_room_for_pending_authorization(self, state: dict[str, object], client_id: str) -> int:
+    def _make_room_for_pending_authorization(
+        self, state: dict[str, object], client_id: str
+    ) -> int | None:
         pending_authorizations = state["pending_authorizations"]
         per_client_limit = max(1, OAUTH_PENDING_AUTHORIZATION_PER_CLIENT_MAX_COUNT)
         same_client_keys = [
@@ -891,12 +899,8 @@ class ProductionOAuthAuthorizationServerProvider(
             evicted += 1
 
         global_limit = max(1, OAUTH_PENDING_AUTHORIZATION_MAX_COUNT)
-        while len(pending_authorizations) >= global_limit:
-            oldest_key = next(iter(pending_authorizations), None)
-            if oldest_key is None:
-                break
-            pending_authorizations.pop(oldest_key, None)
-            evicted += 1
+        if len(pending_authorizations) >= global_limit:
+            return None
         return evicted
 
     def _make_room_for_access_token(self, state: dict[str, object], family_id: str) -> int:
