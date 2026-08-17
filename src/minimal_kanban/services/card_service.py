@@ -108,7 +108,10 @@ from .card_service_dashboard import (
     DISPLAY_DASHBOARD_MESSAGE_KEY,
     CardServiceDashboardMixin,
 )
-from .card_service_finance import CardServiceFinanceMixin
+from .card_service_finance import (
+    _GATEWAY_ATTESTATION_RUN_RE,
+    CardServiceFinanceMixin,
+)
 from .card_service_inventory import CardServiceInventoryMixin
 from .card_service_payroll import CardServicePayrollMixin
 from .column_service import ColumnService
@@ -1856,6 +1859,13 @@ class CardService(
             column_labels = self._column_labels(bundle["columns"])
             now = utc_now()
             items = []
+            client_search_index = self._client_search_index_for(clients)
+            related_fields_by_client_id = self._client_related_vehicle_fields_index_for(
+                clients, cards
+            )
+            related_search_index_by_client_id = self._client_related_search_index(
+                related_fields_by_client_id
+            )
             for card in cards:
                 if card.archived or card.client_id:
                     continue
@@ -1869,9 +1879,14 @@ class CardService(
                             client, redact_private=redact_private
                         ),
                     }
-                    for score, client in self._rank_client_matches(clients, query, cards)[
-                        :candidate_limit
-                    ]
+                    for score, client in self._rank_client_matches(
+                        clients,
+                        query,
+                        cards,
+                        client_search_index=client_search_index,
+                        related_fields_by_client_id=related_fields_by_client_id,
+                        related_search_index_by_client_id=related_search_index_by_client_id,
+                    )[:candidate_limit]
                     if score > 1
                 ]
                 if not matches:
@@ -1920,6 +1935,7 @@ class CardService(
                 payload, "include_archived", default=False
             )
             target_ids = self._manager_card_id_filter(payload)
+            expected_updated_at_by_card_id = self._manager_expected_updated_at_by_card_id(payload)
             bundle = self._store.read_bundle()
             cards = bundle["cards"]
             events = bundle["events"]
@@ -1936,6 +1952,11 @@ class CardService(
                 for card in scanned_cards
                 if card.timer_is_running() and card.remaining_seconds(now) < minimum_seconds
             ][:limit]
+            if mode == "apply":
+                self._ensure_manager_cards_expected_updated_at(
+                    eligible_cards,
+                    expected_updated_at_by_card_id,
+                )
             changed_cards: list[Card] = []
             items = []
             for card in eligible_cards:
@@ -2001,6 +2022,7 @@ class CardService(
             only_missing = self._validated_optional_bool(payload, "only_missing", default=False)
             only_stale = self._validated_optional_bool(payload, "only_stale", default=False)
             target_ids = self._manager_card_id_filter(payload)
+            expected_updated_at_by_card_id = self._manager_expected_updated_at_by_card_id(payload)
             bundle = self._store.read_bundle()
             cards = bundle["cards"]
             events = bundle["events"]
@@ -2023,6 +2045,11 @@ class CardService(
                     continue
                 eligible_cards.append(card)
             eligible_cards = eligible_cards[:limit]
+            if mode == "apply":
+                self._ensure_manager_cards_expected_updated_at(
+                    eligible_cards,
+                    expected_updated_at_by_card_id,
+                )
             changed_cards: list[Card] = []
             items = []
             for card in eligible_cards:
@@ -2165,6 +2192,8 @@ class CardService(
             refresh_summary = self._validated_optional_bool(
                 payload, "refresh_summary", default=True
             )
+            target_ids = self._manager_card_id_filter(payload)
+            expected_updated_at_by_card_id = self._manager_expected_updated_at_by_card_id(payload)
             bundle = self._store.read_bundle()
             cards = bundle["cards"]
             events = bundle["events"]
@@ -2173,9 +2202,18 @@ class CardService(
             ready_column_ids = self._manager_ready_column_ids(columns)
             now = utc_now()
             eligible_cards = self._manager_ready_unpaid_cards(
-                [card for card in cards if not card.archived],
+                [
+                    card
+                    for card in cards
+                    if not card.archived and (not target_ids or card.id in target_ids)
+                ],
                 ready_column_ids=ready_column_ids,
             )[:limit]
+            if mode == "apply":
+                self._ensure_manager_cards_expected_updated_at(
+                    eligible_cards,
+                    expected_updated_at_by_card_id,
+                )
             changed_cards: list[Card] = []
             errors: list[dict[str, Any]] = []
             items = []
@@ -2238,7 +2276,13 @@ class CardService(
                 "apply_ready_unpaid_followups",
                 mode,
                 actor_name=actor_name,
-                scanned=len([card for card in cards if not card.archived]),
+                scanned=len(
+                    [
+                        card
+                        for card in cards
+                        if not card.archived and (not target_ids or card.id in target_ids)
+                    ]
+                ),
                 eligible=len(eligible_cards),
                 changed=len(changed_cards),
                 skipped=max(len(eligible_cards) - len(changed_cards), 0),
@@ -2694,7 +2738,40 @@ class CardService(
                         "current_updated_at": card.updated_at,
                     },
                 )
+            expected_cashbox_id = normalize_text(
+                payload.get("expected_cashbox_id"), default="", limit=128
+            )
+            expected_cashbox_updated_at = normalize_text(
+                payload.get("expected_cashbox_updated_at"), default="", limit=80
+            )
+            if bool(expected_cashbox_id) is not bool(expected_cashbox_updated_at):
+                self._fail(
+                    "validation_error",
+                    "Для проверки кассы нужны её идентификатор и ревизия.",
+                    details={
+                        "fields": [
+                            "expected_cashbox_id",
+                            "expected_cashbox_updated_at",
+                        ]
+                    },
+                )
+            if expected_cashbox_id:
+                expected_cashbox = self._find_cashbox(bundle["cashboxes"], expected_cashbox_id)
+                if expected_cashbox.updated_at != expected_cashbox_updated_at:
+                    self._fail(
+                        "cashbox_update_conflict",
+                        "Касса уже изменена другим оператором. Обновите кассу и повторите действие.",
+                        status_code=409,
+                        details={
+                            "cashbox_id": expected_cashbox.id,
+                            "expected_updated_at": expected_cashbox_updated_at,
+                            "current_updated_at": expected_cashbox.updated_at,
+                        },
+                    )
             actor_name, source = self._audit_identity(payload, default_source="api")
+            attestation_run_id = normalize_text(
+                payload.get("attestation_run_id"), default="", limit=64
+            )
             next_payload = self._merged_repair_order_storage(
                 card.repair_order.to_storage_dict(), patch
             )
@@ -2708,6 +2785,7 @@ class CardService(
                 cashboxes=bundle["cashboxes"],
                 cash_transactions=bundle["cash_transactions"],
                 settings=bundle["settings"],
+                attestation_run_id=attestation_run_id,
             )
             numbering_changed = self._synchronize_repair_order_numbers(cards)
             if changed or numbering_changed:
@@ -6264,6 +6342,7 @@ class CardService(
         cashboxes: list[CashBox] | None = None,
         cash_transactions: list[CashTransaction] | None = None,
         settings: dict[str, Any] | None = None,
+        attestation_run_id: str = "",
     ) -> bool:
         previous_order = RepairOrder.from_dict(card.repair_order.to_storage_dict())
         value = self._repair_order_payload_with_immutable_number(card, value)
@@ -6289,6 +6368,7 @@ class CardService(
                 events,
                 actor_name,
                 source,
+                attestation_run_id=attestation_run_id,
             )
         payroll_sync: dict[str, Any] = {"changed": False, "entries": []}
         if settings is not None:
@@ -6506,17 +6586,41 @@ class CardService(
         events: list[AuditEvent],
         actor_name: str,
         source: str,
+        *,
+        attestation_run_id: str = "",
     ) -> RepairOrder:
+        attestation_mode = bool(
+            _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
+            and source == "mcp"
+            and actor_name
+            and card.title.startswith(attestation_run_id)
+        )
         next_payments = [
             RepairOrderPayment.from_dict(payment.to_storage_dict())
             for payment in next_order.payments
         ]
         for payment in next_payments:
-            cashbox, payment_method = self._repair_order_payment_target_cashbox(
-                cashboxes,
-                payment,
-                default_method=next_order.payment_method,
+            exact_attestation_cashbox = (
+                self._find_cashbox(cashboxes, payment.cashbox_id)
+                if attestation_mode
+                and payment.cashbox_id
+                and payment.note.startswith(attestation_run_id)
+                else None
             )
+            if exact_attestation_cashbox is not None and exact_attestation_cashbox.name.startswith(
+                f"{attestation_run_id}-"
+            ):
+                cashbox = exact_attestation_cashbox
+                payment_method = repair_order_payment_method_from_cashbox_name(
+                    cashbox.name,
+                    default=payment.payment_method or next_order.payment_method,
+                )
+            else:
+                cashbox, payment_method = self._repair_order_payment_target_cashbox(
+                    cashboxes,
+                    payment,
+                    default_method=next_order.payment_method,
+                )
             payment.payment_method = payment_method
             if cashbox is not None:
                 payment.cashbox_id = cashbox.id
@@ -7950,6 +8054,54 @@ class CardService(
             if card_id
         }
 
+    def _manager_expected_updated_at_by_card_id(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, str]:
+        raw_expected = payload.get("expected_updated_at_by_card_id")
+        if raw_expected in (None, ""):
+            return {}
+        if not isinstance(raw_expected, dict):
+            self._fail(
+                "validation_error",
+                "Поле expected_updated_at_by_card_id должно быть объектом.",
+                details={"field": "expected_updated_at_by_card_id"},
+            )
+        expected: dict[str, str] = {}
+        for raw_card_id, raw_updated_at in raw_expected.items():
+            card_id = normalize_text(raw_card_id, default="", limit=128)
+            updated_at = normalize_text(raw_updated_at, default="", limit=80)
+            if not card_id or not updated_at:
+                self._fail(
+                    "validation_error",
+                    "Каждая ожидаемая ревизия должна содержать card_id и updated_at.",
+                    details={"field": "expected_updated_at_by_card_id"},
+                )
+            expected[card_id] = updated_at
+        return expected
+
+    def _ensure_manager_cards_expected_updated_at(
+        self,
+        cards: list[Card],
+        expected_updated_at_by_card_id: dict[str, str],
+    ) -> None:
+        for card in cards:
+            expected_updated_at = expected_updated_at_by_card_id.get(card.id)
+            if expected_updated_at and expected_updated_at != card.updated_at:
+                self._fail(
+                    "card_update_conflict",
+                    (
+                        "Карточка уже изменена другим оператором. "
+                        "Обновите карточку и повторите пакетную правку."
+                    ),
+                    status_code=409,
+                    details={
+                        "card_id": card.id,
+                        "expected_updated_at": expected_updated_at,
+                        "current_updated_at": card.updated_at,
+                    },
+                )
+
     def _manager_ready_column_ids(self, columns: list[Column]) -> set[str]:
         ready_label = READY_COLUMN_LABEL.casefold()
         return {
@@ -8287,14 +8439,22 @@ class CardService(
         )
         phone_match = _PHONE_PATTERN.search(source_text)
         plate_match = _LICENSE_PLATE_PATTERN.search(source_text)
-        parts = [
+        # Use the strongest single identifier. Combining phone, plate, client
+        # name, and vehicle into one query disables the phone-optimized client
+        # index and turns this bounded audit into repeated full-directory text
+        # scans on production-sized boards.
+        candidates = (
             phone_match.group(0) if phone_match else "",
             plate_match.group(0) if plate_match else "",
             card.repair_order.client,
             card.vehicle_profile.customer_name,
             card.vehicle_display(),
-        ]
-        return normalize_text(" ".join(part for part in parts if part), default="", limit=500)
+        )
+        for candidate in candidates:
+            normalized = normalize_text(candidate, default="", limit=500)
+            if normalized:
+                return normalized
+        return ""
 
     def _manager_client_candidate_item(
         self, client: ClientProfile, *, redact_private: bool
@@ -10343,7 +10503,7 @@ class CardService(
             self._fail(
                 "validation_error", "Нужно передать сумму операции.", details={"field": "amount"}
             )
-        amount_minor = normalize_money_minor(raw_value, minimum=1)
+        amount_minor = normalize_money_minor(raw_value)
         if amount_minor < 1:
             self._fail(
                 "validation_error",

@@ -8,7 +8,9 @@ from typing import Any
 from mcp.types import CallToolResult, ImageContent, TextContent
 
 STORE_VIN_PHOTO_PREVIEW_MAX_BYTES = 2 * 1024 * 1024
-_BINARY_CONTENT_KEYS = frozenset({"content_base64", "content_bytes", "pdf_base64"})
+_BINARY_CONTENT_KEYS = frozenset(
+    {"base64", "content_base64", "content_bytes", "pdf_base64"}
+)
 
 
 def without_binary_content(value: Any) -> Any:

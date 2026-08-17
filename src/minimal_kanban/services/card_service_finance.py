@@ -39,6 +39,9 @@ EMPLOYEES_SETTING_KEY = "employees"
 EMPLOYEE_SHIFT_ACCRUALS_SETTING_KEY = "employee_shift_accruals"
 _CASH_EXPENSE_NOTE_MIN_CHARS = 10
 _CASHBOX_NOTIFICATION_UNREAD_LIMIT = 500
+_GATEWAY_ATTESTATION_RUN_RE = re.compile(r"^AST-GWAT-\d{8}T\d{6}Z$")
+_MAX_REGULAR_CASHBOXES = 6
+_MAX_GATEWAY_ATTESTATION_CASHBOXES = 2
 
 
 class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
@@ -131,6 +134,32 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             actor_name, source = self._audit_identity(payload, default_source="api")
             bundle = self._store.read_bundle()
             audit = self._build_finance_audit(bundle)
+            expected_issue_ids = payload.get("expected_issue_ids")
+            current_issue_ids = [str(issue.get("id") or "") for issue in audit["issues"]]
+            if expected_issue_ids is not None:
+                if (
+                    not isinstance(expected_issue_ids, list)
+                    or any(
+                        not isinstance(item, str) or not item.strip()
+                        for item in expected_issue_ids
+                    )
+                    or len(set(expected_issue_ids)) != len(expected_issue_ids)
+                ):
+                    self._fail(
+                        "validation_error",
+                        "Поле expected_issue_ids должно содержать упорядоченные ID проблем.",
+                        details={"field": "expected_issue_ids"},
+                    )
+                if expected_issue_ids != current_issue_ids:
+                    self._fail(
+                        "finance_audit_snapshot_conflict",
+                        "Финансовая сверка уже изменилась. Обновите её и повторите действие.",
+                        status_code=409,
+                        details={
+                            "expected_count": len(expected_issue_ids),
+                            "current_count": len(current_issue_ids),
+                        },
+                    )
             safe_issues = [
                 issue
                 for issue in audit["issues"]
@@ -138,6 +167,63 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 and (selected_issue_ids is None or str(issue.get("id") or "") in selected_issue_ids)
             ]
             planned_fixes = [issue["safe_fix"] for issue in safe_issues if issue.get("safe_fix")]
+            attestation_run_id = normalize_text(
+                payload.get("attestation_run_id"),
+                default="",
+                limit=64,
+            )
+            if attestation_run_id:
+                selected_issue = safe_issues[0] if len(safe_issues) == 1 else None
+                selected_fix = (
+                    selected_issue.get("safe_fix")
+                    if isinstance(selected_issue, dict)
+                    and isinstance(selected_issue.get("safe_fix"), dict)
+                    else {}
+                )
+                transaction_id = str(
+                    (selected_issue or {}).get("cash_transaction_id") or ""
+                )
+                transaction = next(
+                    (
+                        item
+                        for item in bundle["cash_transactions"]
+                        if item.id == transaction_id
+                    ),
+                    None,
+                )
+                cashbox = next(
+                    (
+                        item
+                        for item in bundle["cashboxes"]
+                        if transaction is not None and item.id == transaction.cashbox_id
+                    ),
+                    None,
+                )
+                employee_name = str(selected_fix.get("employee_name") or "")
+                if not (
+                    _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
+                    and isinstance(requested_issue_ids, list)
+                    and len(requested_issue_ids) == 1
+                    and selected_issue is not None
+                    and selected_issue.get("code")
+                    == "salary_transaction_missing_employee"
+                    and selected_fix.get("kind") == "restore_missing_employee"
+                    and employee_name.startswith(f"{attestation_run_id}-")
+                    and transaction is not None
+                    and cashbox is not None
+                    and cashbox.name.startswith(f"{attestation_run_id}-")
+                    and transaction.note.startswith(attestation_run_id)
+                    and transaction.amount_minor == 100
+                    and transaction.transaction_kind == "salary_payout"
+                    and str(payload.get("source") or "").strip().casefold()
+                    == "mcp_agent_gateway_v2"
+                    and actor_name
+                ):
+                    self._fail(
+                        "finance_audit_attestation_scope_invalid",
+                        "Безопасная правка не соответствует синтетическому контуру аттестации.",
+                        status_code=403,
+                    )
             if dry_run:
                 return {
                     "issues": audit["issues"],
@@ -281,12 +367,53 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             transactions = bundle["cash_transactions"]
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="api")
-            if len(cashboxes) >= 6:
+            expected_cashbox_ids = payload.get("expected_cashbox_ids")
+            if expected_cashbox_ids is not None:
+                if not isinstance(expected_cashbox_ids, list) or any(
+                    not isinstance(item, str) or not item.strip() for item in expected_cashbox_ids
+                ):
+                    self._fail(
+                        "validation_error",
+                        "Поле expected_cashbox_ids должно содержать ID касс.",
+                        details={"field": "expected_cashbox_ids"},
+                    )
+                current_cashbox_ids = [item.id for item in cashboxes]
+                if expected_cashbox_ids != current_cashbox_ids:
+                    self._fail(
+                        "cashbox_snapshot_conflict",
+                        "Список касс уже изменился. Обновите его и повторите создание.",
+                        status_code=409,
+                        details={
+                            "expected_count": len(expected_cashbox_ids),
+                            "current_count": len(current_cashbox_ids),
+                        },
+                    )
+            requested_name = normalize_text(payload.get("name"), default="", limit=80)
+            attestation_run_id = normalize_text(
+                payload.get("attestation_run_id"),
+                default="",
+                limit=64,
+            )
+            attestation_mode = bool(
+                _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
+                and requested_name.startswith(f"{attestation_run_id}-")
+                and source == "mcp"
+                and actor_name
+            )
+            existing_attestation_cashboxes = [
+                item for item in cashboxes if item.name.startswith(f"{attestation_run_id}-")
+            ]
+            attestation_capacity_available = bool(
+                attestation_mode
+                and len(cashboxes) < _MAX_REGULAR_CASHBOXES + _MAX_GATEWAY_ATTESTATION_CASHBOXES
+                and len(existing_attestation_cashboxes) < _MAX_GATEWAY_ATTESTATION_CASHBOXES
+            )
+            if len(cashboxes) >= _MAX_REGULAR_CASHBOXES and not attestation_capacity_available:
                 raise ValueError("Нельзя создать больше 6 касс.")
             now_iso = model_helpers.utc_now_iso()
             cashbox = CashBox(
                 id=str(uuid.uuid4()),
-                name=self._validated_cashbox_name(payload.get("name"), cashboxes),
+                name=self._validated_cashbox_name(requested_name, cashboxes),
                 order=len(cashboxes),
                 created_at=now_iso,
                 updated_at=now_iso,
@@ -319,6 +446,32 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             transactions = bundle["cash_transactions"]
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="api")
+            expected_cashbox_ids = payload.get("expected_cashbox_ids")
+            if expected_cashbox_ids is not None:
+                if (
+                    not isinstance(expected_cashbox_ids, list)
+                    or any(
+                        not isinstance(item, str) or not item.strip()
+                        for item in expected_cashbox_ids
+                    )
+                    or len(set(expected_cashbox_ids)) != len(expected_cashbox_ids)
+                ):
+                    self._fail(
+                        "validation_error",
+                        "Поле expected_cashbox_ids должно содержать упорядоченные ID касс.",
+                        details={"field": "expected_cashbox_ids"},
+                    )
+                current_cashbox_ids = [item.id for item in cashboxes]
+                if expected_cashbox_ids != current_cashbox_ids:
+                    self._fail(
+                        "cashbox_order_conflict",
+                        "Порядок касс уже изменился. Обновите список и повторите действие.",
+                        status_code=409,
+                        details={
+                            "expected_count": len(expected_cashbox_ids),
+                            "current_count": len(current_cashbox_ids),
+                        },
+                    )
             cashbox = self._find_cashbox(cashboxes, payload.get("cashbox_id"))
             before_cashbox_id = (
                 payload.get("before_cashbox_id")
@@ -392,6 +545,31 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             target_cashbox = self._find_cashbox(
                 cashboxes, payload.get("to_cashbox_id") or payload.get("target_cashbox_id")
             )
+            expected_from_updated_at = normalize_text(
+                payload.get("expected_from_updated_at"),
+                default="",
+                limit=80,
+            )
+            expected_to_updated_at = normalize_text(
+                payload.get("expected_to_updated_at"),
+                default="",
+                limit=80,
+            )
+            revision_conflicts = [
+                cashbox.id
+                for cashbox, expected in (
+                    (source_cashbox, expected_from_updated_at),
+                    (target_cashbox, expected_to_updated_at),
+                )
+                if expected and expected != cashbox.updated_at
+            ]
+            if revision_conflicts:
+                self._fail(
+                    "cashbox_update_conflict",
+                    "Одна из касс уже изменилась. Обновите обе кассы и повторите перевод.",
+                    status_code=409,
+                    details={"cashbox_ids": revision_conflicts},
+                )
             if source_cashbox.id == target_cashbox.id:
                 self._fail(
                     "validation_error",
@@ -477,10 +655,114 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="api")
             cashbox = self._find_cashbox(cashboxes, payload.get("cashbox_id"))
+            expected_cashbox_updated_at = normalize_text(
+                payload.get("expected_cashbox_updated_at"),
+                default="",
+                limit=80,
+            )
+            if (
+                expected_cashbox_updated_at
+                and cashbox.updated_at != expected_cashbox_updated_at
+            ):
+                self._fail(
+                    "cashbox_update_conflict",
+                    "Касса уже изменилась. Обновите данные и повторите действие.",
+                    status_code=409,
+                    details={"cashbox_id": cashbox.id},
+                )
             related_transactions = self._cashbox_transactions(transactions, cashbox.id)
-            if related_transactions:
-                raise ValueError("Нельзя удалить кассу, пока в ней есть движения.")
+            expected_transaction_ids = payload.get("expected_transaction_ids")
+            if expected_transaction_ids is not None:
+                if (
+                    not isinstance(expected_transaction_ids, list)
+                    or any(
+                        not isinstance(item, str) or not item.strip()
+                        for item in expected_transaction_ids
+                    )
+                    or len(set(expected_transaction_ids)) != len(expected_transaction_ids)
+                ):
+                    self._fail(
+                        "validation_error",
+                        "Поле expected_transaction_ids должно содержать ID движений кассы.",
+                        details={"field": "expected_transaction_ids"},
+                    )
+                current_transaction_ids = [
+                    transaction.id for transaction in related_transactions
+                ]
+                if expected_transaction_ids != current_transaction_ids:
+                    self._fail(
+                        "cashbox_transaction_snapshot_conflict",
+                        "Журнал кассы уже изменился. Обновите данные и повторите действие.",
+                        status_code=409,
+                        details={"cashbox_id": cashbox.id},
+                    )
             statistics = self._cashbox_statistics(cashbox, transactions)
+            attestation_run_id = normalize_text(
+                payload.get("attestation_run_id"),
+                default="",
+                limit=64,
+            )
+            attestation_cleanup = bool(attestation_run_id)
+            if attestation_cleanup and statistics["balance_minor"] != 0:
+                self._fail(
+                    "cashbox_attestation_balance_not_zero",
+                    "Синтетическую кассу можно удалить только с нулевым остатком.",
+                    status_code=409,
+                    details={"cashbox_id": cashbox.id},
+                )
+            payment_links = self._finance_payment_links(bundle["cards"])
+            related_ids = {transaction.id for transaction in related_transactions}
+            linked_payment_ids = related_ids.intersection(payment_links)
+            peer_transactions = [
+                transaction
+                for transaction in transactions
+                if transaction.id not in related_ids
+                and (
+                    transaction.related_transaction_id in related_ids
+                    or any(
+                        peer_id
+                        and transaction.id == peer_id
+                        for peer_id in (
+                            candidate.related_transaction_id
+                            for candidate in related_transactions
+                        )
+                    )
+                )
+            ]
+            peer_cashboxes = {
+                item.id: item for item in cashboxes if item.id != cashbox.id
+            }
+            if attestation_cleanup and not (
+                _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
+                and expected_cashbox_updated_at
+                and isinstance(expected_transaction_ids, list)
+                and cashbox.name.startswith(f"{attestation_run_id}-")
+                and not linked_payment_ids
+                and all(
+                    transaction.amount_minor == 100
+                    and attestation_run_id in transaction.note
+                    for transaction in related_transactions
+                )
+                and all(
+                    peer.amount_minor == 100
+                    and attestation_run_id in peer.note
+                    and peer.cashbox_id in peer_cashboxes
+                    and peer_cashboxes[peer.cashbox_id].name.startswith(
+                        f"{attestation_run_id}-"
+                    )
+                    for peer in peer_transactions
+                )
+                and str(payload.get("source") or "").strip().casefold()
+                == "mcp_agent_gateway_v2"
+                and actor_name
+            ):
+                self._fail(
+                    "cashbox_delete_attestation_scope_invalid",
+                    "Удаление кассы не соответствует синтетическому контуру аттестации.",
+                    status_code=403,
+                )
+            if related_transactions and not attestation_cleanup:
+                raise ValueError("Нельзя удалить кассу, пока в ней есть движения.")
             remaining_cashboxes = self._ordered_cashboxes(
                 [item for item in cashboxes if item.id != cashbox.id]
             )
@@ -515,6 +797,199 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 "meta": {
                     "deleted": True,
                     "removed_transactions": len(related_transactions),
+                    "attestation_cleanup": attestation_cleanup,
+                },
+            }
+
+    def delete_gateway_attestation_payment_fixture(
+        self, payload: dict | None = None
+    ) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            cards = bundle["cards"]
+            cashboxes = bundle["cashboxes"]
+            transactions = bundle["cash_transactions"]
+            events = bundle["events"]
+            actor_name, source = self._audit_identity(payload, default_source="api")
+            card = self._find_card(cards, payload.get("card_id"))
+            expected_updated_at = normalize_text(
+                payload.get("expected_updated_at"), default="", limit=80
+            )
+            if not expected_updated_at or card.updated_at != expected_updated_at:
+                self._fail(
+                    "card_update_conflict",
+                    "Карточка уже изменилась. Обновите данные и повторите действие.",
+                    status_code=409,
+                    details={"card_id": card.id},
+                )
+            payment_id = normalize_text(
+                payload.get("payment_id"), default="", limit=128
+            )
+            payment = next(
+                (item for item in card.repair_order.payments if item.id == payment_id),
+                None,
+            )
+            if payment is None:
+                self._fail(
+                    "not_found",
+                    "Синтетическая оплата не найдена.",
+                    status_code=404,
+                    details={"card_id": card.id, "payment_id": payment_id},
+                )
+            cashbox = self._find_cashbox(cashboxes, payment.cashbox_id)
+            expected_cashbox_updated_at = normalize_text(
+                payload.get("expected_cashbox_updated_at"),
+                default="",
+                limit=80,
+            )
+            if (
+                not expected_cashbox_updated_at
+                or cashbox.updated_at != expected_cashbox_updated_at
+            ):
+                self._fail(
+                    "cashbox_update_conflict",
+                    "Касса уже изменилась. Обновите данные и повторите действие.",
+                    status_code=409,
+                    details={"cashbox_id": cashbox.id},
+                )
+            expected_transaction_ids = payload.get("expected_transaction_ids")
+            if (
+                not isinstance(expected_transaction_ids, list)
+                or not expected_transaction_ids
+                or any(
+                    not isinstance(item, str) or not item.strip()
+                    for item in expected_transaction_ids
+                )
+                or len(set(expected_transaction_ids)) != len(expected_transaction_ids)
+            ):
+                self._fail(
+                    "validation_error",
+                    "Нужен точный снимок синтетических движений.",
+                    details={"field": "expected_transaction_ids"},
+                )
+            attestation_run_id = normalize_text(
+                payload.get("attestation_run_id"), default="", limit=64
+            )
+            scoped_transactions = [
+                item
+                for item in transactions
+                if item.cashbox_id == cashbox.id
+                and attestation_run_id in item.note
+            ]
+            scoped_ids = {item.id for item in scoped_transactions}
+            if scoped_ids != set(expected_transaction_ids):
+                self._fail(
+                    "cashbox_transaction_snapshot_conflict",
+                    "Синтетический журнал уже изменился. Перечитайте кассу.",
+                    status_code=409,
+                    details={"cashbox_id": cashbox.id},
+                )
+            payment_links = self._finance_payment_links(cards)
+            linked_scoped = {
+                transaction_id: link
+                for transaction_id, link in payment_links.items()
+                if transaction_id in scoped_ids
+            }
+            before_balance = int(
+                self._cashbox_statistics(cashbox, transactions)["balance_minor"]
+            )
+            removed_effect_minor = sum(
+                item.amount_minor
+                if item.direction == "income"
+                else -item.amount_minor
+                for item in scoped_transactions
+            )
+            remaining_transactions = [
+                item for item in transactions if item.id not in scoped_ids
+            ]
+            after_balance = int(
+                self._cashbox_statistics(cashbox, remaining_transactions)[
+                    "balance_minor"
+                ]
+            )
+            current_transaction = self._find_cash_transaction(
+                transactions, payment.cash_transaction_id
+            )
+            if not (
+                _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
+                and card.title.startswith(attestation_run_id)
+                and payment.note.startswith(attestation_run_id)
+                and normalize_money_minor(payment.amount) == 100
+                and current_transaction is not None
+                and current_transaction.id in scoped_ids
+                and current_transaction.transaction_kind == "repair_order_payment"
+                and all(
+                    item.amount_minor == 100
+                    and attestation_run_id in item.note
+                    and (
+                        not item.related_transaction_id
+                        or item.related_transaction_id in scoped_ids
+                    )
+                    for item in scoped_transactions
+                )
+                and set(linked_scoped) == {current_transaction.id}
+                and linked_scoped[current_transaction.id][0].id == card.id
+                and linked_scoped[current_transaction.id][1].id == payment.id
+                and removed_effect_minor == 100
+                and before_balance - after_balance == removed_effect_minor
+                and str(payload.get("source") or "").strip().casefold()
+                == "mcp_agent_gateway_v2"
+                and actor_name
+            ):
+                self._fail(
+                    "gateway_attestation_payment_cleanup_scope_invalid",
+                    "Очистка оплаты не соответствует синтетическому контуру.",
+                    status_code=403,
+                )
+            card.repair_order = RepairOrder()
+            self._touch_card(card, actor_name)
+            if self._card_has_repair_order(card):
+                self._ensure_repair_order_text_file(card, force=True)
+            self._refresh_cashbox_updated_at(cashbox, remaining_transactions)
+            self._append_event(
+                events,
+                actor_name=actor_name,
+                source=source,
+                action="gateway_attestation_payment_fixture_deleted",
+                message=f"{actor_name} удалил синтетический финансовый контур",
+                card_id=card.id,
+                details={
+                    "attestation_run_id": attestation_run_id,
+                    "payment_id": payment.id,
+                    "cashbox_id": cashbox.id,
+                    "removed_transaction_ids": sorted(scoped_ids),
+                    "removed_effect_minor": removed_effect_minor,
+                    "balance_minor_before": before_balance,
+                    "balance_minor_after": after_balance,
+                },
+            )
+            self._save_bundle(
+                bundle,
+                columns=bundle["columns"],
+                cards=cards,
+                cashboxes=cashboxes,
+                cash_transactions=remaining_transactions,
+                events=events,
+            )
+            return {
+                "card": self._serialize_card(
+                    card,
+                    events,
+                    column_labels=self._column_labels(bundle["columns"]),
+                    include_removed_attachments=True,
+                ),
+                "cashbox": self._serialize_cashbox(
+                    cashbox, remaining_transactions
+                ),
+                "meta": {
+                    "deleted": True,
+                    "payment_id": payment.id,
+                    "cashbox_id": cashbox.id,
+                    "removed_transaction_ids": sorted(scoped_ids),
+                    "removed_effect_minor": removed_effect_minor,
+                    "balance_minor_before": before_balance,
+                    "balance_minor_after": after_balance,
                 },
             }
 
@@ -527,6 +1002,22 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="api")
             cashbox = self._find_cashbox(cashboxes, payload.get("cashbox_id"))
+            expected_updated_at = normalize_text(
+                payload.get("expected_updated_at"),
+                default="",
+                limit=80,
+            )
+            if expected_updated_at and expected_updated_at != cashbox.updated_at:
+                self._fail(
+                    "cashbox_update_conflict",
+                    "Касса уже изменилась. Обновите её и повторите операцию.",
+                    status_code=409,
+                    details={
+                        "cashbox_id": cashbox.id,
+                        "expected_updated_at": expected_updated_at,
+                        "current_updated_at": cashbox.updated_at,
+                    },
+                )
             note = self._validated_cash_transaction_note(payload.get("note"))
             direction = normalize_cash_direction(payload.get("direction"), default="income")
             transaction_kind = normalize_text(payload.get("transaction_kind"), default="", limit=32)
@@ -611,6 +1102,20 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     status_code=404,
                     details={"employee_id": employee_id},
                 )
+            expected_employee_updated_at = normalize_text(
+                payload.get("expected_employee_updated_at"),
+                default="",
+                limit=80,
+            )
+            if expected_employee_updated_at and str(employee.get("updated_at") or "") != (
+                expected_employee_updated_at
+            ):
+                self._fail(
+                    "employee_update_conflict",
+                    "Сотрудник уже изменился. Обновите данные и повторите действие.",
+                    status_code=409,
+                    details={"employee_id": employee_id},
+                )
             kind = self._normalize_salary_transaction_kind(
                 payload.get("transaction_kind") or payload.get("kind")
             )
@@ -631,10 +1136,42 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     "Для выплат зарплаты нужно выбрать кассу.",
                     details={"field": "cashbox_id"},
                 )
+            expected_cashbox_updated_at = normalize_text(
+                payload.get("expected_cashbox_updated_at"),
+                default="",
+                limit=80,
+            )
+            if expected_cashbox_updated_at and cashbox.updated_at != expected_cashbox_updated_at:
+                self._fail(
+                    "cashbox_update_conflict",
+                    "Касса уже изменилась. Обновите данные и повторите действие.",
+                    status_code=409,
+                    details={"cashbox_id": cashbox.id},
+                )
             note_prefix = "Выплата зарплаты" if kind == "salary_payout" else "Аванс"
             note = self._validated_cash_transaction_note(
                 payload.get("note") or f"{note_prefix}: {employee['name']}",
             )
+            attestation_run_id = normalize_text(
+                payload.get("attestation_run_id"),
+                default="",
+                limit=64,
+            )
+            if attestation_run_id and not (
+                _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
+                and str(employee.get("name") or "").startswith(f"{attestation_run_id}-")
+                and cashbox.name.startswith(f"{attestation_run_id}-")
+                and note.startswith(attestation_run_id)
+                and amount_minor == 100
+                and str(payload.get("source") or "").strip().casefold()
+                == "mcp_agent_gateway_v2"
+                and actor_name
+            ):
+                self._fail(
+                    "salary_attestation_scope_invalid",
+                    "Синтетическая выплата не соответствует контуру аттестации.",
+                    status_code=403,
+                )
             transaction = self._append_cash_transaction(
                 transactions=transactions,
                 cashbox=cashbox,
@@ -701,6 +1238,20 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     status_code=404,
                     details={"employee_id": employee_id},
                 )
+            expected_employee_updated_at = normalize_text(
+                payload.get("expected_employee_updated_at"),
+                default="",
+                limit=80,
+            )
+            if expected_employee_updated_at and str(employee.get("updated_at") or "") != (
+                expected_employee_updated_at
+            ):
+                self._fail(
+                    "employee_update_conflict",
+                    "Сотрудник уже изменился. Обновите данные и повторите действие.",
+                    status_code=409,
+                    details={"employee_id": employee_id},
+                )
             if not employee.get("is_active", True):
                 self._fail(
                     "validation_error",
@@ -712,6 +1263,25 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             note = self._validated_cash_transaction_note(
                 payload.get("note") or EMPLOYEE_SHIFT_ACCRUAL_NOTE
             )
+            attestation_run_id = normalize_text(
+                payload.get("attestation_run_id"),
+                default="",
+                limit=64,
+            )
+            if attestation_run_id and not (
+                _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
+                and str(employee.get("name") or "").startswith(f"{attestation_run_id}-")
+                and note.startswith(attestation_run_id)
+                and amount_minor == 100
+                and str(payload.get("source") or "").strip().casefold()
+                == "mcp_agent_gateway_v2"
+                and actor_name
+            ):
+                self._fail(
+                    "shift_accrual_attestation_scope_invalid",
+                    "Синтетическое начисление не соответствует контуру аттестации.",
+                    status_code=403,
+                )
             created_at = (
                 parse_business_datetime(payload.get("created_at")) or model_helpers.utc_now()
             )
@@ -782,6 +1352,18 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             settings = bundle["settings"]
             actor_name, source = self._audit_identity(payload, default_source="ui")
             cashbox = self._find_cashbox(cashboxes, payload.get("cashbox_id"))
+            expected_cashbox_updated_at = normalize_text(
+                payload.get("expected_cashbox_updated_at"),
+                default="",
+                limit=80,
+            )
+            if expected_cashbox_updated_at and cashbox.updated_at != expected_cashbox_updated_at:
+                self._fail(
+                    "cashbox_update_conflict",
+                    "Касса уже изменилась. Обновите данные и повторите действие.",
+                    status_code=409,
+                    details={"cashbox_id": cashbox.id},
+                )
             related_transactions = self._cashbox_transactions(transactions, cashbox.id)
             if not related_transactions:
                 self._fail(
@@ -790,10 +1372,26 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     details={"field": "cashbox_id"},
                 )
             latest_transaction = related_transactions[0]
-            requested_transaction = (
-                self._find_cash_transaction(transactions, payload.get("transaction_id"))
-                or latest_transaction
+            requested_transaction_id = normalize_text(
+                payload.get("transaction_id"),
+                default="",
+                limit=128,
             )
+            requested_transaction = (
+                self._find_cash_transaction(transactions, requested_transaction_id)
+                if requested_transaction_id
+                else latest_transaction
+            )
+            if requested_transaction is None:
+                self._fail(
+                    "not_found",
+                    "Кассовое движение не найдено.",
+                    status_code=404,
+                    details={
+                        "cashbox_id": cashbox.id,
+                        "transaction_id": requested_transaction_id,
+                    },
+                )
             if requested_transaction.id != latest_transaction.id:
                 self._fail(
                     "validation_error",
@@ -803,6 +1401,28 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                         "cashbox_id": cashbox.id,
                         "latest_transaction_id": latest_transaction.id,
                     },
+                )
+            attestation_run_id = normalize_text(
+                payload.get("attestation_run_id"),
+                default="",
+                limit=64,
+            )
+            if attestation_run_id and not (
+                _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
+                and cashbox.name.startswith(f"{attestation_run_id}-")
+                and requested_transaction.note.startswith(attestation_run_id)
+                and requested_transaction.amount_minor == 100
+                and not requested_transaction.transaction_kind
+                and requested_transaction.source in {"api", "mcp"}
+                and requested_transaction.actor_name == actor_name
+                and str(payload.get("source") or "").strip().casefold()
+                == "mcp_agent_gateway_v2"
+                and actor_name
+            ):
+                self._fail(
+                    "cancel_last_cash_transaction_attestation_scope_invalid",
+                    "Синтетическая отмена последнего движения не соответствует контуру аттестации.",
+                    status_code=403,
                 )
             if self._is_cashbox_transfer_transaction(latest_transaction):
                 return self._cancel_cashbox_transfer_pair(

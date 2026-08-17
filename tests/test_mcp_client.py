@@ -15,6 +15,33 @@ from minimal_kanban.mcp.client import BoardApiClient, BoardApiTransportError, _n
 
 
 class BoardApiClientTests(unittest.TestCase):
+    def test_update_repair_order_forwards_card_and_cashbox_revisions(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with patch.object(client, "_request_with_identity", return_value={"ok": True}) as request:
+            client.update_repair_order(
+                card_id="card-1",
+                repair_order={"payments": []},
+                expected_updated_at="card-revision-1",
+                expected_cashbox_id="cashbox-1",
+                expected_cashbox_updated_at="cashbox-revision-1",
+                attestation_run_id="AST-GWAT-20260728T165722Z",
+                actor_name="CODEX",
+            )
+
+        request.assert_called_once_with(
+            "/api/update_repair_order",
+            {
+                "card_id": "card-1",
+                "repair_order": {"payments": []},
+                "expected_updated_at": "card-revision-1",
+                "expected_cashbox_id": "cashbox-1",
+                "expected_cashbox_updated_at": "cashbox-revision-1",
+                "attestation_run_id": "AST-GWAT-20260728T165722Z",
+            },
+            actor_name="CODEX",
+        )
+
     def test_create_card_without_deadline_keeps_timer_inactive(self) -> None:
         client = BoardApiClient("https://board.example/api", bearer_token="secret")
 
@@ -130,6 +157,29 @@ class BoardApiClientTests(unittest.TestCase):
                 "title": "Новая заявка",
                 "description": "",
                 "deadline": {"days": 1, "hours": 0, "minutes": 0, "seconds": 0},
+                "source": "mcp",
+            },
+        )
+
+    def test_create_card_deadline_preserves_total_seconds(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with patch.object(client, "_request", return_value={"ok": True}) as request:
+            client.create_card(title="Запись", deadline={"total_seconds": 160_982})
+
+        request.assert_called_once_with(
+            "/api/create_card",
+            {
+                "vehicle": "",
+                "title": "Запись",
+                "description": "",
+                "deadline": {
+                    "days": 0,
+                    "hours": 0,
+                    "minutes": 0,
+                    "seconds": 0,
+                    "total_seconds": 160_982,
+                },
                 "source": "mcp",
             },
         )

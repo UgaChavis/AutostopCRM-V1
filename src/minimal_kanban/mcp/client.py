@@ -399,9 +399,18 @@ class BoardApiClient:
             actor_name=actor_name,
         )
 
-    def delete_shared_file(self, file_id: str, *, actor_name: str | None = None) -> dict:
+    def delete_shared_file(
+        self,
+        file_id: str,
+        *,
+        expected_updated_at: str | None = None,
+        actor_name: str | None = None,
+    ) -> dict:
+        payload: dict[str, object] = {"file_id": file_id}
+        if expected_updated_at is not None:
+            payload["expected_updated_at"] = expected_updated_at
         return self._request_with_identity(
-            "/api/delete_shared_file", {"file_id": file_id}, actor_name=actor_name
+            "/api/delete_shared_file", payload, actor_name=actor_name
         )
 
     def update_shared_file_position(
@@ -547,12 +556,15 @@ class BoardApiClient:
         item_id: str,
         quantity: str,
         *,
+        expected_updated_at: str | None = None,
         cost_price: str | None = None,
         sale_price: str | None = None,
         note: str | None = None,
         actor_name: str | None = None,
     ) -> dict:
         payload: dict[str, object] = {"item_id": item_id, "quantity": quantity}
+        if expected_updated_at is not None:
+            payload["expected_updated_at"] = expected_updated_at
         if cost_price is not None:
             payload["cost_price"] = cost_price
         if sale_price is not None:
@@ -570,6 +582,8 @@ class BoardApiClient:
         card_id: str,
         quantity: str,
         row_index: int | None = None,
+        expected_updated_at: str | None = None,
+        expected_card_updated_at: str | None = None,
         actor_name: str | None = None,
     ) -> dict:
         payload: dict[str, object] = {
@@ -579,6 +593,10 @@ class BoardApiClient:
         }
         if row_index is not None:
             payload["row_index"] = row_index
+        if expected_updated_at is not None:
+            payload["expected_updated_at"] = expected_updated_at
+        if expected_card_updated_at is not None:
+            payload["expected_card_updated_at"] = expected_card_updated_at
         return self._request_with_identity(
             "/api/write_off_inventory_item", payload, actor_name=actor_name
         )
@@ -588,21 +606,38 @@ class BoardApiClient:
         movement_id: str,
         *,
         card_id: str | None = None,
+        expected_updated_at: str | None = None,
+        expected_card_updated_at: str | None = None,
         actor_name: str | None = None,
     ) -> dict:
         payload: dict[str, object] = {"movement_id": movement_id}
         if card_id is not None:
             payload["card_id"] = card_id
+        if expected_updated_at is not None:
+            payload["expected_updated_at"] = expected_updated_at
+        if expected_card_updated_at is not None:
+            payload["expected_card_updated_at"] = expected_card_updated_at
         return self._request_with_identity(
             "/api/return_inventory_movement", payload, actor_name=actor_name
         )
 
-    def get_cash_journal(self, *, months: int | None = None, limit: int | None = None) -> dict:
+    def get_cash_journal(
+        self,
+        *,
+        months: int | None = None,
+        limit: int | None = None,
+        include_markdown: bool | None = None,
+        compact_groups: bool | None = None,
+    ) -> dict:
         payload: dict[str, object] = {}
         if months is not None:
             payload["months"] = months
         if limit is not None:
             payload["limit"] = limit
+        if include_markdown is not None:
+            payload["include_markdown"] = include_markdown
+        if compact_groups is not None:
+            payload["compact_groups"] = compact_groups
         if not payload:
             return self._request("/api/get_cash_journal", method="GET")
         return self._request("/api/get_cash_journal", payload, method="POST")
@@ -655,6 +690,8 @@ class BoardApiClient:
         card_id: str,
         client_id: str,
         *,
+        expected_card_updated_at: str,
+        expected_client_updated_at: str,
         client_vehicle_id: str | None = None,
         create_vehicle_from_card: bool = False,
         sync_vehicle_fields: bool = True,
@@ -665,6 +702,8 @@ class BoardApiClient:
         payload: dict[str, object] = {
             "card_id": card_id,
             "client_id": client_id,
+            "expected_card_updated_at": expected_card_updated_at,
+            "expected_client_updated_at": expected_client_updated_at,
             "sync_fields": sync_fields,
             "overwrite_card_fields": overwrite_card_fields,
             "create_vehicle_from_card": create_vehicle_from_card,
@@ -752,10 +791,20 @@ class BoardApiClient:
             )
         return self._request("/api/get_cashbox", payload)
 
-    def create_cashbox(self, name: str, *, actor_name: str | None = None) -> dict:
-        return self._request_with_identity(
-            "/api/create_cashbox", {"name": name}, actor_name=actor_name
-        )
+    def create_cashbox(
+        self,
+        name: str,
+        *,
+        expected_cashbox_ids: list[str] | None = None,
+        attestation_run_id: str | None = None,
+        actor_name: str | None = None,
+    ) -> dict:
+        payload: dict[str, object] = {"name": name}
+        if expected_cashbox_ids is not None:
+            payload["expected_cashbox_ids"] = expected_cashbox_ids
+        if attestation_run_id is not None:
+            payload["attestation_run_id"] = attestation_run_id
+        return self._request_with_identity("/api/create_cashbox", payload, actor_name=actor_name)
 
     def delete_cashbox(self, cashbox_id: str, *, actor_name: str | None = None) -> dict:
         return self._request_with_identity(
@@ -770,6 +819,7 @@ class BoardApiClient:
         amount_minor: int | None = None,
         amount: str | int | float | None = None,
         note: str = "",
+        expected_updated_at: str | None = None,
         actor_name: str | None = None,
     ) -> dict:
         payload: dict[str, object] = {
@@ -781,6 +831,8 @@ class BoardApiClient:
             payload["amount_minor"] = amount_minor
         elif amount is not None:
             payload["amount"] = amount
+        if expected_updated_at is not None:
+            payload["expected_updated_at"] = expected_updated_at
         return self._request_with_identity(
             "/api/create_cash_transaction", payload, actor_name=actor_name
         )
@@ -839,8 +891,11 @@ class BoardApiClient:
             payload["include_full_details"] = include_full_details
         return self._request("/api/get_card_log", payload)
 
-    def get_repair_order(self, card_id: str) -> dict:
-        return self._request("/api/get_repair_order", {"card_id": card_id})
+    def get_repair_order(self, card_id: str, *, create_if_missing: bool | None = None) -> dict:
+        payload: dict[str, object] = {"card_id": card_id}
+        if create_if_missing is not None:
+            payload["create_if_missing"] = create_if_missing
+        return self._request("/api/get_repair_order", payload)
 
     def get_repair_order_text(self, card_id: str) -> dict:
         return self._request("/api/get_repair_order_text", {"card_id": card_id})
@@ -1097,11 +1152,20 @@ class BoardApiClient:
         card_id: str,
         repair_order: dict[str, object],
         expected_updated_at: str | None = None,
+        expected_cashbox_id: str | None = None,
+        expected_cashbox_updated_at: str | None = None,
+        attestation_run_id: str | None = None,
         actor_name: str | None = None,
     ) -> dict:
         payload: dict[str, object] = {"card_id": card_id, "repair_order": repair_order}
         if expected_updated_at:
             payload["expected_updated_at"] = expected_updated_at
+        if expected_cashbox_id:
+            payload["expected_cashbox_id"] = expected_cashbox_id
+        if expected_cashbox_updated_at:
+            payload["expected_cashbox_updated_at"] = expected_cashbox_updated_at
+        if attestation_run_id:
+            payload["attestation_run_id"] = attestation_run_id
         return self._request_with_identity(
             "/api/update_repair_order", payload, actor_name=actor_name
         )
@@ -1275,6 +1339,7 @@ class BoardApiClient:
         limit: int | None = None,
         include_archived: bool | None = None,
         card_ids: list[str] | None = None,
+        expected_updated_at_by_card_id: dict[str, str] | None = None,
         actor_name: str | None = None,
     ) -> dict:
         payload: dict[str, object] = {}
@@ -1290,6 +1355,8 @@ class BoardApiClient:
             payload["include_archived"] = include_archived
         if card_ids is not None:
             payload["card_ids"] = card_ids
+        if expected_updated_at_by_card_id is not None:
+            payload["expected_updated_at_by_card_id"] = expected_updated_at_by_card_id
         return self._request_with_identity(
             "/api/bulk_set_deadline_if_below", payload, actor_name=actor_name
         )
@@ -1302,6 +1369,7 @@ class BoardApiClient:
         only_missing: bool | None = None,
         only_stale: bool | None = None,
         card_ids: list[str] | None = None,
+        expected_updated_at_by_card_id: dict[str, str] | None = None,
         actor_name: str | None = None,
     ) -> dict:
         payload: dict[str, object] = {}
@@ -1315,6 +1383,8 @@ class BoardApiClient:
             payload["only_stale"] = only_stale
         if card_ids is not None:
             payload["card_ids"] = card_ids
+        if expected_updated_at_by_card_id is not None:
+            payload["expected_updated_at_by_card_id"] = expected_updated_at_by_card_id
         return self._request_with_identity(
             "/api/bulk_refresh_board_summaries", payload, actor_name=actor_name
         )
@@ -1361,6 +1431,8 @@ class BoardApiClient:
         target_total_seconds: int | None = None,
         limit: int | None = None,
         refresh_summary: bool | None = None,
+        card_ids: list[str] | None = None,
+        expected_updated_at_by_card_id: dict[str, str] | None = None,
         actor_name: str | None = None,
     ) -> dict:
         payload: dict[str, object] = {}
@@ -1372,6 +1444,10 @@ class BoardApiClient:
             payload["limit"] = limit
         if refresh_summary is not None:
             payload["refresh_summary"] = refresh_summary
+        if card_ids is not None:
+            payload["card_ids"] = card_ids
+        if expected_updated_at_by_card_id is not None:
+            payload["expected_updated_at_by_card_id"] = expected_updated_at_by_card_id
         return self._request_with_identity(
             "/api/apply_ready_unpaid_followups", payload, actor_name=actor_name
         )
@@ -1468,6 +1544,11 @@ class BoardApiClient:
             "minutes": self._normalize_deadline_part(deadline.get("minutes"), maximum=59),
             "seconds": self._normalize_deadline_part(deadline.get("seconds"), maximum=59),
         }
+        total_seconds = self._normalize_deadline_part(
+            deadline.get("total_seconds"), maximum=31_536_000
+        )
+        if total_seconds > 0:
+            return {**normalized, "total_seconds": total_seconds}
         if not any(normalized.values()):
             return {"days": 1, "hours": 0, "minutes": 0, "seconds": 0}
         return normalized

@@ -65,6 +65,7 @@ EXPECTED_SERVICE_ROUTES = {
     "/api/delete_client_vehicle",
     "/api/delete_column",
     "/api/delete_employee",
+    "/api/delete_gateway_attestation_payment_fixture",
     "/api/delete_print_template",
     "/api/delete_shared_file",
     "/api/delete_sticky",

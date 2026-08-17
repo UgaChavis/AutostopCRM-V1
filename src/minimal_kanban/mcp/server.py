@@ -54,15 +54,18 @@ _AUTOSTOP_MANAGER_READ_ONLY_TOOLS = frozenset(
         "cleanup_audit",
         "crm_health_plan",
         "estimate_repair_work_cost",
+        "decode_vehicle_identity",
         "get_store_analytics_report",
         "list_manager_runs",
         "lookup_public_automotive_evidence",
+        "lookup_oem_catalog_candidates",
         "lookup_original_parts",
         "memory_context_for",
         "memory_gaps",
         "memory_map",
         "memory_topics",
         "prepare_manager_context",
+        "partsapi_catalog_lookup",
         "probe_knowledge_base",
         "recall",
         "recall_lessons",
@@ -2036,10 +2039,18 @@ def create_mcp_server(
         annotations=_write_tool_annotations("Delete Shared File", destructive=True),
         structured_output=True,
     )
-    def delete_shared_file(file_id: str, actor_name: str | None = None) -> JsonEnvelope:
+    def delete_shared_file(
+        file_id: str,
+        expected_updated_at: str | None = None,
+        actor_name: str | None = None,
+    ) -> JsonEnvelope:
         return _relay_board_call(
             "delete_shared_file",
-            lambda: board_api.delete_shared_file(file_id, actor_name=actor_name),
+            lambda: board_api.delete_shared_file(
+                file_id,
+                expected_updated_at=expected_updated_at,
+                actor_name=actor_name,
+            ),
             params={"file_id": file_id},
         )
 
@@ -2372,20 +2383,36 @@ def create_mcp_server(
         name="get_cash_journal",
         description=_scoped_description(
             "Return the cashbox journal for the current board as machine-readable JSON "
-            "with entries/days/weeks/months/totals plus a human-readable Markdown report. "
-            "Use this for cashbox audit, reconciliation, and readable journal review."
+            "with entries/days/weeks/months/totals. Set include_markdown=false and "
+            "compact_groups=true for bounded agent reads; request Markdown only for an "
+            "explicit human-readable journal review."
         ),
         annotations=_read_tool_annotations("Get Cash Journal"),
         structured_output=True,
     )
-    def get_cash_journal(months: McpInt = 3, limit: McpInt = 5000) -> JsonEnvelope:
+    def get_cash_journal(
+        months: McpInt = 3,
+        limit: McpInt = 5000,
+        include_markdown: bool = True,
+        compact_groups: bool = False,
+    ) -> JsonEnvelope:
         effective_months = _normalize_limit(months, default=3, maximum=12)
         effective_limit = _normalize_limit(limit, default=5000, maximum=10000)
         return _relay_board_call(
             "get_cash_journal",
-            lambda: board_api.get_cash_journal(months=effective_months, limit=effective_limit),
+            lambda: board_api.get_cash_journal(
+                months=effective_months,
+                limit=effective_limit,
+                include_markdown=include_markdown,
+                compact_groups=compact_groups,
+            ),
             error_code="cash_journal_unreachable",
-            params={"months": effective_months, "limit": effective_limit},
+            params={
+                "months": effective_months,
+                "limit": effective_limit,
+                "include_markdown": include_markdown,
+                "compact_groups": compact_groups,
+            },
         )
 
     @server.tool(
@@ -2426,10 +2453,20 @@ def create_mcp_server(
         annotations=_write_tool_annotations("Create Cashbox"),
         structured_output=True,
     )
-    def create_cashbox(name: str, actor_name: str | None = None) -> JsonEnvelope:
+    def create_cashbox(
+        name: str,
+        expected_cashbox_ids: list[str] | None = None,
+        attestation_run_id: str | None = None,
+        actor_name: str | None = None,
+    ) -> JsonEnvelope:
         return _relay_board_call(
             "create_cashbox",
-            lambda: board_api.create_cashbox(name, actor_name=actor_name),
+            lambda: board_api.create_cashbox(
+                name,
+                expected_cashbox_ids=expected_cashbox_ids,
+                attestation_run_id=attestation_run_id,
+                actor_name=actor_name,
+            ),
             error_code="cashbox_write_unreachable",
         )
 
@@ -2460,6 +2497,7 @@ def create_mcp_server(
         amount_minor: McpInt | None = None,
         amount: str | None = None,
         note: str = "",
+        expected_updated_at: str | None = None,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
         return _relay_board_call(
@@ -2470,6 +2508,7 @@ def create_mcp_server(
                 amount_minor=amount_minor,
                 amount=amount,
                 note=note,
+                expected_updated_at=expected_updated_at,
                 actor_name=actor_name,
             ),
             error_code="cashbox_write_unreachable",
@@ -2561,6 +2600,7 @@ def create_mcp_server(
         quantity: str = "0",
         cost_price: str = "0",
         sale_price: str = "0",
+        expected_updated_at: str | None = None,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
         payload: dict[str, object] = {
@@ -2573,6 +2613,8 @@ def create_mcp_server(
         }
         if item_id:
             payload["item_id"] = item_id
+        if expected_updated_at is not None:
+            payload["expected_updated_at"] = expected_updated_at
         return _relay_board_call(
             "save_inventory_item",
             lambda: board_api.save_inventory_item(payload, actor_name=actor_name),
@@ -2590,6 +2632,7 @@ def create_mcp_server(
     def replenish_inventory_item(
         item_id: str,
         quantity: str,
+        expected_updated_at: str | None = None,
         cost_price: str | None = None,
         sale_price: str | None = None,
         note: str | None = None,
@@ -2600,6 +2643,7 @@ def create_mcp_server(
             lambda: board_api.replenish_inventory_item(
                 item_id,
                 quantity,
+                expected_updated_at=expected_updated_at,
                 cost_price=cost_price,
                 sale_price=sale_price,
                 note=note,
@@ -2622,6 +2666,8 @@ def create_mcp_server(
         card_id: str,
         quantity: str,
         row_index: McpInt | None = None,
+        expected_updated_at: str | None = None,
+        expected_card_updated_at: str | None = None,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
         return _relay_board_call(
@@ -2631,6 +2677,8 @@ def create_mcp_server(
                 card_id=card_id,
                 quantity=quantity,
                 row_index=row_index,
+                expected_updated_at=expected_updated_at,
+                expected_card_updated_at=expected_card_updated_at,
                 actor_name=actor_name,
             ),
             error_code="inventory_write_unreachable",
@@ -2647,12 +2695,18 @@ def create_mcp_server(
     def return_inventory_movement(
         movement_id: str,
         card_id: str | None = None,
+        expected_updated_at: str | None = None,
+        expected_card_updated_at: str | None = None,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
         return _relay_board_call(
             "return_inventory_movement",
             lambda: board_api.return_inventory_movement(
-                movement_id, card_id=card_id, actor_name=actor_name
+                movement_id,
+                card_id=card_id,
+                expected_updated_at=expected_updated_at,
+                expected_card_updated_at=expected_card_updated_at,
+                actor_name=actor_name,
             ),
             error_code="inventory_write_unreachable",
         )
@@ -2996,6 +3050,8 @@ def create_mcp_server(
     def link_card_to_client(
         card_id: str,
         client_id: str,
+        expected_card_updated_at: str,
+        expected_client_updated_at: str,
         client_vehicle_id: str | None = None,
         create_vehicle_from_card: bool = False,
         sync_vehicle_fields: bool = True,
@@ -3008,6 +3064,8 @@ def create_mcp_server(
             lambda: board_api.link_card_to_client(
                 card_id,
                 client_id,
+                expected_card_updated_at=expected_card_updated_at,
+                expected_client_updated_at=expected_client_updated_at,
                 client_vehicle_id=client_vehicle_id,
                 create_vehicle_from_card=create_vehicle_from_card,
                 sync_vehicle_fields=sync_vehicle_fields,
@@ -3446,6 +3504,7 @@ def create_mcp_server(
         limit: McpInt = 200,
         include_archived: bool = False,
         card_ids: list[str] | None = None,
+        expected_updated_at_by_card_id: dict[str, str] | None = None,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
         effective_min_total_seconds = _normalize_limit(
@@ -3469,6 +3528,7 @@ def create_mcp_server(
                 limit=effective_limit,
                 include_archived=include_archived,
                 card_ids=card_ids,
+                expected_updated_at_by_card_id=expected_updated_at_by_card_id,
                 actor_name=actor_name,
             ),
             params={
@@ -3478,6 +3538,7 @@ def create_mcp_server(
                 "limit": effective_limit,
                 "include_archived": include_archived,
                 "card_ids": card_ids,
+                "expected_updated_at_by_card_id": expected_updated_at_by_card_id,
             },
             transform=lambda response: _with_data_meta(
                 response,
@@ -3500,6 +3561,7 @@ def create_mcp_server(
         only_missing: bool = False,
         only_stale: bool = False,
         card_ids: list[str] | None = None,
+        expected_updated_at_by_card_id: dict[str, str] | None = None,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
         effective_limit = _normalize_limit(limit, default=100, maximum=500)
@@ -3511,6 +3573,7 @@ def create_mcp_server(
                 only_missing=only_missing,
                 only_stale=only_stale,
                 card_ids=card_ids,
+                expected_updated_at_by_card_id=expected_updated_at_by_card_id,
                 actor_name=actor_name,
             ),
             params={
@@ -3519,6 +3582,7 @@ def create_mcp_server(
                 "only_missing": only_missing,
                 "only_stale": only_stale,
                 "card_ids": card_ids,
+                "expected_updated_at_by_card_id": expected_updated_at_by_card_id,
             },
             transform=lambda response: _with_data_meta(
                 response,
@@ -3593,6 +3657,8 @@ def create_mcp_server(
         target_total_seconds: McpInt = 172800,
         limit: McpInt = 50,
         refresh_summary: bool = True,
+        card_ids: list[str] | None = None,
+        expected_updated_at_by_card_id: dict[str, str] | None = None,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
         effective_target_total_seconds = _normalize_limit(
@@ -3608,6 +3674,8 @@ def create_mcp_server(
                 target_total_seconds=effective_target_total_seconds,
                 limit=effective_limit,
                 refresh_summary=refresh_summary,
+                card_ids=card_ids,
+                expected_updated_at_by_card_id=expected_updated_at_by_card_id,
                 actor_name=actor_name,
             ),
             params={
@@ -3615,6 +3683,8 @@ def create_mcp_server(
                 "target_total_seconds": effective_target_total_seconds,
                 "limit": effective_limit,
                 "refresh_summary": refresh_summary,
+                "card_ids": card_ids,
+                "expected_updated_at_by_card_id": expected_updated_at_by_card_id,
             },
             transform=lambda response: _with_data_meta(
                 response,
@@ -3720,6 +3790,9 @@ def create_mcp_server(
         card_id: str,
         repair_order: RepairOrderPatchPayload,
         expected_updated_at: str | None = None,
+        expected_cashbox_id: str | None = None,
+        expected_cashbox_updated_at: str | None = None,
+        attestation_run_id: str | None = None,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
         repair_order_payload = (
@@ -3733,6 +3806,9 @@ def create_mcp_server(
                 card_id=card_id,
                 repair_order=repair_order_payload.model_dump(exclude_none=True),
                 expected_updated_at=expected_updated_at,
+                expected_cashbox_id=expected_cashbox_id,
+                expected_cashbox_updated_at=expected_cashbox_updated_at,
+                attestation_run_id=attestation_run_id,
                 actor_name=actor_name,
             ),
         )

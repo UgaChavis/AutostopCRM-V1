@@ -29,6 +29,7 @@ from scripts.crm_change_feed_producer_parity import build_producer_inventory  # 
 REASONED_ROUTE_CONTRACT_EXEMPTIONS = {
     "/api/agent_enqueue_task": "delegated Manager runtime authority; CRM state/feed must stay unchanged",
     "/api/delete_agent_scheduled_task": "delegated Manager runtime authority; CRM state/feed must stay unchanged",
+    "/api/delete_gateway_attestation_payment_fixture": "strict synthetic-only cleanup route; dedicated payment fixture tests verify its state projection",
     "/api/pause_agent_scheduled_task": "delegated Manager runtime authority; CRM state/feed must stay unchanged",
     "/api/resume_agent_scheduled_task": "delegated Manager runtime authority; CRM state/feed must stay unchanged",
     "/api/run_agent_scheduled_task": "delegated Manager runtime authority; CRM state/feed must stay unchanged",

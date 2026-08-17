@@ -2191,6 +2191,7 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertFalse(created_card.isError)
                 card_id = created_card.structuredContent["data"]["card"]["id"]
+                card_updated_at = created_card.structuredContent["data"]["card"]["updated_at"]
 
                 suggestions = await session.call_tool(
                     "suggest_clients_for_card",
@@ -2206,6 +2207,10 @@ class McpServerTests(unittest.IsolatedAsyncioTestCase):
                     {
                         "card_id": card_id,
                         "client_id": client_id,
+                        "expected_card_updated_at": card_updated_at,
+                        "expected_client_updated_at": updated.structuredContent["data"]["client"][
+                            "updated_at"
+                        ],
                         "client_vehicle_id": vehicle_id,
                         "actor_name": "ОПЕРАТОР",
                     },
@@ -2944,14 +2949,25 @@ class McpServerRuntimeTests(unittest.TestCase):
             client.list_cashboxes()
             client.list_cashboxes(limit=50)
             client.get_cash_journal()
-            client.get_cash_journal(months=6, limit=250)
+            client.get_cash_journal(
+                months=6,
+                limit=250,
+                include_markdown=False,
+                compact_groups=True,
+            )
             client.get_cashbox("CB-1", transaction_limit=25, transaction_offset=50)
-            client.create_cashbox("Наличный", actor_name="ОПЕРАТОР")
+            client.create_cashbox(
+                "Наличный",
+                expected_cashbox_ids=["CB-0"],
+                attestation_run_id="AST-GWAT-20260728T165722Z",
+                actor_name="ОПЕРАТОР",
+            )
             client.create_cash_transaction(
                 cashbox_id="CB-1",
                 direction="income",
                 amount="1000",
                 note="Предоплата",
+                expected_updated_at="cashbox-revision-1",
                 actor_name="ОПЕРАТОР",
             )
             client.delete_cashbox("CB-1", actor_name="ОПЕРАТОР")
@@ -2963,7 +2979,14 @@ class McpServerRuntimeTests(unittest.TestCase):
                 unittest.mock.call("/api/list_cashboxes", {"limit": 50}, method="POST"),
                 unittest.mock.call("/api/get_cash_journal", method="GET"),
                 unittest.mock.call(
-                    "/api/get_cash_journal", {"months": 6, "limit": 250}, method="POST"
+                    "/api/get_cash_journal",
+                    {
+                        "months": 6,
+                        "limit": 250,
+                        "include_markdown": False,
+                        "compact_groups": True,
+                    },
+                    method="POST",
                 ),
                 unittest.mock.call(
                     "/api/get_cashbox",
@@ -2975,7 +2998,13 @@ class McpServerRuntimeTests(unittest.TestCase):
                 ),
                 unittest.mock.call(
                     "/api/create_cashbox",
-                    {"name": "Наличный", "source": "mcp", "actor_name": "ОПЕРАТОР"},
+                    {
+                        "name": "Наличный",
+                        "expected_cashbox_ids": ["CB-0"],
+                        "attestation_run_id": "AST-GWAT-20260728T165722Z",
+                        "source": "mcp",
+                        "actor_name": "ОПЕРАТОР",
+                    },
                 ),
                 unittest.mock.call(
                     "/api/create_cash_transaction",
@@ -2984,6 +3013,7 @@ class McpServerRuntimeTests(unittest.TestCase):
                         "direction": "income",
                         "note": "Предоплата",
                         "amount": "1000",
+                        "expected_updated_at": "cashbox-revision-1",
                         "source": "mcp",
                         "actor_name": "ОПЕРАТОР",
                     },

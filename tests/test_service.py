@@ -534,6 +534,143 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(restarted["card"]["deadline_total_seconds"], 7200)
         self.assertEqual(restarted["card"]["timer_state"], "running")
 
+    def test_manager_client_link_query_prefers_one_strong_identifier(self) -> None:
+        created = self.service.create_card(
+            {
+                "vehicle": "Toyota Camry",
+                "title": "Диагностика",
+                "description": "Клиент Тестовый, госномер А123ВС124",
+                "deadline": {"hours": 1},
+                "vehicle_profile": {
+                    "customer_name": "Клиент Тестовый",
+                    "customer_phone": "+7 913 000-11-22",
+                    "registration_plate": "А123ВС124",
+                },
+            }
+        )
+        card = next(item for item in self.store.read_cards() if item.id == created["card"]["id"])
+
+        query = self.service._manager_client_link_query(card)
+
+        self.assertEqual(query, "+7 913 000-11-22")
+        self.assertNotIn("Toyota", query)
+        self.assertNotIn("Клиент", query)
+
+    def test_audit_client_links_prepares_search_indexes_once(self) -> None:
+        client = self.service.create_client(
+            {
+                "client_type": "person",
+                "last_name": "Тестовый",
+                "first_name": "Клиент",
+                "phone": "+7 913 000-11-22",
+            }
+        )["client"]
+        for suffix in ("22", "23"):
+            self.service.create_card(
+                {
+                    "vehicle": "Toyota Camry",
+                    "title": f"Диагностика {suffix}",
+                    "deadline": {"hours": 1},
+                    "vehicle_profile": {
+                        "customer_phone": f"+7 913 000-11-{suffix}",
+                    },
+                }
+            )
+
+        with (
+            patch.object(
+                self.service,
+                "_client_search_index_for",
+                wraps=self.service._client_search_index_for,
+            ) as search_index,
+            patch.object(
+                self.service,
+                "_client_related_vehicle_fields_index_for",
+                wraps=self.service._client_related_vehicle_fields_index_for,
+            ) as related_index,
+            patch.object(
+                self.service,
+                "_client_related_search_index",
+                wraps=self.service._client_related_search_index,
+            ) as related_search_index,
+        ):
+            result = self.service.audit_client_links({"limit": 10})
+
+        self.assertEqual(search_index.call_count, 1)
+        self.assertEqual(related_index.call_count, 1)
+        self.assertEqual(related_search_index.call_count, 1)
+        self.assertEqual(result["cards"][0]["candidates"][0]["client"]["id"], client["id"])
+
+    def test_ready_unpaid_followups_respects_exact_card_filter(self) -> None:
+        selected = self.service.create_card(
+            {
+                "title": "AST-GWAT selected",
+                "deadline": {"minutes": 1},
+                "tags": [{"label": "Готов", "color": "green"}],
+            }
+        )["card"]
+        untouched = self.service.create_card(
+            {
+                "title": "AST-GWAT untouched",
+                "deadline": {"minutes": 1},
+                "tags": [{"label": "Готов", "color": "green"}],
+            }
+        )["card"]
+        for card in (selected, untouched):
+            self.service.update_repair_order(
+                {
+                    "card_id": card["id"],
+                    "repair_order": {
+                        "works": [
+                            {
+                                "name": "Synthetic",
+                                "quantity": "1",
+                                "price": "1",
+                            }
+                        ]
+                    },
+                }
+            )
+
+        result = self.service.apply_ready_unpaid_followups(
+            {
+                "mode": "apply",
+                "actor_name": "CODEX MCP QA",
+                "card_ids": [selected["id"]],
+                "target_total_seconds": 600,
+            }
+        )
+
+        self.assertEqual(result["scanned"], 1)
+        self.assertEqual(result["eligible"], 1)
+        self.assertEqual(result["changed"], 1)
+        selected_card = self.service.get_card({"card_id": selected["id"]})["card"]
+        untouched_card = self.service.get_card({"card_id": untouched["id"]})["card"]
+        self.assertIn("ЖДЕТ ОПЛАТЫ", selected_card["tags"])
+        self.assertNotIn("ЖДЕТ ОПЛАТЫ", untouched_card["tags"])
+
+    def test_manager_batch_write_rejects_stale_expected_updated_at(self) -> None:
+        created = self.service.create_card(
+            {
+                "title": "AST-GWAT stale",
+                "deadline": {"minutes": 1},
+            }
+        )["card"]
+
+        with self.assertRaises(ServiceError) as raised:
+            self.service.bulk_set_deadline_if_below(
+                {
+                    "mode": "apply",
+                    "actor_name": "CODEX MCP QA",
+                    "card_ids": [created["id"]],
+                    "expected_updated_at_by_card_id": {created["id"]: "2000-01-01T00:00:00+00:00"},
+                    "min_total_seconds": 600,
+                    "target_total_seconds": 600,
+                }
+            )
+
+        self.assertEqual(raised.exception.code, "card_update_conflict")
+
     def test_clients_can_be_created_searched_and_linked_to_card(self) -> None:
         client = self.service.create_client(
             {
@@ -1239,6 +1376,49 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(linked["card"]["vehicle_profile"]["vin"], "WDD2120341B009639")
         self.assertEqual(linked["card"]["vehicle_profile"]["registration_plate"], "у867ру124")
         self.assertEqual(linked["card"]["vehicle_profile"]["make_display"], "Mercedes-Benz")
+
+    def test_link_card_to_client_rejects_stale_card_and_client_revisions(self) -> None:
+        client = self.service.create_client(
+            {"display_name": "Revision Client"}
+        )["client"]
+        card = self.service.create_card(
+            {
+                "title": "Revision link",
+                "vehicle": "Synthetic Vehicle",
+                "deadline": {"hours": 1},
+            }
+        )["card"]
+        payload = {
+            "card_id": card["id"],
+            "client_id": client["id"],
+            "expected_card_updated_at": card["updated_at"],
+            "expected_client_updated_at": client["updated_at"],
+            "sync_fields": False,
+        }
+
+        with self.assertRaises(ServiceError) as stale_card:
+            self.service.link_card_to_client(
+                {
+                    **payload,
+                    "expected_card_updated_at": "2000-01-01T00:00:00+00:00",
+                }
+            )
+        self.assertEqual(stale_card.exception.code, "card_update_conflict")
+        with self.assertRaises(ServiceError) as stale_client:
+            self.service.link_card_to_client(
+                {
+                    **payload,
+                    "expected_client_updated_at": "2000-01-01T00:00:00+00:00",
+                }
+            )
+        self.assertEqual(stale_client.exception.code, "client_update_conflict")
+        self.assertEqual(
+            self.service.get_card({"card_id": card["id"]})["card"]["client_id"],
+            "",
+        )
+
+        linked = self.service.link_card_to_client(payload)
+        self.assertEqual(linked["card"]["client_id"], client["id"])
 
     def test_link_card_to_client_can_create_vehicle_from_card_and_sync_back(self) -> None:
         client = self.service.create_client(
@@ -3286,6 +3466,93 @@ class CardServiceTests(unittest.TestCase):
             [movement["kind"] for movement in movements], ["incoming", "write_off", "return"]
         )
 
+    def test_inventory_mutations_reject_stale_item_and_card_revisions(self) -> None:
+        created_card = self.service.create_card(
+            {
+                "vehicle": "AutoStop Synthetic",
+                "title": "Inventory revision contract",
+                "deadline": {"hours": 1},
+            }
+        )["card"]
+        saved_item = self.service.save_inventory_item(
+            {
+                "name": "Synthetic inventory item",
+                "unit": "шт",
+                "quantity": "1",
+            }
+        )["item"]
+
+        with self.assertRaises(ServiceError) as save_conflict:
+            self.service.save_inventory_item(
+                {
+                    "item_id": saved_item["id"],
+                    "name": "Stale update",
+                    "expected_updated_at": "2000-01-01T00:00:00+00:00",
+                }
+            )
+        self.assertEqual(save_conflict.exception.code, "inventory_item_update_conflict")
+
+        with self.assertRaises(ServiceError) as replenish_conflict:
+            self.service.replenish_inventory_item(
+                {
+                    "item_id": saved_item["id"],
+                    "quantity": "1",
+                    "expected_updated_at": "2000-01-01T00:00:00+00:00",
+                }
+            )
+        self.assertEqual(replenish_conflict.exception.code, "inventory_item_update_conflict")
+
+        with self.assertRaises(ServiceError) as write_off_item_conflict:
+            self.service.write_off_inventory_item(
+                {
+                    "item_id": saved_item["id"],
+                    "card_id": created_card["id"],
+                    "quantity": "1",
+                    "expected_updated_at": "2000-01-01T00:00:00+00:00",
+                    "expected_card_updated_at": created_card["updated_at"],
+                }
+            )
+        self.assertEqual(
+            write_off_item_conflict.exception.code,
+            "inventory_item_update_conflict",
+        )
+
+        with self.assertRaises(ServiceError) as write_off_card_conflict:
+            self.service.write_off_inventory_item(
+                {
+                    "item_id": saved_item["id"],
+                    "card_id": created_card["id"],
+                    "quantity": "1",
+                    "expected_updated_at": saved_item["updated_at"],
+                    "expected_card_updated_at": "2000-01-01T00:00:00+00:00",
+                }
+            )
+        self.assertEqual(write_off_card_conflict.exception.code, "card_update_conflict")
+        self.assertEqual(
+            self.service.get_inventory_item({"item_id": saved_item["id"]})["item"]["quantity"],
+            "1",
+        )
+
+        written_off = self.service.write_off_inventory_item(
+            {
+                "item_id": saved_item["id"],
+                "card_id": created_card["id"],
+                "quantity": "1",
+                "expected_updated_at": saved_item["updated_at"],
+                "expected_card_updated_at": created_card["updated_at"],
+            }
+        )
+        with self.assertRaises(ServiceError) as return_conflict:
+            self.service.return_inventory_movement(
+                {
+                    "movement_id": written_off["movement"]["id"],
+                    "card_id": created_card["id"],
+                    "expected_updated_at": "2000-01-01T00:00:00+00:00",
+                    "expected_card_updated_at": written_off["card"]["updated_at"],
+                }
+            )
+        self.assertEqual(return_conflict.exception.code, "inventory_item_update_conflict")
+
     def test_closing_paid_repair_order_accrues_material_profit_salary(self) -> None:
         employee = self.service.save_employee(
             {
@@ -3985,6 +4252,186 @@ class CardServiceTests(unittest.TestCase):
         )
         self.assertEqual(supplier_details["cashbox"]["statistics"]["balance_minor"], -1000000)
         self.assertEqual(cash_details["cashbox"]["statistics"]["balance_minor"], 0)
+
+    def test_employee_salary_transaction_rejects_stale_targets_atomically(self) -> None:
+        run_id = "AST-GWAT-20260728T165722Z"
+        employee = self.service.save_employee(
+            {
+                "name": f"{run_id}-employee",
+                "position": "Synthetic",
+                "salary_mode": "none",
+            }
+        )["employee"]
+        cashbox = self.service.create_cashbox(
+            {"name": f"{run_id}-cashbox-1", "actor_name": "ADMIN"}
+        )["cashbox"]
+        payload = {
+            "employee_id": employee["id"],
+            "transaction_kind": "salary_payout",
+            "amount_minor": 100,
+            "cashbox_id": cashbox["id"],
+            "note": f"{run_id} synthetic salary payout",
+            "expected_employee_updated_at": employee["updated_at"],
+            "expected_cashbox_updated_at": cashbox["updated_at"],
+            "attestation_run_id": run_id,
+            "source": "mcp_agent_gateway_v2",
+            "actor_name": "codex-owner-agent",
+        }
+
+        with self.assertRaises(ServiceError) as employee_conflict:
+            self.service.create_employee_salary_transaction(
+                {
+                    **payload,
+                    "expected_employee_updated_at": "2000-01-01T00:00:00+00:00",
+                }
+            )
+        self.assertEqual(employee_conflict.exception.code, "employee_update_conflict")
+
+        with self.assertRaises(ServiceError) as cashbox_conflict:
+            self.service.create_employee_salary_transaction(
+                {
+                    **payload,
+                    "expected_cashbox_updated_at": "2000-01-01T00:00:00+00:00",
+                }
+            )
+        self.assertEqual(cashbox_conflict.exception.code, "cashbox_update_conflict")
+        before_apply = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+        )
+        self.assertEqual(before_apply["transactions"], [])
+
+        applied = self.service.create_employee_salary_transaction(payload)
+        self.assertEqual(applied["transaction"]["amount_minor"], 100)
+        self.assertEqual(applied["transaction"]["employee_id"], employee["id"])
+        reread = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+        )
+        self.assertEqual(
+            [item["id"] for item in reread["transactions"]],
+            [applied["transaction"]["id"]],
+        )
+        self.assertEqual(reread["cashbox"]["statistics"]["balance_minor"], -100)
+
+    def test_employee_shift_accrual_rejects_stale_employee_atomically(self) -> None:
+        run_id = "AST-GWAT-20260728T165722Z"
+        employee = self.service.save_employee(
+            {
+                "name": f"{run_id}-employee",
+                "position": "Synthetic",
+                "salary_mode": "none",
+            }
+        )["employee"]
+        payload = {
+            "employee_id": employee["id"],
+            "amount_minor": 100,
+            "note": f"{run_id} synthetic shift accrual",
+            "expected_employee_updated_at": employee["updated_at"],
+            "attestation_run_id": run_id,
+            "source": "mcp_agent_gateway_v2",
+            "actor_name": "codex-owner-agent",
+        }
+
+        with self.assertRaises(ServiceError) as conflict:
+            self.service.create_employee_shift_accrual(
+                {
+                    **payload,
+                    "expected_employee_updated_at": "2000-01-01T00:00:00+00:00",
+                }
+            )
+        self.assertEqual(conflict.exception.code, "employee_update_conflict")
+        before_apply = self.service.get_employee_salary_ledger(
+            {"employee_id": employee["id"], "months": 1}
+        )
+        self.assertFalse(
+            any(item.get("kind") == "shift_accrual" for item in before_apply["journal_rows"])
+        )
+
+        applied = self.service.create_employee_shift_accrual(payload)["accrual"]
+        ledger = self.service.get_employee_salary_ledger(
+            {"employee_id": employee["id"], "months": 1}
+        )
+        exact = next(
+            item
+            for item in ledger["journal_rows"]
+            if item.get("accrual_id") == applied["id"]
+        )
+        self.assertEqual(exact["amount_minor"], 100)
+        self.assertEqual(exact["kind"], "shift_accrual")
+
+    def test_delete_synthetic_employee_removes_exact_shift_accrual(self) -> None:
+        run_id = "AST-GWAT-20260728T165722Z"
+        employee = self.service.save_employee(
+            {
+                "name": f"{run_id}-cleanup-employee",
+                "position": "Synthetic",
+                "salary_mode": "none",
+                "actor_name": "CODEX",
+            }
+        )["employee"]
+        accrual = self.service.create_employee_shift_accrual(
+            {
+                "employee_id": employee["id"],
+                "amount_minor": 100,
+                "note": f"{run_id} cleanup shift accrual",
+                "expected_employee_updated_at": employee["updated_at"],
+                "attestation_run_id": run_id,
+                "source": "mcp_agent_gateway_v2",
+                "actor_name": "CODEX",
+            }
+        )["accrual"]
+
+        with self.assertRaises(ServiceError) as stale_snapshot:
+            self.service.delete_employee(
+                {
+                    "employee_id": employee["id"],
+                    "expected_updated_at": employee["updated_at"],
+                    "attestation_run_id": run_id,
+                    "attestation_cleanup_shift_accrual_ids": [
+                        accrual["id"],
+                        "missing-accrual",
+                    ],
+                    "source": "mcp_agent_gateway_v2",
+                    "actor_name": "CODEX",
+                }
+            )
+        self.assertEqual(
+            stale_snapshot.exception.code,
+            "employee_shift_accrual_snapshot_conflict",
+        )
+        self.assertTrue(
+            any(
+                item["id"] == employee["id"]
+                for item in self.service.list_employees()["employees"]
+            )
+        )
+
+        deleted = self.service.delete_employee(
+            {
+                "employee_id": employee["id"],
+                "expected_updated_at": employee["updated_at"],
+                "attestation_run_id": run_id,
+                "attestation_cleanup_shift_accrual_ids": [accrual["id"]],
+                "source": "mcp_agent_gateway_v2",
+                "actor_name": "CODEX",
+            }
+        )
+
+        self.assertTrue(deleted["deleted"])
+        self.assertTrue(deleted["attestation_shift_cleanup"])
+        self.assertEqual(deleted["removed_shift_accrual_ids"], [accrual["id"]])
+        self.assertFalse(
+            any(
+                item["id"] == employee["id"]
+                for item in self.service.list_employees()["employees"]
+            )
+        )
+        stored_shift_ids = {
+            item["id"]
+            for item in self.store.read_bundle()["settings"].get(
+                "employee_shift_accruals", []
+            )
+        }
+        self.assertNotIn(accrual["id"], stored_shift_ids)
 
     def test_employee_salary_report_builds_monthly_accrual_register(self) -> None:
         employee = self.service.save_employee(
@@ -4896,6 +5343,36 @@ class CardServiceTests(unittest.TestCase):
         listed_employee = next(item for item in listed["employees"] if item["id"] == employee["id"])
         self.assertEqual(listed_employee["balance_total"], "0")
 
+    def test_gateway_attestation_employee_requires_exact_ordered_snapshot(self) -> None:
+        existing = self.service.save_employee(
+            {"name": "Existing employee", "position": "Mechanic"}
+        )["employee"]
+        run_id = "AST-GWAT-20260728T165722Z"
+        payload = {
+            "create_mode": True,
+            "name": f"{run_id}-employee",
+            "position": "Synthetic",
+            "expected_employee_ids": [existing["id"]],
+            "attestation_run_id": run_id,
+            "source": "mcp_agent_gateway_v2",
+            "actor_name": "codex-owner-agent",
+        }
+
+        with self.assertRaises(ServiceError) as conflict:
+            self.service.save_employee(
+                {
+                    **payload,
+                    "expected_employee_ids": [existing["id"], "stale-id"],
+                }
+            )
+        self.assertEqual(conflict.exception.code, "employee_snapshot_conflict")
+        self.assertEqual(len(self.service.list_employees()["employees"]), 1)
+
+        created = self.service.save_employee(payload)["employee"]
+        self.assertEqual(created["name"], f"{run_id}-employee")
+        listed = self.service.list_employees()["employees"]
+        self.assertEqual({item["id"] for item in listed}, {existing["id"], created["id"]})
+
     def test_employee_supports_max_records_without_overwrite(self) -> None:
         checkpoints = {1, 2, 3, 10, 15, EMPLOYEES_MAX_COUNT}
         created_ids: list[str] = []
@@ -5430,6 +5907,61 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual([item["id"] for item in listed], [third["id"], first["id"], second["id"]])
         self.assertEqual([item["order"] for item in listed], [0, 1, 2])
 
+    def test_cashbox_reorder_rejects_stale_ordered_snapshot_without_write(self) -> None:
+        first = self.service.create_cashbox({"name": "Касса A", "actor_name": "ADMIN"})["cashbox"]
+        second = self.service.create_cashbox({"name": "Касса B", "actor_name": "ADMIN"})["cashbox"]
+
+        with self.assertRaises(ServiceError) as conflict:
+            self.service.reorder_cashboxes(
+                {
+                    "cashbox_id": second["id"],
+                    "before_cashbox_id": first["id"],
+                    "expected_cashbox_ids": [first["id"], "stale-id"],
+                    "actor_name": "ADMIN",
+                }
+            )
+
+        self.assertEqual(conflict.exception.code, "cashbox_order_conflict")
+        listed = self.service.list_cashboxes({"limit": 20})["cashboxes"]
+        self.assertEqual([item["id"] for item in listed], [first["id"], second["id"]])
+
+    def test_cashbox_transfer_rejects_zero_and_stale_cashbox_revision(self) -> None:
+        source = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})["cashbox"]
+        target = self.service.create_cashbox({"name": "Безналичный", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+        with self.assertRaises(ServiceError) as zero_amount:
+            self.service.create_cashbox_transfer(
+                {
+                    "from_cashbox_id": source["id"],
+                    "to_cashbox_id": target["id"],
+                    "amount_minor": 0,
+                    "expected_from_updated_at": source["updated_at"],
+                    "expected_to_updated_at": target["updated_at"],
+                    "actor_name": "ADMIN",
+                }
+            )
+        self.assertEqual(zero_amount.exception.code, "validation_error")
+
+        with self.assertRaises(ServiceError) as stale:
+            self.service.create_cashbox_transfer(
+                {
+                    "from_cashbox_id": source["id"],
+                    "to_cashbox_id": target["id"],
+                    "amount_minor": 100,
+                    "expected_from_updated_at": "2000-01-01T00:00:00+00:00",
+                    "expected_to_updated_at": target["updated_at"],
+                    "actor_name": "ADMIN",
+                }
+            )
+        self.assertEqual(stale.exception.code, "cashbox_update_conflict")
+        for cashbox in (source, target):
+            reread = self.service.get_cashbox(
+                {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+            )
+            self.assertEqual(reread["cashbox"]["updated_at"], cashbox["updated_at"])
+            self.assertEqual(reread["transactions"], [])
+
     def test_cashbox_transfer_moves_money_between_cashboxes(self) -> None:
         source_cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
             "cashbox"
@@ -5531,12 +6063,16 @@ class CardServiceTests(unittest.TestCase):
                 "actor_name": "ADMIN",
             }
         )
+        source_current = self.service.get_cashbox(
+            {"cashbox_id": source_cashbox["id"], "transaction_limit": 10}
+        )["cashbox"]
 
         cancelled = self.service.cancel_cash_transaction(
             {
                 "cashbox_id": target_cashbox["id"],
                 "transaction_id": transferred["target_transaction"]["id"],
                 "reason": "Перемещение выбрано ошибочно",
+                "expected_related_cashbox_updated_at": source_current["updated_at"],
                 "actor_name": "ADMIN",
             }
         )
@@ -5584,6 +6120,104 @@ class CardServiceTests(unittest.TestCase):
         self.assertIn(transferred["target_transaction"]["id"], journal_ids)
         self.assertIn(cancelled["cancellation_transaction"]["id"], journal_ids)
         self.assertIn(cancelled["related_cancellation_transaction"]["id"], journal_ids)
+
+    def test_cancel_synthetic_transfer_accepts_generated_notes_and_checks_both_cashboxes(
+        self,
+    ) -> None:
+        run_id = "AST-GWAT-20260728T165722Z"
+        source_cashbox = self.service.create_cashbox(
+            {"name": f"{run_id}-cashbox-1", "actor_name": "CODEX"}
+        )["cashbox"]
+        target_cashbox = self.service.create_cashbox(
+            {"name": f"{run_id}-cashbox-2", "actor_name": "CODEX"}
+        )["cashbox"]
+        transferred = self.service.create_cashbox_transfer(
+            {
+                "from_cashbox_id": source_cashbox["id"],
+                "to_cashbox_id": target_cashbox["id"],
+                "amount_minor": 100,
+                "note": f"{run_id} synthetic transfer",
+                "expected_from_updated_at": source_cashbox["updated_at"],
+                "expected_to_updated_at": target_cashbox["updated_at"],
+                "actor_name": "codex-owner-agent",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )
+        source_current = self.service.get_cashbox(
+            {"cashbox_id": source_cashbox["id"], "transaction_limit": 10}
+        )["cashbox"]
+        target_current = self.service.get_cashbox(
+            {"cashbox_id": target_cashbox["id"], "transaction_limit": 10}
+        )["cashbox"]
+
+        cancelled = self.service.cancel_cash_transaction(
+            {
+                "cashbox_id": target_cashbox["id"],
+                "transaction_id": transferred["target_transaction"]["id"],
+                "reason": f"{run_id} transfer compensation",
+                "expected_cashbox_updated_at": target_current["updated_at"],
+                "expected_related_cashbox_updated_at": source_current["updated_at"],
+                "attestation_run_id": run_id,
+                "actor_name": "codex-owner-agent",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )
+
+        self.assertTrue(cancelled["meta"]["cancelled_pair"])
+        source_after = self.service.get_cashbox(
+            {"cashbox_id": source_cashbox["id"], "transaction_limit": 10}
+        )
+        target_after = self.service.get_cashbox(
+            {"cashbox_id": target_cashbox["id"], "transaction_limit": 10}
+        )
+        self.assertEqual(source_after["cashbox"]["statistics"]["balance_minor"], 0)
+        self.assertEqual(target_after["cashbox"]["statistics"]["balance_minor"], 0)
+
+        real_cashbox = self.service.create_cashbox(
+            {"name": "Рабочая касса", "actor_name": "ADMIN"}
+        )["cashbox"]
+        target_current = target_after["cashbox"]
+        unsafe_transfer = self.service.create_cashbox_transfer(
+            {
+                "from_cashbox_id": real_cashbox["id"],
+                "to_cashbox_id": target_cashbox["id"],
+                "amount_minor": 100,
+                "note": f"{run_id} must not cross scope",
+                "expected_from_updated_at": real_cashbox["updated_at"],
+                "expected_to_updated_at": target_current["updated_at"],
+                "actor_name": "codex-owner-agent",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )
+        real_current = self.service.get_cashbox(
+            {"cashbox_id": real_cashbox["id"], "transaction_limit": 10}
+        )["cashbox"]
+        target_current = self.service.get_cashbox(
+            {"cashbox_id": target_cashbox["id"], "transaction_limit": 10}
+        )["cashbox"]
+        with self.assertRaises(ServiceError) as blocked:
+            self.service.cancel_cash_transaction(
+                {
+                    "cashbox_id": target_cashbox["id"],
+                    "transaction_id": unsafe_transfer["target_transaction"]["id"],
+                    "reason": f"{run_id} blocked cross-scope compensation",
+                    "expected_cashbox_updated_at": target_current["updated_at"],
+                    "expected_related_cashbox_updated_at": real_current["updated_at"],
+                    "attestation_run_id": run_id,
+                    "actor_name": "codex-owner-agent",
+                    "source": "mcp_agent_gateway_v2",
+                }
+            )
+        self.assertEqual(
+            blocked.exception.code,
+            "cash_cancellation_attestation_scope_invalid",
+        )
+        self.assertEqual(
+            self.service.get_cashbox(
+                {"cashbox_id": target_cashbox["id"], "transaction_limit": 10}
+            )["cashbox"]["statistics"]["balance_minor"],
+            100,
+        )
 
     def test_manual_cash_transaction_cannot_impersonate_repair_order_payment(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
@@ -5681,6 +6315,74 @@ class CardServiceTests(unittest.TestCase):
         journal_ids = {item["id"] for item in journal["entries"]}
         self.assertIn(first["id"], journal_ids)
         self.assertIn(reversal["id"], journal_ids)
+
+    def test_cancel_synthetic_salary_transaction_requires_cashbox_revision(self) -> None:
+        run_id = "AST-GWAT-20260728T165722Z"
+        employee = self.service.save_employee(
+            {"name": f"{run_id}-employee", "salary_mode": "none"}
+        )["employee"]
+        cashbox = self.service.create_cashbox(
+            {"name": f"{run_id}-cashbox-1", "actor_name": "ADMIN"}
+        )["cashbox"]
+        salary = self.service.create_employee_salary_transaction(
+            {
+                "employee_id": employee["id"],
+                "transaction_kind": "salary_payout",
+                "amount_minor": 100,
+                "cashbox_id": cashbox["id"],
+                "note": f"{run_id} synthetic salary payout",
+                "expected_employee_updated_at": employee["updated_at"],
+                "expected_cashbox_updated_at": cashbox["updated_at"],
+                "attestation_run_id": run_id,
+                "source": "mcp_agent_gateway_v2",
+                "actor_name": "codex-owner-agent",
+            }
+        )["transaction"]
+        before = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+        )
+        payload = {
+            "cashbox_id": cashbox["id"],
+            "transaction_id": salary["id"],
+            "reason": f"{run_id} synthetic salary compensation",
+            "expected_cashbox_updated_at": before["cashbox"]["updated_at"],
+            "attestation_run_id": run_id,
+            "source": "mcp_agent_gateway_v2",
+            "actor_name": "codex-owner-agent",
+        }
+
+        with self.assertRaises(ServiceError) as conflict:
+            self.service.cancel_cash_transaction(
+                {
+                    **payload,
+                    "expected_cashbox_updated_at": "2000-01-01T00:00:00+00:00",
+                }
+            )
+        self.assertEqual(conflict.exception.code, "cashbox_update_conflict")
+        unchanged = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+        )
+        self.assertEqual(unchanged["cashbox"]["updated_at"], before["cashbox"]["updated_at"])
+
+        cancelled = self.service.cancel_cash_transaction(payload)
+        self.assertEqual(
+            cancelled["cancelled_transaction"]["transaction_kind"],
+            "cashbox_cancelled",
+        )
+        self.assertEqual(
+            cancelled["cancellation_transaction"]["related_transaction_id"],
+            salary["id"],
+        )
+        after = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+        )
+        self.assertEqual(after["cashbox"]["statistics"]["balance_minor"], 0)
+        ledger = self.service.get_employee_salary_ledger(
+            {"employee_id": employee["id"], "months": 1}
+        )
+        self.assertFalse(
+            any(item.get("transaction_id") == salary["id"] for item in ledger["journal_rows"])
+        )
 
     def test_cancel_cash_transaction_requires_reason_with_ten_visible_chars(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
@@ -5805,6 +6507,270 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(details["cashbox"]["statistics"]["balance_minor"], 100000)
         self.assertEqual(details["transactions"][0]["id"], first["id"])
 
+    def test_cancel_last_synthetic_transaction_requires_revision_and_exact_scope(self) -> None:
+        run_id = "AST-GWAT-20260728T165722Z"
+        cashbox = self.service.create_cashbox(
+            {"name": f"{run_id}-cashbox-2", "actor_name": "CODEX"}
+        )["cashbox"]
+        transaction = self.service.create_cash_transaction(
+            {
+                "cashbox_id": cashbox["id"],
+                "direction": "income",
+                "amount_minor": 100,
+                "note": f"{run_id} cancel-last fixture",
+                "actor_name": "CODEX",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )["transaction"]
+        current = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+        )["cashbox"]
+
+        with self.assertRaises(ServiceError) as stale:
+            self.service.cancel_last_cash_transaction(
+                {
+                    "cashbox_id": cashbox["id"],
+                    "transaction_id": transaction["id"],
+                    "expected_cashbox_updated_at": "2000-01-01T00:00:00+00:00",
+                    "attestation_run_id": run_id,
+                    "actor_name": "CODEX",
+                    "source": "mcp_agent_gateway_v2",
+                }
+            )
+        self.assertEqual(stale.exception.code, "cashbox_update_conflict")
+
+        with self.assertRaises(ServiceError) as missing:
+            self.service.cancel_last_cash_transaction(
+                {
+                    "cashbox_id": cashbox["id"],
+                    "transaction_id": "missing-synthetic-transaction",
+                    "expected_cashbox_updated_at": current["updated_at"],
+                    "attestation_run_id": run_id,
+                    "actor_name": "CODEX",
+                    "source": "mcp_agent_gateway_v2",
+                }
+            )
+        self.assertEqual(missing.exception.code, "not_found")
+
+        cancelled = self.service.cancel_last_cash_transaction(
+            {
+                "cashbox_id": cashbox["id"],
+                "transaction_id": transaction["id"],
+                "expected_cashbox_updated_at": current["updated_at"],
+                "attestation_run_id": run_id,
+                "actor_name": "CODEX",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )
+        self.assertEqual(cancelled["cancelled_transaction"]["id"], transaction["id"])
+        reread = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+        )
+        self.assertEqual(reread["transactions"], [])
+        self.assertEqual(reread["cashbox"]["statistics"]["balance_minor"], 0)
+        self.assertNotEqual(reread["cashbox"]["updated_at"], current["updated_at"])
+
+    def test_delete_synthetic_cashbox_requires_zero_balance_and_exact_journal(self) -> None:
+        run_id = "AST-GWAT-20260728T165722Z"
+        cashbox = self.service.create_cashbox(
+            {"name": f"{run_id}-cashbox-delete", "actor_name": "CODEX"}
+        )["cashbox"]
+        transaction = self.service.create_cash_transaction(
+            {
+                "cashbox_id": cashbox["id"],
+                "direction": "income",
+                "amount_minor": 100,
+                "note": f"{run_id} delete fixture",
+                "actor_name": "CODEX",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )["transaction"]
+        nonzero = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+        )
+        with self.assertRaises(ServiceError) as blocked:
+            self.service.delete_cashbox(
+                {
+                    "cashbox_id": cashbox["id"],
+                    "expected_cashbox_updated_at": nonzero["cashbox"]["updated_at"],
+                    "expected_transaction_ids": [transaction["id"]],
+                    "attestation_run_id": run_id,
+                    "actor_name": "CODEX",
+                    "source": "mcp_agent_gateway_v2",
+                }
+            )
+        self.assertEqual(blocked.exception.code, "cashbox_attestation_balance_not_zero")
+
+        self.service.cancel_cash_transaction(
+            {
+                "cashbox_id": cashbox["id"],
+                "transaction_id": transaction["id"],
+                "reason": f"{run_id} delete compensation",
+                "expected_cashbox_updated_at": nonzero["cashbox"]["updated_at"],
+                "attestation_run_id": run_id,
+                "actor_name": "CODEX",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )
+        current = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+        )
+        transaction_ids = [item["id"] for item in current["transactions"]]
+        deleted = self.service.delete_cashbox(
+            {
+                "cashbox_id": cashbox["id"],
+                "expected_cashbox_updated_at": current["cashbox"]["updated_at"],
+                "expected_transaction_ids": transaction_ids,
+                "attestation_run_id": run_id,
+                "actor_name": "CODEX",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )
+        self.assertTrue(deleted["meta"]["deleted"])
+        self.assertTrue(deleted["meta"]["attestation_cleanup"])
+        self.assertEqual(deleted["meta"]["removed_transactions"], 2)
+        with self.assertRaises(ServiceError) as missing:
+            self.service.get_cashbox(
+                {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+            )
+        self.assertEqual(missing.exception.code, "not_found")
+
+    def test_delete_gateway_attestation_payment_fixture_restores_baseline(
+        self,
+    ) -> None:
+        run_id = "AST-GWAT-20260728T165722Z"
+        cashbox = self.service.create_cashbox(
+            {"name": "Рабочая касса", "actor_name": "ADMIN"}
+        )["cashbox"]
+        unrelated = self.service.create_cash_transaction(
+            {
+                "cashbox_id": cashbox["id"],
+                "direction": "income",
+                "amount_minor": 500,
+                "note": "Обычное тестовое движение",
+                "actor_name": "ADMIN",
+            }
+        )["transaction"]
+        card = self.service.create_card(
+            {
+                "vehicle": "SYNTHETIC",
+                "title": f"{run_id}-payment-cleanup",
+                "deadline": {"hours": 2},
+            }
+        )["card"]
+        card = self.service.update_card(
+            {
+                "card_id": card["id"],
+                "repair_order": {
+                    "works": [
+                        {
+                            "name": f"{run_id} synthetic work",
+                            "quantity": "1",
+                            "price": "1",
+                        }
+                    ],
+                    "payments": [
+                        {
+                            "amount": "1",
+                            "paid_at": "28.07.2026 12:00",
+                            "note": f"{run_id} synthetic payment",
+                            "payment_method": "cash",
+                            "cashbox_id": cashbox["id"],
+                            "actor_name": "CODEX",
+                        }
+                    ],
+                },
+                "actor_name": "CODEX",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )["card"]
+        payment = card["repair_order"]["payments"][0]
+        compensation_source = self.service.create_cash_transaction(
+            {
+                "cashbox_id": cashbox["id"],
+                "direction": "income",
+                "amount_minor": 100,
+                "note": f"{run_id} compensation source",
+                "actor_name": "CODEX",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )["transaction"]
+        cashbox_before_cancel = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 20}
+        )["cashbox"]
+        self.service.cancel_cash_transaction(
+            {
+                "cashbox_id": cashbox["id"],
+                "transaction_id": compensation_source["id"],
+                "reason": f"{run_id} compensation cancellation",
+                "expected_cashbox_updated_at": cashbox_before_cancel["updated_at"],
+                "actor_name": "CODEX",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )
+        current_card = self.service.get_card({"card_id": card["id"]})["card"]
+        current_cashbox_response = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 20}
+        )
+        current_cashbox = current_cashbox_response["cashbox"]
+        target_transaction_ids = sorted(
+            item["id"]
+            for item in current_cashbox_response["transactions"]
+            if run_id in item.get("note", "")
+        )
+        self.assertEqual(len(target_transaction_ids), 3)
+        balance_before = current_cashbox["statistics"]["balance_minor"]
+
+        with self.assertRaises(ServiceError) as stale:
+            self.service.delete_gateway_attestation_payment_fixture(
+                {
+                    "card_id": card["id"],
+                    "payment_id": payment["id"],
+                    "expected_updated_at": "2000-01-01T00:00:00+00:00",
+                    "expected_cashbox_updated_at": current_cashbox["updated_at"],
+                    "expected_transaction_ids": target_transaction_ids,
+                    "attestation_run_id": run_id,
+                    "actor_name": "CODEX",
+                    "source": "mcp_agent_gateway_v2",
+                }
+            )
+        self.assertEqual(stale.exception.code, "card_update_conflict")
+
+        deleted = self.service.delete_gateway_attestation_payment_fixture(
+            {
+                "card_id": card["id"],
+                "payment_id": payment["id"],
+                "expected_updated_at": current_card["updated_at"],
+                "expected_cashbox_updated_at": current_cashbox["updated_at"],
+                "expected_transaction_ids": target_transaction_ids,
+                "attestation_run_id": run_id,
+                "actor_name": "CODEX",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )
+
+        self.assertTrue(deleted["meta"]["deleted"])
+        self.assertEqual(deleted["meta"]["removed_effect_minor"], 100)
+        self.assertEqual(
+            deleted["meta"]["balance_minor_before"]
+            - deleted["meta"]["balance_minor_after"],
+            100,
+        )
+        reread_card = self.service.get_card({"card_id": card["id"]})["card"]
+        self.assertEqual(reread_card["repair_order"]["works"], [])
+        self.assertEqual(reread_card["repair_order"]["materials"], [])
+        self.assertEqual(reread_card["repair_order"]["payments"], [])
+        reread_cashbox = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 20}
+        )
+        self.assertEqual(
+            reread_cashbox["cashbox"]["statistics"]["balance_minor"],
+            balance_before - 100,
+        )
+        remaining_ids = {item["id"] for item in reread_cashbox["transactions"]}
+        self.assertIn(unrelated["id"], remaining_ids)
+        self.assertTrue(set(target_transaction_ids).isdisjoint(remaining_ids))
+
     def test_cancel_last_cash_transaction_removes_linked_repair_order_payment(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Безналичный", "actor_name": "ADMIN"})[
             "cashbox"
@@ -5860,6 +6826,194 @@ class CardServiceTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "Нельзя создать больше 6 касс"):
             self.service.create_cashbox({"name": "Касса 7", "actor_name": "ADMIN"})
+
+    def test_cashbox_creation_rejects_stale_ordered_snapshot_without_write(self) -> None:
+        first = self.service.create_cashbox({"name": "Касса 1", "actor_name": "ADMIN"})["cashbox"]
+
+        with self.assertRaises(ServiceError) as conflict:
+            self.service.create_cashbox(
+                {
+                    "name": "Касса 2",
+                    "expected_cashbox_ids": [],
+                    "actor_name": "ADMIN",
+                }
+            )
+
+        self.assertEqual(conflict.exception.code, "cashbox_snapshot_conflict")
+        listed = self.service.list_cashboxes({"limit": 20})["cashboxes"]
+        self.assertEqual([item["id"] for item in listed], [first["id"]])
+
+    def test_gateway_attestation_cashboxes_have_two_strict_extra_slots(self) -> None:
+        for index in range(6):
+            self.service.create_cashbox({"name": f"Касса {index + 1}", "actor_name": "ADMIN"})
+        run_id = "AST-GWAT-20260728T165722Z"
+
+        for index in range(2):
+            cashboxes = self.service.list_cashboxes({"limit": 20})["cashboxes"]
+            created = self.service.create_cashbox(
+                {
+                    "name": f"{run_id}-cashbox-{index + 1}",
+                    "expected_cashbox_ids": [item["id"] for item in cashboxes],
+                    "attestation_run_id": run_id,
+                    "source": "mcp",
+                    "actor_name": "codex-owner-agent",
+                }
+            )
+            self.assertEqual(created["cashbox"]["order"], 6 + index)
+
+        cashboxes = self.service.list_cashboxes({"limit": 20})["cashboxes"]
+        with self.assertRaisesRegex(ValueError, "Нельзя создать больше 6 касс"):
+            self.service.create_cashbox(
+                {
+                    "name": f"{run_id}-cashbox-3",
+                    "expected_cashbox_ids": [item["id"] for item in cashboxes],
+                    "attestation_run_id": run_id,
+                    "source": "mcp",
+                    "actor_name": "codex-owner-agent",
+                }
+            )
+
+    def test_cash_transaction_rejects_zero_and_stale_cashbox_revision(self) -> None:
+        cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]
+        with self.assertRaises(ServiceError) as zero_amount:
+            self.service.create_cash_transaction(
+                {
+                    "cashbox_id": cashbox["id"],
+                    "direction": "income",
+                    "amount_minor": 0,
+                    "expected_updated_at": cashbox["updated_at"],
+                    "actor_name": "ADMIN",
+                }
+            )
+        self.assertEqual(zero_amount.exception.code, "validation_error")
+
+        with self.assertRaises(ServiceError) as stale:
+            self.service.create_cash_transaction(
+                {
+                    "cashbox_id": cashbox["id"],
+                    "direction": "income",
+                    "amount_minor": 100,
+                    "expected_updated_at": "2000-01-01T00:00:00+00:00",
+                    "actor_name": "ADMIN",
+                }
+            )
+        self.assertEqual(stale.exception.code, "cashbox_update_conflict")
+        reread = self.service.get_cashbox({"cashbox_id": cashbox["id"], "transaction_limit": 10})
+        self.assertEqual(reread["cashbox"]["updated_at"], cashbox["updated_at"])
+        self.assertEqual(reread["transactions"], [])
+
+    def test_repair_order_payment_rejects_stale_cashbox_revision_atomically(self) -> None:
+        cashbox = self.service.create_cashbox(
+            {"name": "Касса наличных оплат", "actor_name": "ADMIN"}
+        )["cashbox"]
+        card = self.service.create_card(
+            {"vehicle": "TEST", "title": "Оплата", "deadline": {"hours": 1}}
+        )["card"]
+        prepared = self.service.update_repair_order(
+            {
+                "card_id": card["id"],
+                "repair_order": {"works": [{"name": "Тест", "quantity": "1", "price": "1"}]},
+                "expected_updated_at": card["updated_at"],
+                "actor_name": "ADMIN",
+            }
+        )["card"]
+
+        with self.assertRaises(ServiceError) as stale:
+            self.service.update_repair_order(
+                {
+                    "card_id": card["id"],
+                    "repair_order": {
+                        "payments": [
+                            {
+                                "amount": "1",
+                                "payment_method": "cash",
+                                "cashbox_id": cashbox["id"],
+                            }
+                        ]
+                    },
+                    "expected_updated_at": prepared["updated_at"],
+                    "expected_cashbox_id": cashbox["id"],
+                    "expected_cashbox_updated_at": "2000-01-01T00:00:00+00:00",
+                    "actor_name": "ADMIN",
+                }
+            )
+
+        self.assertEqual(stale.exception.code, "cashbox_update_conflict")
+        reread = self.service.get_repair_order({"card_id": card["id"]})
+        self.assertEqual(reread["repair_order"]["payments"], [])
+        cashbox_reread = self.service.get_cashbox(
+            {"cashbox_id": cashbox["id"], "transaction_limit": 10}
+        )
+        self.assertEqual(cashbox_reread["transactions"], [])
+
+    def test_gateway_attestation_payment_stays_in_exact_synthetic_cashbox(self) -> None:
+        run_id = "AST-GWAT-20260728T165722Z"
+        real_cashbox = self.service.create_cashbox(
+            {"name": "Касса наличных оплат", "actor_name": "ADMIN"}
+        )["cashbox"]
+        listed = self.service.list_cashboxes({"limit": 20})["cashboxes"]
+        synthetic_cashbox = self.service.create_cashbox(
+            {
+                "name": f"{run_id}-cashbox-1",
+                "expected_cashbox_ids": [item["id"] for item in listed],
+                "attestation_run_id": run_id,
+                "source": "mcp",
+                "actor_name": "codex-owner-agent",
+            }
+        )["cashbox"]
+        card = self.service.create_card(
+            {
+                "vehicle": "AutoStop Synthetic",
+                "title": f"{run_id} payment",
+                "deadline": {"hours": 1},
+            }
+        )["card"]
+        prepared = self.service.update_repair_order(
+            {
+                "card_id": card["id"],
+                "repair_order": {"works": [{"name": "Тест", "quantity": "1", "price": "1"}]},
+                "expected_updated_at": card["updated_at"],
+                "actor_name": "ADMIN",
+            }
+        )["card"]
+
+        paid = self.service.update_repair_order(
+            {
+                "card_id": card["id"],
+                "repair_order": {
+                    "payments": [
+                        {
+                            "amount": "1",
+                            "payment_method": "cash",
+                            "cashbox_id": synthetic_cashbox["id"],
+                            "note": f"{run_id} exact payment",
+                        }
+                    ]
+                },
+                "expected_updated_at": prepared["updated_at"],
+                "expected_cashbox_id": synthetic_cashbox["id"],
+                "expected_cashbox_updated_at": synthetic_cashbox["updated_at"],
+                "attestation_run_id": run_id,
+                "source": "mcp",
+                "actor_name": "codex-owner-agent",
+            }
+        )
+
+        payment = paid["repair_order"]["payments"][0]
+        self.assertEqual(payment["cashbox_id"], synthetic_cashbox["id"])
+        self.assertEqual(
+            self.service.get_cashbox({"cashbox_id": real_cashbox["id"], "transaction_limit": 10})[
+                "transactions"
+            ],
+            [],
+        )
+        synthetic_transactions = self.service.get_cashbox(
+            {"cashbox_id": synthetic_cashbox["id"], "transaction_limit": 10}
+        )["transactions"]
+        self.assertEqual(len(synthetic_transactions), 1)
+        self.assertEqual(synthetic_transactions[0]["amount_minor"], 100)
 
     def test_get_cashbox_paginates_transactions_with_stable_order(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
@@ -10227,6 +11381,73 @@ class CardServiceTests(unittest.TestCase):
         )
         self.assertEqual(employee["name"], "Удаленный сотрудник")
         self.assertFalse(employee["is_active"])
+
+    def test_finance_audit_attestation_restores_exact_detached_employee(self) -> None:
+        run_id = "AST-GWAT-20260728T165722Z"
+        cashbox = self.service.create_cashbox(
+            {"name": f"{run_id}-cashbox-1", "actor_name": "CODEX"}
+        )["cashbox"]
+        employee = self.service.save_employee(
+            {
+                "create_mode": True,
+                "name": f"{run_id}-audit-employee",
+                "is_active": True,
+                "salary_mode": "none",
+                "actor_name": "CODEX",
+            }
+        )["employee"]
+        salary = self.service.create_employee_salary_transaction(
+            {
+                "employee_id": employee["id"],
+                "transaction_kind": "salary_payout",
+                "amount_minor": 100,
+                "cashbox_id": cashbox["id"],
+                "note": f"{run_id} audit salary fixture",
+                "attestation_run_id": run_id,
+                "actor_name": "CODEX",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )["transaction"]
+
+        detached = self.service.delete_employee(
+            {
+                "employee_id": employee["id"],
+                "expected_updated_at": employee["updated_at"],
+                "attestation_run_id": run_id,
+                "attestation_detach_salary_transaction_id": salary["id"],
+                "actor_name": "CODEX",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )
+        self.assertTrue(detached["attestation_detach"])
+        audit = self.service.get_finance_audit()
+        issue = next(
+            item
+            for item in audit["issues"]
+            if item["code"] == "salary_transaction_missing_employee"
+            and item["cash_transaction_id"] == salary["id"]
+        )
+
+        applied = self.service.apply_finance_audit_safe_fixes(
+            {
+                "dry_run": False,
+                "issue_ids": [issue["id"]],
+                "expected_issue_ids": [item["id"] for item in audit["issues"]],
+                "attestation_run_id": run_id,
+                "actor_name": "CODEX",
+                "source": "mcp_agent_gateway_v2",
+            }
+        )
+
+        self.assertEqual(applied["meta"]["applied"], 1)
+        restored = next(
+            item
+            for item in self.service.list_employees()["employees"]
+            if item["id"] == employee["id"]
+        )
+        self.assertEqual(restored["name"], f"{run_id}-audit-employee")
+        self.assertFalse(restored["is_active"])
+        self.assertNotIn(issue["id"], {item["id"] for item in applied["issues"]})
 
     def test_finance_audit_reports_salary_transaction_with_wrong_direction(self) -> None:
         employee = self.service.save_employee({"name": "Мастер выплаты"})["employee"]

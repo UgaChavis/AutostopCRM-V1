@@ -22,13 +22,16 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from minimal_kanban.mcp.agent_gateway_support import _subset_matches
 from minimal_kanban.mcp.agent_gateway_v2 import register_agent_gateway_v2
+from minimal_kanban.mcp.gateway_contract import DEFAULT_CARD_FIELDS, FINANCE_VIRTUAL_OPERATIONS
 from minimal_kanban.mcp.oauth_provider import (
     OAUTH_AUDIT_ACTOR_HEADER,
     OAUTH_AUDIT_ASSERTION_HEADER,
     OwnerAccessToken,
     ProductionOAuthAuthorizationServerProvider,
 )
+from minimal_kanban.mcp.raw_gateway import verify_virtual_api_write_readback
 from minimal_kanban.mcp.server import create_mcp_server
 from minimal_kanban.mcp.store_gateway import (
     INTERNAL_ONLY_CAPABILITY_NAMES,
@@ -56,6 +59,7 @@ class FakeBoardApi:
     def __init__(self) -> None:
         self.raw_requests: list[dict] = []
         self.card_updated_at = "2026-07-11T00:00:00+00:00"
+        self.cashbox_updated_at = "2026-07-11T00:00:00+00:00"
         self.card_ai_state = {
             "ai_autofill_active": False,
             "ai_autofill_until": "",
@@ -66,8 +70,11 @@ class FakeBoardApi:
         }
         self.operator_activities: list[dict] = []
         self.repair_order_payments: list[dict] = []
+        self.repair_order_read_options: list[bool | None] = []
         self.cash_transactions: list[dict] = []
         self.manager_operations: list[dict] = []
+        self.created_clients: dict[str, dict] = {}
+        self.created_cards: dict[str, dict] = {}
 
     def get_board_context(self) -> dict:
         return {
@@ -115,6 +122,11 @@ class FakeBoardApi:
         return {"ok": True, "data": {"items": [{"id": "inventory-1", "name": "Filter"}]}}
 
     def get_card(self, card_id: str) -> dict:
+        if card_id in self.created_cards:
+            return {
+                "ok": True,
+                "data": {"card": dict(self.created_cards[card_id])},
+            }
         return {
             "ok": True,
             "data": {
@@ -124,6 +136,160 @@ class FakeBoardApi:
                     "updated_at": self.card_updated_at,
                     **self.card_ai_state,
                 }
+            },
+        }
+
+    def get_client(self, client_id: str, *, order_limit: int | None = None) -> dict:
+        del order_limit
+        client = self.created_clients.get(client_id)
+        if client is None:
+            return {"ok": False, "error": {"code": "not_found"}}
+        return {"ok": True, "data": {"client": dict(client)}}
+
+    def create_client(self, client: dict, *, actor_name: str | None = None) -> dict:
+        del actor_name
+        client_id = f"client-created-{len(self.created_clients) + 1}"
+        created = {
+            "id": client_id,
+            "client_type": "person",
+            "display_name": "",
+            "vehicles": [],
+            **dict(client),
+            "updated_at": "2026-07-28T20:00:00+00:00",
+        }
+        self.created_clients[client_id] = created
+        return {
+            "ok": True,
+            "data": {"client": dict(created), "meta": {"created": True}},
+        }
+
+    def create_card(
+        self,
+        *,
+        vehicle: str = "",
+        title: str,
+        description: str = "",
+        column: str | None = None,
+        tags: list[str | dict] | None = None,
+        deadline: dict | None = None,
+        vehicle_profile: dict | None = None,
+        actor_name: str | None = None,
+    ) -> dict:
+        del actor_name
+        card_id = f"card-created-{len(self.created_cards) + 1}"
+        created = {
+            "id": card_id,
+            "vehicle": vehicle,
+            "title": title,
+            "description": description,
+            "column": column or "inbox",
+            "tags": list(tags or []),
+            "deadline": dict(deadline or {}),
+            "vehicle_profile": dict(vehicle_profile or {}),
+            "client_id": "",
+            "client_vehicle_id": "",
+            "updated_at": "2026-07-28T20:01:00+00:00",
+        }
+        self.created_cards[card_id] = created
+        return {"ok": True, "data": {"card": dict(created)}}
+
+    def link_card_to_client(
+        self,
+        card_id: str,
+        client_id: str,
+        *,
+        expected_card_updated_at: str,
+        expected_client_updated_at: str,
+        client_vehicle_id: str | None = None,
+        create_vehicle_from_card: bool = False,
+        sync_vehicle_fields: bool = True,
+        sync_fields: bool = True,
+        overwrite_card_fields: bool = False,
+        actor_name: str | None = None,
+    ) -> dict:
+        del (
+            create_vehicle_from_card,
+            sync_vehicle_fields,
+            sync_fields,
+            overwrite_card_fields,
+            actor_name,
+        )
+        card = self.created_cards[card_id]
+        client = self.created_clients[client_id]
+        if card["updated_at"] != expected_card_updated_at:
+            return {"ok": False, "error": {"code": "card_update_conflict"}}
+        if client["updated_at"] != expected_client_updated_at:
+            return {"ok": False, "error": {"code": "client_update_conflict"}}
+        card["client_id"] = client_id
+        card["client_vehicle_id"] = client_vehicle_id or ""
+        card["updated_at"] = "2026-07-28T20:02:00+00:00"
+        return {
+            "ok": True,
+            "data": {
+                "card": dict(card),
+                "client": dict(client),
+                "meta": {"changed": True, "client_vehicle_id": card["client_vehicle_id"]},
+            },
+        }
+
+    def get_card_context(
+        self,
+        card_id: str,
+        *,
+        event_limit: int = 10,
+        include_repair_order_text: bool = False,
+    ) -> dict:
+        del event_limit, include_repair_order_text
+        return {
+            "ok": True,
+            "data": {
+                "card": {
+                    "id": card_id,
+                    "title": "Task",
+                    "updated_at": self.card_updated_at,
+                    "repair_order": {
+                        "materials": [
+                            {
+                                "name": "Synthetic material",
+                                "inventory_item_id": "inventory-1",
+                                "inventory_movement_id": "movement-1",
+                            }
+                        ]
+                    },
+                }
+            },
+        }
+
+    def get_shared_file_info(self, file_id: str) -> dict:
+        if file_id == "missing-file":
+            return {
+                "ok": False,
+                "error": {
+                    "code": "not_found",
+                    "message": "private backend error text",
+                    "details": {"file_id": file_id},
+                },
+            }
+        return {
+            "ok": True,
+            "data": {
+                "file": {
+                    "id": file_id,
+                    "original_name": "fixture.pdf",
+                    "updated_at": "2026-07-28T18:00:00+00:00",
+                    "size_bytes": 42,
+                    "exists_on_disk": True,
+                }
+            },
+        }
+
+    def create_document_without_card_pdf(self, **_: object) -> dict:
+        return {
+            "ok": True,
+            "data": {
+                "file_name": "synthetic.pdf",
+                "mime_type": "application/pdf",
+                "pdf_base64": base64.b64encode(b"%PDF-synthetic").decode("ascii"),
             },
         }
 
@@ -150,7 +316,8 @@ class FakeBoardApi:
             },
         }
 
-    def get_repair_order(self, card_id: str) -> dict:
+    def get_repair_order(self, card_id: str, *, create_if_missing: bool | None = None) -> dict:
+        self.repair_order_read_options.append(create_if_missing)
         return {
             "ok": True,
             "data": {
@@ -177,6 +344,7 @@ class FakeBoardApi:
                 "cashbox": {
                     "id": cashbox_id,
                     "name": "Наличный",
+                    "updated_at": self.cashbox_updated_at,
                     "transactions": [dict(item) for item in self.cash_transactions],
                 }
             },
@@ -188,11 +356,18 @@ class FakeBoardApi:
         card_id: str,
         repair_order: dict,
         expected_updated_at: str | None = None,
+        expected_cashbox_id: str | None = None,
+        expected_cashbox_updated_at: str | None = None,
+        attestation_run_id: str | None = None,
         actor_name: str | None = None,
     ) -> dict:
-        del actor_name
+        del actor_name, attestation_run_id
         if expected_updated_at != self.card_updated_at:
             return {"ok": False, "error": {"code": "card_update_conflict"}}
+        if expected_cashbox_id != "cashbox-main":
+            return {"ok": False, "error": {"code": "cashbox_not_found"}}
+        if expected_cashbox_updated_at != self.cashbox_updated_at:
+            return {"ok": False, "error": {"code": "cashbox_update_conflict"}}
         self.repair_order_payments = [dict(item) for item in repair_order.get("payments", [])]
         payment = self.repair_order_payments[-1]
         transaction_id = "cash-transaction-payment-1"
@@ -205,6 +380,7 @@ class FakeBoardApi:
             }
         )
         self.card_updated_at = "2026-07-11T00:01:00+00:00"
+        self.cashbox_updated_at = "2026-07-11T00:01:00+00:00"
         return {
             "ok": True,
             "data": {
@@ -1071,6 +1247,31 @@ def register_fake_store_manager_tools(server, logger, state: dict) -> None:
 
 
 class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsyncioTestCase):
+    def test_subset_verification_allows_normalized_fields_inside_order_rows(self) -> None:
+        expected = {
+            "works": [
+                {
+                    "name": "Synthetic",
+                    "quantity": "1",
+                    "price": "1",
+                }
+            ]
+        }
+        actual = {
+            "works": [
+                {
+                    "name": "Synthetic",
+                    "quantity": "1",
+                    "price": "1",
+                    "total": "1",
+                    "catalog_number": "",
+                }
+            ]
+        }
+
+        self.assertTrue(_subset_matches(expected, actual))
+        self.assertFalse(_subset_matches(expected, {"works": [*actual["works"], {}]}))
+
     def setUp(self) -> None:
         self.logger = logging.getLogger(self._testMethodName)
         self.logger.addHandler(logging.NullHandler())
@@ -1091,6 +1292,12 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
     def tearDown(self) -> None:
         self.manager_patch.stop()
         self.env.stop()
+
+    def test_delete_cashbox_uses_guarded_virtual_route(self) -> None:
+        self.assertEqual(
+            "/api/delete_cashbox",
+            FINANCE_VIRTUAL_OPERATIONS["delete_cashbox"],
+        )
 
     async def _call(self, name: str, arguments: dict | None = None):
         tool = self.server._tool_manager.get_tool(name)
@@ -1347,6 +1554,227 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
         self.assertEqual({"status": "IN_PROGRESS"}, search_call["filters"])
         self.assertEqual("opaque-search", search_call["cursor"])
 
+    async def test_full_crm_card_context_preserves_nested_repair_order_refs(self) -> None:
+        context = await self._call(
+            "agent_entity_context",
+            {"entity": "card", "entity_id": "card-1", "detail": "full"},
+        )
+
+        material = context.structuredContent["data"]["card"]["repair_order"]["materials"][0]
+        self.assertEqual("inventory-1", material["inventory_item_id"])
+        self.assertEqual("movement-1", material["inventory_movement_id"])
+        self.assertNotIn(
+            "<max-depth>",
+            json.dumps(context.structuredContent, ensure_ascii=False),
+        )
+
+    async def test_card_summary_context_redacts_private_nested_fields(self) -> None:
+        self.board_api.get_card = lambda card_id: {
+            "ok": True,
+            "data": {
+                "card": {
+                    "id": card_id,
+                    "short_id": "C-1",
+                    "vehicle": "Vehicle",
+                    "title": "Task",
+                    "column": "inbox",
+                    "column_label": "Inbox",
+                    "tags": [],
+                    "status": "ok",
+                    "indicator": "green",
+                    "remaining_seconds": 200_000,
+                    "deadline_timestamp": "2026-07-13T00:00:00+00:00",
+                    "client_id": "client-1",
+                    "board_summary": "Compact board fact",
+                    "updated_at": "2026-07-11T00:00:00+00:00",
+                    "description": "PRIVATE_DESCRIPTION_SENTINEL",
+                    "vehicle_profile": {"vin": "PRIVATE_VIN_SENTINEL"},
+                    "repair_order": {"paid_total": "PRIVATE_PAYMENT_SENTINEL"},
+                }
+            },
+        }
+
+        context = await self._call(
+            "agent_entity_context",
+            {"entity": "card", "entity_id": "card-1", "detail": "summary"},
+        )
+
+        card = context.structuredContent["data"]["card"]
+        serialized = json.dumps(context.structuredContent, ensure_ascii=False)
+        self.assertEqual(set(card), set(DEFAULT_CARD_FIELDS))
+        self.assertNotIn("PRIVATE_DESCRIPTION_SENTINEL", serialized)
+        self.assertNotIn("PRIVATE_VIN_SENTINEL", serialized)
+        self.assertNotIn("PRIVATE_PAYMENT_SENTINEL", serialized)
+
+    async def test_repair_order_entity_context_never_creates_a_missing_order(self) -> None:
+        context = await self._call(
+            "agent_entity_context",
+            {"entity": "repair_order", "entity_id": "card-1", "detail": "summary"},
+        )
+
+        self.assertTrue(context.structuredContent["ok"])
+        self.assertEqual([False], self.board_api.repair_order_read_options)
+
+    async def test_non_card_summary_contexts_redact_private_fields(self) -> None:
+        self.board_api.get_client = lambda client_id, *, order_limit: {
+            "ok": True,
+            "data": {
+                "client": {
+                    "id": client_id,
+                    "short_id": "CL-1",
+                    "client_type": "person",
+                    "updated_at": "2026-07-11T00:00:00+00:00",
+                    "phone": "PRIVATE_CLIENT_PHONE_SENTINEL",
+                    "email": "PRIVATE_CLIENT_EMAIL_SENTINEL",
+                },
+                "vehicles": [{"vin": "PRIVATE_CLIENT_VIN_SENTINEL"}],
+                "repair_orders": [{"paid_total": "PRIVATE_CLIENT_PAYMENT_SENTINEL"}],
+                "meta": {"vehicles_total": 1, "repair_orders_total": 1},
+            },
+        }
+        self.board_api.get_repair_order = lambda card_id, *, create_if_missing: {
+            "ok": True,
+            "data": {
+                "card": {
+                    "id": card_id,
+                    "short_id": "C-1",
+                    "updated_at": "2026-07-11T00:00:00+00:00",
+                    "description": "PRIVATE_CARD_DESCRIPTION_SENTINEL",
+                },
+                "repair_order": {
+                    "number": "42",
+                    "status": "open",
+                    "opened_at": "2026-07-11T00:00:00+00:00",
+                    "closed_at": "",
+                    "phone": "PRIVATE_ORDER_PHONE_SENTINEL",
+                    "paid_total": "PRIVATE_ORDER_PAYMENT_SENTINEL",
+                },
+            },
+        }
+        self.board_api.get_cashbox = lambda cashbox_id, *, transaction_limit: {
+            "ok": True,
+            "data": {
+                "cashbox": {
+                    "id": cashbox_id,
+                    "short_id": "CB-1",
+                    "name": "Cashbox",
+                    "updated_at": "2026-07-11T00:00:00+00:00",
+                    "statistics": {"balance_minor": "PRIVATE_CASHBOX_BALANCE_SENTINEL"},
+                },
+                "transactions": [{"amount_minor": "PRIVATE_TRANSACTION_SENTINEL"}],
+            },
+        }
+        self.board_api.get_inventory_item = lambda item_id: {
+            "ok": True,
+            "data": {
+                "item": {
+                    "id": item_id,
+                    "short_id": "WH-1",
+                    "name": "Item",
+                    "catalog_number": "Catalog",
+                    "unit": "pcs",
+                    "quantity": "1",
+                    "updated_at": "2026-07-11T00:00:00+00:00",
+                    "cost_price": "PRIVATE_COST_SENTINEL",
+                    "sale_price": "PRIVATE_SALE_SENTINEL",
+                },
+                "movements": [{"note": "PRIVATE_MOVEMENT_SENTINEL"}],
+            },
+        }
+        self.board_api.get_shared_file_info = lambda file_id: {
+            "ok": True,
+            "data": {
+                "file": {
+                    "id": file_id,
+                    "extension": ".pdf",
+                    "mime_type": "application/pdf",
+                    "size_bytes": 42,
+                    "updated_at": "2026-07-11T00:00:00+00:00",
+                    "exists_on_disk": True,
+                    "original_name": "PRIVATE_FILE_NAME_SENTINEL",
+                    "stored_name": "PRIVATE_STORED_NAME_SENTINEL",
+                },
+                "storage": {"path": "PRIVATE_STORAGE_PATH_SENTINEL"},
+            },
+        }
+
+        expected = {
+            "client": {
+                "client": {
+                    "id": "client-1",
+                    "short_id": "CL-1",
+                    "client_type": "person",
+                    "updated_at": "2026-07-11T00:00:00+00:00",
+                },
+                "meta": {"vehicles_total": 1, "repair_orders_total": 1},
+            },
+            "repair_order": {
+                "card": {
+                    "id": "repair_order-1",
+                    "short_id": "C-1",
+                    "updated_at": "2026-07-11T00:00:00+00:00",
+                },
+                "repair_order": {
+                    "number": "42",
+                    "status": "open",
+                    "opened_at": "2026-07-11T00:00:00+00:00",
+                    "closed_at": "",
+                },
+            },
+            "cashbox": {
+                "cashbox": {
+                    "id": "cashbox-1",
+                    "short_id": "CB-1",
+                    "name": "Cashbox",
+                    "updated_at": "2026-07-11T00:00:00+00:00",
+                }
+            },
+            "inventory": {
+                "item": {
+                    "id": "inventory-1",
+                    "short_id": "WH-1",
+                    "name": "Item",
+                    "catalog_number": "Catalog",
+                    "unit": "pcs",
+                    "quantity": "1",
+                    "updated_at": "2026-07-11T00:00:00+00:00",
+                }
+            },
+            "file": {
+                "file": {
+                    "id": "file-1",
+                    "extension": ".pdf",
+                    "mime_type": "application/pdf",
+                    "size_bytes": 42,
+                    "updated_at": "2026-07-11T00:00:00+00:00",
+                    "exists_on_disk": True,
+                }
+            },
+        }
+
+        for entity, data in expected.items():
+            with self.subTest(entity=entity):
+                context = await self._call(
+                    "agent_entity_context",
+                    {"entity": entity, "entity_id": f"{entity}-1", "detail": "summary"},
+                )
+                serialized = json.dumps(context.structuredContent, ensure_ascii=False)
+                self.assertEqual(data, context.structuredContent["data"])
+                self.assertNotIn("PRIVATE_", serialized)
+
+    async def test_entity_context_exposes_only_structured_backend_error_code(self) -> None:
+        context = await self._call(
+            "agent_entity_context",
+            {"entity": "file", "entity_id": "missing-file", "detail": "full"},
+        )
+
+        self.assertFalse(context.structuredContent["ok"])
+        self.assertEqual(["not_found"], context.structuredContent["warnings"])
+        self.assertNotIn(
+            "private backend error text",
+            json.dumps(context.structuredContent, ensure_ascii=False),
+        )
+
     async def test_store_vin_photo_preview_uses_existing_document_tool_and_never_leaks_base64(
         self,
     ) -> None:
@@ -1384,6 +1812,62 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
             {"quote_request_id": "quote-1", "expected_photo_sha256": "a" * 64},
             preview_call[1],
         )
+
+    async def test_document_binary_requires_explicit_large_output(self) -> None:
+        server, _state = self._create_store_server()
+        document = server._tool_manager.get_tool("agent_document_workflow")
+        payload = {
+            "request_text": "Synthetic repair order PDF",
+            "document_type": "repair_order",
+        }
+
+        compact = await document.run(
+            {
+                "operation": "create_document_without_card_pdf",
+                "payload": payload,
+                "idempotency_key": "document-binary-compact",
+                "allow_large_output": False,
+            },
+            convert_result=False,
+        )
+        explicit = await document.run(
+            {
+                "operation": "create_document_without_card_pdf",
+                "payload": payload,
+                "idempotency_key": "document-binary-explicit",
+                "allow_large_output": True,
+            },
+            convert_result=False,
+        )
+
+        self.assertTrue(compact.structuredContent["ok"])
+        self.assertNotIn("pdf_base64", json.dumps(compact.structuredContent))
+        self.assertTrue(explicit.structuredContent["ok"])
+        self.assertIn("pdf_base64", json.dumps(explicit.structuredContent))
+
+    async def test_document_delete_requires_exact_file_revision_before_ledger(self) -> None:
+        server, state = self._create_store_server()
+        document = server._tool_manager.get_tool("agent_document_workflow")
+
+        result = await document.run(
+            {
+                "operation": "delete_shared_file",
+                "payload": {"file_id": "file-1"},
+                "idempotency_key": "delete-file-missing-revision",
+            },
+            convert_result=False,
+        )
+
+        self.assertFalse(result.structuredContent["ok"])
+        self.assertEqual(
+            ["expected_updated_at"],
+            result.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertIn(
+            "shared_file_expected_revision_required_reread_exact_file_first",
+            result.structuredContent["warnings"],
+        )
+        self.assertFalse(any(name == "start_workflow" for name, _ in state["calls"]))
 
     async def test_store_outage_degrades_store_without_breaking_crm(self) -> None:
         server, state = self._create_store_server({"store_available": False})
@@ -2164,6 +2648,47 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
         self.assertEqual("apply", result.structuredContent["summary"]["mode"])
         self.assertFalse(any(name == "store_management_action" for name, _ in state["calls"]))
 
+    async def test_crm_inventory_writes_require_exact_item_and_card_revisions(self) -> None:
+        server, state = self._create_store_server()
+        tool = server._tool_manager.get_tool("agent_inventory_workflow")
+
+        missing_item_revision = await tool.run(
+            {
+                "operation": "replenish_inventory_item",
+                "payload": {"item_id": "inventory-1", "quantity": "1"},
+                "idempotency_key": "inventory-replenish-missing-revision",
+            },
+            convert_result=False,
+        )
+        missing_card_revisions = await tool.run(
+            {
+                "operation": "write_off_inventory_item",
+                "payload": {
+                    "item_id": "inventory-1",
+                    "quantity": "1",
+                    "expected_updated_at": "item-revision-1",
+                },
+                "idempotency_key": "inventory-write-off-missing-revisions",
+            },
+            convert_result=False,
+        )
+
+        self.assertFalse(missing_item_revision.structuredContent["ok"])
+        self.assertEqual(
+            ["expected_updated_at"],
+            missing_item_revision.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertFalse(missing_card_revisions.structuredContent["ok"])
+        self.assertEqual(
+            ["card_id", "expected_card_updated_at"],
+            missing_card_revisions.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertIn(
+            "inventory_expected_revisions_required_reread_exact_targets_first",
+            missing_card_revisions.structuredContent["warnings"],
+        )
+        self.assertFalse(any(name == "start_workflow" for name, _ in state["calls"]))
+
     async def test_board_digest_is_paginated_and_omits_ui_fields(self) -> None:
         result = await self._call("agent_board_digest", {"limit": 2})
         payload = result.structuredContent
@@ -2371,6 +2896,109 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
             rejected.structuredContent["warnings"],
         )
 
+    async def test_manager_raw_client_card_link_writes_use_exact_readback(self) -> None:
+        server, state = self._create_store_server()
+
+        async def capability(name: str) -> dict:
+            discovered = await server._tool_manager.get_tool(
+                "discover_raw_capabilities"
+            ).run({"query": name, "limit": 10}, convert_result=False)
+            return next(
+                item
+                for item in discovered.structuredContent["data"]["capabilities"]
+                if item["name"] == name
+            )
+
+        async def raw_call(
+            name: str,
+            arguments: dict,
+            idempotency_key: str,
+        ):
+            selected = await capability(name)
+            return await server._tool_manager.get_tool("call_raw_capability").run(
+                {
+                    "name": name,
+                    "arguments": arguments,
+                    "schema_hash": selected["schema_hash"],
+                    "idempotency_key": idempotency_key,
+                },
+                convert_result=False,
+            )
+
+        missing_revisions = await raw_call(
+            "link_card_to_client",
+            {"card_id": "card-created-1", "client_id": "client-created-1"},
+            "raw-link-missing-revisions",
+        )
+        self.assertFalse(missing_revisions.structuredContent["ok"])
+        self.assertEqual(
+            [
+                "expected_card_updated_at",
+                "expected_client_updated_at",
+            ],
+            missing_revisions.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertFalse(
+            any(
+                name == "start_workflow"
+                and arguments["idempotency_key"] == "raw-link-missing-revisions"
+                for name, arguments in state["calls"]
+            )
+        )
+
+        created_client = await raw_call(
+            "create_client",
+            {
+                "client": {
+                    "display_name": "AST-GWAT synthetic client",
+                    "comment": "AST-GWAT exact readback",
+                }
+            },
+            "raw-create-client-exact",
+        )
+        self.assertTrue(created_client.structuredContent["ok"])
+        self.assertEqual(
+            "exact_created_client_readback",
+            created_client.structuredContent["verification"]["check"],
+        )
+        client = created_client.structuredContent["data"]["data"]["client"]
+
+        created_card = await raw_call(
+            "create_card",
+            {
+                "title": "AST-GWAT synthetic card",
+                "vehicle": "AutoStop Synthetic",
+                "description": "AST-GWAT exact readback",
+            },
+            "raw-create-card-exact",
+        )
+        self.assertTrue(created_card.structuredContent["ok"])
+        self.assertEqual(
+            "exact_created_card_readback",
+            created_card.structuredContent["verification"]["check"],
+        )
+        card = created_card.structuredContent["data"]["data"]["card"]
+
+        linked = await raw_call(
+            "link_card_to_client",
+            {
+                "card_id": card["id"],
+                "client_id": client["id"],
+                "expected_card_updated_at": card["updated_at"],
+                "expected_client_updated_at": client["updated_at"],
+                "sync_fields": False,
+            },
+            "raw-link-card-client-exact",
+        )
+        self.assertTrue(linked.structuredContent["ok"])
+        self.assertEqual(
+            "exact_card_client_link_readback",
+            linked.structuredContent["verification"]["check"],
+        )
+        self.assertTrue(
+            linked.structuredContent["verification"]["evidence"]["card_link_exact"]
+        )
+
     async def test_raw_write_fails_closed_when_durable_manager_ledger_is_missing(self) -> None:
         discovered = await self._call(
             "discover_raw_capabilities", {"query": "api:/api/create_cashbox_transfer"}
@@ -2411,6 +3039,485 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
             "expected_updated_at_required_reread_exact_card_first",
             rejected.structuredContent["warnings"],
         )
+
+    async def test_finance_cashbox_create_requires_exact_ordered_snapshot_before_ledger(
+        self,
+    ) -> None:
+        rejected = await self._call(
+            "agent_finance_workflow",
+            {
+                "operation": "create_cashbox",
+                "payload": {"name": "AST-GWAT-fixture"},
+                "idempotency_key": "create-cashbox-without-snapshot",
+            },
+        )
+
+        self.assertFalse(rejected.structuredContent["ok"])
+        self.assertEqual(
+            ["expected_cashbox_ids"],
+            rejected.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertIn(
+            "cashbox_snapshot_required_reread_exact_list_first",
+            rejected.structuredContent["warnings"],
+        )
+
+    async def test_finance_cash_transaction_requires_cashbox_revision_before_ledger(
+        self,
+    ) -> None:
+        rejected = await self._call(
+            "agent_finance_workflow",
+            {
+                "operation": "create_cash_transaction",
+                "payload": {
+                    "cashbox_id": "cashbox-main",
+                    "direction": "income",
+                    "amount_minor": 100,
+                },
+                "idempotency_key": "cash-transaction-without-revision",
+            },
+        )
+
+        self.assertFalse(rejected.structuredContent["ok"])
+        self.assertEqual(
+            ["expected_updated_at"],
+            rejected.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertIn(
+            "cashbox_expected_revision_required_reread_exact_cashbox_first",
+            rejected.structuredContent["warnings"],
+        )
+
+    async def test_finance_cashbox_transfer_requires_both_revisions_before_ledger(
+        self,
+    ) -> None:
+        rejected = await self._call(
+            "agent_finance_workflow",
+            {
+                "operation": "create_cashbox_transfer",
+                "payload": {
+                    "from_cashbox_id": "cashbox-1",
+                    "to_cashbox_id": "cashbox-2",
+                    "amount_minor": 100,
+                },
+                "idempotency_key": "cashbox-transfer-without-revisions",
+            },
+        )
+
+        self.assertFalse(rejected.structuredContent["ok"])
+        self.assertEqual(
+            ["expected_from_updated_at", "expected_to_updated_at"],
+            rejected.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertIn(
+            "cashbox_transfer_expected_revisions_required_reread_exact_cashboxes_first",
+            rejected.structuredContent["warnings"],
+        )
+
+    async def test_finance_payment_requires_card_and_cashbox_revisions_before_ledger(
+        self,
+    ) -> None:
+        rejected = await self._call(
+            "agent_finance_workflow",
+            {
+                "operation": "record_repair_order_payment",
+                "payload": {
+                    "card_id": "card-1",
+                    "cashbox_id": "cashbox-main",
+                    "amount_minor": 100,
+                    "payment_method": "cash",
+                    "expected_updated_at": "2026-07-11T00:00:00+00:00",
+                },
+                "idempotency_key": "payment-without-cashbox-revision",
+            },
+        )
+
+        self.assertFalse(rejected.structuredContent["ok"])
+        self.assertEqual(
+            ["expected_cashbox_updated_at"],
+            rejected.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertIn(
+            "payment_expected_revisions_required_reread_exact_targets_first",
+            rejected.structuredContent["warnings"],
+        )
+
+    async def test_finance_reorder_requires_ordered_cashbox_snapshot_before_ledger(
+        self,
+    ) -> None:
+        rejected = await self._call(
+            "agent_finance_workflow",
+            {
+                "operation": "reorder_cashboxes",
+                "payload": {
+                    "cashbox_id": "cashbox-2",
+                    "before_cashbox_id": "cashbox-1",
+                },
+                "idempotency_key": "reorder-without-snapshot",
+            },
+        )
+
+        self.assertFalse(rejected.structuredContent["ok"])
+        self.assertEqual(
+            ["expected_cashbox_ids"],
+            rejected.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertIn(
+            "cashbox_order_snapshot_required_reread_exact_list_first",
+            rejected.structuredContent["warnings"],
+        )
+
+    async def test_raw_cashbox_reorder_requires_ordered_snapshot_before_executor(
+        self,
+    ) -> None:
+        name = "api:/api/reorder_cashboxes"
+        schema = await self._call("get_raw_capability_schema", {"name": name})
+        before_count = len(self.board_api.raw_requests)
+        rejected = await self._call(
+            "call_raw_capability",
+            {
+                "name": name,
+                "arguments": {
+                    "cashbox_id": "cashbox-2",
+                    "before_cashbox_id": "cashbox-1",
+                },
+                "schema_hash": schema.structuredContent["summary"]["schema_hash"],
+                "idempotency_key": "raw-reorder-without-snapshot",
+            },
+        )
+
+        self.assertFalse(rejected.structuredContent["ok"])
+        self.assertIn(
+            "cashbox_order_snapshot_required_reread_exact_list_first",
+            rejected.structuredContent["warnings"],
+        )
+        self.assertEqual(before_count, len(self.board_api.raw_requests))
+
+    async def test_finance_salary_requires_employee_and_cashbox_revisions_before_ledger(
+        self,
+    ) -> None:
+        rejected = await self._call(
+            "agent_finance_workflow",
+            {
+                "operation": "create_employee_salary_transaction",
+                "payload": {
+                    "employee_id": "employee-1",
+                    "cashbox_id": "cashbox-1",
+                    "transaction_kind": "salary_payout",
+                    "amount_minor": 100,
+                },
+                "idempotency_key": "salary-without-revisions",
+            },
+        )
+
+        self.assertFalse(rejected.structuredContent["ok"])
+        self.assertEqual(
+            ["expected_cashbox_updated_at", "expected_employee_updated_at"],
+            rejected.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertIn(
+            "salary_transaction_expected_revisions_required_reread_exact_targets_first",
+            rejected.structuredContent["warnings"],
+        )
+
+    async def test_finance_shift_accrual_requires_employee_revision_before_ledger(
+        self,
+    ) -> None:
+        rejected = await self._call(
+            "agent_finance_workflow",
+            {
+                "operation": "create_employee_shift_accrual",
+                "payload": {
+                    "employee_id": "employee-1",
+                    "amount_minor": 100,
+                },
+                "idempotency_key": "shift-without-revision",
+            },
+        )
+
+        self.assertFalse(rejected.structuredContent["ok"])
+        self.assertEqual(
+            ["expected_employee_updated_at"],
+            rejected.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertIn(
+            "shift_accrual_expected_employee_revision_required_reread_exact_employee_first",
+            rejected.structuredContent["warnings"],
+        )
+
+    async def test_raw_attestation_cleanup_requires_exact_snapshots(self) -> None:
+        employee_schema = await self._call(
+            "get_raw_capability_schema",
+            {"name": "api:/api/delete_employee"},
+        )
+        payment_schema = await self._call(
+            "get_raw_capability_schema",
+            {"name": "api:/api/delete_gateway_attestation_payment_fixture"},
+        )
+        before_count = len(self.board_api.raw_requests)
+
+        employee_rejected = await self._call(
+            "call_raw_capability",
+            {
+                "name": "api:/api/delete_employee",
+                "arguments": {
+                    "employee_id": "employee-1",
+                    "attestation_cleanup_shift_accrual_ids": [],
+                },
+                "schema_hash": employee_schema.structuredContent["summary"][
+                    "schema_hash"
+                ],
+                "idempotency_key": "attestation-employee-cleanup-missing-snapshot",
+            },
+        )
+        payment_rejected = await self._call(
+            "call_raw_capability",
+            {
+                "name": "api:/api/delete_gateway_attestation_payment_fixture",
+                "arguments": {
+                    "card_id": "card-1",
+                    "payment_id": "payment-1",
+                },
+                "schema_hash": payment_schema.structuredContent["summary"][
+                    "schema_hash"
+                ],
+                "idempotency_key": "attestation-payment-cleanup-missing-snapshot",
+            },
+        )
+
+        self.assertFalse(employee_rejected.structuredContent["ok"])
+        self.assertIn(
+            "attestation_shift_cleanup_snapshot_required_reread_exact_employee_first",
+            employee_rejected.structuredContent["warnings"],
+        )
+        self.assertEqual(
+            [
+                "expected_updated_at",
+                "attestation_run_id",
+                "attestation_cleanup_shift_accrual_ids",
+            ],
+            employee_rejected.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertFalse(payment_rejected.structuredContent["ok"])
+        self.assertIn(
+            "attestation_payment_cleanup_snapshot_required_reread_exact_targets_first",
+            payment_rejected.structuredContent["warnings"],
+        )
+        self.assertEqual(before_count, len(self.board_api.raw_requests))
+
+    async def test_raw_attestation_cleanup_verifiers_require_exact_absence(
+        self,
+    ) -> None:
+        async def invoke(name: str, arguments: dict) -> dict:
+            if name == "api:/api/list_employees":
+                return {"ok": True, "data": {"employees": []}}
+            if name == "get_card":
+                return {
+                    "ok": True,
+                    "data": {
+                        "card": {
+                            "id": arguments["card_id"],
+                            "repair_order": {
+                                "works": [],
+                                "materials": [],
+                                "payments": [],
+                            },
+                        }
+                    },
+                }
+            if name == "get_cashbox":
+                return {
+                    "ok": True,
+                    "data": {
+                        "cashbox": {
+                            "id": arguments["cashbox_id"],
+                            "statistics": {"balance_minor": 500},
+                        },
+                        "transactions": [],
+                    },
+                }
+            raise AssertionError(name)
+
+        employee_verification = await verify_virtual_api_write_readback(
+            operation="api:/api/delete_employee",
+            arguments={
+                "employee_id": "employee-1",
+                "attestation_cleanup_shift_accrual_ids": ["accrual-1"],
+            },
+            result={
+                "ok": True,
+                "data": {
+                    "deleted": True,
+                    "attestation_shift_cleanup": True,
+                    "removed_shift_accrual_ids": ["accrual-1"],
+                },
+            },
+            invoke=invoke,
+        )
+        payment_verification = await verify_virtual_api_write_readback(
+            operation="api:/api/delete_gateway_attestation_payment_fixture",
+            arguments={
+                "card_id": "card-1",
+                "expected_transaction_ids": [
+                    "transaction-1",
+                    "transaction-2",
+                    "transaction-3",
+                ],
+            },
+            result={
+                "ok": True,
+                "data": {
+                    "meta": {
+                        "cashbox_id": "cashbox-1",
+                        "removed_transaction_ids": [
+                            "transaction-1",
+                            "transaction-2",
+                            "transaction-3",
+                        ],
+                        "removed_effect_minor": 100,
+                        "balance_minor_before": 600,
+                        "balance_minor_after": 500,
+                    }
+                },
+            },
+            invoke=invoke,
+        )
+
+        self.assertTrue(employee_verification["passed"])
+        self.assertTrue(employee_verification["evidence"]["shift_cleanup_exact"])
+        self.assertTrue(payment_verification["passed"])
+        self.assertTrue(payment_verification["evidence"]["balance_restored"])
+
+    async def test_finance_cash_cancellation_requires_cashbox_revision_before_ledger(
+        self,
+    ) -> None:
+        rejected = await self._call(
+            "agent_finance_workflow",
+            {
+                "operation": "cancel_cash_transaction",
+                "payload": {
+                    "cashbox_id": "cashbox-1",
+                    "transaction_id": "transaction-1",
+                    "reason": "Synthetic cancellation reason",
+                },
+                "idempotency_key": "cancel-without-revision",
+            },
+        )
+
+        self.assertFalse(rejected.structuredContent["ok"])
+        self.assertEqual(
+            ["expected_cashbox_updated_at"],
+            rejected.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertIn(
+            "cash_cancellation_expected_revision_required_reread_exact_cashbox_first",
+            rejected.structuredContent["warnings"],
+        )
+
+    async def test_finance_cancel_last_requires_cashbox_revision_before_executor(
+        self,
+    ) -> None:
+        before_count = len(self.board_api.raw_requests)
+        rejected = await self._call(
+            "agent_finance_workflow",
+            {
+                "operation": "cancel_last_cash_transaction",
+                "payload": {
+                    "cashbox_id": "cashbox-1",
+                    "transaction_id": "transaction-1",
+                },
+                "idempotency_key": "cancel-last-without-revision",
+            },
+        )
+
+        self.assertFalse(rejected.structuredContent["ok"])
+        self.assertEqual(
+            ["expected_cashbox_updated_at"],
+            rejected.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertIn(
+            "cancel_last_cash_transaction_expected_revision_required_reread_exact_cashbox_first",
+            rejected.structuredContent["warnings"],
+        )
+        self.assertEqual(before_count, len(self.board_api.raw_requests))
+
+    async def test_finance_audit_fix_requires_exact_issue_snapshot_before_executor(
+        self,
+    ) -> None:
+        before_count = len(self.board_api.raw_requests)
+        rejected = await self._call(
+            "agent_finance_workflow",
+            {
+                "operation": "apply_finance_audit_safe_fixes",
+                "payload": {
+                    "dry_run": False,
+                    "issue_ids": ["synthetic-issue"],
+                },
+                "idempotency_key": "audit-fix-without-snapshot",
+            },
+        )
+
+        self.assertFalse(rejected.structuredContent["ok"])
+        self.assertEqual(
+            ["expected_issue_ids"],
+            rejected.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertIn(
+            "finance_audit_issue_snapshot_required_reread_exact_audit_first",
+            rejected.structuredContent["warnings"],
+        )
+        self.assertEqual(before_count, len(self.board_api.raw_requests))
+
+    async def test_finance_delete_cashbox_requires_revision_and_journal_snapshot(
+        self,
+    ) -> None:
+        before_count = len(self.board_api.raw_requests)
+        rejected = await self._call(
+            "agent_finance_workflow",
+            {
+                "operation": "delete_cashbox",
+                "payload": {"cashbox_id": "cashbox-1"},
+                "idempotency_key": "delete-cashbox-without-snapshot",
+            },
+        )
+
+        self.assertFalse(rejected.structuredContent["ok"])
+        self.assertEqual(
+            ["expected_cashbox_updated_at", "expected_transaction_ids"],
+            rejected.structuredContent["summary"]["missing_fields"],
+        )
+        self.assertIn(
+            "cashbox_delete_snapshot_required_reread_exact_cashbox_first",
+            rejected.structuredContent["warnings"],
+        )
+        self.assertEqual(before_count, len(self.board_api.raw_requests))
+
+    async def test_raw_attestation_employee_requires_ordered_snapshot_before_executor(
+        self,
+    ) -> None:
+        name = "api:/api/save_employee"
+        schema = await self._call("get_raw_capability_schema", {"name": name})
+        before_count = len(self.board_api.raw_requests)
+        rejected = await self._call(
+            "call_raw_capability",
+            {
+                "name": name,
+                "arguments": {
+                    "create_mode": True,
+                    "name": "AST-GWAT-20260728T165722Z-employee",
+                    "attestation_run_id": "AST-GWAT-20260728T165722Z",
+                },
+                "schema_hash": schema.structuredContent["summary"]["schema_hash"],
+                "idempotency_key": "raw-save-employee-without-snapshot",
+            },
+        )
+
+        self.assertFalse(rejected.structuredContent["ok"])
+        self.assertIn(
+            "employee_snapshot_required_reread_exact_list_first",
+            rejected.structuredContent["warnings"],
+        )
+        self.assertEqual(before_count, len(self.board_api.raw_requests))
 
     async def test_virtual_raw_capability_covers_hidden_internal_crm_writes(self) -> None:
         discovered = await self._call(
@@ -2849,6 +3956,7 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
                     "amount": "1000",
                     "payment_method": "cash",
                     "expected_updated_at": "2026-07-11T00:00:00+00:00",
+                    "expected_cashbox_updated_at": "2026-07-11T00:00:00+00:00",
                     "note": "Полная оплата заказ-наряда 42",
                 },
                 "idempotency_key": "payment-card-1-full-v1",
@@ -2924,6 +4032,7 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
                     "amount": "1000",
                     "payment_method": "cash",
                     "expected_updated_at": "2026-07-11T00:00:00+00:00",
+                    "expected_cashbox_updated_at": "2026-07-11T00:00:00+00:00",
                 },
                 "idempotency_key": "payment-card-1-mismatch-v1",
             },

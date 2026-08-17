@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Mapping
 from decimal import Decimal
 from typing import Any, Literal
@@ -128,6 +129,58 @@ from .web_gateway import (
     invoke_web_research,
     web_research_argument_error,
 )
+
+_GATEWAY_ATTESTATION_RUN_RE = re.compile(r"^AST-GWAT-\d{8}T\d{6}Z$")
+_ENTITY_CONTEXT_SUMMARY_FIELDS = {
+    "card": DEFAULT_CARD_FIELDS,
+    "client": ("id", "short_id", "client_type", "updated_at"),
+    "cashbox": ("id", "short_id", "name", "updated_at"),
+    "inventory": (
+        "id",
+        "short_id",
+        "name",
+        "catalog_number",
+        "unit",
+        "quantity",
+        "updated_at",
+    ),
+    "file": ("id", "extension", "mime_type", "size_bytes", "updated_at", "exists_on_disk"),
+}
+_REPAIR_ORDER_CONTEXT_SUMMARY_FIELDS = ("number", "status", "opened_at", "closed_at")
+
+
+def _entity_context_summary(entity: str, data: Any) -> dict[str, Any]:
+    if not isinstance(data, Mapping):
+        return {}
+    if entity == "repair_order":
+        card = data.get("card")
+        repair_order = data.get("repair_order")
+        return {
+            "card": _slim_card(card, ("id", "short_id", "updated_at"))
+            if isinstance(card, Mapping)
+            else {},
+            "repair_order": _slim_card(repair_order, _REPAIR_ORDER_CONTEXT_SUMMARY_FIELDS)
+            if isinstance(repair_order, Mapping)
+            else {},
+        }
+    target_key = {
+        "card": "card",
+        "client": "client",
+        "cashbox": "cashbox",
+        "inventory": "item",
+        "file": "file",
+    }.get(entity)
+    if target_key is None:
+        return {}
+    target = data.get(target_key)
+    summary = {
+        target_key: _slim_card(target, _ENTITY_CONTEXT_SUMMARY_FIELDS[entity])
+        if isinstance(target, Mapping)
+        else {}
+    }
+    if entity == "client" and isinstance(data.get("meta"), Mapping):
+        summary["meta"] = _slim_card(data["meta"], ("vehicles_total", "repair_orders_total"))
+    return summary
 
 
 def _maintenance_release_smoke_headers(
@@ -453,6 +506,8 @@ def register_agent_gateway_v2(
         card_id = str(payload.get("card_id") or "").strip()
         cashbox_id = str(payload.get("cashbox_id") or "").strip()
         expected_updated_at = str(payload.get("expected_updated_at") or "").strip()
+        expected_cashbox_updated_at = str(payload.get("expected_cashbox_updated_at") or "").strip()
+        attestation_run_id = str(payload.get("attestation_run_id") or "").strip()
         payment_method = str(payload.get("payment_method") or "").strip().casefold()
         amount = _positive_decimal(payload.get("amount"))
         if amount is None and payload.get("amount_minor") is not None:
@@ -464,6 +519,7 @@ def register_agent_gateway_v2(
                 ("card_id", card_id),
                 ("cashbox_id", cashbox_id),
                 ("expected_updated_at", expected_updated_at),
+                ("expected_cashbox_updated_at", expected_cashbox_updated_at),
                 ("payment_method", payment_method),
                 ("amount", amount),
             )
@@ -508,6 +564,19 @@ def register_agent_gateway_v2(
         cashbox = (
             cashbox_data.get("cashbox") if isinstance(cashbox_data.get("cashbox"), dict) else {}
         )
+        if attestation_run_id and not (
+            _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
+            and str(card.get("title") or "").startswith(attestation_run_id)
+            and str(cashbox.get("name") or "").startswith(f"{attestation_run_id}-")
+            and str(payload.get("note") or "").startswith(attestation_run_id)
+        ):
+            return {
+                "ok": False,
+                "error": {
+                    "code": "payment_attestation_scope_invalid",
+                    "message": "attestation_card_cashbox_and_note_must_match_the_run",
+                },
+            }
         resolved_cashbox_method = repair_order_payment_method_from_cashbox_name(
             cashbox.get("name"),
             default=payment_method,
@@ -529,6 +598,18 @@ def register_agent_gateway_v2(
                 "error": {
                     "code": "payment_revision_conflict",
                     "message": "reread_the_repair_order_before_retry",
+                },
+            }
+        current_cashbox_updated_at = str(cashbox.get("updated_at") or "").strip()
+        if (
+            not current_cashbox_updated_at
+            or current_cashbox_updated_at != expected_cashbox_updated_at
+        ):
+            return {
+                "ok": False,
+                "error": {
+                    "code": "cashbox_update_conflict",
+                    "message": "reread_the_cashbox_before_retry",
                 },
             }
         payment_summary = (
@@ -577,6 +658,9 @@ def register_agent_gateway_v2(
                 "card_id": card_id,
                 "repair_order": {"payments": payments},
                 "expected_updated_at": expected_updated_at,
+                "expected_cashbox_id": cashbox_id,
+                "expected_cashbox_updated_at": expected_cashbox_updated_at,
+                "attestation_run_id": attestation_run_id,
                 "actor_name": _effective_audit_actor(),
             },
         )
@@ -595,6 +679,7 @@ def register_agent_gateway_v2(
         )
         checks = {
             "repair_order_reread": bool(order_readback.get("ok")),
+            "cashbox_reread": bool(cashbox_readback.get("ok")),
             "payment_id_present": recorded_payment is not None,
             "amount_exact": str((recorded_payment or {}).get("amount") or "")
             == _decimal_text(amount),
@@ -603,6 +688,18 @@ def register_agent_gateway_v2(
             "cash_transaction_linked": bool(transaction_id),
             "cash_journal_entry_present": bool(transaction_id)
             and _contains_value(cashbox_readback, "id", transaction_id),
+            "cashbox_revision_changed": str(
+                (
+                    (
+                        cashbox_readback.get("data")
+                        if isinstance(cashbox_readback.get("data"), dict)
+                        else {}
+                    ).get("cashbox")
+                    or {}
+                ).get("updated_at")
+                or ""
+            )
+            != expected_cashbox_updated_at,
         }
         return {
             "ok": all(checks.values()),
@@ -691,6 +788,213 @@ def register_agent_gateway_v2(
         )
         if virtual_verification is not None:
             return virtual_verification
+        if operation == "create_client":
+            result_data = result.get("data") if isinstance(result.get("data"), dict) else {}
+            created = (
+                result_data.get("client")
+                if isinstance(result_data.get("client"), dict)
+                else {}
+            )
+            client_id = str(created.get("id") or "")
+            readback = (
+                await _invoke("get_client", {"client_id": client_id})
+                if client_id
+                else {}
+            )
+            actual = _find_mapping(readback, "id", client_id) if client_id else None
+            requested = (
+                arguments.get("client")
+                if isinstance(arguments.get("client"), dict)
+                else {}
+            )
+            persisted_state = {
+                key: created[key]
+                for key in (
+                    "id",
+                    "client_type",
+                    "last_name",
+                    "first_name",
+                    "middle_name",
+                    "display_name",
+                    "phone",
+                    "phones",
+                    "email",
+                    "emails",
+                    "comment",
+                    "legal_name",
+                    "short_name",
+                    "vehicles",
+                    "updated_at",
+                )
+                if key in created
+            }
+            passed = bool(
+                result.get("ok")
+                and client_id
+                and readback.get("ok")
+                and isinstance(actual, dict)
+                and _subset_matches(requested, actual)
+                and _subset_matches(persisted_state, actual)
+            )
+            return {
+                "required": True,
+                "passed": passed,
+                "check": "exact_created_client_readback",
+                "evidence": {
+                    "client_id": client_id,
+                    "requested_fields_exact": _subset_matches(requested, actual),
+                    "persisted_state_exact": _subset_matches(persisted_state, actual),
+                    "readback_ok": bool(readback.get("ok")),
+                },
+            }
+        if operation == "create_card":
+            result_data = result.get("data") if isinstance(result.get("data"), dict) else {}
+            created = (
+                result_data.get("card")
+                if isinstance(result_data.get("card"), dict)
+                else {}
+            )
+            card_id = str(created.get("id") or "")
+            readback = (
+                await _invoke("get_card", {"card_id": card_id})
+                if card_id
+                else {}
+            )
+            actual = _find_mapping(readback, "id", card_id) if card_id else None
+            requested = {
+                key: arguments[key]
+                for key in ("title", "vehicle", "description")
+                if key in arguments
+            }
+            persisted_state = {
+                key: created[key]
+                for key in (
+                    "id",
+                    "title",
+                    "vehicle",
+                    "description",
+                    "column",
+                    "tags",
+                    "deadline",
+                    "deadline_timestamp",
+                    "updated_at",
+                )
+                if key in created
+            }
+            passed = bool(
+                result.get("ok")
+                and card_id
+                and readback.get("ok")
+                and isinstance(actual, dict)
+                and _subset_matches(requested, actual)
+                and _subset_matches(persisted_state, actual)
+            )
+            return {
+                "required": True,
+                "passed": passed,
+                "check": "exact_created_card_readback",
+                "evidence": {
+                    "card_id": card_id,
+                    "requested_fields_exact": _subset_matches(requested, actual),
+                    "persisted_state_exact": _subset_matches(persisted_state, actual),
+                    "readback_ok": bool(readback.get("ok")),
+                },
+            }
+        if operation == "link_card_to_client":
+            result_data = result.get("data") if isinstance(result.get("data"), dict) else {}
+            result_card = (
+                result_data.get("card")
+                if isinstance(result_data.get("card"), dict)
+                else {}
+            )
+            result_client = (
+                result_data.get("client")
+                if isinstance(result_data.get("client"), dict)
+                else {}
+            )
+            card_id = str(arguments.get("card_id") or "")
+            client_id = str(arguments.get("client_id") or "")
+            card_readback = (
+                await _invoke("get_card", {"card_id": card_id})
+                if card_id
+                else {}
+            )
+            client_readback = (
+                await _invoke("get_client", {"client_id": client_id})
+                if client_id
+                else {}
+            )
+            actual_card = _find_mapping(card_readback, "id", card_id) if card_id else None
+            actual_client = (
+                _find_mapping(client_readback, "id", client_id)
+                if client_id
+                else None
+            )
+            result_vehicle_id = str(
+                result_card.get("client_vehicle_id")
+                or (result_data.get("meta") or {}).get("client_vehicle_id")
+                or ""
+            )
+            requested_vehicle_id = str(arguments.get("client_vehicle_id") or "")
+            if requested_vehicle_id:
+                vehicle_exact = (
+                    str((actual_card or {}).get("client_vehicle_id") or "")
+                    == requested_vehicle_id
+                )
+            elif arguments.get("create_vehicle_from_card") is True:
+                vehicle_exact = bool(
+                    result_vehicle_id
+                    and str((actual_card or {}).get("client_vehicle_id") or "")
+                    == result_vehicle_id
+                    and _contains_value(actual_client, "id", result_vehicle_id)
+                )
+            else:
+                vehicle_exact = True
+            card_state = {
+                key: result_card[key]
+                for key in (
+                    "id",
+                    "client_id",
+                    "client_vehicle_id",
+                    "updated_at",
+                )
+                if key in result_card
+            }
+            client_state = {
+                key: result_client[key]
+                for key in ("id", "updated_at", "vehicles")
+                if key in result_client
+            }
+            passed = bool(
+                result.get("ok")
+                and card_id
+                and client_id
+                and card_readback.get("ok")
+                and client_readback.get("ok")
+                and isinstance(actual_card, dict)
+                and isinstance(actual_client, dict)
+                and str(actual_card.get("client_id") or "") == client_id
+                and _subset_matches(card_state, actual_card)
+                and _subset_matches(client_state, actual_client)
+                and vehicle_exact
+            )
+            return {
+                "required": True,
+                "passed": passed,
+                "check": "exact_card_client_link_readback",
+                "evidence": {
+                    "card_id": card_id,
+                    "client_id": client_id,
+                    "card_link_exact": str((actual_card or {}).get("client_id") or "")
+                    == client_id,
+                    "card_state_exact": _subset_matches(card_state, actual_card),
+                    "client_state_exact": _subset_matches(client_state, actual_client),
+                    "vehicle_link_exact": vehicle_exact,
+                    "readback_ok": bool(
+                        card_readback.get("ok") and client_readback.get("ok")
+                    ),
+                },
+            }
         if operation == "record_repair_order_payment":
             checks = (
                 result.get("verification") if isinstance(result.get("verification"), dict) else {}
@@ -923,6 +1227,320 @@ def register_agent_gateway_v2(
                     warnings=["expected_updated_at_required_reread_exact_card_first"],
                     summary={"workflow_id": workflow_id, "operation": operation},
                     next_actions=["agent_entity_context for the exact repair order"],
+                ),
+                label=workflow_id,
+            )
+        if workflow_id == "finance" and operation == "create_cashbox":
+            expected_cashbox_ids = payload.get("expected_cashbox_ids")
+            if (
+                not isinstance(expected_cashbox_ids, list)
+                or any(
+                    not isinstance(item, str) or not item.strip() for item in expected_cashbox_ids
+                )
+                or len(set(expected_cashbox_ids)) != len(expected_cashbox_ids)
+            ):
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=["cashbox_snapshot_required_reread_exact_list_first"],
+                        summary={
+                            "workflow_id": workflow_id,
+                            "operation": operation,
+                            "missing_fields": ["expected_cashbox_ids"],
+                        },
+                        next_actions=["list_cashboxes before creating a cashbox"],
+                    ),
+                    label=workflow_id,
+                )
+        if (
+            workflow_id == "finance"
+            and operation == "create_cash_transaction"
+            and not str(payload.get("expected_updated_at") or "").strip()
+        ):
+            return _tool_result(
+                _envelope(
+                    ok=False,
+                    status="blocked",
+                    warnings=["cashbox_expected_revision_required_reread_exact_cashbox_first"],
+                    summary={
+                        "workflow_id": workflow_id,
+                        "operation": operation,
+                        "missing_fields": ["expected_updated_at"],
+                    },
+                    next_actions=["agent_entity_context for the exact cashbox"],
+                ),
+                label=workflow_id,
+            )
+        if workflow_id == "finance" and operation == "create_cashbox_transfer":
+            missing_revisions = [
+                field
+                for field in (
+                    "expected_from_updated_at",
+                    "expected_to_updated_at",
+                )
+                if not str(payload.get(field) or "").strip()
+            ]
+            if missing_revisions:
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=[
+                            "cashbox_transfer_expected_revisions_required_reread_exact_cashboxes_first"
+                        ],
+                        summary={
+                            "workflow_id": workflow_id,
+                            "operation": operation,
+                            "missing_fields": missing_revisions,
+                        },
+                        next_actions=["agent_entity_context for both exact cashboxes"],
+                    ),
+                    label=workflow_id,
+                )
+        if workflow_id == "finance" and operation == "record_repair_order_payment":
+            missing_revisions = [
+                field
+                for field in (
+                    "expected_updated_at",
+                    "expected_cashbox_updated_at",
+                )
+                if not str(payload.get(field) or "").strip()
+            ]
+            if missing_revisions:
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=["payment_expected_revisions_required_reread_exact_targets_first"],
+                        summary={
+                            "workflow_id": workflow_id,
+                            "operation": operation,
+                            "missing_fields": missing_revisions,
+                        },
+                        next_actions=[
+                            "agent_entity_context for the exact repair order and cashbox"
+                        ],
+                    ),
+                    label=workflow_id,
+                )
+        if workflow_id == "finance" and operation == "reorder_cashboxes":
+            expected_cashbox_ids = payload.get("expected_cashbox_ids")
+            if (
+                not isinstance(expected_cashbox_ids, list)
+                or not expected_cashbox_ids
+                or any(
+                    not isinstance(item, str) or not item.strip() for item in expected_cashbox_ids
+                )
+                or len(set(expected_cashbox_ids)) != len(expected_cashbox_ids)
+            ):
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=["cashbox_order_snapshot_required_reread_exact_list_first"],
+                        summary={
+                            "workflow_id": workflow_id,
+                            "operation": operation,
+                            "missing_fields": ["expected_cashbox_ids"],
+                        },
+                        next_actions=["list_cashboxes before changing cashbox order"],
+                    ),
+                    label=workflow_id,
+                )
+        if workflow_id == "finance" and operation == "create_employee_salary_transaction":
+            missing_revisions = [
+                field
+                for field in (
+                    "expected_cashbox_updated_at",
+                    "expected_employee_updated_at",
+                )
+                if not str(payload.get(field) or "").strip()
+            ]
+            if missing_revisions:
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=[
+                            "salary_transaction_expected_revisions_required_reread_exact_targets_first"
+                        ],
+                        summary={
+                            "workflow_id": workflow_id,
+                            "operation": operation,
+                            "missing_fields": missing_revisions,
+                        },
+                        next_actions=["get_cashbox and list_employees for the exact targets"],
+                    ),
+                    label=workflow_id,
+                )
+        if (
+            workflow_id == "finance"
+            and operation == "create_employee_shift_accrual"
+            and not str(payload.get("expected_employee_updated_at") or "").strip()
+        ):
+            return _tool_result(
+                _envelope(
+                    ok=False,
+                    status="blocked",
+                    warnings=[
+                        "shift_accrual_expected_employee_revision_required_reread_exact_employee_first"
+                    ],
+                    summary={
+                        "workflow_id": workflow_id,
+                        "operation": operation,
+                        "missing_fields": ["expected_employee_updated_at"],
+                    },
+                    next_actions=["list_employees for the exact employee"],
+                ),
+                label=workflow_id,
+            )
+        if (
+            workflow_id == "finance"
+            and operation in {
+                "cancel_cash_transaction",
+                "cancel_last_cash_transaction",
+            }
+            and not str(payload.get("expected_cashbox_updated_at") or "").strip()
+        ):
+            warning = (
+                "cash_cancellation_expected_revision_required_reread_exact_cashbox_first"
+                if operation == "cancel_cash_transaction"
+                else "cancel_last_cash_transaction_expected_revision_required_reread_exact_cashbox_first"
+            )
+            return _tool_result(
+                _envelope(
+                    ok=False,
+                    status="blocked",
+                    warnings=[warning],
+                    summary={
+                        "workflow_id": workflow_id,
+                        "operation": operation,
+                        "missing_fields": ["expected_cashbox_updated_at"],
+                    },
+                    next_actions=["get_cashbox for the exact transaction and cashbox"],
+                ),
+                label=workflow_id,
+            )
+        if workflow_id == "finance" and operation == "apply_finance_audit_safe_fixes":
+            expected_issue_ids = payload.get("expected_issue_ids")
+            issue_ids = payload.get("issue_ids")
+            missing_fields = []
+            if (
+                not isinstance(expected_issue_ids, list)
+                or any(
+                    not isinstance(item, str) or not item.strip()
+                    for item in expected_issue_ids
+                )
+                or len(set(expected_issue_ids)) != len(expected_issue_ids)
+            ):
+                missing_fields.append("expected_issue_ids")
+            if (
+                not isinstance(issue_ids, list)
+                or not issue_ids
+                or any(not isinstance(item, str) or not item.strip() for item in issue_ids)
+                or len(set(issue_ids)) != len(issue_ids)
+            ):
+                missing_fields.append("issue_ids")
+            if missing_fields:
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=[
+                            "finance_audit_issue_snapshot_required_reread_exact_audit_first"
+                        ],
+                        summary={
+                            "workflow_id": workflow_id,
+                            "operation": operation,
+                            "missing_fields": missing_fields,
+                        },
+                        next_actions=["read api:/api/finance_audit before applying safe fixes"],
+                    ),
+                    label=workflow_id,
+                )
+        if workflow_id == "finance" and operation == "delete_cashbox":
+            missing_fields = [
+                field
+                for field in (
+                    "expected_cashbox_updated_at",
+                    "expected_transaction_ids",
+                )
+                if (
+                    not str(payload.get(field) or "").strip()
+                    if field == "expected_cashbox_updated_at"
+                    else not isinstance(payload.get(field), list)
+                )
+            ]
+            if missing_fields:
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=[
+                            "cashbox_delete_snapshot_required_reread_exact_cashbox_first"
+                        ],
+                        summary={
+                            "workflow_id": workflow_id,
+                            "operation": operation,
+                            "missing_fields": missing_fields,
+                        },
+                        next_actions=["get_cashbox before deleting the exact cashbox"],
+                    ),
+                    label=workflow_id,
+                )
+        if workflow_id == "inventory" and operation in {
+            "save_inventory_item",
+            "replenish_inventory_item",
+            "write_off_inventory_item",
+            "return_inventory_movement",
+        }:
+            missing_revisions: list[str] = []
+            item_revision_required = operation != "save_inventory_item" or bool(
+                str(payload.get("item_id") or "").strip()
+            )
+            if item_revision_required and not str(payload.get("expected_updated_at") or "").strip():
+                missing_revisions.append("expected_updated_at")
+            if operation in {"write_off_inventory_item", "return_inventory_movement"}:
+                if not str(payload.get("card_id") or "").strip():
+                    missing_revisions.append("card_id")
+                if not str(payload.get("expected_card_updated_at") or "").strip():
+                    missing_revisions.append("expected_card_updated_at")
+            if missing_revisions:
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=[
+                            "inventory_expected_revisions_required_reread_exact_targets_first"
+                        ],
+                        summary={
+                            "workflow_id": workflow_id,
+                            "operation": operation,
+                            "missing_fields": missing_revisions,
+                        },
+                        next_actions=[
+                            "get_inventory_item and agent_entity_context for the exact targets"
+                        ],
+                    ),
+                    label=workflow_id,
+                )
+        if (
+            workflow_id == "document"
+            and operation == "delete_shared_file"
+            and not str(payload.get("expected_updated_at") or "").strip()
+        ):
+            return _tool_result(
+                _envelope(
+                    ok=False,
+                    status="blocked",
+                    warnings=["shared_file_expected_revision_required_reread_exact_file_first"],
+                    summary={
+                        "workflow_id": workflow_id,
+                        "operation": operation,
+                        "missing_fields": ["expected_updated_at"],
+                    },
+                    next_actions=["get_shared_file_info for the exact file"],
                 ),
                 label=workflow_id,
             )
@@ -1216,9 +1834,14 @@ def register_agent_gateway_v2(
                 ledger_error = failed
         overall_ok = result_ok and ledger_closed
         result_data = normalized_store_data(result) if store_operation else result
+        binary_document_operation = workflow_id == "document" and operation in {
+            "create_document_without_card_pdf",
+            "download_repair_order_print_pdf",
+            "download_shared_file",
+        }
         safe_result = (
             _without_binary_content(result_data)
-            if is_store_vin_photo_preview
+            if is_store_vin_photo_preview or (binary_document_operation and not allow_large_output)
             else result_data
             if allow_large_output
             else _compact_object(result_data)
@@ -1559,7 +2182,7 @@ def register_agent_gateway_v2(
                 "fields": list(selected),
             },
             data={"cards": page_items},
-            warnings=[] if ok else [str(error or "board_digest_failed")],
+            warnings=[] if ok else [_error_code({"error": error}) or "board_digest_failed"],
             page={
                 "cursor": str(offset),
                 "next_cursor": str(next_offset) if has_more else None,
@@ -1661,7 +2284,7 @@ def register_agent_gateway_v2(
                 "scope": "crm",
             },
             data={"items": items},
-            warnings=[] if ok else [str(error or "search_failed")],
+            warnings=[] if ok else [_error_code({"error": error}) or "search_failed"],
             page={"limit": effective_limit, "has_more": False},
             meta={"source_meta": _compact_object(meta)},
         )
@@ -1731,7 +2354,7 @@ def register_agent_gateway_v2(
         elif entity == "client":
             response = board_api.get_client(entity_id, order_limit=20 if detail == "full" else 5)
         elif entity == "repair_order":
-            response = board_api.get_repair_order(entity_id)
+            response = board_api.get_repair_order(entity_id, create_if_missing=False)
         elif entity == "cashbox":
             response = board_api.get_cashbox(
                 entity_id, transaction_limit=50 if detail == "full" else 10
@@ -1741,6 +2364,14 @@ def register_agent_gateway_v2(
         else:
             response = board_api.get_shared_file_info(entity_id)
         ok, data, meta, error = _response_data(response)
+        if detail == "summary":
+            context_data = _entity_context_summary(entity, data)
+        else:
+            context_data = _compact_object(
+                data,
+                item_limit=50 if detail == "full" else 15,
+                max_depth=8 if detail == "full" else 5,
+            )
         payload = _envelope(
             ok=ok,
             summary={
@@ -1749,8 +2380,8 @@ def register_agent_gateway_v2(
                 "detail": detail,
                 "scope": "crm",
             },
-            data=_compact_object(data, item_limit=50 if detail == "full" else 15),
-            warnings=[] if ok else [str(error or "entity_read_failed")],
+            data=context_data,
+            warnings=[] if ok else [_error_code({"error": error}) or "entity_read_failed"],
             meta={"source_meta": _compact_object(meta)},
         )
         return _tool_result(payload, label="agent_entity_context")
@@ -2116,15 +2747,199 @@ def register_agent_gateway_v2(
                 ),
                 label="call_raw_capability",
             )
-        if (
-            normalized_name in OPTIMISTIC_WRITE_NAMES
-            and not str((arguments or {}).get("expected_updated_at") or "").strip()
-        ):
+        if normalized_name == "api:/api/reorder_cashboxes":
+            expected_cashbox_ids = (arguments or {}).get("expected_cashbox_ids")
+            if (
+                not isinstance(expected_cashbox_ids, list)
+                or not expected_cashbox_ids
+                or any(
+                    not isinstance(item, str) or not item.strip() for item in expected_cashbox_ids
+                )
+                or len(set(expected_cashbox_ids)) != len(expected_cashbox_ids)
+            ):
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=["cashbox_order_snapshot_required_reread_exact_list_first"],
+                    ),
+                    label="call_raw_capability",
+                )
+        if normalized_name == "api:/api/save_employee" and str(
+            (arguments or {}).get("attestation_run_id") or ""
+        ).strip():
+            expected_employee_ids = (arguments or {}).get("expected_employee_ids")
+            if (
+                not isinstance(expected_employee_ids, list)
+                or any(
+                    not isinstance(item, str) or not item.strip() for item in expected_employee_ids
+                )
+                or len(set(expected_employee_ids)) != len(expected_employee_ids)
+            ):
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=["employee_snapshot_required_reread_exact_list_first"],
+                    ),
+                    label="call_raw_capability",
+                )
+        if normalized_name == "api:/api/create_employee_salary_transaction":
+            missing_revisions = [
+                field
+                for field in (
+                    "expected_cashbox_updated_at",
+                    "expected_employee_updated_at",
+                )
+                if not str((arguments or {}).get(field) or "").strip()
+            ]
+            if missing_revisions:
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=[
+                            "salary_transaction_expected_revisions_required_reread_exact_targets_first"
+                        ],
+                        summary={"missing_fields": missing_revisions},
+                    ),
+                    label="call_raw_capability",
+                )
+        if normalized_name == "api:/api/create_employee_shift_accrual" and not str(
+            (arguments or {}).get("expected_employee_updated_at") or ""
+        ).strip():
             return _tool_result(
                 _envelope(
                     ok=False,
                     status="blocked",
-                    warnings=["expected_updated_at_required_reread_exact_card_first"],
+                    warnings=[
+                        "shift_accrual_expected_employee_revision_required_reread_exact_employee_first"
+                    ],
+                    summary={"missing_fields": ["expected_employee_updated_at"]},
+                ),
+                label="call_raw_capability",
+            )
+        if normalized_name == "api:/api/cancel_cash_transaction" and not str(
+            (arguments or {}).get("expected_cashbox_updated_at") or ""
+        ).strip():
+            return _tool_result(
+                _envelope(
+                    ok=False,
+                    status="blocked",
+                    warnings=[
+                        "cash_cancellation_expected_revision_required_reread_exact_cashbox_first"
+                    ],
+                    summary={"missing_fields": ["expected_cashbox_updated_at"]},
+                ),
+                    label="call_raw_capability",
+                )
+        if (
+            normalized_name == "api:/api/delete_employee"
+            and "attestation_cleanup_shift_accrual_ids" in (arguments or {})
+        ):
+            missing_fields = [
+                field
+                for field in (
+                    "expected_updated_at",
+                    "attestation_run_id",
+                )
+                if not str((arguments or {}).get(field) or "").strip()
+            ]
+            shift_accrual_ids = (arguments or {}).get(
+                "attestation_cleanup_shift_accrual_ids"
+            )
+            if (
+                not isinstance(shift_accrual_ids, list)
+                or not shift_accrual_ids
+                or any(
+                    not isinstance(item, str) or not item.strip()
+                    for item in shift_accrual_ids
+                )
+                or len(set(shift_accrual_ids)) != len(shift_accrual_ids)
+            ):
+                missing_fields.append("attestation_cleanup_shift_accrual_ids")
+            if missing_fields:
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=[
+                            "attestation_shift_cleanup_snapshot_required_reread_exact_employee_first"
+                        ],
+                        summary={"missing_fields": missing_fields},
+                    ),
+                    label="call_raw_capability",
+                )
+        if normalized_name == "api:/api/delete_gateway_attestation_payment_fixture":
+            missing_fields = [
+                field
+                for field in (
+                    "expected_updated_at",
+                    "expected_cashbox_updated_at",
+                )
+                if not str((arguments or {}).get(field) or "").strip()
+            ]
+            expected_transaction_ids = (arguments or {}).get(
+                "expected_transaction_ids"
+            )
+            if (
+                not isinstance(expected_transaction_ids, list)
+                or not expected_transaction_ids
+                or any(
+                    not isinstance(item, str) or not item.strip()
+                    for item in expected_transaction_ids
+                )
+                or len(set(expected_transaction_ids))
+                != len(expected_transaction_ids)
+            ):
+                missing_fields.append("expected_transaction_ids")
+            if missing_fields:
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=[
+                            "attestation_payment_cleanup_snapshot_required_reread_exact_targets_first"
+                        ],
+                        summary={"missing_fields": missing_fields},
+                    ),
+                    label="call_raw_capability",
+                )
+        if normalized_name == "link_card_to_client":
+            missing_revisions = [
+                field
+                for field in (
+                    "expected_card_updated_at",
+                    "expected_client_updated_at",
+                )
+                if not str((arguments or {}).get(field) or "").strip()
+            ]
+            if missing_revisions:
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=[
+                            "card_client_link_expected_revisions_required_reread_exact_targets_first"
+                        ],
+                        summary={"missing_fields": missing_revisions},
+                    ),
+                    label="call_raw_capability",
+                )
+        if (
+            normalized_name in OPTIMISTIC_WRITE_NAMES
+            and not str((arguments or {}).get("expected_updated_at") or "").strip()
+        ):
+            revision_warning = (
+                "expected_updated_at_required_reread_exact_file_first"
+                if normalized_name == "delete_shared_file"
+                else "expected_updated_at_required_reread_exact_card_first"
+            )
+            return _tool_result(
+                _envelope(
+                    ok=False,
+                    status="blocked",
+                    warnings=[revision_warning],
                 ),
                 label="call_raw_capability",
             )

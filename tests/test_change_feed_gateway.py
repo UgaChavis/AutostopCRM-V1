@@ -398,6 +398,401 @@ class ChangeFeedRawGatewayContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((ack_result or {})["passed"])
         self.assertEqual("exact_change_feed_ack_checkpoint", (ack_result or {})["check"])
 
+    async def test_cashbox_transfer_has_exact_pair_readback(self) -> None:
+        source_transaction = {
+            "id": "transaction-out",
+            "cashbox_id": "cashbox-source",
+            "direction": "expense",
+            "amount_minor": 100,
+            "transfer_group_id": "transfer-1",
+            "related_transaction_id": "transaction-in",
+        }
+        target_transaction = {
+            "id": "transaction-in",
+            "cashbox_id": "cashbox-target",
+            "direction": "income",
+            "amount_minor": 100,
+            "transfer_group_id": "transfer-1",
+            "related_transaction_id": "transaction-out",
+        }
+
+        async def invoke(_name: str, arguments: dict) -> dict:
+            transaction = (
+                source_transaction
+                if arguments["cashbox_id"] == "cashbox-source"
+                else target_transaction
+            )
+            return {
+                "ok": True,
+                "data": {
+                    "cashbox": {"id": arguments["cashbox_id"]},
+                    "transactions": [transaction],
+                },
+            }
+
+        verification = await verify_virtual_api_write_readback(
+            "create_cashbox_transfer",
+            {
+                "from_cashbox_id": "cashbox-source",
+                "to_cashbox_id": "cashbox-target",
+            },
+            {
+                "ok": True,
+                "data": {
+                    "source_transaction": source_transaction,
+                    "target_transaction": target_transaction,
+                },
+            },
+            invoke,
+        )
+
+        self.assertTrue((verification or {})["passed"])
+        self.assertEqual(
+            "exact_cashbox_transfer_pair_readback",
+            (verification or {})["check"],
+        )
+
+    async def test_cashbox_reorder_has_exact_order_readback(self) -> None:
+        expected_order = ["cashbox-3", "cashbox-1", "cashbox-2"]
+
+        async def invoke(name: str, arguments: dict) -> dict:
+            self.assertEqual(name, "list_cashboxes")
+            self.assertGreaterEqual(arguments["limit"], 3)
+            return {
+                "ok": True,
+                "data": {
+                    "cashboxes": [
+                        {"id": cashbox_id, "order": index}
+                        for index, cashbox_id in enumerate(expected_order)
+                    ]
+                },
+            }
+
+        verification = await verify_virtual_api_write_readback(
+            "reorder_cashboxes",
+            {
+                "cashbox_id": "cashbox-3",
+                "before_cashbox_id": "cashbox-1",
+                "expected_cashbox_ids": ["cashbox-1", "cashbox-2", "cashbox-3"],
+            },
+            {
+                "ok": True,
+                "data": {
+                    "cashboxes": [
+                        {"id": cashbox_id, "order": index}
+                        for index, cashbox_id in enumerate(expected_order)
+                    ]
+                },
+            },
+            invoke,
+        )
+
+        self.assertTrue((verification or {})["passed"])
+        self.assertEqual(
+            "exact_cashbox_order_readback",
+            (verification or {})["check"],
+        )
+
+    async def test_salary_transaction_has_exact_cashbox_employee_and_ledger_readback(
+        self,
+    ) -> None:
+        transaction = {
+            "id": "salary-transaction-1",
+            "cashbox_id": "cashbox-1",
+            "employee_id": "employee-1",
+            "direction": "expense",
+            "transaction_kind": "salary_payout",
+            "amount_minor": 100,
+        }
+
+        async def invoke(name: str, arguments: dict) -> dict:
+            if name == "get_cashbox":
+                self.assertEqual(arguments["cashbox_id"], "cashbox-1")
+                return {
+                    "ok": True,
+                    "data": {
+                        "cashbox": {
+                            "id": "cashbox-1",
+                            "updated_at": "2026-07-28T20:00:01+00:00",
+                        },
+                        "transactions": [transaction],
+                    },
+                }
+            if name == "api:/api/list_employees":
+                return {
+                    "ok": True,
+                    "data": {
+                        "employees": [
+                            {
+                                "id": "employee-1",
+                                "name": "Synthetic",
+                                "updated_at": "2026-07-28T20:00:00+00:00",
+                            }
+                        ]
+                    },
+                }
+            self.assertEqual(name, "api:/api/get_employee_salary_ledger")
+            return {
+                "ok": True,
+                "data": {
+                    "journal_rows": [
+                        {
+                            "transaction_id": "salary-transaction-1",
+                            "amount_minor": 100,
+                        }
+                    ]
+                },
+            }
+
+        verification = await verify_virtual_api_write_readback(
+            "create_employee_salary_transaction",
+            {
+                "employee_id": "employee-1",
+                "cashbox_id": "cashbox-1",
+                "amount_minor": 100,
+                "expected_employee_updated_at": "2026-07-28T20:00:00+00:00",
+                "expected_cashbox_updated_at": "2026-07-28T20:00:00+00:00",
+            },
+            {"ok": True, "data": {"transaction": transaction}},
+            invoke,
+        )
+
+        self.assertTrue((verification or {})["passed"])
+        self.assertEqual(
+            "exact_salary_cashbox_employee_and_ledger_readback",
+            (verification or {})["check"],
+        )
+
+    async def test_save_employee_has_exact_list_readback(self) -> None:
+        employee = {
+            "id": "employee-1",
+            "name": "AST-GWAT-20260728T165722Z-employee",
+            "updated_at": "2026-07-28T20:00:00+00:00",
+        }
+
+        async def invoke(name: str, arguments: dict) -> dict:
+            self.assertEqual(name, "api:/api/list_employees")
+            self.assertEqual(arguments, {})
+            return {"ok": True, "data": {"employees": [employee]}}
+
+        verification = await verify_virtual_api_write_readback(
+            "api:/api/save_employee",
+            {"name": employee["name"]},
+            {"ok": True, "data": {"employee": employee}},
+            invoke,
+        )
+
+        self.assertTrue((verification or {})["passed"])
+        self.assertEqual("exact_employee_list_readback", (verification or {})["check"])
+
+    async def test_shift_accrual_has_exact_employee_and_ledger_readback(self) -> None:
+        accrual = {
+            "id": "shift-accrual-1",
+            "employee_id": "employee-1",
+            "amount_minor": 100,
+        }
+
+        async def invoke(name: str, _arguments: dict) -> dict:
+            if name == "api:/api/list_employees":
+                return {
+                    "ok": True,
+                    "data": {
+                        "employees": [
+                            {
+                                "id": "employee-1",
+                                "name": "Synthetic",
+                                "updated_at": "2026-07-28T20:00:00+00:00",
+                            }
+                        ]
+                    },
+                }
+            self.assertEqual(name, "api:/api/get_employee_salary_ledger")
+            return {
+                "ok": True,
+                "data": {
+                    "journal_rows": [
+                        {
+                            "kind": "shift_accrual",
+                            "accrual_id": "shift-accrual-1",
+                            "amount_minor": 100,
+                        }
+                    ]
+                },
+            }
+
+        verification = await verify_virtual_api_write_readback(
+            "create_employee_shift_accrual",
+            {
+                "employee_id": "employee-1",
+                "amount_minor": 100,
+                "expected_employee_updated_at": "2026-07-28T20:00:00+00:00",
+            },
+            {"ok": True, "data": {"accrual": accrual}},
+            invoke,
+        )
+
+        self.assertTrue((verification or {})["passed"])
+        self.assertEqual(
+            "exact_shift_accrual_employee_and_ledger_readback",
+            (verification or {})["check"],
+        )
+
+    async def test_cash_cancellation_has_exact_reversal_readback(self) -> None:
+        cancelled = {
+            "id": "transaction-1",
+            "cashbox_id": "cashbox-1",
+            "direction": "expense",
+            "amount_minor": 100,
+            "transaction_kind": "cashbox_cancelled",
+        }
+        cancellation = {
+            "id": "cancellation-1",
+            "cashbox_id": "cashbox-1",
+            "direction": "income",
+            "amount_minor": 100,
+            "transaction_kind": "cashbox_cancellation",
+            "related_transaction_id": "transaction-1",
+        }
+
+        async def invoke(name: str, arguments: dict) -> dict:
+            self.assertEqual(name, "get_cashbox")
+            self.assertEqual(arguments["cashbox_id"], "cashbox-1")
+            return {
+                "ok": True,
+                "data": {
+                    "cashbox": {
+                        "id": "cashbox-1",
+                        "updated_at": "2026-07-28T20:00:01+00:00",
+                    },
+                    "transactions": [cancelled, cancellation],
+                },
+            }
+
+        verification = await verify_virtual_api_write_readback(
+            "cancel_cash_transaction",
+            {
+                "cashbox_id": "cashbox-1",
+                "transaction_id": "transaction-1",
+                "expected_cashbox_updated_at": "2026-07-28T20:00:00+00:00",
+            },
+            {
+                "ok": True,
+                "data": {
+                    "cancelled_transaction": cancelled,
+                    "cancellation_transaction": cancellation,
+                    "meta": {"repair_order_card_id": None},
+                },
+            },
+            invoke,
+        )
+
+        self.assertTrue((verification or {})["passed"])
+        self.assertEqual(
+            "exact_cash_cancellation_and_optional_payment_readback",
+            (verification or {})["check"],
+        )
+
+    async def test_cancel_last_cash_transaction_requires_exact_absence_readback(self) -> None:
+        cancelled = {
+            "id": "transaction-1",
+            "cashbox_id": "cashbox-1",
+            "direction": "income",
+            "amount_minor": 100,
+        }
+
+        async def invoke(name: str, arguments: dict) -> dict:
+            self.assertEqual(name, "get_cashbox")
+            self.assertEqual(arguments["cashbox_id"], "cashbox-1")
+            return {
+                "ok": True,
+                "data": {
+                    "cashbox": {
+                        "id": "cashbox-1",
+                        "updated_at": "2026-07-28T20:00:01+00:00",
+                    },
+                    "transactions": [],
+                },
+            }
+
+        verification = await verify_virtual_api_write_readback(
+            "cancel_last_cash_transaction",
+            {
+                "cashbox_id": "cashbox-1",
+                "transaction_id": "transaction-1",
+                "expected_cashbox_updated_at": "2026-07-28T20:00:00+00:00",
+            },
+            {
+                "ok": True,
+                "data": {
+                    "cancelled_transaction": cancelled,
+                    "meta": {"repair_order_card_id": None},
+                },
+            },
+            invoke,
+        )
+
+        self.assertTrue((verification or {})["passed"])
+        self.assertEqual(
+            "exact_cancelled_last_transaction_absence_readback",
+            (verification or {})["check"],
+        )
+
+    async def test_finance_audit_selected_fix_has_exact_readback(self) -> None:
+        issue_id = "salary_transaction_missing_employee:transaction-1"
+
+        async def invoke(name: str, arguments: dict) -> dict:
+            self.assertEqual(arguments, {})
+            if name == "api:/api/finance_audit":
+                return {"ok": True, "data": {"issues": []}}
+            self.assertEqual(name, "api:/api/list_employees")
+            return {
+                "ok": True,
+                "data": {
+                    "employees": [
+                        {
+                            "id": "employee-1",
+                            "name": "AST-GWAT-20260728T165722Z-audit-employee",
+                            "is_active": False,
+                            "updated_at": "2026-07-28T20:00:01+00:00",
+                        }
+                    ]
+                },
+            }
+
+        verification = await verify_virtual_api_write_readback(
+            "apply_finance_audit_safe_fixes",
+            {
+                "dry_run": False,
+                "issue_ids": [issue_id],
+                "expected_issue_ids": [issue_id],
+            },
+            {
+                "ok": True,
+                "data": {
+                    "safe_fixes": [
+                        {
+                            "kind": "restore_missing_employee",
+                            "employee_id": "employee-1",
+                            "employee_name": "AST-GWAT-20260728T165722Z-audit-employee",
+                        }
+                    ],
+                    "meta": {
+                        "dry_run": False,
+                        "changed": True,
+                        "planned": 1,
+                        "applied": 1,
+                    },
+                },
+            },
+            invoke,
+        )
+
+        self.assertTrue((verification or {})["passed"])
+        self.assertEqual(
+            "finance_audit_selected_fix_exact_readback",
+            (verification or {})["check"],
+        )
+
     def test_parity_manifest_has_exact_guarded_coverage_and_zero_new_gaps(self) -> None:
         inventory = crm_capability_parity.build_inventory()
         rows = {row["route"]: row for row in inventory["matrix"]}

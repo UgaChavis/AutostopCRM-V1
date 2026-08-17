@@ -107,6 +107,65 @@ class BoardApiClientInventoryTests(unittest.TestCase):
             ],
         )
 
+    def test_inventory_helpers_forward_optimistic_revisions(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with patch.object(client, "_request", return_value={"ok": True}) as request:
+            client.replenish_inventory_item(
+                "item-1",
+                "2",
+                expected_updated_at="item-revision-1",
+            )
+            client.write_off_inventory_item(
+                "item-1",
+                card_id="card-1",
+                quantity="1",
+                expected_updated_at="item-revision-2",
+                expected_card_updated_at="card-revision-1",
+            )
+            client.return_inventory_movement(
+                "movement-1",
+                card_id="card-1",
+                expected_updated_at="item-revision-3",
+                expected_card_updated_at="card-revision-2",
+            )
+
+        self.assertEqual(
+            request.call_args_list,
+            [
+                call(
+                    "/api/replenish_inventory_item",
+                    {
+                        "item_id": "item-1",
+                        "quantity": "2",
+                        "expected_updated_at": "item-revision-1",
+                        "source": "mcp",
+                    },
+                ),
+                call(
+                    "/api/write_off_inventory_item",
+                    {
+                        "item_id": "item-1",
+                        "card_id": "card-1",
+                        "quantity": "1",
+                        "expected_updated_at": "item-revision-2",
+                        "expected_card_updated_at": "card-revision-1",
+                        "source": "mcp",
+                    },
+                ),
+                call(
+                    "/api/return_inventory_movement",
+                    {
+                        "movement_id": "movement-1",
+                        "card_id": "card-1",
+                        "expected_updated_at": "item-revision-3",
+                        "expected_card_updated_at": "card-revision-2",
+                        "source": "mcp",
+                    },
+                ),
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

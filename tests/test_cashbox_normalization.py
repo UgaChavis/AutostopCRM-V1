@@ -5,6 +5,7 @@ import json
 import sys
 import tempfile
 import unittest
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -308,6 +309,36 @@ class CashboxNormalizationTests(unittest.TestCase):
             self.assertEqual(existing_backup.read_text(encoding="utf-8"), "previous backup")
             self.assertEqual(Path(result["backup"]["path"]), backup_file)
             self.assertTrue(backup_file.exists())
+
+    def test_apply_post_plan_survives_source_event_retention(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_file = Path(temp_dir) / "state.json"
+            state_file.write_text(
+                json.dumps(self._state(), ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            with patch(
+                "minimal_kanban.storage.json_store.utc_now",
+                return_value=datetime(2027, 1, 1, tzinfo=UTC),
+            ):
+                result = run_normalization(
+                    state_file=state_file,
+                    apply=True,
+                    backup=True,
+                )
+
+            stored_state = json.loads(state_file.read_text(encoding="utf-8"))
+            self.assertFalse(
+                any(
+                    item.get("id") == TARGET_EVENT_ID
+                    for item in stored_state.get("events", [])
+                )
+            )
+            self.assertEqual(
+                result["post_apply_plan"]["summary"]["proposed_adjustment_minor"],
+                0,
+            )
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .. import models as model_helpers
@@ -15,6 +16,7 @@ from ..repair_order import REPAIR_ORDER_STATUS_CLOSED, REPAIR_ORDER_STATUS_OPEN,
 _CASH_CANCEL_REASON_MIN_CHARS = 10
 _CASH_TRANSACTION_KIND_CANCELLED = "cashbox_cancelled"
 _CASH_TRANSACTION_KIND_CANCELLATION = "cashbox_cancellation"
+_GATEWAY_ATTESTATION_RUN_RE = re.compile(r"^AST-GWAT-\d{8}T\d{6}Z$")
 
 
 class CardServiceCashboxCancellationMixin:
@@ -48,7 +50,39 @@ class CardServiceCashboxCancellationMixin:
                     },
                 )
             cashbox = self._find_cashbox(cashboxes, transaction.cashbox_id)
+            expected_cashbox_updated_at = normalize_text(
+                payload.get("expected_cashbox_updated_at"),
+                default="",
+                limit=80,
+            )
+            if expected_cashbox_updated_at and cashbox.updated_at != expected_cashbox_updated_at:
+                self._fail(
+                    "cashbox_update_conflict",
+                    "Касса уже изменилась. Обновите данные и повторите действие.",
+                    status_code=409,
+                    details={"cashbox_id": cashbox.id},
+                )
             reason = self._validated_cash_cancellation_reason(payload)
+            attestation_run_id = normalize_text(
+                payload.get("attestation_run_id"),
+                default="",
+                limit=64,
+            )
+            if attestation_run_id and not (
+                _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
+                and cashbox.name.startswith(f"{attestation_run_id}-")
+                and attestation_run_id in transaction.note
+                and reason.startswith(attestation_run_id)
+                and transaction.amount_minor == 100
+                and str(payload.get("source") or "").strip().casefold()
+                == "mcp_agent_gateway_v2"
+                and actor_name
+            ):
+                self._fail(
+                    "cash_cancellation_attestation_scope_invalid",
+                    "Синтетическая отмена не соответствует контуру аттестации.",
+                    status_code=403,
+                )
             transaction_kind = normalize_text(transaction.transaction_kind, default="", limit=32)
             if transaction_kind in {
                 _CASH_TRANSACTION_KIND_CANCELLED,
@@ -85,6 +119,12 @@ class CardServiceCashboxCancellationMixin:
                     reason=reason,
                     actor_name=actor_name,
                     source=source,
+                    expected_related_cashbox_updated_at=normalize_text(
+                        payload.get("expected_related_cashbox_updated_at"),
+                        default="",
+                        limit=80,
+                    ),
+                    attestation_run_id=attestation_run_id,
                 )
             linked_card, linked_payment = self._find_repair_order_payment_by_cash_transaction(
                 cards, transaction.id
@@ -185,6 +225,8 @@ class CardServiceCashboxCancellationMixin:
         reason: str,
         actor_name: str,
         source: str,
+        expected_related_cashbox_updated_at: str,
+        attestation_run_id: str,
     ) -> dict:
         transactions = bundle["cash_transactions"]
         cashboxes = bundle["cashboxes"]
@@ -275,6 +317,30 @@ class CardServiceCashboxCancellationMixin:
                 },
             )
         related_cashbox = self._find_cashbox(cashboxes, related_transaction.cashbox_id)
+        if attestation_run_id and not (
+            related_cashbox.name.startswith(f"{attestation_run_id}-")
+            and attestation_run_id in related_transaction.note
+            and related_transaction.amount_minor == 100
+        ):
+            self._fail(
+                "cash_cancellation_attestation_scope_invalid",
+                "Синтетическая отмена не соответствует контуру аттестации.",
+                status_code=403,
+            )
+        if not expected_related_cashbox_updated_at:
+            self._fail(
+                "cashbox_transfer_related_revision_required",
+                "Для отмены перемещения нужно перечитать связанную кассу.",
+                status_code=409,
+                details={"related_cashbox_id": related_cashbox.id},
+            )
+        if related_cashbox.updated_at != expected_related_cashbox_updated_at:
+            self._fail(
+                "cashbox_update_conflict",
+                "Связанная касса уже изменилась. Обновите данные и повторите действие.",
+                status_code=409,
+                details={"cashbox_id": related_cashbox.id},
+            )
         cancellation_note = self._cash_cancellation_note(reason)
         cancellation_created_at = (
             model_helpers.utc_now().astimezone(business_timezone()).isoformat()

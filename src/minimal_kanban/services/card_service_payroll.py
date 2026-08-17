@@ -52,6 +52,7 @@ EMPLOYEE_SALARY_RECONCILIATION_MAX_DAYS = 366
 PAYROLL_DECIMAL_ABS_MAX = Decimal("1000000000000")
 PAYROLL_TERMS_LIMIT = 50
 PAYROLL_POLICY_2026_07_13_CUTOFF = "2026-07-13T00:00:00+07:00"
+_GATEWAY_ATTESTATION_RUN_RE = re.compile(r"^AST-GWAT-\d{8}T\d{6}Z$")
 PAYROLL_POLICY_2026_07_13_TERMS: dict[str, dict[str, str]] = {
     "Александр Баландин": {
         "salary_mode": "percent_only",
@@ -2261,6 +2262,52 @@ class CardServicePayrollMixin:
             actor_name, source = self._audit_identity(payload, default_source="api")
             settings = dict(bundle["settings"])
             employees = self._employees_from_settings(settings)
+            expected_employee_ids = payload.get("expected_employee_ids")
+            if expected_employee_ids is not None:
+                if (
+                    not isinstance(expected_employee_ids, list)
+                    or any(
+                        not isinstance(item, str) or not item.strip()
+                        for item in expected_employee_ids
+                    )
+                    or len(set(expected_employee_ids)) != len(expected_employee_ids)
+                ):
+                    self._fail(
+                        "validation_error",
+                        "Поле expected_employee_ids должно содержать упорядоченные ID сотрудников.",
+                        details={"field": "expected_employee_ids"},
+                    )
+                current_employee_ids = [str(item["id"]) for item in employees]
+                if expected_employee_ids != current_employee_ids:
+                    self._fail(
+                        "employee_snapshot_conflict",
+                        "Список сотрудников уже изменился. Обновите его и повторите действие.",
+                        status_code=409,
+                        details={
+                            "expected_count": len(expected_employee_ids),
+                            "current_count": len(current_employee_ids),
+                        },
+                    )
+            attestation_run_id = normalize_text(
+                payload.get("attestation_run_id"),
+                default="",
+                limit=64,
+            )
+            if attestation_run_id and not (
+                _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
+                and normalize_text(payload.get("name"), default="", limit=80).startswith(
+                    f"{attestation_run_id}-"
+                )
+                and normalize_bool(payload.get("create_mode"), default=False)
+                and str(payload.get("source") or "").strip().casefold()
+                == "mcp_agent_gateway_v2"
+                and actor_name
+            ):
+                self._fail(
+                    "employee_attestation_scope_invalid",
+                    "Синтетический сотрудник не соответствует контуру аттестации.",
+                    status_code=403,
+                )
             create_mode = normalize_bool(payload.get("create_mode"), default=False)
             if create_mode:
                 payload = dict(payload)
@@ -2387,8 +2434,165 @@ class CardServicePayrollMixin:
                     status_code=404,
                     details={"employee_id": employee_id},
                 )
+            expected_updated_at = normalize_text(
+                payload.get("expected_updated_at"),
+                default="",
+                limit=80,
+            )
+            if expected_updated_at and str(target.get("updated_at") or "") != expected_updated_at:
+                self._fail(
+                    "employee_update_conflict",
+                    "Сотрудник уже изменился. Обновите данные и повторите действие.",
+                    status_code=409,
+                    details={"employee_id": employee_id},
+                )
             usage = self._employee_delete_usage_counts(bundle, employee_id)
-            if any(usage.values()):
+            attestation_run_id = normalize_text(
+                payload.get("attestation_run_id"),
+                default="",
+                limit=64,
+            )
+            detach_transaction_id = normalize_text(
+                payload.get("attestation_detach_salary_transaction_id"),
+                default="",
+                limit=128,
+            )
+            detach_transaction = next(
+                (
+                    item
+                    for item in bundle["cash_transactions"]
+                    if item.id == detach_transaction_id
+                ),
+                None,
+            )
+            detach_cashbox = (
+                next(
+                    (
+                        item
+                        for item in bundle["cashboxes"]
+                        if detach_transaction is not None
+                        and item.id == detach_transaction.cashbox_id
+                    ),
+                    None,
+                )
+                if detach_transaction_id
+                else None
+            )
+            attestation_detach_allowed = bool(
+                attestation_run_id
+                and _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
+                and expected_updated_at
+                and str(target.get("name") or "").startswith(f"{attestation_run_id}-")
+                and detach_transaction is not None
+                and detach_cashbox is not None
+                and detach_cashbox.name.startswith(f"{attestation_run_id}-")
+                and detach_transaction.employee_id == employee_id
+                and detach_transaction.employee_name == str(target.get("name") or "")
+                and detach_transaction.note.startswith(attestation_run_id)
+                and detach_transaction.amount_minor == 100
+                and detach_transaction.transaction_kind == "salary_payout"
+                and detach_transaction.direction == "expense"
+                and usage
+                == {
+                    "repair_order_works": 0,
+                    "repair_order_materials": 0,
+                    "salary_transactions": 1,
+                    "shift_accruals": 0,
+                }
+                and str(payload.get("source") or "").strip().casefold()
+                == "mcp_agent_gateway_v2"
+                and actor_name
+            )
+            raw_shift_accrual_ids = payload.get(
+                "attestation_cleanup_shift_accrual_ids"
+            )
+            shift_cleanup_requested = raw_shift_accrual_ids is not None
+            if shift_cleanup_requested and (
+                not isinstance(raw_shift_accrual_ids, list)
+                or not raw_shift_accrual_ids
+                or any(
+                    not isinstance(item, str) or not item.strip()
+                    for item in raw_shift_accrual_ids
+                )
+                or len(set(raw_shift_accrual_ids)) != len(raw_shift_accrual_ids)
+            ):
+                self._fail(
+                    "validation_error",
+                    "Нужен точный снимок синтетических начислений.",
+                    details={"field": "attestation_cleanup_shift_accrual_ids"},
+                )
+            if shift_cleanup_requested and detach_transaction_id:
+                self._fail(
+                    "validation_error",
+                    "Режимы синтетической очистки нельзя совмещать.",
+                    details={"field": "attestation_cleanup_shift_accrual_ids"},
+                )
+            shift_accruals = self._employee_shift_accruals_from_settings(
+                settings,
+                employees_by_id={item["id"]: item for item in employees},
+            )
+            employee_shift_accruals = [
+                item
+                for item in shift_accruals
+                if normalize_text(
+                    item.get("employee_id"), default="", limit=64
+                )
+                == employee_id
+            ]
+            employee_shift_accrual_ids = {
+                str(item.get("id") or "") for item in employee_shift_accruals
+            }
+            requested_shift_accrual_ids = {
+                str(item) for item in (raw_shift_accrual_ids or [])
+            }
+            if (
+                shift_cleanup_requested
+                and employee_shift_accrual_ids != requested_shift_accrual_ids
+            ):
+                self._fail(
+                    "employee_shift_accrual_snapshot_conflict",
+                    "Синтетические начисления уже изменились. Перечитайте сотрудника.",
+                    status_code=409,
+                    details={"employee_id": employee_id},
+                )
+            attestation_shift_cleanup_allowed = bool(
+                shift_cleanup_requested
+                and attestation_run_id
+                and _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
+                and expected_updated_at
+                and str(target.get("name") or "").startswith(
+                    f"{attestation_run_id}-"
+                )
+                and requested_shift_accrual_ids
+                and all(
+                    normalize_money_minor(item.get("amount_minor")) == 100
+                    and str(item.get("note") or "").startswith(attestation_run_id)
+                    and str(item.get("employee_name") or "")
+                    == str(target.get("name") or "")
+                    and str(item.get("actor_name") or "") == actor_name
+                    for item in employee_shift_accruals
+                )
+                and int(usage.get("repair_order_works", 0)) == 0
+                and int(usage.get("repair_order_materials", 0)) == 0
+                and int(usage.get("salary_transactions", 0)) == 0
+                and int(usage.get("repair_order_accruals", 0)) == 0
+                and int(usage.get("shift_accruals", 0))
+                == len(requested_shift_accrual_ids)
+                and str(payload.get("source") or "").strip().casefold()
+                == "mcp_agent_gateway_v2"
+                and actor_name
+            )
+            if shift_cleanup_requested and not attestation_shift_cleanup_allowed:
+                self._fail(
+                    "gateway_attestation_shift_cleanup_scope_invalid",
+                    "Очистка начисления не соответствует синтетическому контуру.",
+                    status_code=403,
+                )
+            if (
+                any(usage.values())
+                and not attestation_detach_allowed
+                and not attestation_shift_cleanup_allowed
+            ):
                 self._fail(
                     "validation_error",
                     "Сотрудника нельзя удалить: есть связанные заказ-наряды, начисления или кассовые операции.",
@@ -2396,14 +2600,50 @@ class CardServicePayrollMixin:
                 )
             next_employees = [item for item in employees if item["id"] != employee_id]
             settings[EMPLOYEES_SETTING_KEY] = next_employees
+            if attestation_shift_cleanup_allowed:
+                settings[EMPLOYEE_SHIFT_ACCRUALS_SETTING_KEY] = [
+                    self._employee_shift_accrual_storage_payload(item)
+                    for item in shift_accruals
+                    if str(item.get("id") or "")
+                    not in requested_shift_accrual_ids
+                ]
             self._append_event(
                 bundle["events"],
                 actor_name=actor_name,
                 source=source,
-                action="employee_deleted",
-                message=f"{actor_name} удалил сотрудника",
+                action=(
+                    "employee_attestation_detached"
+                    if attestation_detach_allowed
+                    else (
+                        "employee_attestation_shift_fixture_deleted"
+                        if attestation_shift_cleanup_allowed
+                        else "employee_deleted"
+                    )
+                ),
+                message=(
+                    f"{actor_name} временно отсоединил синтетического сотрудника"
+                    if attestation_detach_allowed
+                    else (
+                        f"{actor_name} удалил синтетического сотрудника и начисление"
+                        if attestation_shift_cleanup_allowed
+                        else f"{actor_name} удалил сотрудника"
+                    )
+                ),
                 card_id=None,
-                details={"employee_id": employee_id, "name": target["name"]},
+                details={
+                    "employee_id": employee_id,
+                    "name": target["name"],
+                    "attestation_detach": attestation_detach_allowed,
+                    "attestation_shift_cleanup": attestation_shift_cleanup_allowed,
+                    "salary_transaction_id": detach_transaction_id
+                    if attestation_detach_allowed
+                    else "",
+                    "removed_shift_accrual_ids": sorted(
+                        requested_shift_accrual_ids
+                    )
+                    if attestation_shift_cleanup_allowed
+                    else [],
+                },
             )
             self._save_bundle(
                 bundle,
@@ -2417,6 +2657,13 @@ class CardServicePayrollMixin:
             return {
                 "deleted": True,
                 "employee_id": employee_id,
+                "attestation_detach": attestation_detach_allowed,
+                "attestation_shift_cleanup": attestation_shift_cleanup_allowed,
+                "removed_shift_accrual_ids": sorted(
+                    requested_shift_accrual_ids
+                )
+                if attestation_shift_cleanup_allowed
+                else [],
                 "employees": [
                     self._employee_with_current_payroll_term(item) for item in next_employees
                 ],
