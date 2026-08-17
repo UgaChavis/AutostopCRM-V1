@@ -206,7 +206,7 @@ class McpRepairOrderPatchPayloadTests(unittest.TestCase):
 
         self.assertEqual(len(grouped_names), len(set(grouped_names)))
         self.assertEqual(PUBLIC_MCP_TOOL_NAMES, EXPECTED_MCP_TOOLS)
-        self.assertEqual(len(PUBLIC_MCP_TOOL_NAMES), 94)
+        self.assertEqual(len(PUBLIC_MCP_TOOL_NAMES), 95)
         self.assertEqual(
             set(MCP_TOOL_GROUPS),
             {
@@ -2379,6 +2379,14 @@ class McpServerBackendTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTest
 
                 snapshot = await session.call_tool("get_board_snapshot", {"archive_limit": 5})
                 self.assertFalse(snapshot.isError)
+                event_page = await session.call_tool(
+                    "get_board_event_page", {"limit": 5, "include_archived": True}
+                )
+                self.assertFalse(event_page.isError)
+                self.assertEqual(
+                    event_page.structuredContent["data"]["schema_version"],
+                    "board_event_page.v1",
+                )
                 cards = sorted(
                     [
                         item
