@@ -209,7 +209,8 @@ class PayrollPolicyMigrationTests(unittest.TestCase):
         self.assertEqual(order["works"][0]["salary_amount"], "500")
         self.assertEqual(order["works"][1]["salary_amount"], "")
         self.assertEqual(order["materials"][0]["material_salary_amount"], "")
-        report = self.service.get_payroll_report({"month": "2026-07"})
+        report_month = datetime.strptime(order["closed_at"], "%d.%m.%Y %H:%M").strftime("%Y-%m")
+        report = self.service.get_payroll_report({"month": report_month})
         order_accruals = [
             row for row in report["detail_rows"] if row["row_type"] == "repair_order_accrual"
         ]
@@ -231,7 +232,7 @@ class PayrollPolicyMigrationTests(unittest.TestCase):
         )
         self.assertEqual(second["employees_changed"], 0)
         self.assertEqual(second["affected_repair_orders_count"], 0)
-        repeated = self.service.get_payroll_report({"month": "2026-07"})
+        repeated = self.service.get_payroll_report({"month": report_month})
         self.assertEqual(
             len(
                 [
@@ -422,7 +423,8 @@ class PayrollPolicyMigrationTests(unittest.TestCase):
         self.assertEqual(after["works"][0]["salary_amount"], "500")
         self.assertEqual(after["works"][1]["salary_amount"], "")
         self.assertEqual(after["materials"][0]["material_salary_amount"], "")
-        report = self.service.get_payroll_report({"month": "2026-07"})
+        report_month = datetime.strptime(after["closed_at"], "%d.%m.%Y %H:%M").strftime("%Y-%m")
+        report = self.service.get_payroll_report({"month": report_month})
         alexey_order_accruals = [
             row
             for row in report["detail_rows"]

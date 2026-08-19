@@ -935,7 +935,11 @@ def register_agent_gateway_v2(
             if cashbox_id:
                 read_tool = "get_cashbox"
                 read_arguments = {"cashbox_id": str(cashbox_id), "transaction_limit": 10}
-        elif operation in {"update_repair_order", "set_repair_order_status"}:
+        elif operation in {
+            "update_repair_order",
+            "set_repair_order_status",
+            "reopen_repair_order",
+        }:
             card_id = arguments.get("card_id") or _find_value(result, frozenset({"card_id"}))
             if card_id:
                 read_tool = "get_repair_order"
@@ -1036,6 +1040,10 @@ def register_agent_gateway_v2(
             passed = _subset_matches(arguments.get("repair_order") or {}, actual_order)
         elif passed and operation == "set_repair_order_status":
             passed = _contains_value(readback, "status", arguments.get("status"))
+        elif passed and operation == "reopen_repair_order":
+            passed = _contains_value(readback, "status", "open") and _contains_value(
+                readback, "correction_active", True
+            )
         elif passed and operation == "upload_shared_file":
             passed = bool(read_arguments.get("file_id")) and _contains_value(
                 readback, "id", read_arguments.get("file_id")
@@ -1130,7 +1138,7 @@ def register_agent_gateway_v2(
                 )
             store_correlation = str(request_validation["correlation_id"])
         if (
-            operation in {"update_repair_order", "set_repair_order_status"}
+            operation in {"update_repair_order", "set_repair_order_status", "reopen_repair_order"}
             and not str(payload.get("expected_updated_at") or "").strip()
         ):
             return _tool_result(

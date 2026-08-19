@@ -1786,7 +1786,7 @@ class CardServiceTests(unittest.TestCase):
                 "card_id": card_id,
                 "repair_order": {
                     "number": "19",
-                    "status": "closed",
+                    "status": "open",
                     "client": "Иван Иванов",
                     "vehicle": "KIA RIO",
                     "works": [{"name": "Диагностика", "quantity": "1", "price": "2000"}],
@@ -1801,6 +1801,7 @@ class CardServiceTests(unittest.TestCase):
                 },
             }
         )
+        self.service.set_repair_order_status({"card_id": card_id, "status": "closed"})
 
         archived = self.service.archive_card({"card_id": card_id})
         self.assertTrue(archived["card"]["archived"])
@@ -1936,7 +1937,7 @@ class CardServiceTests(unittest.TestCase):
                 }
             )
 
-        self.assertEqual(raised.exception.code, "repair_order_payment_required")
+        self.assertEqual(raised.exception.code, "repair_order_closed_read_only")
         self.assertEqual(raised.exception.status_code, 409)
 
     def test_update_paid_closed_repair_order_rejects_financial_edit_that_creates_underpayment(
@@ -1984,9 +1985,8 @@ class CardServiceTests(unittest.TestCase):
                 }
             )
 
-        self.assertEqual(raised.exception.code, "repair_order_payment_required")
+        self.assertEqual(raised.exception.code, "repair_order_closed_read_only")
         self.assertEqual(raised.exception.status_code, 409)
-        self.assertEqual(raised.exception.details["due_total"], "500")
 
     def test_unpaid_closed_repair_order_does_not_accrue_work_salary_on_legacy_edit(
         self,
@@ -2047,9 +2047,12 @@ class CardServiceTests(unittest.TestCase):
             settings=bundle["settings"],
         )
 
-        edited = self.service.update_repair_order(
-            {"card_id": card_id, "repair_order": {"comment": "Историческая правка"}}
-        )["repair_order"]
+        with self.assertRaises(ServiceError) as blocked:
+            self.service.update_repair_order(
+                {"card_id": card_id, "repair_order": {"comment": "Историческая правка"}}
+            )
+        self.assertEqual(blocked.exception.code, "repair_order_closed_read_only")
+        edited = self.service.get_repair_order({"card_id": card_id})["repair_order"]
 
         work = edited["works"][0]
         material = edited["materials"][0]
@@ -2918,17 +2921,20 @@ class CardServiceTests(unittest.TestCase):
                 "work_salary_note": "Поздняя правка",
             }
         )
-        updated = self.service.update_repair_order(
-            {
-                "card_id": card_id,
-                "repair_order": {
-                    **closed["repair_order"],
-                    "comment": "Правка после закрытия не меняет payroll snapshot",
-                    "client_information": "Правка после закрытия не меняет payroll snapshot",
-                    "works": [edited_work],
-                },
-            }
-        )
+        with self.assertRaises(ServiceError) as blocked:
+            self.service.update_repair_order(
+                {
+                    "card_id": card_id,
+                    "repair_order": {
+                        **closed["repair_order"],
+                        "comment": "Правка после закрытия не меняет payroll snapshot",
+                        "client_information": "Правка после закрытия не меняет payroll snapshot",
+                        "works": [edited_work],
+                    },
+                }
+            )
+        self.assertEqual(blocked.exception.code, "repair_order_closed_read_only")
+        updated = self.service.get_repair_order({"card_id": card_id})
         work = updated["repair_order"]["works"][0]
         self.assertEqual(work["salary_amount"], "10400")
         self.assertEqual(work["work_percent_snapshot"], "45")
@@ -3147,7 +3153,16 @@ class CardServiceTests(unittest.TestCase):
         closed = self.service.set_repair_order_status({"card_id": card_id, "status": "closed"})
         self.assertEqual(closed["repair_order"]["works"][0]["salary_amount"], "1500")
 
-        reopened = self.service.set_repair_order_status({"card_id": card_id, "status": "open"})
+        current = self.service.get_card({"card_id": card_id})["card"]
+        reopened = self.service.reopen_repair_order(
+            {
+                "card_id": card_id,
+                "expected_updated_at": current["updated_at"],
+                "reason_code": "other",
+                "reason_note": "Проверка очистки снимка зарплаты",
+                "idempotency_key": "service-reopen-snapshot",
+            }
+        )
         reopened_row = reopened["repair_order"]["works"][0]
         self.assertEqual(reopened_row["salary_mode_snapshot"], "")
         self.assertEqual(reopened_row["base_salary_snapshot"], "")
@@ -3243,21 +3258,24 @@ class CardServiceTests(unittest.TestCase):
             "executor_id": other_employee["id"],
             "executor_name": other_employee["name"],
         }
-        updated = self.service.update_repair_order(
-            {
-                "card_id": card_id,
-                "repair_order": {
-                    **closed["repair_order"],
-                    "note": "Редактирование после закрытия не переносит начисление",
-                    "works": [edited_work],
-                },
-            }
-        )
+        with self.assertRaises(ServiceError) as blocked:
+            self.service.update_repair_order(
+                {
+                    "card_id": card_id,
+                    "repair_order": {
+                        **closed["repair_order"],
+                        "note": "Редактирование после закрытия не переносит начисление",
+                        "works": [edited_work],
+                    },
+                }
+            )
+        self.assertEqual(blocked.exception.code, "repair_order_closed_read_only")
+        updated = self.service.get_repair_order({"card_id": card_id})
 
         work = updated["repair_order"]["works"][0]
-        self.assertEqual(work["executor_id"], other_employee["id"])
-        self.assertEqual(work["work_executor_id_snapshot"], original_employee["id"])
-        self.assertEqual(work["work_executor_name_snapshot"], original_employee["name"])
+        self.assertEqual(work["executor_id"], original_employee["id"])
+        self.assertEqual(work["work_executor_id_snapshot"], "")
+        self.assertEqual(work["work_executor_name_snapshot"], "")
         self.assertEqual(work["work_percent_snapshot"], "10")
         self.assertEqual(work["salary_amount"], "100")
 
@@ -3329,22 +3347,24 @@ class CardServiceTests(unittest.TestCase):
         for field_name in ("work_quantity_snapshot", "work_price_snapshot", "work_total_snapshot"):
             edited_work.pop(field_name, None)
         edited_work.update({"quantity": "5", "price": "1000"})
-        self.service.update_card(
-            {
-                "card_id": card_id,
-                "repair_order": {
-                    **closed["repair_order"],
-                    "payments": [
-                        {
-                            "amount": "5000",
-                            "paid_at": "05.04.2026 10:05",
-                            "payment_method": "cash",
-                        }
-                    ],
-                    "works": [edited_work],
-                },
-            }
-        )
+        with self.assertRaises(ServiceError) as blocked:
+            self.service.update_card(
+                {
+                    "card_id": card_id,
+                    "repair_order": {
+                        **closed["repair_order"],
+                        "payments": [
+                            {
+                                "amount": "5000",
+                                "paid_at": "05.04.2026 10:05",
+                                "payment_method": "cash",
+                            }
+                        ],
+                        "works": [edited_work],
+                    },
+                }
+            )
+        self.assertEqual(blocked.exception.code, "repair_order_closed_read_only")
 
         report = self.service.get_payroll_report({"month": closed_month})
         summary = next(item for item in report["summary"] if item["employee_id"] == employee["id"])
@@ -3735,22 +3755,34 @@ class CardServiceTests(unittest.TestCase):
                 "material_percent": "50",
             }
         )
-        updated = self.service.update_repair_order(
-            {
-                "card_id": card_id,
-                "repair_order": {
-                    **closed["repair_order"],
-                    "note": "После изменения процента",
-                },
-            }
-        )
+        with self.assertRaises(ServiceError) as blocked:
+            self.service.update_repair_order(
+                {
+                    "card_id": card_id,
+                    "repair_order": {
+                        **closed["repair_order"],
+                        "note": "После изменения процента",
+                    },
+                }
+            )
+        self.assertEqual(blocked.exception.code, "repair_order_closed_read_only")
+        updated = self.service.get_repair_order({"card_id": card_id})
 
         material = updated["repair_order"]["materials"][0]
         self.assertEqual(material["material_percent_snapshot"], "10")
         self.assertEqual(material["material_profit"], "300")
         self.assertEqual(material["material_salary_amount"], "30")
 
-        reopened = self.service.set_repair_order_status({"card_id": card_id, "status": "open"})
+        current = self.service.get_card({"card_id": card_id})["card"]
+        reopened = self.service.reopen_repair_order(
+            {
+                "card_id": card_id,
+                "expected_updated_at": current["updated_at"],
+                "reason_code": "other",
+                "reason_note": "Проверка нового процента материала",
+                "idempotency_key": "material-percent-reopen",
+            }
+        )
         reopened_material = reopened["repair_order"]["materials"][0]
         self.assertEqual(reopened_material["material_percent_snapshot"], "")
         self.assertEqual(reopened_material["material_profit"], "")
@@ -3807,15 +3839,18 @@ class CardServiceTests(unittest.TestCase):
             "executor_id": other_employee["id"],
             "executor_name": other_employee["name"],
         }
-        updated = self.service.update_repair_order(
-            {
-                "card_id": card_id,
-                "repair_order": {
-                    **closed["repair_order"],
-                    "materials": [edited_material],
-                },
-            }
-        )
+        with self.assertRaises(ServiceError) as blocked:
+            self.service.update_repair_order(
+                {
+                    "card_id": card_id,
+                    "repair_order": {
+                        **closed["repair_order"],
+                        "materials": [edited_material],
+                    },
+                }
+            )
+        self.assertEqual(blocked.exception.code, "repair_order_closed_read_only")
+        updated = self.service.get_repair_order({"card_id": card_id})
 
         material = updated["repair_order"]["materials"][0]
         self.assertEqual(material["material_executor_id_snapshot"], original_employee["id"])
@@ -3882,24 +3917,27 @@ class CardServiceTests(unittest.TestCase):
                 "material_percent": "50",
             }
         )
-        updated = self.service.update_repair_order(
-            {
-                "card_id": card_id,
-                "repair_order": {
-                    **closed["repair_order"],
-                    "note": "Клиент прислал строку без скрытых snapshot-полей",
-                    "materials": [
-                        {
-                            "name": "Фара",
-                            "quantity": "1",
-                            "cost_price": "400",
-                            "price": "1000",
-                            "executor_id": employee["id"],
-                        }
-                    ],
-                },
-            }
-        )
+        with self.assertRaises(ServiceError) as blocked:
+            self.service.update_repair_order(
+                {
+                    "card_id": card_id,
+                    "repair_order": {
+                        **closed["repair_order"],
+                        "note": "Клиент прислал строку без скрытых snapshot-полей",
+                        "materials": [
+                            {
+                                "name": "Фара",
+                                "quantity": "1",
+                                "cost_price": "400",
+                                "price": "1000",
+                                "executor_id": employee["id"],
+                            }
+                        ],
+                    },
+                }
+            )
+        self.assertEqual(blocked.exception.code, "repair_order_closed_read_only")
+        updated = self.service.get_repair_order({"card_id": card_id})
 
         material = updated["repair_order"]["materials"][0]
         self.assertEqual(material["material_percent_snapshot"], "10")
@@ -3959,22 +3997,24 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(closed["repair_order"]["materials"][0]["material_quantity_snapshot"], "2")
         material = dict(closed["repair_order"]["materials"][0])
         material.update({"quantity": "5", "cost_price": "1", "price": "9999"})
-        self.service.update_card(
-            {
-                "card_id": card_id,
-                "repair_order": {
-                    **closed["repair_order"],
-                    "payments": [
-                        {
-                            "amount": "49995",
-                            "paid_at": "05.04.2026 10:05",
-                            "payment_method": "cash",
-                        }
-                    ],
-                    "materials": [material],
-                },
-            }
-        )
+        with self.assertRaises(ServiceError) as blocked:
+            self.service.update_card(
+                {
+                    "card_id": card_id,
+                    "repair_order": {
+                        **closed["repair_order"],
+                        "payments": [
+                            {
+                                "amount": "49995",
+                                "paid_at": "05.04.2026 10:05",
+                                "payment_method": "cash",
+                            }
+                        ],
+                        "materials": [material],
+                    },
+                }
+            )
+        self.assertEqual(blocked.exception.code, "repair_order_closed_read_only")
 
         report = self.service.get_payroll_report({"month": closed_month})
         summary = next(item for item in report["summary"] if item["employee_id"] == employee["id"])
@@ -4038,7 +4078,7 @@ class CardServiceTests(unittest.TestCase):
                 }
             )
 
-        self.assertEqual(raised.exception.code, "repair_order_payment_required")
+        self.assertEqual(raised.exception.code, "repair_order_closed_read_only")
         self.assertEqual(raised.exception.status_code, 409)
         stored = self.service.get_repair_order({"card_id": card_id})["repair_order"]
         material = stored["materials"][0]
@@ -4179,8 +4219,15 @@ class CardServiceTests(unittest.TestCase):
             )
         )
 
-        reopened = self.service.set_repair_order_status(
-            {"card_id": closed_card["id"], "status": "open"}
+        current = self.service.get_card({"card_id": closed_card["id"]})["card"]
+        reopened = self.service.reopen_repair_order(
+            {
+                "card_id": closed_card["id"],
+                "expected_updated_at": current["updated_at"],
+                "reason_code": "other",
+                "reason_note": "Проверка зарплатного баланса",
+                "idempotency_key": "service-ledger-reopen",
+            }
         )
         self.assertEqual(reopened["repair_order"]["works"][0]["salary_amount"], "")
         reopened_row = reopened["repair_order"]["works"][0]
@@ -4188,9 +4235,15 @@ class CardServiceTests(unittest.TestCase):
             {"employee_id": employee["id"]}
         )
         self.assertEqual(ledger_after_reopen["balance_total"], "-8000")
-        self.assertFalse(
+        self.assertTrue(
             any(
                 row["kind"] == "accrual" and row["card_id"] == closed_card["id"]
+                for row in ledger_after_reopen["journal_rows"]
+            )
+        )
+        self.assertTrue(
+            any(
+                row["kind"] == "accrual_reversal" and row["card_id"] == closed_card["id"]
                 for row in ledger_after_reopen["journal_rows"]
             )
         )
@@ -4603,7 +4656,7 @@ class CardServiceTests(unittest.TestCase):
                 "card_id": ready_card["id"],
                 "repair_order": {
                     "number": "304",
-                    "status": "ready",
+                    "status": "open",
                     "vehicle": "Ready Car",
                     "license_plate": "Р222РР124",
                     "works": [
@@ -4617,6 +4670,7 @@ class CardServiceTests(unittest.TestCase):
                 },
             }
         )
+        self.service.set_repair_order_status({"card_id": ready_card["id"], "status": "ready"})
 
         report_month = recent_time.astimezone().strftime("%Y-%m")
         report = self.service.get_employee_salary_report(
@@ -10881,7 +10935,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(details["transactions"][0]["note"], "Заказ-наряд №257")
         self.assertEqual(details["transactions"][0]["stored_note"], "Заказ-наряд №257")
 
-        journal = self.service.get_cash_journal({"months": 3, "limit": 100})
+        journal = self.service.get_cash_journal({"months": 4, "limit": 100})
         self.assertEqual(journal["entries"][0]["repair_order_number"], "257")
         self.assertEqual(journal["entries"][0]["note"], "Заказ-наряд №257")
         self.assertEqual(journal["entries"][0]["business_date"], payment_at.strftime("%Y-%m-%d"))

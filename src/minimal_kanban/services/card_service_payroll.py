@@ -196,6 +196,50 @@ def _repair_order_payroll_scheme(percent: object) -> str:
 
 
 class CardServicePayrollMixin:
+    def _repost_policy_line_payroll(
+        self,
+        *,
+        card_id: str,
+        previous_order: RepairOrder,
+        order: RepairOrder,
+        actor_name: str,
+        source: str,
+        created_at: datetime,
+    ) -> RepairOrder:
+        if not previous_order.payroll_postings or not order.cycles:
+            return order
+        postings = [dict(item) for item in previous_order.payroll_postings]
+        active = self._active_line_payroll_postings(postings)
+        for posting in active:
+            if posting.get("posting_type") not in {"work", "material"}:
+                continue
+            postings.append(
+                {
+                    **posting,
+                    "id": str(uuid.uuid4()),
+                    "kind": "reversal",
+                    "amount_minor": -abs(int(posting.get("amount_minor") or 0)),
+                    "created_at": created_at.isoformat(),
+                    "related_posting_id": posting.get("id") or "",
+                    "actor_name": actor_name,
+                    "source": source,
+                }
+            )
+        cycle = order.cycles[-1]
+        postings.extend(
+            self._line_payroll_postings_from_snapshot(
+                card_id=card_id,
+                order=order,
+                cycle_id=cycle.get("id") or "",
+                cycle_number=int(cycle.get("cycle_number") or len(order.cycles)),
+                actor_name=actor_name,
+                source=source,
+                created_at=created_at.isoformat(),
+            )
+        )
+        order.payroll_postings = postings
+        return order
+
     def migrate_payroll_policy_2026_07_13(
         self,
         *,
@@ -347,6 +391,7 @@ class CardServicePayrollMixin:
                 if qualified_at is None or qualified_at < cutoff:
                     continue
                 original_order_storage = order.to_storage_dict()
+                original_order = RepairOrder.from_dict(original_order_storage)
                 old_amounts = snapshot_amounts(order)
                 work_rows: list[dict[str, str]] = []
                 recalculation_needed = False
@@ -401,6 +446,14 @@ class CardServicePayrollMixin:
                         }
                     )
                     order = self._apply_repair_order_payroll_snapshot(order, settings)
+                    order = self._repost_policy_line_payroll(
+                        card_id=card.id,
+                        previous_order=original_order,
+                        order=order,
+                        actor_name=actor_name,
+                        source=source,
+                        created_at=qualified_at,
+                    )
                     card.repair_order = order
                 ledger_before = self._employee_repair_order_accruals_from_settings(
                     settings, employees_by_id={item["id"]: item for item in employees}
@@ -412,6 +465,11 @@ class CardServicePayrollMixin:
                     actor_name=actor_name,
                     source=source,
                     created_at=qualified_at,
+                )
+                card.repair_order = self._merge_overall_payroll_postings(
+                    card.repair_order,
+                    payroll_sync.get("entries") or [],
+                    include_reversals=True,
                 )
                 ledger_after = self._employee_repair_order_accruals_from_settings(
                     settings, employees_by_id={item["id"]: item for item in employees}
@@ -583,6 +641,20 @@ class CardServicePayrollMixin:
                 "detail_rows": report["detail_rows"],
             }
 
+    @staticmethod
+    def _legacy_overall_accruals_without_postings(
+        cards: list[Card], entries: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        journal_card_ids = {
+            card.id
+            for card in cards
+            if any(
+                posting.get("posting_type") == "repair_order"
+                for posting in card.repair_order.payroll_postings
+            )
+        }
+        return [item for item in entries if item.get("card_id") not in journal_card_ids]
+
     def _build_employee_salary_ledger(
         self,
         cards: list[Card],
@@ -595,6 +667,9 @@ class CardServicePayrollMixin:
         months: int = 6,
         period_only_totals: bool = False,
     ) -> dict[str, Any]:
+        repair_order_accruals = self._legacy_overall_accruals_without_postings(
+            cards, repair_order_accruals or []
+        )
         period_start = model_helpers.utc_now() - timedelta(days=30 * months)
         employee_id = employee["id"]
         cashboxes_by_id = {cashbox.id: cashbox for cashbox in cashboxes}
@@ -729,6 +804,87 @@ class CardServicePayrollMixin:
 
         for card in cards:
             order = card.repair_order
+            if order.payroll_postings:
+                for posting in order.payroll_postings:
+                    if posting.get("employee_id") != employee_id:
+                        continue
+                    created_at = parse_business_datetime(posting.get("created_at"))
+                    if created_at is None:
+                        continue
+                    is_recent = created_at.astimezone(UTC) >= period_start
+                    amount_minor = int(posting.get("amount_minor") or 0)
+                    amount = Decimal(amount_minor) / Decimal("100")
+                    if period_only_totals:
+                        if not is_recent:
+                            continue
+                        accrual_total += amount
+                    else:
+                        accrual_total += amount
+                        if not is_recent:
+                            continue
+                    is_reversal = posting.get("kind") == "reversal" or amount_minor < 0
+                    posting_type = posting.get("posting_type") or "work"
+                    if posting_type == "repair_order":
+                        posting_kind = (
+                            "repair_order_accrual_reversal"
+                            if is_reversal
+                            else "repair_order_accrual"
+                        )
+                        posting_label = "ОТМЕНА % ЗН" if is_reversal else "% ОТ ЗАКАЗ-НАРЯДА"
+                    else:
+                        posting_kind = (
+                            "material_accrual_reversal"
+                            if is_reversal and posting_type == "material"
+                            else "accrual_reversal"
+                            if is_reversal
+                            else "material_accrual"
+                            if posting_type == "material"
+                            else "accrual"
+                        )
+                        posting_label = (
+                            "ОТМЕНА МАТЕРИАЛА"
+                            if is_reversal and posting_type == "material"
+                            else "ОТМЕНА НАЧИСЛЕНИЯ"
+                            if is_reversal
+                            else "НАЧИСЛЕНИЕ МАТЕРИАЛ"
+                            if posting_type == "material"
+                            else "НАЧИСЛЕНИЕ"
+                        )
+                    journal_rows.append(
+                        {
+                            "kind": posting_kind,
+                            "kind_label": posting_label,
+                            "created_at": created_at.astimezone(business_timezone()).strftime(
+                                "%d.%m.%Y %H:%M"
+                            ),
+                            "closed_at": posting.get("created_at") or "",
+                            "repair_order_number": posting.get("repair_order_number")
+                            or order.number,
+                            "card_id": card.id,
+                            "vehicle": order.vehicle or card.vehicle,
+                            "work_name": posting.get("row_name") or "% от заказ-наряда",
+                            "amount_minor": amount_minor,
+                            "amount_display": self._format_payroll_decimal(amount),
+                            "source_label": (
+                                "материал"
+                                if posting_type == "material"
+                                else "заказ-наряд, стоимость за наличный расчёт"
+                                if posting_type == "repair_order"
+                                else "заказ-наряд"
+                            ),
+                            "scheme": posting.get("scheme") or posting.get("percent") or "",
+                            "percent": posting.get("percent") or "",
+                            "base_amount_minor": int(
+                                (
+                                    self._parse_payroll_decimal(posting.get("base_amount"))
+                                    * Decimal("100")
+                                ).to_integral_value(rounding=ROUND_HALF_UP)
+                            ),
+                            "accrual_id": posting.get("id") or "",
+                            "related_accrual_id": posting.get("related_posting_id") or "",
+                        }
+                    )
+                continue
             if order.status != REPAIR_ORDER_STATUS_CLOSED:
                 continue
             closed_at = self._parse_repair_order_datetime(order.closed_at)
@@ -953,6 +1109,9 @@ class CardServicePayrollMixin:
         period_start: datetime,
         period_end: datetime,
     ) -> dict[str, Any]:
+        repair_order_accruals = self._legacy_overall_accruals_without_postings(
+            cards, repair_order_accruals or []
+        )
         employee_id = employee["id"]
         cashboxes_by_id = {cashbox.id: cashbox for cashbox in cashboxes}
         rows: list[dict[str, Any]] = []
@@ -1076,6 +1235,83 @@ class CardServicePayrollMixin:
 
         for card in cards:
             order = card.repair_order
+            if order.payroll_postings:
+                vehicle = order.vehicle or card.vehicle_display() or "-"
+                license_plate = (
+                    normalize_license_plate(order.license_plate, limit=40)
+                    or normalize_license_plate(card.vehicle_profile.registration_plate, limit=40)
+                    or ""
+                )
+                for posting in order.payroll_postings:
+                    if posting.get("employee_id") != employee_id:
+                        continue
+                    created_at = parse_business_datetime(posting.get("created_at"))
+                    if created_at is None:
+                        continue
+                    created_at_utc = created_at.astimezone(UTC)
+                    if created_at_utc < period_start or created_at_utc > period_end:
+                        continue
+                    amount = Decimal(int(posting.get("amount_minor") or 0)) / Decimal("100")
+                    accrued_total += amount
+                    posting_type = posting.get("posting_type") or "work"
+                    is_reversal = posting.get("kind") == "reversal" or amount < 0
+                    base = self._parse_payroll_decimal(posting.get("base_amount"))
+                    calculation_base = money_base(
+                        "Прибыль материалов"
+                        if posting_type == "material"
+                        else "Стоимость заказ-наряда за наличный расчёт"
+                        if posting_type == "repair_order"
+                        else "Работа",
+                        base,
+                    )
+                    work_cost_price = self._parse_payroll_decimal(posting.get("cost_total"))
+                    if posting_type == "work" and work_cost_price > Decimal("0"):
+                        calculation_base += "; " + money_base(
+                            "Себестоимость работы", work_cost_price
+                        )
+                    add_row(
+                        created_at,
+                        {
+                            "kind": (
+                                "repair_order_accrual_reversal"
+                                if is_reversal and posting_type == "repair_order"
+                                else "repair_order_accrual"
+                                if posting_type == "repair_order"
+                                else f"{posting_type}_accrual_reversal"
+                                if is_reversal
+                                else f"{posting_type}_accrual"
+                            ),
+                            "kind_label": (
+                                "СТОРНО МАТЕРИАЛА"
+                                if is_reversal and posting_type == "material"
+                                else "СТОРНО % ЗН"
+                                if is_reversal and posting_type == "repair_order"
+                                else "СТОРНО РАБОТЫ"
+                                if is_reversal
+                                else "МАТЕРИАЛ"
+                                if posting_type == "material"
+                                else "% ОТ ЗН"
+                                if posting_type == "repair_order"
+                                else "РАБОТА"
+                            ),
+                            "repair_order_number": posting.get("repair_order_number")
+                            or order.number
+                            or "-",
+                            "card_id": card.id,
+                            "vehicle": vehicle,
+                            "license_plate": license_plate,
+                            "item": posting.get("row_name") or "Без названия",
+                            "calculation_base": calculation_base,
+                            "scheme": posting.get("scheme") or posting.get("percent") or "",
+                            "note": "Реверс начисления" if is_reversal else "",
+                            "accrual_id": posting.get("id") or "",
+                            "related_accrual_id": posting.get("related_posting_id") or "",
+                            **self._employee_salary_reconciliation_amount_fields(
+                                accrued=amount, show_accrued=True
+                            ),
+                        },
+                    )
+                continue
             if order.status != REPAIR_ORDER_STATUS_CLOSED:
                 continue
             closed_at = self._parse_repair_order_datetime(order.closed_at)
@@ -3997,6 +4233,126 @@ class CardServicePayrollMixin:
             )
         return detail_rows
 
+    def _apply_line_payroll_postings_to_report(
+        self,
+        cards: list[Card],
+        *,
+        selected_employee_id: str,
+        period_start: datetime,
+        period_end: datetime,
+        employees_by_id: dict[str, dict[str, Any]],
+        summaries: dict[str, dict[str, Any]],
+        empty_summary: Any,
+        detail_rows_by_order: dict[tuple[str, str], dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        material_rows: list[dict[str, Any]] = []
+        for card in cards:
+            order = card.repair_order
+            for posting in order.payroll_postings:
+                if posting.get("posting_type") == "repair_order":
+                    continue
+                created_at = parse_business_datetime(posting.get("created_at"))
+                if (
+                    created_at is None
+                    or created_at.astimezone(business_timezone()) < period_start
+                    or created_at.astimezone(business_timezone()) >= period_end
+                ):
+                    continue
+                employee_id = normalize_text(posting.get("employee_id"), default="", limit=64)
+                if not employee_id or (
+                    selected_employee_id and employee_id != selected_employee_id
+                ):
+                    continue
+                employee = employees_by_id.get(employee_id, {})
+                if employee_id not in summaries:
+                    summaries[employee_id] = empty_summary(
+                        {
+                            "id": employee_id,
+                            "name": posting.get("employee_name")
+                            or employee.get("name")
+                            or "Сотрудник",
+                            "position": employee.get("position", ""),
+                            "salary_mode": employee.get("salary_mode", ""),
+                            "work_percent": employee.get("work_percent", ""),
+                            "material_percent": employee.get("material_percent", ""),
+                            "repair_order_percent": employee.get("repair_order_percent", "0"),
+                            "base_salary": employee.get("base_salary", "0"),
+                        }
+                    )
+                summary = summaries[employee_id]
+                amount = Decimal(int(posting.get("amount_minor") or 0)) / Decimal("100")
+                direction = Decimal("-1") if amount < 0 else Decimal("1")
+                base_amount = self._parse_payroll_decimal(posting.get("base_amount")) * direction
+                closed_at = created_at.astimezone(business_timezone()).strftime("%d.%m.%Y %H:%M")
+                if posting.get("posting_type") == "material":
+                    sale_total = self._parse_payroll_decimal(posting.get("sale_total")) * direction
+                    cost_total = self._parse_payroll_decimal(posting.get("cost_total")) * direction
+                    summary["materials_count"] += int(direction)
+                    summary["materials_total"] += sale_total
+                    summary["materials_cost_total"] += cost_total
+                    summary["materials_profit_total"] += base_amount
+                    summary["materials_accrued_total"] += amount
+                    material_rows.append(
+                        {
+                            "row_type": "material_reversal" if amount < 0 else "material",
+                            "type_label": "Сторно материала" if amount < 0 else "Материал",
+                            "employee_id": employee_id,
+                            "employee_name": summary["employee_name"],
+                            "closed_at": closed_at,
+                            "repair_order_number": posting.get("repair_order_number")
+                            or order.number,
+                            "card_id": card.id,
+                            "vehicle": order.vehicle or card.vehicle,
+                            "works_count": 0,
+                            "work_total": Decimal("0"),
+                            "materials_count": int(direction),
+                            "material_name": posting.get("row_name") or "Материал",
+                            "material_total": sale_total,
+                            "material_cost_total": cost_total,
+                            "material_profit": base_amount,
+                            "material_percent": posting.get("percent") or "",
+                            "salary_amount": amount,
+                            "accrual_id": posting.get("id") or "",
+                            "related_accrual_id": posting.get("related_posting_id") or "",
+                        }
+                    )
+                    continue
+                summary["works_count"] += int(direction)
+                summary["works_total"] += base_amount
+                summary["work_accrued_total"] += amount
+                detail_key = (
+                    employee_id,
+                    f"{card.id}:{'reversal' if amount < 0 else 'accrual'}",
+                )
+                detail_row = detail_rows_by_order.setdefault(
+                    detail_key,
+                    {
+                        "row_type": "work_reversal" if amount < 0 else "work",
+                        "type_label": "Сторно работы" if amount < 0 else "Работа",
+                        "employee_id": employee_id,
+                        "employee_name": summary["employee_name"],
+                        "closed_at": closed_at,
+                        "repair_order_number": posting.get("repair_order_number") or order.number,
+                        "card_id": card.id,
+                        "vehicle": order.vehicle or card.vehicle,
+                        "works_count": 0,
+                        "work_total": Decimal("0"),
+                        "salary_amount": Decimal("0"),
+                        "materials_count": 0,
+                        "material_name": posting.get("row_name") or "",
+                        "material_total": Decimal("0"),
+                        "material_cost_total": Decimal("0"),
+                        "material_profit": Decimal("0"),
+                        "material_percent": "",
+                        "accrual_id": posting.get("id") or "",
+                        "related_accrual_id": posting.get("related_posting_id") or "",
+                    },
+                )
+                detail_row["works_count"] += int(direction)
+                detail_row["work_total"] += base_amount
+                detail_row["salary_amount"] += amount
+        return material_rows
+
     def _build_payroll_report(
         self,
         cards: list[Card],
@@ -4011,6 +4367,35 @@ class CardServicePayrollMixin:
         month_key = month.replace("-", "")
         period_start, period_end = self._payroll_month_bounds(month)
         employees_by_id = {item["id"]: item for item in employees}
+        report_order_accruals = self._legacy_overall_accruals_without_postings(
+            cards, repair_order_accruals or []
+        )
+        for card in cards:
+            for posting in card.repair_order.payroll_postings:
+                if posting.get("posting_type") != "repair_order":
+                    continue
+                amount_minor = int(posting.get("amount_minor") or 0)
+                report_order_accruals.append(
+                    {
+                        "id": posting.get("id") or "",
+                        "kind": "reversal" if amount_minor < 0 else "accrual",
+                        "employee_id": posting.get("employee_id") or "",
+                        "employee_name": posting.get("employee_name") or "",
+                        "card_id": card.id,
+                        "repair_order_number": posting.get("repair_order_number")
+                        or card.repair_order.number,
+                        "base_amount_minor": int(
+                            (
+                                self._parse_payroll_decimal(posting.get("base_amount"))
+                                * Decimal("100")
+                            ).to_integral_value(rounding=ROUND_HALF_UP)
+                        ),
+                        "percent": posting.get("percent") or "0",
+                        "amount_minor": abs(amount_minor),
+                        "created_at": posting.get("created_at") or "",
+                        "related_accrual_id": posting.get("related_posting_id") or "",
+                    }
+                )
 
         def empty_summary(employee: dict[str, Any]) -> dict[str, Any]:
             base_salary = self._parse_payroll_decimal(employee.get("base_salary", ""))
@@ -4153,9 +4538,20 @@ class CardServicePayrollMixin:
                     "salary_amount": amount,
                 }
             )
-        material_detail_rows: list[dict[str, Any]] = []
+        material_detail_rows = self._apply_line_payroll_postings_to_report(
+            cards,
+            selected_employee_id=selected_employee_id,
+            period_start=period_start,
+            period_end=period_end,
+            employees_by_id=employees_by_id,
+            summaries=summaries,
+            empty_summary=empty_summary,
+            detail_rows_by_order=detail_rows_by_order,
+        )
         for card in cards:
             order = card.repair_order
+            if order.payroll_postings:
+                continue
             if order.status != REPAIR_ORDER_STATUS_CLOSED:
                 continue
             closed_sort_key = self._repair_order_closed_sort_value(card)
@@ -4289,7 +4685,7 @@ class CardServicePayrollMixin:
                     }
                 )
         repair_order_detail_rows = self._repair_order_accrual_payroll_report_rows(
-            repair_order_accruals or [],
+            report_order_accruals,
             selected_employee_id=selected_employee_id,
             period_start=period_start,
             period_end=period_end,

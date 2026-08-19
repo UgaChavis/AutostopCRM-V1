@@ -140,6 +140,7 @@ EXPECTED_MCP_TOOLS = {
     "get_gpt_wall",
     "get_inventory_item",
     "get_repair_order",
+    "get_repair_order_cycles",
     "get_repair_order_text",
     "download_repair_order_print_pdf",
     "get_runtime_status",
@@ -161,7 +162,9 @@ EXPECTED_MCP_TOOLS = {
     "move_card",
     "move_sticky",
     "ping_connector",
+    "preview_repair_order_reopen",
     "rename_column",
+    "reopen_repair_order",
     "replace_repair_order_materials",
     "replace_repair_order_works",
     "restore_card",
@@ -200,13 +203,79 @@ EXPECTED_MCP_TOOLS = {
 }
 
 
+async def exercise_mcp_repair_order_correction(case, session, card_id: str, closed_order) -> None:
+    closed_updated_at = closed_order.structuredContent["data"]["card"]["updated_at"]
+    preview = await session.call_tool(
+        "preview_repair_order_reopen",
+        {"card_id": card_id, "expected_updated_at": closed_updated_at},
+    )
+    case.assertTrue(preview.structuredContent["ok"])
+    cycles = await session.call_tool("get_repair_order_cycles", {"card_id": card_id})
+    case.assertTrue(cycles.structuredContent["ok"])
+    case.assertEqual(len(cycles.structuredContent["data"]["cycles"]), 1)
+    reopened = await session.call_tool(
+        "reopen_repair_order",
+        {
+            "card_id": card_id,
+            "expected_updated_at": closed_updated_at,
+            "reason_code": "other",
+            "reason_note": "MCP regression correction",
+            "idempotency_key": "mcp-reopen-regression",
+            "actor_name": "ОПЕРАТОР",
+        },
+    )
+    case.assertTrue(reopened.structuredContent["ok"])
+    reclosed = await session.call_tool(
+        "set_repair_order_status",
+        {
+            "card_id": card_id,
+            "status": "closed",
+            "expected_updated_at": reopened.structuredContent["data"]["card"]["updated_at"],
+            "idempotency_key": "mcp-reclose-regression",
+            "actor_name": "ОПЕРАТОР",
+        },
+    )
+    case.assertTrue(reclosed.structuredContent["ok"])
+
+
+async def assert_uvicorn_logging_fallback(case) -> None:
+    runtime = None
+    try:
+        port = reserve_port()
+        board_api = BoardApiClient(
+            case.api_server.base_url, bearer_token="api-secret", logger=case.logger
+        )
+        mcp_server = create_mcp_server(
+            board_api,
+            case.logger,
+            host="127.0.0.1",
+            port=port,
+            path="/debug",
+            bearer_token=None,
+        )
+        runtime = McpServerRuntime(mcp_server, case.logger, auth_mode="none")
+        with patch.object(
+            runtime,
+            "_share_app_handlers_with_uvicorn",
+            side_effect=RuntimeError("broken logger setup"),
+        ):
+            runtime.start()
+        case.assertEqual(runtime.logging_mode, "basic_stream_fallback")
+        async with httpx.AsyncClient() as client:
+            response = await client.get(runtime.base_url, follow_redirects=False, timeout=1.0)
+        case.assertNotEqual(response.status_code, 404)
+    finally:
+        if runtime is not None:
+            runtime.stop()
+
+
 class McpRepairOrderPatchPayloadTests(unittest.TestCase):
     def test_mcp_tool_group_registry_matches_public_snapshot(self) -> None:
         grouped_names = [tool_name for group in MCP_TOOL_GROUPS.values() for tool_name in group]
 
         self.assertEqual(len(grouped_names), len(set(grouped_names)))
         self.assertEqual(PUBLIC_MCP_TOOL_NAMES, EXPECTED_MCP_TOOLS)
-        self.assertEqual(len(PUBLIC_MCP_TOOL_NAMES), 95)
+        self.assertEqual(len(PUBLIC_MCP_TOOL_NAMES), 98)
         self.assertEqual(
             set(MCP_TOOL_GROUPS),
             {
@@ -491,7 +560,7 @@ class McpServerBackendTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTest
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
                 self.assertTrue(EXPECTED_MCP_TOOLS.issubset(tool_names))
-                self.assertEqual(len(EXPECTED_MCP_TOOLS), 95)
+                self.assertEqual(len(EXPECTED_MCP_TOOLS), 98)
                 tool_map = {tool.name: tool for tool in tools.tools}
                 legacy_descriptions = [
                     tool.name
@@ -1318,6 +1387,8 @@ class McpServerBackendTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTest
                 self.assertEqual(
                     closed_order.structuredContent["data"]["repair_order"]["status"], "closed"
                 )
+
+                await exercise_mcp_repair_order_correction(self, session, card_id, closed_order)
 
                 archived_repair_orders = await session.call_tool(
                     "list_repair_orders",
@@ -2499,35 +2570,7 @@ class McpServerTransportTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTe
                 runtime.stop()
 
     async def test_mcp_runtime_falls_back_when_uvicorn_logging_setup_is_broken(self) -> None:
-        runtime = None
-        try:
-            port = reserve_port()
-            board_api = BoardApiClient(
-                self.api_server.base_url, bearer_token="api-secret", logger=self.logger
-            )
-            mcp_server = create_mcp_server(
-                board_api,
-                self.logger,
-                host="127.0.0.1",
-                port=port,
-                path="/debug",
-                bearer_token=None,
-            )
-            runtime = McpServerRuntime(mcp_server, self.logger, auth_mode="none")
-            with patch.object(
-                runtime,
-                "_share_app_handlers_with_uvicorn",
-                side_effect=RuntimeError("broken logger setup"),
-            ):
-                runtime.start()
-
-            self.assertEqual(runtime.logging_mode, "basic_stream_fallback")
-            async with httpx.AsyncClient() as client:
-                response = await client.get(runtime.base_url, follow_redirects=False, timeout=1.0)
-            self.assertNotEqual(response.status_code, 404)
-        finally:
-            if runtime is not None:
-                runtime.stop()
+        await assert_uvicorn_logging_fallback(self)
 
     async def test_mcp_production_oauth_requires_owner_approval_and_issues_tokens(self) -> None:
         auth_base = self.runtime.base_url.removesuffix("/bridge")

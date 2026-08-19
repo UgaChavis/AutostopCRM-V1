@@ -52,6 +52,7 @@ FINANCE_WORKFLOW_OPERATIONS = frozenset(
         "get_repair_order",
         "update_repair_order",
         "set_repair_order_status",
+        "reopen_repair_order",
         "record_repair_order_payment",
         "reorder_cashboxes",
         "create_cashbox_transfer",

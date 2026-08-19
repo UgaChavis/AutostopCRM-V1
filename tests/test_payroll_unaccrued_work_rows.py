@@ -14,6 +14,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.services.card_service import CardService
+from minimal_kanban.services.errors import ServiceError
 from minimal_kanban.storage.json_store import JsonStore
 
 
@@ -98,9 +99,12 @@ class PayrollUnaccruedWorkRowsTests(unittest.TestCase):
             settings=bundle["settings"],
         )
 
-        edited = self.service.update_repair_order(
-            {"card_id": card_id, "repair_order": {"comment": "Историческая правка"}}
-        )["repair_order"]
+        with self.assertRaises(ServiceError) as blocked:
+            self.service.update_repair_order(
+                {"card_id": card_id, "repair_order": {"comment": "Историческая правка"}}
+            )
+        self.assertEqual(blocked.exception.code, "repair_order_closed_read_only")
+        edited = self.service.get_repair_order({"card_id": card_id})["repair_order"]
         work = edited["works"][0]
         material = edited["materials"][0]
         self.assertEqual(work["salary_amount"], "")

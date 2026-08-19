@@ -134,9 +134,9 @@ release gate:
 The generated matrix joins every discovered write route to its backend
 handler, selected Gateway path, commit sink, and exact producer tests. Routes
 whose capability readback class is only `executor_contract_only` must also be
-resolved by `tests/test_change_feed_route_contracts.py`: currently 56 execute
+resolved by `tests/test_change_feed_route_contracts.py`: currently 57 execute
 the canonical registry handler against temporary state and replay the durable
-feed result, while 16 model/runtime/render/privacy boundaries have exact allowlisted
+feed result, while 17 model/runtime/render/privacy boundaries have exact allowlisted
 reasons. A new or reclassified write route fails the gate until this contract
 is complete; call-graph reachability alone is not treated as end-to-end proof.
 
@@ -197,6 +197,27 @@ supported API/MCP correction flow.
 low-payload diagnostics. Works, materials, statuses, and payments must be
 changed through repair-order service routes so validation and audit records
 remain consistent.
+
+Closed repair orders are read-only. Use this correction sequence:
+
+1. `GET /api/preview_repair_order_reopen?card_id=...&expected_updated_at=...`;
+2. `POST /api/reopen_repair_order` with `card_id`, `expected_updated_at`, a
+   supported `reason_code`, non-empty `reason_note`, and `idempotency_key`;
+3. edit allowed work/material fields while payments stay read-only;
+4. `POST /api/set_repair_order_status` with `status=closed`, the latest
+   `expected_updated_at`, and a new `idempotency_key`.
+
+`GET /api/get_repair_order_cycles?card_id=...` returns immutable posting
+cycles. Reopening reverses payroll postings and temporarily removes the order
+from closed-order revenue; re-closing posts current payroll once and recognizes
+the corrected amount in the original closing period. It never edits payment
+or cash transaction IDs and never returns inventory. A material linked to an
+active `inventory_movement_id` must first use the warehouse return operation.
+
+Stable correction errors include `repair_order_not_closed`,
+`repair_order_correction_active`, `repair_order_closed_read_only`,
+`repair_order_payment_locked`, `inventory_material_movement_active`,
+`repair_order_revision_conflict`, and `repair_order_reopen_reason_required`.
 
 Use CRM print routes for repair orders, acts, invoices, invoice-facturas, UPD,
 inspection sheets, completion acts, and parts-sale documents. They share the
@@ -290,9 +311,11 @@ underlying payroll or repair-order ledger values are never changed.
 
 Weekly revenue uses `Asia/Krasnoyarsk`, Monday week boundaries, the previous
 three completed weeks plus Monday-to-now for the current week, and only repair
-orders whose current status is `closed` and whose `closed_at` falls inside the
-bucket. Each order contributes its backend `grand_total` once. Open, ready,
-reopened, undated, and future-closed orders are excluded.
+orders whose current status is `closed`. Migrated orders use the active
+immutable cycle's `recognized_at` and `grand_total`; legacy orders fall back to
+their current `closed_at` and calculated total. A corrected order therefore
+returns once to its original recognition week. Open, ready, reopened, undated,
+and future-recognized orders are excluded.
 
 The page polls every 45 seconds. A temporary failure leaves the last rendered
 data in place and shows `НЕТ ОБНОВЛЕНИЯ`; a later successful poll restores the

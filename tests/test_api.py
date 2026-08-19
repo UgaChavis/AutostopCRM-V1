@@ -4782,11 +4782,32 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(detail_rows[0]["work_total"], "10000")
         self.assertEqual(detail_rows[0]["salary_amount"], "3000")
 
-        status, reopened = self.request(
-            "/api/set_repair_order_status", {"card_id": card_id, "status": "open"}
+        status, preview = self.request(
+            "/api/preview_repair_order_reopen"
+            f"?card_id={card_id}&expected_updated_at="
+            f"{quote(closed['data']['card']['updated_at'], safe='')}",
+            method="GET",
         )
         self.assertEqual(status, 200)
-        reopened_row = reopened["data"]["repair_order"]["works"][0]
+        self.assertEqual(preview["data"]["card_id"], card_id)
+        status, cycles = self.request(
+            f"/api/get_repair_order_cycles?card_id={card_id}", method="GET"
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(len(cycles["data"]["cycles"]), 1)
+
+        status, reopened = self.request(
+            "/api/reopen_repair_order",
+            {
+                "card_id": card_id,
+                "expected_updated_at": closed["data"]["card"]["updated_at"],
+                "reason_code": "executor_error",
+                "reason_note": "Исправление исполнителя в тесте API",
+                "idempotency_key": "api-payroll-reopen",
+            },
+        )
+        self.assertEqual(status, 200)
+        reopened_row = reopened["data"]["card"]["repair_order"]["works"][0]
         self.assertEqual(reopened_row["salary_amount"], "")
         self.assertEqual(reopened_row["salary_accrued_at"], "")
 
@@ -6482,7 +6503,7 @@ class ApiServerTests(unittest.TestCase):
 
         self.assertEqual(status, 409)
         self.assertFalse(response["ok"])
-        self.assertEqual(response["error"]["code"], "repair_order_payment_required")
+        self.assertEqual(response["error"]["code"], "repair_order_closed_read_only")
 
     def test_repair_order_update_route_rejects_closed_order_financial_underpayment(
         self,
@@ -6545,8 +6566,7 @@ class ApiServerTests(unittest.TestCase):
 
         self.assertEqual(status, 409)
         self.assertFalse(response["ok"])
-        self.assertEqual(response["error"]["code"], "repair_order_payment_required")
-        self.assertEqual(response["error"]["details"]["due_total"], "500")
+        self.assertEqual(response["error"]["code"], "repair_order_closed_read_only")
 
     def test_repair_order_list_route_supports_query_sort_and_tags(self) -> None:
         status, first = self.request(

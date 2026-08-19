@@ -278,6 +278,7 @@ def repair_order_payment_summary_value(
 
 @dataclass(slots=True)
 class RepairOrderRow:
+    id: str = ""
     name: str = ""
     catalog_number: str = ""
     quantity: str = ""
@@ -315,6 +316,7 @@ class RepairOrderRow:
     inventory_unit: str = ""
 
     def __post_init__(self) -> None:
+        self.id = _normalize_single_line(self.id, limit=80)
         self.name = _normalize_single_line(self.name, limit=REPAIR_ORDER_ROW_NAME_LIMIT)
         self.catalog_number = _normalize_single_line(
             self.catalog_number, limit=REPAIR_ORDER_FIELD_LIMIT
@@ -408,6 +410,7 @@ class RepairOrderRow:
 
     def to_dict(self) -> dict[str, str]:
         return {
+            "id": self.id,
             "name": self.name,
             "catalog_number": self.catalog_number,
             "quantity": self.quantity,
@@ -461,10 +464,11 @@ class RepairOrderRow:
         return _format_decimal(quantity * price)
 
     @classmethod
-    def from_dict(cls, payload: Any) -> RepairOrderRow:
+    def from_dict(cls, payload: Any, *, fallback_id: str = "") -> RepairOrderRow:
         if not isinstance(payload, dict):
             return cls()
         return cls(
+            id=payload.get("id", fallback_id),
             name=payload.get("name", ""),
             catalog_number=payload.get(
                 "catalog_number",
@@ -639,8 +643,8 @@ def normalize_repair_order_rows(value: Any) -> list[RepairOrderRow]:
     if not isinstance(value, list):
         return []
     rows: list[RepairOrderRow] = []
-    for item in value:
-        row = RepairOrderRow.from_dict(item)
+    for index, item in enumerate(value, start=1):
+        row = RepairOrderRow.from_dict(item, fallback_id=f"row-{index}")
         if row.is_empty():
             continue
         rows.append(row)
@@ -702,6 +706,9 @@ class RepairOrder:
     tags: list[RepairOrderTag] = field(default_factory=list)
     works: list[RepairOrderRow] = field(default_factory=list)
     materials: list[RepairOrderRow] = field(default_factory=list)
+    cycles: list[dict[str, Any]] = field(default_factory=list)
+    payroll_postings: list[dict[str, Any]] = field(default_factory=list)
+    active_correction: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.number = _normalize_single_line(self.number, limit=REPAIR_ORDER_NUMBER_LIMIT)
@@ -747,6 +754,13 @@ class RepairOrder:
         self.tags = normalize_repair_order_tags(self.tags)
         self.works = normalize_repair_order_rows(self.works)
         self.materials = normalize_repair_order_rows(self.materials)
+        self.cycles = [dict(item) for item in self.cycles if isinstance(item, dict)]
+        self.payroll_postings = [
+            dict(item) for item in self.payroll_postings if isinstance(item, dict)
+        ]
+        self.active_correction = (
+            dict(self.active_correction) if isinstance(self.active_correction, dict) else {}
+        )
 
     def is_empty(self) -> bool:
         return not any(
@@ -811,6 +825,9 @@ class RepairOrder:
             "tags": [tag.to_dict() for tag in self.tags],
             "works": [row.to_dict() for row in self.works],
             "materials": [row.to_dict() for row in self.materials],
+            "active_correction": dict(self.active_correction),
+            "correction_active": bool(self.active_correction),
+            "cycle_count": len(self.cycles),
             "payment_summary": self.payment_summary_amounts(),
             "subtotal_total": self.subtotal_amount(),
             "taxes_total": self.taxes_amount(),
@@ -850,6 +867,9 @@ class RepairOrder:
             "tags": [tag.to_dict() for tag in self.tags],
             "works": [row.to_dict() for row in self.works],
             "materials": [row.to_dict() for row in self.materials],
+            "cycles": [dict(item) for item in self.cycles],
+            "payroll_postings": [dict(item) for item in self.payroll_postings],
+            "active_correction": dict(self.active_correction),
         }
 
     def works_total_amount(self) -> str:
@@ -978,4 +998,7 @@ class RepairOrder:
             tags=payload.get("tags", []),
             works=payload.get("works", []),
             materials=payload.get("materials", []),
+            cycles=payload.get("cycles", payload.get("repair_order_cycles", [])),
+            payroll_postings=payload.get("payroll_postings", []),
+            active_correction=payload.get("active_correction", {}),
         )

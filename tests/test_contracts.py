@@ -100,6 +100,7 @@ EXPECTED_SERVICE_ROUTES = {
     "/api/get_inventory_item",
     "/api/get_payroll_report",
     "/api/get_repair_order",
+    "/api/get_repair_order_cycles",
     "/api/get_repair_order_print_workspace",
     "/api/get_repair_order_text",
     "/api/get_shared_file_info",
@@ -128,11 +129,13 @@ EXPECTED_SERVICE_ROUTES = {
     "/api/paste_shared_files_from_clipboard",
     "/api/pause_agent_scheduled_task",
     "/api/preview_repair_order_print_documents",
+    "/api/preview_repair_order_reopen",
     "/api/print_repair_order_documents",
     "/api/read_card_attachment",
     "/api/remove_card_attachment",
     "/api/rename_column",
     "/api/rename_shared_file",
+    "/api/reopen_repair_order",
     "/api/reorder_cashboxes",
     "/api/replace_repair_order_materials",
     "/api/replace_repair_order_works",
@@ -277,9 +280,10 @@ class ContractSnapshotTests(unittest.TestCase):
         self.assertLessEqual(ADMIN_ONLY_ROUTES, all_routes)
 
     def test_mcp_public_tool_snapshot_keeps_current_surface(self) -> None:
-        self.assertEqual(95, len(PUBLIC_MCP_TOOL_NAMES))
+        self.assertEqual(98, len(PUBLIC_MCP_TOOL_NAMES))
         self.assertIn("bootstrap_context", PUBLIC_MCP_TOOL_NAMES)
         self.assertIn("update_repair_order", PUBLIC_MCP_TOOL_NAMES)
+        self.assertIn("reopen_repair_order", PUBLIC_MCP_TOOL_NAMES)
         self.assertIn("download_shared_file", PUBLIC_MCP_TOOL_NAMES)
 
     def test_browser_smoke_scenario_snapshot_matches_current_gate(self) -> None:

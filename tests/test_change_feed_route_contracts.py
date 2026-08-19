@@ -190,6 +190,42 @@ class ChangeFeedCanonicalRouteContractTests(unittest.TestCase):
             entity_types={"operator_user"},
         )
 
+    def _exercise_repair_order_reopen_route(self, state_producers: set[str]) -> None:
+        card = self.service.create_card({"title": "Route repair-order correction"})["card"]
+        self.service.update_repair_order(
+            {
+                "card_id": card["id"],
+                "repair_order": {
+                    "works": [{"name": "Диагностика", "quantity": "1", "price": "100"}],
+                    "payments": [{"amount": "100", "paid_at": "19.08.2026 12:00"}],
+                },
+            }
+        )
+        current = self.service.get_card({"card_id": card["id"]})["card"]
+        closed = self.service.set_repair_order_status(
+            {
+                "card_id": card["id"],
+                "status": "closed",
+                "expected_updated_at": current["updated_at"],
+            }
+        )["card"]
+        self._invoke(
+            "/api/reopen_repair_order",
+            {
+                "card_id": card["id"],
+                "expected_updated_at": closed["updated_at"],
+                "reason_code": "other",
+                "reason_note": "Canonical feed contract",
+                "idempotency_key": "canonical-feed-reopen",
+            },
+            producers=state_producers,
+            entity_types={
+                "repair_order",
+                "repair_order_cycle",
+                "repair_order_payroll_posting",
+            },
+        )
+
     def test_registry_routes_commit_and_replay_exact_temp_state_mutations(self) -> None:
         state_producers = {"audit_event", "state_projection"}
 
@@ -347,6 +383,7 @@ class ChangeFeedCanonicalRouteContractTests(unittest.TestCase):
             producers=state_producers,
             entity_types={"card"},
         )
+        self._exercise_repair_order_reopen_route(state_producers)
 
         sticky = self._invoke(
             "/api/create_sticky",

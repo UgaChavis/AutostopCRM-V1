@@ -255,6 +255,26 @@ Apply only under a separate owner-reviewed plan with a verified backup, using
 the script's explicit `--apply --backup` mode. Never edit cashbox or payroll
 ledgers by hand.
 
+### Repair-order posting migration
+
+Before enabling corrections on an existing state file, stop writers and take
+the normal full backup. The migration is dry-run by default and reports payroll
+parity plus unchanged cash/inventory movement counts:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\migrate_repair_order_cycles.py --state-file .\path\to\state.json
+```
+
+Apply only after reviewing an exact dry-run. Apply requires a separate backup
+directory and creates a timestamped copy before writing:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\migrate_repair_order_cycles.py --state-file .\path\to\state.json --apply --backup .\backups
+```
+
+Keep the backup and JSON reconciliation output with the release record. Do not
+run this against production without a separate owner-approved migration window.
+
 Repair-order number audit is also read-only:
 
 ```powershell

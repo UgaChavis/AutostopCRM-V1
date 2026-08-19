@@ -12,6 +12,7 @@ import uuid
 import xml.etree.ElementTree as ET
 import zipfile
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from io import BytesIO
 from logging import Logger
 from pathlib import Path, PurePath
@@ -127,6 +128,9 @@ from .repair_order_number_audit import build_repair_order_number_audit
 from .snapshot_service import SnapshotService
 from .vehicle_profile_service import VehicleProfileService
 
+REPAIR_ORDER_REOPEN_REASON_CODES = frozenset(
+    {"executor_error", "work_error", "material_error", "amount_error", "other"}
+)
 _CARD_AI_LOG_LIMIT = 24
 _CARD_AI_LEVELS = {"INFO", "RUN", "WAIT", "DONE", "WARN"}
 _CARD_AI_VIN_PATTERN = re.compile(r"\b[A-HJ-NPR-Z0-9]{17}\b")
@@ -2727,6 +2731,32 @@ class CardService(
             columns = bundle["columns"]
             card = self._find_card(cards, payload.get("card_id"))
             self._ensure_not_archived(card)
+            if card.repair_order.status == REPAIR_ORDER_STATUS_CLOSED:
+                self._fail(
+                    "repair_order_closed_read_only",
+                    "Закрытый заказ-наряд сначала нужно вернуть в работу.",
+                    status_code=409,
+                    details={"card_id": card.id},
+                )
+            requested_status = (
+                self._validated_repair_order_status(
+                    patch.get("status"), default=card.repair_order.status
+                )
+                if "status" in patch
+                else card.repair_order.status
+            )
+            requested_closed_at = normalize_text(
+                patch.get("closed_at"), default=card.repair_order.closed_at, limit=80
+            )
+            if requested_status != card.repair_order.status or (
+                "closed_at" in patch and requested_closed_at != card.repair_order.closed_at
+            ):
+                self._fail(
+                    "repair_order_closed_read_only",
+                    "Статус заказ-наряда изменяется только отдельной операцией.",
+                    status_code=409,
+                    details={"fields": [key for key in ("status", "closed_at") if key in patch]},
+                )
             expected_updated_at = normalize_text(
                 payload.get("expected_updated_at"), default="", limit=80
             )
@@ -2817,6 +2847,446 @@ class CardService(
                 },
             }
 
+    def preview_repair_order_reopen(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            card = self._find_card(bundle["cards"], payload.get("card_id"))
+            order = card.repair_order
+            if order.status != REPAIR_ORDER_STATUS_CLOSED:
+                self._fail(
+                    "repair_order_not_closed",
+                    "Вернуть в работу можно только закрытый заказ-наряд.",
+                    status_code=409,
+                    details={"card_id": card.id, "status": order.status},
+                )
+            self._ensure_repair_order_revision(card, payload)
+            postings = [dict(item) for item in order.payroll_postings]
+            if not postings:
+                legacy_cycle = self._legacy_repair_order_cycle(
+                    card_id=card.id,
+                    order=order,
+                    actor_name="migration-preview",
+                    source="system",
+                )
+                postings = self._line_payroll_postings_from_snapshot(
+                    card_id=card.id,
+                    order=order,
+                    cycle_id=legacy_cycle["id"],
+                    cycle_number=1,
+                    actor_name="migration-preview",
+                    source="system",
+                    created_at=legacy_cycle["recognized_at"],
+                )
+            line_reversals: dict[str, dict[str, Any]] = {}
+            for item in self._active_line_payroll_postings(postings):
+                employee_id = str(item.get("employee_id") or "")
+                if not employee_id:
+                    continue
+                bucket = line_reversals.setdefault(
+                    employee_id,
+                    {
+                        "employee_id": employee_id,
+                        "employee_name": item.get("employee_name") or "Сотрудник",
+                        "amount_minor": 0,
+                    },
+                )
+                bucket["amount_minor"] += abs(int(item.get("amount_minor") or 0))
+            overall = []
+            if not any(item.get("posting_type") == "repair_order" for item in postings):
+                overall = self._active_employee_repair_order_accruals(
+                    self._employee_repair_order_accruals_from_settings(bundle["settings"]),
+                    card_id=card.id,
+                )
+            for item in overall:
+                employee_id = str(item.get("employee_id") or "")
+                bucket = line_reversals.setdefault(
+                    employee_id,
+                    {
+                        "employee_id": employee_id,
+                        "employee_name": item.get("employee_name") or "Сотрудник",
+                        "amount_minor": 0,
+                    },
+                )
+                bucket["amount_minor"] += abs(int(item.get("amount_minor") or 0))
+            employees = self._employees_from_settings(bundle["settings"])
+            employees_by_id = {item["id"]: item for item in employees}
+            shift_accruals = self._employee_shift_accruals_from_settings(
+                bundle["settings"], employees_by_id=employees_by_id
+            )
+            order_accruals = self._employee_repair_order_accruals_from_settings(
+                bundle["settings"], employees_by_id=employees_by_id
+            )
+            for employee_id, bucket in line_reversals.items():
+                employee = employees_by_id.get(employee_id)
+                if employee is None:
+                    continue
+                ledger = self._build_employee_salary_ledger(
+                    bundle["cards"],
+                    bundle["cashboxes"],
+                    bundle["cash_transactions"],
+                    employee,
+                    shift_accruals=shift_accruals,
+                    repair_order_accruals=order_accruals,
+                    months=120,
+                )
+                before_minor = normalize_money_minor(ledger.get("balance_total"))
+                bucket["balance_before_minor"] = before_minor
+                bucket["balance_after_minor"] = before_minor - bucket["amount_minor"]
+            return {
+                "card_id": card.id,
+                "repair_order_number": order.number,
+                "recognized_at": self._repair_order_recognized_at(order),
+                "grand_total": order.grand_total_amount(),
+                "payroll_reversals": list(line_reversals.values()),
+                "payments": [item.to_storage_dict() for item in order.payments],
+                "inventory_materials": [
+                    {
+                        "row_id": row.id,
+                        "name": row.name,
+                        "quantity": row.quantity,
+                        "inventory_movement_id": row.inventory_movement_id,
+                    }
+                    for row in order.materials
+                    if row.inventory_movement_id
+                ],
+                "archived": card.archived,
+            }
+
+    def get_repair_order_cycles(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            card = self._find_card(bundle["cards"], payload.get("card_id"))
+            cycles = [dict(item) for item in card.repair_order.cycles]
+            if card.repair_order.status == REPAIR_ORDER_STATUS_CLOSED and not cycles:
+                cycles = [
+                    self._legacy_repair_order_cycle(
+                        card_id=card.id,
+                        order=card.repair_order,
+                        actor_name="migration-preview",
+                        source="system",
+                    )
+                ]
+            return {
+                "card_id": card.id,
+                "cycles": cycles,
+                "active_correction": dict(card.repair_order.active_correction),
+            }
+
+    def migrate_repair_order_cycles(self, *, apply: bool = False) -> dict[str, Any]:
+        with self._lock:
+            bundle = self._store.read_bundle()
+            cards = bundle["cards"]
+            events = bundle["events"]
+            migrated_card_ids: list[str] = []
+            old_payroll_minor: dict[str, int] = {}
+            new_payroll_minor: dict[str, int] = {}
+            old_revenue_by_week: dict[str, dict[str, int]] = {}
+            new_revenue_by_week: dict[str, dict[str, int]] = {}
+
+            def add_revenue(
+                target: dict[str, dict[str, int]], recognized_at: object, amount: object
+            ) -> None:
+                parsed = parse_business_datetime(recognized_at)
+                if parsed is None:
+                    week_key = "undated"
+                else:
+                    local = parsed.astimezone(business_timezone())
+                    week_key = (local - timedelta(days=local.weekday())).date().isoformat()
+                bucket = target.setdefault(week_key, {"orders": 0, "amount_minor": 0})
+                bucket["orders"] += 1
+                bucket["amount_minor"] += normalize_money_minor(amount)
+
+            overall_entries = self._employee_repair_order_accruals_from_settings(bundle["settings"])
+            for card in cards:
+                order = card.repair_order
+                if order.status != REPAIR_ORDER_STATUS_CLOSED or order.cycles:
+                    continue
+                cycle = self._legacy_repair_order_cycle(
+                    card_id=card.id,
+                    order=order,
+                    actor_name="migration",
+                    source="system",
+                )
+                add_revenue(old_revenue_by_week, order.closed_at, order.grand_total_amount())
+                add_revenue(
+                    new_revenue_by_week,
+                    cycle["recognized_at"],
+                    cycle["grand_total"],
+                )
+                postings = self._line_payroll_postings_from_snapshot(
+                    card_id=card.id,
+                    order=order,
+                    cycle_id=cycle["id"],
+                    cycle_number=1,
+                    actor_name="migration",
+                    source="system",
+                    created_at=cycle["recognized_at"],
+                )
+                for entry in overall_entries:
+                    if entry.get("card_id") != card.id:
+                        continue
+                    postings.append(self._overall_payroll_posting(entry, order=order, cycle=cycle))
+                for row in order.works:
+                    employee_id = row.work_executor_id_snapshot or row.executor_id
+                    if employee_id:
+                        old_payroll_minor[employee_id] = old_payroll_minor.get(
+                            employee_id, 0
+                        ) + normalize_money_minor(row.salary_amount)
+                for row in order.materials:
+                    employee_id = row.material_executor_id_snapshot or row.executor_id
+                    if employee_id:
+                        old_payroll_minor[employee_id] = old_payroll_minor.get(
+                            employee_id, 0
+                        ) + normalize_money_minor(row.material_salary_amount)
+                for entry in overall_entries:
+                    if entry.get("card_id") != card.id:
+                        continue
+                    sign = -1 if entry.get("kind") == "reversal" else 1
+                    employee_id = str(entry.get("employee_id") or "")
+                    old_payroll_minor[employee_id] = old_payroll_minor.get(
+                        employee_id, 0
+                    ) + sign * int(entry.get("amount_minor") or 0)
+                for posting in postings:
+                    employee_id = str(posting.get("employee_id") or "")
+                    new_payroll_minor[employee_id] = new_payroll_minor.get(employee_id, 0) + int(
+                        posting.get("amount_minor") or 0
+                    )
+                migrated_card_ids.append(card.id)
+                if apply:
+                    order.cycles = [cycle]
+                    order.payroll_postings = postings
+            parity = {
+                "payroll_exact": old_payroll_minor == new_payroll_minor,
+                "revenue_exact": old_revenue_by_week == new_revenue_by_week,
+                "old_payroll_minor": old_payroll_minor,
+                "new_payroll_minor": new_payroll_minor,
+                "old_revenue_by_week": old_revenue_by_week,
+                "new_revenue_by_week": new_revenue_by_week,
+                "cash_transactions_count": len(bundle["cash_transactions"]),
+                "cash_transaction_ids": sorted(item.id for item in bundle["cash_transactions"]),
+                "inventory_movements_count": len(bundle["inventory_movements"]),
+                "inventory_movement_ids": sorted(item.id for item in bundle["inventory_movements"]),
+                "inventory_balances": {
+                    item.id: item.quantity for item in bundle["inventory_items"]
+                },
+                "closed_orders_count": sum(
+                    card.repair_order.status == REPAIR_ORDER_STATUS_CLOSED for card in cards
+                ),
+                "order_status_counts": {
+                    status: sum(card.repair_order.status == status for card in cards)
+                    for status in (
+                        REPAIR_ORDER_STATUS_OPEN,
+                        REPAIR_ORDER_STATUS_READY,
+                        REPAIR_ORDER_STATUS_CLOSED,
+                    )
+                },
+            }
+            if not parity["payroll_exact"] or not parity["revenue_exact"]:
+                self._fail(
+                    "repair_order_migration_parity_failed",
+                    "Миграция остановлена: финансовые итоги не совпали.",
+                    status_code=409,
+                    details=parity,
+                )
+            if apply and migrated_card_ids:
+                self._append_event(
+                    events,
+                    actor_name="migration",
+                    source="system",
+                    action="repair_order_cycles_migrated",
+                    message="Созданы исходные циклы проведения заказ-нарядов",
+                    card_id=None,
+                    details={
+                        "card_ids": migrated_card_ids,
+                        "payroll_exact": parity["payroll_exact"],
+                        "revenue_exact": parity["revenue_exact"],
+                        "cash_transactions_count": parity["cash_transactions_count"],
+                        "inventory_movements_count": parity["inventory_movements_count"],
+                    },
+                )
+                self._save_bundle(
+                    bundle,
+                    columns=bundle["columns"],
+                    cards=cards,
+                    events=events,
+                )
+            return {
+                "mode": "apply" if apply else "dry-run",
+                "migrated_card_ids": migrated_card_ids,
+                "migrated_count": len(migrated_card_ids),
+                "parity": parity,
+            }
+
+    def reopen_repair_order(self, payload: dict | None = None) -> dict:
+        with self._lock:
+            payload = payload or {}
+            bundle = self._store.read_bundle()
+            cards = bundle["cards"]
+            columns = bundle["columns"]
+            events = bundle["events"]
+            card = self._find_card(cards, payload.get("card_id"))
+            idempotency_key = normalize_text(payload.get("idempotency_key"), default="", limit=128)
+            if not idempotency_key:
+                self._fail(
+                    "validation_error",
+                    "Нужен idempotency_key для безопасного открытия заказ-наряда.",
+                    details={"field": "idempotency_key"},
+                )
+            if card.repair_order.active_correction:
+                if card.repair_order.active_correction.get("idempotency_key") == idempotency_key:
+                    return self._repair_order_reopen_response(
+                        card, events, columns, actor_name=str(payload.get("actor_name") or "")
+                    )
+                self._fail(
+                    "repair_order_correction_active",
+                    "Заказ-наряд уже открыт для исправления.",
+                    status_code=409,
+                    details={"card_id": card.id},
+                )
+            if any(
+                cycle.get("reopen_idempotency_key") == idempotency_key
+                for cycle in card.repair_order.cycles
+            ):
+                response = self._repair_order_reopen_response(
+                    card, events, columns, actor_name=str(payload.get("actor_name") or "")
+                )
+                response["meta"]["changed"] = False
+                response["meta"]["idempotent_replay"] = True
+                return response
+            if card.repair_order.status != REPAIR_ORDER_STATUS_CLOSED:
+                self._fail(
+                    "repair_order_not_closed",
+                    "Вернуть в работу можно только закрытый заказ-наряд.",
+                    status_code=409,
+                    details={"card_id": card.id, "status": card.repair_order.status},
+                )
+            self._ensure_repair_order_revision(card, payload)
+            reason_code = normalize_text(payload.get("reason_code"), default="", limit=40)
+            reason_note = normalize_text(payload.get("reason_note"), default="", limit=500)
+            if reason_code not in REPAIR_ORDER_REOPEN_REASON_CODES or not reason_note:
+                self._fail(
+                    "repair_order_reopen_reason_required",
+                    "Выберите причину и укажите пояснение.",
+                    details={"fields": ["reason_code", "reason_note"]},
+                )
+            actor_name, source = self._audit_identity(payload, default_source="api")
+            if card.archived:
+                target_column_id = normalize_text(
+                    payload.get("target_column_id"), default="", limit=128
+                )
+                if not target_column_id:
+                    self._fail(
+                        "validation_error",
+                        "Для архивной карточки нужно выбрать колонку восстановления.",
+                        details={"field": "target_column_id"},
+                    )
+                target_column = self._validated_column(target_column_id, columns)
+                card.archived = False
+                card.column = target_column
+                card.position = self._next_card_position(
+                    cards, target_column, exclude_card_id=card.id
+                )
+                self._append_event(
+                    events,
+                    actor_name=actor_name,
+                    source=source,
+                    action="card_restored",
+                    message=f"{actor_name} вернул карточку из архива для исправления",
+                    card_id=card.id,
+                    details={"column": target_column},
+                )
+            opened_at = self._repair_order_now()
+            next_payload = card.repair_order.to_storage_dict()
+            next_payload["status"] = REPAIR_ORDER_STATUS_OPEN
+            next_payload["closed_at"] = ""
+            next_payload["active_correction"] = {
+                "id": str(uuid.uuid4()),
+                "idempotency_key": idempotency_key,
+                "opened_at": opened_at,
+                "recognized_at": self._repair_order_recognized_at(card.repair_order),
+                "reason_code": reason_code,
+                "reason_note": reason_note,
+                "actor_name": actor_name,
+                "source": source,
+            }
+            self._update_repair_order(
+                card,
+                cards,
+                next_payload,
+                events,
+                actor_name,
+                source,
+                cashboxes=bundle["cashboxes"],
+                cash_transactions=bundle["cash_transactions"],
+                settings=bundle["settings"],
+                operation="reopen",
+            )
+            self._append_event(
+                events,
+                actor_name=actor_name,
+                source=source,
+                action="repair_order_reopened_for_correction",
+                message=f"{actor_name} вернул заказ-наряд в работу",
+                card_id=card.id,
+                details={
+                    "number": card.repair_order.number,
+                    "reason_code": reason_code,
+                    "reason_note": reason_note,
+                    "recognized_at": next_payload["active_correction"]["recognized_at"],
+                },
+            )
+            self._touch_card(card, actor_name)
+            self._ensure_repair_order_text_file(card, force=True)
+            self._save_bundle(
+                bundle,
+                columns=columns,
+                cards=cards,
+                cashboxes=bundle["cashboxes"],
+                cash_transactions=bundle["cash_transactions"],
+                events=events,
+                settings=bundle["settings"],
+            )
+            return self._repair_order_reopen_response(card, events, columns, actor_name=actor_name)
+
+    def _ensure_repair_order_revision(self, card: Card, payload: dict[str, Any]) -> None:
+        expected = normalize_text(payload.get("expected_updated_at"), default="", limit=80)
+        if not expected or expected != card.updated_at:
+            self._fail(
+                "repair_order_revision_conflict",
+                "Карточка уже изменена или не передана её актуальная ревизия.",
+                status_code=409,
+                details={
+                    "card_id": card.id,
+                    "expected_updated_at": expected,
+                    "current_updated_at": card.updated_at,
+                },
+            )
+
+    def _repair_order_reopen_response(
+        self,
+        card: Card,
+        events: list[AuditEvent],
+        columns: list[Column],
+        *,
+        actor_name: str,
+    ) -> dict[str, Any]:
+        return {
+            "repair_order": card.repair_order.to_dict(),
+            "card": self._serialize_card(
+                card,
+                events,
+                column_labels=self._column_labels(columns),
+                viewer_username=actor_name,
+            ),
+            "meta": {
+                "changed": True,
+                "correction_id": card.repair_order.active_correction.get("id", ""),
+                "cycle_count": len(card.repair_order.cycles),
+            },
+        }
+
     def correct_repair_order_number(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
@@ -2841,6 +3311,13 @@ class CardService(
             columns = bundle["columns"]
             card = self._find_card(cards, payload.get("card_id"))
             self._ensure_not_archived(card)
+            if card.repair_order.status == REPAIR_ORDER_STATUS_CLOSED:
+                self._fail(
+                    "repair_order_closed_read_only",
+                    "Закрытый заказ-наряд сначала нужно вернуть в работу.",
+                    status_code=409,
+                    details={"card_id": card.id},
+                )
             actor_name, source = self._audit_identity(payload, default_source="api")
             next_payload = self._merged_repair_order_storage(
                 card.repair_order.to_storage_dict(),
@@ -2895,6 +3372,13 @@ class CardService(
             columns = bundle["columns"]
             card = self._find_card(cards, payload.get("card_id"))
             self._ensure_not_archived(card)
+            if card.repair_order.status == REPAIR_ORDER_STATUS_CLOSED:
+                self._fail(
+                    "repair_order_closed_read_only",
+                    "Закрытый заказ-наряд сначала нужно вернуть в работу.",
+                    status_code=409,
+                    details={"card_id": card.id},
+                )
             actor_name, source = self._audit_identity(payload, default_source="api")
             next_payload = self._merged_repair_order_storage(
                 card.repair_order.to_storage_dict(),
@@ -2952,9 +3436,49 @@ class CardService(
             card = self._find_card(cards, payload.get("card_id"))
             self._ensure_repair_order_state_supported(card)
             self._ensure_not_archived(card)
+            close_idempotency_key = normalize_text(
+                payload.get("idempotency_key"), default="", limit=128
+            )
+            if (
+                status == REPAIR_ORDER_STATUS_CLOSED
+                and card.repair_order.status == REPAIR_ORDER_STATUS_CLOSED
+                and close_idempotency_key
+                and any(
+                    cycle.get("close_idempotency_key") == close_idempotency_key
+                    for cycle in card.repair_order.cycles
+                )
+            ):
+                actor_name = normalize_actor_name(payload.get("actor_name"))
+                return {
+                    "repair_order": card.repair_order.to_dict(),
+                    "card": self._serialize_card(
+                        card,
+                        events,
+                        column_labels=self._column_labels(columns),
+                        viewer_username=actor_name,
+                    ),
+                    "meta": {
+                        "changed": False,
+                        "status": card.repair_order.status,
+                        "cycle_number": len(card.repair_order.cycles),
+                        "idempotent_replay": True,
+                    },
+                }
+            if (
+                card.repair_order.status == REPAIR_ORDER_STATUS_CLOSED
+                and status != REPAIR_ORDER_STATUS_CLOSED
+            ):
+                self._fail(
+                    "repair_order_closed_read_only",
+                    "Закрытый заказ-наряд открывается только операцией корректировки.",
+                    status_code=409,
+                    details={"card_id": card.id, "requested_status": status},
+                )
             expected_updated_at = normalize_text(
                 payload.get("expected_updated_at"), default="", limit=80
             )
+            if status == REPAIR_ORDER_STATUS_CLOSED and card.repair_order.active_correction:
+                self._ensure_repair_order_revision(card, payload)
             if expected_updated_at and expected_updated_at != card.updated_at:
                 self._fail(
                     "card_update_conflict",
@@ -2973,6 +3497,17 @@ class CardService(
             next_payload["closed_at"] = (
                 self._repair_order_now() if status == REPAIR_ORDER_STATUS_CLOSED else ""
             )
+            if status == REPAIR_ORDER_STATUS_CLOSED and card.repair_order.active_correction:
+                if not close_idempotency_key:
+                    self._fail(
+                        "validation_error",
+                        "Для повторного закрытия нужен idempotency_key.",
+                        details={"field": "idempotency_key"},
+                    )
+                next_payload["active_correction"] = {
+                    **card.repair_order.active_correction,
+                    "close_idempotency_key": close_idempotency_key,
+                }
             changed = self._update_repair_order(
                 card,
                 cards,
@@ -2983,6 +3518,7 @@ class CardService(
                 cashboxes=bundle["cashboxes"],
                 cash_transactions=bundle["cash_transactions"],
                 settings=bundle["settings"],
+                operation="close" if status == REPAIR_ORDER_STATUS_CLOSED else "status",
             )
             numbering_changed = self._synchronize_repair_order_numbers(cards)
             if changed:
@@ -2993,7 +3529,11 @@ class CardService(
                     action=f"repair_order_{status}",
                     message=f"{actor_name} изменил статус заказ-наряда",
                     card_id=card.id,
-                    details={"number": card.repair_order.number, "status": status},
+                    details={
+                        "number": card.repair_order.number,
+                        "status": status,
+                        "cycle_number": len(card.repair_order.cycles),
+                    },
                 )
             if changed or numbering_changed:
                 self._touch_card(card, actor_name)
@@ -3019,6 +3559,7 @@ class CardService(
                 "meta": {
                     "changed": changed or numbering_changed,
                     "status": card.repair_order.status,
+                    "cycle_number": len(card.repair_order.cycles),
                 },
             }
 
@@ -3758,6 +4299,35 @@ class CardService(
                     changed_fields.append("tags")
             if "repair_order" in payload:
                 repair_order_patch = self._validated_repair_order_patch(payload.get("repair_order"))
+                if card.repair_order.status == REPAIR_ORDER_STATUS_CLOSED:
+                    self._fail(
+                        "repair_order_closed_read_only",
+                        "Закрытый заказ-наряд сначала нужно вернуть в работу.",
+                        status_code=409,
+                        details={"card_id": card.id},
+                    )
+                requested_status = (
+                    self._validated_repair_order_status(
+                        repair_order_patch.get("status"), default=card.repair_order.status
+                    )
+                    if "status" in repair_order_patch
+                    else card.repair_order.status
+                )
+                requested_closed_at = normalize_text(
+                    repair_order_patch.get("closed_at"),
+                    default=card.repair_order.closed_at,
+                    limit=80,
+                )
+                if requested_status != card.repair_order.status or (
+                    "closed_at" in repair_order_patch
+                    and requested_closed_at != card.repair_order.closed_at
+                ):
+                    self._fail(
+                        "repair_order_closed_read_only",
+                        "Статус заказ-наряда изменяется только отдельной операцией.",
+                        status_code=409,
+                        details={"card_id": card.id},
+                    )
                 repair_order_payload = self._merged_repair_order_storage(
                     card.repair_order.to_storage_dict(),
                     repair_order_patch,
@@ -6346,6 +6916,7 @@ class CardService(
         cash_transactions: list[CashTransaction] | None = None,
         settings: dict[str, Any] | None = None,
         attestation_run_id: str = "",
+        operation: str = "update",
     ) -> bool:
         previous_order = RepairOrder.from_dict(card.repair_order.to_storage_dict())
         value = self._repair_order_payload_with_immutable_number(card, value)
@@ -6355,6 +6926,30 @@ class CardService(
             card=card,
             exclude_card_id=card.id,
         )
+        if (
+            previous_order.status == REPAIR_ORDER_STATUS_CLOSED
+            and order.status == REPAIR_ORDER_STATUS_CLOSED
+            and operation not in {"close", "migration"}
+            and order.to_storage_dict() != previous_order.to_storage_dict()
+        ):
+            self._fail(
+                "repair_order_closed_read_only",
+                "Закрытый заказ-наряд сначала нужно вернуть в работу.",
+                status_code=409,
+                details={"card_id": card.id},
+            )
+        if previous_order.active_correction and (
+            [item.to_storage_dict() for item in previous_order.payments]
+            != [item.to_storage_dict() for item in order.payments]
+        ):
+            self._fail(
+                "repair_order_payment_locked",
+                "Платежи нельзя изменять во время корректировки заказ-наряда.",
+                status_code=409,
+                details={"card_id": card.id},
+            )
+        if previous_order.active_correction:
+            self._ensure_correction_inventory_materials_unchanged(previous_order, order)
         self._ensure_repair_order_number_update_allowed(
             card,
             cards,
@@ -6386,6 +6981,14 @@ class CardService(
                 actor_name=actor_name,
                 source=source,
             )
+        order = self._sync_repair_order_cycles_and_line_payroll(
+            card_id=card.id,
+            previous_order=previous_order,
+            order=order,
+            actor_name=actor_name,
+            source=source,
+        )
+        order = self._merge_overall_payroll_postings(order, payroll_sync.get("entries") or [])
         if order.to_storage_dict() == previous_order.to_storage_dict() and not payroll_sync.get(
             "changed"
         ):
@@ -6438,6 +7041,301 @@ class CardService(
                 },
             )
         return True
+
+    def _repair_order_snapshot(self, order: RepairOrder) -> dict[str, Any]:
+        payload = order.to_storage_dict()
+        payload.pop("cycles", None)
+        payload.pop("payroll_postings", None)
+        payload.pop("active_correction", None)
+        return payload
+
+    def _repair_order_recognized_at(self, order: RepairOrder) -> str:
+        for cycle in order.cycles:
+            value = normalize_text(cycle.get("recognized_at"), default="", limit=80)
+            if value:
+                return value
+        return order.closed_at
+
+    def _legacy_repair_order_cycle(
+        self, *, card_id: str, order: RepairOrder, actor_name: str, source: str
+    ) -> dict[str, Any]:
+        recognized_at = order.closed_at or self._repair_order_now()
+        return {
+            "id": str(
+                uuid.uuid5(
+                    uuid.NAMESPACE_URL,
+                    f"autostopcrm:repair-order-cycle:{card_id}:1",
+                )
+            ),
+            "card_id": card_id,
+            "cycle_number": 1,
+            "previous_cycle_id": "",
+            "recognized_at": recognized_at,
+            "closed_at": order.closed_at or recognized_at,
+            "corrected_at": "",
+            "actor_name": actor_name,
+            "source": source,
+            "reason_code": "legacy_import",
+            "reason_note": "Автоматически создано из ранее закрытого заказ-наряда",
+            "grand_total": order.grand_total_amount(),
+            "snapshot": self._repair_order_snapshot(order),
+        }
+
+    def _line_payroll_postings_from_snapshot(
+        self,
+        *,
+        card_id: str,
+        order: RepairOrder,
+        cycle_id: str,
+        cycle_number: int,
+        actor_name: str,
+        source: str,
+        created_at: str,
+    ) -> list[dict[str, Any]]:
+        postings: list[dict[str, Any]] = []
+        for posting_type, rows in (("work", order.works), ("material", order.materials)):
+            for row in rows:
+                if posting_type == "work":
+                    employee_id = row.work_executor_id_snapshot or row.executor_id
+                    employee_name = row.work_executor_name_snapshot or row.executor_name
+                    amount = row.salary_amount
+                    basis = row.work_total_snapshot or row.total
+                    percent = row.work_percent_snapshot
+                    scheme = self._work_salary_scheme(row)
+                    sale_total = basis
+                    cost_total = row.work_salary_cost_price
+                else:
+                    employee_id = row.material_executor_id_snapshot or row.executor_id
+                    employee_name = row.material_executor_name_snapshot or row.executor_name
+                    amount = row.material_salary_amount
+                    basis = row.material_profit
+                    percent = row.material_percent_snapshot
+                    scheme = f"Материалы {percent}%" if percent else "Материалы"
+                    sale_total = self._format_payroll_decimal(self._material_sale_total(row))
+                    cost_total = self._format_payroll_decimal(
+                        self._material_cost_total(row) or Decimal("0")
+                    )
+                amount_minor = normalize_money_minor(amount)
+                if not employee_id or amount_minor <= 0:
+                    continue
+                postings.append(
+                    {
+                        "id": str(uuid.uuid4()),
+                        "kind": "accrual",
+                        "posting_type": posting_type,
+                        "employee_id": employee_id,
+                        "employee_name": employee_name,
+                        "card_id": card_id,
+                        "repair_order_number": order.number,
+                        "cycle_id": cycle_id,
+                        "cycle_number": cycle_number,
+                        "row_id": row.id,
+                        "row_name": row.name,
+                        "base_amount": basis,
+                        "sale_total": sale_total,
+                        "cost_total": cost_total,
+                        "percent": percent,
+                        "scheme": scheme,
+                        "amount_minor": amount_minor,
+                        "created_at": created_at,
+                        "related_posting_id": "",
+                        "actor_name": actor_name,
+                        "source": source,
+                    }
+                )
+        return postings
+
+    def _active_line_payroll_postings(self, postings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        reversed_ids = {
+            item.get("related_posting_id")
+            for item in postings
+            if item.get("kind") == "reversal" and item.get("related_posting_id")
+        }
+        return [
+            item
+            for item in postings
+            if item.get("kind") == "accrual" and item.get("id") not in reversed_ids
+        ]
+
+    def _overall_payroll_posting(
+        self,
+        entry: dict[str, Any],
+        *,
+        order: RepairOrder,
+        cycle: dict[str, Any],
+    ) -> dict[str, Any]:
+        is_reversal = entry.get("kind") == "reversal"
+        amount_minor = abs(int(entry.get("amount_minor") or 0))
+        base_minor = int(entry.get("base_amount_minor") or 0)
+        return {
+            "id": entry.get("id") or str(uuid.uuid4()),
+            "kind": "reversal" if is_reversal else "accrual",
+            "posting_type": "repair_order",
+            "employee_id": entry.get("employee_id") or "",
+            "employee_name": entry.get("employee_name") or "",
+            "card_id": entry.get("card_id") or cycle.get("card_id") or "",
+            "repair_order_number": entry.get("repair_order_number") or order.number,
+            "cycle_id": cycle.get("id") or "",
+            "cycle_number": cycle.get("cycle_number") or 1,
+            "row_id": "",
+            "row_name": "% от заказ-наряда",
+            "base_amount": self._format_payroll_decimal(Decimal(base_minor) / Decimal("100")),
+            "sale_total": self._format_payroll_decimal(Decimal(base_minor) / Decimal("100")),
+            "cost_total": "0",
+            "percent": entry.get("percent") or "0",
+            "scheme": (
+                f"{entry.get('percent') or '0'}% от стоимости заказ-наряда за наличный расчёт"
+            ),
+            "amount_minor": -amount_minor if is_reversal else amount_minor,
+            "created_at": entry.get("created_at") or cycle.get("closed_at") or "",
+            "related_posting_id": entry.get("related_accrual_id") or "",
+            "actor_name": entry.get("actor_name") or "",
+            "source": entry.get("source") or "system",
+        }
+
+    def _merge_overall_payroll_postings(
+        self,
+        order: RepairOrder,
+        entries: list[dict[str, Any]],
+        *,
+        include_reversals: bool = False,
+    ) -> RepairOrder:
+        if not entries or not order.cycles:
+            return order
+        postings = [dict(item) for item in order.payroll_postings]
+        existing_ids = {str(item.get("id") or "") for item in postings}
+        cycle = order.cycles[-1]
+        for entry in entries:
+            if (
+                (entry.get("kind") == "reversal" and not include_reversals)
+                or entry.get("kind") not in {"accrual", "reversal"}
+                or entry.get("id") in existing_ids
+            ):
+                continue
+            posting = self._overall_payroll_posting(entry, order=order, cycle=cycle)
+            postings.append(posting)
+            existing_ids.add(str(posting.get("id") or ""))
+        order.payroll_postings = postings
+        return order
+
+    def _sync_repair_order_cycles_and_line_payroll(
+        self,
+        *,
+        card_id: str,
+        previous_order: RepairOrder,
+        order: RepairOrder,
+        actor_name: str,
+        source: str,
+    ) -> RepairOrder:
+        previous_closed = previous_order.status == REPAIR_ORDER_STATUS_CLOSED
+        next_closed = order.status == REPAIR_ORDER_STATUS_CLOSED
+        if previous_closed == next_closed:
+            return order
+        cycles = [dict(item) for item in previous_order.cycles]
+        postings = [dict(item) for item in previous_order.payroll_postings]
+        if previous_closed and not cycles:
+            legacy_cycle = self._legacy_repair_order_cycle(
+                card_id=card_id,
+                order=previous_order,
+                actor_name=actor_name,
+                source=source,
+            )
+            cycles.append(legacy_cycle)
+            postings.extend(
+                self._line_payroll_postings_from_snapshot(
+                    card_id=card_id,
+                    order=previous_order,
+                    cycle_id=legacy_cycle["id"],
+                    cycle_number=1,
+                    actor_name=actor_name,
+                    source=source,
+                    created_at=legacy_cycle["recognized_at"],
+                )
+            )
+        if previous_closed and not next_closed:
+            operation_at = normalize_text(
+                order.active_correction.get("opened_at"),
+                default=self._repair_order_now(),
+                limit=80,
+            )
+            for active in self._active_line_payroll_postings(postings):
+                postings.append(
+                    {
+                        **active,
+                        "id": str(uuid.uuid4()),
+                        "kind": "reversal",
+                        "amount_minor": -abs(int(active.get("amount_minor") or 0)),
+                        "created_at": operation_at,
+                        "related_posting_id": active.get("id") or "",
+                        "actor_name": actor_name,
+                        "source": source,
+                    }
+                )
+            order.cycles = cycles
+            order.payroll_postings = postings
+            return order
+        correction = {
+            **previous_order.active_correction,
+            **order.active_correction,
+        }
+        cycle_number = len(cycles) + 1
+        recognized_at = (
+            normalize_text(correction.get("recognized_at"), default="", limit=80)
+            or self._repair_order_recognized_at(previous_order)
+            or order.closed_at
+        )
+        cycle = {
+            "id": str(uuid.uuid4()),
+            "card_id": card_id,
+            "cycle_number": cycle_number,
+            "previous_cycle_id": cycles[-1].get("id", "") if cycles else "",
+            "recognized_at": recognized_at,
+            "closed_at": order.closed_at,
+            "corrected_at": order.closed_at if correction else "",
+            "actor_name": actor_name,
+            "source": source,
+            "reason_code": correction.get("reason_code", "initial_close"),
+            "reason_note": correction.get("reason_note", ""),
+            "reopen_idempotency_key": correction.get("idempotency_key", ""),
+            "close_idempotency_key": correction.get("close_idempotency_key", ""),
+            "grand_total": order.grand_total_amount(),
+            "snapshot": self._repair_order_snapshot(order),
+        }
+        cycles.append(cycle)
+        postings.extend(
+            self._line_payroll_postings_from_snapshot(
+                card_id=card_id,
+                order=order,
+                cycle_id=cycle["id"],
+                cycle_number=cycle_number,
+                actor_name=actor_name,
+                source=source,
+                created_at=order.closed_at,
+            )
+        )
+        order.cycles = cycles
+        order.payroll_postings = postings
+        order.active_correction = {}
+        return order
+
+    def _ensure_correction_inventory_materials_unchanged(
+        self, previous_order: RepairOrder, order: RepairOrder
+    ) -> None:
+        next_by_id = {row.id: row for row in order.materials}
+        for previous in previous_order.materials:
+            if not previous.inventory_movement_id:
+                continue
+            current = next_by_id.get(previous.id)
+            if current is None or current.quantity != previous.quantity:
+                self._fail(
+                    "inventory_material_movement_active",
+                    "Складской материал сначала нужно вернуть отдельной складской операцией.",
+                    status_code=409,
+                    details={
+                        "row_id": previous.id,
+                        "inventory_movement_id": previous.inventory_movement_id,
+                    },
+                )
 
     def _repair_order_payload_with_immutable_number(self, card: Card, value: Any) -> Any:
         previous_number = normalize_text(card.repair_order.number, default="", limit=40)
@@ -7313,7 +8211,21 @@ class CardService(
                 f"Поле {field_name} должно быть массивом строк заказ-наряда.",
                 details={"field": field_name},
             )
-        return [row.to_dict() for row in normalize_repair_order_rows(value)]
+        prepared_rows: list[dict[str, Any]] = []
+        for item in value:
+            prepared = dict(item) if isinstance(item, dict) else {}
+            if not normalize_text(prepared.get("id"), default="", limit=80):
+                prepared["id"] = str(uuid.uuid4())
+            prepared_rows.append(prepared)
+        rows = [row.to_dict() for row in normalize_repair_order_rows(prepared_rows)]
+        row_ids = [row["id"] for row in rows]
+        if len(row_ids) != len(set(row_ids)):
+            self._fail(
+                "validation_error",
+                f"Поле {field_name} содержит повторяющиеся идентификаторы строк.",
+                details={"field": field_name},
+            )
+        return rows
 
     def _validated_repair_order_tags(self, value, *, field_name: str) -> list[dict[str, str]]:
         if not isinstance(value, list):

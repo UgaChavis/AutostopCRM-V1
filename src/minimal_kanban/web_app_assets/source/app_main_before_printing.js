@@ -10254,7 +10254,7 @@
           + '<input type="hidden" data-mobile-repair-row-field="inventory_movement_id" value="' + escapeHtml(normalized.inventory_movement_id) + '">'
           + '<input type="hidden" data-mobile-repair-row-field="inventory_unit" value="' + escapeHtml(normalized.inventory_unit) + '">'
         : '';
-      return '<div class="mobile-repair-order-line" data-mobile-repair-order-row data-mobile-repair-order-section="' + escapeHtml(section) + '" data-mobile-repair-order-index="' + escapeHtml(String(index)) + '">'
+      return '<div class="mobile-repair-order-line" data-mobile-repair-order-row data-mobile-repair-order-row-id="' + escapeHtml(normalized.id) + '" data-mobile-repair-order-section="' + escapeHtml(section) + '" data-mobile-repair-order-index="' + escapeHtml(String(index)) + '">'
         + '<div class="mobile-repair-order-line__top">'
           + '<div class="mobile-repair-order-line__label">' + escapeHtml(label) + '</div>'
           + '<button class="mobile-action mobile-action--ghost mobile-repair-order-remove" type="button" title="Удалить строку" data-mobile-repair-order-remove="' + escapeHtml(section) + '">×</button>'
@@ -10281,7 +10281,7 @@
       const root = section === 'materials' ? els.mobileRepairOrderMaterials : els.mobileRepairOrderWorks;
       if (!root) return [];
       return Array.from(root.querySelectorAll('[data-mobile-repair-order-row]')).map((rowElement) => {
-        const row = {};
+        const row = { id: rowElement.dataset.mobileRepairOrderRowId || '' };
         rowElement.querySelectorAll('[data-mobile-repair-row-field]').forEach((field) => {
           row[field.getAttribute('data-mobile-repair-row-field')] = field.value;
         });
@@ -10496,6 +10496,8 @@
       if (!detailOpen) return;
       renderMobileRepairOrderTabs();
       const order = currentMobileRepairOrderDraft();
+      const closed = normalizeRepairOrderStatus(order.status) === 'closed';
+      const correctionActive = Boolean(order.correction_active || Object.keys(order.active_correction || {}).length);
       if (els.mobileRepairOrderNumber) {
         els.mobileRepairOrderNumber.textContent = order.number ? ('ЗН №' + order.number) : 'ЗАКАЗ-НАРЯД';
       }
@@ -10504,6 +10506,7 @@
       }
       if (els.mobileRepairOrderStatusSelect) {
         els.mobileRepairOrderStatusSelect.value = normalizeRepairOrderStatus(order.status);
+        els.mobileRepairOrderStatusSelect.disabled = closed;
       }
       els.mobileRepairOrderDetail.querySelectorAll('[data-mobile-repair-order-field]').forEach((field) => {
         const fieldName = field.getAttribute('data-mobile-repair-order-field');
@@ -10513,9 +10516,18 @@
       renderMobileRepairOrderRows('materials', order.materials);
       renderMobileRepairOrderPayments(order.payments);
       renderMobileRepairOrderTotals();
+      els.mobileRepairOrderDetail.querySelectorAll('input, textarea, select').forEach((field) => {
+        const paymentField = Boolean(field.closest('.mobile-repair-order-payments'));
+        field.disabled = closed || (correctionActive && paymentField);
+      });
+      els.mobileRepairOrderDetail.querySelectorAll('[data-mobile-repair-order-payment-remove], #mobileRepairOrderAddPaymentButton').forEach((button) => {
+        button.disabled = closed || correctionActive;
+      });
       if (els.mobileRepairOrderSaveButton) {
         els.mobileRepairOrderSaveButton.disabled = state.mobileRepairOrderSaving;
-        els.mobileRepairOrderSaveButton.textContent = state.mobileRepairOrderSaving ? '...' : 'СОХР.';
+        els.mobileRepairOrderSaveButton.textContent = state.mobileRepairOrderSaving
+          ? '...'
+          : (closed ? 'ВЕРНУТЬ' : 'СОХР.');
       }
     }
 
@@ -10589,26 +10601,89 @@
       const cardId = String(state.mobileRepairOrderCardId || '').trim();
       if (!cardId || state.mobileRepairOrderSaving) return;
       const repairOrder = readMobileRepairOrderDraft();
+      const currentOrder = currentMobileRepairOrderDraft();
       state.mobileRepairOrderSaving = true;
       if (els.mobileRepairOrderSaveButton) {
         els.mobileRepairOrderSaveButton.disabled = true;
         els.mobileRepairOrderSaveButton.textContent = '...';
       }
       try {
+        if (normalizeRepairOrderStatus(currentOrder.status) === 'closed') {
+          const preview = await api('/api/preview_repair_order_reopen', {
+            method: 'POST',
+            body: {
+              card_id: cardId,
+              expected_updated_at: state.mobileRepairOrderCard?.updated_at || '',
+            },
+          });
+          const payrollTotal = (preview?.payroll_reversals || []).reduce((sum, item) => sum + Number(item.amount_minor || 0), 0) / 100;
+          if (!window.confirm('Заказ будет временно исключён из выручки. Сторно зарплаты: ' + repairOrderFormatMoney(payrollTotal) + '. Продолжить?')) return;
+          const reasonCode = String(window.prompt('Код причины исправления', 'other') || '').trim();
+          const reasonNote = String(window.prompt('Опишите причину исправления', '') || '').trim();
+          if (!reasonCode || !reasonNote) {
+            setStatus('Нужно указать причину и пояснение.', true);
+            return;
+          }
+          const reopened = await api('/api/reopen_repair_order', {
+            method: 'POST',
+            body: {
+              card_id: cardId,
+              expected_updated_at: state.mobileRepairOrderCard?.updated_at || '',
+              reason_code: reasonCode,
+              reason_note: reasonNote,
+              idempotency_key: 'mobile-reopen-' + cardId + '-' + Date.now(),
+              actor_name: state.actor,
+              source: 'ui',
+            },
+          });
+          state.mobileRepairOrderCard = reopened?.card || state.mobileRepairOrderCard;
+          state.activeCard = state.mobileRepairOrderCard;
+          renderMobileRepairOrderDetail();
+          setStatus('ЗАКАЗ-НАРЯД ОТКРЫТ ДЛЯ ИСПРАВЛЕНИЯ.', false);
+          return;
+        }
+        const requestedStatus = normalizeRepairOrderStatus(
+          els.mobileRepairOrderStatusSelect?.value || repairOrder.status
+        );
+        const repairOrderPatch = { ...repairOrder };
+        delete repairOrderPatch.status;
+        delete repairOrderPatch.closed_at;
+        delete repairOrderPatch.active_correction;
+        delete repairOrderPatch.correction_active;
+        if (currentOrder.correction_active || Object.keys(currentOrder.active_correction || {}).length) {
+          delete repairOrderPatch.payment_method;
+          delete repairOrderPatch.prepayment;
+          delete repairOrderPatch.payments;
+        }
         const data = await api('/api/update_repair_order', {
           method: 'POST',
           body: {
             card_id: cardId,
             actor_name: state.actor,
             source: 'ui',
-            repair_order: repairOrder,
+            expected_updated_at: state.mobileRepairOrderCard?.updated_at || '',
+            repair_order: repairOrderPatch,
           },
         });
-        const updatedCard = data?.card || {
+        let updatedCard = data?.card || {
           ...state.mobileRepairOrderCard,
           id: cardId,
           repair_order: data?.repair_order || repairOrder,
         };
+        if (requestedStatus === 'closed') {
+          const closedData = await api('/api/set_repair_order_status', {
+            method: 'POST',
+            body: {
+              card_id: cardId,
+              status: 'closed',
+              expected_updated_at: updatedCard?.updated_at || '',
+              idempotency_key: 'mobile-close-' + cardId + '-' + Date.now(),
+              actor_name: state.actor,
+              source: 'ui',
+            },
+          });
+          updatedCard = closedData?.card || updatedCard;
+        }
         state.mobileRepairOrderCard = updatedCard;
         state.mobileRepairOrderCardId = updatedCard?.id || cardId;
         state.activeCard = updatedCard;
@@ -14341,6 +14416,7 @@
         total: fallbackTotal,
       });
       return {
+        id: String(source.id ?? '').trim(),
         name: String(source.name ?? '').trim(),
         catalog_number: String(source.catalog_number ?? source.part_number ?? source.catalogNumber ?? source.partNumber ?? '').trim(),
         quantity: String(source.quantity ?? '').trim(),
@@ -14418,6 +14494,10 @@
         tags: normalizeRepairOrderTags(source.tags),
         works,
         materials,
+        active_correction: source.active_correction && typeof source.active_correction === 'object'
+          ? { ...source.active_correction }
+          : {},
+        correction_active: Boolean(source.correction_active || (source.active_correction && Object.keys(source.active_correction).length)),
         payment_summary: summary,
       };
     }
@@ -14794,7 +14874,7 @@
           + '<input type="hidden" data-repair-order-row-field="inventory_movement_id" value="' + escapeHtml(normalized.inventory_movement_id) + '">'
           + '<input type="hidden" data-repair-order-row-field="inventory_unit" value="' + escapeHtml(normalized.inventory_unit) + '">'
         : '';
-      return '<tr data-repair-order-row="' + escapeHtml(section) + '" data-repair-order-total-raw="' + escapeHtml(normalized.total) + '" data-repair-order-work-executor-id="' + escapeHtml(normalized.work_executor_id_snapshot) + '" data-repair-order-work-executor-name="' + escapeHtml(normalized.work_executor_name_snapshot) + '" data-repair-order-work-quantity="' + escapeHtml(normalized.work_quantity_snapshot) + '" data-repair-order-work-price="' + escapeHtml(normalized.work_price_snapshot) + '" data-repair-order-work-total="' + escapeHtml(normalized.work_total_snapshot) + '" data-repair-order-salary-mode="' + escapeHtml(normalized.salary_mode_snapshot) + '" data-repair-order-base-salary="' + escapeHtml(normalized.base_salary_snapshot) + '" data-repair-order-work-percent="' + escapeHtml(normalized.work_percent_snapshot) + '" data-repair-order-salary-amount="' + escapeHtml(normalized.salary_amount) + '" data-repair-order-salary-accrued-at="' + escapeHtml(normalized.salary_accrued_at) + '" data-repair-order-work-salary-override-enabled="' + escapeHtml(normalized.work_salary_override_enabled) + '" data-repair-order-work-salary-guarantee="' + escapeHtml(normalized.work_salary_guarantee) + '" data-repair-order-work-salary-percent-override="' + escapeHtml(normalized.work_salary_percent_override) + '" data-repair-order-work-salary-cost-price="' + escapeHtml(normalized.work_salary_cost_price) + '" data-repair-order-work-salary-note="' + escapeHtml(normalized.work_salary_note) + '" data-repair-order-material-executor-id="' + escapeHtml(normalized.material_executor_id_snapshot) + '" data-repair-order-material-executor-name="' + escapeHtml(normalized.material_executor_name_snapshot) + '" data-repair-order-material-quantity="' + escapeHtml(normalized.material_quantity_snapshot) + '" data-repair-order-material-price="' + escapeHtml(normalized.material_price_snapshot) + '" data-repair-order-material-cost-price="' + escapeHtml(normalized.material_cost_price_snapshot) + '" data-repair-order-material-percent="' + escapeHtml(normalized.material_percent_snapshot) + '" data-repair-order-material-profit="' + escapeHtml(normalized.material_profit) + '" data-repair-order-material-salary-amount="' + escapeHtml(normalized.material_salary_amount) + '" data-repair-order-material-salary-accrued-at="' + escapeHtml(normalized.material_salary_accrued_at) + '">' +
+      return '<tr data-repair-order-row="' + escapeHtml(section) + '" data-repair-order-row-id="' + escapeHtml(normalized.id) + '" data-repair-order-total-raw="' + escapeHtml(normalized.total) + '" data-repair-order-work-executor-id="' + escapeHtml(normalized.work_executor_id_snapshot) + '" data-repair-order-work-executor-name="' + escapeHtml(normalized.work_executor_name_snapshot) + '" data-repair-order-work-quantity="' + escapeHtml(normalized.work_quantity_snapshot) + '" data-repair-order-work-price="' + escapeHtml(normalized.work_price_snapshot) + '" data-repair-order-work-total="' + escapeHtml(normalized.work_total_snapshot) + '" data-repair-order-salary-mode="' + escapeHtml(normalized.salary_mode_snapshot) + '" data-repair-order-base-salary="' + escapeHtml(normalized.base_salary_snapshot) + '" data-repair-order-work-percent="' + escapeHtml(normalized.work_percent_snapshot) + '" data-repair-order-salary-amount="' + escapeHtml(normalized.salary_amount) + '" data-repair-order-salary-accrued-at="' + escapeHtml(normalized.salary_accrued_at) + '" data-repair-order-work-salary-override-enabled="' + escapeHtml(normalized.work_salary_override_enabled) + '" data-repair-order-work-salary-guarantee="' + escapeHtml(normalized.work_salary_guarantee) + '" data-repair-order-work-salary-percent-override="' + escapeHtml(normalized.work_salary_percent_override) + '" data-repair-order-work-salary-cost-price="' + escapeHtml(normalized.work_salary_cost_price) + '" data-repair-order-work-salary-note="' + escapeHtml(normalized.work_salary_note) + '" data-repair-order-material-executor-id="' + escapeHtml(normalized.material_executor_id_snapshot) + '" data-repair-order-material-executor-name="' + escapeHtml(normalized.material_executor_name_snapshot) + '" data-repair-order-material-quantity="' + escapeHtml(normalized.material_quantity_snapshot) + '" data-repair-order-material-price="' + escapeHtml(normalized.material_price_snapshot) + '" data-repair-order-material-cost-price="' + escapeHtml(normalized.material_cost_price_snapshot) + '" data-repair-order-material-percent="' + escapeHtml(normalized.material_percent_snapshot) + '" data-repair-order-material-profit="' + escapeHtml(normalized.material_profit) + '" data-repair-order-material-salary-amount="' + escapeHtml(normalized.material_salary_amount) + '" data-repair-order-material-salary-accrued-at="' + escapeHtml(normalized.material_salary_accrued_at) + '">' +
         '<td>' + inventoryHiddenFields + repairOrderRowInputHtml('name', normalized.name, 'Наименование') + '</td>' +
         materialExecutorCell +
         catalogCell +
@@ -14824,6 +14904,7 @@
         }))
         : existingTotalRaw;
       return normalizeRepairOrderRow({
+        id: row.dataset.repairOrderRowId || '',
         name: row.querySelector('[data-repair-order-cell="name"]')?.value,
         catalog_number: row.querySelector('[data-repair-order-cell="catalog_number"]')?.value,
         quantity: quantityValue,
@@ -15245,12 +15326,35 @@
 
     function syncRepairOrderStatusUi(status, orderForClose = null) {
       const normalizedStatus = normalizeRepairOrderStatus(status);
+      const resolvedOrder = orderForClose ? normalizeRepairOrder(orderForClose) : readRepairOrderFromForm();
       els.repairOrderStatus.textContent = repairOrderStatusLabel(normalizedStatus);
       els.repairOrderStatus.dataset.status = normalizedStatus;
-      els.repairOrderCloseButton.textContent = normalizedStatus === 'closed' ? 'ОТКРЫТЬ ЗАКАЗ-НАРЯД' : 'ЗАКРЫТЬ ЗАКАЗ-НАРЯД';
-      syncRepairOrderCloseButtonState(orderForClose ? { ...orderForClose, status: normalizedStatus } : {
-        ...readRepairOrderFromForm(),
+      els.repairOrderCloseButton.textContent = normalizedStatus === 'closed' ? 'ВЕРНУТЬ В РАБОТУ' : 'ЗАКРЫТЬ ЗАКАЗ-НАРЯД';
+      syncRepairOrderEditingState({ ...resolvedOrder, status: normalizedStatus });
+      syncRepairOrderCloseButtonState({
+        ...resolvedOrder,
         status: normalizedStatus,
+      });
+    }
+
+    function syncRepairOrderEditingState(order) {
+      const closed = normalizeRepairOrderStatus(order?.status) === 'closed';
+      const correctionActive = Boolean(order?.correction_active || Object.keys(order?.active_correction || {}).length);
+      els.repairOrderModal?.querySelectorAll('input, textarea, select').forEach((control) => {
+        control.disabled = closed || (correctionActive && control.closest('.repair-order-payments-form'));
+      });
+      if (els.repairOrderSaveButton) els.repairOrderSaveButton.disabled = closed;
+      if (els.repairOrderAddWorkRowButton) els.repairOrderAddWorkRowButton.disabled = closed;
+      if (els.repairOrderAddMaterialRowButton) els.repairOrderAddMaterialRowButton.disabled = closed;
+      if (els.repairOrderTagAddButton) els.repairOrderTagAddButton.disabled = closed;
+      if (els.repairOrderPaymentAddButton) els.repairOrderPaymentAddButton.disabled = closed || correctionActive;
+      if (els.repairOrderPaymentsButton) {
+        els.repairOrderPaymentsButton.title = correctionActive
+          ? 'Платежи доступны только для просмотра во время корректировки.'
+          : '';
+      }
+      els.repairOrderModal?.querySelectorAll('[data-remove-repair-order-payment]').forEach((button) => {
+        button.disabled = closed || correctionActive;
       });
     }
 
@@ -15426,13 +15530,24 @@
       const cardId = await requireRepairOrderCardId();
       if (!cardId) return null;
       const repairOrder = readRepairOrderFromForm();
+      const repairOrderPatch = { ...repairOrder };
+      delete repairOrderPatch.status;
+      delete repairOrderPatch.closed_at;
+      delete repairOrderPatch.active_correction;
+      delete repairOrderPatch.correction_active;
+      if (state.activeCard?.repair_order?.correction_active || Object.keys(state.activeCard?.repair_order?.active_correction || {}).length) {
+        delete repairOrderPatch.payment_method;
+        delete repairOrderPatch.prepayment;
+        delete repairOrderPatch.payments;
+      }
       const data = await api('/api/update_repair_order', {
         method: 'POST',
         body: {
           card_id: cardId,
           actor_name: state.actor,
           source: 'ui',
-          repair_order: repairOrder,
+          expected_updated_at: state.activeCard?.updated_at || '',
+          repair_order: repairOrderPatch,
         },
       });
       const updatedCard = repairOrderResponseCard(data, repairOrder);
@@ -15470,11 +15585,46 @@
 
     async function toggleRepairOrderStatus() {
       try {
-        const persisted = await persistRepairOrderRecord({ silent: true });
-        if (!persisted) return;
         const currentOrder = readRepairOrderFromForm();
         const currentStatus = currentOrder.status;
-        const nextStatus = currentStatus === 'closed' ? 'open' : 'closed';
+        if (currentStatus === 'closed') {
+          const cardId = String(state.activeCard?.id || state.editingId || '').trim();
+          const preview = await api('/api/preview_repair_order_reopen', {
+            method: 'POST',
+            body: {
+              card_id: cardId,
+              expected_updated_at: state.activeCard?.updated_at || '',
+            },
+          });
+          const payrollTotal = (preview?.payroll_reversals || []).reduce((sum, item) => sum + Number(item.amount_minor || 0), 0) / 100;
+          if (!window.confirm('Заказ будет временно исключён из выручки. Зарплатные начисления к сторно: ' + repairOrderFormatMoney(payrollTotal) + '. Продолжить?')) return;
+          const reasonCode = String(window.prompt('Код причины: executor_error, work_error, material_error, amount_error или other', 'other') || '').trim();
+          const reasonNote = String(window.prompt('Опишите причину исправления', '') || '').trim();
+          if (!reasonCode || !reasonNote) {
+            setStatus('Нужно указать причину и пояснение.', true);
+            return;
+          }
+          const data = await api('/api/reopen_repair_order', {
+            method: 'POST',
+            body: {
+              card_id: cardId,
+              expected_updated_at: state.activeCard?.updated_at || '',
+              reason_code: reasonCode,
+              reason_note: reasonNote,
+              idempotency_key: 'ui-reopen-' + cardId + '-' + Date.now(),
+              actor_name: state.actor,
+              source: 'ui',
+            },
+          });
+          const updatedCard = repairOrderResponseCard(data, currentOrder);
+          applyRepairOrderCardUpdate(updatedCard, data?.repair_order || currentOrder);
+          await loadRepairOrders(false);
+          setStatus('Заказ-наряд открыт для исправления.', false);
+          return;
+        }
+        const persisted = await persistRepairOrderRecord({ silent: true });
+        if (!persisted) return;
+        const nextStatus = 'closed';
         if (nextStatus === 'closed' && !repairOrderIsFullyPaid(currentOrder)) {
           setStatus(repairOrderCloseBlockedMessage(), true);
           return;
@@ -15485,6 +15635,8 @@
           body: {
             card_id: persisted.cardId,
             status: nextStatus,
+            expected_updated_at: persisted.card?.updated_at || '',
+            idempotency_key: 'ui-close-' + persisted.cardId + '-' + Date.now(),
             actor_name: state.actor,
             source: 'ui',
           },
@@ -15492,7 +15644,7 @@
         const updatedCard = repairOrderResponseCard(data, persisted.repairOrder);
         applyRepairOrderCardUpdate(updatedCard, data?.repair_order || persisted.repairOrder);
         await loadRepairOrders(false);
-        setStatus(nextStatus === 'closed' ? 'Заказ-наряд закрыт.' : 'Заказ-наряд открыт.', false);
+        setStatus('Заказ-наряд закрыт.', false);
       } catch (error) {
         setStatus(error.message, true);
       } finally {

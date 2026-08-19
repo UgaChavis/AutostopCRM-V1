@@ -14,6 +14,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.services.card_service import CardService
+from minimal_kanban.services.errors import ServiceError
 from minimal_kanban.storage.json_store import JsonStore
 
 FROZEN_PAYROLL_NOW = datetime.fromisoformat("2026-07-18T12:00:00+07:00")
@@ -92,12 +93,15 @@ class RepairOrderPayrollAccrualTests(unittest.TestCase):
 
         card = self._close_cashless_order(worker_id=worker["id"])
         order = card["repair_order"]
+        closed_datetime = datetime.strptime(order["closed_at"], "%d.%m.%Y %H:%M")
+        report_month = closed_datetime.strftime("%Y-%m")
+        report_date = closed_datetime.strftime("%Y-%m-%d")
         self.assertEqual(order["subtotal_total"], "1500")
         self.assertGreater(float(order["taxes_total"]), 0)
         self.assertEqual(order["payments"][0]["payment_method"], "cashless")
         self.assertEqual(order["works"][0]["salary_amount"], "500")
 
-        report = self.service.get_payroll_report({"month": "2026-07"})
+        report = self.service.get_payroll_report({"month": report_month})
         order_rows = [
             row for row in report["detail_rows"] if row["row_type"] == "repair_order_accrual"
         ]
@@ -113,7 +117,7 @@ class RepairOrderPayrollAccrualTests(unittest.TestCase):
             self.assertEqual(summary["repair_order_accrued_total"], "60")
             self.assertEqual(summary["accrued_total"], "60")
         salary_report = self.service.get_employee_salary_report(
-            {"employee_id": sergey["id"], "month": "2026-07"}
+            {"employee_id": sergey["id"], "month": report_month}
         )
         self.assertEqual(salary_report["totals"]["repair_order_accrual_count"], 1)
         self.assertEqual(salary_report["totals"]["repair_order_accrual_total"], "60")
@@ -121,8 +125,8 @@ class RepairOrderPayrollAccrualTests(unittest.TestCase):
         reconciliation = self.service.get_employee_salary_reconciliation(
             {
                 "employee_id": sergey["id"],
-                "date_from": "2026-07-01",
-                "date_to": "2026-07-31",
+                "date_from": report_date,
+                "date_to": report_date,
             }
         )
         order_reconciliation = next(
@@ -139,10 +143,12 @@ class RepairOrderPayrollAccrualTests(unittest.TestCase):
         self.assertIn("1 500,00", order_reconciliation["calculation_base"])
         self.assertEqual(order_reconciliation["accrued"], "60")
 
-        self.service.update_repair_order(
-            {"card_id": card["id"], "repair_order": {"comment": "Повторное сохранение"}}
-        )
-        repeated = self.service.get_payroll_report({"month": "2026-07"})
+        with self.assertRaises(ServiceError) as blocked:
+            self.service.update_repair_order(
+                {"card_id": card["id"], "repair_order": {"comment": "Повторное сохранение"}}
+            )
+        self.assertEqual(blocked.exception.code, "repair_order_closed_read_only")
+        repeated = self.service.get_payroll_report({"month": report_month})
         self.assertEqual(
             len(
                 [
@@ -176,11 +182,14 @@ class RepairOrderPayrollAccrualTests(unittest.TestCase):
                 },
             }
         )
-        self.service.set_repair_order_status({"card_id": card["id"], "status": "closed"})
+        closed = self.service.set_repair_order_status({"card_id": card["id"], "status": "closed"})
+        report_month = datetime.strptime(
+            closed["repair_order"]["closed_at"], "%d.%m.%Y %H:%M"
+        ).strftime("%Y-%m")
 
         rows = [
             row
-            for row in self.service.get_payroll_report({"month": "2026-07"})["detail_rows"]
+            for row in self.service.get_payroll_report({"month": report_month})["detail_rows"]
             if row["row_type"] == "repair_order_accrual"
         ]
         self.assertEqual(len(rows), 2)
@@ -191,7 +200,16 @@ class RepairOrderPayrollAccrualTests(unittest.TestCase):
         employee = self._employee("Сергей Гелингер", repair_order_percent="4")
         card = self._close_cashless_order()
 
-        self.service.set_repair_order_status({"card_id": card["id"], "status": "open"})
+        current = self.service.get_card({"card_id": card["id"]})["card"]
+        self.service.reopen_repair_order(
+            {
+                "card_id": card["id"],
+                "expected_updated_at": current["updated_at"],
+                "reason_code": "other",
+                "reason_note": "Проверка повторного проведения",
+                "idempotency_key": "payroll-reopen",
+            }
+        )
         reversed_ledger = self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
         self.assertEqual(reversed_ledger["accrued_total"], "0")
         self.assertEqual(
@@ -199,7 +217,15 @@ class RepairOrderPayrollAccrualTests(unittest.TestCase):
             {"repair_order_accrual", "repair_order_accrual_reversal"},
         )
 
-        self.service.set_repair_order_status({"card_id": card["id"], "status": "closed"})
+        current = self.service.get_card({"card_id": card["id"]})["card"]
+        self.service.set_repair_order_status(
+            {
+                "card_id": card["id"],
+                "status": "closed",
+                "expected_updated_at": current["updated_at"],
+                "idempotency_key": "payroll-reclose",
+            }
+        )
         reclosed = self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
         self.assertEqual(reclosed["accrued_total"], "60")
         self.assertEqual(
@@ -225,22 +251,24 @@ class RepairOrderPayrollAccrualTests(unittest.TestCase):
                 "payroll_effective_from": "2026-07-13T00:00:00+07:00",
             }
         )
-        self.service.update_repair_order(
-            {"card_id": card["id"], "repair_order": {"comment": "Сверка процента"}}
-        )
+        with self.assertRaises(ServiceError) as blocked:
+            self.service.update_repair_order(
+                {"card_id": card["id"], "repair_order": {"comment": "Сверка процента"}}
+            )
+        self.assertEqual(blocked.exception.code, "repair_order_closed_read_only")
 
         corrected = self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
-        self.assertEqual(corrected["accrued_total"], "60")
+        self.assertEqual(corrected["accrued_total"], "45")
         journal = corrected["journal_rows"]
         self.assertEqual(
             sum(row["kind"] == "repair_order_accrual" for row in journal),
-            2,
+            1,
         )
         self.assertEqual(
             sum(row["kind"] == "repair_order_accrual_reversal" for row in journal),
-            1,
+            0,
         )
-        self.assertEqual(sorted(row["percent"] for row in journal), ["3", "3", "4"])
+        self.assertEqual(sorted(row["percent"] for row in journal), ["3"])
 
     def test_lost_full_payment_reverses_order_accrual(self) -> None:
         employee = self._employee("Алексей Мацурко", repair_order_percent="4")

@@ -323,7 +323,9 @@ class CardServiceDashboardMixin:
             order = card.repair_order
             if order.status != REPAIR_ORDER_STATUS_CLOSED:
                 continue
-            closed_at = parse_business_datetime(order.closed_at)
+            active_cycle = order.cycles[-1] if order.cycles else {}
+            recognized_at = active_cycle.get("recognized_at") or order.closed_at
+            closed_at = parse_business_datetime(recognized_at)
             if closed_at is None:
                 continue
             closed_at = closed_at.astimezone(timezone)
@@ -332,7 +334,8 @@ class CardServiceDashboardMixin:
             for index, start_at in enumerate(starts):
                 end_at = start_at + timedelta(days=7)
                 if start_at <= closed_at < end_at:
-                    totals[index] += Decimal(order.grand_total_amount())
+                    cycle_total = active_cycle.get("grand_total") or order.grand_total_amount()
+                    totals[index] += Decimal(str(cycle_total))
                     counts[index] += 1
                     break
 

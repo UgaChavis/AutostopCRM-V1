@@ -162,6 +162,8 @@ READONLY_GET_ROUTES = frozenset(
         "/api/get_employee_salary_ledger",
         "/api/get_employee_salary_report",
         "/api/get_employee_salary_reconciliation",
+        "/api/preview_repair_order_reopen",
+        "/api/get_repair_order_cycles",
         "/api/get_cashbox",
         "/api/get_gpt_wall",
         "/api/get_ai_chat_knowledge",

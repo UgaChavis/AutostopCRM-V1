@@ -86,12 +86,14 @@ class ChangeFeedProducerContractTests(unittest.TestCase):
             ),
         ):
             before = self.high_water()
-            route(
+            created_result = route(
                 {
                     "card_id": card_id,
                     "rows": [{"name": private_name, "quantity": "1", "price": "1000"}],
                 }
             )
+            row_key = "works" if entity_type == "repair_order_work" else "materials"
+            row_id = created_result["repair_order"][row_key][0]["id"]
             created_events = self.events_after(before)
             created = self.assert_single_entity_change(
                 created_events, entity_type=entity_type, change_type="create"
@@ -104,12 +106,20 @@ class ChangeFeedProducerContractTests(unittest.TestCase):
             route(
                 {
                     "card_id": card_id,
-                    "rows": [{"name": private_name, "quantity": "2", "price": "1000"}],
+                    "rows": [
+                        {
+                            "id": row_id,
+                            "name": private_name,
+                            "quantity": "2",
+                            "price": "1000",
+                        }
+                    ],
                 }
             )
-            self.assert_single_entity_change(
+            updated = self.assert_single_entity_change(
                 self.events_after(before), entity_type=entity_type, change_type="update"
             )
+            self.assertTrue(updated["entity_id"].endswith(f":{row_id}"))
 
             before = self.high_water()
             route({"card_id": card_id, "rows": []})

@@ -292,6 +292,12 @@ the public 24-tool surface. Never print these settings' values.
   bytes or external HTML in the message.
 - Repair-order numbers are immutable; the API compatibility correction route
   is blocked.
+- Closed repair orders must be corrected only through
+  `preview_repair_order_reopen` -> `reopen_repair_order` -> edits ->
+  `set_repair_order_status(status="closed")`. Pass the latest
+  `expected_updated_at` and a unique idempotency key for each write. Use
+  `get_repair_order_cycles` for readback; do not patch status, payments, cash,
+  or inventory through the order payload.
 - Finance safe fixes remain maintenance-only.
 
 `Приберись` means: inspect live context, preserve operator-entered facts and

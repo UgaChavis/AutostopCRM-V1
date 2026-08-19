@@ -81,6 +81,8 @@ def _clear_financial_events(state: dict[str, Any]) -> None:
 
 
 def _clear_repair_order_payroll_fields(repair_order: dict[str, Any]) -> None:
+    if isinstance(repair_order.get("payroll_postings"), list):
+        repair_order["payroll_postings"] = []
     for row_key in ("works", "materials"):
         rows = repair_order.get(row_key)
         if not isinstance(rows, list):

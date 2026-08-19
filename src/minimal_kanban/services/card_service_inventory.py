@@ -213,6 +213,7 @@ class CardServiceInventoryMixin:
             rows = [row.to_dict() for row in card.repair_order.materials]
             row_index = self._inventory_target_row_index(payload.get("row_index"), rows)
             material_row = RepairOrderRow(
+                id=str(uuid.uuid4()),
                 name=item.name,
                 catalog_number=item.catalog_number,
                 quantity=quantity_text,

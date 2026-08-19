@@ -167,6 +167,7 @@ class TagPayload(BaseModel):
 
 
 class RepairOrderRowPayload(BaseModel):
+    id: str = Field(default="", max_length=80)
     name: str = Field(default="", max_length=240)
     catalog_number: str = Field(default="", max_length=160)
     catalogNumber: str = Field(default="", max_length=160)
@@ -3315,6 +3316,35 @@ def create_mcp_server(
         return _relay_board_call("get_repair_order", lambda: board_api.get_repair_order(card_id))
 
     @server.tool(
+        name="preview_repair_order_reopen",
+        description=_scoped_description(
+            "Preview salary reversals, revenue recognition, payments, and inventory links before reopening a closed repair order."
+        ),
+        annotations=_read_tool_annotations("Preview Repair Order Reopen"),
+        structured_output=True,
+    )
+    def preview_repair_order_reopen(card_id: str, expected_updated_at: str) -> JsonEnvelope:
+        return _relay_board_call(
+            "preview_repair_order_reopen",
+            lambda: board_api.preview_repair_order_reopen(
+                card_id, expected_updated_at=expected_updated_at
+            ),
+        )
+
+    @server.tool(
+        name="get_repair_order_cycles",
+        description=_scoped_description(
+            "Return immutable closing and correction cycles for one repair order."
+        ),
+        annotations=_read_tool_annotations("Get Repair Order Cycles"),
+        structured_output=True,
+    )
+    def get_repair_order_cycles(card_id: str) -> JsonEnvelope:
+        return _relay_board_call(
+            "get_repair_order_cycles", lambda: board_api.get_repair_order_cycles(card_id)
+        )
+
+    @server.tool(
         name="get_repair_order_text",
         description=_scoped_description(
             "Return the text rendering of one repair order from the current AutoStop CRM board together with file metadata."
@@ -3917,6 +3947,7 @@ def create_mcp_server(
         card_id: str,
         status: Literal["open", "ready", "closed"],
         expected_updated_at: str | None = None,
+        idempotency_key: str | None = None,
         actor_name: str | None = None,
     ) -> JsonEnvelope:
         return _relay_board_call(
@@ -3925,6 +3956,39 @@ def create_mcp_server(
                 card_id=card_id,
                 status=status,
                 expected_updated_at=expected_updated_at,
+                idempotency_key=idempotency_key,
+                actor_name=actor_name,
+            ),
+        )
+
+    @server.tool(
+        name="reopen_repair_order",
+        description=_scoped_description(
+            "Safely reopen a closed repair order for correction, reversing payroll without changing payments or inventory movements."
+        ),
+        annotations=_write_tool_annotations("Reopen Repair Order"),
+        structured_output=True,
+    )
+    def reopen_repair_order(
+        card_id: str,
+        expected_updated_at: str,
+        reason_code: Literal[
+            "executor_error", "work_error", "material_error", "amount_error", "other"
+        ],
+        reason_note: str,
+        idempotency_key: str,
+        target_column_id: str | None = None,
+        actor_name: str | None = None,
+    ) -> JsonEnvelope:
+        return _relay_board_call(
+            "reopen_repair_order",
+            lambda: board_api.reopen_repair_order(
+                card_id=card_id,
+                expected_updated_at=expected_updated_at,
+                reason_code=reason_code,
+                reason_note=reason_note,
+                idempotency_key=idempotency_key,
+                target_column_id=target_column_id,
                 actor_name=actor_name,
             ),
         )

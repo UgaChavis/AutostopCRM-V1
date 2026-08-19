@@ -159,6 +159,9 @@ never attached. Only the CRM service is replaced during a normal deploy.
   cashbox data manually.
 - Repair-order numbers are immutable. The compatibility route
   `/api/correct_repair_order_number` is deliberately blocked.
+- Closed repair orders are immutable. Corrections use the audited
+  preview/reopen/reclose flow; payroll is reversed and reposted, while payment,
+  cashbox, and inventory histories remain unchanged.
 - Finance safe fixes and destructive historical cleanup are explicit
   owner-approved maintenance procedures, never routine UI/MCP work.
 - Public anonymous API/MCP reads and all writes must remain blocked in

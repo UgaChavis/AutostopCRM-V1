@@ -907,6 +907,15 @@ class BoardApiClient:
     def get_repair_order(self, card_id: str) -> dict:
         return self._request("/api/get_repair_order", {"card_id": card_id})
 
+    def preview_repair_order_reopen(self, card_id: str, *, expected_updated_at: str) -> dict:
+        return self._request(
+            "/api/preview_repair_order_reopen",
+            {"card_id": card_id, "expected_updated_at": expected_updated_at},
+        )
+
+    def get_repair_order_cycles(self, card_id: str) -> dict:
+        return self._request("/api/get_repair_order_cycles", {"card_id": card_id})
+
     def get_repair_order_text(self, card_id: str) -> dict:
         return self._request("/api/get_repair_order_text", {"card_id": card_id})
 
@@ -1186,13 +1195,40 @@ class BoardApiClient:
         card_id: str,
         status: str,
         expected_updated_at: str | None = None,
+        idempotency_key: str | None = None,
         actor_name: str | None = None,
     ) -> dict:
         payload: dict[str, object] = {"card_id": card_id, "status": status}
         if expected_updated_at:
             payload["expected_updated_at"] = expected_updated_at
+        if idempotency_key:
+            payload["idempotency_key"] = idempotency_key
         return self._request_with_identity(
             "/api/set_repair_order_status", payload, actor_name=actor_name
+        )
+
+    def reopen_repair_order(
+        self,
+        *,
+        card_id: str,
+        expected_updated_at: str,
+        reason_code: str,
+        reason_note: str,
+        idempotency_key: str,
+        target_column_id: str | None = None,
+        actor_name: str | None = None,
+    ) -> dict:
+        payload: dict[str, object] = {
+            "card_id": card_id,
+            "expected_updated_at": expected_updated_at,
+            "reason_code": reason_code,
+            "reason_note": reason_note,
+            "idempotency_key": idempotency_key,
+        }
+        if target_column_id:
+            payload["target_column_id"] = target_column_id
+        return self._request_with_identity(
+            "/api/reopen_repair_order", payload, actor_name=actor_name
         )
 
     def mark_card_ready(

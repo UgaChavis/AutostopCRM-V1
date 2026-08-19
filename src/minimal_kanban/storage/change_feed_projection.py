@@ -172,22 +172,49 @@ def _project_card(
             projected,
             entity_type="repair_order",
             entity_id=card_id,
-            content=_without(repair_order, "works", "materials", "payments"),
+            content=_without(
+                repair_order,
+                "works",
+                "materials",
+                "payments",
+                "cycles",
+                "payroll_postings",
+            ),
         )
         for index, work in enumerate(_items(repair_order.get("works"))):
+            work_id = _technical_id(work.get("id"), fallback=f"work-{index}")
             _add(
                 projected,
                 entity_type="repair_order_work",
-                entity_id=f"{card_id}:work:{index}",
+                entity_id=f"{card_id}:work:{work_id}",
                 content=work,
                 routing={"index": index},
             )
         for index, material in enumerate(_items(repair_order.get("materials"))):
+            material_id = _technical_id(material.get("id"), fallback=f"material-{index}")
             _add(
                 projected,
                 entity_type="repair_order_material",
-                entity_id=f"{card_id}:material:{index}",
+                entity_id=f"{card_id}:material:{material_id}",
                 content=material,
+                routing={"index": index},
+            )
+        for index, cycle in enumerate(_items(repair_order.get("cycles"))):
+            cycle_id = _technical_id(cycle.get("id"), fallback=f"cycle-{index}")
+            _add(
+                projected,
+                entity_type="repair_order_cycle",
+                entity_id=f"{card_id}:cycle:{cycle_id}",
+                content=cycle,
+                routing={"index": index},
+            )
+        for index, posting in enumerate(_items(repair_order.get("payroll_postings"))):
+            posting_id = _technical_id(posting.get("id"), fallback=f"posting-{index}")
+            _add(
+                projected,
+                entity_type="repair_order_payroll_posting",
+                entity_id=f"{card_id}:payroll:{posting_id}",
+                content=posting,
                 routing={"index": index},
             )
         for index, payment in enumerate(_items(repair_order.get("payments"))):
