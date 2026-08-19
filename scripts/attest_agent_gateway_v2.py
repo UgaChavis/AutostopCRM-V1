@@ -55,7 +55,7 @@ MANAGER_RAW_CRM_CAPABILITIES = (
 )
 STORE_ONLY_DOCUMENT_OPERATIONS = frozenset({"download_store_quote_vin_photo"})
 CRM_DOCUMENT_OPERATIONS = frozenset(DOCUMENT_WORKFLOW_OPERATIONS) - STORE_ONLY_DOCUMENT_OPERATIONS
-EXPECTED_CRM_OPERATION_COUNT = 43
+EXPECTED_CRM_OPERATION_COUNT = 44
 PUBLIC_CASE_ORDER = (
     "ping_connector",
     "get_connector_identity",
@@ -105,6 +105,7 @@ FINANCE_OPERATION_ORDER = (
     "record_repair_order_payment",
     "update_repair_order",
     "set_repair_order_status",
+    "reopen_repair_order",
     "reorder_cashboxes",
     "create_employee_salary_transaction",
     "create_employee_shift_accrual",
@@ -4877,6 +4878,144 @@ async def _finance_set_repair_order_status_case(
     return evidence
 
 
+async def _finance_reopen_repair_order_case(
+    session: Any,
+    *,
+    spec: CaseSpec,
+    state: dict[str, Any],
+) -> list[dict[str, Any]]:
+    evidence: list[dict[str, Any]] = []
+    attempt = _attempt_number(state, spec.case_id)
+    prefix = str(state["refs"]["synthetic_prefix"])
+    card_id = str(state["refs"].get("synthetic_payment_card_id") or "")
+    payment_id = str(state["refs"].get("synthetic_payment_id") or "")
+    if not card_id or not payment_id:
+        raise AttestationError(
+            "synthetic_payment_card_or_payment_ref_missing",
+            classification="routing",
+        )
+
+    before_close = await _card_context(
+        session,
+        card_id=card_id,
+        evidence=evidence,
+        detail="full",
+    )
+    before_close_order = (
+        before_close.get("repair_order")
+        if isinstance(before_close.get("repair_order"), dict)
+        else {}
+    )
+    if str(before_close_order.get("status") or "") != "closed":
+        close_revision = str(before_close.get("updated_at") or "")
+        if not close_revision:
+            raise AttestationError(
+                "reopen_repair_order_close_revision_missing",
+                classification="verification",
+                evidence=evidence,
+            )
+        close_spec = CaseSpec(
+            case_id=f"{spec.case_id}:close-fixture",
+            family="finance",
+            target="set_repair_order_status",
+            kind="operation",
+            requires_apply=True,
+            operation="set_repair_order_status",
+            workflow_tool=spec.workflow_tool,
+        )
+        await _inventory_apply_and_replay(
+            session,
+            spec=close_spec,
+            payload={
+                "card_id": card_id,
+                "status": "closed",
+                "expected_updated_at": close_revision,
+            },
+            idempotency_key=f"{prefix}-{spec.operation}-close-a{attempt}"[:160],
+            evidence=evidence,
+        )
+
+    closed = await _card_context(
+        session,
+        card_id=card_id,
+        evidence=evidence,
+        detail="full",
+    )
+    closed_order = (
+        closed.get("repair_order") if isinstance(closed.get("repair_order"), dict) else {}
+    )
+    closed_revision = str(closed.get("updated_at") or "")
+    if (
+        str(closed_order.get("status") or "") != "closed"
+        or not closed_revision
+        or _repair_order_payment_mapping(closed, payment_id) is None
+    ):
+        raise AttestationError(
+            "reopen_repair_order_closed_fixture_invalid",
+            classification="verification",
+            evidence=evidence,
+        )
+
+    payload = {
+        "card_id": card_id,
+        "expected_updated_at": closed_revision,
+        "reason_code": "other",
+        "reason_note": f"{prefix} gateway attestation correction",
+    }
+    await _inventory_missing_key_gate(
+        session,
+        spec=spec,
+        payload=payload,
+        evidence=evidence,
+    )
+    await _inventory_expected_failure(
+        session,
+        spec=spec,
+        arguments={
+            "operation": spec.operation,
+            "payload": {
+                **payload,
+                "expected_updated_at": "2000-01-01T00:00:00+00:00",
+            },
+            "idempotency_key": f"{prefix}-{spec.operation}-stale-a{attempt}"[:160],
+        },
+        expected_code="repair_order_revision_conflict",
+        evidence=evidence,
+    )
+    await _inventory_apply_and_replay(
+        session,
+        spec=spec,
+        payload=payload,
+        idempotency_key=f"{prefix}-{spec.operation}-apply-a{attempt}"[:160],
+        evidence=evidence,
+    )
+    reopened = await _card_context(
+        session,
+        card_id=card_id,
+        evidence=evidence,
+        detail="full",
+    )
+    reopened_order = (
+        reopened.get("repair_order") if isinstance(reopened.get("repair_order"), dict) else {}
+    )
+    if (
+        str(reopened_order.get("status") or "") != "open"
+        or reopened_order.get("correction_active") is not True
+        or str(reopened.get("updated_at") or "") == closed_revision
+        or _repair_order_payment_mapping(reopened, payment_id) is None
+    ):
+        raise AttestationError(
+            "reopen_repair_order_exact_reread_failed",
+            classification="backend_effect",
+            evidence=evidence,
+        )
+    _assert_response_budget(
+        evidence,
+        code="finance_reopen_repair_order_response_payload_limit_exceeded",
+    )
+    return evidence
+
+
 async def _finance_reorder_cashboxes_case(
     session: Any,
     *,
@@ -7193,6 +7332,12 @@ async def _operation_case(
             )
         if spec.family == "finance" and spec.operation == "set_repair_order_status":
             return await _finance_set_repair_order_status_case(
+                session,
+                spec=spec,
+                state=state,
+            )
+        if spec.family == "finance" and spec.operation == "reopen_repair_order":
+            return await _finance_reopen_repair_order_case(
                 session,
                 spec=spec,
                 state=state,

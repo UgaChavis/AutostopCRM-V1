@@ -42,8 +42,8 @@ def test_manifest_covers_exact_public_and_crm_operation_contracts() -> None:
     assert len(module.BOARD_OPERATION_ORDER) == 10
     assert len(module.INVENTORY_OPERATION_ORDER) == 8
     assert len(module.DOCUMENT_OPERATION_ORDER) == 8
-    assert len(module.FINANCE_OPERATION_ORDER) == 17
-    assert len(cases) == 70
+    assert len(module.FINANCE_OPERATION_ORDER) == 18
+    assert len(cases) == 71
     assert len({case.case_id for case in cases}) == len(cases)
     assert "download_store_quote_vin_photo" not in module.DOCUMENT_OPERATION_ORDER
     assert module.MANAGER_RAW_CRM_CAPABILITIES == (
