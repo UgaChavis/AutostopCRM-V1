@@ -111,6 +111,15 @@ def _round_money(value: Decimal) -> Decimal:
     return value.quantize(_MONEY_QUANT, rounding=ROUND_HALF_UP)
 
 
+def _split_tax_included_amount(total: Decimal, rate: Decimal) -> tuple[Decimal, Decimal]:
+    """Split a gross amount into a rounded tax base and included VAT."""
+    total = _round_money(total)
+    if rate <= Decimal("0"):
+        return total, Decimal("0.00")
+    subtotal = _round_money(total / (Decimal("1") + rate))
+    return subtotal, _round_money(total - subtotal)
+
+
 def _invoice_tax_payload(order: RepairOrder) -> dict[str, Any]:
     raw_label = _normalize_text(getattr(order, "tax_label", ""), limit=48)
     if not raw_label:
