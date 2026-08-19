@@ -34,6 +34,7 @@ from .formatting import (
     _money_words_display,
     _parse_decimal,
     _round_money,
+    _split_tax_included_amount,
 )
 from .manual_documents import (
     ManualDocumentProfile,
@@ -255,15 +256,14 @@ def _regulated_line_item_dict(
     gross_total = repair_order_cashless_gross_value(subtotal)
     rate = tax["rate"] if tax.get("has_vat") else Decimal("0")
     if tax.get("has_vat"):
-        subtotal = _round_money(gross_total * (Decimal("1") - rate))
-        vat = _round_money(gross_total - subtotal)
+        subtotal, vat = _split_tax_included_amount(gross_total, rate)
     else:
         vat = Decimal("0")
     total_with_tax = gross_total
     price_value = (
-        _round_money(gross_total / quantity)
+        _round_money(subtotal / quantity)
         if quantity and quantity > Decimal("0")
-        else gross_total
+        else subtotal
     )
     unit_payload = _regulated_unit_payload(item)
     return {
@@ -296,6 +296,7 @@ def _balance_regulated_line_totals(
     *,
     target_total: Decimal,
     tax_rate: Decimal,
+    target_vat: Decimal | None = None,
 ) -> list[dict[str, Any]]:
     if not line_items:
         return line_items
@@ -306,7 +307,16 @@ def _balance_regulated_line_totals(
         )
     )
     adjustment = _round_money(target_total - current_total)
-    if adjustment == Decimal("0"):
+    current_vat = _round_money(
+        sum(
+            (_parse_decimal(item.get("vat")) or Decimal("0") for item in line_items),
+            Decimal("0"),
+        )
+    )
+    vat_adjustment = (
+        _round_money(target_vat - current_vat) if target_vat is not None else Decimal("0")
+    )
+    if adjustment == Decimal("0") and vat_adjustment == Decimal("0"):
         return line_items
     balanced_items = list(line_items)
     last_index = len(balanced_items) - 1
@@ -315,16 +325,17 @@ def _balance_regulated_line_totals(
         (_parse_decimal(last_item.get("total_with_tax")) or Decimal("0")) + adjustment
     )
     if tax_rate != Decimal("0"):
-        subtotal = _round_money(total_with_tax * (Decimal("1") - tax_rate))
-        vat = _round_money(total_with_tax - subtotal)
+        subtotal, vat = _split_tax_included_amount(total_with_tax, tax_rate)
+        vat = _round_money(vat + vat_adjustment)
+        subtotal = _round_money(total_with_tax - vat)
     else:
         subtotal = total_with_tax
         vat = Decimal("0")
     quantity = _parse_decimal(last_item.get("quantity"))
     price = (
-        _round_money(total_with_tax / quantity)
+        _round_money(subtotal / quantity)
         if quantity and quantity > Decimal("0")
-        else total_with_tax
+        else subtotal
     )
     last_item.update(
         {
@@ -364,10 +375,12 @@ def _regulated_document_context(
     )
     target_total = repair_order_cashless_gross_value(base_subtotal)
     tax_rate = tax["rate"] if tax.get("has_vat") else Decimal("0")
+    _, target_vat = _split_tax_included_amount(target_total, tax_rate)
     rows = _balance_regulated_line_totals(
         raw_rows,
         target_total=target_total,
         tax_rate=tax_rate,
+        target_vat=target_vat,
     )
     subtotal = _round_money(
         sum((_parse_decimal(item.get("subtotal")) or Decimal("0") for item in rows), Decimal("0"))
@@ -2089,9 +2102,7 @@ class PrintModuleService:
             invoice_line_items if document.id == "invoice" else base_line_items
         )
         invoice_tax = _invoice_tax_payload(order)
-        invoice_tax_amount = _round_money(
-            invoice_total * invoice_tax["rate"] / (Decimal("1") + invoice_tax["rate"])
-        )
+        _, invoice_tax_amount = _split_tax_included_amount(invoice_total, invoice_tax["rate"])
         invoice_tax_display = _money_display(invoice_tax_amount)
         invoice_total_display = _money_display(invoice_total)
         invoice_total_words_display = _money_words_display(invoice_total)

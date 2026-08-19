@@ -209,6 +209,31 @@ def build_client_profile(
     )
 
 
+def build_vat_5_regression_card() -> Card:
+    return Card.from_dict(
+        {
+            "id": "synthetic-vat-5-regression",
+            "vehicle": "Synthetic vehicle",
+            "title": "Synthetic VAT 5% fixture",
+            "description": "Synthetic multi-row VAT fixture.",
+            "column": "inbox",
+            "archived": False,
+            "created_at": "2026-08-19T10:00:00+00:00",
+            "updated_at": "2026-08-19T10:00:00+00:00",
+            "repair_order": {
+                "number": "SYN-VAT-5",
+                "date": "19.08.2026",
+                "payment_method": "cashless",
+                "tax_label": "НДС (5%)",
+                "works": [
+                    {"name": "Synthetic row A", "quantity": "1", "price": "200000"},
+                    {"name": "Synthetic row B", "quantity": "1", "price": "35700"},
+                ],
+            },
+        }
+    )
+
+
 class PrintingServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -747,6 +772,108 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertEqual(invoice_items[2]["price_display"], "1 117,65")
         self.assertEqual(invoice_items[2]["total_display"], "6 705,88")
 
+    def test_vat_5_regression_reconciles_invoice_and_regulated_documents(self) -> None:
+        card = build_vat_5_regression_card()
+        settings = self.service._read_settings()
+        expected_total = Decimal("277294.12")
+        expected_subtotal = Decimal("264089.64")
+        expected_vat = Decimal("13204.48")
+
+        invoice_context = self.service._build_document_context(
+            card,
+            card.repair_order,
+            document=self.service._document_definition("invoice"),
+            settings=settings,
+        )["invoice"]
+        self.assertEqual(invoice_context["total"], expected_total)
+        self.assertEqual(invoice_context["vat"], expected_vat)
+        self.assertEqual(invoice_context["total"] - invoice_context["vat"], expected_subtotal)
+
+        for document_id in ("invoice_factura", "upd"):
+            context = self.service._build_document_context(
+                card,
+                card.repair_order,
+                document=self.service._document_definition(document_id),
+                settings=settings,
+            )["regulated"]
+            self.assertEqual(context["subtotal"], expected_subtotal)
+            self.assertEqual(context["vat"], expected_vat)
+            self.assertEqual(context["total_with_tax"], expected_total)
+            self.assertEqual(context["subtotal"] + context["vat"], context["total_with_tax"])
+            self.assertEqual(
+                [(row["subtotal"], row["vat"], row["total_with_tax"]) for row in context["rows"]],
+                [
+                    (Decimal("224089.64"), Decimal("11204.48"), Decimal("235294.12")),
+                    (Decimal("40000.00"), Decimal("2000.00"), Decimal("42000.00")),
+                ],
+            )
+            self.assertEqual(
+                [row["price"] for row in context["rows"]],
+                [Decimal("224089.64"), Decimal("40000.00")],
+            )
+
+        for document_id in ("invoice", "invoice_factura", "upd"):
+            preview = self.service.preview_documents(
+                card,
+                selected_document_ids=[document_id],
+                active_document_id=document_id,
+            )
+            html_text = "".join(page["html"] for page in preview["documents"][0]["pages"])
+            self.assertIn("13 204,48", html_text)
+            self.assertNotIn("13 864,71", html_text)
+            self.assertIn("277 294,12", html_text)
+
+        rendered_html: list[str] = []
+
+        def capture_render(html_text: str, **_kwargs: object) -> bytes:
+            rendered_html.append(html_text)
+            return b"%PDF-1.4 synthetic-vat-5"
+
+        with patch(
+            "minimal_kanban.printing.service.render_html_to_pdf_bytes",
+            side_effect=capture_render,
+        ):
+            self.service.export_documents_pdf(
+                card,
+                selected_document_ids=["invoice", "upd"],
+            )
+        self.assertEqual(len(rendered_html), 1)
+        self.assertIn("13 204,48", rendered_html[0])
+        self.assertNotIn("13 864,71", rendered_html[0])
+
+    def test_vat_5_document_rounding_cent_is_balanced_to_invoice(self) -> None:
+        settings = self.service._read_settings()
+        invoice = self.service._build_document_context(
+            self.card,
+            self.card.repair_order,
+            document=self.service._document_definition("invoice"),
+            settings=settings,
+        )["invoice"]
+        self.assertEqual(invoice["total"], Decimal("16235.29"))
+        self.assertEqual(invoice["vat"], Decimal("773.11"))
+
+        for document_id in ("invoice_factura", "upd"):
+            regulated = self.service._build_document_context(
+                self.card,
+                self.card.repair_order,
+                document=self.service._document_definition(document_id),
+                settings=settings,
+            )["regulated"]
+            self.assertEqual(regulated["total_with_tax"], invoice["total"])
+            self.assertEqual(regulated["vat"], invoice["vat"])
+            self.assertEqual(regulated["subtotal"], Decimal("15462.18"))
+            self.assertEqual(
+                regulated["subtotal"] + regulated["vat"], regulated["total_with_tax"]
+            )
+            self.assertEqual(
+                sum((row["vat"] for row in regulated["rows"]), Decimal("0")),
+                invoice["vat"],
+            )
+            self.assertEqual(
+                regulated["rows"][-1]["subtotal"], Decimal("2352.94")
+            )
+            self.assertEqual(regulated["rows"][-1]["vat"], Decimal("117.64"))
+
     def test_invoice_template_renders_linked_client_requisites(self) -> None:
         preview = self.service.preview_documents(
             self.card,
@@ -786,9 +913,9 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("Налоговая ставка", html)
         self.assertIn("5%", html)
         self.assertIn("(5б)", html)
-        self.assertIn("15 423,53", html)
+        self.assertIn("15 462,18", html)
         self.assertIn("2 941,18", html)
-        self.assertIn("811,76", html)
+        self.assertIn("773,11", html)
         self.assertIn("16 235,29", html)
         self.assertIn("Руководитель организации", html)
         self.assertIn("Индивидуальный предприниматель", html)
@@ -930,10 +1057,10 @@ class PrintingServiceTests(unittest.TestCase):
             ">шт<",
             "1 258,82",
             "14 569,42",
-            "15 036,83",
-            "62,94",
-            "728,47",
-            "791,41",
+            "15 074,51",
+            "59,94",
+            "693,79",
+            "753,73",
             "15 828,24",
             "regulated-req-payment-grid",
             "Счет-фактура № 268 от 20.05.2026 страница 1 из 1",
@@ -1124,39 +1251,39 @@ class PrintingServiceTests(unittest.TestCase):
             "Расходные материалы",
             "Парктроник передний левый центральный",
             "23 193,28",
-            "22 033,62",
-            "1 159,66",
+            "22 088,84",
+            "1 104,44",
             "23 193,28",
             "2 577,04",
-            "2 448,19",
-            "128,85",
+            "2 454,32",
+            "122,72",
             "2 577,04",
             "3 865,54",
-            "3 672,26",
-            "193,28",
+            "3 681,47",
+            "184,07",
             "3 865,54",
             "1 288,52",
-            "1 224,09",
-            "64,43",
+            "1 227,16",
+            "61,36",
             "1 288,52",
             "10 050,42",
-            "9 547,90",
-            "502,52",
+            "9 571,83",
+            "478,59",
             "10 050,42",
-            "2 263,92",
-            "6 452,17",
-            "339,59",
+            "2 156,11",
+            "6 468,34",
+            "323,42",
             "6 791,76",
             "2 577,04",
-            "2 448,19",
-            "128,85",
+            "2 454,32",
+            "122,72",
             "2 577,04",
             "1 932,78",
-            "1 836,14",
-            "96,64",
+            "1 840,75",
+            "92,03",
             "1 932,78",
-            "49 662,56",
-            "2 613,82",
+            "49 787,03",
+            "2 489,35",
             "52 276,38",
             "Счет на оплату №169 от 08.05.2026",
             "УПД № 169 от 08.05.2026 страница 2 из 2",
@@ -1254,9 +1381,9 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("Расходные материалы Motul 8100 X-Clean Gen2 5W40", combined_html)
         self.assertIn('<td class="regulated-center">112</td>', combined_html)
         self.assertIn('<td class="regulated-center">л</td>', combined_html)
-        self.assertIn("2 263,92", combined_html)
+        self.assertIn("2 156,11", combined_html)
         self.assertIn("6 791,76", combined_html)
-        self.assertIn("339,59", combined_html)
+        self.assertIn("323,42", combined_html)
         self.assertIn("6 791,76", combined_html)
 
     def test_regulated_documents_do_not_require_vehicle_contact_fields(self) -> None:
