@@ -529,8 +529,11 @@ refresh error. The browser smoke saves
 
 ## Watchdog
 
-`deploy.sh` installs `autostopcrm-watchdog.timer` by default. It checks the
-container, host API/MCP upstreams, and public CRM. Diagnostics:
+The production baseline does not install `autostopcrm-watchdog.timer`.
+`deploy.sh` keeps watchdog installation disabled by default; do not set
+`AUTOSTOP_INSTALL_WATCHDOG=1` without separate owner authorization. Existing
+watchdog units are legacy state and should be removed during maintenance.
+When auditing that state, use:
 
 ```bash
 systemctl status autostopcrm-watchdog.timer
