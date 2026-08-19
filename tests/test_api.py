@@ -5754,6 +5754,37 @@ class ApiServerTests(unittest.TestCase):
         self.assertNotIn("В том числе НДС (5%)", invoice_html)
         self.assertIn("1 176,47", invoice_html)
 
+    def test_repair_order_print_module_api_reconciles_vat_5_for_invoice_and_upd(self) -> None:
+        manual_document = {
+            "document_number": "SYN-VAT-5-API",
+            "document_date": "19.08.2026",
+            "payment_method": "cashless",
+            "tax_label": "НДС (5%)",
+            "client": {"display_name": "ООО Synthetic VAT", "inn": "2468000000"},
+            "works": [
+                {"name": "Synthetic row A", "quantity": "1", "price": "200000"},
+                {"name": "Synthetic row B", "quantity": "1", "price": "35700"},
+            ],
+        }
+
+        status, preview = self.request(
+            "/api/preview_repair_order_print_documents",
+            {
+                "document_without_card": True,
+                "manual_document": manual_document,
+                "selected_document_ids": ["invoice", "invoice_factura", "upd"],
+                "active_document_id": "invoice",
+            },
+        )
+
+        self.assertEqual(status, 200)
+        for document in preview["data"]["documents"]:
+            html_text = "".join(page["html"] for page in document["pages"])
+            self.assertIn("13 204,48", html_text)
+            self.assertNotIn("13 864,71", html_text)
+            self.assertNotIn("13 864,72", html_text)
+            self.assertIn("277 294,12", html_text)
+
     def test_invoice_preview_includes_linked_client_requisites(self) -> None:
         status, client_created = self.request(
             "/api/create_client",
