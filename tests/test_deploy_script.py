@@ -748,6 +748,7 @@ printf 'status=%s\n' "$status"
         self.assertIn("perf-probe-local.json", workflow)
         self.assertIn("python scripts/finance_audit_report.py", workflow)
         self.assertIn("browser_smoke", workflow)
+        self.assertIn("poppler-utils", workflow)
         self.assertIn("python -m playwright install chromium", workflow)
         self.assertIn("python scripts/browser_smoke.py", workflow)
         self.assertIn("playwright", requirements_dev)

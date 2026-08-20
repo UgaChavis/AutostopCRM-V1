@@ -67,7 +67,8 @@ jobs:
             libxcb-render-util0 \
             libxcb-xinerama0 \
             libxext6 \
-            libxrender1
+            libxrender1 \
+            poppler-utils
 
       - name: Set up Python
         uses: actions/setup-python@v6
