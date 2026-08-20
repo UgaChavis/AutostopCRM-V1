@@ -1725,10 +1725,6 @@
       els.agentDetails = document.getElementById('agentDetails');
     }
 
-    function hydrateAiSurfaceUiRefs() {
-      return;
-    }
-
     function hydrateAiChatWindowUiRefs() {
       return;
     }
@@ -2463,13 +2459,6 @@
       return lines.join('\n');
     }
 
-    function refreshAiCompactContextPacket() {
-      state.aiCompactContext = buildAiCompactContextPacket();
-      state.aiChatWindowContext = buildAiChatWindowContext();
-      state.aiSurfaceContext = state.aiChatWindowContext;
-      return state.aiCompactContext;
-    }
-
     function aiChatMessageTone(role, message) {
       if (message && typeof message === 'object' && String(message.state || '').trim()) {
         return String(message.state).trim().toLowerCase();
@@ -2824,47 +2813,6 @@
       if (els.aiChatWindowPromptProfileInput && els.aiChatWindowPromptProfileInput.value !== profile.user_tune) {
         els.aiChatWindowPromptProfileInput.value = profile.user_tune;
       }
-    }
-
-    function renderAiChatWindowContext() {
-      hydrateAiChatWindowUiRefs();
-      const context = state.aiChatWindowContext && typeof state.aiChatWindowContext === 'object'
-        ? state.aiChatWindowContext
-        : buildAiChatWindowContext();
-      const label = String(context.context_label || aiChatContextCardLabel()).trim();
-      const repairOrderLabel = String(context.repair_order_label || '').trim();
-      const sourceKind = String(context.source_kind || 'workspace').trim().toLowerCase();
-      const subtitleParts = [
-        'Отдельный рабочий AI surface для будущего чата.',
-        context.card_id ? 'Card #' + context.card_id : 'Без карточки',
-        repairOrderLabel ? repairOrderLabel : 'Без заказа-наряда',
-      ].filter(Boolean);
-      if (els.aiChatWindowContextLabel) {
-        els.aiChatWindowContextLabel.textContent = label;
-        els.aiChatWindowContextLabel.dataset.kind = sourceKind;
-      }
-      if (els.aiChatWindowSubtitle) {
-        const compactTail = [
-          context.card_context?.summary_label || context.card_label || '',
-          context.card_context?.ai_relevant_facts?.client || '',
-          context.repair_order_context?.summary_label || context.repair_order_label || '',
-          context.repair_order_context?.ai_relevant_facts?.payment_status_label || '',
-          context.wall_digest?.label || context.wall_context?.label || '',
-          context.wall_digest?.key_facts?.slice(0, 2).join(' · ') || '',
-          context.attachments_intake?.label || '',
-        ].filter(Boolean).join(' · ');
-        els.aiChatWindowSubtitle.textContent = [subtitleParts.join(' · '), compactTail].filter(Boolean).join(' · ');
-      }
-    }
-
-    function bindAiChatWindowUiEvents() {
-      if (state.aiChatWindowUiBound) return;
-      hydrateAiChatWindowUiRefs();
-      els.aiChatWindowSettingsButton?.addEventListener('click', handleAiChatWindowSettingsToggle);
-      els.aiChatWindowSendButton?.addEventListener('click', handleAiChatWindowSend);
-      els.aiChatWindowInput?.addEventListener('keydown', handleAiChatWindowInputKeydown);
-      els.aiChatWindowPromptProfileInput?.addEventListener('input', handleAiChatWindowPromptProfileInput);
-      state.aiChatWindowUiBound = true;
     }
 
     function hydrateAgentTasksUiRefs() {
@@ -6033,16 +5981,6 @@
       return parsed;
     }
 
-    function employeeSalaryReconciliationPeriodLabel() {
-      const mode = String(state.employeeSalaryReconciliationPeriodMode || 'days');
-      if (mode === 'dates') {
-        const dateFrom = String(state.employeeSalaryReconciliationDateFrom || '').trim();
-        const dateTo = String(state.employeeSalaryReconciliationDateTo || '').trim();
-        return dateFrom && dateTo ? (dateFrom + ' - ' + dateTo) : 'выбранные даты';
-      }
-      return 'последние ' + String(employeeSalaryReconciliationNormalizedDays() ?? 30) + ' дн.';
-    }
-
     function employeeSalaryReconciliationQueryParams(employeeId, { strict = false } = {}) {
       const requestedId = String(employeeId || '').trim();
       if (!requestedId) return null;
@@ -6322,10 +6260,6 @@
     }
 
     function employeeSalaryActionLabel(kind) {
-      return String(kind || '') === 'salary_advance' ? 'АВАНС' : 'ВЫПЛАТА ЗАРПЛАТЫ';
-    }
-
-    function employeeSalaryActionKindLabel(kind) {
       return String(kind || '') === 'salary_advance' ? 'АВАНС' : 'ВЫПЛАТА ЗАРПЛАТЫ';
     }
 
@@ -12568,13 +12502,6 @@
       };
     }
 
-    function durationToShort(total) {
-      const parts = secondsToParts(total);
-      const hh = String(parts.hours).padStart(2, '0');
-      if (parts.days > 0) return parts.days + 'Д ' + hh + 'Ч';
-      return hh + 'Ч';
-    }
-
     function durationToFull(total) {
       const parts = secondsToParts(total);
       return String(parts.days).padStart(2, '0') + 'Д ' + String(parts.hours).padStart(2, '0') + 'Ч';
@@ -12694,10 +12621,6 @@
         text: els.stickyText.value.trim(),
         deadline: stickyDeadlineInput(),
       };
-    }
-
-    function stickyHeadingLabel(sticky) {
-      return 'СТИКЕР / ' + String(sticky?.id || '').slice(0, 8).toUpperCase();
     }
 
     function stickyRenderPosition(value, scale = normalizeBoardScale(state.boardScale)) {
@@ -13488,10 +13411,6 @@
       };
     }
 
-    function vehicleCompletionLabel(value) {
-      return VEHICLE_COMPLETION_LABELS[String(value || '').trim()] || 'данные уточняются';
-    }
-
     function vinLooksSuspicious(value) {
       const normalized = String(value || '').toUpperCase().replace(/\s+/g, '');
       if (!normalized) return false;
@@ -14199,20 +14118,6 @@
       return hasCardPayment ? 'card' : normalizeRepairOrderPaymentMethod(fallback);
     }
 
-    function emptyRepairOrderPayment() {
-      return {
-        id: '',
-        amount: '',
-        paid_at: '',
-        note: '',
-        payment_method: 'cash',
-        actor_name: '',
-        cashbox_id: '',
-        cashbox_name: '',
-        cash_transaction_id: '',
-      };
-    }
-
     function normalizeRepairOrderPayment(payment, fallbackId = '') {
       const source = payment && typeof payment === 'object' ? payment : {};
       const amountValue = repairOrderParseNumber(source.amount ?? source.value);
@@ -14632,10 +14537,6 @@
       ].join('.') + ' ' + repairOrderPadDatePart(now.getHours()) + ':' + repairOrderPadDatePart(now.getMinutes());
     }
 
-    function repairOrderDateDisplayValue(value) {
-      return repairOrderCanonicalDateValue(value);
-    }
-
     function repairOrderListDateDisplayValue(value) {
       const canonical = repairOrderCanonicalDateValue(value);
       if (!canonical) return '';
@@ -14734,15 +14635,6 @@
       });
     }
 
-    function repairOrderHeadingLegacy(number) {
-      const normalizedNumber = String(number ?? '').trim();
-      return normalizedNumber ? ('ЗАКАЗ-НАРЯД №' + normalizedNumber) : 'ЗАКАЗ-НАРЯД';
-    }
-
-    function repairOrderCardRequiredMessageLegacy() {
-      return 'Сначала сохраните карточку, чтобы открыть заказ-наряд.';
-    }
-
     function repairOrderHeading(number) {
       const normalizedNumber = String(number ?? '').trim();
       return normalizedNumber ? ('ЗАКАЗ-НАРЯД №' + normalizedNumber) : 'ЗАКАЗ-НАРЯД';
@@ -14753,11 +14645,6 @@
       return normalizedNumber
         ? ('ЗАКАЗ-НАРЯД <span class="repair-order-number-badge">№' + escapeHtml(normalizedNumber) + '</span>')
         : 'ЗАКАЗ-НАРЯД';
-    }
-
-    function repairOrderNumberHtml(number) {
-      const normalizedNumber = String(number ?? '').trim();
-      return '<span class="repair-order-number-badge">№' + escapeHtml(normalizedNumber || '-') + '</span>';
     }
 
     function repairOrderCardRequiredMessage() {
@@ -15880,10 +15767,6 @@
       return ({ green: 'зелёный', yellow: 'жёлтый', red: 'красный' }[String(value || '').toLowerCase()] || String(value || '—'));
     }
 
-    function formatSourceLabel(value) {
-      return ({ ui: '', mcp: 'через GPT', api: 'через API', system: 'системой' }[String(value || '').toLowerCase()] || String(value || ''));
-    }
-
     function formatBytes(value) {
       const size = finiteNonNegativeNumber(value);
       if (size >= 1024 * 1024) return (size / (1024 * 1024)).toFixed(1) + ' МБ';
@@ -15956,18 +15839,6 @@
         const details = formatLogDetails(event);
         return details ? head + '\n  ' + details : head;
       }).join('\n\n');
-    }
-
-    function renderTags() {
-      els.tagList.innerHTML = state.draftTags.length
-        ? state.draftTags.map((tag) => '<button class="tag" data-remove-tag="' + escapeHtml(tag) + '">' + escapeHtml(tag) + ' ?</button>').join('')
-        : '<div class="tag tag--muted">МЕТОК НЕТ</div>';
-      els.tagSuggestions.innerHTML = SUGGESTED_TAGS.map((tag) => {
-        const active = state.draftTags.includes(tag.label);
-        const toneClass = tag.tone === 'danger' ? ' tag-suggestion--danger' : '';
-        const activeClass = active ? ' is-active' : '';
-        return '<button class="tag-suggestion' + toneClass + activeClass + '" data-suggest-tag="' + escapeHtml(tag.label) + '">' + escapeHtml(tag.label) + '</button>';
-      }).join('');
     }
 
     function renderColorTags() {
@@ -16304,15 +16175,6 @@
       }
     }
 
-    function formatJournalEventCount(count) {
-      const value = finiteNumber(count);
-      const lastDigit = value % 10;
-      const lastTwo = value % 100;
-      if (lastDigit === 1 && lastTwo !== 11) return value + ' СОБЫТИЕ';
-      if (lastDigit >= 2 && lastDigit <= 4 && (lastTwo < 10 || lastTwo >= 20)) return value + ' СОБЫТИЯ';
-      return value + ' СОБЫТИЙ';
-    }
-
     function cardJournalPluralRu(count, one, few, many) {
       const value = Math.abs(finiteNumber(count));
       const lastDigit = value % 10;
@@ -16603,21 +16465,6 @@
 
     function normalizeGptWallView(value) {
       return value === 'event_log' ? 'event_log' : 'board_content';
-    }
-
-    function buildGptWallEventsFallback(data) {
-      const events = Array.isArray(data?.events) ? data.events : [];
-      if (!events.length) return 'СОБЫТИЙ НЕТ.';
-      return events.map((event) => {
-        const parts = [
-          event?.timestamp || '—',
-          event?.actor_name || '—',
-          event?.message || '—',
-          event?.card_short_id || event?.card_id || '—',
-        ];
-        if (event?.details_text) parts.push(event.details_text);
-        return parts.join(' | ');
-      }).join('\n');
     }
 
     function buildReadableGptWallEvents(data) {
@@ -19691,17 +19538,6 @@
       }) + ' ₽';
     }
 
-    function activeCashboxStatistics() {
-      return state.activeCashbox?.statistics || {
-        transactions_total: 0,
-        income_total_minor: 0,
-        expense_total_minor: 0,
-        balance_minor: 0,
-        balance_display: cashboxFormatMinorAmount(0),
-        balance_sign: 'positive',
-      };
-    }
-
     function filteredCashboxTransactions() {
       return Array.isArray(state.activeCashbox?.transactions) ? state.activeCashbox.transactions : [];
     }
@@ -19734,32 +19570,6 @@
       const normalizedId = String(transactionId || '').trim();
       if (!normalizedId) return null;
       return filteredCashboxTransactions().find((item) => String(item?.id || '') === normalizedId) || null;
-    }
-
-    function buildCashboxStatistics(transactions) {
-      const items = Array.isArray(transactions) ? transactions : [];
-      let incomeMinor = 0;
-      let expenseMinor = 0;
-      let lastTransactionAt = '';
-      items.forEach((item) => {
-        const amountMinor = finiteNumber(item?.amount_minor);
-        if (item?.direction === 'expense') expenseMinor += amountMinor;
-        else incomeMinor += amountMinor;
-        if (item?.created_at && (!lastTransactionAt || String(item.created_at) > lastTransactionAt)) {
-          lastTransactionAt = String(item.created_at);
-        }
-      });
-      const balanceMinor = incomeMinor - expenseMinor;
-      return {
-        transactions_total: items.length,
-        income_total_minor: incomeMinor,
-        expense_total_minor: expenseMinor,
-        balance_minor: balanceMinor,
-        balance_display: cashboxFormatMinorAmount(balanceMinor),
-        income_total_display: cashboxFormatMinorAmount(incomeMinor),
-        expense_total_display: cashboxFormatMinorAmount(expenseMinor),
-        last_transaction_at: lastTransactionAt,
-      };
     }
 
     function cashboxTransactionSourceLabel(item) {
@@ -20692,23 +20502,6 @@
         const base = baseByDate.get(key) || { key, date: key, label: key };
         return cashJournalSummarizeEntries(dayEntries, { ...base, key, date: base.date || key });
       });
-    }
-
-    function cashJournalDaySummaryHtml(day) {
-      const transferIncomeMinor = finiteNumber(day?.transfer_income_minor);
-      const transferExpenseMinor = finiteNumber(day?.transfer_expense_minor);
-      const balanceMinor = finiteNumber(day?.balance_minor);
-      const operationCount = finiteNumber(day?.count, cashJournalDisplayRows(day?.entries || []).length);
-      const parts = [
-        'приход ' + String(day?.external_income_display || cashboxFormatMinorAmount(day?.external_income_minor ?? 0)),
-        'расход ' + String(day?.external_expense_display || cashboxFormatMinorAmount(day?.external_expense_minor ?? 0)),
-        'дельта ' + String(day?.balance_display || cashJournalSignedAmountDisplay(balanceMinor)),
-      ];
-      if (transferIncomeMinor || transferExpenseMinor) {
-        parts.push('перемещения ' + cashJournalSingleTransferDisplay(transferIncomeMinor, transferExpenseMinor));
-      }
-      parts.push(String(operationCount) + ' оп.');
-      return parts.map((part) => '<span>' + escapeHtml(part) + '</span>').join('');
     }
 
     function cashJournalDayCompactSummaryHtml(day) {
