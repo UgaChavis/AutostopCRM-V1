@@ -99,13 +99,13 @@ class DeployScriptTests(unittest.TestCase):
         self.assertIn('AUTOSTOP_STORE_OWNER_TOKEN: "${AUTOSTOP_STORE_OWNER_TOKEN:-}"', compose)
         self.assertNotIn("autostop-db:", compose)
 
-    def test_deploy_installs_production_watchdog_timer_by_default(self) -> None:
+    def test_deploy_does_not_install_production_watchdog_timer_by_default(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
         installer = (PROJECT_ROOT / "scripts" / "install_production_watchdog.sh").read_text(
             encoding="utf-8"
         )
 
-        self.assertIn('INSTALL_WATCHDOG="${AUTOSTOP_INSTALL_WATCHDOG:-1}"', script)
+        self.assertIn('INSTALL_WATCHDOG="${AUTOSTOP_INSTALL_WATCHDOG:-0}"', script)
         self.assertIn("install_production_watchdog.sh", script)
         self.assertIn("autostopcrm-watchdog.service", installer)
         self.assertIn("autostopcrm-watchdog.timer", installer)
