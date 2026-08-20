@@ -182,7 +182,7 @@
       "kind": "print_module_projection",
       "producer": "print_module",
       "sinks": [
-        "_write_completion_act_form_map",
+        "_write_completion_act_record",
         "_write_custom_templates",
         "_write_inspection_sheet_form_map",
         "_write_settings"
