@@ -1057,6 +1057,8 @@ class CompletionActBackendTests(unittest.TestCase):
         self.assertEqual(len(context["pages"]), 2)
         self.assertEqual(len(context["pages"][0]["items"]), 26)
         self.assertEqual(len(context["pages"][1]["items"]), 0)
+        self.assertTrue(context["pages"][0]["show_table_header"])
+        self.assertFalse(context["pages"][1]["show_table_header"])
         self.assertFalse(context["pages"][0]["page_break_before"])
         self.assertTrue(context["pages"][1]["page_break_before"])
         self.assertIn("AUTOSTOPCRM_PAGE_BREAK", context["pages"][1]["page_break_marker"])

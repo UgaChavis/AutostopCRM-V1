@@ -58,6 +58,7 @@ def _context(pages: list[dict[str, object]]) -> dict[str, object]:
         {
             **page,
             "show_table": page.get("show_table", True),
+            "show_table_header": page.get("show_table_header", True),
             "show_empty_items": page.get("show_empty_items", False),
             "show_totals": page.get("show_totals", page.get("is_final", False)),
             "show_closing": page.get("show_closing", page.get("is_final", False)),
@@ -148,7 +149,7 @@ class CompletionActAccountingTemplateTests(unittest.TestCase):
         self.assertIn("страница 1 из 1", rendered)
         self.assertNotIn("Основание:", rendered)
 
-    def test_two_page_context_repeats_table_header_and_keeps_final_blocks_once(self) -> None:
+    def test_two_page_context_omits_header_on_totals_only_page(self) -> None:
         pages = [
             {
                 "page_number": 1,
@@ -167,6 +168,7 @@ class CompletionActAccountingTemplateTests(unittest.TestCase):
                 "is_first": False,
                 "is_final": True,
                 "items": [],
+                "show_table_header": False,
             },
         ]
 
@@ -174,7 +176,7 @@ class CompletionActAccountingTemplateTests(unittest.TestCase):
 
         self.assertEqual(1, rendered.count("<!-- AUTOSTOPCRM_PAGE_BREAK -->"))
         self.assertEqual(1, rendered.count('class="completion-act__title"'))
-        self.assertEqual(2, rendered.count("Наименование работ (услуг)"))
+        self.assertEqual(1, rendered.count("Наименование работ (услуг)"))
         self.assertEqual(1, rendered.count('class="completion-act__final"'))
         self.assertEqual(1, rendered.count("НДС (5%):"))
         self.assertIn("страница 1 из 2", rendered)

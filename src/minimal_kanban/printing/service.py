@@ -3260,6 +3260,7 @@ class PrintModuleService:
                 "is_final": index == page_count - 1,
                 "items": chunk,
                 "show_table": bool(chunk) or index == page_count - 1,
+                "show_table_header": bool(chunk) or not items,
                 "show_empty_items": not items,
                 "show_totals": index == page_count - 1,
                 "show_closing": index == page_count - 1,

@@ -2113,6 +2113,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
 
   {{#show_table}}
   <table class="completion-act__items">
+    {{#show_table_header}}
     <thead>
       <tr>
         <th class="completion-act__col-number">№</th>
@@ -2123,6 +2124,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
         <th class="completion-act__col-sum">Сумма<br>(без НДС)</th>
       </tr>
     </thead>
+    {{/show_table_header}}
     <tbody>
       {{#items}}
       <tr>
