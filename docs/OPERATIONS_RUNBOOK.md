@@ -441,8 +441,10 @@ The bounded release flow:
    owner/feed dry-run probes with a revision-bound proof and unique release
    attempt id, mandatory public API and OAuth checks, and the exhaustive
    maintenance-safe 24-tool Gateway smoke;
-8. installs the watchdog, tags the healthy release as stable, then removes the
-   maintenance marker as the final fallible release action;
+8. installs the watchdog only through a separately authorized opt-in;
+   otherwise leaves it disabled or absent, then tags the healthy release as
+   stable and removes the maintenance marker as the final fallible release
+   action;
 9. after success is marked and the rollback trap is removed, best-effort
    retention prunes only validated old backup directories, Manager release
    snapshots, and exact CRM release/rollback image tags. Current and rollback
