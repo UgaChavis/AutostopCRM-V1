@@ -5,11 +5,15 @@ import hashlib
 import html
 import json
 import math
+import os
 import re
+import stat
+import threading
+import unicodedata
 import uuid
 from copy import deepcopy
-from decimal import Decimal
-from functools import lru_cache
+from decimal import Decimal, InvalidOperation
+from functools import lru_cache, wraps
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +26,7 @@ from ..repair_order import (
 )
 from ..storage.change_feed_projection import project_print_module
 from ..storage.change_feed_store import ChangeFeedStore
+from ..storage.file_lock import ProcessFileLock
 from ..storage.limited_io import read_bytes_limited
 from .defaults import BUILTIN_PRINT_DOCUMENTS, PRINT_BASE_STYLES, builtin_template_records
 from .errors import PrintModuleError
@@ -49,7 +54,12 @@ from .manual_documents import (
     _parse_manual_document_text,
 )
 from .models import (
+    COMPLETION_ACT_ITEMS_MAX,
     SUPPORTED_PRINT_DOCUMENT_TYPES,
+    CompletionActDraftData,
+    CompletionActFormData,
+    CompletionActItemData,
+    CompletionActPartyData,
     InspectionSheetFormData,
     PrintDocumentDefinition,
     PrintModuleSettings,
@@ -62,15 +72,328 @@ from .template_engine import TemplateRenderError, render_template
 _SETTINGS_FILE_NAME = "settings.json"
 _TEMPLATES_FILE_NAME = "templates.json"
 _INSPECTION_SHEET_FORMS_FILE_NAME = "inspection_sheet_forms.json"
+_COMPLETION_ACT_FORMS_FILE_NAME = "completion_act_forms.json"
+_COMPLETION_ACT_FORMS_DIR_NAME = "completion_act_forms"
 PRINT_JSON_FILE_MAX_BYTES = 1 * 1024 * 1024
+COMPLETION_ACT_FORMS_FILE_MAX_BYTES = 64 * 1024 * 1024
+COMPLETION_ACT_FORM_RECORD_MAX_BYTES = 1 * 1024 * 1024
+COMPLETION_ACT_FORMS_MAX_RECORDS = 8192
+COMPLETION_ACT_FEED_RECONCILE_BATCH = 16
 PRINT_BRAND_LOGO_MAX_BYTES = 512 * 1024
 PRINT_TEMPLATE_CONTENT_MAX_CHARS = 200_000
 _PAGE_BREAK_MARKER = "<!-- AUTOSTOPCRM_PAGE_BREAK -->"
 _REGULATED_LANDSCAPE_DOCUMENT_TYPES = {"invoice_factura", "upd"}
 _SENTENCE_SPLIT_RE = re.compile(r"[\n\r]+|(?<=[.!?])\s+")
 _UNSAFE_FILE_NAME_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
+_COMPLETION_ACT_RECORD_FILE_RE = re.compile(r"\A[0-9a-f]{64}\.json\Z")
+_COMPLETION_ACT_TEMP_FILE_RE = re.compile(r"\A\.[0-9a-f]{64}\.[0-9a-f]{32}\.tmp\Z")
 _BRAND_LOGO_PATH = Path(__file__).resolve().parent / "assets" / "autostop_brand_logo.png"
 _JSON_SAFE_MAX_DEPTH = 8
+_COMPLETION_ACT_VAT_RATE = Decimal("0.05")
+_COMPLETION_ACT_MONEY_ABS_MAX = Decimal("999999999.99")
+_COMPLETION_ACT_QUANTITY_ABS_MAX = Decimal("99999.999")
+_COMPLETION_ACT_PAGE_ROWS = 26
+_COMPLETION_ACT_FINAL_PAGE_ROWS = 8
+_COMPLETION_ACT_MAX_PAGES = 40
+_COMPLETION_ACT_FINAL_PAGE_MAX_EXTRA_UNITS = 40
+_COMPLETION_ACT_FINAL_PAGE_COMBINED_EXTRA_UNITS = 32
+_COMPLETION_ACT_ACCEPTANCE_COMBINED_EXTRA_UNITS = 10
+_COMPLETION_ACT_ACCEPTANCE_MAX_LINES = 30
+_COMPLETION_ACT_WIDE_LATIN = frozenset("MWmw@#%&")
+_COMPLETION_ACT_ACCEPTANCE_TEXT = (
+    "Вышеперечисленные работы (услуги) выполнены полностью и в срок. "
+    "Заказчик претензий по объему, качеству и срокам оказания услуг не имеет."
+)
+
+
+def _completion_act_checked_money(value: Decimal, *, field: str) -> Decimal:
+    try:
+        if not value.is_finite() or value.copy_abs() > _COMPLETION_ACT_MONEY_ABS_MAX:
+            raise InvalidOperation
+        rounded = _round_money(value)
+    except (InvalidOperation, OverflowError):
+        raise PrintModuleError(
+            "validation_error",
+            "Сумма в акте превышает допустимый денежный предел.",
+            details={
+                "field": field,
+                "max_amount": format(_COMPLETION_ACT_MONEY_ABS_MAX, "f"),
+            },
+        ) from None
+    if not rounded.is_finite() or rounded.copy_abs() > _COMPLETION_ACT_MONEY_ABS_MAX:
+        raise PrintModuleError(
+            "validation_error",
+            "Сумма в акте превышает допустимый денежный предел.",
+            details={
+                "field": field,
+                "max_amount": format(_COMPLETION_ACT_MONEY_ABS_MAX, "f"),
+            },
+        )
+    return rounded
+
+
+def _completion_act_quantity_display(value: Decimal | None) -> str:
+    if value is None:
+        return "—"
+    normalized = format(value.normalize(), "f")
+    return normalized.replace(".", ",")
+
+
+def _completion_act_mutation_locked(method: Any) -> Any:
+    @wraps(method)
+    def wrapped(self: PrintModuleService, *args: Any, **kwargs: Any) -> Any:
+        with self._completion_act_lock:
+            try:
+                with self._completion_act_process_lock.acquire():
+                    self._migrate_legacy_completion_act_forms(process_locked=True)
+                    return method(self, *args, **kwargs)
+            except TimeoutError as exc:
+                raise PrintModuleError(
+                    "completion_act_lock_timeout",
+                    "Черновик акта временно занят другим процессом; повторите действие.",
+                    status_code=503,
+                ) from exc
+
+    return wrapped
+
+
+def _completion_act_estimated_lines(value: Any, *, chars_per_line: int) -> int:
+    """Return a conservative line estimate for the fixed A4 act typography."""
+
+    text = str(value or "")
+    logical_lines = text.splitlines() or [""]
+    estimated = 0
+    for line in logical_lines:
+        unbroken = bool(line) and not any(character.isspace() for character in line)
+        width_units = sum(
+            0
+            if unicodedata.combining(character)
+            else 3
+            if unicodedata.east_asian_width(character) in {"W", "F"}
+            else 2
+            if character in _COMPLETION_ACT_WIDE_LATIN
+            or (
+                unbroken
+                and (
+                    "\u0400" <= character <= "\u052f"
+                    or "\u2de0" <= character <= "\u2dff"
+                    or "\ua640" <= character <= "\ua69f"
+                )
+            )
+            else 1
+            for character in line
+        )
+        estimated += max(1, math.ceil(width_units / max(1, chars_per_line)))
+    return estimated
+
+
+def _completion_act_item_page_weight(item: dict[str, Any]) -> int:
+    """Measure one table row in units of a regular single-line row."""
+
+    estimated_lines = max(
+        1,
+        _completion_act_estimated_lines(item.get("name"), chars_per_line=42),
+        _completion_act_estimated_lines(item.get("unit_display"), chars_per_line=8),
+        _completion_act_estimated_lines(item.get("quantity_display"), chars_per_line=10),
+    )
+    # A regular row already reserves padding and roughly two text baselines.
+    return max(1, math.ceil(estimated_lines / 2))
+
+
+def _completion_act_party_summary_text(party: CompletionActPartyData) -> str:
+    return ", ".join(
+        value
+        for value in (
+            party.legal_name,
+            f"ИНН {party.inn}" if party.inn else "",
+            f"КПП {party.kpp}" if party.kpp else "",
+            party.address,
+        )
+        if value
+    )
+
+
+def _completion_act_first_page_capacity(form: CompletionActFormData) -> int:
+    title = (
+        f"Акт о сдаче-приемке выполненных работ № {form.document_number} от {form.document_date}"
+    )
+    extra_units = max(
+        0,
+        _completion_act_estimated_lines(title, chars_per_line=70) - 2,
+    )
+    for party in (form.performer, form.customer):
+        extra_units += max(
+            0,
+            _completion_act_estimated_lines(
+                _completion_act_party_summary_text(party), chars_per_line=72
+            )
+            - 2,
+        )
+    extra_units += max(
+        0,
+        _completion_act_estimated_lines(form.basis, chars_per_line=80) - 2,
+    )
+    return max(0, _COMPLETION_ACT_PAGE_ROWS - extra_units)
+
+
+def _completion_act_party_final_extra_units(party: CompletionActPartyData) -> int:
+    estimates = (
+        (party.legal_name, 38, 2),
+        (party.inn, 18, 1),
+        (party.kpp, 18, 1),
+        (party.address, 44, 2),
+        (party.settlement_account, 24, 1),
+        (party.bank_name, 44, 2),
+        (party.bik, 18, 1),
+        (party.correspondent_account, 24, 1),
+        (party.signer_position, 18, 2),
+        (party.signer_name, 20, 2),
+    )
+    return sum(
+        max(
+            0,
+            _completion_act_estimated_lines(value, chars_per_line=width) - baseline,
+        )
+        for value, width, baseline in estimates
+    )
+
+
+def _completion_act_final_page_capacity(form: CompletionActFormData) -> int:
+    acceptance_extra = max(
+        0,
+        _completion_act_estimated_lines(form.acceptance_text, chars_per_line=90) - 2,
+    )
+    party_extra = max(
+        _completion_act_party_final_extra_units(form.performer),
+        _completion_act_party_final_extra_units(form.customer),
+    )
+    return max(
+        0,
+        _COMPLETION_ACT_FINAL_PAGE_ROWS - acceptance_extra - party_extra,
+    )
+
+
+def _completion_act_final_page_extra_units(form: CompletionActFormData) -> int:
+    acceptance_extra = max(
+        0,
+        _completion_act_estimated_lines(form.acceptance_text, chars_per_line=90) - 2,
+    )
+    party_extra = max(
+        _completion_act_party_final_extra_units(form.performer),
+        _completion_act_party_final_extra_units(form.customer),
+    )
+    return acceptance_extra + party_extra
+
+
+def _completion_act_validate_final_layout(form: CompletionActFormData) -> None:
+    acceptance_lines = len(form.acceptance_text.splitlines() or [""])
+    acceptance_extra_units = max(
+        0,
+        _completion_act_estimated_lines(form.acceptance_text, chars_per_line=90) - 2,
+    )
+    closing_extra_units = _completion_act_final_page_extra_units(form)
+    final_text_values = [form.acceptance_text]
+    for party in (form.performer, form.customer):
+        final_text_values.extend(
+            (
+                party.legal_name,
+                party.address,
+                party.bank_name,
+                party.signer_position,
+                party.signer_name,
+            )
+        )
+    has_wide_glyph = any(
+        unicodedata.east_asian_width(character) in {"W", "F"}
+        for value in final_text_values
+        for character in value
+    )
+    is_too_tall = (
+        acceptance_lines > _COMPLETION_ACT_ACCEPTANCE_MAX_LINES
+        or closing_extra_units > _COMPLETION_ACT_FINAL_PAGE_MAX_EXTRA_UNITS
+        or (
+            has_wide_glyph and closing_extra_units > _COMPLETION_ACT_FINAL_PAGE_COMBINED_EXTRA_UNITS
+        )
+        or (
+            acceptance_extra_units > _COMPLETION_ACT_ACCEPTANCE_COMBINED_EXTRA_UNITS
+            and closing_extra_units > _COMPLETION_ACT_FINAL_PAGE_COMBINED_EXTRA_UNITS
+        )
+    )
+    if not is_too_tall:
+        return
+    raise PrintModuleError(
+        "validation_error",
+        "Текст и реквизиты не помещаются в финальный блок акта; сократите их.",
+        details={
+            "field": "completion_act.final_block",
+            "max_layout_units": _COMPLETION_ACT_FINAL_PAGE_MAX_EXTRA_UNITS,
+            "actual_layout_units": closing_extra_units,
+            "max_acceptance_lines": _COMPLETION_ACT_ACCEPTANCE_MAX_LINES,
+            "actual_acceptance_lines": acceptance_lines,
+        },
+    )
+
+
+def _completion_act_page_chunks(
+    form: CompletionActFormData, items: list[dict[str, Any]]
+) -> list[list[dict[str, Any]]]:
+    """Build logical pages that also remain single physical A4 pages.
+
+    The final accounting/signature block consumes substantially more space than
+    an ordinary continuation page. Text fields and row names are variable-height,
+    so a fixed number-of-rows split is not sufficient.
+    """
+
+    if not items:
+        return [[]]
+    first_capacity = _completion_act_first_page_capacity(form)
+    final_capacity = _completion_act_final_page_capacity(form)
+    weights = [_completion_act_item_page_weight(item) for item in items]
+    total_weight = sum(weights)
+    if total_weight <= min(first_capacity, final_capacity):
+        return [list(items)]
+
+    index = 0
+    remaining_weight = total_weight
+
+    def take_page(capacity: int, *, force_progress: bool) -> list[dict[str, Any]]:
+        nonlocal index, remaining_weight
+        start = index
+        used = 0
+        while index < len(items) and used + weights[index] <= capacity:
+            used += weights[index]
+            index += 1
+        if force_progress and index == start and index < len(items):
+            # Retain progress for one legacy row heavier than a page. The
+            # aggregate page bound below still rejects an unprintable document.
+            used = weights[index]
+            index += 1
+        remaining_weight -= used
+        return list(items[start:index])
+
+    pages: list[list[dict[str, Any]]] = [take_page(first_capacity, force_progress=False)]
+    while remaining_weight > final_capacity:
+        pages.append(take_page(_COMPLETION_ACT_PAGE_ROWS, force_progress=True))
+        if len(pages) >= _COMPLETION_ACT_MAX_PAGES:
+            raise PrintModuleError(
+                "validation_error",
+                "Строки акта не помещаются в допустимое количество страниц; сократите текст.",
+                details={
+                    "field": "completion_act.items_layout",
+                    "max_pages": _COMPLETION_ACT_MAX_PAGES,
+                },
+            )
+    pages.append(list(items[index:]))
+    if len(pages) > _COMPLETION_ACT_MAX_PAGES:
+        raise PrintModuleError(
+            "validation_error",
+            "Строки акта не помещаются в допустимое количество страниц; сократите текст.",
+            details={
+                "field": "completion_act.items_layout",
+                "max_pages": _COMPLETION_ACT_MAX_PAGES,
+            },
+        )
+    return pages
 
 
 def _normalize_template_content(value: Any) -> str:
@@ -667,24 +990,30 @@ def _reject_json_constant(value: str) -> None:
     raise ValueError(f"Unsupported JSON constant: {value}")
 
 
-def _safe_json_read(path: Path, *, default: Any) -> Any:
+def _safe_json_read(
+    path: Path,
+    *,
+    default: Any,
+    max_bytes: int | None = None,
+) -> Any:
     if not path.exists():
         return deepcopy(default)
     try:
         return json.loads(
-            _read_print_json_text(path),
+            _read_print_json_text(path, max_bytes=max_bytes),
             parse_constant=_reject_json_constant,
         )
     except (ValueError, OSError, UnicodeDecodeError, RecursionError):
         return deepcopy(default)
 
 
-def _read_print_json_text(path: Path) -> str:
-    if path.stat().st_size > PRINT_JSON_FILE_MAX_BYTES:
+def _read_print_json_text(path: Path, *, max_bytes: int | None = None) -> str:
+    limit = PRINT_JSON_FILE_MAX_BYTES if max_bytes is None else max_bytes
+    if path.stat().st_size > limit:
         raise ValueError("print json file is too large")
     with path.open("rb") as handle:
-        payload = handle.read(PRINT_JSON_FILE_MAX_BYTES + 1)
-    if len(payload) > PRINT_JSON_FILE_MAX_BYTES:
+        payload = handle.read(limit + 1)
+    if len(payload) > limit:
         raise ValueError("print json file is too large")
     return payload.decode("utf-8")
 
@@ -709,24 +1038,64 @@ def _json_safe_value(value: Any, *, depth: int = _JSON_SAFE_MAX_DEPTH) -> Any:
     return str(value)
 
 
-def _safe_json_write(path: Path, payload: Any) -> None:
+def _safe_json_write(path: Path, payload: Any, *, max_bytes: int | None = None) -> None:
+    limit = PRINT_JSON_FILE_MAX_BYTES if max_bytes is None else max_bytes
     text = json.dumps(_json_safe_value(payload), ensure_ascii=False, indent=2, allow_nan=False)
-    if len(text.encode("utf-8")) > PRINT_JSON_FILE_MAX_BYTES:
+    if len(text.encode("utf-8")) > limit:
         raise PrintModuleError(
             "validation_error",
             "Данные печатного модуля слишком большие для сохранения.",
-            details={"max_size_bytes": PRINT_JSON_FILE_MAX_BYTES},
+            details={"max_size_bytes": limit},
         )
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
         tmp_path.write_text(text, encoding="utf-8")
+        if os.name != "nt":
+            tmp_path.chmod(0o600)
         tmp_path.replace(path)
     finally:
         try:
             tmp_path.unlink(missing_ok=True)
         except OSError:
             pass
+
+
+def _nested_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
+    merged = deepcopy(base)
+    for key, value in overrides.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _nested_merge(merged[key], value)
+        else:
+            merged[key] = deepcopy(value)
+    return merged
+
+
+def _nested_sparse_diff(current: Any, baseline: Any) -> Any:
+    if isinstance(current, dict) and isinstance(baseline, dict):
+        result: dict[str, Any] = {}
+        for key, value in current.items():
+            if key not in baseline:
+                continue
+            difference = _nested_sparse_diff(value, baseline[key])
+            if difference is not None:
+                result[key] = difference
+        return result or None
+    if isinstance(current, list) and isinstance(baseline, list):
+        return deepcopy(current) if current != baseline else None
+    return deepcopy(current) if current != baseline else None
+
+
+def _request_payload_fingerprint(value: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            _json_safe_value(value),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 @lru_cache(maxsize=1)
@@ -977,13 +1346,25 @@ class PrintModuleService:
     ) -> None:
         self._root_dir = Path(base_dir) / "printing"
         self._root_dir.mkdir(parents=True, exist_ok=True)
+        if os.name != "nt":
+            self._root_dir.chmod(0o700)
         self._settings_path = self._root_dir / _SETTINGS_FILE_NAME
         self._templates_path = self._root_dir / _TEMPLATES_FILE_NAME
         self._inspection_sheet_forms_path = self._root_dir / _INSPECTION_SHEET_FORMS_FILE_NAME
+        # Keep the legacy path for one-time migration and rollback-compatible
+        # backups. New runtime records live in the sibling private directory.
+        self._completion_act_forms_path = self._root_dir / _COMPLETION_ACT_FORMS_FILE_NAME
+        self._completion_act_forms_dir = self._root_dir / _COMPLETION_ACT_FORMS_DIR_NAME
+        self._completion_act_lock = threading.RLock()
+        self._completion_act_feed_pending: set[str] = set()
+        self._completion_act_process_lock = ProcessFileLock(
+            self._completion_act_forms_path.with_suffix(".lock")
+        )
         self._builtin_documents = {item.id: item for item in BUILTIN_PRINT_DOCUMENTS}
         self._builtin_templates = {item.id: item for item in builtin_template_records()}
         self._change_feed_store = change_feed_store
         self._logger = logger
+        self._migrate_legacy_completion_act_forms()
         self._sync_change_feed(initialize=True)
 
     def manual_document_profile(
@@ -1251,7 +1632,11 @@ class PrintModuleService:
             )
         except PdfRenderError as exc:
             raise PrintModuleError("pdf_error", str(exc), status_code=500) from exc
-        file_name = self._build_export_file_name(card, selected_ids)
+        file_name = self._build_export_file_name(
+            card,
+            selected_ids,
+            document_payloads=document_payloads,
+        )
         return (
             pdf_bytes,
             file_name,
@@ -1339,6 +1724,12 @@ class PrintModuleService:
         template_id: str = "",
     ) -> dict[str, Any]:
         normalized_document_type = _normalize_document_type(document_type)
+        if normalized_document_type == "completion_act":
+            raise PrintModuleError(
+                "completion_act_template_locked",
+                "Для акта используется только встроенный стандартный шаблон.",
+                status_code=409,
+            )
         normalized_name = _normalize_text(name, limit=120)
         normalized_content = _normalize_template_content(content)
         if not normalized_name:
@@ -1379,6 +1770,12 @@ class PrintModuleService:
 
     def duplicate_template(self, *, template_id: str, name: str = "") -> dict[str, Any]:
         source = self._find_template(template_id)
+        if source.document_type == "completion_act":
+            raise PrintModuleError(
+                "completion_act_template_locked",
+                "Стандартный шаблон акта нельзя дублировать.",
+                status_code=409,
+            )
         now = utc_now_iso()
         duplicate = PrintTemplateRecord(
             id=f"custom:{source.document_type}:{uuid.uuid4().hex}",
@@ -1422,6 +1819,12 @@ class PrintModuleService:
 
     def set_default_template(self, *, document_type: str, template_id: str) -> dict[str, Any]:
         normalized_document_type = _normalize_document_type(document_type)
+        if normalized_document_type == "completion_act":
+            raise PrintModuleError(
+                "completion_act_template_locked",
+                "Для акта используется только встроенный стандартный шаблон.",
+                status_code=409,
+            )
         template = self._find_template(template_id)
         if template.document_type != normalized_document_type:
             raise PrintModuleError(
@@ -1458,9 +1861,13 @@ class PrintModuleService:
             **document.to_dict(),
             "selected_template_id": selected_template.id,
             "selected_template_name": selected_template.name,
-            "template_count": len(template_map.get(document.id, [])),
+            "template_count": (
+                1 if document.id == "completion_act" else len(template_map.get(document.id, []))
+            ),
             "is_default_selected": document.id == "repair_order",
             "supports_form_fill": document.id == "inspection_sheet",
+            "supports_completion_act_editor": document.id == "completion_act",
+            "template_locked": document.id == "completion_act",
         }
 
     def _preview_document_payload(
@@ -1496,6 +1903,8 @@ class PrintModuleService:
             ),
             "warnings": rendered["warnings"],
             "missing_fields": rendered["missing_fields"],
+            "computed_totals": rendered["computed_totals"],
+            "computed_items": rendered["computed_items"],
             "page_count": len(preview_pages),
             "pages": [
                 {"number": index + 1, "html": page_html}
@@ -1516,7 +1925,11 @@ class PrintModuleService:
         document_overrides: dict[str, Any] | None,
     ) -> dict[str, Any]:
         effective_template = template
-        if template_overrides and document.id in template_overrides:
+        if (
+            document.id != "completion_act"
+            and template_overrides
+            and document.id in template_overrides
+        ):
             effective_template = PrintTemplateRecord(
                 id="preview:override",
                 document_type=document.id,
@@ -1544,6 +1957,21 @@ class PrintModuleService:
             "document_html": self._wrap_document_html(fragment, title=document.label),
             "warnings": context["meta"]["warnings"],
             "missing_fields": context["meta"]["missing_fields"],
+            "computed_totals": (
+                context.get("completion_act", {}).get("totals", {})
+                if document.id == "completion_act"
+                else {}
+            ),
+            "computed_items": (
+                context.get("completion_act", {}).get("items", [])
+                if document.id == "completion_act"
+                else []
+            ),
+            "resolved_document_number": (
+                context.get("completion_act", {}).get("document_number", "")
+                if document.id == "completion_act"
+                else ""
+            ),
         }
 
     def _combined_document_html(self, payloads: list[dict[str, Any]]) -> str:
@@ -1629,6 +2057,8 @@ class PrintModuleService:
             document_type = _normalize_text(raw_document_type, limit=64)
             if document_type not in self._builtin_documents:
                 continue
+            if document_type == "completion_act":
+                continue
             content = _normalize_template_content(raw_content)
             if content:
                 normalized[document_type] = content
@@ -1682,6 +2112,8 @@ class PrintModuleService:
             document_type: [] for document_type in SUPPORTED_PRINT_DOCUMENT_TYPES
         }
         for record in combined:
+            if record.document_type == "completion_act" and not record.is_builtin:
+                continue
             grouped.setdefault(record.document_type, []).append(record)
         for document_type, records in grouped.items():
             default_id = settings.default_template_ids.get(document_type, "")
@@ -1702,6 +2134,11 @@ class PrintModuleService:
         template_id: str = "",
         settings: PrintModuleSettings,
     ) -> PrintTemplateRecord:
+        if document_type == "completion_act":
+            builtin_id = self._builtin_documents[document_type].default_template_id
+            template = self._builtin_templates.get(builtin_id)
+            if template is not None:
+                return template
         grouped = self._templates_by_document_type(settings=settings)
         requested_id = _normalize_text(template_id, limit=128)
         if requested_id:
@@ -1758,6 +2195,1112 @@ class PrintModuleService:
         merged.update({key: value for key, value in payload.items() if key != "service_profile"})
         merged["service_profile"] = service_profile
         return PrintModuleSettings.from_dict(merged)
+
+    def get_completion_act_form(
+        self,
+        card: Card,
+        *,
+        repair_order: RepairOrder | None = None,
+        client: ClientProfile | None = None,
+    ) -> dict[str, Any]:
+        order = repair_order or card.repair_order
+        settings = self._read_settings()
+        return self._completion_act_response(
+            card,
+            order,
+            client=self._exact_completion_act_client(card, client),
+            settings=settings,
+        )
+
+    @_completion_act_mutation_locked
+    def save_completion_act_form(
+        self,
+        card: Card,
+        *,
+        repair_order: RepairOrder | None = None,
+        client: ClientProfile | None = None,
+        form_data: dict[str, Any] | None = None,
+        expected_version: Any = None,
+        expected_source_fingerprint: Any = None,
+        idempotency_key: str = "",
+        filled_by: str = "",
+        source: str = "manual",
+    ) -> dict[str, Any]:
+        order = repair_order or card.repair_order
+        settings = self._read_settings()
+        exact_client = self._exact_completion_act_client(card, client)
+        cycle_key = self._completion_act_cycle_key(card, order)
+        current = self._read_completion_act_record(cycle_key)
+        current_version = current.version if current is not None else 0
+        normalized_key = _normalize_text(idempotency_key, limit=128)
+        if not normalized_key:
+            raise PrintModuleError(
+                "validation_error",
+                "Нужен idempotency_key для безопасного сохранения акта.",
+                details={"field": "idempotency_key"},
+            )
+        expected = self._completion_act_expected_version(expected_version)
+        fresh = self._default_completion_act_form(card, order, exact_client, settings)
+        current_source_fingerprint = self._completion_act_source_fingerprint(
+            card,
+            order,
+            exact_client,
+            settings,
+            cycle_key=cycle_key,
+        )
+        if expected_source_fingerprint is None:
+            # Direct in-process callers remain backwards compatible. Protected
+            # HTTP/Gateway entrypoints require the fingerprint returned by GET.
+            expected_source = current_source_fingerprint
+        elif (
+            not isinstance(expected_source_fingerprint, str)
+            or re.fullmatch(r"[0-9a-f]{64}", expected_source_fingerprint) is None
+        ):
+            raise PrintModuleError(
+                "validation_error",
+                "Передайте актуальный отпечаток исходных данных акта.",
+                details={"field": "expected_source_fingerprint"},
+            )
+        else:
+            expected_source = expected_source_fingerprint
+        form = self._normalized_completion_act_form(form_data)
+        _completion_act_validate_final_layout(form)
+        self._completion_act_calculation(form)
+        request_fingerprint = _request_payload_fingerprint(
+            {
+                "operation": "save",
+                "cycle_key": cycle_key,
+                "form": form.to_dict(),
+                "expected_source_fingerprint": expected_source,
+            }
+        )
+        replay = self._completion_act_idempotent_replay(
+            current,
+            operation="save",
+            idempotency_key=normalized_key,
+            request_fingerprint=request_fingerprint,
+        )
+        if replay:
+            return self._completion_act_response(
+                card,
+                order,
+                client=exact_client,
+                settings=settings,
+                idempotent_replay=True,
+            )
+        if expected != current_version:
+            raise PrintModuleError(
+                "completion_act_version_conflict",
+                "Черновик акта уже изменён в другом окне.",
+                status_code=409,
+                details={
+                    "expected_version": expected,
+                    "current_version": current_version,
+                    "cycle_key": cycle_key,
+                },
+            )
+        if expected_source != current_source_fingerprint:
+            raise PrintModuleError(
+                "completion_act_source_conflict",
+                "Исходные данные CRM изменились после открытия редактора акта.",
+                status_code=409,
+                details={
+                    "expected_source_fingerprint": expected_source,
+                    "current_source_fingerprint": current_source_fingerprint,
+                    "cycle_key": cycle_key,
+                },
+            )
+        sparse = _nested_sparse_diff(form.to_dict(), fresh.to_dict()) or {}
+        record = CompletionActDraftData(
+            cycle_key=cycle_key,
+            overrides=sparse,
+            version=current_version + 1,
+            source_fingerprint=current_source_fingerprint,
+            updated_at=utc_now_iso(),
+            filled_by=_normalize_text(filled_by, limit=120),
+            source=_normalize_text(source, limit=32).lower() or "manual",
+            idempotency_key=normalized_key,
+            request_fingerprint=request_fingerprint,
+            operation="save",
+            deleted=False,
+        )
+        self._write_completion_act_record(record)
+        return self._completion_act_response(
+            card,
+            order,
+            client=exact_client,
+            settings=settings,
+        )
+
+    @_completion_act_mutation_locked
+    def reset_completion_act_form(
+        self,
+        card: Card,
+        *,
+        repair_order: RepairOrder | None = None,
+        client: ClientProfile | None = None,
+        expected_version: Any = None,
+        idempotency_key: str = "",
+        filled_by: str = "",
+        source: str = "manual",
+    ) -> dict[str, Any]:
+        order = repair_order or card.repair_order
+        settings = self._read_settings()
+        exact_client = self._exact_completion_act_client(card, client)
+        cycle_key = self._completion_act_cycle_key(card, order)
+        current = self._read_completion_act_record(cycle_key)
+        current_version = current.version if current is not None else 0
+        normalized_key = _normalize_text(idempotency_key, limit=128)
+        if not normalized_key:
+            raise PrintModuleError(
+                "validation_error",
+                "Нужен idempotency_key для безопасного сброса акта.",
+                details={"field": "idempotency_key"},
+            )
+        expected = self._completion_act_expected_version(expected_version)
+        request_fingerprint = _request_payload_fingerprint(
+            {"operation": "reset", "cycle_key": cycle_key}
+        )
+        replay = self._completion_act_idempotent_replay(
+            current,
+            operation="reset",
+            idempotency_key=normalized_key,
+            request_fingerprint=request_fingerprint,
+        )
+        if replay:
+            return self._completion_act_response(
+                card,
+                order,
+                client=exact_client,
+                settings=settings,
+                idempotent_replay=True,
+            )
+        if expected != current_version:
+            raise PrintModuleError(
+                "completion_act_version_conflict",
+                "Черновик акта уже изменён в другом окне.",
+                status_code=409,
+                details={
+                    "expected_version": expected,
+                    "current_version": current_version,
+                    "cycle_key": cycle_key,
+                },
+            )
+        record = CompletionActDraftData(
+            cycle_key=cycle_key,
+            overrides={},
+            version=current_version + 1,
+            source_fingerprint=self._completion_act_source_fingerprint(
+                card,
+                order,
+                exact_client,
+                settings,
+                cycle_key=cycle_key,
+            ),
+            updated_at=utc_now_iso(),
+            filled_by=_normalize_text(filled_by, limit=120),
+            source=_normalize_text(source, limit=32).lower() or "manual",
+            idempotency_key=normalized_key,
+            request_fingerprint=request_fingerprint,
+            operation="reset",
+            deleted=True,
+        )
+        self._write_completion_act_record(record)
+        return self._completion_act_response(
+            card,
+            order,
+            client=exact_client,
+            settings=settings,
+        )
+
+    def _completion_act_expected_version(self, value: Any) -> int:
+        if isinstance(value, bool):
+            value = None
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            parsed = -1
+        if parsed < 0:
+            raise PrintModuleError(
+                "validation_error",
+                "Передайте актуальную версию черновика акта.",
+                details={"field": "expected_version"},
+            )
+        return parsed
+
+    def _completion_act_idempotent_replay(
+        self,
+        current: CompletionActDraftData | None,
+        *,
+        operation: str,
+        idempotency_key: str,
+        request_fingerprint: str,
+    ) -> bool:
+        if current is None or current.idempotency_key != idempotency_key:
+            return False
+        if current.operation == operation and current.request_fingerprint == request_fingerprint:
+            return True
+        raise PrintModuleError(
+            "idempotency_conflict",
+            "Этот idempotency_key уже использован для другого изменения акта.",
+            status_code=409,
+            details={"current_version": current.version},
+        )
+
+    def _completion_act_cycle_key(self, card: Card, order: RepairOrder) -> str:
+        completed_cycles = len([item for item in order.cycles if isinstance(item, dict)])
+        status = _normalize_text(order.status, limit=24).lower()
+        cycle_number = (
+            completed_cycles if status == "closed" and completed_cycles else completed_cycles + 1
+        )
+        return f"{_normalize_text(card.id, limit=128)}:cycle:{max(1, cycle_number)}"
+
+    @staticmethod
+    def _completion_act_store_corrupt() -> PrintModuleError:
+        return PrintModuleError(
+            "completion_act_store_corrupt",
+            "Хранилище черновиков акта повреждено или недоступно; файл сохранён без изменений.",
+            status_code=503,
+        )
+
+    def _ensure_completion_act_forms_dir(self) -> None:
+        path = self._completion_act_forms_dir
+        try:
+            if path.is_symlink() or (path.exists() and not path.is_dir()):
+                raise OSError("completion act draft directory must be a regular directory")
+            path.mkdir(parents=False, exist_ok=True)
+            if path.is_symlink() or not path.is_dir():
+                raise OSError("completion act draft directory must be a regular directory")
+            if os.name != "nt":
+                path.chmod(0o700)
+        except OSError as exc:
+            raise self._completion_act_store_corrupt() from exc
+
+    @staticmethod
+    def _completion_act_record_payload(
+        raw: Any,
+        *,
+        cycle_key: str,
+        allow_missing_cycle_key: bool = False,
+    ) -> CompletionActDraftData:
+        if not isinstance(raw, dict):
+            raise ValueError("completion act record must be a JSON object")
+        embedded_key = raw.get("cycle_key")
+        if embedded_key is None and allow_missing_cycle_key:
+            embedded_key = cycle_key
+        if not isinstance(embedded_key, str) or embedded_key != cycle_key:
+            raise ValueError("completion act record key mismatch")
+        if "overrides" in raw and not isinstance(raw["overrides"], dict):
+            raise ValueError("completion act overrides must be a JSON object")
+        if "version" in raw and (type(raw["version"]) is not int or raw["version"] < 0):
+            raise ValueError("completion act version is invalid")
+        if "deleted" in raw and type(raw["deleted"]) is not bool:
+            raise ValueError("completion act deleted flag is invalid")
+        for field in (
+            "cycle_key",
+            "source_fingerprint",
+            "updated_at",
+            "filled_by",
+            "source",
+            "idempotency_key",
+            "request_fingerprint",
+            "operation",
+        ):
+            if field in raw and not isinstance(raw[field], str):
+                raise ValueError(f"completion act {field} must be a string")
+        record = CompletionActDraftData.from_dict({**raw, "cycle_key": cycle_key})
+        if record.cycle_key != cycle_key:
+            raise ValueError("completion act normalized key mismatch")
+        return record
+
+    @staticmethod
+    def _completion_act_record_bytes(record: CompletionActDraftData) -> bytes:
+        try:
+            encoded = json.dumps(
+                _json_safe_value(record.to_dict()),
+                ensure_ascii=False,
+                indent=2,
+                allow_nan=False,
+            ).encode("utf-8")
+        except (RecursionError, TypeError, ValueError) as exc:
+            raise PrintModuleError(
+                "validation_error",
+                "Данные печатного модуля слишком большие для сохранения.",
+                details={"max_size_bytes": COMPLETION_ACT_FORM_RECORD_MAX_BYTES},
+            ) from exc
+        if len(encoded) > COMPLETION_ACT_FORM_RECORD_MAX_BYTES:
+            raise PrintModuleError(
+                "validation_error",
+                "Данные печатного модуля слишком большие для сохранения.",
+                details={"max_size_bytes": COMPLETION_ACT_FORM_RECORD_MAX_BYTES},
+            )
+        return encoded
+
+    def _completion_act_record_path(self, cycle_key: str) -> Path:
+        normalized = _normalize_text(cycle_key, limit=180)
+        if not normalized or normalized != cycle_key:
+            raise self._completion_act_store_corrupt()
+        digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+        return self._completion_act_forms_dir / f"{digest}.json"
+
+    def _completion_act_store_inventory(self) -> tuple[dict[str, tuple[Path, int]], int]:
+        self._ensure_completion_act_forms_dir()
+        entries: dict[str, tuple[Path, int]] = {}
+        total_bytes = 0
+        try:
+            with os.scandir(self._completion_act_forms_dir) as iterator:
+                for index, entry in enumerate(iterator, start=1):
+                    if index > COMPLETION_ACT_FORMS_MAX_RECORDS:
+                        raise ValueError("completion act directory contains too many entries")
+                    if entry.is_symlink():
+                        raise OSError("completion act directory contains a symlink")
+                    entry_stat = entry.stat(follow_symlinks=False)
+                    if not stat.S_ISREG(entry_stat.st_mode):
+                        raise OSError("completion act directory contains a non-regular file")
+                    if os.name != "nt" and stat.S_IMODE(entry_stat.st_mode) != 0o600:
+                        raise OSError("completion act directory contains a non-private file")
+                    if not (
+                        _COMPLETION_ACT_RECORD_FILE_RE.fullmatch(entry.name)
+                        or _COMPLETION_ACT_TEMP_FILE_RE.fullmatch(entry.name)
+                    ):
+                        raise OSError("completion act directory contains an unexpected file")
+                    if entry_stat.st_size > COMPLETION_ACT_FORM_RECORD_MAX_BYTES:
+                        raise ValueError("completion act record exceeds its byte limit")
+                    total_bytes += entry_stat.st_size
+                    if total_bytes > COMPLETION_ACT_FORMS_FILE_MAX_BYTES:
+                        raise ValueError("completion act directory exceeds its byte quota")
+                    entries[entry.name] = (
+                        self._completion_act_forms_dir / entry.name,
+                        entry_stat.st_size,
+                    )
+        except (OSError, ValueError) as exc:
+            raise self._completion_act_store_corrupt() from exc
+        return entries, total_bytes
+
+    def _read_completion_act_json_file(self, path: Path, *, max_bytes: int) -> Any:
+        try:
+            path_stat = path.lstat()
+            if not stat.S_ISREG(path_stat.st_mode) or stat.S_ISLNK(path_stat.st_mode):
+                raise OSError("completion act store path must be a regular file")
+            if os.name != "nt" and stat.S_IMODE(path_stat.st_mode) != 0o600:
+                raise OSError("completion act store path must use private permissions")
+            if path_stat.st_size > max_bytes:
+                raise ValueError("completion act store path exceeds its byte limit")
+            flags = os.O_RDONLY
+            flags |= getattr(os, "O_CLOEXEC", 0)
+            flags |= getattr(os, "O_NOFOLLOW", 0)
+            descriptor = os.open(path, flags)
+            try:
+                opened_stat = os.fstat(descriptor)
+                if (
+                    not stat.S_ISREG(opened_stat.st_mode)
+                    or opened_stat.st_dev != path_stat.st_dev
+                    or opened_stat.st_ino != path_stat.st_ino
+                    or opened_stat.st_size > max_bytes
+                ):
+                    raise OSError("completion act store changed while opening")
+                with os.fdopen(descriptor, "rb", closefd=False) as handle:
+                    encoded = handle.read(max_bytes + 1)
+            finally:
+                os.close(descriptor)
+            if len(encoded) > max_bytes:
+                raise ValueError("completion act store path exceeds its byte limit")
+            return json.loads(
+                encoded.decode("utf-8"),
+                parse_constant=_reject_json_constant,
+            )
+        except (OSError, UnicodeDecodeError, ValueError, RecursionError) as exc:
+            raise self._completion_act_store_corrupt() from exc
+
+    def _read_completion_act_record_path(
+        self,
+        path: Path,
+        *,
+        cycle_key: str,
+    ) -> CompletionActDraftData:
+        raw = self._read_completion_act_json_file(
+            path,
+            max_bytes=COMPLETION_ACT_FORM_RECORD_MAX_BYTES,
+        )
+        try:
+            return self._completion_act_record_payload(raw, cycle_key=cycle_key)
+        except ValueError as exc:
+            raise self._completion_act_store_corrupt() from exc
+
+    def _read_legacy_completion_act_form_map(self) -> dict[str, CompletionActDraftData]:
+        raw = self._read_completion_act_json_file(
+            self._completion_act_forms_path,
+            max_bytes=COMPLETION_ACT_FORMS_FILE_MAX_BYTES,
+        )
+        if not isinstance(raw, dict):
+            raise self._completion_act_store_corrupt()
+        normalized: dict[str, CompletionActDraftData] = {}
+        try:
+            for raw_key, raw_value in raw.items():
+                cycle_key = _normalize_text(raw_key, limit=180)
+                if not cycle_key or cycle_key != raw_key or cycle_key in normalized:
+                    raise ValueError("invalid or duplicate completion act cycle key")
+                normalized[cycle_key] = self._completion_act_record_payload(
+                    raw_value,
+                    cycle_key=cycle_key,
+                    allow_missing_cycle_key=True,
+                )
+        except ValueError as exc:
+            raise self._completion_act_store_corrupt() from exc
+        return normalized
+
+    def _write_completion_act_record_bytes(self, path: Path, encoded: bytes) -> None:
+        self._ensure_completion_act_forms_dir()
+        if path.parent != self._completion_act_forms_dir:
+            raise self._completion_act_store_corrupt()
+        if path.is_symlink() or (path.exists() and not path.is_file()):
+            raise self._completion_act_store_corrupt()
+        tmp_path = path.with_name(f".{path.stem}.{uuid.uuid4().hex}.tmp")
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        flags |= getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        descriptor = -1
+        try:
+            descriptor = os.open(tmp_path, flags, 0o600)
+            with os.fdopen(descriptor, "wb", closefd=False) as handle:
+                handle.write(encoded)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.close(descriptor)
+            descriptor = -1
+            os.replace(tmp_path, path)
+            if os.name != "nt":
+                path.chmod(0o600)
+            directory_descriptor = os.open(
+                self._completion_act_forms_dir,
+                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+            )
+            try:
+                os.fsync(directory_descriptor)
+            finally:
+                os.close(directory_descriptor)
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def _migrate_legacy_completion_act_forms(self, *, process_locked: bool = False) -> None:
+        with self._completion_act_lock:
+            self._ensure_completion_act_forms_dir()
+            if not self._completion_act_forms_path.exists():
+                if self._completion_act_forms_path.is_symlink():
+                    raise self._completion_act_store_corrupt()
+                return
+            if not process_locked:
+                try:
+                    with self._completion_act_process_lock.acquire():
+                        self._migrate_legacy_completion_act_forms(process_locked=True)
+                    return
+                except TimeoutError as exc:
+                    raise PrintModuleError(
+                        "completion_act_lock_timeout",
+                        "Черновик акта временно занят другим процессом; повторите действие.",
+                        status_code=503,
+                    ) from exc
+
+            legacy = self._read_legacy_completion_act_form_map()
+            entries, total_bytes = self._completion_act_store_inventory()
+            record_entries = {
+                name: entry
+                for name, entry in entries.items()
+                if _COMPLETION_ACT_RECORD_FILE_RE.fullmatch(name)
+            }
+            pending: list[tuple[Path, bytes]] = []
+            final_entry_count = len(entries)
+            final_bytes = total_bytes
+            for cycle_key, legacy_record in legacy.items():
+                path = self._completion_act_record_path(cycle_key)
+                encoded = self._completion_act_record_bytes(legacy_record)
+                existing_entry = record_entries.get(path.name)
+                if existing_entry is not None:
+                    current = self._read_completion_act_record_path(
+                        existing_entry[0],
+                        cycle_key=cycle_key,
+                    )
+                    if current.version > legacy_record.version:
+                        continue
+                    if current.version == legacy_record.version:
+                        if current.to_dict() != legacy_record.to_dict():
+                            raise self._completion_act_store_corrupt()
+                        continue
+                    final_bytes -= existing_entry[1]
+                else:
+                    final_entry_count += 1
+                final_bytes += len(encoded)
+                pending.append((path, encoded))
+            if (
+                final_entry_count > COMPLETION_ACT_FORMS_MAX_RECORDS
+                or final_bytes > COMPLETION_ACT_FORMS_FILE_MAX_BYTES
+            ):
+                raise self._completion_act_store_corrupt()
+            for path, encoded in pending:
+                self._write_completion_act_record_bytes(path, encoded)
+            try:
+                if self._completion_act_forms_path.is_symlink():
+                    raise OSError("legacy completion act store became a symlink")
+                self._completion_act_forms_path.unlink()
+                root_descriptor = os.open(
+                    self._root_dir,
+                    os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+                )
+                try:
+                    os.fsync(root_descriptor)
+                finally:
+                    os.close(root_descriptor)
+            except OSError as exc:
+                raise self._completion_act_store_corrupt() from exc
+
+    def _read_completion_act_record(self, cycle_key: str) -> CompletionActDraftData | None:
+        self._migrate_legacy_completion_act_forms()
+        path = self._completion_act_record_path(cycle_key)
+        if path.is_symlink():
+            raise self._completion_act_store_corrupt()
+        if not path.exists():
+            return None
+        return self._read_completion_act_record_path(path, cycle_key=cycle_key)
+
+    def _read_completion_act_form_map(self) -> dict[str, CompletionActDraftData]:
+        self._migrate_legacy_completion_act_forms()
+        entries, _ = self._completion_act_store_inventory()
+        normalized: dict[str, CompletionActDraftData] = {}
+        for name, (path, _) in sorted(entries.items()):
+            if not _COMPLETION_ACT_RECORD_FILE_RE.fullmatch(name):
+                continue
+            raw = self._read_completion_act_json_file(
+                path,
+                max_bytes=COMPLETION_ACT_FORM_RECORD_MAX_BYTES,
+            )
+            if not isinstance(raw, dict) or not isinstance(raw.get("cycle_key"), str):
+                raise self._completion_act_store_corrupt()
+            cycle_key = raw["cycle_key"]
+            if self._completion_act_record_path(cycle_key) != path or cycle_key in normalized:
+                raise self._completion_act_store_corrupt()
+            try:
+                normalized[cycle_key] = self._completion_act_record_payload(
+                    raw,
+                    cycle_key=cycle_key,
+                )
+            except ValueError as exc:
+                raise self._completion_act_store_corrupt() from exc
+        return normalized
+
+    def _write_completion_act_record(self, record: CompletionActDraftData) -> None:
+        path = self._completion_act_record_path(record.cycle_key)
+        encoded = self._completion_act_record_bytes(record)
+        entries, total_bytes = self._completion_act_store_inventory()
+        current_entry = entries.get(path.name)
+        if current_entry is None and len(entries) >= COMPLETION_ACT_FORMS_MAX_RECORDS:
+            raise PrintModuleError(
+                "validation_error",
+                "Достигнут предел количества черновиков актов.",
+                details={"max_records": COMPLETION_ACT_FORMS_MAX_RECORDS},
+            )
+        prospective_bytes = total_bytes - (current_entry[1] if current_entry else 0) + len(encoded)
+        if prospective_bytes > COMPLETION_ACT_FORMS_FILE_MAX_BYTES:
+            raise PrintModuleError(
+                "validation_error",
+                "Достигнут общий предел хранилища черновиков актов.",
+                details={"max_size_bytes": COMPLETION_ACT_FORMS_FILE_MAX_BYTES},
+            )
+        self._write_completion_act_record_bytes(path, encoded)
+        self._sync_completion_act_change_feed(record)
+
+    def _exact_completion_act_client(
+        self, card: Card, client: ClientProfile | None
+    ) -> ClientProfile | None:
+        if client is None or not card.client_id or client.id != card.client_id:
+            return None
+        return client
+
+    def _default_completion_act_form(
+        self,
+        card: Card,
+        order: RepairOrder,
+        client: ClientProfile | None,
+        settings: PrintModuleSettings,
+    ) -> CompletionActFormData:
+        profile = settings.service_profile
+        performer = CompletionActPartyData(
+            legal_name=profile.legal_name or profile.company_name,
+            address=profile.address,
+            inn=profile.inn,
+            kpp=profile.kpp,
+            ogrn=profile.ogrn,
+            bank_name=profile.bank_name,
+            bik=profile.bik,
+            settlement_account=profile.settlement_account,
+            correspondent_account=profile.correspondent_account,
+            signer_position=profile.signer_position,
+            signer_name=profile.signer_name,
+        )
+        if client is None:
+            customer = CompletionActPartyData(legal_name=order.client)
+        else:
+            customer = CompletionActPartyData(
+                legal_name=client.legal_name or client.short_name or client.name(),
+                address=client.legal_address or client.actual_address,
+                inn=client.inn,
+                kpp=client.kpp,
+                ogrn=client.ogrn,
+                bank_name=client.bank_name,
+                bik=client.bik,
+                settlement_account=client.checking_account,
+                correspondent_account=client.correspondent_account,
+                signer_position=client.contact_position,
+                signer_name=client.contact_person,
+            )
+        items: list[CompletionActItemData] = []
+        for section, rows in (("works", order.works), ("materials", order.materials)):
+            for index, row in enumerate(rows):
+                item_id = row.id or f"{section}-{index + 1}"
+                items.append(
+                    CompletionActItemData(
+                        id=f"{section}:{item_id}",
+                        section=section,
+                        name=row.name,
+                        unit=("ч" if section == "works" else (row.inventory_unit or "шт")),
+                        quantity=row.quantity,
+                        price=row.price,
+                    )
+                )
+        return CompletionActFormData(
+            document_number=order.number,
+            document_date=order.date or order.opened_at,
+            basis="",
+            performer=performer,
+            customer=customer,
+            items=items,
+            acceptance_text=_COMPLETION_ACT_ACCEPTANCE_TEXT,
+        )
+
+    def _normalized_completion_act_form(self, value: Any) -> CompletionActFormData:
+        if isinstance(value, dict):
+            text_limits = {
+                "document_number": 80,
+                "document_date": 64,
+                "basis": 500,
+                "acceptance_text": 1_000,
+            }
+            party_limits = {
+                "legal_name": 240,
+                "address": 320,
+                "inn": 32,
+                "kpp": 32,
+                "ogrn": 32,
+                "bank_name": 240,
+                "bik": 32,
+                "settlement_account": 64,
+                "correspondent_account": 64,
+                "signer_position": 120,
+                "signer_name": 160,
+            }
+            item_limits = {
+                "id": 128,
+                "section": 32,
+                "name": 500,
+                "unit": 24,
+                "quantity": 48,
+                "price": 48,
+            }
+
+            def validate_text(
+                raw: Any,
+                *,
+                field: str,
+                limit: int,
+                allow_number: bool = False,
+            ) -> None:
+                if raw is None:
+                    return
+                is_number = type(raw) in {int, float, Decimal}
+                if not isinstance(raw, str) and not (allow_number and is_number):
+                    raise PrintModuleError(
+                        "validation_error",
+                        "Поле акта должно содержать текст или число допустимого типа.",
+                        details={"field": field},
+                    )
+                if len(raw if isinstance(raw, str) else str(raw)) > limit:
+                    raise PrintModuleError(
+                        "validation_error",
+                        "Поле акта превышает допустимую длину.",
+                        details={"field": field, "max_length": limit},
+                    )
+
+            for field, limit in text_limits.items():
+                validate_text(value.get(field), field=field, limit=limit)
+            for party_name in ("performer", "customer"):
+                party = value.get(party_name)
+                if party is not None and not isinstance(party, dict):
+                    raise PrintModuleError(
+                        "validation_error",
+                        "Реквизиты стороны акта должны быть объектом.",
+                        details={"field": party_name},
+                    )
+                if not isinstance(party, dict):
+                    continue
+                for field, limit in party_limits.items():
+                    validate_text(party.get(field), field=f"{party_name}.{field}", limit=limit)
+            raw_items = value.get("items")
+            if raw_items is not None and not isinstance(raw_items, list):
+                raise PrintModuleError(
+                    "validation_error",
+                    "Строки акта должны быть переданы списком.",
+                    details={"field": "items"},
+                )
+            if isinstance(raw_items, list):
+                # Reject the bounded row count before touching any row. Preview,
+                # PDF and save run under the card-service lock, so normalizing an
+                # oversized attacker-controlled list first could block unrelated
+                # CRM operations for seconds.
+                if len(raw_items) > COMPLETION_ACT_ITEMS_MAX:
+                    raise PrintModuleError(
+                        "validation_error",
+                        f"В одном акте можно сохранить не более {COMPLETION_ACT_ITEMS_MAX} строк.",
+                        details={"field": "items", "max_items": COMPLETION_ACT_ITEMS_MAX},
+                    )
+                for index, item in enumerate(raw_items):
+                    if not isinstance(item, dict):
+                        raise PrintModuleError(
+                            "validation_error",
+                            "Каждая строка акта должна быть объектом.",
+                            details={"field": f"items[{index}]"},
+                        )
+                    for field, limit in item_limits.items():
+                        validate_text(
+                            item.get(field),
+                            field=f"items[{index}].{field}",
+                            limit=limit,
+                            allow_number=field in {"quantity", "price"},
+                        )
+        form = CompletionActFormData.from_dict(value)
+        used_ids: set[str] = set()
+        for index, item in enumerate(form.items):
+            candidate = item.id or f"manual-{index + 1}"
+            if candidate in used_ids:
+                candidate = f"{candidate}-{index + 1}"
+            item.id = candidate
+            used_ids.add(candidate)
+        return form
+
+    def _completion_act_source_fingerprint(
+        self,
+        card: Card,
+        order: RepairOrder,
+        client: ClientProfile | None,
+        settings: PrintModuleSettings,
+        *,
+        cycle_key: str,
+    ) -> str:
+        fresh = self._default_completion_act_form(card, order, client, settings)
+        payload = {
+            "cycle_key": cycle_key,
+            "linked_client_id": card.client_id,
+            "fresh_form": fresh.to_dict(),
+        }
+        return _request_payload_fingerprint(payload)
+
+    def _completion_act_sources(
+        self,
+        form: CompletionActFormData,
+        *,
+        has_exact_client: bool,
+        overrides: dict[str, Any],
+    ) -> dict[str, Any]:
+        party_fields = form.performer.to_dict().keys()
+        sources: dict[str, Any] = {
+            "document_number": "repair_order",
+            "document_date": "repair_order",
+            "basis": "empty",
+            "performer": {key: "settings" for key in party_fields},
+            "customer": {
+                key: (
+                    "client"
+                    if has_exact_client
+                    else ("repair_order" if key == "legal_name" else "empty")
+                )
+                for key in form.customer.to_dict()
+            },
+            "items": [{key: "repair_order" for key in item.to_dict()} for item in form.items],
+            "acceptance_text": "system",
+        }
+
+        def mark_manual(target: Any, changed: Any) -> Any:
+            if isinstance(target, dict) and isinstance(changed, dict):
+                for key, value in changed.items():
+                    if key in target:
+                        target[key] = mark_manual(target[key], value)
+                return target
+            if isinstance(changed, list):
+                return [
+                    {key: "manual" for key in item} if isinstance(item, dict) else "manual"
+                    for item in changed
+                ]
+            return "manual"
+
+        return mark_manual(sources, overrides)
+
+    def _completion_act_calculation(self, form: CompletionActFormData) -> dict[str, Any]:
+        warnings: list[str] = []
+        missing_fields: list[str] = []
+        for field_name, value in (
+            ("document_number", form.document_number),
+            ("document_date", form.document_date),
+            ("performer.legal_name", form.performer.legal_name),
+            ("customer.legal_name", form.customer.legal_name),
+        ):
+            if not value:
+                missing_fields.append(field_name)
+        if not form.items:
+            missing_fields.append("items")
+            warnings.append("В акте нет работ и материалов.")
+        items_payload: list[dict[str, Any]] = []
+        base = Decimal("0")
+        for index, item in enumerate(form.items):
+            quantity = self._completion_act_decimal(item.quantity, field=f"items[{index}].quantity")
+            price = self._completion_act_decimal(item.price, field=f"items[{index}].price")
+            line_total: Decimal | None = None
+            if quantity is not None and price is not None:
+                line_total = _completion_act_checked_money(
+                    quantity * price, field=f"items[{index}].total"
+                )
+                base = _completion_act_checked_money(base + line_total, field="totals.base")
+            else:
+                warnings.append(
+                    f"Строка {index + 1}: заполните количество и цену для расчёта суммы."
+                )
+            if not item.name:
+                warnings.append(f"Строка {index + 1}: не указано наименование.")
+            if not item.unit:
+                warnings.append(f"Строка {index + 1}: не указана единица измерения.")
+            items_payload.append(
+                {
+                    "index": index + 1,
+                    "id": item.id,
+                    "section": item.section,
+                    "name": _display(item.name),
+                    "unit_display": _display(item.unit),
+                    "quantity_display": _completion_act_quantity_display(quantity),
+                    "price_without_vat": price,
+                    "price_without_vat_display": _money_display(price),
+                    "sum_without_vat": line_total,
+                    "sum_without_vat_display": _money_display(line_total),
+                }
+            )
+        base = _completion_act_checked_money(base, field="totals.base")
+        vat = _completion_act_checked_money(base * _COMPLETION_ACT_VAT_RATE, field="totals.vat")
+        gross = _completion_act_checked_money(base + vat, field="totals.gross")
+        if missing_fields:
+            warnings.insert(0, "Часть полей акта не заполнена; печать остаётся доступной.")
+        totals = {
+            "item_count": len(items_payload),
+            "item_count_display": str(len(items_payload)),
+            "base": format(base, "f"),
+            "base_display": _money_display(base),
+            "vat_rate": "5",
+            "vat_rate_display": "5%",
+            "vat": format(vat, "f"),
+            "vat_display": _money_display(vat),
+            "gross": format(gross, "f"),
+            "gross_display": _money_display(gross),
+            "base_words_display": _money_words_display(base),
+            "vat_words_display": _money_words_display(vat),
+            "gross_words_display": _money_words_display(gross),
+        }
+        return {
+            "items": items_payload,
+            "totals": totals,
+            "warnings": list(dict.fromkeys(warnings)),
+            "missing_fields": missing_fields,
+        }
+
+    def _completion_act_decimal(self, value: Any, *, field: str) -> Decimal | None:
+        text = _normalize_text(value, limit=48)
+        if not text:
+            return None
+        parsed = _parse_decimal(text)
+        if parsed is None or not parsed.is_finite() or parsed < Decimal("0"):
+            raise PrintModuleError(
+                "validation_error",
+                "Количество и цена в акте должны быть неотрицательными числами.",
+                details={"field": field},
+            )
+        if field.endswith(".price"):
+            rounded = _completion_act_checked_money(parsed, field=field)
+            if rounded != parsed:
+                raise PrintModuleError(
+                    "validation_error",
+                    "Цена в акте должна содержать не более двух знаков после запятой.",
+                    details={"field": field, "max_decimal_places": 2},
+                )
+            return rounded
+        if field.endswith(".quantity"):
+            if parsed > _COMPLETION_ACT_QUANTITY_ABS_MAX:
+                raise PrintModuleError(
+                    "validation_error",
+                    "Количество в акте превышает допустимый печатный предел.",
+                    details={
+                        "field": field,
+                        "max_quantity": format(_COMPLETION_ACT_QUANTITY_ABS_MAX, "f"),
+                    },
+                )
+            decimal_places = max(0, -parsed.normalize().as_tuple().exponent)
+            if decimal_places > 3:
+                raise PrintModuleError(
+                    "validation_error",
+                    "Количество в акте должно содержать не более трёх знаков после запятой.",
+                    details={"field": field, "max_decimal_places": 3},
+                )
+        return parsed
+
+    def _completion_act_response(
+        self,
+        card: Card,
+        order: RepairOrder,
+        *,
+        client: ClientProfile | None,
+        settings: PrintModuleSettings,
+        idempotent_replay: bool = False,
+    ) -> dict[str, Any]:
+        cycle_key = self._completion_act_cycle_key(card, order)
+        record = self._read_completion_act_record(cycle_key)
+        exists = record is not None and not record.deleted
+        overrides = record.overrides if exists and record is not None else {}
+        fresh = self._default_completion_act_form(card, order, client, settings)
+        effective = self._normalized_completion_act_form(_nested_merge(fresh.to_dict(), overrides))
+        calculation = self._completion_act_calculation(effective)
+        source_fingerprint = self._completion_act_source_fingerprint(
+            card,
+            order,
+            client,
+            settings,
+            cycle_key=cycle_key,
+        )
+        is_stale = bool(
+            exists and record is not None and record.source_fingerprint != source_fingerprint
+        )
+        warnings = list(calculation["warnings"])
+        if is_stale:
+            warnings.insert(
+                0,
+                "Исходные данные CRM изменились после сохранения черновика; ручные правки сохранены.",
+            )
+        return {
+            "card_id": card.id,
+            "document_type": "completion_act",
+            "form": effective.to_dict(),
+            "effective": effective.to_dict(),
+            "fresh_form": fresh.to_dict(),
+            "suggested_defaults": fresh.to_dict(),
+            "sources": self._completion_act_sources(
+                fresh,
+                has_exact_client=client is not None,
+                overrides=overrides,
+            ),
+            "draft": {
+                "exists": exists,
+                "version": record.version if record is not None else 0,
+                "cycle_key": cycle_key,
+                "updated_at": record.updated_at if record is not None else "",
+                "filled_by": record.filled_by if record is not None else "",
+                "source": record.source if record is not None else "",
+                "source_fingerprint": (
+                    record.source_fingerprint if record is not None else source_fingerprint
+                ),
+                "current_source_fingerprint": source_fingerprint,
+                "is_stale": is_stale,
+                "idempotent_replay": idempotent_replay,
+            },
+            "totals": calculation["totals"],
+            "warnings": warnings,
+            "missing_fields": calculation["missing_fields"],
+        }
+
+    def _completion_act_document_context(
+        self,
+        card: Card,
+        order: RepairOrder,
+        *,
+        client: ClientProfile | None,
+        settings: PrintModuleSettings,
+        document_overrides: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        exact_client = self._exact_completion_act_client(card, client)
+        fresh = self._default_completion_act_form(card, order, exact_client, settings)
+        explicit = (
+            document_overrides.get("completion_act")
+            if isinstance(document_overrides, dict)
+            and isinstance(document_overrides.get("completion_act"), dict)
+            else None
+        )
+        if explicit is not None:
+            form = self._normalized_completion_act_form(explicit)
+        else:
+            cycle_key = self._completion_act_cycle_key(card, order)
+            record = self._read_completion_act_record(cycle_key)
+            sparse = record.overrides if record is not None and not record.deleted else {}
+            form = self._normalized_completion_act_form(_nested_merge(fresh.to_dict(), sparse))
+        _completion_act_validate_final_layout(form)
+        calculation = self._completion_act_calculation(form)
+        items = calculation["items"]
+        chunks = _completion_act_page_chunks(form, items)
+        page_count = len(chunks)
+        pages = [
+            {
+                "page_number": index + 1,
+                "page_count": page_count,
+                "page_break_before": index > 0,
+                "page_break_marker": _PAGE_BREAK_MARKER if index > 0 else "",
+                "is_first": index == 0,
+                "is_final": index == page_count - 1,
+                "items": chunk,
+                "show_table": bool(chunk) or index == page_count - 1,
+                "show_empty_items": not items,
+                "show_totals": index == page_count - 1,
+                "show_closing": index == page_count - 1,
+                "show_summary": index == page_count - 1,
+                "show_acceptance": index == page_count - 1 and bool(form.acceptance_text),
+                "show_requisites": index == page_count - 1,
+                "acceptance_text": form.acceptance_text if index == page_count - 1 else "",
+            }
+            for index, chunk in enumerate(chunks)
+        ]
+        return {
+            "document_number": form.document_number,
+            "document_number_display": _display(form.document_number),
+            "document_date": form.document_date,
+            "document_date_display": _date_long_ru_display(form.document_date),
+            "basis": form.basis,
+            "basis_display": form.basis,
+            "performer": self._completion_act_party_context(form.performer),
+            "customer": self._completion_act_party_context(form.customer),
+            "items": items,
+            "pages": pages,
+            "first_page_items": pages[0]["items"],
+            "final_page_items": pages[-1]["items"],
+            "has_continuation_page": page_count > 1,
+            "items_count": len(items),
+            "items_count_words_display": str(len(items)),
+            "totals": calculation["totals"],
+            "acceptance_text": form.acceptance_text,
+            "acceptance_text_html": _line_breaks_html(form.acceptance_text),
+            "warnings": calculation["warnings"],
+            "missing_fields": calculation["missing_fields"],
+        }
+
+    def _completion_act_party_context(self, party: CompletionActPartyData) -> dict[str, Any]:
+        raw = party.to_dict()
+        return {
+            **raw,
+            **{f"{key}_display": _display(value) for key, value in raw.items()},
+        }
 
     def get_inspection_sheet_form(
         self, card: Card, *, repair_order: RepairOrder | None = None
@@ -1918,21 +3461,94 @@ class PrintModuleService:
 
     def reconcile_change_feed(self) -> None:
         self._sync_change_feed()
+        self._reconcile_pending_completion_act_change_feed()
+
+    def _sync_completion_act_change_feed(self, record: CompletionActDraftData) -> None:
+        if self._change_feed_store is None:
+            return
+        try:
+            projected = project_print_module(
+                settings={},
+                templates=[],
+                inspection_sheet_forms={},
+                completion_act_forms={record.cycle_key: record.to_dict()},
+            )
+            completion_projection = {
+                key: value
+                for key, value in projected.items()
+                if value.entity_type == "completion_act_form"
+            }
+            self._change_feed_store.reconcile_external_projection_slice(
+                "print_module",
+                completion_projection,
+            )
+        except Exception as exc:  # pragma: no cover - next explicit reconciliation repairs it
+            with self._completion_act_lock:
+                self._completion_act_feed_pending.add(record.cycle_key)
+            if self._logger is not None:
+                self._logger.warning("print_change_feed_deferred error=%s", exc)
+        else:
+            with self._completion_act_lock:
+                self._completion_act_feed_pending.discard(record.cycle_key)
+
+    def _reconcile_pending_completion_act_change_feed(self) -> None:
+        if self._change_feed_store is None:
+            return
+        with self._completion_act_lock:
+            cycle_keys = sorted(self._completion_act_feed_pending)[
+                :COMPLETION_ACT_FEED_RECONCILE_BATCH
+            ]
+        for cycle_key in cycle_keys:
+            try:
+                record = self._read_completion_act_record(cycle_key)
+            except PrintModuleError as exc:  # pragma: no cover - corrupt store stays fail closed
+                if self._logger is not None:
+                    self._logger.warning(
+                        "print_change_feed_deferred cycle=%s error=%s",
+                        hashlib.sha256(cycle_key.encode("utf-8")).hexdigest()[:16],
+                        exc.code,
+                    )
+                continue
+            if record is None:
+                with self._completion_act_lock:
+                    self._completion_act_feed_pending.discard(cycle_key)
+                continue
+            self._sync_completion_act_change_feed(record)
 
     def _sync_change_feed(self, *, initialize: bool = False) -> None:
         if self._change_feed_store is None:
             return
+        completion_act_forms = (
+            {key: record.to_dict() for key, record in self._read_completion_act_form_map().items()}
+            if initialize
+            else {}
+        )
         projected = project_print_module(
             settings=self._read_settings().to_dict(),
             templates=[item.to_dict() for item in self._read_custom_templates()],
             inspection_sheet_forms=self._read_inspection_sheet_form_map(),
+            completion_act_forms=completion_act_forms,
         )
         try:
             if initialize:
+                # Startup/explicit reconciliation is the only service path that
+                # takes a bounded full draft snapshot.
                 self._change_feed_store.initialize_external_projection("print_module", projected)
-            else:
                 self._change_feed_store.reconcile_external_projection("print_module", projected)
+            else:
+                self._change_feed_store.reconcile_external_projection_slice(
+                    "print_module",
+                    projected,
+                    replace_entity_types={
+                        "print_settings",
+                        "print_template",
+                        "inspection_sheet_form",
+                    },
+                )
         except Exception as exc:  # pragma: no cover - next feed read reconciles files
+            if initialize:
+                with self._completion_act_lock:
+                    self._completion_act_feed_pending.update(completion_act_forms)
             if self._logger is not None:
                 self._logger.warning("print_change_feed_deferred error=%s", exc)
 
@@ -2177,10 +3793,22 @@ class PrintModuleService:
             line_items=base_line_items,
             document_overrides=document_overrides,
         )
-        if missing_fields:
-            warnings.append("Часть полей не заполнена, проверьте документ перед печатью.")
-        if not base_line_items:
-            warnings.append("В документе нет работ и материалов.")
+        completion_act_context: dict[str, Any] = {}
+        if document.id == "completion_act":
+            completion_act_context = self._completion_act_document_context(
+                card,
+                order,
+                client=client,
+                settings=settings,
+                document_overrides=document_overrides,
+            )
+            missing_fields = completion_act_context["missing_fields"]
+            warnings = completion_act_context["warnings"]
+        else:
+            if missing_fields:
+                warnings.append("Часть полей не заполнена, проверьте документ перед печатью.")
+            if not base_line_items:
+                warnings.append("В документе нет работ и материалов.")
         return {
             "service": {
                 **settings.service_profile.to_dict(),
@@ -2299,6 +3927,7 @@ class PrintModuleService:
                 "filled_by_display": _display(inspection_form.filled_by),
                 "source_display": _display(inspection_form.source),
             },
+            "completion_act": completion_act_context,
             "totals": {
                 "works": order.works_total_amount(),
                 "materials": order.materials_total_amount(),
@@ -2462,10 +4091,19 @@ class PrintModuleService:
                 break
         return points
 
-    def _build_export_file_name(self, card: Card, selected_document_ids: list[str]) -> str:
+    def _build_export_file_name(
+        self,
+        card: Card,
+        selected_document_ids: list[str],
+        *,
+        document_payloads: list[dict[str, Any]] | None = None,
+    ) -> str:
         raw_doc_part = "-".join(selected_document_ids[:3]) if selected_document_ids else "print"
         doc_part = self._safe_file_name_part(raw_doc_part, default="print", limit=120)
-        number = self._safe_file_name_part(card.repair_order.number, default="draft", limit=64)
+        resolved_number: Any = card.repair_order.number
+        if selected_document_ids == ["completion_act"] and document_payloads:
+            resolved_number = document_payloads[0].get("resolved_document_number")
+        number = self._safe_file_name_part(resolved_number, default="draft", limit=64)
         return f"autostopcrm-{doc_part}-{number}.pdf"
 
     def _safe_file_name_part(self, value: Any, *, default: str, limit: int) -> str:

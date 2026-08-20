@@ -1471,6 +1471,34 @@ class ApiServerTests(unittest.TestCase):
                 OAUTH_AUDIT_ASSERTION_HEADER: assertion,
             }
             created_status, created = self.request("/api/create_card", payload, headers=headers)
+            card_id = created["data"]["card"]["id"]
+            act_status, act = self.request(
+                "/api/get_completion_act_form",
+                {"card_id": card_id},
+            )
+            act_payload = {
+                "card_id": card_id,
+                "form": act["data"]["form"],
+                "expected_version": 0,
+                "expected_source_fingerprint": act["data"]["draft"]["current_source_fingerprint"],
+                "idempotency_key": "oauth-audit-completion-act-save",
+                "source": "mcp_agent_gateway_v2",
+                "actor_name": "CODEX",
+            }
+            act_assertion = create_oauth_audit_assertion(
+                subject="CODEX",
+                method="POST",
+                route="/api/save_completion_act_form",
+                payload=act_payload,
+            )
+            act_saved_status, act_saved = self.request(
+                "/api/save_completion_act_form",
+                act_payload,
+                headers={
+                    **headers,
+                    OAUTH_AUDIT_ASSERTION_HEADER: act_assertion,
+                },
+            )
             invalid_status, invalid = self.request(
                 "/api/create_card",
                 payload,
@@ -1484,7 +1512,9 @@ class ApiServerTests(unittest.TestCase):
             demoted_status, demoted = self.request("/api/create_card", payload, headers=headers)
 
         self.assertEqual(created_status, 200)
-        card_id = created["data"]["card"]["id"]
+        self.assertEqual(act_status, 200)
+        self.assertEqual(act_saved_status, 200)
+        self.assertEqual(act_saved["data"]["draft"]["filled_by"], "CODEX")
         log_status, log = self.request(f"/api/get_card_log?card_id={card_id}&limit=1", method="GET")
         self.assertEqual(log_status, 200)
         self.assertEqual(log["data"]["events"][0]["actor_name"], "CODEX")
@@ -6048,6 +6078,351 @@ class ApiServerTests(unittest.TestCase):
             "Part of the data came from the card description",
             autofilled["data"]["autofill"]["confidence_notes"][0],
         )
+
+    def test_completion_act_form_routes_save_preview_conflict_and_reset(self) -> None:
+        status, created = self.request(
+            "/api/create_card",
+            {"title": "Completion act route", "deadline": {"hours": 2}},
+        )
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+        status, _ = self.request(
+            "/api/update_repair_order",
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "number": "ACT-API-1",
+                    "date": "20.08.2026",
+                    "client": "API Client",
+                    "works": [
+                        {
+                            "id": "work-api-1",
+                            "name": "API work",
+                            "quantity": "1",
+                            "price": "372983",
+                        }
+                    ],
+                },
+            },
+        )
+        self.assertEqual(status, 200)
+        business_baseline = self.store.read_bundle()
+
+        status, loaded = self.request("/api/get_completion_act_form", {"card_id": card_id})
+        self.assertEqual(status, 200)
+        self.assertEqual(loaded["data"]["totals"]["vat"], "18649.15")
+        form = loaded["data"]["form"]
+        source_fingerprint = loaded["data"]["draft"]["current_source_fingerprint"]
+        form["basis"] = "API manual basis"
+        status, saved = self.request(
+            "/api/save_completion_act_form",
+            {
+                "card_id": card_id,
+                "form": form,
+                "expected_version": 0,
+                "expected_source_fingerprint": source_fingerprint,
+                "idempotency_key": "api-completion-save-1",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(saved["data"]["draft"]["version"], 1)
+        self.assertEqual(self.store.read_bundle(), business_baseline)
+
+        status, _ = self.request(
+            "/api/update_repair_order",
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "number": "ACT-API-1",
+                    "date": "20.08.2026",
+                    "client": "API Client",
+                    "works": [
+                        {
+                            "id": "work-api-1",
+                            "name": "API work",
+                            "quantity": "1",
+                            "price": "400000",
+                        }
+                    ],
+                },
+            },
+        )
+        self.assertEqual(status, 200)
+        business_baseline = self.store.read_bundle()
+
+        status, stale = self.request(
+            "/api/get_completion_act_form",
+            {"card_id": card_id},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(stale["data"]["draft"]["is_stale"])
+        self.assertEqual(stale["data"]["form"]["basis"], "API manual basis")
+        status, ignored_override = self.request(
+            "/api/get_completion_act_form",
+            {
+                "card_id": card_id,
+                "repair_order": {"works": [{} for _ in range(10_000)]},
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            ignored_override["data"]["fresh_form"]["items"][0]["price"],
+            "400000",
+        )
+        for selected_ids in (["completion_act"], "completion_act", [" completion_act "]):
+            with self.subTest(selected_document_ids=selected_ids):
+                status, persisted_source_preview = self.request(
+                    "/api/preview_repair_order_print_documents",
+                    {
+                        "card_id": card_id,
+                        "selected_document_ids": selected_ids,
+                        "active_document_id": " completion_act ",
+                        "repair_order": {
+                            "works": [
+                                {
+                                    "id": "work-api-1",
+                                    "name": "Unsaved conflicting work",
+                                    "quantity": "1",
+                                    "price": "999999",
+                                }
+                            ]
+                        },
+                    },
+                )
+                self.assertEqual(status, 200)
+                persisted_item = persisted_source_preview["data"]["documents"][0]["computed_items"][
+                    0
+                ]
+                self.assertEqual(persisted_item["name"], "API work")
+                self.assertEqual(persisted_item["price_without_vat_display"], "400 000,00")
+
+        preview_form = dict(form)
+        preview_form["items"] = [
+            {
+                **form["items"][0],
+                "quantity": "3",
+                "price": "0.10",
+            }
+        ]
+        status, preview = self.request(
+            "/api/preview_repair_order_print_documents",
+            {
+                "card_id": card_id,
+                "selected_document_ids": ["completion_act"],
+                "active_document_id": "completion_act",
+                "document_overrides": {"completion_act": preview_form},
+            },
+        )
+        self.assertEqual(status, 200)
+        document = preview["data"]["documents"][0]
+        self.assertEqual(document["computed_totals"]["base"], "0.30")
+        self.assertEqual(document["computed_totals"]["vat"], "0.02")
+        self.assertEqual(document["computed_items"][0]["sum_without_vat_display"], "0,30")
+
+        with patch(
+            "minimal_kanban.printing.service.render_html_to_pdf_bytes",
+            return_value=b"%PDF-1.4\ncompletion-act-test\n%%EOF",
+        ):
+            status, exported = self.request(
+                "/api/export_repair_order_print_pdf",
+                {
+                    "card_id": card_id,
+                    "selected_document_ids": ["completion_act"],
+                    "document_overrides": {"completion_act": preview_form},
+                },
+            )
+        self.assertEqual(status, 200)
+        self.assertTrue(base64.b64decode(exported["data"]["content_base64"]).startswith(b"%PDF"))
+
+        form["basis"] = "Conflicting change"
+        status, conflict = self.request(
+            "/api/save_completion_act_form",
+            {
+                "card_id": card_id,
+                "form": form,
+                "expected_version": 0,
+                "expected_source_fingerprint": source_fingerprint,
+                "idempotency_key": "api-completion-save-2",
+            },
+        )
+        self.assertEqual(status, 409)
+        self.assertEqual(conflict["error"]["code"], "completion_act_version_conflict")
+
+        status, reset = self.request(
+            "/api/reset_completion_act_form",
+            {
+                "card_id": card_id,
+                "expected_version": 1,
+                "idempotency_key": "api-completion-reset-1",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertFalse(reset["data"]["draft"]["exists"])
+        self.assertEqual(reset["data"]["draft"]["version"], 2)
+        self.assertEqual(self.store.read_bundle(), business_baseline)
+
+        status, card = self.request("/api/get_card", {"card_id": card_id})
+        self.assertEqual(status, 200)
+        self.assertEqual(card["data"]["card"]["repair_order"]["works"][0]["price"], "400000")
+
+        status, empty_created = self.request(
+            "/api/create_card",
+            {"title": "Empty completion act", "deadline": {"hours": 1}},
+        )
+        self.assertEqual(status, 200)
+        empty_card_id = empty_created["data"]["card"]["id"]
+        status, empty = self.request("/api/get_completion_act_form", {"card_id": empty_card_id})
+        self.assertEqual(status, 200)
+        self.assertIn("items", empty["data"]["missing_fields"])
+        empty_source_fingerprint = empty["data"]["draft"]["current_source_fingerprint"]
+        status, empty_preview = self.request(
+            "/api/preview_repair_order_print_documents",
+            {
+                "card_id": empty_card_id,
+                "selected_document_ids": ["completion_act"],
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(empty_preview["data"]["documents"][0]["warnings"])
+        with patch(
+            "minimal_kanban.printing.service.render_html_to_pdf_bytes",
+            return_value=b"%PDF-1.4\nempty-completion-act\n%%EOF",
+        ):
+            status, empty_export = self.request(
+                "/api/export_repair_order_print_pdf",
+                {
+                    "card_id": empty_card_id,
+                    "selected_document_ids": ["completion_act"],
+                },
+            )
+        self.assertEqual(status, 200)
+        self.assertTrue(
+            base64.b64decode(empty_export["data"]["content_base64"]).startswith(b"%PDF")
+        )
+        status, invalid_save = self.request(
+            "/api/save_completion_act_form",
+            {
+                "card_id": empty_card_id,
+                "form": empty["data"]["form"],
+                "expected_version": 0,
+            },
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(invalid_save["error"]["code"], "validation_error")
+
+        status, invalid_card_id = self.request(
+            "/api/get_completion_act_form",
+            {"card_id": ["x"] * 10_000},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(invalid_card_id["error"]["details"]["field"], "card_id")
+        status, invalid_request_text = self.request(
+            "/api/get_completion_act_form",
+            {"card_id": empty_card_id, "request_text": " " * 20_001},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(invalid_request_text["error"]["details"]["field"], "request_text")
+
+        mutation_base = {
+            "card_id": empty_card_id,
+            "form": empty["data"]["form"],
+            "expected_version": 0,
+            "expected_source_fingerprint": empty_source_fingerprint,
+            "idempotency_key": "completion-metadata-guard",
+        }
+        for override, field in (
+            ({"form": []}, "form"),
+            ({"expected_version": []}, "expected_version"),
+            ({"expected_source_fingerprint": []}, "expected_source_fingerprint"),
+            ({"idempotency_key": ["x"] * 10_000}, "idempotency_key"),
+            ({"source": {"nested": ["x"] * 10_000}}, "source"),
+            ({"actor_name": ["x"] * 10_000}, "actor_name"),
+        ):
+            with self.subTest(override=field):
+                status, invalid_metadata = self.request(
+                    "/api/save_completion_act_form",
+                    {**mutation_base, **override},
+                )
+                self.assertEqual(status, 400)
+                self.assertEqual(invalid_metadata["error"]["code"], "validation_error")
+                self.assertEqual(invalid_metadata["error"]["details"]["field"], field)
+
+        status, spoof_attempt = self.request(
+            "/api/save_completion_act_form",
+            {
+                "card_id": empty_card_id,
+                "form": empty["data"]["form"],
+                "expected_version": 0,
+                "expected_source_fingerprint": empty_source_fingerprint,
+                "idempotency_key": "completion-session-spoof-guard",
+                "_operator_session": {"audit_actor_name": "SPOOFED-ACTOR"},
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertNotEqual(spoof_attempt["data"]["draft"]["filled_by"], "SPOOFED-ACTOR")
+
+    def test_completion_act_save_rejects_changed_source_snapshot(self) -> None:
+        status, created = self.request(
+            "/api/create_card",
+            {"title": "Completion act source conflict", "deadline": {"hours": 2}},
+        )
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+
+        def update_price(price: str) -> None:
+            update_status, _ = self.request(
+                "/api/update_repair_order",
+                {
+                    "card_id": card_id,
+                    "repair_order": {
+                        "number": "ACT-SOURCE-1",
+                        "works": [
+                            {
+                                "id": "source-work-1",
+                                "name": "Source work",
+                                "quantity": "1",
+                                "price": price,
+                            }
+                        ],
+                    },
+                },
+            )
+            self.assertEqual(update_status, 200)
+
+        update_price("100")
+        status, initial = self.request(
+            "/api/get_completion_act_form",
+            {"card_id": card_id},
+        )
+        self.assertEqual(status, 200)
+        stale_form = initial["data"]["form"]
+        stale_form["basis"] = "Only this field was edited"
+        expected_source = initial["data"]["draft"]["current_source_fingerprint"]
+        update_price("200")
+        business_baseline = self.store.read_bundle()
+
+        status, conflict = self.request(
+            "/api/save_completion_act_form",
+            {
+                "card_id": card_id,
+                "form": stale_form,
+                "expected_version": 0,
+                "expected_source_fingerprint": expected_source,
+                "idempotency_key": "api-completion-source-conflict",
+            },
+        )
+        self.assertEqual(status, 409)
+        self.assertEqual(conflict["error"]["code"], "completion_act_source_conflict")
+        self.assertEqual(self.store.read_bundle(), business_baseline)
+
+        status, current = self.request(
+            "/api/get_completion_act_form",
+            {"card_id": card_id},
+        )
+        self.assertEqual(status, 200)
+        self.assertFalse(current["data"]["draft"]["exists"])
+        self.assertEqual(current["data"]["draft"]["version"], 0)
+        self.assertEqual(current["data"]["fresh_form"]["items"][0]["price"], "200")
 
     def test_repair_order_print_pdf_export_works_from_http_thread(self) -> None:
         status, created = self.request(

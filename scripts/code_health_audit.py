@@ -33,6 +33,7 @@ SKIP_DIRS = {
 
 ALLOWED_LARGE_MODULES = {
     "scripts/attest_agent_gateway_v2.py": "Gateway attestation scenario suite split target",
+    "scripts/browser_smoke.py": "browser end-to-end scenario suite split target",
     "src/minimal_kanban/mcp/agent_gateway_v2.py": "Gateway workflow executor split target",
     "src/minimal_kanban/mcp/raw_gateway.py": "raw readback verifier split target",
     "src/minimal_kanban/services/card_service.py": "domain facade split target",
@@ -42,6 +43,7 @@ ALLOWED_LARGE_MODULES = {
     "src/minimal_kanban/agent/runner.py": "agent orchestration split target",
     "src/minimal_kanban/mcp/server.py": "MCP registry split target",
     "src/minimal_kanban/printing/service.py": "print rendering workflow split target",
+    "src/minimal_kanban/printing/web_module.py": "embedded print UI asset split target",
     "tests/test_service.py": "legacy broad service coverage pending domain split",
     "tests/test_api.py": "legacy broad API coverage pending route split",
     "tests/test_mcp.py": "legacy broad MCP coverage pending contract split",
@@ -50,6 +52,7 @@ ALLOWED_LARGE_MODULES = {
 }
 
 ALLOWED_LARGE_CLASSES = {
+    "src/minimal_kanban/printing/service.py:PrintModuleService": "print rendering and draft-store split target",
     "src/minimal_kanban/services/card_service.py:CardService": "domain facade split target",
     "src/minimal_kanban/services/card_service_payroll.py:CardServicePayrollMixin": "payroll domain split target",
     "src/minimal_kanban/services/card_service_finance.py:CardServiceFinanceMixin": "finance domain split target",
@@ -64,6 +67,7 @@ ALLOWED_LARGE_CLASSES = {
 ALLOWED_LARGE_FUNCTIONS = {
     "scripts/attest_agent_gateway_v2.py:_finance_apply_audit_safe_fixes_case": "finance attestation scenario split target",
     "scripts/browser_smoke.py:_desktop_scenarios": "browser smoke scenario split target",
+    "scripts/browser_smoke.py:_exercise_completion_act_editor": "completion act editor transaction scenario split target",
     "src/minimal_kanban/api/server.py:_make_handler": "API handler split target",
     "src/minimal_kanban/demo_seed.py:_demo_specs": "demo seed data split target",
     "src/minimal_kanban/mcp/agent_gateway_v2.py:register_agent_gateway_v2": "Gateway v2 registry split target",

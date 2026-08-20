@@ -487,6 +487,27 @@ class ChangeFeedProducerContractTests(unittest.TestCase):
         )
 
         before = self.high_water()
+        completion_response = self.service.get_completion_act_form({"card_id": card_id})
+        form = completion_response["form"]
+        form["basis"] = "PRIVATE-COMPLETION-BASIS-810C"
+        self.service.save_completion_act_form(
+            {
+                "card_id": card_id,
+                "form": form,
+                "expected_version": 0,
+                "expected_source_fingerprint": completion_response["draft"][
+                    "current_source_fingerprint"
+                ],
+                "idempotency_key": "feed-completion-create-1",
+            }
+        )
+        self.assert_single_entity_change(
+            self.events_after(before),
+            entity_type="completion_act_form",
+            change_type="create",
+        )
+
+        before = self.high_water()
         self.service.delete_print_template({"template_id": template_id})
         self.assert_single_entity_change(
             self.events_after(before),
@@ -499,6 +520,7 @@ class ChangeFeedProducerContractTests(unittest.TestCase):
             "PRIVATE-TEMPLATE-NAME-7D31",
             "PRIVATE-TEMPLATE-CONTENT-C128",
             "PRIVATE-INSPECTION-CLIENT-409A",
+            "PRIVATE-COMPLETION-BASIS-810C",
         ):
             self.assertNotIn(private_value.encode(), database)
 

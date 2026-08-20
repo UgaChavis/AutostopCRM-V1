@@ -4249,9 +4249,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("printManualDocumentDraft", BOARD_WEB_APP_HTML)
         self.assertNotIn("manualDocumentPrintButton?.addEventListener", BOARD_WEB_APP_HTML)
         self.assertIn("document_without_card: repairOrderPrintIsManualMode()", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            "document_overrides: readRegulatedPrintOverridesFromInputs()", BOARD_WEB_APP_HTML
-        )
+        self.assertIn("...completionActRequestOverrides()", BOARD_WEB_APP_HTML)
+        self.assertIn("completion_act: form", BOARD_WEB_APP_HTML)
         self.assertIn("manual_document: readManualPrintDocumentFromInputs()", BOARD_WEB_APP_HTML)
         self.assertIn('id="manualPrintTaxLabel"', BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -4278,9 +4277,17 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn('role="tablist"', BOARD_WEB_APP_HTML)
         self.assertIn(
-            "return '<button class=\"repair-order-print-doc' + activeClass + '\" data-print-document=\"' + escapeHtml(item.id) + '\" type=\"button\" role=\"tab\" aria-selected=\"' + (isActive ? 'true' : 'false') + '\">' +",
+            "const selectButton = '<button class=\"repair-order-print-doc'", BOARD_WEB_APP_HTML
+        )
+        self.assertIn('class="repair-order-print-doc-row"', BOARD_WEB_APP_HTML)
+        self.assertIn("data-completion-act-editor-open", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "item.id !== 'completion_act' || repairOrderPrintState.mode !== 'card'",
             BOARD_WEB_APP_HTML,
         )
+        self.assertIn('title="Редактировать акт выполненных работ"', BOARD_WEB_APP_HTML)
+        self.assertIn('aria-label="Редактировать акт выполненных работ"', BOARD_WEB_APP_HTML)
+        self.assertIn("grid-template-columns: minmax(0, 1fr) 44px", BOARD_WEB_APP_HTML)
         self.assertNotIn("data-print-document-toggle", BOARD_WEB_APP_HTML)
         self.assertIn("repairOrderPrintDocumentsCount", BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -4291,6 +4298,199 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("async function openInspectionSheetForm()", BOARD_WEB_APP_HTML)
         self.assertIn("async function saveInspectionSheetFormDraft", BOARD_WEB_APP_HTML)
         self.assertIn("async function autofillInspectionSheetFormDraft()", BOARD_WEB_APP_HTML)
+        self.assertIn('id="completionActEditorModal"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="completionActEditorForm"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="completionActPreviewFrame"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="completionActFreshItems"', BOARD_WEB_APP_HTML)
+        self.assertIn('aria-labelledby="completionActFreshItemsTitle"', BOARD_WEB_APP_HTML)
+        self.assertIn('aria-live="polite" hidden', BOARD_WEB_APP_HTML)
+        self.assertIn('aria-label="Свежие строки из заказ-наряда"', BOARD_WEB_APP_HTML)
+        self.assertIn("function renderCompletionActFreshItems()", BOARD_WEB_APP_HTML)
+        self.assertIn("completionActItemsHaveManualSource()", BOARD_WEB_APP_HTML)
+        self.assertIn("completionActItemsDiffer(currentItems, freshItems)", BOARD_WEB_APP_HTML)
+        self.assertIn("repairOrderPrintState.completionAct.draft?.is_stale", BOARD_WEB_APP_HTML)
+        self.assertIn("escapeHtml(item.name || '—')", BOARD_WEB_APP_HTML)
+        self.assertIn("'Строк в CRM: ' + String(freshItems.length)", BOARD_WEB_APP_HTML)
+        self.assertIn('id="completionActSaveButton"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="completionActResetButton"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="completionActExportButton"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="completionActPrintButton"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            'id="completionActLiveWarnings" role="status" aria-live="polite" aria-atomic="true"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            'id="completionActDocumentDate" data-completion-act-field="document_date" type="text"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            'id="completionActBasis" data-completion-act-field="basis" maxlength="500"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            'id="completionActAcceptanceText" data-completion-act-field="acceptance_text" maxlength="1000"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("'/api/get_completion_act_form'", BOARD_WEB_APP_HTML)
+        self.assertIn("'/api/save_completion_act_form'", BOARD_WEB_APP_HTML)
+        self.assertIn("'/api/reset_completion_act_form'", BOARD_WEB_APP_HTML)
+        self.assertIn("function normalizeCompletionActForm(value)", BOARD_WEB_APP_HTML)
+        self.assertIn("function closeCompletionActEditor()", BOARD_WEB_APP_HTML)
+        self.assertIn("function handleCompletionActBeforeUnload(event)", BOARD_WEB_APP_HTML)
+        self.assertIn("generation: 0,", BOARD_WEB_APP_HTML)
+        self.assertIn("cardId: '',", BOARD_WEB_APP_HTML)
+        self.assertIn("editRevision: 0,", BOARD_WEB_APP_HTML)
+        self.assertIn("function beginCompletionActEditorSession(", BOARD_WEB_APP_HTML)
+        self.assertIn("function invalidateCompletionActEditorSession(", BOARD_WEB_APP_HTML)
+        self.assertIn("function completionActEditorSessionIsCurrent(", BOARD_WEB_APP_HTML)
+        self.assertIn("function invalidateCompletionActEditorOnCardChange()", BOARD_WEB_APP_HTML)
+        self.assertIn("invalidateCompletionActEditorOnCardChange();", BOARD_WEB_APP_HTML)
+        endpoint_payload = BOARD_WEB_APP_HTML.split("function completionActEndpointPayload(", 1)[
+            1
+        ].split("function completionActIdempotencyKey", 1)[0]
+        self.assertIn("card_id: String(cardId || '').trim()", endpoint_payload)
+        self.assertNotIn("state.editingId", endpoint_payload)
+        open_editor = BOARD_WEB_APP_HTML.split(
+            "async function openCompletionActEditor(returnFocus = null)", 1
+        )[1].split("function closeCompletionActEditor()", 1)[0]
+        self.assertIn("beginCompletionActEditorSession(cardId, returnFocus)", open_editor)
+        self.assertIn("completionActEndpointPayload({}, session.cardId)", open_editor)
+        self.assertNotIn("repair_order:", open_editor)
+        self.assertIn("applyCompletionActResponse(data, { session })", open_editor)
+        self.assertIn(
+            "expected_version: repairOrderPrintState.completionAct.draft.version || 0",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "expected_source_fingerprint: repairOrderPrintState.completionAct.draft.current_source_fingerprint || ''",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("completionActIdempotencyKey('save')", BOARD_WEB_APP_HTML)
+        self.assertIn("completionActIdempotencyKey('reset')", BOARD_WEB_APP_HTML)
+        self.assertIn("preview?.computed_totals", BOARD_WEB_APP_HTML)
+        self.assertIn("preview?.computed_items", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "renderCompletionActLiveWarnings(preview?.warnings, preview?.missing_fields);",
+            BOARD_WEB_APP_HTML,
+        )
+        completion_refresh = BOARD_WEB_APP_HTML.split(
+            "async function refreshCompletionActPreview(options = {})", 1
+        )[1].split("function cancelPendingCompletionActPreview()", 1)[0]
+        self.assertIn("if (options?.requireCurrent)", completion_refresh)
+        self.assertIn("return Promise.reject(error);", completion_refresh)
+        self.assertIn("function cancelPendingCompletionActPreview()", BOARD_WEB_APP_HTML)
+        completion_export = BOARD_WEB_APP_HTML.split("async function exportCompletionActPdf()", 1)[
+            1
+        ].split("async function printCompletionAct()", 1)[0]
+        self.assertIn("cancelPendingCompletionActPreview();", completion_export)
+        self.assertIn(
+            "await refreshCompletionActPreview({ requireCurrent: true, session })",
+            completion_export,
+        )
+        self.assertIn("const editRevision =", completion_export)
+        self.assertIn("card_id: session.cardId", completion_export)
+        self.assertIn(
+            "repairOrderPrintState.completionAct.editRevision !== editRevision",
+            completion_export,
+        )
+        self.assertIn("if (!preview) throw new Error", completion_export)
+        self.assertLess(
+            completion_export.index("cancelPendingCompletionActPreview();"),
+            completion_export.index("await refreshCompletionActPreview"),
+        )
+        completion_print = BOARD_WEB_APP_HTML.split("async function printCompletionAct()", 1)[
+            1
+        ].split("function handleCompletionActFormInput(event)", 1)[0]
+        self.assertIn("cancelPendingCompletionActPreview();", completion_print)
+        self.assertIn(
+            "await refreshCompletionActPreview({ requireCurrent: true, session })",
+            completion_print,
+        )
+        self.assertIn("const editRevision =", completion_print)
+        self.assertIn(
+            "repairOrderPrintState.completionAct.editRevision !== editRevision",
+            completion_print,
+        )
+        self.assertIn("if (!preview) throw new Error", completion_print)
+        self.assertIn("await runCompletionActBrowserPrint(preview);", completion_print)
+        self.assertLess(
+            completion_print.index("cancelPendingCompletionActPreview();"),
+            completion_print.index("await refreshCompletionActPreview"),
+        )
+        save_completion = BOARD_WEB_APP_HTML.split("async function saveCompletionActDraft()", 1)[
+            1
+        ].split("async function resetCompletionActDraft()", 1)[0]
+        self.assertIn("const form = readCompletionActFormFromInputs();", save_completion)
+        self.assertIn("const editRevision =", save_completion)
+        self.assertIn("session.cardId", save_completion)
+        self.assertIn("preserveCurrentEdits: hasNewerEdits", save_completion)
+        self.assertIn("JSON.stringify(readCompletionActFormFromInputs())", save_completion)
+        self.assertIn("function renderCompletionActStaleWarning()", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderCompletionActLiveWarnings(", BOARD_WEB_APP_HTML)
+        self.assertNotIn("base * 0.05", BOARD_WEB_APP_HTML)
+        self.assertIn("const COMPLETION_ACT_MAX_ITEMS = 300;", BOARD_WEB_APP_HTML)
+        self.assertNotIn(".slice(0, 300).map", BOARD_WEB_APP_HTML)
+        self.assertNotIn("normalizeCompletionActItems(value).slice", BOARD_WEB_APP_HTML)
+        self.assertIn("В одном акте допускается не более 300 строк.", BOARD_WEB_APP_HTML)
+        self.assertIn("function completionActCombinedHtml(pages)", BOARD_WEB_APP_HTML)
+        self.assertIn("const parser = new DOMParser();", BOARD_WEB_APP_HTML)
+        self.assertIn("documentNode.querySelector('.document-shell')", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "return runBrowserPrintHtml(completionActCombinedHtml(pages));",
+            BOARD_WEB_APP_HTML,
+        )
+        main_print_helper = BOARD_WEB_APP_HTML.split("function runRepairOrderBrowserPrint()", 1)[
+            1
+        ].split("async function exportRepairOrderPrintPdf()", 1)[0]
+        self.assertIn("const selectedIds = repairOrderPrintSelectedIds();", main_print_helper)
+        self.assertIn(
+            "selectedIds.length === 1 && selectedIds[0] === 'completion_act'",
+            main_print_helper,
+        )
+        self.assertNotIn("repairOrderPrintWorkspaceDocuments()", main_print_helper)
+        self.assertIn("previewByDocument?.completion_act", main_print_helper)
+        self.assertIn(
+            "return runBrowserPrintHtml(completionActCombinedHtml(pages));",
+            main_print_helper,
+        )
+        main_print_job = BOARD_WEB_APP_HTML.split("async function runRepairOrderPrintJob()", 1)[
+            1
+        ].split("async function saveRepairOrderPrintSettings()", 1)[0]
+        self.assertIn("cancelPendingRepairOrderPrintPreview();", main_print_job)
+        self.assertIn(
+            "await refreshRepairOrderPrintPreview({}, { throwOnError: true })",
+            main_print_job,
+        )
+        self.assertLess(
+            main_print_job.index("await refreshRepairOrderPrintPreview"),
+            main_print_job.index("await runRepairOrderBrowserPrint()"),
+        )
+        self.assertIn("function cancelPendingRepairOrderPrintPreview()", BOARD_WEB_APP_HTML)
+        cancel_all_helper = BOARD_WEB_APP_HTML.split(
+            "function cancelPendingRepairOrderPrintPreview()", 1
+        )[1].split("async function loadRepairOrderPrintWorkspace", 1)[0]
+        self.assertIn("cancelPendingCompletionActPreview();", cancel_all_helper)
+        self.assertIn("if (options?.throwOnError) throw error;", BOARD_WEB_APP_HTML)
+        completion_print_helper = BOARD_WEB_APP_HTML.split(
+            "function completionActCombinedHtml(pages)", 1
+        )[1].split("function runCompletionActBrowserPrint(preview = null)", 1)[0]
+        self.assertEqual(completion_print_helper.count("<!doctype html>"), 1)
+        self.assertNotIn("page.html || '').join", completion_print_helper)
+        self.assertNotIn("completion-act-print-page-break", completion_print_helper)
+        self.assertIn(
+            ".document-shell + .document-shell{break-before:page;page-break-before:always}",
+            completion_print_helper,
+        )
+        completion_browser_print = BOARD_WEB_APP_HTML.split(
+            "function runCompletionActBrowserPrint(preview = null)", 1
+        )[1].split("async function exportRepairOrderPrintPdf()", 1)[0]
+        self.assertIn("const currentPreview = preview", completion_browser_print)
+        self.assertIn("currentPreview?.pages", completion_browser_print)
+        self.assertIn("completionActCombinedHtml(pages)", completion_browser_print)
+        self.assertIn('data-mobile-view="data"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-completion-act-item-action="duplicate"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="printProfileSignerPosition"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="printProfileSignerName"', BOARD_WEB_APP_HTML)
         self.assertIn("function normalizeInspectionSheetTableRows(value)", BOARD_WEB_APP_HTML)
         self.assertIn("function renderInspectionSheetTableRows(kind, rows)", BOARD_WEB_APP_HTML)
         self.assertIn("function handleInspectionSheetTableRowsClick(event)", BOARD_WEB_APP_HTML)

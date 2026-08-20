@@ -38,6 +38,7 @@ RAW_API_READ_ROUTES = frozenset(
         "/api/get_employee_salary_reconciliation",
         "/api/get_employee_salary_report",
         "/api/get_inspection_sheet_form",
+        "/api/get_completion_act_form",
         "/api/get_operator_activity_aggregates",
         "/api/get_operator_activity_details",
         "/api/get_operator_user_report",
@@ -68,7 +69,18 @@ OPTIMISTIC_WRITE_NAMES = frozenset(
         "api:/api/delete_gateway_attestation_payment_fixture",
     }
 )
+VERSIONED_WRITE_NAMES = frozenset(
+    {
+        "api:/api/save_completion_act_form",
+        "api:/api/reset_completion_act_form",
+    }
+)
 DESTRUCTIVE_CAPABILITY_MARKERS = ("delete_", "cancel_", "archive_", "remove_")
+DESTRUCTIVE_CAPABILITY_NAMES = frozenset(
+    {
+        "api:/api/reset_completion_act_form",
+    }
+)
 VirtualInvoker = Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]]
 
 
@@ -226,6 +238,61 @@ async def verify_virtual_api_write_readback(
     invoke: VirtualInvoker,
 ) -> dict[str, Any] | None:
     """Return exact verification for virtual writes that have a stable readback."""
+
+    if operation in VERSIONED_WRITE_NAMES:
+        card_id = str(arguments.get("card_id") or "").strip()
+        result_data = result.get("data") if isinstance(result.get("data"), Mapping) else {}
+        result_draft = (
+            result_data.get("draft") if isinstance(result_data.get("draft"), Mapping) else {}
+        )
+        readback = (
+            await invoke("api:/api/get_completion_act_form", {"card_id": card_id})
+            if card_id
+            else {}
+        )
+        readback_data = readback.get("data") if isinstance(readback.get("data"), Mapping) else {}
+        actual_draft = (
+            readback_data.get("draft") if isinstance(readback_data.get("draft"), Mapping) else {}
+        )
+        expected_version = result_draft.get("version")
+        version_exact = (
+            type(expected_version) is int
+            and type(actual_draft.get("version")) is int
+            and actual_draft.get("version") == expected_version
+        )
+        cycle_exact = bool(result_draft.get("cycle_key")) and str(
+            actual_draft.get("cycle_key") or ""
+        ) == str(result_draft.get("cycle_key") or "")
+        expected_exists = operation == "api:/api/save_completion_act_form"
+        existence_exact = bool(actual_draft.get("exists")) is expected_exists
+        form_exact = readback_data.get("form") == result_data.get("form")
+        passed = bool(
+            result.get("ok")
+            and readback.get("ok")
+            and card_id
+            and version_exact
+            and cycle_exact
+            and existence_exact
+            and form_exact
+        )
+        return {
+            "required": True,
+            "passed": passed,
+            "check": (
+                "exact_completion_act_draft_readback"
+                if expected_exists
+                else "exact_completion_act_reset_readback"
+            ),
+            "evidence": {
+                "card_id": card_id,
+                "expected_version": expected_version,
+                "actual_version": actual_draft.get("version"),
+                "cycle_exact": cycle_exact,
+                "existence_exact": existence_exact,
+                "form_exact": form_exact,
+                "readback_ok": bool(readback.get("ok")),
+            },
+        }
 
     if operation == "api:/api/save_employee":
         created = _find_mapping_matching(
@@ -1154,7 +1221,9 @@ def virtual_api_risk(route: str, name: str) -> str:
     if route in RAW_API_READ_ROUTES:
         return "read"
     normalized = str(name or "").casefold()
-    if any(marker in normalized for marker in DESTRUCTIVE_CAPABILITY_MARKERS):
+    if normalized in DESTRUCTIVE_CAPABILITY_NAMES or any(
+        marker in normalized for marker in DESTRUCTIVE_CAPABILITY_MARKERS
+    ):
         return "destructive"
     return "write"
 
@@ -1169,7 +1238,9 @@ __all__ = [
     "CHANGE_FEED_READ_ROUTE",
     "CHANGE_FEED_WRITE_ROUTES",
     "DESTRUCTIVE_CAPABILITY_MARKERS",
+    "DESTRUCTIVE_CAPABILITY_NAMES",
     "OPTIMISTIC_WRITE_NAMES",
+    "VERSIONED_WRITE_NAMES",
     "RAW_API_READ_ROUTES",
     "RAW_API_ROUTES",
     "RAW_API_WRITE_ROUTES",

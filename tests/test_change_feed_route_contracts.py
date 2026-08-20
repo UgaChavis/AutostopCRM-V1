@@ -226,6 +226,35 @@ class ChangeFeedCanonicalRouteContractTests(unittest.TestCase):
             },
         )
 
+    def _exercise_completion_act_form_routes(self, card_id: str) -> None:
+        completion_response = self.service.get_completion_act_form({"card_id": card_id})
+        completion_form = completion_response["form"]
+        completion_form["basis"] = "Route completion basis"
+        saved_completion = self._invoke(
+            "/api/save_completion_act_form",
+            {
+                "card_id": card_id,
+                "form": completion_form,
+                "expected_version": 0,
+                "expected_source_fingerprint": completion_response["draft"][
+                    "current_source_fingerprint"
+                ],
+                "idempotency_key": "route-completion-save-1",
+            },
+            producers={"print_module"},
+            entity_types={"completion_act_form"},
+        )
+        self._invoke(
+            "/api/reset_completion_act_form",
+            {
+                "card_id": card_id,
+                "expected_version": saved_completion["draft"]["version"],
+                "idempotency_key": "route-completion-reset-1",
+            },
+            producers={"print_module"},
+            entity_types={"completion_act_form"},
+        )
+
     def test_registry_routes_commit_and_replay_exact_temp_state_mutations(self) -> None:
         state_producers = {"audit_event", "state_projection"}
 
@@ -526,6 +555,7 @@ class ChangeFeedCanonicalRouteContractTests(unittest.TestCase):
             producers={"print_module"},
             entity_types={"inspection_sheet_form"},
         )
+        self._exercise_completion_act_form_routes(card_id)
         self._invoke(
             "/api/delete_print_template",
             {"template_id": duplicate["id"]},

@@ -221,13 +221,32 @@ Stable correction errors include `repair_order_not_closed`,
 
 Use CRM print routes for repair orders, acts, invoices, invoice-facturas, UPD,
 inspection sheets, completion acts, and parts-sale documents. They share the
-saved templates and renderer. The same workspace/preview/export routes accept
+renderer; the completion act is locked to its built-in accounting template,
+while the other document types retain saved template selection. The same
+workspace/preview/export routes accept
 `document_without_card=true` with `manual_document` and optional
 `request_text`; do not introduce a second PDF/HTML implementation.
 
 `/api/get_repair_order_print_workspace` and
 `/api/get_inspection_sheet_form` are read-only JSON document-contract reads.
 They do not save a form or render/export a binary document.
+
+The completion-act editor uses `/api/get_completion_act_form`,
+`/api/save_completion_act_form`, and `/api/reset_completion_act_form`.
+Save requires `expected_version`, the `expected_source_fingerprint` returned by
+the latest GET, and a unique `idempotency_key`; reset requires the version and
+its own unique key. A stale draft version or changed CRM source returns HTTP
+409 without saving. The saved form is a separate print-only draft keyed by card
+and repair-order cycle. Preview/export/print accept the same effective
+form under `document_overrides.completion_act`, ignore caller-supplied totals,
+and calculate the aggregate 5% VAT on the backend. These routes never update
+the card, client, repair order, payments, or print settings. Drafts persist as
+individually bounded records in the private
+`data/printing/completion_act_forms/` store; release backup and rollback use a
+validated compatibility snapshot. One act
+accepts up to the full repair-order range of 300 combined work/material rows.
+Malformed, oversized, unreadable, or symlinked draft storage fails closed with
+HTTP 503 and is never replaced by a later save.
 
 Cashless repair-order payments are gross incoming amounts. The shared backend
 calculation applies the current 15% taxes/fees rule and credits the remaining

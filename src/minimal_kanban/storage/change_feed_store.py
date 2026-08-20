@@ -908,6 +908,123 @@ class ChangeFeedStore:
             self._replace_external_entity_state(connection, source, projected)
             return {**self._status(connection), "published": published}
 
+    def reconcile_external_projection_slice(
+        self,
+        producer: str,
+        projected: Mapping[tuple[str, str], ProjectedEntity],
+        *,
+        replace_entity_types: Iterable[str] = (),
+    ) -> dict[str, Any]:
+        """Reconcile a bounded external-producer slice without replacing siblings.
+
+        ``projected`` may contain one exact entity (the completion-act hot path),
+        while ``replace_entity_types`` replaces only the named small entity
+        families used by print settings/templates/forms. It deliberately never
+        loads or deletes unrelated producer rows.
+        """
+
+        source = _bounded_text(producer, limit=48)
+        if not source:
+            raise ValueError("external producer is required")
+        replacement_types = {_bounded_text(value, limit=64) for value in replace_entity_types}
+        replacement_types.discard("")
+        current = {
+            key: value
+            for key, value in projected.items()
+            if key == (value.entity_type, value.entity_id)
+        }
+        if len(current) != len(projected):
+            raise ValueError("external projection slice contains inconsistent keys")
+        initialized_key = f"external_initialized:{source}"
+        with self._transaction(immediate=True) as connection:
+            row = connection.execute(
+                "SELECT value FROM metadata WHERE key = ?", (initialized_key,)
+            ).fetchone()
+            previous: dict[tuple[str, str], ProjectedEntity] = {}
+            for entity_type, entity_id in current:
+                prior = connection.execute(
+                    """
+                    SELECT entity_type, entity_id, digest, routing_digest, lifecycle
+                    FROM external_entity_state
+                    WHERE producer = ? AND entity_type = ? AND entity_id = ?
+                    """,
+                    (source, entity_type, entity_id),
+                ).fetchone()
+                if prior is not None:
+                    previous[(entity_type, entity_id)] = ProjectedEntity(
+                        entity_type=str(prior["entity_type"]),
+                        entity_id=str(prior["entity_id"]),
+                        digest=str(prior["digest"]),
+                        routing_digest=str(prior["routing_digest"]),
+                        lifecycle=str(prior["lifecycle"]),
+                    )
+            for entity_type in replacement_types:
+                rows = connection.execute(
+                    """
+                    SELECT entity_type, entity_id, digest, routing_digest, lifecycle
+                    FROM external_entity_state
+                    WHERE producer = ? AND entity_type = ?
+                    """,
+                    (source, entity_type),
+                ).fetchall()
+                for prior in rows:
+                    key = (str(prior["entity_type"]), str(prior["entity_id"]))
+                    previous[key] = ProjectedEntity(
+                        entity_type=key[0],
+                        entity_id=key[1],
+                        digest=str(prior["digest"]),
+                        routing_digest=str(prior["routing_digest"]),
+                        lifecycle=str(prior["lifecycle"]),
+                    )
+
+            published = 0
+            if row is not None and str(row["value"]) == "1":
+                fingerprint = self._projection_fingerprint(source, current)
+                for change in diff_projected_entities(previous, current):
+                    event = self._structural_event(
+                        state_fingerprint=fingerprint,
+                        entity_type=change.entity_type,
+                        entity_id=change.entity_id,
+                        action=change.action,
+                        change_type=change.change_type,
+                        tombstone=change.tombstone,
+                        producer=source,
+                    )
+                    if self._publish_event(connection, event) is not None:
+                        published += 1
+
+            for key in set(previous) - set(current):
+                connection.execute(
+                    """
+                    DELETE FROM external_entity_state
+                    WHERE producer = ? AND entity_type = ? AND entity_id = ?
+                    """,
+                    (source, key[0], key[1]),
+                )
+            connection.executemany(
+                """
+                INSERT INTO external_entity_state(
+                    producer, entity_type, entity_id, digest, routing_digest, lifecycle
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(producer, entity_type, entity_id) DO UPDATE SET
+                    digest = excluded.digest,
+                    routing_digest = excluded.routing_digest,
+                    lifecycle = excluded.lifecycle
+                """,
+                (
+                    (
+                        source,
+                        item.entity_type,
+                        item.entity_id,
+                        item.digest,
+                        item.routing_digest,
+                        item.lifecycle,
+                    )
+                    for item in current.values()
+                ),
+            )
+            return {**self._status(connection), "published": published}
+
     def initialize_baseline(self, events: object, *, state: object | None = None) -> None:
         """Mark pre-feed audit history as known without publishing it to consumers."""
 

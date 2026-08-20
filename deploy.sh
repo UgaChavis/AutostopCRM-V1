@@ -229,6 +229,7 @@ protected_backup_source_bytes() {
     "$CRM_DATA_DIR/change_feed.sqlite3" \
     "$CRM_DATA_DIR/change_feed.sqlite3-wal" \
     "$CRM_DATA_DIR/change_feed.sqlite3-shm" \
+    "$CRM_DATA_DIR/printing/completion_act_forms.json" \
     "$MANAGER_DB" \
     "$MANAGER_DB-wal" \
     "$MANAGER_DB-shm"; do
@@ -238,6 +239,11 @@ protected_backup_source_bytes() {
       total=$(( total + size ))
     fi
   done
+  if [[ -d "$CRM_DATA_DIR/printing/completion_act_forms" ]]; then
+    size="$(du -sb "$CRM_DATA_DIR/printing/completion_act_forms" | awk '{print $1}')"
+    [[ "$size" =~ ^[0-9]+$ ]] || return 2
+    total=$(( total + size ))
+  fi
   if [[ -d "$CRM_DATA_DIR/audit-archive" ]]; then
     size="$(du -sb "$CRM_DATA_DIR/audit-archive" | awk '{print $1}')"
     [[ "$size" =~ ^[0-9]+$ ]] || return 2

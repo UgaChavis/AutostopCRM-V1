@@ -91,6 +91,7 @@ EXPECTED_SERVICE_ROUTES = {
     "/api/get_cashbox",
     "/api/get_client",
     "/api/get_client_stats",
+    "/api/get_completion_act_form",
     "/api/get_employee_salary_ledger",
     "/api/get_employee_salary_reconciliation",
     "/api/get_employee_salary_report",
@@ -139,6 +140,7 @@ EXPECTED_SERVICE_ROUTES = {
     "/api/reorder_cashboxes",
     "/api/replace_repair_order_materials",
     "/api/replace_repair_order_works",
+    "/api/reset_completion_act_form",
     "/api/replenish_inventory_item",
     "/api/return_inventory_movement",
     "/api/restore_card",
@@ -149,6 +151,7 @@ EXPECTED_SERVICE_ROUTES = {
     "/api/run_full_card_enrichment",
     "/api/run_manager_operation",
     "/api/save_agent_scheduled_task",
+    "/api/save_completion_act_form",
     "/api/save_employee",
     "/api/save_inspection_sheet_form",
     "/api/save_inventory_item",
@@ -213,6 +216,7 @@ EXPECTED_SMOKE_SCENARIOS = (
     "cashbox_transaction_cancellation",
     "repair_order_payments_modal",
     "repair_order_material_executor_defaults_to_operator_employee",
+    "completion_act_editor_draft_roundtrip",
     "clients_modal",
     "clients_search_selects_realistic_row",
     "files_modal",
@@ -261,6 +265,8 @@ class ContractSnapshotTests(unittest.TestCase):
         self.assertIn("/api/delete_employee", PROXIED_WRITE_ROUTES)
         self.assertIn("/api/get_repair_order", PROXIED_WRITE_ROUTES)
         self.assertIn("/api/copy_shared_file", PROXIED_WRITE_ROUTES)
+        self.assertIn("/api/save_completion_act_form", PROXIED_WRITE_ROUTES)
+        self.assertIn("/api/reset_completion_act_form", PROXIED_WRITE_ROUTES)
         self.assertIn("/api/finance_audit/apply_safe_fixes", ADMIN_ONLY_ROUTES)
         self.assertIn("/api/get_operator_profile", OPERATOR_SESSION_ROUTES)
         self.assertIn("/api/update_personal_board_preferences", OPERATOR_SESSION_ROUTES)

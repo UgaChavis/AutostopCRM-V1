@@ -76,6 +76,7 @@ class BrowserSmokeScriptTests(unittest.TestCase):
             "repair_order_material_executor_defaults_to_operator_employee",
             module.SMOKE_SCENARIOS,
         )
+        self.assertIn("completion_act_editor_draft_roundtrip", module.SMOKE_SCENARIOS)
         self.assertIn("employee_shift_accrual_manual_salary", module.SMOKE_SCENARIOS)
         self.assertIn("payroll_chain_reaches_reports_and_reconciliation", module.SMOKE_SCENARIOS)
         self.assertNotIn("crm.autostopcrm.ru", script)
@@ -146,6 +147,76 @@ class BrowserSmokeScriptTests(unittest.TestCase):
         self.assertIn("employee_shift_accrual_manual_salary", script)
         self.assertIn("operator_service.set_user_employee", script)
         self.assertIn("material_manual_preserved_ok", script)
+        self.assertIn("_exercise_completion_act_editor", script)
+        self.assertIn("completion-act-editor.png", script)
+        self.assertIn("completion-act-editor-stale-items.png", script)
+        self.assertIn("AUTOSTOP_BROWSER_SMOKE_SCREENSHOT_DIR", script)
+        self.assertIn("page.expect_download()", script)
+        self.assertIn('startswith(b"%PDF")', script)
+        self.assertIn("_pdf_file_is_parseable(Path(download_path))", script)
+        self.assertIn('page.keyboard.press("Enter")', script)
+        self.assertIn('data-completion-act-item-action="duplicate"', script)
+        self.assertIn('data-completion-act-item-action="up"', script)
+        self.assertIn('data-completion-act-item-action="remove"', script)
+        self.assertIn("completionActStaleWarning:not([hidden])", script)
+        self.assertIn("completionActFreshItems:not([hidden])", script)
+        self.assertIn("Smoke fresh CRM source work", script)
+        self.assertIn("fresh_items_source_ok", script)
+        self.assertIn('repair_order": {"works": changed_works}', script)
+        self.assertIn("_exercise_completion_act_main_print_regression", script)
+        self.assertIn("_capture_browser_print_html", script)
+        self.assertIn("#repairOrderPrintRunButton", script)
+        self.assertIn("completion-act-main-button-chromium.pdf", script)
+        self.assertIn("logical_page_count != 2", script)
+        self.assertIn("SMOKE-UNSAVED-DISCARD", script)
+        self.assertIn("delay_preview_response", script)
+        self.assertIn("await asyncio.sleep(0.45)", script)
+        self.assertIn("or discarded_marker in printable_html", script)
+        self.assertIn('or form["document_number"] not in printable_html', script)
+        self.assertIn("SMOKE-EDITOR-PRINT-FRESH", script)
+        self.assertIn("SMOKE-EDITOR-EXPORT-FRESH", script)
+        self.assertIn("delay_editor_preview", script)
+        self.assertIn("#completionActPrintButton", script)
+        self.assertIn("#completionActExportButton", script)
+        self.assertIn("editor_print_race_ok", script)
+        self.assertIn("editor_export_race_ok", script)
+        self.assertIn("completion-act-editor-immediate-print.pdf", script)
+        self.assertIn("completion-act-editor-immediate-export.pdf", script)
+        self.assertIn("editor_export_marker in editor_export_text", script)
+        self.assertIn("editor_print_marker not in editor_export_text", script)
+        self.assertIn("_arm_browser_print_capture", script)
+        self.assertIn("SMOKE-PRINT-INFLIGHT-OLD", script)
+        self.assertIn("SMOKE-PRINT-INFLIGHT-NEW", script)
+        self.assertIn("delay_inflight_print_preview", script)
+        self.assertIn("stale_inflight_print_aborted_ok", script)
+        self.assertIn("SMOKE-SAVE-SNAPSHOT", script)
+        self.assertIn("delay_completion_act_save", script)
+        self.assertIn("save_response_race_ok", script)
+        self.assertIn("более новые несохранённые изменения", script)
+        self.assertIn("_exercise_completion_act_cross_card_race", script)
+        self.assertIn("SMOKE-CARD-A-ACT", script)
+        self.assertIn("SMOKE-CARD-B-ACT", script)
+        self.assertIn("delay_card_a_completion_get", script)
+        self.assertIn("card_b_save_card_id == card_b_id", script)
+        self.assertIn("card_a_customer not in card_b_print_html", script)
+        self.assertIn("completion_act_cross_card_ok", script)
+        self.assertIn("_exercise_completion_act_max_items_ui", script)
+        self.assertIn("range(1, 301)", script)
+        self.assertIn("Smoke UI maximum row 300", script)
+        self.assertIn("#completionActLiveWarnings:not([hidden])", script)
+        self.assertIn("partial_row_warning_ok", script)
+        self.assertIn("_exercise_completion_act_physical_pdf_regression", script)
+        self.assertIn('("standard", False), ("max-final", True)', script)
+        self.assertIn("await pdf_page.pdf(", script)
+        self.assertIn("prefer_css_page_size=True", script)
+        self.assertIn('["pdfinfo", str(path)]', script)
+        self.assertIn('"pdftotext",', script)
+        self.assertIn("footer_sequence", script)
+        self.assertIn("expected_page_count=logical_page_count", script)
+        self.assertIn("completion-act-{label}-chromium.pdf", script)
+        self.assertIn("completion-act-{label}-qt.pdf", script)
+        self.assertIn('page.set_viewport_size({"width": 900, "height": 800})', script)
+        self.assertIn('page.keyboard.press("Escape")', script)
         self.assertIn("operatorAdminCloseButton", script)
         self.assertIn("DESKTOP_SMOKE_SCENARIOS", script)
         self.assertIn("_exercise_operator_admin_employee_binding", script)
@@ -168,6 +239,42 @@ class BrowserSmokeScriptTests(unittest.TestCase):
         self.assertIn("transferRowsWithoutDiagnosticChips", script)
         self.assertIn("cashboxFinanceAuditButton", script)
         self.assertIn("cashboxJournalAuditButton", script)
+
+    def test_completion_act_pdf_fixtures_cover_26_rows_and_maximum_final_fields(
+        self,
+    ) -> None:
+        module = load_browser_smoke_module()
+        base_form = {
+            "document_number": "1",
+            "document_date": "20.08.2026",
+            "basis": "",
+            "performer": {},
+            "customer": {},
+            "items": [],
+            "acceptance_text": "",
+        }
+
+        standard, standard_names = module._completion_act_pdf_fixture(
+            base_form, label="standard", maximal_final_block=False
+        )
+        maximal, maximal_names = module._completion_act_pdf_fixture(
+            base_form, label="max-final", maximal_final_block=True
+        )
+
+        self.assertEqual(len(standard["items"]), 26)
+        self.assertEqual(len(standard_names), 26)
+        self.assertEqual(len(set(standard_names)), 26)
+        self.assertEqual(len(maximal["items"]), 26)
+        self.assertEqual(len(maximal_names), 26)
+        self.assertEqual(len(maximal["acceptance_text"]), 1000)
+        self.assertEqual(len(maximal["basis"]), 500)
+        for party_name in ("performer", "customer"):
+            party = maximal[party_name]
+            self.assertEqual(len(party["legal_name"]), 240)
+            self.assertEqual(len(party["address"]), 320)
+            self.assertEqual(len(party["bank_name"]), 240)
+            self.assertEqual(len(party["signer_position"]), 120)
+            self.assertEqual(len(party["signer_name"]), 160)
 
     def test_summarize_browser_events_reports_console_page_and_network_failures(self) -> None:
         module = load_browser_smoke_module()

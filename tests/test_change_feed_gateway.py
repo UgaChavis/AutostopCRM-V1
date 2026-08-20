@@ -190,6 +190,11 @@ class ChangeFeedRawGatewayContractTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(16, len(schema_hash(schema)))
         read_schema = virtual_api_schema(CHANGE_FEED_READ_ROUTE)
         self.assertEqual(25, read_schema["properties"]["limit"]["maximum"])
+        reset_route = "/api/reset_completion_act_form"
+        self.assertEqual(
+            "destructive",
+            virtual_api_risk(reset_route, virtual_api_name(reset_route)),
+        )
 
     async def test_all_routes_are_discoverable_without_adding_a_public_tool(self) -> None:
         public_names = {tool.name for tool in self.server._tool_manager.list_tools()}

@@ -3665,6 +3665,182 @@ class CardService(
             except PrintModuleError as exc:
                 self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
 
+    def _completion_act_card_id(self, payload: dict) -> str:
+        card_id = payload.get("card_id")
+        if not isinstance(card_id, str) or len(card_id) > 160 or not card_id.strip():
+            self._fail(
+                "validation_error",
+                "Передайте корректный идентификатор карточки для акта.",
+                details={"field": "card_id"},
+            )
+        return card_id.strip()
+
+    def _reject_manual_completion_act_payload(self, payload: dict) -> None:
+        request_text = payload.get("request_text")
+        if request_text is not None and not isinstance(request_text, str):
+            self._fail(
+                "validation_error",
+                "Текст запроса к акту должен быть строкой.",
+                details={"field": "request_text"},
+            )
+        if isinstance(request_text, str) and len(request_text) > 20_000:
+            self._fail(
+                "validation_error",
+                "Текст запроса к акту превышает допустимую длину.",
+                details={"field": "request_text", "max_length": 20_000},
+            )
+        if (
+            bool(payload.get("document_without_card"))
+            or isinstance(payload.get("manual_document"), dict)
+            or bool((request_text or "").strip())
+        ):
+            self._fail(
+                "validation_error",
+                "Редактор акта доступен только для сохранённой карточки CRM.",
+            )
+
+    def _completion_act_mutation_metadata(self, payload: dict) -> tuple[int, str, str]:
+        expected_version = payload.get("expected_version")
+        if type(expected_version) is not int or expected_version < 0:
+            self._fail(
+                "validation_error",
+                "Передайте актуальную версию черновика акта.",
+                details={"field": "expected_version"},
+            )
+        idempotency_key = payload.get("idempotency_key")
+        if (
+            not isinstance(idempotency_key, str)
+            or len(idempotency_key) > 128
+            or not idempotency_key.strip()
+        ):
+            self._fail(
+                "validation_error",
+                "Передайте корректный idempotency_key для акта.",
+                details={"field": "idempotency_key"},
+            )
+        source = payload.get("form_source", payload.get("source", "manual"))
+        if not isinstance(source, str) or len(source) > 32:
+            self._fail(
+                "validation_error",
+                "Источник формы акта должен быть короткой строкой.",
+                details={"field": "source"},
+            )
+        actor_name = payload.get("actor_name")
+        if actor_name is not None and (not isinstance(actor_name, str) or len(actor_name) > 120):
+            self._fail(
+                "validation_error",
+                "Автор изменения акта должен быть короткой строкой.",
+                details={"field": "actor_name"},
+            )
+        return expected_version, idempotency_key.strip(), source.strip() or "manual"
+
+    def _completion_act_expected_source_fingerprint(self, payload: dict) -> str:
+        value = payload.get("expected_source_fingerprint")
+        if (
+            not isinstance(value, str)
+            or len(value) != 64
+            or any(character not in "0123456789abcdef" for character in value)
+        ):
+            self._fail(
+                "validation_error",
+                "Передайте актуальный отпечаток исходных данных акта.",
+                details={"field": "expected_source_fingerprint"},
+            )
+        return value
+
+    def get_completion_act_form(self, payload: dict | None = None) -> dict:
+        payload = payload or {}
+        card_id = self._completion_act_card_id(payload)
+        self._reject_manual_completion_act_payload(payload)
+        with self._lock:
+            bundle = self._store.read_bundle()
+            card = self._find_card(bundle["cards"], card_id)
+            linked_client = self._find_client_or_none(bundle["clients"], card.client_id)
+            try:
+                return self._print_module.get_completion_act_form(
+                    card,
+                    repair_order=card.repair_order,
+                    client=linked_client,
+                )
+            except PrintModuleError as exc:
+                self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
+
+    def save_completion_act_form(self, payload: dict | None = None) -> dict:
+        payload = payload or {}
+        card_id = self._completion_act_card_id(payload)
+        self._reject_manual_completion_act_payload(payload)
+        expected_version, idempotency_key, form_source = self._completion_act_mutation_metadata(
+            payload
+        )
+        expected_source_fingerprint = self._completion_act_expected_source_fingerprint(payload)
+        form_data = payload.get("form")
+        if form_data is None:
+            form_data = payload.get("form_data")
+        if not isinstance(form_data, dict):
+            self._fail(
+                "validation_error",
+                "Форма акта должна быть объектом.",
+                details={"field": "form"},
+            )
+        with self._lock:
+            bundle = self._store.read_bundle()
+            card = self._find_card(bundle["cards"], card_id)
+            linked_client = self._find_client_or_none(bundle["clients"], card.client_id)
+            session = (
+                payload.get("_operator_session")
+                if isinstance(payload.get("_operator_session"), dict)
+                else {}
+            )
+            actor_name = normalize_actor_name(
+                (session.get("audit_actor_name") or session.get("username")) if session else "API"
+            )
+            try:
+                return self._print_module.save_completion_act_form(
+                    card,
+                    repair_order=card.repair_order,
+                    client=linked_client,
+                    form_data=form_data,
+                    expected_version=expected_version,
+                    expected_source_fingerprint=expected_source_fingerprint,
+                    idempotency_key=idempotency_key,
+                    filled_by=actor_name,
+                    source=form_source,
+                )
+            except PrintModuleError as exc:
+                self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
+
+    def reset_completion_act_form(self, payload: dict | None = None) -> dict:
+        payload = payload or {}
+        card_id = self._completion_act_card_id(payload)
+        self._reject_manual_completion_act_payload(payload)
+        expected_version, idempotency_key, form_source = self._completion_act_mutation_metadata(
+            payload
+        )
+        with self._lock:
+            bundle = self._store.read_bundle()
+            card = self._find_card(bundle["cards"], card_id)
+            linked_client = self._find_client_or_none(bundle["clients"], card.client_id)
+            session = (
+                payload.get("_operator_session")
+                if isinstance(payload.get("_operator_session"), dict)
+                else {}
+            )
+            actor_name = normalize_actor_name(
+                (session.get("audit_actor_name") or session.get("username")) if session else "API"
+            )
+            try:
+                return self._print_module.reset_completion_act_form(
+                    card,
+                    repair_order=card.repair_order,
+                    client=linked_client,
+                    expected_version=expected_version,
+                    idempotency_key=idempotency_key,
+                    filled_by=actor_name,
+                    source=form_source,
+                )
+            except PrintModuleError as exc:
+                self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
+
     def save_inspection_sheet_form(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
@@ -4063,6 +4239,25 @@ class CardService(
 
     def _print_module_card(self, card: Card, payload: dict | None = None) -> Card:
         payload = payload or {}
+        selected_document_ids = payload.get("selected_document_ids")
+        if isinstance(selected_document_ids, str):
+            selected_document_values = (selected_document_ids,)
+        elif isinstance(selected_document_ids, (list, tuple, set)):
+            selected_document_values = selected_document_ids
+        else:
+            selected_document_values = ()
+        completion_act_selected = any(
+            isinstance(item, str) and item.strip() == "completion_act"
+            for item in selected_document_values
+        ) or (
+            isinstance(payload.get("active_document_id"), str)
+            and payload["active_document_id"].strip() == "completion_act"
+        )
+        if completion_act_selected:
+            # The completion act is sourced from the persisted CRM repair order.
+            # Unsaved repair-order editor payloads must not make the ordinary
+            # preview diverge from the dedicated act editor and its source hash.
+            return Card.from_dict(card.to_storage_dict())
         repair_order_payload = payload.get("repair_order")
         if not isinstance(repair_order_payload, dict):
             return Card.from_dict(card.to_storage_dict())

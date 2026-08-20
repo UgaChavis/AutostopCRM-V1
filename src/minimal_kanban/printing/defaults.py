@@ -797,7 +797,242 @@ PRINT_BASE_STYLES = """
     font-size: 3.2pt;
     line-height: 0.9;
   }
+  .completion-act-page {
+    position: relative;
+    padding: 11mm 11mm 15mm;
+    color: #111;
+    font-family: Arial, "Segoe UI", sans-serif;
+    font-size: 9pt;
+    line-height: 1.22;
+  }
+  .completion-act__title {
+    margin: 0 0 2.2mm;
+    padding-bottom: 1.8mm;
+    border-bottom: 0.35mm solid #111;
+    font-size: 15.5pt;
+    font-weight: 700;
+    line-height: 1.08;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .completion-act__party-summary {
+    width: 100%;
+    margin-bottom: 2.8mm;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+  .completion-act__party-summary th,
+  .completion-act__party-summary td {
+    padding: 0.9mm 0;
+    vertical-align: top;
+    text-align: left;
+  }
+  .completion-act__party-summary th {
+    width: 29mm;
+    padding-right: 3mm;
+    font-weight: 400;
+    white-space: nowrap;
+  }
+  .completion-act__party-summary td {
+    font-weight: 600;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .completion-act__basis {
+    margin: -0.5mm 0 2.8mm;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .completion-act__intro {
+    margin: 0 0 1.5mm;
+  }
+  .completion-act__items {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 8.6pt;
+    line-height: 1.12;
+  }
+  .completion-act__items thead {
+    display: table-header-group;
+  }
+  .completion-act__items tfoot {
+    display: table-row-group;
+  }
+  .completion-act__items th,
+  .completion-act__items td {
+    border: 0.22mm solid #111;
+    padding: 0.75mm 0.8mm;
+    vertical-align: middle;
+    overflow-wrap: anywhere;
+  }
+  .completion-act__items th {
+    height: 10.5mm;
+    text-align: center;
+    font-weight: 700;
+  }
+  .completion-act__items tbody tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .completion-act__col-number { width: 5%; text-align: center; }
+  .completion-act__col-name { width: 50%; }
+  .completion-act__col-quantity { width: 10%; text-align: center; }
+  .completion-act__col-unit { width: 9%; text-align: center; }
+  .completion-act__col-price,
+  .completion-act__col-sum {
+    width: 13%;
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .completion-act__empty {
+    height: 10mm;
+    text-align: center;
+    color: #555;
+  }
+  .completion-act__items tfoot td {
+    font-weight: 700;
+  }
+  .completion-act__total-label {
+    border: 0 !important;
+    padding-right: 2mm !important;
+    text-align: right;
+  }
+  .completion-act__total-value {
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .completion-act__total-gross td {
+    font-weight: 800;
+  }
+  .completion-act__final {
+    margin-top: 2.5mm;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .completion-act__summary {
+    margin-bottom: 3mm;
+    font-size: 9pt;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .completion-act__summary p {
+    margin: 0.7mm 0;
+  }
+  .completion-act__acceptance {
+    margin: 3.2mm 0 3.5mm;
+    padding-top: 3.2mm;
+    border-top: 0.22mm solid #111;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    white-space: pre-line;
+  }
+  .completion-act__requisites {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+  .completion-act__requisites > tbody > tr > td {
+    width: 50%;
+    min-width: 0;
+    padding: 0 4mm 0 0;
+    vertical-align: top;
+  }
+  .completion-act__requisites > tbody > tr > td + td {
+    padding: 0 0 0 4mm;
+  }
+  .completion-act__party-title {
+    margin-bottom: 1mm;
+    font-size: 10pt;
+    font-weight: 700;
+  }
+  .completion-act__party-name {
+    min-height: 9mm;
+    margin-bottom: 1.8mm;
+    padding-bottom: 0.7mm;
+    border-bottom: 0.22mm solid #111;
+    font-size: 9.5pt;
+    font-weight: 700;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .completion-act__details {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+  .completion-act__details th,
+  .completion-act__details td {
+    padding: 0.65mm 0;
+    vertical-align: top;
+    text-align: left;
+  }
+  .completion-act__details th {
+    width: 14mm;
+    padding-right: 1.5mm;
+    font-weight: 400;
+    white-space: nowrap;
+  }
+  .completion-act__details td {
+    border-bottom: 0.18mm solid #111;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .completion-act__details--split th:nth-child(3) {
+    width: 13mm;
+    padding-left: 3mm;
+  }
+  .completion-act__signature {
+    display: grid;
+    grid-template-columns: minmax(22mm, 1fr) 23mm minmax(28mm, 1fr);
+    gap: 3mm;
+    align-items: end;
+    margin-top: 4mm;
+  }
+  .completion-act__signature > * {
+    min-width: 0;
+  }
+  .completion-act__signature-value {
+    min-height: 8mm;
+    padding-bottom: 0.7mm;
+    border-bottom: 0.22mm solid #111;
+    font-weight: 600;
+    line-height: 1.1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .completion-act__signature-value--blank {
+    color: transparent;
+  }
+  .completion-act__signature-caption {
+    margin-top: 0.7mm;
+    color: #333;
+    font-size: 6.2pt;
+    text-align: center;
+  }
+  .completion-act__stamp {
+    margin-top: 1mm;
+    text-align: center;
+  }
+  .completion-act__page-footer {
+    position: absolute;
+    right: 11mm;
+    bottom: 5mm;
+    max-width: 170mm;
+    font-size: 5.8pt;
+    line-height: 1.1;
+    text-align: right;
+  }
   @page regulated-landscape { size: A4 landscape; margin: 6mm; }
+  @page completion-act-page { size: A4 portrait; margin: 9mm; }
   @page { size: A4; margin: 9mm; }
   @media print {
     html,
@@ -826,6 +1061,25 @@ PRINT_BASE_STYLES = """
       margin: 0;
       box-shadow: none;
       border: 0;
+    }
+    .completion-act-page.document-page {
+      page: completion-act-page;
+      width: auto;
+      min-height: 260mm;
+      margin: 0;
+      padding: 0 0 8mm;
+      border: 0;
+      box-shadow: none;
+      break-after: auto;
+      page-break-after: auto;
+    }
+    .completion-act-page + .completion-act-page {
+      break-before: page;
+      page-break-before: always;
+    }
+    .completion-act__page-footer {
+      right: 0;
+      bottom: 0;
     }
   }
 """.strip()
@@ -1836,105 +2090,130 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
             "standard",
             "Стандартный акт выполненных работ",
             """
-<div class="document-page">
-  <table class="doc-head-table">
-    <tr>
-      <td class="doc-head-table__left">
-        <table class="doc-head-table" style="margin-bottom:0;">
-          <tr>
-            <td style="width:104px; vertical-align:top; padding-right:12px;">
-              <div class="doc-brand-mark">
-                {{#service.brand_logo_data_uri}}<img src="{{service.brand_logo_data_uri}}" width="70" height="70" style="width:70px;height:70px;" alt="AutoStop">{{/service.brand_logo_data_uri}}
-                {{^service.brand_logo_data_uri}}<div class="doc-brand-mark__fallback">AutoStop</div>{{/service.brand_logo_data_uri}}
-              </div>
-            </td>
-            <td style="vertical-align:top;">
-              <div class="doc-brand-copy">
-                <div class="doc-kicker">Закрывающий документ</div>
-                <h1 class="doc-title">Акт выполненных работ</h1>
-                <div class="doc-subtitle">К заказ-наряду № {{repair_order.number_display}} от {{dates.document_date_display}}</div>
-              </div>
-            </td>
-          </tr>
-        </table>
-      </td>
-      <td class="doc-head-table__right">
-        <div class="doc-service">
-          <div class="doc-service__name">{{service.company_name}}</div>
-          <div class="doc-service__meta">{{service.legal_name}}</div>
-          <div class="doc-service__meta">{{service.address}}</div>
-          <div class="doc-service__meta">Тел. {{service.reception_phone}}</div>
-        </div>
-      </td>
-    </tr>
+{{#completion_act.pages}}
+{{{page_break_marker}}}
+<div class="document-page completion-act-page">
+  {{#is_first}}
+  <header class="completion-act__first-header">
+    <h1 class="completion-act__title">Акт о сдаче-приемке выполненных работ № {{completion_act.document_number_display}} от {{completion_act.document_date_display}}</h1>
+    <table class="completion-act__party-summary">
+      <tr>
+        <th>Исполнитель:</th>
+        <td>{{#completion_act.performer}}{{legal_name_display}}{{#inn_display}}, ИНН {{inn_display}}{{/inn_display}}{{#kpp_display}}, КПП {{kpp_display}}{{/kpp_display}}{{#address_display}}, {{address_display}}{{/address_display}}{{/completion_act.performer}}</td>
+      </tr>
+      <tr>
+        <th>Заказчик:</th>
+        <td>{{#completion_act.customer}}{{legal_name_display}}{{#inn_display}}, ИНН {{inn_display}}{{/inn_display}}{{#kpp_display}}, КПП {{kpp_display}}{{/kpp_display}}{{#address_display}}, {{address_display}}{{/address_display}}{{/completion_act.customer}}</td>
+      </tr>
+    </table>
+    {{#completion_act.basis_display}}<div class="completion-act__basis"><strong>Основание:</strong> {{completion_act.basis_display}}</div>{{/completion_act.basis_display}}
+    <p class="completion-act__intro">Исполнитель выполнил следующие работы (услуги):</p>
+  </header>
+  {{/is_first}}
+
+  {{#show_table}}
+  <table class="completion-act__items">
+    <thead>
+      <tr>
+        <th class="completion-act__col-number">№</th>
+        <th class="completion-act__col-name">Наименование работ (услуг)</th>
+        <th class="completion-act__col-quantity">Коли-<br>чество</th>
+        <th class="completion-act__col-unit">Ед. изм.</th>
+        <th class="completion-act__col-price">Цена<br>(без НДС)</th>
+        <th class="completion-act__col-sum">Сумма<br>(без НДС)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#items}}
+      <tr>
+        <td class="completion-act__col-number">{{index}}</td>
+        <td class="completion-act__col-name">{{name}}</td>
+        <td class="completion-act__col-quantity">{{quantity_display}}</td>
+        <td class="completion-act__col-unit">{{unit_display}}</td>
+        <td class="completion-act__col-price">{{price_without_vat_display}}</td>
+        <td class="completion-act__col-sum">{{sum_without_vat_display}}</td>
+      </tr>
+      {{/items}}
+      {{^items}}{{#show_empty_items}}<tr><td class="completion-act__empty" colspan="6">Работы (услуги) не указаны</td></tr>{{/show_empty_items}}{{/items}}
+    </tbody>
+    {{#show_totals}}
+    <tfoot>
+      <tr><td class="completion-act__total-label" colspan="5">Итого:</td><td class="completion-act__total-value">{{completion_act.totals.base_display}}</td></tr>
+      <tr><td class="completion-act__total-label" colspan="5">НДС ({{completion_act.totals.vat_rate_display}}):</td><td class="completion-act__total-value">{{completion_act.totals.vat_display}}</td></tr>
+      <tr class="completion-act__total-gross"><td class="completion-act__total-label" colspan="5">Всего:</td><td class="completion-act__total-value">{{completion_act.totals.gross_display}}</td></tr>
+    </tfoot>
+    {{/show_totals}}
   </table>
-  <table class="doc-banner-table">
-    <tr>
-      <td>
-        <div class="doc-banner__label">Телефон ресепшена</div>
-        <div class="doc-banner-table__phone">{{#service.reception_phone}}{{service.reception_phone}}{{/service.reception_phone}}{{^service.reception_phone}}{{service.phone}}{{/service.reception_phone}}</div>
-      </td>
-      <td class="doc-banner-table__copy">Выдача автомобиля, согласование ремонта и вопросы по заказ-наряду</td>
-    </tr>
-  </table>
-  <table class="doc-meta-table">
-    <tr>
-      <td><div class="doc-label">Клиент</div><div class="doc-value">{{client.name_display}}</div></td>
-      <td><div class="doc-label">Телефон</div><div class="doc-value">{{client.phone_display}}</div></td>
-      <td><div class="doc-label">Автомобиль</div><div class="doc-value">{{vehicle.display_name}}</div></td>
-    </tr>
-    <tr>
-      <td><div class="doc-label">Заказ-наряд</div><div class="doc-value">№ {{repair_order.number_display}} от {{dates.document_date_display}}</div></td>
-      <td><div class="doc-label">Форма оплаты</div><div class="doc-value">{{repair_order.payment_method_label}}</div></td>
-      <td><div class="doc-label">Пробег</div><div class="doc-value">{{vehicle.mileage_display}}</div></td>
-    </tr>
-  </table>
-  <section class="doc-section">
-    <h2 class="doc-section__title">Выполненные работы</h2>
-    <table class="doc-table"><thead><tr><th>Наименование</th><th class="doc-table__narrow">Кол-во</th><th class="doc-table__sum">Цена</th><th class="doc-table__sum">Сумма</th></tr></thead><tbody>
-      {{#works}}<tr><td>{{name}}</td><td class="doc-table__narrow">{{quantity_display}}</td><td class="doc-table__sum">{{price_display}}</td><td class="doc-table__sum">{{total_display}}</td></tr>{{/works}}
-      {{^works}}<tr><td class="doc-table__empty" colspan="4">Работы не указаны</td></tr>{{/works}}
-    </tbody><tfoot><tr><td colspan="3">Итого работы</td><td class="doc-table__sum">{{totals.works_display}}</td></tr></tfoot></table>
-  </section>
-  <section class="doc-section">
-    <h2 class="doc-section__title">Материалы / запчасти</h2>
-    <table class="doc-table"><thead><tr><th>Наименование</th><th class="doc-table__narrow">Кол-во</th><th class="doc-table__sum">Цена</th><th class="doc-table__sum">Сумма</th></tr></thead><tbody>
-      {{#materials}}<tr><td>{{name}}</td><td class="doc-table__narrow">{{quantity_display}}</td><td class="doc-table__sum">{{price_display}}</td><td class="doc-table__sum">{{total_display}}</td></tr>{{/materials}}
-      {{^materials}}<tr><td class="doc-table__empty" colspan="4">Материалы не указаны</td></tr>{{/materials}}
-    </tbody><tfoot><tr><td colspan="3">Итого материалы</td><td class="doc-table__sum">{{totals.materials_display}}</td></tr></tfoot></table>
-  </section>
-  <section class="doc-section"><h2 class="doc-section__title">Справка для клиента</h2><div class="doc-note">{{{repair_order.client_information_html}}}</div></section>
-  <table class="doc-totals-table">
-    <tr class="doc-totals-table__strong"><td>Стоимость заказ-наряда за наличный расчет</td><td>{{totals.base_total_ruble_display}}</td></tr>
-    <tr class="doc-totals-table__strong"><td>Стоимость заказ-наряда по безналичному расчету<br><small>включая налоги и сборы 15%</small></td><td>{{totals.noncash_total_ruble_display}}</td></tr>
-    {{#totals.has_cash_like_prepayment}}<tr><td>Предоплата за наличные</td><td>{{totals.cash_like_prepayment_ruble_display}}</td></tr>{{/totals.has_cash_like_prepayment}}
-    {{#totals.has_cashless_prepayment}}<tr><td>Предоплата по безналу</td><td>{{totals.cashless_prepayment_ruble_display}}</td></tr>{{/totals.has_cashless_prepayment}}
-    <tr class="doc-totals-table__grand"><td>Доплата по безналичному расчету</td><td>{{totals.noncash_due_ruble_display}}</td></tr>
-    <tr class="doc-totals-table__grand"><td>Доплата по наличному расчету</td><td>{{totals.cash_due_ruble_display}}</td></tr>
-  </table>
-  <div class="doc-invoice-words">Сумма прописью: <strong>{{totals.due_words_display}}</strong></div>
-  <section class="doc-section doc-section--warranty doc-section--warranty-summary">
-    <h2 class="doc-section__title">Ключевые условия</h2>
-    <div class="doc-terms doc-terms--compact">{{{repair_order.terms_summary_html}}}</div>
-  </section>
-  <section class="doc-section">
-    <h2 class="doc-section__title">Подписи сторон</h2>
-    <table class="doc-signatures-table">
+  {{/show_table}}
+
+  {{#show_closing}}
+  <section class="completion-act__final">
+    {{#show_summary}}
+    <div class="completion-act__summary">
+      <p>Всего наименований {{completion_act.items_count}}, на сумму {{completion_act.totals.gross_display}} руб.</p>
+      <p><strong>{{completion_act.totals.gross_words_display}}</strong></p>
+      <p><strong>В том числе НДС ({{completion_act.totals.vat_rate_display}}) {{completion_act.totals.vat_words_display}}</strong></p>
+    </div>
+    {{/show_summary}}
+
+    {{#show_acceptance}}<div class="completion-act__acceptance">{{acceptance_text}}</div>{{/show_acceptance}}
+
+    {{#show_requisites}}
+    <table class="completion-act__requisites">
       <tr>
         <td>
-          <div class="doc-signatures__role">Исполнитель</div>
-          <div class="doc-signature-line">&nbsp;</div>
-          <div class="doc-signature-caption">{{service.company_name}}</div>
+          <div class="completion-act__party-title">Исполнитель</div>
+          {{#completion_act.performer}}
+          <div class="completion-act__party-name">{{legal_name_display}}</div>
+          <table class="completion-act__details completion-act__details--split">
+            <tr><th>ИНН</th><td>{{inn_display}}</td><th>КПП</th><td>{{kpp_display}}</td></tr>
+          </table>
+          <table class="completion-act__details">
+            <tr><th>Адрес:</th><td>{{address_display}}</td></tr>
+            <tr><th>р/с:</th><td>{{settlement_account_display}}</td></tr>
+            <tr><th>Банк:</th><td>{{bank_name_display}}</td></tr>
+            <tr><th>БИК:</th><td>{{bik_display}}</td></tr>
+            <tr><th>к/с:</th><td>{{correspondent_account_display}}</td></tr>
+          </table>
+          <div class="completion-act__signature">
+            <div><div class="completion-act__signature-value">{{signer_position_display}}</div><div class="completion-act__signature-caption">(должность)</div></div>
+            <div><div class="completion-act__signature-value completion-act__signature-value--blank">&nbsp;</div><div class="completion-act__signature-caption">(подпись)</div></div>
+            <div><div class="completion-act__signature-value">{{signer_name_display}}</div><div class="completion-act__signature-caption">(ф.и.о.)</div></div>
+          </div>
+          {{/completion_act.performer}}
+          <div class="completion-act__stamp">М.П.</div>
         </td>
         <td>
-          <div class="doc-signatures__role">Заказчик</div>
-          <div class="doc-signature-line">&nbsp;</div>
-          <div class="doc-signature-caption">Работы принял, претензий не имею</div>
+          <div class="completion-act__party-title">Заказчик</div>
+          {{#completion_act.customer}}
+          <div class="completion-act__party-name">{{legal_name_display}}</div>
+          <table class="completion-act__details completion-act__details--split">
+            <tr><th>ИНН</th><td>{{inn_display}}</td><th>КПП</th><td>{{kpp_display}}</td></tr>
+          </table>
+          <table class="completion-act__details">
+            <tr><th>Адрес:</th><td>{{address_display}}</td></tr>
+            <tr><th>р/с:</th><td>{{settlement_account_display}}</td></tr>
+            <tr><th>Банк:</th><td>{{bank_name_display}}</td></tr>
+            <tr><th>БИК:</th><td>{{bik_display}}</td></tr>
+            <tr><th>к/с:</th><td>{{correspondent_account_display}}</td></tr>
+          </table>
+          <div class="completion-act__signature">
+            <div><div class="completion-act__signature-value">{{signer_position_display}}</div><div class="completion-act__signature-caption">(должность)</div></div>
+            <div><div class="completion-act__signature-value completion-act__signature-value--blank">&nbsp;</div><div class="completion-act__signature-caption">(подпись)</div></div>
+            <div><div class="completion-act__signature-value">{{signer_name_display}}</div><div class="completion-act__signature-caption">(ф.и.о.)</div></div>
+          </div>
+          {{/completion_act.customer}}
+          <div class="completion-act__stamp">М.П.</div>
         </td>
       </tr>
     </table>
+    {{/show_requisites}}
   </section>
+  {{/show_closing}}
+
+  <div class="completion-act__page-footer">Акт о сдаче-приемке выполненных работ № {{completion_act.document_number_display}} от {{completion_act.document_date_display}} страница {{page_number}} из {{page_count}}</div>
 </div>
+{{/completion_act.pages}}
             """,
         ),
         _record(

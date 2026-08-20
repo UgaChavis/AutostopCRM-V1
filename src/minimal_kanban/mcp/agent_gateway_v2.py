@@ -81,6 +81,7 @@ from .raw_capability_discovery import discovery_phrase, raw_capability_discovery
 from .raw_gateway import (
     OPTIMISTIC_WRITE_NAMES,
     RAW_API_ROUTES,
+    VERSIONED_WRITE_NAMES,
     verify_virtual_api_write_readback,
 )
 from .raw_gateway import (
@@ -2849,6 +2850,37 @@ def register_agent_gateway_v2(
                 ),
                 label="call_raw_capability",
             )
+        if normalized_name in VERSIONED_WRITE_NAMES:
+            expected_version = (arguments or {}).get("expected_version")
+            if (
+                isinstance(expected_version, bool)
+                or not isinstance(expected_version, int)
+                or expected_version < 0
+            ):
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=["expected_version_required_reread_exact_completion_act_first"],
+                    ),
+                    label="call_raw_capability",
+                )
+        if normalized_name == "api:/api/save_completion_act_form":
+            expected_source_fingerprint = (arguments or {}).get("expected_source_fingerprint")
+            if not (
+                isinstance(expected_source_fingerprint, str)
+                and re.fullmatch(r"[0-9a-f]{64}", expected_source_fingerprint)
+            ):
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=[
+                            "expected_source_fingerprint_required_reread_exact_completion_act_first"
+                        ],
+                    ),
+                    label="call_raw_capability",
+                )
         run_id: int | None = None
         effective_arguments = dict(arguments or {})
         maintenance_headers = _maintenance_release_smoke_headers(
@@ -2869,6 +2901,24 @@ def register_agent_gateway_v2(
                     ),
                     label="call_raw_capability",
                 )
+            if normalized_name in VERSIONED_WRITE_NAMES:
+                outer_idempotency_key = str(idempotency_key or "").strip()
+                inner_idempotency_key = str(
+                    effective_arguments.get("idempotency_key") or ""
+                ).strip()
+                if inner_idempotency_key and inner_idempotency_key != outer_idempotency_key:
+                    return _tool_result(
+                        _envelope(
+                            ok=False,
+                            status="blocked",
+                            warnings=["completion_act_idempotency_key_mismatch"],
+                        ),
+                        label="call_raw_capability",
+                    )
+                # The raw-write ledger key and the document-store key are one
+                # operation identity. Never let callers omit or independently
+                # choose the inner API value.
+                effective_arguments["idempotency_key"] = outer_idempotency_key
             if normalized_name == "store_owner_api":
                 supplied_contract_id = str(
                     effective_arguments.get("expected_contract_id") or ""

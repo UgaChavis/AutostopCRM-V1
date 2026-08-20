@@ -8,6 +8,9 @@ PRINTING_WEB_MODULE_STYLE = r"""
     #inspectionSheetFormModal {
       z-index: 18;
     }
+    #completionActEditorModal {
+      z-index: 19;
+    }
     body.is-mobile-lite #repairOrderPrintModal {
       z-index: 68;
     }
@@ -16,6 +19,9 @@ PRINTING_WEB_MODULE_STYLE = r"""
     }
     body.is-mobile-lite #inspectionSheetFormModal {
       z-index: 70;
+    }
+    body.is-mobile-lite #completionActEditorModal {
+      z-index: 71;
     }
     .dialog--repair-order-print {
       width: min(1718px, calc(100% - 18px));
@@ -32,7 +38,7 @@ PRINTING_WEB_MODULE_STYLE = r"""
       height: min(96vh, 1160px);
       overflow: hidden;
       display: grid;
-      grid-template-rows: auto minmax(0, 1fr) auto;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
     }
     .repair-order-print-layout {
       min-height: 0;
@@ -117,6 +123,24 @@ PRINTING_WEB_MODULE_STYLE = r"""
       width: 100%;
       transition: background .15s ease, transform .15s ease, box-shadow .15s ease;
     }
+    .repair-order-print-doc-row { display: grid; grid-template-columns: minmax(0, 1fr) 44px; gap: 6px; align-items: stretch; }
+    .repair-order-print-doc-row .repair-order-print-doc { min-width: 0; }
+    .repair-order-print-doc__editor {
+      appearance: none;
+      width: 44px;
+      min-width: 44px;
+      min-height: 44px;
+      padding: 0;
+      border: 1px solid rgba(116, 128, 111, 0.36);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+    }
+    .repair-order-print-doc__editor:hover,
+    .repair-order-print-doc__editor:focus-visible { border-color: rgba(211, 220, 164, 0.82); background: rgba(167, 178, 132, 0.14); outline: none; }
     .repair-order-print-doc:hover { background: rgba(167, 178, 132, 0.08); transform: translateX(1px); }
     .repair-order-print-doc.is-active { background: rgba(167, 178, 132, 0.14); border-color: rgba(211, 220, 164, 0.7); box-shadow: inset 0 0 0 1px rgba(211, 220, 164, 0.16); }
     .repair-order-print-doc__meta { min-width: 0; display: flex; flex: 1 1 auto; align-items: center; gap: 8px; }
@@ -280,10 +304,119 @@ PRINTING_WEB_MODULE_STYLE = r"""
       flex-wrap: wrap;
     }
     .inspection-sheet-form__actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .dialog--completion-act-editor {
+      width: min(1880px, calc(100% - 18px));
+      max-width: none;
+      height: min(96vh, 1160px);
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
+    }
+    .completion-act-editor {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(520px, 0.9fr) minmax(620px, 1.1fr);
+      gap: 14px;
+      padding: 14px;
+      background: rgba(0, 0, 0, 0.08);
+    }
+    .completion-act-editor__pane {
+      min-height: 0;
+      border: 1px solid rgba(116, 128, 111, 0.42);
+      border-radius: 16px;
+      background: rgba(30, 37, 32, 0.96);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .completion-act-editor__pane-head { padding: 12px 14px; border-bottom: 1px solid rgba(116, 128, 111, 0.28); display: flex; flex-direction: column; gap: 8px; }
+    .completion-act-editor__pane-title { font-family: var(--mono); font-size: 12px; text-transform: uppercase; letter-spacing: .12em; color: var(--text-soft); }
+    .completion-act-editor__meta { color: var(--text-soft); font-size: 12px; line-height: 1.45; }
+    .completion-act-editor__warning { margin: 0 14px; padding: 10px 12px; border: 1px solid rgba(217, 164, 65, .52); border-radius: 10px; background: rgba(217, 164, 65, .12); color: #f1d591; font-size: 12px; line-height: 1.45; }
+    .completion-act-editor__warning[hidden] { display: none; }
+    .completion-act-editor__warning--live { border-color: rgba(116, 128, 111, .52); background: rgba(116, 128, 111, .12); color: var(--text-soft); }
+    .completion-act-editor__tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+    .completion-act-editor__tab { min-height: 36px; flex: 0 0 auto; padding-inline: 10px; font-size: 10px; }
+    .completion-act-editor__tab.is-active { border-color: rgba(211, 220, 164, .8); background: rgba(167, 178, 132, .16); }
+    .completion-act-editor__form { min-height: 0; overflow: auto; padding: 14px; }
+    .completion-act-editor__section { display: flex; flex-direction: column; gap: 12px; }
+    .completion-act-editor__section[hidden] { display: none; }
+    .completion-act-editor__section-title { font-size: 13px; font-weight: 700; color: var(--text); }
+    .completion-act-editor__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .completion-act-editor__field--wide { grid-column: 1 / -1; }
+    .completion-act-editor__field .field { gap: 5px; }
+    .completion-act-editor__field label { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .completion-act-editor__field input,
+    .completion-act-editor__field textarea,
+    .completion-act-items input,
+    .completion-act-items select { background: rgba(14, 18, 15, 0.76); }
+    .completion-act-editor__field textarea { min-height: 112px; resize: vertical; line-height: 1.45; }
+    .completion-act-source-badge { flex: 0 0 auto; padding: 2px 6px; border: 1px solid rgba(116, 128, 111, .38); border-radius: 999px; color: var(--text-soft); font-size: 9px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+    .completion-act-source-badge.is-manual { border-color: rgba(211, 220, 164, .56); color: #d3dca4; background: rgba(167, 178, 132, .1); }
+    .completion-act-items { display: flex; flex-direction: column; gap: 8px; }
+    .completion-act-items__toolbar { display: flex; justify-content: space-between; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .completion-act-items__rows { display: flex; flex-direction: column; gap: 8px; }
+    .completion-act-item {
+      display: grid;
+      grid-template-columns: 86px minmax(180px, 1fr) 74px 64px 104px 112px 144px;
+      gap: 6px;
+      align-items: end;
+      padding: 8px;
+      border: 1px solid rgba(116, 128, 111, .34);
+      border-radius: 12px;
+      background: rgba(255,255,255,.02);
+    }
+    .completion-act-item .field { gap: 4px; min-width: 0; }
+    .completion-act-item label { font-size: 10px; color: var(--text-soft); }
+    .completion-act-item__total { min-height: 38px; display: flex; align-items: center; padding: 8px 9px; border: 1px solid rgba(116, 128, 111, .25); border-radius: 8px; background: rgba(255,255,255,.025); color: var(--text-soft); font-family: var(--mono); font-size: 12px; }
+    .completion-act-item__actions { display: grid; grid-template-columns: repeat(4, 32px); gap: 4px; }
+    .completion-act-item__actions .btn { min-width: 32px; min-height: 38px; padding: 0; }
+    .completion-act-fresh-items { display: flex; flex-direction: column; gap: 8px; padding: 11px; border: 1px solid rgba(217, 164, 65, .48); border-radius: 12px; background: rgba(217, 164, 65, .08); }
+    .completion-act-fresh-items[hidden] { display: none; }
+    .completion-act-fresh-items__head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .completion-act-fresh-items__title { color: #f1d591; font-size: 12px; font-weight: 700; }
+    .completion-act-fresh-items__count { color: var(--text-soft); font-size: 11px; }
+    .completion-act-fresh-items__list { display: flex; flex-direction: column; gap: 6px; }
+    .completion-act-fresh-item { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 4px 10px; padding: 7px 8px; border: 1px solid rgba(116, 128, 111, .3); border-radius: 9px; background: rgba(14, 18, 15, .48); }
+    .completion-act-fresh-item__section { grid-row: 1 / span 2; color: #d3dca4; font-family: var(--mono); font-size: 10px; text-transform: uppercase; }
+    .completion-act-fresh-item__name { min-width: 0; color: var(--text); font-size: 12px; overflow-wrap: anywhere; }
+    .completion-act-fresh-item__meta { color: var(--text-soft); font-size: 11px; overflow-wrap: anywhere; }
+    .completion-act-totals { margin-top: 4px; margin-left: auto; width: min(100%, 360px); display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; padding: 12px; border: 1px solid rgba(116, 128, 111, .36); border-radius: 12px; background: rgba(255,255,255,.025); }
+    .completion-act-totals__label { color: var(--text-soft); }
+    .completion-act-totals__value { text-align: right; font-family: var(--mono); color: var(--text); }
+    .completion-act-totals__grand { font-weight: 700; color: #d3dca4; }
+    .completion-act-editor__preview-toolbar { padding: 12px 14px; border-bottom: 1px solid rgba(116, 128, 111, .28); display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+    .completion-act-editor__preview-wrap { min-height: 0; flex: 1; overflow: auto; padding: 14px; background: #1a211c; display: flex; justify-content: center; align-items: flex-start; }
+    .completion-act-editor__preview-stage { width: 760px; height: 1080px; position: relative; flex: 0 0 auto; }
+    .completion-act-editor__preview-frame { position: absolute; inset: 0 auto auto 0; width: 920px; height: 1180px; border: 0; border-radius: 10px; background: #fff; box-shadow: 0 14px 34px rgba(0,0,0,.24); transform-origin: top left; }
+    .completion-act-editor__mobile-toggle { display: none; gap: 6px; padding: 10px 14px 0; }
+    .completion-act-editor__footer { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .completion-act-editor__actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+    @media (max-width: 1800px) {
+      .completion-act-item { grid-template-columns: 90px minmax(180px, 1fr) 100px; }
+      .completion-act-item__actions { grid-column: 1 / -1; justify-content: end; }
+    }
     @media (max-width: 1100px) {
       .dialog--inspection-sheet-form { width: min(100%, calc(100% - 12px)); height: min(100vh, 100%); }
       .inspection-sheet-form__grid,
       .inspection-sheet-form__row { grid-template-columns: 1fr; }
+      .modal .dialog--completion-act-editor.dialog--fixed-actions { width: min(100%, calc(100% - 8px)); height: 100vh; grid-template-rows: auto auto minmax(0, 1fr) auto; }
+      .completion-act-editor { grid-template-columns: 1fr; padding: 8px; }
+      .completion-act-editor__mobile-toggle { display: flex; position: relative; z-index: 4; background: rgba(28, 36, 30, .98); }
+      .completion-act-editor[data-mobile-view="data"] .completion-act-editor__pane--preview { display: none; }
+      .completion-act-editor[data-mobile-view="preview"] .completion-act-editor__pane--form { display: none; }
+      .completion-act-editor__pane { min-height: 0; }
+      .completion-act-editor__grid { grid-template-columns: 1fr; }
+      .completion-act-editor__field--wide { grid-column: auto; }
+      .completion-act-item { grid-template-columns: 90px minmax(180px, 1fr) 78px; }
+      .completion-act-item .field:nth-child(4),
+      .completion-act-item .field:nth-child(5),
+      .completion-act-item__total { grid-column: auto; }
+    }
+    @media (max-width: 620px) {
+      .completion-act-item { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+      .completion-act-item .field:nth-child(2),
+      .completion-act-item__actions { grid-column: 1 / -1; }
     }
     @media (max-width: 1500px) {
       .repair-order-print-layout { grid-template-columns: 220px minmax(0, 1fr); grid-template-areas: "docs preview"; }
@@ -431,6 +564,7 @@ PRINTING_WEB_MODULE_HTML = r"""
               <div class="field field--compact"><label for="printProfileOgrn">ОГРН</label><input id="printProfileOgrn" type="text" maxlength="32"></div>
               <div class="repair-order-print-settings__row"><div class="field field--compact"><label for="printProfileBankName">Банк</label><input id="printProfileBankName" type="text" maxlength="160"></div><div class="field field--compact"><label for="printProfileBik">БИК</label><input id="printProfileBik" type="text" maxlength="32"></div></div>
               <div class="repair-order-print-settings__row"><div class="field field--compact"><label for="printProfileSettlementAccount">Р/с</label><input id="printProfileSettlementAccount" type="text" maxlength="64"></div><div class="field field--compact"><label for="printProfileCorrespondentAccount">К/с</label><input id="printProfileCorrespondentAccount" type="text" maxlength="64"></div></div>
+              <div class="repair-order-print-settings__row"><div class="field field--compact"><label for="printProfileSignerPosition">Должность подписанта</label><input id="printProfileSignerPosition" type="text" maxlength="120"></div><div class="field field--compact"><label for="printProfileSignerName">ФИО подписанта</label><input id="printProfileSignerName" type="text" maxlength="160"></div></div>
               <div class="field field--compact"><label for="printProfileTaxLabel">Налоговый режим</label><input id="printProfileTaxLabel" type="text" maxlength="48"></div>
               <div class="field field--compact"><label for="printProfilePaymentPurpose">Назначение платежа</label><input id="printProfilePaymentPurpose" type="text" maxlength="240"></div>
               <button class="btn btn--ghost" id="repairOrderPrintSaveSettingsButton" type="button">СОХРАНИТЬ НАСТРОЙКИ</button>
@@ -544,6 +678,108 @@ PRINTING_WEB_MODULE_HTML = r"""
       </div>
     </div>
   </div>
+
+  <div class="modal" id="completionActEditorModal">
+    <div class="dialog dialog--completion-act-editor dialog--fixed-actions" role="dialog" aria-modal="true" aria-labelledby="completionActEditorTitle">
+      <div class="dialog__head dialog__floating-actions">
+        <div><div class="dialog__title-prefix">АКТ</div><h2 class="dialog__title" id="completionActEditorTitle">Редактор акта выполненных работ</h2></div>
+        <button class="btn btn--ghost" id="completionActEditorCloseX" type="button">ЗАКРЫТЬ</button>
+      </div>
+      <div class="completion-act-editor__mobile-toggle" role="group" aria-label="Режим редактора">
+        <button class="btn btn--ghost is-active" id="completionActMobileDataButton" type="button" aria-pressed="true">ДАННЫЕ</button>
+        <button class="btn btn--ghost" id="completionActMobilePreviewButton" type="button" aria-pressed="false">ПРЕДПРОСМОТР</button>
+      </div>
+      <div class="dialog__body dialog__body-scroll completion-act-editor" id="completionActEditorLayout" data-mobile-view="data">
+        <section class="completion-act-editor__pane completion-act-editor__pane--form">
+          <div class="completion-act-editor__pane-head">
+            <div class="completion-act-editor__pane-title">Данные документа</div>
+            <div class="completion-act-editor__meta" id="completionActEditorMeta">Загрузка данных из заказ-наряда...</div>
+            <nav class="completion-act-editor__tabs" aria-label="Разделы акта">
+              <button class="btn btn--ghost completion-act-editor__tab is-active" data-completion-act-section="document" type="button" aria-pressed="true">ДОКУМЕНТ</button>
+              <button class="btn btn--ghost completion-act-editor__tab" data-completion-act-section="performer" type="button" aria-pressed="false">ИСПОЛНИТЕЛЬ</button>
+              <button class="btn btn--ghost completion-act-editor__tab" data-completion-act-section="customer" type="button" aria-pressed="false">ЗАКАЗЧИК</button>
+              <button class="btn btn--ghost completion-act-editor__tab" data-completion-act-section="items" type="button" aria-pressed="false">РАБОТЫ И МАТЕРИАЛЫ</button>
+              <button class="btn btn--ghost completion-act-editor__tab" data-completion-act-section="terms" type="button" aria-pressed="false">УСЛОВИЯ И ПОДПИСИ</button>
+            </nav>
+          </div>
+          <div class="completion-act-editor__warning" id="completionActStaleWarning" role="status" hidden></div>
+          <div class="completion-act-editor__warning completion-act-editor__warning--live" id="completionActLiveWarnings" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+          <form class="completion-act-editor__form" id="completionActEditorForm" autocomplete="off">
+            <section class="completion-act-editor__section" data-completion-act-panel="document">
+              <div class="completion-act-editor__section-title">Документ</div>
+              <div class="completion-act-editor__grid">
+                <div class="completion-act-editor__field"><div class="field field--compact"><label for="completionActDocumentNumber">Номер <span class="completion-act-source-badge" data-completion-act-source="document_number">из ЗН</span></label><input id="completionActDocumentNumber" data-completion-act-field="document_number" type="text" maxlength="80"></div></div>
+                <div class="completion-act-editor__field"><div class="field field--compact"><label for="completionActDocumentDate">Дата <span class="completion-act-source-badge" data-completion-act-source="document_date">из ЗН</span></label><input id="completionActDocumentDate" data-completion-act-field="document_date" type="text" maxlength="64" placeholder="ДД.ММ.ГГГГ"></div></div>
+                <div class="completion-act-editor__field completion-act-editor__field--wide"><div class="field field--compact"><label for="completionActBasis">Основание <span class="completion-act-source-badge" data-completion-act-source="basis">из ЗН</span></label><textarea id="completionActBasis" data-completion-act-field="basis" maxlength="500"></textarea></div></div>
+              </div>
+            </section>
+            <section class="completion-act-editor__section" data-completion-act-panel="performer" hidden>
+              <div class="completion-act-editor__section-title">Реквизиты исполнителя</div>
+              <div class="completion-act-editor__grid" id="completionActPerformerFields">
+                <div class="completion-act-editor__field completion-act-editor__field--wide"><div class="field field--compact"><label for="completionActPerformerLegalName">Наименование <span class="completion-act-source-badge" data-completion-act-source="performer.legal_name">из настроек</span></label><input id="completionActPerformerLegalName" data-completion-act-field="performer.legal_name" type="text" maxlength="240"></div></div>
+                <div class="completion-act-editor__field completion-act-editor__field--wide"><div class="field field--compact"><label for="completionActPerformerAddress">Адрес <span class="completion-act-source-badge" data-completion-act-source="performer.address">из настроек</span></label><input id="completionActPerformerAddress" data-completion-act-field="performer.address" type="text" maxlength="320"></div></div>
+                <div class="completion-act-editor__field"><div class="field field--compact"><label for="completionActPerformerInn">ИНН <span class="completion-act-source-badge" data-completion-act-source="performer.inn">из настроек</span></label><input id="completionActPerformerInn" data-completion-act-field="performer.inn" type="text" maxlength="32"></div></div>
+                <div class="completion-act-editor__field"><div class="field field--compact"><label for="completionActPerformerKpp">КПП <span class="completion-act-source-badge" data-completion-act-source="performer.kpp">из настроек</span></label><input id="completionActPerformerKpp" data-completion-act-field="performer.kpp" type="text" maxlength="32"></div></div>
+                <div class="completion-act-editor__field"><div class="field field--compact"><label for="completionActPerformerOgrn">ОГРН <span class="completion-act-source-badge" data-completion-act-source="performer.ogrn">из настроек</span></label><input id="completionActPerformerOgrn" data-completion-act-field="performer.ogrn" type="text" maxlength="32"></div></div>
+                <div class="completion-act-editor__field"><div class="field field--compact"><label for="completionActPerformerBik">БИК <span class="completion-act-source-badge" data-completion-act-source="performer.bik">из настроек</span></label><input id="completionActPerformerBik" data-completion-act-field="performer.bik" type="text" maxlength="32"></div></div>
+                <div class="completion-act-editor__field completion-act-editor__field--wide"><div class="field field--compact"><label for="completionActPerformerBankName">Банк <span class="completion-act-source-badge" data-completion-act-source="performer.bank_name">из настроек</span></label><input id="completionActPerformerBankName" data-completion-act-field="performer.bank_name" type="text" maxlength="240"></div></div>
+                <div class="completion-act-editor__field"><div class="field field--compact"><label for="completionActPerformerSettlementAccount">Расчётный счёт <span class="completion-act-source-badge" data-completion-act-source="performer.settlement_account">из настроек</span></label><input id="completionActPerformerSettlementAccount" data-completion-act-field="performer.settlement_account" type="text" maxlength="64"></div></div>
+                <div class="completion-act-editor__field"><div class="field field--compact"><label for="completionActPerformerCorrespondentAccount">Корр. счёт <span class="completion-act-source-badge" data-completion-act-source="performer.correspondent_account">из настроек</span></label><input id="completionActPerformerCorrespondentAccount" data-completion-act-field="performer.correspondent_account" type="text" maxlength="64"></div></div>
+              </div>
+            </section>
+            <section class="completion-act-editor__section" data-completion-act-panel="customer" hidden>
+              <div class="completion-act-editor__section-title">Реквизиты заказчика</div>
+              <div class="completion-act-editor__grid" id="completionActCustomerFields">
+                <div class="completion-act-editor__field completion-act-editor__field--wide"><div class="field field--compact"><label for="completionActCustomerLegalName">Наименование <span class="completion-act-source-badge" data-completion-act-source="customer.legal_name">из клиента</span></label><input id="completionActCustomerLegalName" data-completion-act-field="customer.legal_name" type="text" maxlength="240"></div></div>
+                <div class="completion-act-editor__field completion-act-editor__field--wide"><div class="field field--compact"><label for="completionActCustomerAddress">Адрес <span class="completion-act-source-badge" data-completion-act-source="customer.address">из клиента</span></label><input id="completionActCustomerAddress" data-completion-act-field="customer.address" type="text" maxlength="320"></div></div>
+                <div class="completion-act-editor__field"><div class="field field--compact"><label for="completionActCustomerInn">ИНН <span class="completion-act-source-badge" data-completion-act-source="customer.inn">из клиента</span></label><input id="completionActCustomerInn" data-completion-act-field="customer.inn" type="text" maxlength="32"></div></div>
+                <div class="completion-act-editor__field"><div class="field field--compact"><label for="completionActCustomerKpp">КПП <span class="completion-act-source-badge" data-completion-act-source="customer.kpp">из клиента</span></label><input id="completionActCustomerKpp" data-completion-act-field="customer.kpp" type="text" maxlength="32"></div></div>
+                <div class="completion-act-editor__field"><div class="field field--compact"><label for="completionActCustomerOgrn">ОГРН <span class="completion-act-source-badge" data-completion-act-source="customer.ogrn">из клиента</span></label><input id="completionActCustomerOgrn" data-completion-act-field="customer.ogrn" type="text" maxlength="32"></div></div>
+                <div class="completion-act-editor__field"><div class="field field--compact"><label for="completionActCustomerBik">БИК <span class="completion-act-source-badge" data-completion-act-source="customer.bik">из клиента</span></label><input id="completionActCustomerBik" data-completion-act-field="customer.bik" type="text" maxlength="32"></div></div>
+                <div class="completion-act-editor__field completion-act-editor__field--wide"><div class="field field--compact"><label for="completionActCustomerBankName">Банк <span class="completion-act-source-badge" data-completion-act-source="customer.bank_name">из клиента</span></label><input id="completionActCustomerBankName" data-completion-act-field="customer.bank_name" type="text" maxlength="240"></div></div>
+                <div class="completion-act-editor__field"><div class="field field--compact"><label for="completionActCustomerSettlementAccount">Расчётный счёт <span class="completion-act-source-badge" data-completion-act-source="customer.settlement_account">из клиента</span></label><input id="completionActCustomerSettlementAccount" data-completion-act-field="customer.settlement_account" type="text" maxlength="64"></div></div>
+                <div class="completion-act-editor__field"><div class="field field--compact"><label for="completionActCustomerCorrespondentAccount">Корр. счёт <span class="completion-act-source-badge" data-completion-act-source="customer.correspondent_account">из клиента</span></label><input id="completionActCustomerCorrespondentAccount" data-completion-act-field="customer.correspondent_account" type="text" maxlength="64"></div></div>
+              </div>
+            </section>
+            <section class="completion-act-editor__section" data-completion-act-panel="items" hidden>
+              <div class="completion-act-editor__section-title">Работы и материалы</div>
+              <div class="completion-act-items">
+                <div class="completion-act-items__toolbar"><div class="completion-act-editor__meta">Итоги рассчитываются автоматически. НДС всегда начисляется сверху по ставке 5%.</div><button class="btn btn--ghost" id="completionActAddItemButton" type="button">+ СТРОКА</button></div>
+                <div class="completion-act-items__rows" id="completionActItemRows"></div>
+                <aside class="completion-act-fresh-items" id="completionActFreshItems" role="region" aria-labelledby="completionActFreshItemsTitle" aria-live="polite" hidden>
+                  <div class="completion-act-fresh-items__head"><div class="completion-act-fresh-items__title" id="completionActFreshItemsTitle">Свежие строки из заказ-наряда</div><div class="completion-act-fresh-items__count" id="completionActFreshItemsCount"></div></div>
+                  <div class="completion-act-fresh-items__list" id="completionActFreshItemsList" role="list" aria-label="Свежие строки из заказ-наряда"></div>
+                </aside>
+                <div class="completion-act-totals" aria-live="polite">
+                  <div class="completion-act-totals__label">Итого без НДС</div><output class="completion-act-totals__value" id="completionActBaseTotal">0,00 ₽</output>
+                  <div class="completion-act-totals__label">НДС (5%)</div><output class="completion-act-totals__value" id="completionActVatTotal">0,00 ₽</output>
+                  <div class="completion-act-totals__label completion-act-totals__grand">Всего</div><output class="completion-act-totals__value completion-act-totals__grand" id="completionActGrossTotal">0,00 ₽</output>
+                </div>
+              </div>
+            </section>
+            <section class="completion-act-editor__section" data-completion-act-panel="terms" hidden>
+              <div class="completion-act-editor__section-title">Условия и подписи</div>
+              <div class="completion-act-editor__grid">
+                <div class="completion-act-editor__field completion-act-editor__field--wide"><div class="field field--compact"><label for="completionActAcceptanceText">Текст приёмки <span class="completion-act-source-badge" data-completion-act-source="acceptance_text">из ЗН</span></label><textarea id="completionActAcceptanceText" data-completion-act-field="acceptance_text" maxlength="1000"></textarea></div></div>
+                <div class="completion-act-editor__field"><div class="field field--compact"><label for="completionActPerformerSignerPosition">Должность исполнителя <span class="completion-act-source-badge" data-completion-act-source="performer.signer_position">из настроек</span></label><input id="completionActPerformerSignerPosition" data-completion-act-field="performer.signer_position" type="text" maxlength="120"></div></div>
+                <div class="completion-act-editor__field"><div class="field field--compact"><label for="completionActPerformerSignerName">ФИО исполнителя <span class="completion-act-source-badge" data-completion-act-source="performer.signer_name">из настроек</span></label><input id="completionActPerformerSignerName" data-completion-act-field="performer.signer_name" type="text" maxlength="160"></div></div>
+                <div class="completion-act-editor__field"><div class="field field--compact"><label for="completionActCustomerSignerPosition">Должность заказчика <span class="completion-act-source-badge" data-completion-act-source="customer.signer_position">из клиента</span></label><input id="completionActCustomerSignerPosition" data-completion-act-field="customer.signer_position" type="text" maxlength="120"></div></div>
+                <div class="completion-act-editor__field"><div class="field field--compact"><label for="completionActCustomerSignerName">ФИО заказчика <span class="completion-act-source-badge" data-completion-act-source="customer.signer_name">из клиента</span></label><input id="completionActCustomerSignerName" data-completion-act-field="customer.signer_name" type="text" maxlength="160"></div></div>
+              </div>
+            </section>
+          </form>
+        </section>
+        <section class="completion-act-editor__pane completion-act-editor__pane--preview">
+          <div class="completion-act-editor__preview-toolbar"><div><div class="completion-act-editor__pane-title">Предпросмотр A4</div><div class="completion-act-editor__meta" id="completionActPreviewMeta">Страница 1 / 1</div></div><div><button class="btn btn--ghost" id="completionActPrevPageButton" type="button" aria-label="Предыдущая страница">←</button> <button class="btn btn--ghost" id="completionActNextPageButton" type="button" aria-label="Следующая страница">→</button></div></div>
+          <div class="completion-act-editor__preview-wrap" id="completionActPreviewWrap"><div class="completion-act-editor__preview-stage" id="completionActPreviewStage"><iframe class="completion-act-editor__preview-frame" id="completionActPreviewFrame" title="Предпросмотр акта выполненных работ" sandbox="allow-same-origin"></iframe></div></div>
+        </section>
+      </div>
+      <div class="dialog__foot completion-act-editor__footer dialog__floating-actions">
+        <div class="completion-act-editor__meta" id="completionActEditorFooterMeta">Ручные изменения относятся только к печатной версии и не меняют заказ-наряд.</div>
+        <div class="completion-act-editor__actions"><button class="btn btn--ghost" id="completionActResetButton" type="button">СБРОСИТЬ К CRM</button><button class="btn btn--ghost" id="completionActExportButton" type="button">PDF</button><button class="btn btn--ghost" id="completionActPrintButton" type="button">ПЕЧАТЬ</button><button class="btn" id="completionActSaveButton" type="button">СОХРАНИТЬ ЧЕРНОВИК</button></div>
+      </div>
+    </div>
+  </div>
 """
 
 
@@ -562,11 +798,38 @@ _PRINTING_SCRIPT_PART1 = r"""
       mode: 'card',
       manualDocument: null,
       inspectionSheetForm: null,
+      completionAct: {
+        form: null,
+        savedForm: null,
+        freshForm: null,
+        sources: {},
+        draft: {
+          exists: false,
+          version: 0,
+          source_fingerprint: '',
+          current_source_fingerprint: '',
+          is_stale: false,
+        },
+        totals: {},
+        computedItems: [],
+        warnings: [],
+        missingFields: [],
+        dirty: false,
+        preview: null,
+        previewToken: 0,
+        pageIndex: 0,
+        activeSection: 'document',
+        returnFocus: null,
+        generation: 0,
+        cardId: '',
+        editRevision: 0,
+      },
       templateEditor: { documentType: 'repair_order', templateId: '' },
     };
     let printTemplatePreviewTimer = null;
     let manualPrintPreviewTimer = null;
     let regulatedPrintPreviewTimer = null;
+    let completionActPreviewTimer = null;
 
     const printEls = {
       modal: document.getElementById('repairOrderPrintModal'),
@@ -669,6 +932,8 @@ _PRINTING_SCRIPT_PART1 = r"""
       profileBik: document.getElementById('printProfileBik'),
       profileSettlementAccount: document.getElementById('printProfileSettlementAccount'),
       profileCorrespondentAccount: document.getElementById('printProfileCorrespondentAccount'),
+      profileSignerPosition: document.getElementById('printProfileSignerPosition'),
+      profileSignerName: document.getElementById('printProfileSignerName'),
       profileTaxLabel: document.getElementById('printProfileTaxLabel'),
       profilePaymentPurpose: document.getElementById('printProfilePaymentPurpose'),
       templateModal: document.getElementById('printTemplateEditorModal'),
@@ -694,6 +959,34 @@ _PRINTING_SCRIPT_PART1 = r"""
       templateSetDefaultButton: document.getElementById('printTemplateSetDefaultButton'),
       templatePreviewButton: document.getElementById('printTemplatePreviewButton'),
       templateSaveButton: document.getElementById('printTemplateSaveButton'),
+      completionActModal: document.getElementById('completionActEditorModal'),
+      completionActCloseX: document.getElementById('completionActEditorCloseX'),
+      completionActLayout: document.getElementById('completionActEditorLayout'),
+      completionActForm: document.getElementById('completionActEditorForm'),
+      completionActMeta: document.getElementById('completionActEditorMeta'),
+      completionActStaleWarning: document.getElementById('completionActStaleWarning'),
+      completionActLiveWarnings: document.getElementById('completionActLiveWarnings'),
+      completionActItemRows: document.getElementById('completionActItemRows'),
+      completionActFreshItems: document.getElementById('completionActFreshItems'),
+      completionActFreshItemsCount: document.getElementById('completionActFreshItemsCount'),
+      completionActFreshItemsList: document.getElementById('completionActFreshItemsList'),
+      completionActAddItemButton: document.getElementById('completionActAddItemButton'),
+      completionActBaseTotal: document.getElementById('completionActBaseTotal'),
+      completionActVatTotal: document.getElementById('completionActVatTotal'),
+      completionActGrossTotal: document.getElementById('completionActGrossTotal'),
+      completionActPreviewWrap: document.getElementById('completionActPreviewWrap'),
+      completionActPreviewStage: document.getElementById('completionActPreviewStage'),
+      completionActPreviewFrame: document.getElementById('completionActPreviewFrame'),
+      completionActPreviewMeta: document.getElementById('completionActPreviewMeta'),
+      completionActPrevPageButton: document.getElementById('completionActPrevPageButton'),
+      completionActNextPageButton: document.getElementById('completionActNextPageButton'),
+      completionActFooterMeta: document.getElementById('completionActEditorFooterMeta'),
+      completionActResetButton: document.getElementById('completionActResetButton'),
+      completionActExportButton: document.getElementById('completionActExportButton'),
+      completionActPrintButton: document.getElementById('completionActPrintButton'),
+      completionActSaveButton: document.getElementById('completionActSaveButton'),
+      completionActMobileDataButton: document.getElementById('completionActMobileDataButton'),
+      completionActMobilePreviewButton: document.getElementById('completionActMobilePreviewButton'),
     };
 
     function repairOrderPrintWorkspaceDocuments() {
@@ -736,6 +1029,7 @@ _PRINTING_SCRIPT_PART1 = r"""
       { label: 'Условия приема', value: '{{{repair_order.acceptance_terms_html}}}' },
     ];
     const PRINT_TEMPLATE_UPLOAD_MAX_SIZE_BYTES = 256 * 1024;
+    const COMPLETION_ACT_MAX_ITEMS = 300;
 
     function printFiniteNumber(value, fallback = 0) {
       const numeric = Number(value);
@@ -928,6 +1222,8 @@ _PRINTING_SCRIPT_PART1 = r"""
           bik: printEls.profileBik?.value || '',
           settlement_account: printEls.profileSettlementAccount?.value || '',
           correspondent_account: printEls.profileCorrespondentAccount?.value || '',
+          signer_position: printEls.profileSignerPosition?.value || '',
+          signer_name: printEls.profileSignerName?.value || '',
           tax_label: printEls.profileTaxLabel?.value || '',
           payment_purpose: printEls.profilePaymentPurpose?.value || '',
         },
@@ -1107,7 +1403,10 @@ _PRINTING_SCRIPT_PART1 = r"""
         active_document_id: repairOrderPrintActiveDocument(),
         selected_template_ids: { ...repairOrderPrintState.selectedTemplateIds },
         print_settings: repairOrderPrintSettingsPayload(),
-        document_overrides: readRegulatedPrintOverridesFromInputs(),
+        document_overrides: {
+          ...readRegulatedPrintOverridesFromInputs(),
+          ...completionActRequestOverrides(),
+        },
         ...(repairOrderPrintIsManualMode() ? {
           document_without_card: repairOrderPrintIsManualMode(),
           manual_document: readManualPrintDocumentFromInputs(),
@@ -1268,6 +1567,7 @@ _PRINTING_SCRIPT_PART1 = r"""
 
 _PRINTING_SCRIPT_PART2 = r"""
     function applyRepairOrderPrintWorkspace(data, { preserveSelection = false } = {}) {
+      invalidateCompletionActEditorOnCardChange();
       const defaultDocumentId = repairOrderPrintIsManualMode() ? 'invoice' : 'repair_order';
       const previousSelected = preserveSelection ? repairOrderPrintSelectedIds() : [defaultDocumentId];
       const previousActive = preserveSelection ? repairOrderPrintActiveDocument() : defaultDocumentId;
@@ -1307,6 +1607,8 @@ _PRINTING_SCRIPT_PART2 = r"""
       if (printEls.profileBik) printEls.profileBik.value = profile.bik || '';
       if (printEls.profileSettlementAccount) printEls.profileSettlementAccount.value = profile.settlement_account || '';
       if (printEls.profileCorrespondentAccount) printEls.profileCorrespondentAccount.value = profile.correspondent_account || '';
+      if (printEls.profileSignerPosition) printEls.profileSignerPosition.value = profile.signer_position || '';
+      if (printEls.profileSignerName) printEls.profileSignerName.value = profile.signer_name || '';
       if (printEls.profileTaxLabel) printEls.profileTaxLabel.value = profile.tax_label || '';
       if (printEls.profilePaymentPurpose) printEls.profilePaymentPurpose.value = profile.payment_purpose || '';
       renderRepairOrderPrintDocuments();
@@ -1322,12 +1624,11 @@ _PRINTING_SCRIPT_PART2 = r"""
       printEls.documents.innerHTML = docs.length ? docs.map((item) => {
         const isActive = item.id === repairOrderPrintActiveDocument();
         const activeClass = isActive ? ' is-active' : '';
-        return '<button class="repair-order-print-doc' + activeClass + '" data-print-document="' + escapeHtml(item.id) + '" type="button" role="tab" aria-selected="' + (isActive ? 'true' : 'false') + '">' +
-          '<div class="repair-order-print-doc__meta">' +
-            '<div class="repair-order-print-doc__state" aria-hidden="true"></div>' +
-            '<div class="repair-order-print-doc__title">' + escapeHtml(item.label) + '</div>' +
-          '</div>' +
-        '</button>';
+        const selectButton = '<button class="repair-order-print-doc' + activeClass + '" data-print-document="' + escapeHtml(item.id) + '" type="button" role="tab" aria-selected="' + (isActive ? 'true' : 'false') + '">' +
+          '<div class="repair-order-print-doc__meta"><div class="repair-order-print-doc__state" aria-hidden="true"></div><div class="repair-order-print-doc__title">' + escapeHtml(item.label) + '</div></div></button>';
+        if (item.id !== 'completion_act' || repairOrderPrintState.mode !== 'card') return selectButton;
+        return '<div class="repair-order-print-doc-row">' + selectButton +
+          '<button class="repair-order-print-doc__editor" data-completion-act-editor-open type="button" title="Редактировать акт выполненных работ" aria-label="Редактировать акт выполненных работ">⚙</button></div>';
       }).join('') : '<div class="repair-order-print-empty">Документы для печати пока недоступны.</div>';
       printEls.documentsMeta.textContent = docs.length ? 'Выберите документ.' : 'Документы для печати отсутствуют.';
       if (printEls.documentsCount) printEls.documentsCount.textContent = docs.length ? (String(docs.length) + ' документов') : '0 документов';
@@ -1344,9 +1645,17 @@ _PRINTING_SCRIPT_PART2 = r"""
 
     function renderRepairOrderPrintTemplateSelect() {
       const activeId = repairOrderPrintActiveDocument();
+      const activeDocument = repairOrderPrintDocumentMap()[activeId] || null;
       const templates = repairOrderPrintTemplatesFor(activeId);
       const selectedTemplateId = repairOrderPrintSelectedTemplateId(activeId);
+      const templateLocked = Boolean(activeDocument?.template_locked);
+      if (printEls.templateEditorButton) {
+        printEls.templateEditorButton.hidden = templateLocked;
+        printEls.templateEditorButton.disabled = templateLocked;
+      }
       if (!printEls.templateSelect) return;
+      printEls.templateSelect.hidden = templateLocked;
+      printEls.templateSelect.disabled = templateLocked;
       printEls.templateSelect.innerHTML = templates.length
         ? templates.map((item) => '<option value="' + escapeHtml(item.id) + '"' + (item.id === selectedTemplateId ? ' selected' : '') + '>' + escapeHtml(item.name) + (item.is_default ? ' · default' : '') + '</option>').join('')
         : '<option value="">Шаблонов нет</option>';
@@ -1424,23 +1733,34 @@ _PRINTING_SCRIPT_PART2 = r"""
       applyRepairOrderPrintZoom();
     }
 
-    async function refreshRepairOrderPrintPreview(extra = {}) {
-      if (!repairOrderPrintState.workspace) return;
+    async function refreshRepairOrderPrintPreview(extra = {}, options = {}) {
+      if (!repairOrderPrintState.workspace) return null;
       const requestToken = ++repairOrderPrintState.previewToken;
       try {
         const data = await api('/api/preview_repair_order_print_documents', {
           method: 'POST',
           body: repairOrderPrintRequestPayload(extra),
         });
-        if (requestToken !== repairOrderPrintState.previewToken) return;
+        if (requestToken !== repairOrderPrintState.previewToken) return null;
         repairOrderPrintState.previewByDocument = Object.fromEntries((data?.documents || []).map((item) => [item.id, item]));
         renderRepairOrderPrintDocuments();
         renderRepairOrderPrintTemplateSelect();
         renderRepairOrderPrintPreview();
+        return data;
       } catch (error) {
-        if (requestToken !== repairOrderPrintState.previewToken) return;
+        if (requestToken !== repairOrderPrintState.previewToken) return null;
         setStatus(error.message, true);
+        if (options?.throwOnError) throw error;
+        return null;
       }
+    }
+
+    function cancelPendingRepairOrderPrintPreview() {
+      if (manualPrintPreviewTimer) window.clearTimeout(manualPrintPreviewTimer);
+      if (regulatedPrintPreviewTimer) window.clearTimeout(regulatedPrintPreviewTimer);
+      manualPrintPreviewTimer = null;
+      regulatedPrintPreviewTimer = null;
+      cancelPendingCompletionActPreview();
     }
 
     async function loadRepairOrderPrintWorkspace({ openModal = false, preserveSelection = false } = {}) {
@@ -1503,6 +1823,10 @@ _PRINTING_SCRIPT_PART2 = r"""
     }
 
     function closeRepairOrderPrintWorkspace() {
+      if (
+        printEls.completionActModal?.classList.contains('is-open') &&
+        !closeCompletionActEditor()
+      ) return;
       printEls.modal.classList.remove('is-open');
     }
 
@@ -1602,6 +1926,831 @@ _PRINTING_SCRIPT_PART2 = r"""
         if (printEls.inspectionSheetAutofillButton) printEls.inspectionSheetAutofillButton.disabled = false;
       }
     }
+
+    function blankCompletionActParty() {
+      return {
+        legal_name: '',
+        address: '',
+        inn: '',
+        kpp: '',
+        ogrn: '',
+        bank_name: '',
+        bik: '',
+        settlement_account: '',
+        correspondent_account: '',
+        signer_position: '',
+        signer_name: '',
+      };
+    }
+
+    function blankCompletionActForm() {
+      return {
+        document_number: '',
+        document_date: '',
+        basis: '',
+        performer: blankCompletionActParty(),
+        customer: blankCompletionActParty(),
+        items: [],
+        acceptance_text: '',
+      };
+    }
+
+    function cloneCompletionActValue(value) {
+      return JSON.parse(JSON.stringify(value ?? null));
+    }
+
+    function normalizeCompletionActParty(value) {
+      const source = value && typeof value === 'object' ? value : {};
+      const blank = blankCompletionActParty();
+      Object.keys(blank).forEach((key) => { blank[key] = String(source[key] ?? '').trim(); });
+      return blank;
+    }
+
+    function normalizeCompletionActItems(value) {
+      return (Array.isArray(value) ? value : []).map((item) => {
+        const source = item && typeof item === 'object' ? item : {};
+        return {
+          id: String(source.id ?? '').trim(),
+          section: String(source.section ?? '').trim() === 'materials' ? 'materials' : (String(source.section ?? '').trim() === 'manual' ? 'manual' : 'works'),
+          name: String(source.name ?? '').trim(),
+          unit: String(source.unit ?? '').trim(),
+          quantity: String(source.quantity ?? '').trim(),
+          price: String(source.price ?? '').trim(),
+        };
+      });
+    }
+
+    function normalizeCompletionActForm(value) {
+      const source = value && typeof value === 'object' ? value : {};
+      return {
+        document_number: String(source.document_number ?? '').trim(),
+        document_date: String(source.document_date ?? '').trim(),
+        basis: String(source.basis ?? '').trim(),
+        performer: normalizeCompletionActParty(source.performer),
+        customer: normalizeCompletionActParty(source.customer),
+        items: normalizeCompletionActItems(source.items),
+        acceptance_text: String(source.acceptance_text ?? '').trim(),
+      };
+    }
+
+    function completionActReadPath(value, path) {
+      return String(path || '').split('.').reduce((current, key) => {
+        if (current === null || current === undefined) return undefined;
+        return current[key];
+      }, value);
+    }
+
+    function completionActSetPath(value, path, nextValue) {
+      const keys = String(path || '').split('.').filter(Boolean);
+      let target = value;
+      keys.forEach((key, index) => {
+        if (index === keys.length - 1) target[key] = nextValue;
+        else {
+          if (!target[key] || typeof target[key] !== 'object') target[key] = {};
+          target = target[key];
+        }
+      });
+    }
+
+    function completionActDefaultSource(path) {
+      if (String(path).startsWith('performer.')) return 'settings';
+      if (String(path).startsWith('customer.')) return 'client';
+      return 'repair_order';
+    }
+
+    function completionActSourceLabel(source) {
+      const normalized = String(source || '').toLowerCase();
+      if (['manual', 'draft', 'override', 'user'].includes(normalized)) return 'вручную';
+      if (['client', 'customer'].includes(normalized)) return 'из клиента';
+      if (['settings', 'service_profile', 'profile', 'performer'].includes(normalized)) return 'из настроек';
+      if (normalized === 'system') return 'стандарт';
+      if (normalized === 'empty') return 'не заполнено';
+      return 'из ЗН';
+    }
+
+    function renderCompletionActSourceBadges() {
+      printEls.completionActForm?.querySelectorAll('[data-completion-act-source]').forEach((badge) => {
+        const path = badge.getAttribute('data-completion-act-source') || '';
+        const rawSource = completionActReadPath(repairOrderPrintState.completionAct.sources, path) || completionActDefaultSource(path);
+        const label = completionActSourceLabel(rawSource);
+        const freshValue = completionActReadPath(repairOrderPrintState.completionAct.freshForm, path);
+        const currentValue = completionActReadPath(repairOrderPrintState.completionAct.form, path);
+        const changed = label === 'вручную' && String(freshValue ?? '') !== String(currentValue ?? '');
+        badge.classList.toggle('is-manual', label === 'вручную');
+        badge.textContent = changed && String(freshValue ?? '').trim()
+          ? (label + ' · CRM: ' + String(freshValue).trim().slice(0, 28))
+          : label;
+        badge.title = changed ? ('Текущее значение CRM: ' + String(freshValue ?? '')) : '';
+      });
+    }
+
+    function completionActItemsHaveManualSource() {
+      const sourceItems = repairOrderPrintState.completionAct.sources?.items;
+      if (!Array.isArray(sourceItems)) return false;
+      return sourceItems.some((item) => {
+        const values = item && typeof item === 'object' ? Object.values(item) : [item];
+        return values.some((source) => completionActSourceLabel(source) === 'вручную');
+      });
+    }
+
+    function completionActItemsDiffer(currentItems, freshItems) {
+      return JSON.stringify(normalizeCompletionActItems(currentItems)) !== JSON.stringify(normalizeCompletionActItems(freshItems));
+    }
+
+    function completionActFreshItemSectionLabel(section) {
+      if (section === 'materials') return 'Материал';
+      if (section === 'manual') return 'Другое';
+      return 'Работа';
+    }
+
+    function renderCompletionActFreshItems() {
+      const currentItems = normalizeCompletionActItems(repairOrderPrintState.completionAct.form?.items);
+      const freshItems = normalizeCompletionActItems(repairOrderPrintState.completionAct.freshForm?.items);
+      const visible = Boolean(
+        repairOrderPrintState.completionAct.draft?.is_stale
+        && completionActItemsHaveManualSource()
+        && completionActItemsDiffer(currentItems, freshItems)
+      );
+      if (printEls.completionActFreshItems) printEls.completionActFreshItems.hidden = !visible;
+      if (!visible) {
+        if (printEls.completionActFreshItemsCount) printEls.completionActFreshItemsCount.textContent = '';
+        if (printEls.completionActFreshItemsList) printEls.completionActFreshItemsList.innerHTML = '';
+        return;
+      }
+      if (printEls.completionActFreshItemsCount) printEls.completionActFreshItemsCount.textContent = 'Строк в CRM: ' + String(freshItems.length);
+      if (!printEls.completionActFreshItemsList) return;
+      printEls.completionActFreshItemsList.innerHTML = freshItems.length ? freshItems.map((item) => (
+        '<div class="completion-act-fresh-item" data-completion-act-fresh-item role="listitem">'
+        + '<div class="completion-act-fresh-item__section">' + escapeHtml(completionActFreshItemSectionLabel(item.section)) + '</div>'
+        + '<div class="completion-act-fresh-item__name"><strong>Наименование:</strong> ' + escapeHtml(item.name || '—') + '</div>'
+        + '<div class="completion-act-fresh-item__meta">Количество: ' + escapeHtml(item.quantity || '—')
+        + ' · Ед.: ' + escapeHtml(item.unit || '—')
+        + ' · Цена: ' + escapeHtml(item.price || '—') + '</div>'
+        + '</div>'
+      )).join('') : '<div class="completion-act-fresh-item" data-completion-act-fresh-item role="listitem"><div class="completion-act-fresh-item__name">В свежем заказ-наряде строк нет.</div></div>';
+    }
+
+    function renderCompletionActTotals(totals = null) {
+      const supplied = totals && typeof totals === 'object' ? totals : null;
+      if (supplied) {
+        if (printEls.completionActBaseTotal) printEls.completionActBaseTotal.textContent = supplied.base_display || '—';
+        if (printEls.completionActVatTotal) printEls.completionActVatTotal.textContent = supplied.vat_display || '—';
+        if (printEls.completionActGrossTotal) printEls.completionActGrossTotal.textContent = supplied.gross_display || '—';
+        return;
+      }
+      if (printEls.completionActBaseTotal) printEls.completionActBaseTotal.textContent = 'Пересчёт…';
+      if (printEls.completionActVatTotal) printEls.completionActVatTotal.textContent = 'Пересчёт…';
+      if (printEls.completionActGrossTotal) printEls.completionActGrossTotal.textContent = 'Пересчёт…';
+    }
+
+    function completionActComputedItem(item, index) {
+      const computedItems = Array.isArray(repairOrderPrintState.completionAct.computedItems) ? repairOrderPrintState.completionAct.computedItems : [];
+      return computedItems.find((computed) => item.id && computed.id === item.id)
+        || computedItems.find((computed) => printFiniteNumber(computed.index, 0) === index + 1)
+        || null;
+    }
+
+    function renderCompletionActItems(items) {
+      if (!printEls.completionActItemRows) return;
+      const normalized = normalizeCompletionActItems(items);
+      if (printEls.completionActAddItemButton) {
+        printEls.completionActAddItemButton.disabled = normalized.length >= COMPLETION_ACT_MAX_ITEMS;
+      }
+      printEls.completionActItemRows.innerHTML = normalized.length ? normalized.map((item, index) => {
+        const rowNumber = index + 1;
+        const computed = completionActComputedItem(item, index);
+        const lineTotal = computed?.sum_without_vat_display || 'Пересчёт…';
+        const itemSource = completionActReadPath(repairOrderPrintState.completionAct.sources, 'items.' + String(index) + '.name') || 'repair_order';
+        return '<div class="completion-act-item" data-completion-act-item data-completion-act-item-id="' + escapeHtml(item.id) + '">' +
+          '<div class="field field--compact"><label>Раздел</label><select data-completion-act-item-field="section"><option value="works"' + (item.section === 'works' ? ' selected' : '') + '>Работа</option><option value="materials"' + (item.section === 'materials' ? ' selected' : '') + '>Материал</option><option value="manual"' + (item.section === 'manual' ? ' selected' : '') + '>Другое</option></select></div>' +
+          '<div class="field field--compact"><label>Наименование <span class="completion-act-source-badge' + (completionActSourceLabel(itemSource) === 'вручную' ? ' is-manual' : '') + '">' + escapeHtml(completionActSourceLabel(itemSource)) + '</span></label><input data-completion-act-item-field="name" type="text" maxlength="320" value="' + escapeHtml(item.name) + '"></div>' +
+          '<div class="field field--compact"><label>Количество</label><input data-completion-act-item-field="quantity" inputmode="decimal" type="text" maxlength="32" value="' + escapeHtml(item.quantity) + '"></div>' +
+          '<div class="field field--compact"><label>Ед.</label><input data-completion-act-item-field="unit" type="text" maxlength="24" value="' + escapeHtml(item.unit) + '"></div>' +
+          '<div class="field field--compact"><label>Цена без НДС</label><input data-completion-act-item-field="price" inputmode="decimal" type="text" maxlength="32" value="' + escapeHtml(item.price) + '"></div>' +
+          '<div class="field field--compact"><label>Сумма</label><output class="completion-act-item__total">' + escapeHtml(lineTotal) + '</output></div>' +
+          '<div class="completion-act-item__actions"><button class="btn btn--ghost" data-completion-act-item-action="up" type="button" aria-label="Переместить строку ' + String(rowNumber) + ' выше" title="Переместить строку ' + String(rowNumber) + ' выше">↑</button><button class="btn btn--ghost" data-completion-act-item-action="down" type="button" aria-label="Переместить строку ' + String(rowNumber) + ' ниже" title="Переместить строку ' + String(rowNumber) + ' ниже">↓</button><button class="btn btn--ghost" data-completion-act-item-action="duplicate" type="button" aria-label="Дублировать строку ' + String(rowNumber) + '" title="Дублировать строку ' + String(rowNumber) + '">⧉</button><button class="btn btn--ghost" data-completion-act-item-action="remove" type="button" aria-label="Удалить строку ' + String(rowNumber) + '" title="Удалить строку ' + String(rowNumber) + '">×</button></div>' +
+        '</div>';
+      }).join('') : '<div class="repair-order-print-empty">Строк пока нет. Добавьте работу или материал.</div>';
+    }
+
+    function renderCompletionActComputedValues(preview) {
+      repairOrderPrintState.completionAct.computedItems = Array.isArray(preview?.computed_items) ? cloneCompletionActValue(preview.computed_items) : [];
+      repairOrderPrintState.completionAct.totals = preview?.computed_totals && typeof preview.computed_totals === 'object' ? cloneCompletionActValue(preview.computed_totals) : {};
+      const rows = Array.from(printEls.completionActItemRows?.querySelectorAll('[data-completion-act-item]') || []);
+      const formItems = readCompletionActItemsFromInputs();
+      rows.forEach((row, index) => {
+        const output = row.querySelector('.completion-act-item__total');
+        const computed = completionActComputedItem(formItems[index] || {}, index);
+        if (output) output.textContent = computed?.sum_without_vat_display || '—';
+      });
+      renderCompletionActTotals(repairOrderPrintState.completionAct.totals);
+    }
+
+    function readCompletionActItemsFromInputs() {
+      if (!printEls.completionActItemRows) return [];
+      return Array.from(printEls.completionActItemRows.querySelectorAll('[data-completion-act-item]')).map((row) => ({
+        id: String(row.getAttribute('data-completion-act-item-id') || '').trim(),
+        section: ['works', 'materials', 'manual'].includes(row.querySelector('[data-completion-act-item-field="section"]')?.value) ? row.querySelector('[data-completion-act-item-field="section"]')?.value : 'works',
+        name: String(row.querySelector('[data-completion-act-item-field="name"]')?.value || '').trim(),
+        unit: String(row.querySelector('[data-completion-act-item-field="unit"]')?.value || '').trim(),
+        quantity: String(row.querySelector('[data-completion-act-item-field="quantity"]')?.value || '').trim(),
+        price: String(row.querySelector('[data-completion-act-item-field="price"]')?.value || '').trim(),
+      }));
+    }
+
+    function applyCompletionActFormToInputs(form) {
+      const normalized = normalizeCompletionActForm(form);
+      repairOrderPrintState.completionAct.form = cloneCompletionActValue(normalized);
+      printEls.completionActForm?.querySelectorAll('[data-completion-act-field]').forEach((field) => {
+        const rawValue = String(completionActReadPath(normalized, field.getAttribute('data-completion-act-field') || '') ?? '');
+        field.value = field.getAttribute('type') === 'date' && /^\d{4}-\d{2}-\d{2}/.test(rawValue) ? rawValue.slice(0, 10) : rawValue;
+      });
+      renderCompletionActItems(normalized.items);
+      renderCompletionActSourceBadges();
+      renderCompletionActFreshItems();
+      renderCompletionActTotals(repairOrderPrintState.completionAct.totals);
+    }
+
+    function readCompletionActFormFromInputs() {
+      const form = blankCompletionActForm();
+      printEls.completionActForm?.querySelectorAll('[data-completion-act-field]').forEach((field) => {
+        completionActSetPath(form, field.getAttribute('data-completion-act-field') || '', String(field.value || '').trim());
+      });
+      form.items = readCompletionActItemsFromInputs();
+      return normalizeCompletionActForm(form);
+    }
+
+    function completionActCurrentForm() {
+      if (printEls.completionActModal?.classList.contains('is-open')) {
+        const session = completionActEditorSessionSnapshot();
+        if (!completionActEditorSessionIsCurrent(session)) return null;
+        return readCompletionActFormFromInputs();
+      }
+      return repairOrderPrintState.completionAct.form ? normalizeCompletionActForm(repairOrderPrintState.completionAct.form) : null;
+    }
+
+    function completionActRequestOverrides() {
+      if (!printEls.completionActModal?.classList.contains('is-open')) return {};
+      const form = completionActCurrentForm();
+      return form ? { completion_act: form } : {};
+    }
+
+    function completionActActiveCardId() {
+      return String(state.editingId || state.activeCard?.id || '').trim();
+    }
+
+    function completionActEditorSessionSnapshot() {
+      const current = repairOrderPrintState.completionAct;
+      const cardId = String(current.cardId || '').trim();
+      if (!cardId) return null;
+      return { generation: current.generation, cardId };
+    }
+
+    function resetCompletionActEditorSessionData() {
+      const current = repairOrderPrintState.completionAct;
+      current.form = null;
+      current.savedForm = null;
+      current.freshForm = null;
+      current.sources = {};
+      current.draft = { exists: false, version: 0, is_stale: false };
+      current.totals = {};
+      current.computedItems = [];
+      current.warnings = [];
+      current.missingFields = [];
+      current.dirty = false;
+      current.preview = null;
+      current.pageIndex = 0;
+      delete repairOrderPrintState.previewByDocument.completion_act;
+      [
+        printEls.completionActSaveButton,
+        printEls.completionActResetButton,
+        printEls.completionActExportButton,
+        printEls.completionActPrintButton,
+      ].forEach((button) => { if (button) button.disabled = false; });
+      applyCompletionActFormToInputs(blankCompletionActForm());
+      renderCompletionActStaleWarning();
+      renderCompletionActLiveWarnings();
+      renderCompletionActPreview();
+    }
+
+    function beginCompletionActEditorSession(cardId, returnFocus = null) {
+      const current = repairOrderPrintState.completionAct;
+      cancelPendingCompletionActPreview();
+      current.generation += 1;
+      current.previewToken += 1;
+      current.cardId = String(cardId || '').trim();
+      current.editRevision = 0;
+      current.returnFocus = returnFocus instanceof HTMLElement ? returnFocus : null;
+      resetCompletionActEditorSessionData();
+      return completionActEditorSessionSnapshot();
+    }
+
+    function invalidateCompletionActEditorSession({ hideModal = false } = {}) {
+      const current = repairOrderPrintState.completionAct;
+      cancelPendingCompletionActPreview();
+      current.generation += 1;
+      current.previewToken += 1;
+      current.cardId = '';
+      current.editRevision = 0;
+      resetCompletionActEditorSessionData();
+      if (hideModal) printEls.completionActModal?.classList.remove('is-open');
+    }
+
+    function completionActEditorSessionIsCurrent(session, { requireModal = true } = {}) {
+      const current = repairOrderPrintState.completionAct;
+      const activeCardId = completionActActiveCardId();
+      if (current.cardId && current.cardId !== activeCardId) {
+        invalidateCompletionActEditorSession({ hideModal: true });
+        return false;
+      }
+      return Boolean(
+        session &&
+        session.generation === current.generation &&
+        session.cardId === current.cardId &&
+        session.cardId === activeCardId &&
+        (!requireModal || printEls.completionActModal?.classList.contains('is-open'))
+      );
+    }
+
+    function invalidateCompletionActEditorOnCardChange() {
+      const currentCardId = String(repairOrderPrintState.completionAct.cardId || '').trim();
+      if (!currentCardId || currentCardId === completionActActiveCardId()) return false;
+      invalidateCompletionActEditorSession({ hideModal: true });
+      return true;
+    }
+
+    function completionActEndpointPayload(extra = {}, cardId = repairOrderPrintState.completionAct.cardId) {
+      return {
+        source: 'ui',
+        ...extra,
+        card_id: String(cardId || '').trim(),
+      };
+    }
+
+    function completionActIdempotencyKey(action) {
+      const suffix = globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : (Date.now().toString(36) + '-' + Math.random().toString(36).slice(2));
+      return 'completion-act-ui-' + action + '-' + suffix;
+    }
+
+    function renderCompletionActStaleWarning() {
+      const stale = Boolean(repairOrderPrintState.completionAct.draft?.is_stale);
+      if (!printEls.completionActStaleWarning) return;
+      printEls.completionActStaleWarning.hidden = !stale;
+      printEls.completionActStaleWarning.textContent = stale
+        ? 'Данные CRM изменились после сохранения черновика. Ручные значения сохранены; рядом показаны свежие значения CRM.'
+        : '';
+    }
+
+    function renderCompletionActLiveWarnings(warnings = [], missingFields = []) {
+      const messages = (Array.isArray(warnings) ? warnings : [])
+        .map((item) => String(item || '').trim())
+        .filter(Boolean);
+      const missing = (Array.isArray(missingFields) ? missingFields : [])
+        .map((item) => String(item || '').trim())
+        .filter(Boolean);
+      if (missing.length) messages.push('Не заполнены поля: ' + missing.join(', ') + '.');
+      const uniqueMessages = Array.from(new Set(messages));
+      repairOrderPrintState.completionAct.warnings = uniqueMessages;
+      repairOrderPrintState.completionAct.missingFields = missing;
+      if (!printEls.completionActLiveWarnings) return;
+      printEls.completionActLiveWarnings.hidden = !uniqueMessages.length;
+      printEls.completionActLiveWarnings.textContent = uniqueMessages.join(' · ');
+    }
+
+    function applyCompletionActResponse(data, { session = null, preserveCurrentEdits = false, savedForm = null } = {}) {
+      if (session && !completionActEditorSessionIsCurrent(session)) return false;
+      const responseForm = normalizeCompletionActForm(data?.form || blankCompletionActForm());
+      const currentForm = preserveCurrentEdits ? readCompletionActFormFromInputs() : null;
+      repairOrderPrintState.completionAct.savedForm = cloneCompletionActValue(savedForm || responseForm);
+      repairOrderPrintState.completionAct.freshForm = normalizeCompletionActForm(data?.fresh_form || responseForm);
+      repairOrderPrintState.completionAct.sources = data?.sources && typeof data.sources === 'object' ? cloneCompletionActValue(data.sources) : {};
+      repairOrderPrintState.completionAct.draft = {
+        exists: Boolean(data?.draft?.exists),
+        version: Math.max(0, printFiniteNumber(data?.draft?.version, 0)),
+        updated_at: String(data?.draft?.updated_at || ''),
+        filled_by: String(data?.draft?.filled_by || ''),
+        source_fingerprint: String(data?.draft?.source_fingerprint || ''),
+        current_source_fingerprint: String(data?.draft?.current_source_fingerprint || ''),
+        is_stale: Boolean(data?.draft?.is_stale),
+      };
+      repairOrderPrintState.completionAct.totals = preserveCurrentEdits
+        ? {}
+        : (data?.totals && typeof data.totals === 'object' ? cloneCompletionActValue(data.totals) : {});
+      repairOrderPrintState.completionAct.computedItems = [];
+      repairOrderPrintState.completionAct.dirty = preserveCurrentEdits;
+      if (preserveCurrentEdits) {
+        repairOrderPrintState.completionAct.form = cloneCompletionActValue(currentForm);
+      } else {
+        repairOrderPrintState.completionAct.editRevision = 0;
+        applyCompletionActFormToInputs(responseForm);
+      }
+      const draft = repairOrderPrintState.completionAct.draft;
+      if (printEls.completionActMeta) {
+        const parts = [draft.exists ? ('Сохранён черновик · версия ' + String(draft.version)) : 'Используются актуальные данные CRM'];
+        if (draft.updated_at) parts.push('обновлён ' + draft.updated_at);
+        printEls.completionActMeta.textContent = parts.join(' · ');
+      }
+      renderCompletionActStaleWarning();
+      renderCompletionActLiveWarnings(data?.warnings, data?.missing_fields);
+      if (printEls.completionActFooterMeta) {
+        printEls.completionActFooterMeta.textContent = preserveCurrentEdits
+          ? 'Черновик сохранён, но в редакторе есть более новые несохранённые изменения.'
+          : 'Ручные изменения относятся только к печатной версии и не меняют заказ-наряд.';
+      }
+      return true;
+    }
+
+    function setCompletionActSection(section) {
+      const normalized = ['document', 'performer', 'customer', 'items', 'terms'].includes(section) ? section : 'document';
+      repairOrderPrintState.completionAct.activeSection = normalized;
+      printEls.completionActModal?.querySelectorAll('[data-completion-act-section]').forEach((button) => {
+        const active = button.getAttribute('data-completion-act-section') === normalized;
+        button.classList.toggle('is-active', active);
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
+      printEls.completionActModal?.querySelectorAll('[data-completion-act-panel]').forEach((panel) => {
+        panel.hidden = panel.getAttribute('data-completion-act-panel') !== normalized;
+      });
+    }
+
+    function setCompletionActMobileView(view) {
+      const normalized = view === 'preview' ? 'preview' : 'data';
+      if (printEls.completionActLayout) printEls.completionActLayout.dataset.mobileView = normalized;
+      const dataActive = normalized === 'data';
+      printEls.completionActMobileDataButton?.classList.toggle('is-active', dataActive);
+      printEls.completionActMobilePreviewButton?.classList.toggle('is-active', !dataActive);
+      printEls.completionActMobileDataButton?.setAttribute('aria-pressed', dataActive ? 'true' : 'false');
+      printEls.completionActMobilePreviewButton?.setAttribute('aria-pressed', dataActive ? 'false' : 'true');
+      if (!dataActive) window.setTimeout(applyCompletionActPreviewScale, 0);
+    }
+
+    function markCompletionActDirty(path = '') {
+      const session = completionActEditorSessionSnapshot();
+      if (!completionActEditorSessionIsCurrent(session)) return;
+      repairOrderPrintState.completionAct.form = readCompletionActFormFromInputs();
+      repairOrderPrintState.completionAct.dirty = true;
+      repairOrderPrintState.completionAct.editRevision += 1;
+      repairOrderPrintState.completionAct.totals = {};
+      repairOrderPrintState.completionAct.computedItems = [];
+      if (path) {
+        printEls.completionActForm?.querySelectorAll('[data-completion-act-source]').forEach((badge) => {
+          if (badge.getAttribute('data-completion-act-source') !== path) return;
+          badge.textContent = 'вручную';
+          badge.classList.add('is-manual');
+        });
+      }
+      if (path === 'items') renderCompletionActFreshItems();
+      if (printEls.completionActFooterMeta) printEls.completionActFooterMeta.textContent = 'Есть несохранённые изменения. PDF и печать используют текущие значения.';
+      printEls.completionActItemRows?.querySelectorAll('.completion-act-item__total').forEach((output) => { output.textContent = 'Пересчёт…'; });
+      renderCompletionActTotals();
+      scheduleCompletionActPreview();
+    }
+
+    function applyCompletionActPreviewScale() {
+      if (!printEls.completionActPreviewWrap || !printEls.completionActPreviewStage || !printEls.completionActPreviewFrame) return;
+      const width = 920;
+      const height = 1180;
+      const available = Math.max(320, printEls.completionActPreviewWrap.clientWidth - 28);
+      const scale = Math.max(.3, Math.min(1, available / width));
+      printEls.completionActPreviewStage.style.width = String(width * scale) + 'px';
+      printEls.completionActPreviewStage.style.height = String(height * scale) + 'px';
+      printEls.completionActPreviewFrame.style.transform = 'scale(' + String(scale) + ')';
+    }
+
+    function renderCompletionActPreview() {
+      const preview = repairOrderPrintState.completionAct.preview;
+      const pages = Array.isArray(preview?.pages) ? preview.pages : [];
+      const maxIndex = Math.max(0, pages.length - 1);
+      const pageIndex = Math.max(0, Math.min(maxIndex, printFiniteNumber(repairOrderPrintState.completionAct.pageIndex, 0)));
+      repairOrderPrintState.completionAct.pageIndex = pageIndex;
+      const page = pages[pageIndex] || null;
+      if (printEls.completionActPreviewFrame) printEls.completionActPreviewFrame.srcdoc = page?.html || '<!doctype html><html lang="ru"><body style="font-family: Segoe UI, sans-serif; padding: 32px; color: #444">Подготовка предпросмотра...</body></html>';
+      if (printEls.completionActPreviewMeta) printEls.completionActPreviewMeta.textContent = 'Страница ' + String(pageIndex + 1) + ' / ' + String(Math.max(1, pages.length));
+      if (printEls.completionActPrevPageButton) printEls.completionActPrevPageButton.disabled = !pages.length || pageIndex <= 0;
+      if (printEls.completionActNextPageButton) printEls.completionActNextPageButton.disabled = !pages.length || pageIndex >= maxIndex;
+      window.setTimeout(applyCompletionActPreviewScale, 0);
+    }
+
+    async function refreshCompletionActPreview(options = {}) {
+      const session = options?.session || completionActEditorSessionSnapshot();
+      if (!repairOrderPrintState.workspace || !completionActEditorSessionIsCurrent(session)) return null;
+      const token = ++repairOrderPrintState.completionAct.previewToken;
+      const form = readCompletionActFormFromInputs();
+      repairOrderPrintState.completionAct.form = cloneCompletionActValue(form);
+      try {
+        const data = await api('/api/preview_repair_order_print_documents', {
+          method: 'POST',
+          body: repairOrderPrintRequestPayload({
+            card_id: session.cardId,
+            selected_document_ids: ['completion_act'],
+            active_document_id: 'completion_act',
+            document_overrides: { ...readRegulatedPrintOverridesFromInputs(), completion_act: form },
+          }),
+        });
+        if (
+          token !== repairOrderPrintState.completionAct.previewToken ||
+          !completionActEditorSessionIsCurrent(session)
+        ) {
+          if (options?.requireCurrent) throw new Error('Предпросмотр акта изменился во время подготовки. Повторите действие.');
+          return null;
+        }
+        const preview = (data?.documents || []).find((item) => item.id === 'completion_act') || data?.documents?.[0] || null;
+        if (!preview && options?.requireCurrent) throw new Error('Не удалось получить свежий предпросмотр акта.');
+        repairOrderPrintState.completionAct.preview = preview;
+        if (preview) repairOrderPrintState.previewByDocument.completion_act = preview;
+        renderCompletionActLiveWarnings(preview?.warnings, preview?.missing_fields);
+        renderCompletionActComputedValues(preview);
+        renderCompletionActPreview();
+        renderRepairOrderPrintPreview();
+        return preview;
+      } catch (error) {
+        if (!completionActEditorSessionIsCurrent(session)) return null;
+        if (token !== repairOrderPrintState.completionAct.previewToken && !options?.requireCurrent) return null;
+        if (printEls.completionActFooterMeta) printEls.completionActFooterMeta.textContent = error.message || 'Не удалось построить предпросмотр.';
+        return Promise.reject(error);
+      }
+    }
+
+    function cancelPendingCompletionActPreview() {
+      if (completionActPreviewTimer) window.clearTimeout(completionActPreviewTimer);
+      completionActPreviewTimer = null;
+    }
+
+    function scheduleCompletionActPreview() {
+      if (completionActPreviewTimer) window.clearTimeout(completionActPreviewTimer);
+      completionActPreviewTimer = window.setTimeout(() => {
+        completionActPreviewTimer = null;
+        refreshCompletionActPreview().catch(() => {});
+      }, 320);
+    }
+
+    async function openCompletionActEditor(returnFocus = null) {
+      const cardId = await requireRepairOrderCardId();
+      if (!cardId || cardId !== completionActActiveCardId()) return;
+      const session = beginCompletionActEditorSession(cardId, returnFocus);
+      if (!session) return;
+      repairOrderPrintState.selectedDocumentIds = ['completion_act'];
+      repairOrderPrintState.activeDocumentId = 'completion_act';
+      renderRepairOrderPrintDocuments();
+      renderRepairOrderPrintTemplateSelect();
+      setCompletionActSection('document');
+      setCompletionActMobileView('data');
+      printEls.completionActModal?.classList.add('is-open');
+      if (printEls.completionActMeta) printEls.completionActMeta.textContent = 'Загрузка данных из заказ-наряда...';
+      try {
+        const data = await api('/api/get_completion_act_form', {
+          method: 'POST',
+          body: completionActEndpointPayload({}, session.cardId),
+        });
+        if (!completionActEditorSessionIsCurrent(session)) return;
+        if (!applyCompletionActResponse(data, { session })) return;
+        await refreshCompletionActPreview({ session });
+        if (!completionActEditorSessionIsCurrent(session)) return;
+        printEls.completionActForm?.querySelector('[data-completion-act-field]')?.focus();
+      } catch (error) {
+        if (!completionActEditorSessionIsCurrent(session)) return;
+        if (printEls.completionActMeta) printEls.completionActMeta.textContent = error.message || 'Не удалось загрузить акт.';
+        setStatus(error.message, true);
+      }
+    }
+
+    function closeCompletionActEditor() {
+      const session = completionActEditorSessionSnapshot();
+      if (!completionActEditorSessionIsCurrent(session)) return true;
+      if (repairOrderPrintState.completionAct.dirty && !window.confirm('Закрыть редактор без сохранения? Несохранённые изменения будут отменены.')) return false;
+      const returnFocus = repairOrderPrintState.completionAct.returnFocus;
+      invalidateCompletionActEditorSession({ hideModal: true });
+      const restoreEditorTriggerFocus = () => {
+        const target = returnFocus?.isConnected
+          ? returnFocus
+          : printEls.documents?.querySelector('[data-completion-act-editor-open]');
+        target?.focus();
+      };
+      refreshRepairOrderPrintPreview({ selected_document_ids: ['completion_act'], active_document_id: 'completion_act' })
+        .catch(() => {})
+        .finally(() => window.setTimeout(restoreEditorTriggerFocus, 0));
+      window.setTimeout(restoreEditorTriggerFocus, 0);
+      return true;
+    }
+
+    async function saveCompletionActDraft() {
+      const session = completionActEditorSessionSnapshot();
+      if (!completionActEditorSessionIsCurrent(session)) return;
+      if (printEls.completionActSaveButton) printEls.completionActSaveButton.disabled = true;
+      const form = readCompletionActFormFromInputs();
+      const editRevision = repairOrderPrintState.completionAct.editRevision;
+      try {
+        const data = await api('/api/save_completion_act_form', {
+          method: 'POST',
+          body: completionActEndpointPayload(
+            {
+              form,
+              expected_version: repairOrderPrintState.completionAct.draft.version || 0,
+              expected_source_fingerprint: repairOrderPrintState.completionAct.draft.current_source_fingerprint || '',
+              idempotency_key: completionActIdempotencyKey('save'),
+              actor_name: 'ui',
+            },
+            session.cardId
+          ),
+        });
+        if (!completionActEditorSessionIsCurrent(session)) return;
+        const hasNewerEdits =
+          repairOrderPrintState.completionAct.editRevision !== editRevision ||
+          JSON.stringify(readCompletionActFormFromInputs()) !== JSON.stringify(form);
+        if (!applyCompletionActResponse(data, {
+          session,
+          preserveCurrentEdits: hasNewerEdits,
+          savedForm: form,
+        })) return;
+        await refreshCompletionActPreview({ session });
+        if (!completionActEditorSessionIsCurrent(session)) return;
+        setStatus(
+          hasNewerEdits
+            ? 'Черновик сохранён; более новые изменения остаются несохранёнными.'
+            : 'Черновик акта сохранён.',
+          false
+        );
+      } catch (error) {
+        if (!completionActEditorSessionIsCurrent(session)) return;
+        if (printEls.completionActFooterMeta) printEls.completionActFooterMeta.textContent = error.message || 'Не удалось сохранить черновик.';
+        setStatus(error.message, true);
+      } finally {
+        if (completionActEditorSessionIsCurrent(session) && printEls.completionActSaveButton) {
+          printEls.completionActSaveButton.disabled = false;
+        }
+      }
+    }
+
+    async function resetCompletionActDraft() {
+      if (!window.confirm('Сбросить ручные изменения акта и заново взять данные из CRM?')) return;
+      const session = completionActEditorSessionSnapshot();
+      if (!completionActEditorSessionIsCurrent(session)) return;
+      if (printEls.completionActResetButton) printEls.completionActResetButton.disabled = true;
+      const editRevision = repairOrderPrintState.completionAct.editRevision;
+      try {
+        const data = await api('/api/reset_completion_act_form', {
+          method: 'POST',
+          body: completionActEndpointPayload(
+            {
+              expected_version: repairOrderPrintState.completionAct.draft.version || 0,
+              idempotency_key: completionActIdempotencyKey('reset'),
+            },
+            session.cardId
+          ),
+        });
+        if (!completionActEditorSessionIsCurrent(session)) return;
+        const hasNewerEdits = repairOrderPrintState.completionAct.editRevision !== editRevision;
+        if (!applyCompletionActResponse(data, {
+          session,
+          preserveCurrentEdits: hasNewerEdits,
+        })) return;
+        await refreshCompletionActPreview({ session });
+        if (!completionActEditorSessionIsCurrent(session)) return;
+        setStatus(
+          hasNewerEdits
+            ? 'Черновик сброшен; более новые изменения остаются несохранёнными.'
+            : 'Акт сброшен к актуальным данным CRM.',
+          false
+        );
+      } catch (error) {
+        if (!completionActEditorSessionIsCurrent(session)) return;
+        if (printEls.completionActFooterMeta) printEls.completionActFooterMeta.textContent = error.message || 'Не удалось сбросить черновик.';
+        setStatus(error.message, true);
+      } finally {
+        if (completionActEditorSessionIsCurrent(session) && printEls.completionActResetButton) {
+          printEls.completionActResetButton.disabled = false;
+        }
+      }
+    }
+
+    async function exportCompletionActPdf() {
+      const session = completionActEditorSessionSnapshot();
+      if (!completionActEditorSessionIsCurrent(session)) return;
+      if (printEls.completionActExportButton) printEls.completionActExportButton.disabled = true;
+      try {
+        cancelPendingCompletionActPreview();
+        const form = readCompletionActFormFromInputs();
+        const editRevision = repairOrderPrintState.completionAct.editRevision;
+        const preview = await refreshCompletionActPreview({ requireCurrent: true, session });
+        if (!preview) throw new Error('Не удалось обновить акт перед созданием PDF.');
+        if (repairOrderPrintState.completionAct.editRevision !== editRevision) {
+          throw new Error('Данные акта изменились во время подготовки PDF. Повторите действие.');
+        }
+        const data = await api('/api/export_repair_order_print_pdf', {
+          method: 'POST',
+          body: repairOrderPrintRequestPayload({
+            card_id: session.cardId,
+            selected_document_ids: ['completion_act'],
+            active_document_id: 'completion_act',
+            document_overrides: { ...readRegulatedPrintOverridesFromInputs(), completion_act: form },
+          }),
+        });
+        if (
+          !completionActEditorSessionIsCurrent(session) ||
+          repairOrderPrintState.completionAct.editRevision !== editRevision
+        ) return;
+        triggerBlobDownload(base64ToBlob(data?.content_base64 || '', 'application/pdf'), data?.file_name || 'completion-act.pdf');
+        setStatus('PDF акта подготовлен.', false);
+      } catch (error) {
+        if (!completionActEditorSessionIsCurrent(session)) return;
+        if (printEls.completionActFooterMeta) printEls.completionActFooterMeta.textContent = error.message || 'Не удалось подготовить PDF.';
+        setStatus(error.message, true);
+      } finally {
+        if (completionActEditorSessionIsCurrent(session) && printEls.completionActExportButton) {
+          printEls.completionActExportButton.disabled = false;
+        }
+      }
+    }
+
+    async function printCompletionAct() {
+      const session = completionActEditorSessionSnapshot();
+      if (!completionActEditorSessionIsCurrent(session)) return;
+      if (printEls.completionActPrintButton) printEls.completionActPrintButton.disabled = true;
+      try {
+        cancelPendingCompletionActPreview();
+        const editRevision = repairOrderPrintState.completionAct.editRevision;
+        const preview = await refreshCompletionActPreview({ requireCurrent: true, session });
+        if (!preview) throw new Error('Не удалось обновить акт перед печатью.');
+        if (!completionActEditorSessionIsCurrent(session)) return;
+        if (repairOrderPrintState.completionAct.editRevision !== editRevision) {
+          throw new Error('Данные акта изменились во время подготовки печати. Повторите действие.');
+        }
+        await runCompletionActBrowserPrint(preview);
+        setStatus('Открыто системное окно печати акта.', false);
+      } catch (error) {
+        if (!completionActEditorSessionIsCurrent(session)) return;
+        if (printEls.completionActFooterMeta) printEls.completionActFooterMeta.textContent = error.message || 'Не удалось открыть печать.';
+        setStatus(error.message, true);
+      } finally {
+        if (completionActEditorSessionIsCurrent(session) && printEls.completionActPrintButton) {
+          printEls.completionActPrintButton.disabled = false;
+        }
+      }
+    }
+
+    function handleCompletionActFormInput(event) {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLTextAreaElement) && !(target instanceof HTMLSelectElement)) return;
+      const itemRow = target.closest('[data-completion-act-item]');
+      if (itemRow) {
+        const output = itemRow.querySelector('.completion-act-item__total');
+        if (output) output.textContent = 'Пересчёт…';
+        const badge = itemRow.querySelector('.completion-act-source-badge');
+        if (badge) {
+          badge.textContent = 'вручную';
+          badge.classList.add('is-manual');
+        }
+      }
+      const path = target.getAttribute('data-completion-act-field') || (itemRow ? 'items' : '');
+      markCompletionActDirty(path);
+    }
+
+    function handleCompletionActItemsClick(event) {
+      const session = completionActEditorSessionSnapshot();
+      if (!completionActEditorSessionIsCurrent(session)) return;
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const actionButton = target.closest('[data-completion-act-item-action]');
+      if (!actionButton) return;
+      const row = actionButton.closest('[data-completion-act-item]');
+      if (!row) return;
+      const rows = readCompletionActItemsFromInputs();
+      const index = Array.from(printEls.completionActItemRows?.querySelectorAll('[data-completion-act-item]') || []).indexOf(row);
+      if (index < 0) return;
+      const action = actionButton.getAttribute('data-completion-act-item-action') || '';
+      if (action === 'remove') rows.splice(index, 1);
+      else if (action === 'duplicate') {
+        if (rows.length >= COMPLETION_ACT_MAX_ITEMS) {
+          const message = 'В одном акте допускается не более 300 строк.';
+          if (printEls.completionActFooterMeta) printEls.completionActFooterMeta.textContent = message;
+          setStatus(message, true);
+          return;
+        }
+        rows.splice(index + 1, 0, { ...rows[index], id: '' });
+      }
+      else if (action === 'up' && index > 0) [rows[index - 1], rows[index]] = [rows[index], rows[index - 1]];
+      else if (action === 'down' && index < rows.length - 1) [rows[index], rows[index + 1]] = [rows[index + 1], rows[index]];
+      else return;
+      renderCompletionActItems(rows);
+      markCompletionActDirty('items');
+    }
+
+    function appendCompletionActItem() {
+      const session = completionActEditorSessionSnapshot();
+      if (!completionActEditorSessionIsCurrent(session)) return;
+      const rows = readCompletionActItemsFromInputs();
+      if (rows.length >= COMPLETION_ACT_MAX_ITEMS) {
+        const message = 'В одном акте допускается не более 300 строк.';
+        if (printEls.completionActFooterMeta) printEls.completionActFooterMeta.textContent = message;
+        if (printEls.completionActAddItemButton) printEls.completionActAddItemButton.disabled = true;
+        setStatus(message, true);
+        return;
+      }
+      rows.push({ id: '', section: 'works', name: '', unit: 'ч', quantity: '1', price: '' });
+      renderCompletionActItems(rows);
+      markCompletionActDirty('items');
+      printEls.completionActItemRows?.querySelector('[data-completion-act-item]:last-child [data-completion-act-item-field="name"]')?.focus();
+    }
 """
 
 
@@ -1627,8 +2776,7 @@ _PRINTING_SCRIPT_PART3 = r"""
         : '<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>AutoStop CRM Print</title></head><body>' + body + '</body></html>';
     }
 
-    function runRepairOrderBrowserPrint() {
-      const printableHtml = repairOrderPrintCombinedHtml();
+    function runBrowserPrintHtml(printableHtml) {
       return new Promise((resolve, reject) => {
         const frame = document.createElement('iframe');
         let settled = false;
@@ -1685,6 +2833,47 @@ _PRINTING_SCRIPT_PART3 = r"""
       });
     }
 
+    function runRepairOrderBrowserPrint() {
+      const selectedIds = repairOrderPrintSelectedIds();
+      if (selectedIds.length === 1 && selectedIds[0] === 'completion_act') {
+        const preview = repairOrderPrintState.previewByDocument?.completion_act;
+        const pages = Array.isArray(preview?.pages) ? preview.pages : [];
+        return runBrowserPrintHtml(completionActCombinedHtml(pages));
+      }
+      return runBrowserPrintHtml(repairOrderPrintCombinedHtml());
+    }
+
+    function completionActCombinedHtml(pages) {
+      const parser = new DOMParser();
+      const parsedPages = (Array.isArray(pages) ? pages : []).map((page) => {
+        const documentNode = parser.parseFromString(String(page?.html || ''), 'text/html');
+        const shell = documentNode.querySelector('.document-shell');
+        const bodyFragment = shell?.outerHTML || documentNode.body?.innerHTML || '';
+        const headFragments = Array.from(documentNode.head?.querySelectorAll('style, link[rel="stylesheet"]') || [])
+          .map((node) => node.outerHTML)
+          .filter(Boolean);
+        return { bodyFragment, headFragments };
+      }).filter((page) => page.bodyFragment.trim());
+      const headFragments = Array.from(new Set(parsedPages.flatMap((page) => page.headFragments))).join('');
+      const body = parsedPages.length
+        ? parsedPages.map((page) => page.bodyFragment).join('')
+        : '<main style="font-family: Segoe UI, sans-serif; padding: 32px; color: #444">Нет данных акта для печати.</main>';
+      return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Акт выполненных работ</title>'
+        + headFragments
+        + '<style>.document-shell + .document-shell{break-before:page;page-break-before:always}</style>'
+        + '</head><body>' + body + '</body></html>';
+    }
+
+    function runCompletionActBrowserPrint(preview = null) {
+      const currentPreview = preview && typeof preview === 'object'
+        ? preview
+        : repairOrderPrintState.completionAct.preview;
+      const pages = Array.isArray(currentPreview?.pages)
+        ? currentPreview.pages
+        : [];
+      return runBrowserPrintHtml(completionActCombinedHtml(pages));
+    }
+
     async function exportRepairOrderPrintPdf() {
       try {
         const data = await api('/api/export_repair_order_print_pdf', {
@@ -1703,6 +2892,12 @@ _PRINTING_SCRIPT_PART3 = r"""
       repairOrderPrintState.isPrintRunning = true;
       if (printEls.printButton) printEls.printButton.disabled = true;
       try {
+        cancelPendingRepairOrderPrintPreview();
+        const refreshed = await refreshRepairOrderPrintPreview({}, { throwOnError: true });
+        const selectedIds = repairOrderPrintSelectedIds();
+        if (!refreshed || selectedIds.some((documentId) => !repairOrderPrintState.previewByDocument?.[documentId])) {
+          throw new Error('Не удалось обновить документ перед печатью.');
+        }
         await runRepairOrderBrowserPrint();
         setStatus('Открыто системное окно печати браузера.', false);
       } catch (error) {
@@ -1743,6 +2938,11 @@ _PRINTING_SCRIPT_PART3 = r"""
     function handleRepairOrderPrintDocumentsClick(event) {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
+      const editorButton = target.closest('[data-completion-act-editor-open]');
+      if (editorButton) {
+        openCompletionActEditor(editorButton);
+        return;
+      }
       const card = target.closest('[data-print-document]');
       if (!card) return;
       const documentId = card.dataset.printDocument || 'repair_order';
@@ -1809,8 +3009,9 @@ _PRINTING_SCRIPT_PART3 = r"""
     }
 
     function renderPrintTemplateDocumentTypeOptions() {
-      const docs = repairOrderPrintWorkspaceDocuments();
-      const current = repairOrderPrintState.templateEditor.documentType || repairOrderPrintActiveDocument() || 'repair_order';
+      const docs = repairOrderPrintWorkspaceDocuments().filter((item) => item.id !== 'completion_act');
+      const requested = repairOrderPrintState.templateEditor.documentType || repairOrderPrintActiveDocument() || 'repair_order';
+      const current = requested === 'completion_act' ? (docs[0]?.id || 'repair_order') : requested;
       printEls.templateDocumentType.innerHTML = docs.map((item) => '<option value="' + escapeHtml(item.id) + '"' + (item.id === current ? ' selected' : '') + '>' + escapeHtml(item.label) + '</option>').join('');
       repairOrderPrintState.templateEditor.documentType = current;
       renderPrintTemplateTokenOptions();
@@ -1833,7 +3034,8 @@ _PRINTING_SCRIPT_PART3 = r"""
     }
 
     function openPrintTemplateEditor() {
-      repairOrderPrintState.templateEditor.documentType = repairOrderPrintActiveDocument() || 'repair_order';
+      const activeDocument = repairOrderPrintActiveDocument() || 'repair_order';
+      repairOrderPrintState.templateEditor.documentType = activeDocument === 'completion_act' ? 'repair_order' : activeDocument;
       repairOrderPrintState.templateEditor.templateId = repairOrderPrintSelectedTemplateId(repairOrderPrintState.templateEditor.documentType);
       renderPrintTemplateDocumentTypeOptions();
       renderPrintTemplateList();
@@ -2027,6 +3229,30 @@ _PRINTING_SCRIPT_PART3 = r"""
       if (event.target === printEls.inspectionSheetModal) closeInspectionSheetForm();
     }
 
+    function handleCompletionActModalClick(event) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (target === printEls.completionActModal) {
+        closeCompletionActEditor();
+        return;
+      }
+      const sectionButton = target.closest('[data-completion-act-section]');
+      if (sectionButton) setCompletionActSection(sectionButton.getAttribute('data-completion-act-section') || 'document');
+    }
+
+    function handleCompletionActKeydown(event) {
+      if (event.key !== 'Escape' || !printEls.completionActModal?.classList.contains('is-open')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeCompletionActEditor();
+    }
+
+    function handleCompletionActBeforeUnload(event) {
+      if (!repairOrderPrintState.completionAct.dirty) return;
+      event.preventDefault();
+      event.returnValue = '';
+    }
+
     function handleInspectionSheetTableRowsClick(event) {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
@@ -2072,6 +3298,24 @@ _PRINTING_SCRIPT_PART3 = r"""
     if (printEls.inspectionSheetSaveButton) printEls.inspectionSheetSaveButton.addEventListener('click', () => { saveInspectionSheetFormDraft(); });
     if (printEls.inspectionSheetApplyButton) printEls.inspectionSheetApplyButton.addEventListener('click', () => { saveInspectionSheetFormDraft({ closeAfter: true }); });
     if (printEls.inspectionSheetAutofillButton) printEls.inspectionSheetAutofillButton.addEventListener('click', autofillInspectionSheetFormDraft);
+    if (printEls.completionActCloseX) printEls.completionActCloseX.addEventListener('click', closeCompletionActEditor);
+    if (printEls.completionActModal) printEls.completionActModal.addEventListener('click', handleCompletionActModalClick);
+    if (printEls.completionActForm) printEls.completionActForm.addEventListener('submit', (event) => event.preventDefault());
+    if (printEls.completionActForm) printEls.completionActForm.addEventListener('input', handleCompletionActFormInput);
+    if (printEls.completionActForm) printEls.completionActForm.addEventListener('change', handleCompletionActFormInput);
+    if (printEls.completionActItemRows) printEls.completionActItemRows.addEventListener('click', handleCompletionActItemsClick);
+    if (printEls.completionActAddItemButton) printEls.completionActAddItemButton.addEventListener('click', appendCompletionActItem);
+    if (printEls.completionActSaveButton) printEls.completionActSaveButton.addEventListener('click', saveCompletionActDraft);
+    if (printEls.completionActResetButton) printEls.completionActResetButton.addEventListener('click', resetCompletionActDraft);
+    if (printEls.completionActExportButton) printEls.completionActExportButton.addEventListener('click', exportCompletionActPdf);
+    if (printEls.completionActPrintButton) printEls.completionActPrintButton.addEventListener('click', printCompletionAct);
+    if (printEls.completionActPrevPageButton) printEls.completionActPrevPageButton.addEventListener('click', () => { repairOrderPrintState.completionAct.pageIndex -= 1; renderCompletionActPreview(); });
+    if (printEls.completionActNextPageButton) printEls.completionActNextPageButton.addEventListener('click', () => { repairOrderPrintState.completionAct.pageIndex += 1; renderCompletionActPreview(); });
+    if (printEls.completionActMobileDataButton) printEls.completionActMobileDataButton.addEventListener('click', () => setCompletionActMobileView('data'));
+    if (printEls.completionActMobilePreviewButton) printEls.completionActMobilePreviewButton.addEventListener('click', () => setCompletionActMobileView('preview'));
+    window.addEventListener('resize', applyCompletionActPreviewScale);
+    window.addEventListener('beforeunload', handleCompletionActBeforeUnload);
+    document.addEventListener('keydown', handleCompletionActKeydown, true);
     if (printEls.templateCloseX) printEls.templateCloseX.addEventListener('click', closePrintTemplateEditor);
     if (printEls.templateModal) printEls.templateModal.addEventListener('click', handlePrintTemplateEditorOverlayClick);
     if (printEls.templateDocumentType) printEls.templateDocumentType.addEventListener('change', handlePrintTemplateDocumentTypeChange);
