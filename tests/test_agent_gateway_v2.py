@@ -74,6 +74,7 @@ class FakeBoardApi:
         self.manager_operations: list[dict] = []
         self.created_clients: dict[str, dict] = {}
         self.created_cards: dict[str, dict] = {}
+        self.completion_act_forms: dict[str, dict] = {}
 
     def get_board_context(self) -> dict:
         return {
@@ -455,6 +456,53 @@ class FakeBoardApi:
                 or item.get("action") == request_payload.get("action")
             ]
             return {"ok": True, "data": {"activities": activities}}
+        if path == "/api/get_completion_act_form":
+            card_id = str(request_payload.get("card_id") or "")
+            record = self.completion_act_forms.get(card_id)
+            return {
+                "ok": True,
+                "data": {
+                    "card_id": card_id,
+                    "form": dict((record or {}).get("form") or {}),
+                    "draft": {
+                        "exists": bool(record and record.get("exists")),
+                        "version": int((record or {}).get("version") or 0),
+                        "cycle_key": f"{card_id}:cycle",
+                        "current_source_fingerprint": "0" * 64,
+                    },
+                },
+            }
+        if path in {
+            "/api/save_completion_act_form",
+            "/api/reset_completion_act_form",
+        }:
+            card_id = str(request_payload.get("card_id") or "")
+            current = self.completion_act_forms.get(card_id) or {}
+            current_version = int(current.get("version") or 0)
+            if request_payload.get("expected_version") != current_version:
+                return {
+                    "ok": False,
+                    "error": {"code": "completion_act_version_conflict"},
+                }
+            is_save = path == "/api/save_completion_act_form"
+            record = {
+                "exists": is_save,
+                "version": current_version + 1,
+                "form": dict(request_payload.get("form") or {}) if is_save else {},
+            }
+            self.completion_act_forms[card_id] = record
+            return {
+                "ok": True,
+                "data": {
+                    "card_id": card_id,
+                    "form": dict(record["form"]),
+                    "draft": {
+                        "exists": record["exists"],
+                        "version": record["version"],
+                        "cycle_key": f"{card_id}:cycle",
+                    },
+                },
+            }
         return {
             "ok": True,
             "data": {"path": path, "accepted": True},
@@ -3482,6 +3530,45 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
             "api:/api/save_employee",
             {"employee": {"id": "employee-1", "salary": "1000"}},
         )
+
+    async def test_completion_act_reset_requires_destructive_gateway_policy(self) -> None:
+        restricted_env = {
+            **GATEWAY_ENV,
+            "AUTOSTOP_AGENT_GATEWAY_DESTRUCTIVE_ENABLED": "0",
+        }
+        with patch.dict("os.environ", restricted_env, clear=False):
+            server = create_mcp_server(
+                self.board_api,
+                self.logger,
+                host="127.0.0.1",
+                port=41835,
+                path="/mcp",
+                public_endpoint_url="https://crm.example/mcp",
+            )
+            schema = await server._tool_manager.get_tool("get_raw_capability_schema").run(
+                {"name": "api:/api/reset_completion_act_form"},
+                convert_result=False,
+            )
+            self.assertEqual("destructive", schema.structuredContent["summary"]["risk"])
+            result = await server._tool_manager.get_tool("call_raw_capability").run(
+                {
+                    "name": "api:/api/reset_completion_act_form",
+                    "arguments": {
+                        "card_id": "card-1",
+                        "expected_version": 0,
+                    },
+                    "schema_hash": schema.structuredContent["summary"]["schema_hash"],
+                    "idempotency_key": "blocked-completion-act-reset",
+                },
+                convert_result=False,
+            )
+
+        self.assertFalse(result.structuredContent["ok"])
+        self.assertIn(
+            "agent_gateway_destructive_disabled",
+            result.structuredContent["warnings"],
+        )
+        self.assertEqual(self.board_api.raw_requests, [])
 
     async def test_production_master_switch_fails_closed_to_diagnostics(self) -> None:
         production_env = {

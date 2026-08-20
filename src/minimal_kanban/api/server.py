@@ -1879,6 +1879,9 @@ class ApiServer:
                 self, route: str, payload: dict, session: dict | None
             ) -> dict:
                 next_payload = dict(payload)
+                # This field is server-owned. Never retain a caller-supplied
+                # session or audit actor when no trusted session resolved.
+                next_payload.pop("_operator_session", None)
                 if session is not None:
                     next_payload["_operator_session"] = session
                     if route not in operator_session_routes and route not in admin_only_routes:
@@ -1892,7 +1895,11 @@ class ApiServer:
 
                 if self._is_proxied_request():
                     return None
-                if str(payload.get("source") or "").strip() != "mcp_agent_gateway_v2":
+                request_source = payload.get("source")
+                if (
+                    not isinstance(request_source, str)
+                    or request_source.strip() != "mcp_agent_gateway_v2"
+                ):
                     return None
                 try:
                     policy = load_agent_gateway_security_policy()

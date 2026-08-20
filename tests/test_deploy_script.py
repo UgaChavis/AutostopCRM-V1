@@ -151,6 +151,14 @@ class DeployScriptTests(unittest.TestCase):
         self.assertIn('docker tag "$rollback_image" "$STABLE_IMAGE"', script)
         self.assertIn("--no-deps --no-build --force-recreate", script)
         self.assertIn("scripts/agent_release_backup.py create", script)
+        self.assertIn(
+            '"$CRM_DATA_DIR/printing/completion_act_forms.json"',
+            script,
+        )
+        self.assertIn(
+            'du -sb "$CRM_DATA_DIR/printing/completion_act_forms"',
+            script,
+        )
         self.assertIn("restore-crm-changed --backup-dir", script)
         self.assertIn("restore-manager-changed --backup-dir", script)
         self.assertIn("rollback_release", script)

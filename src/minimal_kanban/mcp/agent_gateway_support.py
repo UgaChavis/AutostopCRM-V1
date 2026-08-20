@@ -19,7 +19,7 @@ from .gateway_contract import (
     DEFAULT_CARD_FIELDS,
     FINANCE_WORKFLOW_OPERATIONS,
 )
-from .raw_gateway import DESTRUCTIVE_CAPABILITY_MARKERS
+from .raw_gateway import DESTRUCTIVE_CAPABILITY_MARKERS, DESTRUCTIVE_CAPABILITY_NAMES
 
 AGENT_GATEWAY_FORMAT = "agent_envelope_v2"
 STORE_VIN_PHOTO_PREVIEW_OPERATION = "download_store_quote_vin_photo"
@@ -587,6 +587,7 @@ def _is_destructive_capability(name: str, risk: str) -> bool:
     return (
         risk == "destructive"
         or name in DESTRUCTIVE_TOOL_NAMES
+        or normalized in DESTRUCTIVE_CAPABILITY_NAMES
         or any(marker in normalized for marker in DESTRUCTIVE_CAPABILITY_MARKERS)
     )
 

@@ -1585,7 +1585,7 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertNotIn("undefined", html)
         self.assertNotIn("NaN", html)
 
-    def test_completion_act_template_renders_brand_header_and_signature_block(self) -> None:
+    def test_completion_act_template_renders_accounting_format_and_vat(self) -> None:
         preview = self.service.preview_documents(
             self.card,
             selected_document_ids=["completion_act"],
@@ -1594,22 +1594,19 @@ class PrintingServiceTests(unittest.TestCase):
 
         document = preview["documents"][0]
         html = document["pages"][0]["html"]
-        self.assertIn("Акт выполненных работ", html)
-        self.assertIn('class="doc-brand-mark"', html)
-        self.assertIn("Телефон ресепшена", html)
-        self.assertIn("Ключевые условия", html)
-        self.assertIn("30 дней на работы", html)
-        self.assertIn("6 месяцев", html)
-        self.assertIn("1000 км", html)
-        self.assertIn("150 рублей в сутки", html)
-        self.assertIn("Фотофиксация", html)
-        self.assertIn("Сумма прописью", html)
-        self.assertIn("Стоимость заказ-наряда за наличный расчет", html)
-        self.assertIn("Доплата по безналичному расчету", html)
-        self.assertIn("Доплата по наличному расчету", html)
-        self.assertNotIn("Налоги и сборы</td>", html)
-        self.assertIn("Подписи сторон", html)
-        self.assertIn("Работы принял, претензий не имею", html)
+        self.assertIn("Акт о сдаче-приемке выполненных работ № 12", html)
+        self.assertIn("Исполнитель:", html)
+        self.assertIn("Заказчик:", html)
+        self.assertIn("Наименование работ (услуг)", html)
+        self.assertIn("НДС (5%):", html)
+        self.assertIn("Всего:", html)
+        self.assertIn("Исполнитель", html)
+        self.assertIn("Заказчик", html)
+        self.assertNotIn('class="doc-brand-mark"', html)
+        self.assertNotIn("Телефон ресепшена", html)
+        self.assertNotIn("Ключевые условия", html)
+        self.assertNotIn("Стоимость заказ-наряда за наличный расчет", html)
+        self.assertNotIn("Доплата по безналичному расчету", html)
         self.assertNotIn("undefined", html)
         self.assertNotIn("NaN", html)
 
@@ -1626,7 +1623,12 @@ class PrintingServiceTests(unittest.TestCase):
         for document in preview["documents"]:
             self.assertGreaterEqual(document["page_count"], 1)
             self.assertIn("<!doctype html>", document["pages"][0]["html"].lower())
-            self.assertIn(document["label"], document["pages"][0]["html"])
+            expected_title = (
+                "Акт о сдаче-приемке выполненных работ"
+                if document["id"] == "completion_act"
+                else document["label"]
+            )
+            self.assertIn(expected_title, document["pages"][0]["html"])
 
     def test_acceptance_act_renders_legal_terms_and_photo_fixation(self) -> None:
         preview = self.service.preview_documents(

@@ -33,6 +33,7 @@ CURRENT_GAPS: set[str] = set()
 EXACT_RESOLVED_READBACK_CLASSES = {
     "/api/get_ai_chat_knowledge": "exact_ai_chat_knowledge",
     "/api/get_board_revision": "exact_board_revision",
+    "/api/get_completion_act_form": "exact_completion_act_form",
     "/api/get_display_dashboard": "exact_display_dashboard",
     "/api/get_inspection_sheet_form": "exact_inspection_sheet_form",
     "/api/get_repair_order_print_workspace": "exact_repair_order_print_workspace",

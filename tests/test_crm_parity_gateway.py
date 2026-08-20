@@ -53,6 +53,7 @@ class CrmParityGatewayTests(unittest.IsolatedAsyncioTestCase):
         requests = {
             "/api/get_ai_chat_knowledge": {"prompt": "diagnostics"},
             "/api/get_board_revision": {"compact": True, "include_archive": False},
+            "/api/get_completion_act_form": {"card_id": "card-1"},
             "/api/get_display_dashboard": {},
             "/api/get_inspection_sheet_form": {"card_id": "card-1"},
             "/api/get_repair_order_print_workspace": {"card_id": "card-1"},
@@ -96,6 +97,60 @@ class CrmParityGatewayTests(unittest.IsolatedAsyncioTestCase):
             "expected_updated_at_required_reread_exact_card_first",
             stale_unsafe.structuredContent["warnings"],
         )
+        completion_schema = await self._call(
+            "get_raw_capability_schema",
+            {"name": "api:/api/save_completion_act_form"},
+        )
+        missing_version = await self._call(
+            "call_raw_capability",
+            {
+                "name": "api:/api/save_completion_act_form",
+                "arguments": {"card_id": "card-1", "form": {}},
+                "schema_hash": completion_schema.structuredContent["summary"]["schema_hash"],
+                "idempotency_key": "completion-without-version",
+            },
+        )
+        self.assertIn(
+            "expected_version_required_reread_exact_completion_act_first",
+            missing_version.structuredContent["warnings"],
+        )
+        missing_source = await self._call(
+            "call_raw_capability",
+            {
+                "name": "api:/api/save_completion_act_form",
+                "arguments": {
+                    "card_id": "card-1",
+                    "form": {},
+                    "expected_version": 0,
+                },
+                "schema_hash": completion_schema.structuredContent["summary"]["schema_hash"],
+                "idempotency_key": "completion-without-source-fingerprint",
+            },
+        )
+        self.assertIn(
+            "expected_source_fingerprint_required_reread_exact_completion_act_first",
+            missing_source.structuredContent["warnings"],
+        )
+        mismatched_key = await self._call(
+            "call_raw_capability",
+            {
+                "name": "api:/api/save_completion_act_form",
+                "arguments": {
+                    "card_id": "card-1",
+                    "form": {},
+                    "expected_version": 0,
+                    "expected_source_fingerprint": "0" * 64,
+                    "idempotency_key": "inner-key",
+                },
+                "schema_hash": completion_schema.structuredContent["summary"]["schema_hash"],
+                "idempotency_key": "outer-key",
+            },
+        )
+        self.assertFalse(mismatched_key.structuredContent["ok"])
+        self.assertIn(
+            "completion_act_idempotency_key_mismatch",
+            mismatched_key.structuredContent["warnings"],
+        )
 
         requests = {
             "/api/set_card_ai_autofill": {
@@ -104,6 +159,16 @@ class CrmParityGatewayTests(unittest.IsolatedAsyncioTestCase):
                 "expected_updated_at": self.board_api.card_updated_at,
             },
             "/api/open_card": {"card_id": "card-1"},
+            "/api/save_completion_act_form": {
+                "card_id": "card-1",
+                "form": {},
+                "expected_version": 0,
+                "expected_source_fingerprint": "0" * 64,
+            },
+            "/api/reset_completion_act_form": {
+                "card_id": "card-1",
+                "expected_version": 0,
+            },
         }
         for route, arguments in requests.items():
             with self.subTest(route=route):
@@ -117,7 +182,10 @@ class CrmParityGatewayTests(unittest.IsolatedAsyncioTestCase):
                         "schema_hash": schema.structuredContent["summary"]["schema_hash"],
                     },
                 )
-                self.assertEqual(schema.structuredContent["summary"]["risk"], "write")
+                self.assertEqual(
+                    schema.structuredContent["summary"]["risk"],
+                    "destructive" if route == "/api/reset_completion_act_form" else "write",
+                )
                 self.assertFalse(rejected.structuredContent["ok"])
                 self.assertIn(
                     "idempotency_key_required_for_raw_write",
@@ -171,6 +239,24 @@ class CrmParityGatewayTests(unittest.IsolatedAsyncioTestCase):
             {"card_id": "card-1", "return_card": False, "mark_seen": False},
             "open-card-card-1-v1",
         )
+        completion_saved = await apply(
+            "api:/api/save_completion_act_form",
+            {
+                "card_id": "card-1",
+                "form": {"basis": "Exact gateway draft"},
+                "expected_version": 0,
+                "expected_source_fingerprint": "0" * 64,
+            },
+            "completion-act-card-1-save-v1",
+        )
+        completion_reset = await apply(
+            "api:/api/reset_completion_act_form",
+            {
+                "card_id": "card-1",
+                "expected_version": 1,
+            },
+            "completion-act-card-1-reset-v2",
+        )
 
         self.assertEqual(24, len(server._tool_manager.list_tools()))
         self.assertTrue(autofill.structuredContent["ok"])
@@ -183,13 +269,35 @@ class CrmParityGatewayTests(unittest.IsolatedAsyncioTestCase):
             "exact_operator_activity_readback",
             opened.structuredContent["verification"]["check"],
         )
+        self.assertTrue(completion_saved.structuredContent["ok"])
+        self.assertEqual(
+            "exact_completion_act_draft_readback",
+            completion_saved.structuredContent["verification"]["check"],
+        )
+        self.assertTrue(completion_reset.structuredContent["ok"])
+        self.assertEqual(
+            "exact_completion_act_reset_readback",
+            completion_reset.structuredContent["verification"]["check"],
+        )
         self.assertEqual(
             [
                 "/api/set_card_ai_autofill",
                 "/api/open_card",
                 "/api/list_operator_activity",
+                "/api/save_completion_act_form",
+                "/api/get_completion_act_form",
+                "/api/reset_completion_act_form",
+                "/api/get_completion_act_form",
             ],
             [item["path"] for item in board_api.raw_requests],
+        )
+        self.assertEqual(
+            "completion-act-card-1-save-v1",
+            board_api.raw_requests[3]["payload"]["idempotency_key"],
+        )
+        self.assertEqual(
+            "completion-act-card-1-reset-v2",
+            board_api.raw_requests[5]["payload"]["idempotency_key"],
         )
 
 

@@ -96,6 +96,13 @@
       "operation": "api:/api/get_board_revision",
       "readback_class": "exact_board_revision"
     },
+    "/api/get_completion_act_form": {
+      "backend_kind": "registered_json_document_read",
+      "gateway_kind": "guarded_virtual_api",
+      "gateway_tool": "call_raw_capability",
+      "operation": "api:/api/get_completion_act_form",
+      "readback_class": "exact_completion_act_form"
+    },
     "/api/get_board_event_page": {
       "backend_kind": "registered_json_read",
       "gateway_kind": "guarded_raw_mcp",

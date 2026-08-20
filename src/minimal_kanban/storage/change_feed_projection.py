@@ -525,6 +525,7 @@ def project_print_module(
     settings: object,
     templates: object,
     inspection_sheet_forms: object,
+    completion_act_forms: object = None,
 ) -> dict[tuple[str, str], ProjectedEntity]:
     """Project durable print configuration and drafts without retaining their content."""
 
@@ -554,6 +555,23 @@ def project_print_module(
             entity_type="inspection_sheet_form",
             entity_id=raw_card_id,
             content=_without(raw_form, "updated_at"),
+        )
+    completion_forms = completion_act_forms if isinstance(completion_act_forms, Mapping) else {}
+    for raw_cycle_key, raw_form in completion_forms.items():
+        if not isinstance(raw_form, Mapping):
+            continue
+        _add(
+            projected,
+            entity_type="completion_act_form",
+            entity_id=raw_cycle_key,
+            content={
+                "version": raw_form.get("version"),
+                "source_fingerprint": raw_form.get("source_fingerprint"),
+                "draft_digest": _digest(_mapping(raw_form.get("overrides"))),
+                "operation": raw_form.get("operation"),
+                "deleted": bool(raw_form.get("deleted")),
+            },
+            lifecycle="removed" if bool(raw_form.get("deleted")) else "active",
         )
     return projected
 

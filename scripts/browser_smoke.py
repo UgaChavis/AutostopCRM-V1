@@ -9,7 +9,9 @@ import json
 import logging
 import math
 import os
+import re
 import socket
+import subprocess
 import sys
 import tempfile
 import time
@@ -50,6 +52,7 @@ SMOKE_SCENARIOS = (
     "cashbox_transaction_cancellation",
     "repair_order_payments_modal",
     "repair_order_material_executor_defaults_to_operator_employee",
+    "completion_act_editor_draft_roundtrip",
     "clients_modal",
     "clients_search_selects_realistic_row",
     "files_modal",
@@ -96,6 +99,92 @@ SMOKE_ACTION_TIMEOUT_MS = 20000
 SMOKE_NAVIGATION_TIMEOUT_MS = 15000
 SMOKE_UI_BIND_TIMEOUT_MS = 30000
 BENIGN_FAILED_REQUEST_MARKERS = ("net::ERR_ABORTED", "NS_BINDING_ABORTED", "AbortError")
+
+
+def _pdf_file_is_parseable(path: Path) -> bool:
+    try:
+        from PySide6.QtPdf import QPdfDocument
+    except Exception:
+        return False
+    document = QPdfDocument()
+    try:
+        error = document.load(str(path))
+        return bool(
+            error == QPdfDocument.Error.None_
+            and document.status() == QPdfDocument.Status.Ready
+            and document.pageCount() > 0
+        )
+    finally:
+        document.close()
+
+
+def _pdfinfo_page_count(path: Path) -> int:
+    try:
+        result = subprocess.run(
+            ["pdfinfo", str(path)],
+            check=False,
+            capture_output=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return 0
+    if result.returncode != 0:
+        return 0
+    output = result.stdout.decode("utf-8", errors="replace")
+    match = re.search(r"^Pages:\s*(\d+)\s*$", output, flags=re.MULTILINE)
+    return int(match.group(1)) if match else 0
+
+
+def _pdf_page_texts(path: Path, page_count: int) -> list[str]:
+    pages: list[str] = []
+    for page_number in range(1, page_count + 1):
+        try:
+            result = subprocess.run(
+                [
+                    "pdftotext",
+                    "-f",
+                    str(page_number),
+                    "-l",
+                    str(page_number),
+                    "-layout",
+                    str(path),
+                    "-",
+                ],
+                check=False,
+                capture_output=True,
+                timeout=30,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return []
+        if result.returncode != 0:
+            return []
+        pages.append(result.stdout.decode("utf-8", errors="replace").strip("\f\r\n "))
+    return pages
+
+
+def _completion_act_pdf_contract(
+    path: Path,
+    *,
+    expected_page_count: int,
+    expected_item_names: list[str],
+) -> bool:
+    page_count = _pdfinfo_page_count(path)
+    if page_count != expected_page_count:
+        return False
+    page_texts = _pdf_page_texts(path, page_count)
+    if len(page_texts) != page_count or any(not text.strip() for text in page_texts):
+        return False
+    footer_sequence: list[tuple[int, int]] = []
+    for page_text in page_texts:
+        compact = re.sub(r"\s+", " ", page_text)
+        matches = re.findall(r"страница\s+(\d+)\s+из\s+(\d+)", compact, flags=re.IGNORECASE)
+        if len(matches) != 1:
+            return False
+        footer_sequence.append(tuple(int(value) for value in matches[0]))
+    if footer_sequence != [(page_number, page_count) for page_number in range(1, page_count + 1)]:
+        return False
+    combined_text = "\n".join(page_texts)
+    return all(combined_text.count(name) == 1 for name in expected_item_names)
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -1513,6 +1602,1091 @@ async def _exercise_personal_extra_board_column(page: Any, runtime: TempRuntime)
     return bool(rendered and persisted)
 
 
+async def _completion_act_browser_print_html(page: Any, pages: list[dict[str, Any]]) -> str:
+    return str(
+        await page.evaluate(
+            """(pages) => {
+              const parser = new DOMParser();
+              const parsedPages = (Array.isArray(pages) ? pages : []).map((page) => {
+                const documentNode = parser.parseFromString(
+                  String(page?.html || ''),
+                  'text/html'
+                );
+                const shell = documentNode.querySelector('.document-shell');
+                const bodyFragment = shell?.outerHTML || documentNode.body?.innerHTML || '';
+                const headFragments = Array.from(
+                  documentNode.head?.querySelectorAll('style, link[rel="stylesheet"]') || []
+                ).map((node) => node.outerHTML).filter(Boolean);
+                return { bodyFragment, headFragments };
+              }).filter((page) => page.bodyFragment.trim());
+              const headFragments = Array.from(
+                new Set(parsedPages.flatMap((page) => page.headFragments))
+              ).join('');
+              const body = parsedPages.length
+                ? parsedPages.map((page) => page.bodyFragment).join('')
+                : '<main>Нет данных акта для печати.</main>';
+              return '<!doctype html><html lang="ru"><head><meta charset="utf-8">'
+                + '<title>Акт выполненных работ</title>'
+                + headFragments
+                + '<style>.document-shell + .document-shell{break-before:page;page-break-before:always}</style>'
+                + '</head><body>' + body + '</body></html>';
+            }""",
+            pages,
+        )
+    )
+
+
+def _completion_act_pdf_fixture(
+    base_form: dict[str, Any], *, label: str, maximal_final_block: bool
+) -> tuple[dict[str, Any], list[str]]:
+    form = json.loads(json.dumps(base_form))
+    item_names = [f"Smoke PDF {label} row {index:02d}" for index in range(1, 27)]
+    form["document_number"] = f"SMOKE-PDF-{label.upper()}"
+    form["items"] = [
+        {
+            "id": f"smoke-pdf-{label}-{index:02d}",
+            "section": "works",
+            "name": name,
+            "unit": "ч",
+            "quantity": "1",
+            "price": str(100 + index),
+        }
+        for index, name in enumerate(item_names, start=1)
+    ]
+    if maximal_final_block:
+        form["basis"] = ("Договор на выполнение работ и техническое обслуживание; " * 12)[:500]
+        form["acceptance_text"] = (
+            "Работы выполнены полностью и в срок, качество проверено заказчиком; " * 20
+        )[:1000]
+        for party_name in ("performer", "customer"):
+            party = form.setdefault(party_name, {})
+            party["legal_name"] = ("Организация с длинным полным наименованием " * 8)[:240]
+            party["address"] = (
+                "Красноярский край, город Красноярск, улица Длинная, дом 123, офис 456; " * 6
+            )[:320]
+            party["bank_name"] = ("Банк с длинным официальным наименованием " * 8)[:240]
+            party["signer_position"] = ("Старший руководитель подразделения " * 5)[:120]
+            party["signer_name"] = ("Иванов Иван Иванович " * 8)[:160]
+    return form, item_names
+
+
+async def _exercise_completion_act_physical_pdf_regression(
+    page: Any, runtime: TempRuntime, artifact_dir: Path
+) -> bool:
+    current = runtime.service.get_completion_act_form({"card_id": runtime.card_id})
+    base_form = current.get("form", {})
+    if not isinstance(base_form, dict):
+        return False
+    for label, maximal_final_block in (("standard", False), ("max-final", True)):
+        form, item_names = _completion_act_pdf_fixture(
+            base_form,
+            label=label,
+            maximal_final_block=maximal_final_block,
+        )
+        request_payload = {
+            "card_id": runtime.card_id,
+            "selected_document_ids": ["completion_act"],
+            "active_document_id": "completion_act",
+            "document_overrides": {"completion_act": form},
+        }
+        preview_response = await page.request.post(
+            f"{runtime.base_url}/api/preview_repair_order_print_documents",
+            data=request_payload,
+        )
+        if not preview_response.ok:
+            return False
+        preview = _api_data(await preview_response.json())
+        documents = preview.get("documents") if isinstance(preview, dict) else []
+        document = documents[0] if isinstance(documents, list) and documents else {}
+        pages = document.get("pages") if isinstance(document, dict) else []
+        logical_page_count = int(document.get("page_count") or 0)
+        if not isinstance(pages, list) or len(pages) != logical_page_count:
+            return False
+
+        printable_html = await _completion_act_browser_print_html(page, pages)
+        if printable_html.lower().count("<!doctype html>") != 1:
+            return False
+        chromium_path = artifact_dir / f"completion-act-{label}-chromium.pdf"
+        pdf_page = await page.context.new_page()
+        try:
+            await pdf_page.emulate_media(media="print")
+            await pdf_page.set_content(printable_html, wait_until="load")
+            await pdf_page.evaluate("() => document.fonts?.ready")
+            await pdf_page.pdf(
+                path=str(chromium_path),
+                format="A4",
+                print_background=True,
+                prefer_css_page_size=True,
+            )
+        finally:
+            await pdf_page.close()
+
+        export_response = await page.request.post(
+            f"{runtime.base_url}/api/export_repair_order_print_pdf",
+            data=request_payload,
+        )
+        if not export_response.ok:
+            return False
+        exported = _api_data(await export_response.json())
+        try:
+            qt_pdf_bytes = base64.b64decode(exported.get("content_base64") or "", validate=True)
+        except (TypeError, ValueError):
+            return False
+        qt_path = artifact_dir / f"completion-act-{label}-qt.pdf"
+        qt_path.write_bytes(qt_pdf_bytes)
+
+        if not (
+            chromium_path.read_bytes().startswith(b"%PDF")
+            and qt_pdf_bytes.startswith(b"%PDF")
+            and _completion_act_pdf_contract(
+                chromium_path,
+                expected_page_count=logical_page_count,
+                expected_item_names=item_names,
+            )
+            and _completion_act_pdf_contract(
+                qt_path,
+                expected_page_count=logical_page_count,
+                expected_item_names=item_names,
+            )
+        ):
+            return False
+    return True
+
+
+async def _arm_browser_print_capture(page: Any) -> None:
+    await page.evaluate(
+        """() => {
+          window.__AUTOSTOP_SMOKE_MAIN_PRINT_HTML__ = '';
+          window.__AUTOSTOP_SMOKE_MAIN_PRINT_OBSERVER__?.disconnect?.();
+          const observer = new MutationObserver((records) => {
+            records.flatMap((record) => Array.from(record.addedNodes || [])).forEach((node) => {
+              if (!(node instanceof HTMLIFrameElement) || node.style.right !== '-12000px') return;
+              const installPrintCapture = () => {
+                if (!node.isConnected || !node.contentWindow || !node.contentDocument) return;
+                node.contentWindow.print = () => {
+                  const root = node.contentDocument?.documentElement;
+                  window.__AUTOSTOP_SMOKE_MAIN_PRINT_HTML__ = root
+                    ? '<!doctype html>' + root.outerHTML
+                    : '';
+                  observer.disconnect();
+                };
+              };
+              installPrintCapture();
+              const timer = window.setInterval(installPrintCapture, 10);
+              window.setTimeout(() => window.clearInterval(timer), 1200);
+            });
+          });
+          observer.observe(document.body, { childList: true });
+          window.__AUTOSTOP_SMOKE_MAIN_PRINT_OBSERVER__ = observer;
+        }"""
+    )
+
+
+async def _capture_browser_print_html(page: Any, button_selector: str) -> str:
+    await _arm_browser_print_capture(page)
+    await page.click(button_selector)
+    await page.wait_for_function(
+        "() => Boolean(window.__AUTOSTOP_SMOKE_MAIN_PRINT_HTML__)", timeout=20_000
+    )
+    await page.wait_for_function(
+        "(selector) => !document.querySelector(selector)?.disabled",
+        arg=button_selector,
+    )
+    return str(await page.evaluate("() => window.__AUTOSTOP_SMOKE_MAIN_PRINT_HTML__"))
+
+
+async def _exercise_completion_act_main_print_regression(
+    page: Any, runtime: TempRuntime, artifact_dir: Path
+) -> bool:
+    current = runtime.service.get_completion_act_form({"card_id": runtime.card_id})
+    base_form = current.get("form", {})
+    if not isinstance(base_form, dict):
+        return False
+    form, item_names = _completion_act_pdf_fixture(
+        base_form, label="main-button", maximal_final_block=False
+    )
+    saved = runtime.service.save_completion_act_form(
+        {
+            "card_id": runtime.card_id,
+            "form": form,
+            "expected_version": int((current.get("draft") or {}).get("version") or 0),
+            "expected_source_fingerprint": str(
+                (current.get("draft") or {}).get("current_source_fingerprint") or ""
+            ),
+            "idempotency_key": "browser-smoke-main-print-save",
+            "actor_name": "SMOKE",
+            "source": "browser_smoke",
+        }
+    )
+    draft_version = int((saved.get("draft") or {}).get("version") or 0)
+    try:
+        async with page.expect_response(
+            lambda response: (
+                response.request.method == "POST"
+                and response.url.split("?", 1)[0].endswith(
+                    "/api/preview_repair_order_print_documents"
+                )
+            )
+        ) as preview_response_info:
+            await page.click('[data-print-document="completion_act"]')
+        preview_response = await preview_response_info.value
+        preview = _api_data(await preview_response.json())
+        documents = preview.get("documents") if isinstance(preview, dict) else []
+        document = documents[0] if isinstance(documents, list) and documents else {}
+        logical_page_count = int(document.get("page_count") or 0)
+        if logical_page_count != 2:
+            return False
+
+        gear = page.locator("[data-completion-act-editor-open]")
+        async with (
+            page.expect_response(
+                lambda response: (
+                    response.request.method == "POST"
+                    and response.url.split("?", 1)[0].endswith("/api/get_completion_act_form")
+                )
+            ),
+            page.expect_response(
+                lambda response: (
+                    response.request.method == "POST"
+                    and response.url.split("?", 1)[0].endswith(
+                        "/api/preview_repair_order_print_documents"
+                    )
+                )
+            ),
+        ):
+            await gear.click()
+        await _wait_modal_open(page, "#completionActEditorModal")
+        discarded_marker = "SMOKE-UNSAVED-DISCARD"
+        async with page.expect_response(
+            lambda response: (
+                response.request.method == "POST"
+                and response.url.split("?", 1)[0].endswith(
+                    "/api/preview_repair_order_print_documents"
+                )
+            )
+        ):
+            await page.fill("#completionActDocumentNumber", discarded_marker)
+        await page.wait_for_function(
+            """(marker) => {
+              const frame = document.querySelector('#completionActPreviewFrame');
+              return (frame?.contentDocument?.body?.innerText || '').includes(marker);
+            }""",
+            arg=discarded_marker,
+        )
+
+        async def delay_preview_response(route: Any) -> None:
+            await asyncio.sleep(0.45)
+            await route.continue_()
+
+        await page.route("**/api/preview_repair_order_print_documents", delay_preview_response)
+        try:
+            page.once("dialog", lambda dialog: asyncio.create_task(dialog.accept()))
+            await page.click("#completionActEditorCloseX")
+            await _wait_modal_closed(page, "#completionActEditorModal")
+            printable_html = await _capture_browser_print_html(page, "#repairOrderPrintRunButton")
+        finally:
+            await page.unroute(
+                "**/api/preview_repair_order_print_documents", delay_preview_response
+            )
+        if (
+            printable_html.lower().count("<!doctype html>") != 1
+            or printable_html.count('class="document-shell"') != logical_page_count
+            or discarded_marker in printable_html
+            or form["document_number"] not in printable_html
+        ):
+            return False
+        chromium_path = artifact_dir / "completion-act-main-button-chromium.pdf"
+        pdf_page = await page.context.new_page()
+        try:
+            await pdf_page.emulate_media(media="print")
+            await pdf_page.set_content(printable_html, wait_until="load")
+            await pdf_page.evaluate("() => document.fonts?.ready")
+            await pdf_page.pdf(
+                path=str(chromium_path),
+                format="A4",
+                print_background=True,
+                prefer_css_page_size=True,
+            )
+        finally:
+            await pdf_page.close()
+        return _completion_act_pdf_contract(
+            chromium_path,
+            expected_page_count=logical_page_count,
+            expected_item_names=item_names,
+        )
+    finally:
+        if draft_version:
+            runtime.service.reset_completion_act_form(
+                {
+                    "card_id": runtime.card_id,
+                    "expected_version": draft_version,
+                    "idempotency_key": "browser-smoke-main-print-reset",
+                    "actor_name": "SMOKE",
+                    "source": "browser_smoke",
+                }
+            )
+
+
+async def _exercise_completion_act_max_items_ui(page: Any, runtime: TempRuntime, gear: Any) -> bool:
+    current = runtime.service.get_completion_act_form({"card_id": runtime.card_id})
+    base_form = current.get("form", {})
+    if not isinstance(base_form, dict):
+        return False
+    form = json.loads(json.dumps(base_form))
+    form["items"] = [
+        {
+            "id": f"smoke-ui-max-{index:03d}",
+            "section": "works" if index <= 150 else "materials",
+            "name": f"Smoke UI maximum row {index:03d}",
+            "unit": "ч" if index <= 150 else "шт",
+            "quantity": "1",
+            "price": "1",
+        }
+        for index in range(1, 301)
+    ]
+    saved = runtime.service.save_completion_act_form(
+        {
+            "card_id": runtime.card_id,
+            "form": form,
+            "expected_version": int((current.get("draft") or {}).get("version") or 0),
+            "expected_source_fingerprint": str(
+                (current.get("draft") or {}).get("current_source_fingerprint") or ""
+            ),
+            "idempotency_key": "browser-smoke-ui-max-save",
+            "actor_name": "SMOKE",
+            "source": "browser_smoke",
+        }
+    )
+    draft_version = int((saved.get("draft") or {}).get("version") or 0)
+    try:
+        async with (
+            page.expect_response(
+                lambda response: (
+                    response.request.method == "POST"
+                    and response.url.split("?", 1)[0].endswith("/api/get_completion_act_form")
+                )
+            ),
+            page.expect_response(
+                lambda response: (
+                    response.request.method == "POST"
+                    and response.url.split("?", 1)[0].endswith(
+                        "/api/preview_repair_order_print_documents"
+                    )
+                )
+            ),
+        ):
+            await gear.click()
+        await _wait_modal_open(page, "#completionActEditorModal")
+        await page.wait_for_function(
+            """() => (
+              document.querySelectorAll('#completionActItemRows [data-completion-act-item]').length === 300 &&
+              document.querySelector('#completionActAddItemButton')?.disabled === true
+            )"""
+        )
+        names = page.locator('#completionActItemRows [data-completion-act-item-field="name"]')
+        rows_preserved = bool(
+            await names.count() == 300
+            and await names.first.input_value() == "Smoke UI maximum row 001"
+            and await names.last.input_value() == "Smoke UI maximum row 300"
+        )
+        await page.click("#completionActEditorCloseX")
+        await _wait_modal_closed(page, "#completionActEditorModal")
+        return rows_preserved
+    finally:
+        if await _is_modal_open(page, "#completionActEditorModal"):
+            await page.click("#completionActEditorCloseX")
+            await _wait_modal_closed(page, "#completionActEditorModal")
+        if draft_version:
+            runtime.service.reset_completion_act_form(
+                {
+                    "card_id": runtime.card_id,
+                    "expected_version": draft_version,
+                    "idempotency_key": "browser-smoke-ui-max-reset",
+                    "actor_name": "SMOKE",
+                    "source": "browser_smoke",
+                }
+            )
+
+
+async def _exercise_completion_act_cross_card_race(page: Any, runtime: TempRuntime) -> bool:
+    card_a_id = runtime.card_id
+    card_b_id = runtime.extra_column_card_id
+    card_a_marker = "SMOKE-CARD-A-ACT"
+    card_b_marker = "SMOKE-CARD-B-ACT"
+    card_b_edit_marker = "SMOKE-CARD-B-EDIT"
+    card_a_customer = "Smoke requisites card A only"
+    card_b_customer = "Smoke requisites card B only"
+    card_a_before = runtime.service.get_completion_act_form({"card_id": card_a_id})
+    card_b_before = runtime.service.get_completion_act_form({"card_id": card_b_id})
+    if card_a_before.get("draft", {}).get("exists") or card_b_before.get("draft", {}).get("exists"):
+        return False
+
+    def marked_form(source: dict[str, Any], *, marker: str, customer_marker: str) -> dict[str, Any]:
+        form = json.loads(json.dumps(source.get("form") or {}))
+        form["document_number"] = marker
+        customer = form.setdefault("customer", {})
+        customer["legal_name"] = customer_marker
+        customer["address"] = f"{customer_marker}, address"
+        customer["inn"] = "2400000000" if marker == card_a_marker else "2400000001"
+        form["items"] = [
+            {
+                "id": f"{marker.lower()}-row",
+                "section": "works",
+                "name": f"{marker} work",
+                "unit": "ч",
+                "quantity": "1",
+                "price": "100",
+            }
+        ]
+        return form
+
+    saved_a = runtime.service.save_completion_act_form(
+        {
+            "card_id": card_a_id,
+            "form": marked_form(
+                card_a_before, marker=card_a_marker, customer_marker=card_a_customer
+            ),
+            "expected_version": int((card_a_before.get("draft") or {}).get("version") or 0),
+            "expected_source_fingerprint": str(
+                (card_a_before.get("draft") or {}).get("current_source_fingerprint") or ""
+            ),
+            "idempotency_key": "browser-smoke-cross-card-a-save",
+            "actor_name": "SMOKE",
+            "source": "browser_smoke",
+        }
+    )
+    saved_b = runtime.service.save_completion_act_form(
+        {
+            "card_id": card_b_id,
+            "form": marked_form(
+                card_b_before, marker=card_b_marker, customer_marker=card_b_customer
+            ),
+            "expected_version": int((card_b_before.get("draft") or {}).get("version") or 0),
+            "expected_source_fingerprint": str(
+                (card_b_before.get("draft") or {}).get("current_source_fingerprint") or ""
+            ),
+            "idempotency_key": "browser-smoke-cross-card-b-save",
+            "actor_name": "SMOKE",
+            "source": "browser_smoke",
+        }
+    )
+
+    def completion_request_card_id(request: Any) -> str:
+        try:
+            payload = request.post_data_json
+        except (TypeError, ValueError):
+            return ""
+        return str(payload.get("card_id") or "") if isinstance(payload, dict) else ""
+
+    def completion_get_response_for(response: Any, card_id: str) -> bool:
+        return bool(
+            response.request.method == "POST"
+            and response.url.split("?", 1)[0].endswith("/api/get_completion_act_form")
+            and completion_request_card_id(response.request) == card_id
+        )
+
+    async def delay_card_a_completion_get(route: Any) -> None:
+        if completion_request_card_id(route.request) == card_a_id:
+            await asyncio.sleep(2.5)
+        await route.continue_()
+
+    async def close_repair_order_and_card() -> None:
+        if await _is_modal_open(page, "#repairOrderModal"):
+            await page.click('[data-close="repair-order"]')
+            await _wait_modal_closed(page, "#repairOrderModal")
+        await _close_card_modal_if_open(page)
+
+    async def open_card_repair_order(card_id: str) -> None:
+        selector = f'.card[data-card-id="{card_id}"]:not([data-virtual-card="true"])'
+        await page.wait_for_selector(selector)
+        await page.click(selector)
+        await _wait_modal_open(page, "#cardModal")
+        await page.wait_for_function(
+            "() => !document.querySelector('#repairOrderButton')?.disabled"
+        )
+        await page.click("#repairOrderButton")
+        await _wait_modal_open(page, "#repairOrderModal")
+
+    await page.route("**/api/get_completion_act_form", delay_card_a_completion_get)
+    cross_card_ok = False
+    try:
+        await page.click("#repairOrderPrintButton")
+        await _wait_modal_open(page, "#repairOrderPrintModal")
+        gear = page.locator("[data-completion-act-editor-open]")
+        async with page.expect_response(
+            lambda response: completion_get_response_for(response, card_a_id)
+        ) as late_card_a_response_info:
+            await gear.click()
+            await _wait_modal_open(page, "#completionActEditorModal")
+            await page.click("#completionActEditorCloseX")
+            await _wait_modal_closed(page, "#completionActEditorModal")
+            await page.click("#repairOrderPrintCloseX")
+            await _wait_modal_closed(page, "#repairOrderPrintModal")
+            await close_repair_order_and_card()
+
+            await open_card_repair_order(card_b_id)
+            await page.click("#repairOrderPrintButton")
+            await _wait_modal_open(page, "#repairOrderPrintModal")
+            async with page.expect_response(
+                lambda response: completion_get_response_for(response, card_b_id)
+            ):
+                await page.click("[data-completion-act-editor-open]")
+            await _wait_modal_open(page, "#completionActEditorModal")
+            await page.wait_for_function(
+                "(marker) => document.querySelector('#completionActDocumentNumber')?.value === marker",
+                arg=card_b_marker,
+            )
+        late_card_a_response = await late_card_a_response_info.value
+        await late_card_a_response.body()
+        await page.wait_for_timeout(100)
+
+        card_b_form_survived = bool(
+            await page.input_value("#completionActDocumentNumber") == card_b_marker
+            and await page.input_value("#completionActCustomerLegalName") == card_b_customer
+            and card_a_customer not in await page.input_value("#completionActCustomerLegalName")
+            and card_a_marker not in await page.input_value("#completionActDocumentNumber")
+        )
+        await page.fill("#completionActDocumentNumber", card_b_edit_marker)
+        async with page.expect_response(
+            lambda response: (
+                response.request.method == "POST"
+                and response.url.split("?", 1)[0].endswith("/api/save_completion_act_form")
+            )
+        ) as card_b_save_response_info:
+            await page.click("#completionActSaveButton")
+        card_b_save_response = await card_b_save_response_info.value
+        card_b_save_card_id = completion_request_card_id(card_b_save_response.request)
+        await page.wait_for_function(
+            "() => !document.querySelector('#completionActSaveButton')?.disabled"
+        )
+        card_a_after = runtime.service.get_completion_act_form({"card_id": card_a_id})
+        card_b_after = runtime.service.get_completion_act_form({"card_id": card_b_id})
+        card_b_print_html = await _capture_browser_print_html(page, "#completionActPrintButton")
+        cross_card_ok = bool(
+            card_b_form_survived
+            and card_b_save_card_id == card_b_id
+            and str((card_a_after.get("form") or {}).get("document_number") or "") == card_a_marker
+            and str((card_b_after.get("form") or {}).get("document_number") or "")
+            == card_b_edit_marker
+            and card_b_edit_marker in card_b_print_html
+            and card_b_customer in card_b_print_html
+            and card_a_marker not in card_b_print_html
+            and card_a_customer not in card_b_print_html
+        )
+
+        await page.click("#completionActEditorCloseX")
+        await _wait_modal_closed(page, "#completionActEditorModal")
+        await page.click("#repairOrderPrintCloseX")
+        await _wait_modal_closed(page, "#repairOrderPrintModal")
+        await close_repair_order_and_card()
+        await open_card_repair_order(card_a_id)
+    finally:
+        await page.unroute("**/api/get_completion_act_form", delay_card_a_completion_get)
+        for card_id, key in (
+            (card_a_id, "browser-smoke-cross-card-a-reset"),
+            (card_b_id, "browser-smoke-cross-card-b-reset"),
+        ):
+            current = runtime.service.get_completion_act_form({"card_id": card_id})
+            version = int((current.get("draft") or {}).get("version") or 0)
+            if version:
+                runtime.service.reset_completion_act_form(
+                    {
+                        "card_id": card_id,
+                        "expected_version": version,
+                        "idempotency_key": key,
+                        "actor_name": "SMOKE",
+                        "source": "browser_smoke",
+                    }
+                )
+    return bool(
+        cross_card_ok
+        and int((saved_a.get("draft") or {}).get("version") or 0) > 0
+        and int((saved_b.get("draft") or {}).get("version") or 0) > 0
+    )
+
+
+async def _exercise_completion_act_editor(page: Any, runtime: TempRuntime) -> bool:
+    repair_order_before = runtime.service.get_repair_order({"card_id": runtime.card_id})[
+        "repair_order"
+    ]
+    screenshot_dir = str(os.environ.get("AUTOSTOP_BROWSER_SMOKE_SCREENSHOT_DIR") or "").strip()
+    artifact_dir = (
+        Path(screenshot_dir).expanduser().resolve()
+        if screenshot_dir
+        else Path(runtime.temp_dir.name) / "playwright"
+    )
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    await page.click("#repairOrderPrintButton")
+    await _wait_modal_open(page, "#repairOrderPrintModal")
+    main_print_regression_ok = await _exercise_completion_act_main_print_regression(
+        page, runtime, artifact_dir
+    )
+    gear = page.locator("[data-completion-act-editor-open]")
+    await gear.wait_for(state="visible")
+    gear_geometry_ok = bool(
+        await gear.evaluate(
+            """(button) => {
+              const rect = button.getBoundingClientRect();
+              return rect.width >= 44 && rect.height >= 44 && !button.querySelector('button');
+            }"""
+        )
+    )
+    max_items_ui_ok = await _exercise_completion_act_max_items_ui(page, runtime, gear)
+    async with page.expect_response(
+        lambda response: (
+            response.request.method == "POST"
+            and response.url.split("?", 1)[0].endswith("/api/get_completion_act_form")
+        )
+    ) as get_form_response_info:
+        await gear.focus()
+        await page.keyboard.press("Enter")
+    get_form_response = await get_form_response_info.value
+    expected_date = str(
+        (_api_data(await get_form_response.json()).get("form") or {}).get("document_date") or ""
+    )
+    await _wait_modal_open(page, "#completionActEditorModal")
+    date_value = await page.input_value("#completionActDocumentDate")
+    date_preserved_ok = date_value == expected_date
+    await page.fill("#completionActDocumentNumber", "SMOKE-ACT-1")
+    await page.click('[data-completion-act-section="items"]')
+    await page.click("#completionActAddItemButton")
+    last_row = page.locator("#completionActItemRows [data-completion-act-item]").last
+    await last_row.locator('[data-completion-act-item-field="name"]').fill("Smoke completion work")
+    await last_row.locator('[data-completion-act-item-field="quantity"]').fill("2")
+    await last_row.locator('[data-completion-act-item-field="unit"]').fill("ч")
+    row_count = await page.locator("#completionActItemRows [data-completion-act-item]").count()
+    await last_row.locator('[data-completion-act-item-action="duplicate"]').click()
+    await page.wait_for_function(
+        "(expected) => document.querySelectorAll('#completionActItemRows [data-completion-act-item]').length === expected",
+        arg=row_count + 1,
+    )
+    await (
+        page.locator("#completionActItemRows [data-completion-act-item]")
+        .last.locator('[data-completion-act-item-action="up"]')
+        .click()
+    )
+    await (
+        page.locator("#completionActItemRows [data-completion-act-item]")
+        .last.locator('[data-completion-act-item-action="remove"]')
+        .click()
+    )
+    row_actions_ok = bool(
+        await page.locator("#completionActItemRows [data-completion-act-item]").count() == row_count
+        and await page.locator(
+            '#completionActItemRows [data-completion-act-item-field="name"]'
+        ).last.input_value()
+        == "Smoke completion work"
+    )
+    last_row = page.locator("#completionActItemRows [data-completion-act-item]").last
+    async with page.expect_response(
+        lambda response: (
+            response.request.method == "POST"
+            and response.url.split("?", 1)[0].endswith("/api/preview_repair_order_print_documents")
+        )
+    ):
+        await last_row.locator('[data-completion-act-item-field="quantity"]').fill("")
+    await page.wait_for_selector("#completionActLiveWarnings:not([hidden])")
+    partial_row_warning_ok = (
+        "заполните количество и цену"
+        in (await page.locator("#completionActLiveWarnings").inner_text()).lower()
+        and await page.locator("#completionActStaleWarning").is_hidden()
+    )
+    async with page.expect_response(
+        lambda response: (
+            response.request.method == "POST"
+            and response.url.split("?", 1)[0].endswith("/api/preview_repair_order_print_documents")
+        )
+    ):
+        await last_row.locator('[data-completion-act-item-field="quantity"]').fill("2")
+        await last_row.locator('[data-completion-act-item-field="price"]').fill("50")
+    await page.wait_for_function(
+        r"""() => {
+          const compact = (value) => String(value || '').replace(/[\s\u00a0\u202f]/g, '');
+          return compact(document.querySelector('#completionActBaseTotal')?.textContent).includes('100,00') &&
+            compact(document.querySelector('#completionActVatTotal')?.textContent).includes('5,00') &&
+            compact(document.querySelector('#completionActGrossTotal')?.textContent).includes('105,00') &&
+            compact(document.querySelector('#completionActItemRows .completion-act-item:last-child .completion-act-item__total')?.textContent).includes('100,00');
+        }"""
+    )
+    preview_ok = bool(
+        await page.evaluate(
+            """() => {
+              const frame = document.querySelector('#completionActPreviewFrame');
+              const text = frame?.contentDocument?.body?.innerText || '';
+              return text.includes('SMOKE-ACT-1') && text.includes('Smoke completion work');
+            }"""
+        )
+    )
+
+    async def delay_editor_preview(route: Any) -> None:
+        await asyncio.sleep(0.45)
+        await route.continue_()
+
+    await page.click('[data-completion-act-section="document"]')
+    editor_print_marker = "SMOKE-EDITOR-PRINT-FRESH"
+    await page.route("**/api/preview_repair_order_print_documents", delay_editor_preview)
+    try:
+        await page.fill("#completionActDocumentNumber", editor_print_marker)
+        editor_print_html = await _capture_browser_print_html(page, "#completionActPrintButton")
+    finally:
+        await page.unroute("**/api/preview_repair_order_print_documents", delay_editor_preview)
+    editor_print_logical_pages = editor_print_html.count('class="document-shell"')
+    editor_print_path = artifact_dir / "completion-act-editor-immediate-print.pdf"
+    editor_print_page = await page.context.new_page()
+    try:
+        await editor_print_page.emulate_media(media="print")
+        await editor_print_page.set_content(editor_print_html, wait_until="load")
+        await editor_print_page.evaluate("() => document.fonts?.ready")
+        await editor_print_page.pdf(
+            path=str(editor_print_path),
+            format="A4",
+            print_background=True,
+            prefer_css_page_size=True,
+        )
+    finally:
+        await editor_print_page.close()
+    editor_print_page_count = _pdfinfo_page_count(editor_print_path)
+    editor_print_text = "\n".join(_pdf_page_texts(editor_print_path, editor_print_page_count))
+    editor_print_race_ok = bool(
+        editor_print_html.lower().count("<!doctype html>") == 1
+        and editor_print_logical_pages > 0
+        and editor_print_marker in editor_print_html
+        and "SMOKE-ACT-1" not in editor_print_html
+        and editor_print_marker in editor_print_text
+        and _completion_act_pdf_contract(
+            editor_print_path,
+            expected_page_count=editor_print_logical_pages,
+            expected_item_names=["Smoke completion work"],
+        )
+    )
+
+    editor_export_marker = "SMOKE-EDITOR-EXPORT-FRESH"
+    await page.route("**/api/preview_repair_order_print_documents", delay_editor_preview)
+    try:
+        await page.fill("#completionActDocumentNumber", editor_export_marker)
+        async with page.expect_download() as editor_export_info:
+            await page.click("#completionActExportButton")
+        editor_export = await editor_export_info.value
+    finally:
+        await page.unroute("**/api/preview_repair_order_print_documents", delay_editor_preview)
+    editor_export_path = artifact_dir / "completion-act-editor-immediate-export.pdf"
+    await editor_export.save_as(str(editor_export_path))
+    editor_export_page_count = _pdfinfo_page_count(editor_export_path)
+    editor_export_text = "\n".join(_pdf_page_texts(editor_export_path, editor_export_page_count))
+    editor_export_race_ok = bool(
+        editor_export.suggested_filename.lower().endswith(".pdf")
+        and editor_export_path.read_bytes().startswith(b"%PDF")
+        and _pdf_file_is_parseable(editor_export_path)
+        and editor_export_page_count == editor_print_logical_pages
+        and editor_export_marker in editor_export_text
+        and editor_print_marker not in editor_export_text
+        and _completion_act_pdf_contract(
+            editor_export_path,
+            expected_page_count=editor_print_logical_pages,
+            expected_item_names=["Smoke completion work"],
+        )
+    )
+
+    async def delay_inflight_print_preview(route: Any) -> None:
+        await asyncio.sleep(0.15)
+        await route.continue_()
+
+    inflight_print_old_marker = "SMOKE-PRINT-INFLIGHT-OLD"
+    inflight_print_new_marker = "SMOKE-PRINT-INFLIGHT-NEW"
+    await page.fill("#completionActDocumentNumber", inflight_print_old_marker)
+    await page.route("**/api/preview_repair_order_print_documents", delay_inflight_print_preview)
+    try:
+        await _arm_browser_print_capture(page)
+        async with page.expect_response(
+            lambda response: (
+                response.request.method == "POST"
+                and response.url.split("?", 1)[0].endswith(
+                    "/api/preview_repair_order_print_documents"
+                )
+            )
+        ):
+            await page.click("#completionActPrintButton")
+            await page.fill("#completionActDocumentNumber", inflight_print_new_marker)
+    finally:
+        await page.unroute(
+            "**/api/preview_repair_order_print_documents",
+            delay_inflight_print_preview,
+        )
+    await page.wait_for_function(
+        "() => !document.querySelector('#completionActPrintButton')?.disabled"
+    )
+    await page.wait_for_function(
+        """(marker) => {
+          const frame = document.querySelector('#completionActPreviewFrame');
+          return (frame?.contentDocument?.body?.innerText || '').includes(marker);
+        }""",
+        arg=inflight_print_new_marker,
+    )
+    stale_inflight_print_aborted_ok = bool(
+        not await page.evaluate("() => Boolean(window.__AUTOSTOP_SMOKE_MAIN_PRINT_HTML__)")
+        and "изменились во время подготовки печати"
+        in (await page.locator("#completionActEditorFooterMeta").inner_text()).lower()
+    )
+
+    async with page.expect_response(
+        lambda response: (
+            response.request.method == "POST"
+            and response.url.split("?", 1)[0].endswith("/api/preview_repair_order_print_documents")
+        )
+    ):
+        await page.fill("#completionActDocumentNumber", "SMOKE-ACT-1")
+    await page.wait_for_function(
+        """() => {
+          const frameText = document.querySelector('#completionActPreviewFrame')
+            ?.contentDocument?.body?.innerText || '';
+          const totalText = document.querySelector('#completionActBaseTotal')?.textContent || '';
+          return frameText.includes('SMOKE-ACT-1') && !totalText.includes('Пересчёт');
+        }"""
+    )
+    await page.click('[data-completion-act-section="items"]')
+
+    screenshot_path = artifact_dir / "completion-act-editor.png"
+    await page.screenshot(path=str(screenshot_path), full_page=False)
+    screenshot_ok = screenshot_path.is_file() and screenshot_path.stat().st_size > 0
+    physical_pdf_regression_ok = await _exercise_completion_act_physical_pdf_regression(
+        page, runtime, artifact_dir
+    )
+    async with page.expect_download() as download_info:
+        await page.click("#completionActExportButton")
+    download = await download_info.value
+    download_path = await download.path()
+    pdf_download_ok = bool(
+        download.suggested_filename.lower().endswith(".pdf")
+        and download_path
+        and Path(download_path).read_bytes().startswith(b"%PDF")
+        and _pdf_file_is_parseable(Path(download_path))
+    )
+
+    async def delay_completion_act_save(route: Any) -> None:
+        await asyncio.sleep(0.45)
+        await route.continue_()
+
+    save_snapshot_marker = "SMOKE-SAVE-SNAPSHOT"
+    save_newer_marker = "SMOKE-ACT-1"
+    await page.click('[data-completion-act-section="document"]')
+    await page.fill("#completionActDocumentNumber", save_snapshot_marker)
+    await page.route("**/api/save_completion_act_form", delay_completion_act_save)
+    try:
+        async with page.expect_response(
+            lambda response: (
+                response.request.method == "POST"
+                and response.url.split("?", 1)[0].endswith("/api/save_completion_act_form")
+            )
+        ) as delayed_save_response_info:
+            await page.click("#completionActSaveButton")
+            await page.fill("#completionActDocumentNumber", save_newer_marker)
+        delayed_save_response = _api_data(await (await delayed_save_response_info.value).json())
+    finally:
+        await page.unroute("**/api/save_completion_act_form", delay_completion_act_save)
+    delayed_save_version = int((delayed_save_response.get("draft") or {}).get("version") or 0)
+    await page.wait_for_function(
+        "() => !document.querySelector('#completionActSaveButton')?.disabled"
+    )
+    saved_snapshot_form = runtime.service.get_completion_act_form({"card_id": runtime.card_id})
+    save_response_race_ok = bool(
+        await page.input_value("#completionActDocumentNumber") == save_newer_marker
+        and save_snapshot_marker
+        == str((saved_snapshot_form.get("form") or {}).get("document_number") or "")
+        and "более новые несохранённые изменения"
+        in (await page.locator("#completionActEditorFooterMeta").inner_text()).lower()
+        and f"версия {delayed_save_version}"
+        in await page.locator("#completionActEditorMeta").inner_text()
+    )
+    await page.click('[data-completion-act-section="items"]')
+
+    async with page.expect_response(
+        lambda response: (
+            response.request.method == "POST"
+            and response.url.split("?", 1)[0].endswith("/api/save_completion_act_form")
+        )
+    ) as save_response_info:
+        await page.click("#completionActSaveButton")
+    save_response = _api_data(await (await save_response_info.value).json())
+    saved_draft_version = int((save_response.get("draft") or {}).get("version") or 0)
+    await page.wait_for_function(
+        "(version) => document.querySelector('#completionActEditorMeta')?.textContent.includes('версия ' + String(version))",
+        arg=saved_draft_version,
+    )
+    await page.click("#completionActEditorCloseX")
+    await _wait_modal_closed(page, "#completionActEditorModal")
+    await page.wait_for_function(
+        "() => document.activeElement?.hasAttribute('data-completion-act-editor-open')"
+    )
+    focus_return_ok = True
+    fresh_work_name = "Smoke fresh CRM source work"
+    changed_works = json.loads(json.dumps(repair_order_before.get("works") or []))
+    changed_works.append(
+        {
+            "name": fresh_work_name,
+            "quantity": "3",
+            "price": "75",
+            "unit": "ч",
+        }
+    )
+    runtime.service.update_repair_order(
+        {
+            "card_id": runtime.card_id,
+            "repair_order": {"works": changed_works},
+            "actor_name": "SMOKE SOURCE",
+            "source": "browser_smoke",
+        }
+    )
+    repair_order_form_source_ok = bool(
+        await page.evaluate(
+            """([name, quantity, price]) => {
+          document.querySelector('#repairOrderAddWorkRowButton')?.click();
+          const rows = document.querySelectorAll(
+            '#repairOrderWorksBody tr[data-repair-order-row]'
+          );
+          const row = rows.item(rows.length - 1);
+          const setValue = (field, value) => {
+            const input = row?.querySelector(
+              '[data-repair-order-cell="' + field + '"]'
+            );
+            if (!(input instanceof HTMLInputElement)) return false;
+            input.value = value;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            return true;
+          };
+          return Boolean(
+            row &&
+            setValue('name', name) &&
+            setValue('quantity', quantity) &&
+            setValue('price', price)
+          );
+        }""",
+            [fresh_work_name, "3", "75"],
+        )
+    )
+    async with page.expect_response(
+        lambda response: (
+            response.request.method == "POST"
+            and response.url.split("?", 1)[0].endswith("/api/get_completion_act_form")
+        )
+    ):
+        await page.click("[data-completion-act-editor-open]")
+    await _wait_modal_open(page, "#completionActEditorModal")
+    await page.wait_for_selector("#completionActStaleWarning:not([hidden])")
+    stale_warning_ok = (
+        "Данные CRM изменились" in await page.locator("#completionActStaleWarning").inner_text()
+    )
+    await page.click('[data-completion-act-section="items"]')
+    await page.wait_for_selector("#completionActFreshItems:not([hidden])")
+    expected_fresh_item_count = len(changed_works) + len(repair_order_before.get("materials") or [])
+    fresh_items_text = await page.locator("#completionActFreshItems").inner_text()
+    manual_item_names = await page.locator(
+        '#completionActItemRows [data-completion-act-item-field="name"]'
+    ).evaluate_all("(inputs) => inputs.map((input) => input.value)")
+    fresh_items_source_ok = bool(
+        fresh_work_name in fresh_items_text
+        and f"Строк в CRM: {expected_fresh_item_count}" in fresh_items_text
+        and await page.locator("[data-completion-act-fresh-item]").count()
+        == expected_fresh_item_count
+        and fresh_work_name not in manual_item_names
+        and "Smoke completion work" in manual_item_names
+    )
+    stale_screenshot_path = artifact_dir / "completion-act-editor-stale-items.png"
+    await page.screenshot(path=str(stale_screenshot_path), full_page=False)
+    stale_screenshot_ok = (
+        stale_screenshot_path.is_file() and stale_screenshot_path.stat().st_size > 0
+    )
+    draft_restored_ok = bool(
+        await page.input_value("#completionActDocumentNumber") == "SMOKE-ACT-1"
+        and await page.locator(
+            '#completionActItemRows [data-completion-act-item-field="name"]'
+        ).last.input_value()
+        == "Smoke completion work"
+    )
+    await page.set_viewport_size({"width": 900, "height": 800})
+    await page.wait_for_selector("#completionActMobilePreviewButton", state="visible")
+    await page.click("#completionActMobilePreviewButton")
+    await page.wait_for_function(
+        "() => document.querySelector('#completionActEditorLayout')?.dataset.mobileView === 'preview'"
+    )
+    mobile_layout_ok = bool(
+        await page.evaluate(
+            """() => {
+              const dialog = document.querySelector('.dialog--completion-act-editor');
+              const layout = document.querySelector('#completionActEditorLayout');
+              const rect = dialog?.getBoundingClientRect();
+              return Boolean(
+                dialog && layout && rect &&
+                rect.left >= -1 && rect.right <= innerWidth + 1 &&
+                document.documentElement.scrollWidth <= innerWidth + 1 &&
+                layout.scrollWidth <= layout.clientWidth + 1
+              );
+            }"""
+        )
+    )
+    await page.click("#completionActMobileDataButton")
+    page.once("dialog", lambda dialog: asyncio.create_task(dialog.accept()))
+    async with page.expect_response(
+        lambda response: (
+            response.request.method == "POST"
+            and response.url.split("?", 1)[0].endswith("/api/reset_completion_act_form")
+        )
+    ):
+        await page.click("#completionActResetButton")
+    await page.wait_for_function(
+        "() => !document.querySelector('#completionActEditorMeta')?.textContent.includes('Сохранён черновик')"
+    )
+    reset_ok = await page.input_value("#completionActDocumentNumber") != "SMOKE-ACT-1"
+    fresh_items_reset_ok = await page.locator("#completionActFreshItems").is_hidden()
+    await page.set_viewport_size({"width": 1440, "height": 960})
+    await page.keyboard.press("Escape")
+    await _wait_modal_closed(page, "#completionActEditorModal")
+    await page.wait_for_function(
+        "() => document.activeElement?.hasAttribute('data-completion-act-editor-open')"
+    )
+    escape_focus_ok = True
+    runtime.service.update_repair_order(
+        {
+            "card_id": runtime.card_id,
+            "repair_order": {"works": repair_order_before.get("works") or []},
+            "actor_name": "SMOKE SOURCE RESTORE",
+            "source": "browser_smoke",
+        }
+    )
+    await page.click("#repairOrderPrintCloseX")
+    await _wait_modal_closed(page, "#repairOrderPrintModal")
+    repair_order_after = runtime.service.get_repair_order({"card_id": runtime.card_id})[
+        "repair_order"
+    ]
+    return bool(
+        gear_geometry_ok
+        and main_print_regression_ok
+        and max_items_ui_ok
+        and date_preserved_ok
+        and row_actions_ok
+        and partial_row_warning_ok
+        and preview_ok
+        and editor_print_race_ok
+        and editor_export_race_ok
+        and stale_inflight_print_aborted_ok
+        and screenshot_ok
+        and physical_pdf_regression_ok
+        and pdf_download_ok
+        and save_response_race_ok
+        and focus_return_ok
+        and repair_order_form_source_ok
+        and stale_warning_ok
+        and fresh_items_source_ok
+        and stale_screenshot_ok
+        and draft_restored_ok
+        and mobile_layout_ok
+        and reset_ok
+        and fresh_items_reset_ok
+        and escape_focus_ok
+        and repair_order_after == repair_order_before
+    )
+
+
 async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]:
     scenarios = {name: False for name in DESKTOP_SMOKE_SCENARIOS}
     await page.wait_for_selector("#board")
@@ -1751,6 +2925,11 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     )
     scenarios["repair_order_material_executor_defaults_to_operator_employee"] = bool(
         material_default_ok and material_manual_preserved_ok
+    )
+    completion_act_editor_ok = await _exercise_completion_act_editor(page, runtime)
+    completion_act_cross_card_ok = await _exercise_completion_act_cross_card_race(page, runtime)
+    scenarios["completion_act_editor_draft_roundtrip"] = bool(
+        completion_act_editor_ok and completion_act_cross_card_ok
     )
     await page.wait_for_selector("#repairOrderPaymentsButton")
     await page.click("#repairOrderPaymentsButton")

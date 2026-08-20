@@ -77,6 +77,7 @@ REQUIRED_ENTITY_DOMAINS = frozenset(
         "client",
         "client_vehicle",
         "column",
+        "completion_act_form",
         "employee",
         "employee_repair_order_accrual",
         "employee_shift_accrual",

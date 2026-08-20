@@ -15,6 +15,8 @@ SUPPORTED_PRINT_DOCUMENT_TYPES = (
     "parts_sale",
 )
 
+COMPLETION_ACT_ITEMS_MAX = 300
+
 
 def _clean_text(value: Any, *, limit: int = 4000) -> str:
     return " ".join(str(value or "").strip().split())[:limit]
@@ -77,6 +79,8 @@ class PrintServiceProfile:
     correspondent_account: str = "30101810600000000774"
     tax_label: str = "Без НДС"
     payment_purpose: str = "Оплата за ремонт автомобиля / техническое обслуживание / запасные части по счёту или заказ-наряду."
+    signer_position: str = "Индивидуальный предприниматель"
+    signer_name: str = "Гришкявичус К.В."
 
     def __post_init__(self) -> None:
         self.company_name = _clean_text(self.company_name, limit=120) or "Auto Stop"
@@ -97,6 +101,8 @@ class PrintServiceProfile:
         self.correspondent_account = _clean_text(self.correspondent_account, limit=64)
         self.tax_label = _clean_text(self.tax_label, limit=48) or "Без НДС"
         self.payment_purpose = _clean_text(self.payment_purpose, limit=240)
+        self.signer_position = _clean_text(self.signer_position, limit=120)
+        self.signer_name = _clean_text(self.signer_name, limit=160)
 
     def to_dict(self) -> dict[str, str]:
         return {
@@ -118,6 +124,8 @@ class PrintServiceProfile:
             "correspondent_account": self.correspondent_account,
             "tax_label": self.tax_label,
             "payment_purpose": self.payment_purpose,
+            "signer_position": self.signer_position,
+            "signer_name": self.signer_name,
         }
 
     @classmethod
@@ -145,6 +153,8 @@ class PrintServiceProfile:
             "correspondent_account": 64,
             "tax_label": 48,
             "payment_purpose": 240,
+            "signer_position": 120,
+            "signer_name": 160,
         }
         for item in fields(cls):
             if item.name not in payload:
@@ -154,7 +164,7 @@ class PrintServiceProfile:
                 continue
             if item.name in text_limits:
                 cleaned = _clean_text(raw, limit=text_limits[item.name])
-                if cleaned:
+                if cleaned or item.name in {"signer_position", "signer_name"}:
                     values[item.name] = cleaned
             else:
                 values[item.name] = raw
@@ -207,7 +217,11 @@ class PrintModuleSettings:
             for key, value in payload["service_profile"].items():
                 if value is None:
                     continue
-                if isinstance(value, str) and not value.strip():
+                if (
+                    isinstance(value, str)
+                    and not value.strip()
+                    and key not in {"signer_position", "signer_name"}
+                ):
                     continue
                 service_profile_payload[str(key)] = value
         return cls(
@@ -331,6 +345,182 @@ class InspectionSheetFormData:
             return cls()
         values = {item.name: payload.get(item.name, "") for item in fields(cls)}
         return cls(**values)
+
+
+@dataclass(slots=True)
+class CompletionActPartyData:
+    legal_name: str = ""
+    address: str = ""
+    inn: str = ""
+    kpp: str = ""
+    ogrn: str = ""
+    bank_name: str = ""
+    bik: str = ""
+    settlement_account: str = ""
+    correspondent_account: str = ""
+    signer_position: str = ""
+    signer_name: str = ""
+
+    def __post_init__(self) -> None:
+        self.legal_name = _clean_text(self.legal_name, limit=240)
+        self.address = _clean_text(self.address, limit=320)
+        self.inn = _clean_text(self.inn, limit=32)
+        self.kpp = _clean_text(self.kpp, limit=32)
+        self.ogrn = _clean_text(self.ogrn, limit=32)
+        self.bank_name = _clean_text(self.bank_name, limit=240)
+        self.bik = _clean_text(self.bik, limit=32)
+        self.settlement_account = _clean_text(self.settlement_account, limit=64)
+        self.correspondent_account = _clean_text(self.correspondent_account, limit=64)
+        self.signer_position = _clean_text(self.signer_position, limit=120)
+        self.signer_name = _clean_text(self.signer_name, limit=160)
+
+    def to_dict(self) -> dict[str, str]:
+        return {item.name: getattr(self, item.name) for item in fields(self)}
+
+    @classmethod
+    def from_dict(cls, payload: Any) -> CompletionActPartyData:
+        source = payload if isinstance(payload, dict) else {}
+        return cls(**{item.name: source.get(item.name, "") for item in fields(cls)})
+
+
+@dataclass(slots=True)
+class CompletionActItemData:
+    id: str = ""
+    section: str = "manual"
+    name: str = ""
+    unit: str = ""
+    quantity: str = ""
+    price: str = ""
+
+    def __post_init__(self) -> None:
+        self.id = _clean_text(self.id, limit=128)
+        section = _clean_text(self.section, limit=32).lower()
+        self.section = section if section in {"works", "materials", "manual"} else "manual"
+        self.name = _clean_text(self.name, limit=500)
+        self.unit = _clean_text(self.unit, limit=24)
+        self.quantity = _clean_text(self.quantity, limit=48)
+        self.price = _clean_text(self.price, limit=48)
+
+    def to_dict(self) -> dict[str, str]:
+        return {item.name: getattr(self, item.name) for item in fields(self)}
+
+    @classmethod
+    def from_dict(cls, payload: Any) -> CompletionActItemData:
+        source = payload if isinstance(payload, dict) else {}
+        return cls(**{item.name: source.get(item.name, "") for item in fields(cls)})
+
+
+@dataclass(slots=True)
+class CompletionActFormData:
+    document_number: str = ""
+    document_date: str = ""
+    basis: str = ""
+    performer: CompletionActPartyData = field(default_factory=CompletionActPartyData)
+    customer: CompletionActPartyData = field(default_factory=CompletionActPartyData)
+    items: list[CompletionActItemData] = field(default_factory=list)
+    acceptance_text: str = ""
+
+    def __post_init__(self) -> None:
+        self.document_number = _clean_text(self.document_number, limit=80)
+        self.document_date = _clean_text(self.document_date, limit=64)
+        self.basis = _clean_text(self.basis, limit=500)
+        if not isinstance(self.performer, CompletionActPartyData):
+            self.performer = CompletionActPartyData.from_dict(self.performer)
+        if not isinstance(self.customer, CompletionActPartyData):
+            self.customer = CompletionActPartyData.from_dict(self.customer)
+        normalized_items: list[CompletionActItemData] = []
+        for raw_item in list(self.items or [])[:COMPLETION_ACT_ITEMS_MAX]:
+            item = (
+                raw_item
+                if isinstance(raw_item, CompletionActItemData)
+                else CompletionActItemData.from_dict(raw_item)
+            )
+            if any((item.name, item.unit, item.quantity, item.price)):
+                normalized_items.append(item)
+        self.items = normalized_items
+        self.acceptance_text = _clean_multiline(self.acceptance_text, limit=1_000)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "document_number": self.document_number,
+            "document_date": self.document_date,
+            "basis": self.basis,
+            "performer": self.performer.to_dict(),
+            "customer": self.customer.to_dict(),
+            "items": [item.to_dict() for item in self.items],
+            "acceptance_text": self.acceptance_text,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Any) -> CompletionActFormData:
+        source = payload if isinstance(payload, dict) else {}
+        return cls(
+            document_number=source.get("document_number", ""),
+            document_date=source.get("document_date", ""),
+            basis=source.get("basis", ""),
+            performer=CompletionActPartyData.from_dict(source.get("performer")),
+            customer=CompletionActPartyData.from_dict(source.get("customer")),
+            items=[
+                CompletionActItemData.from_dict(item)
+                for item in source.get("items", [])
+                if isinstance(item, dict)
+            ]
+            if isinstance(source.get("items"), list)
+            else [],
+            acceptance_text=source.get("acceptance_text", ""),
+        )
+
+
+@dataclass(slots=True)
+class CompletionActDraftData:
+    cycle_key: str = ""
+    overrides: dict[str, Any] = field(default_factory=dict)
+    version: int = 0
+    source_fingerprint: str = ""
+    updated_at: str = ""
+    filled_by: str = ""
+    source: str = "manual"
+    idempotency_key: str = ""
+    request_fingerprint: str = ""
+    operation: str = "save"
+    deleted: bool = False
+
+    def __post_init__(self) -> None:
+        self.cycle_key = _clean_text(self.cycle_key, limit=180)
+        self.overrides = dict(self.overrides) if isinstance(self.overrides, dict) else {}
+        try:
+            self.version = max(0, int(self.version))
+        except (TypeError, ValueError):
+            self.version = 0
+        self.source_fingerprint = _clean_text(self.source_fingerprint, limit=128)
+        self.updated_at = _clean_text(self.updated_at, limit=64)
+        self.filled_by = _clean_text(self.filled_by, limit=120)
+        self.source = _clean_text(self.source, limit=32).lower() or "manual"
+        self.idempotency_key = _clean_text(self.idempotency_key, limit=128)
+        self.request_fingerprint = _clean_text(self.request_fingerprint, limit=128)
+        operation = _clean_text(self.operation, limit=16).lower()
+        self.operation = operation if operation in {"save", "reset"} else "save"
+        self.deleted = bool(self.deleted)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {item.name: getattr(self, item.name) for item in fields(self)}
+
+    @classmethod
+    def from_dict(cls, payload: Any) -> CompletionActDraftData:
+        source = payload if isinstance(payload, dict) else {}
+        return cls(
+            cycle_key=source.get("cycle_key", ""),
+            overrides=source.get("overrides", {}),
+            version=source.get("version", 0),
+            source_fingerprint=source.get("source_fingerprint", ""),
+            updated_at=source.get("updated_at", ""),
+            filled_by=source.get("filled_by", ""),
+            source=source.get("source", "manual"),
+            idempotency_key=source.get("idempotency_key", ""),
+            request_fingerprint=source.get("request_fingerprint", ""),
+            operation=source.get("operation", "save"),
+            deleted=source.get("deleted", False),
+        )
 
 
 @dataclass(frozen=True, slots=True)
