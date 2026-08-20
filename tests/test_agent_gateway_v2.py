@@ -24,7 +24,7 @@ if str(SRC) not in sys.path:
 
 from minimal_kanban.mcp.agent_gateway_support import _subset_matches
 from minimal_kanban.mcp.agent_gateway_v2 import register_agent_gateway_v2
-from minimal_kanban.mcp.gateway_contract import FINANCE_VIRTUAL_OPERATIONS
+from minimal_kanban.mcp.gateway_contract import DEFAULT_CARD_FIELDS, FINANCE_VIRTUAL_OPERATIONS
 from minimal_kanban.mcp.oauth_provider import (
     OAUTH_AUDIT_ACTOR_HEADER,
     OAUTH_AUDIT_ASSERTION_HEADER,
@@ -75,6 +75,7 @@ class FakeBoardApi:
         self.created_clients: dict[str, dict] = {}
         self.created_cards: dict[str, dict] = {}
         self.completion_act_forms: dict[str, dict] = {}
+        self.repair_order_read_options: list[bool | None] = []
 
     def get_board_context(self) -> dict:
         return {
@@ -335,7 +336,8 @@ class FakeBoardApi:
             },
         }
 
-    def get_repair_order(self, card_id: str) -> dict:
+    def get_repair_order(self, card_id: str, *, create_if_missing: bool | None = None) -> dict:
+        self.repair_order_read_options.append(create_if_missing)
         return {
             "ok": True,
             "data": {
@@ -1667,6 +1669,160 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
             "private backend error text",
             json.dumps(context.structuredContent, ensure_ascii=False),
         )
+
+    async def test_card_summary_context_excludes_private_nested_fields(self) -> None:
+        self.board_api.get_card = lambda card_id: {
+            "ok": True,
+            "data": {
+                "card": {
+                    "id": card_id,
+                    "short_id": "C-1",
+                    "vehicle": "Vehicle",
+                    "title": "Task",
+                    "column": "inbox",
+                    "column_label": "Inbox",
+                    "tags": [],
+                    "status": "ok",
+                    "indicator": "green",
+                    "remaining_seconds": 200_000,
+                    "deadline_timestamp": "2026-07-13T00:00:00+00:00",
+                    "client_id": "client-1",
+                    "board_summary": "Compact board fact",
+                    "updated_at": "2026-07-11T00:00:00+00:00",
+                    "description": "PRIVATE_DESCRIPTION_SENTINEL",
+                    "vehicle_profile": {"vin": "PRIVATE_VIN_SENTINEL"},
+                    "repair_order": {"paid_total": "PRIVATE_PAYMENT_SENTINEL"},
+                }
+            },
+            "meta": {"detail": "PRIVATE_SOURCE_META_SENTINEL"},
+        }
+
+        context = await self._call(
+            "agent_entity_context",
+            {"entity": "card", "entity_id": "card-1", "detail": "summary"},
+        )
+
+        card = context.structuredContent["data"]["card"]
+        serialized = json.dumps(context.structuredContent, ensure_ascii=False)
+        self.assertEqual(set(DEFAULT_CARD_FIELDS), set(card))
+        self.assertNotIn("PRIVATE_DESCRIPTION_SENTINEL", serialized)
+        self.assertNotIn("PRIVATE_VIN_SENTINEL", serialized)
+        self.assertNotIn("PRIVATE_PAYMENT_SENTINEL", serialized)
+        self.assertNotIn("PRIVATE_SOURCE_META_SENTINEL", serialized)
+
+    async def test_repair_order_summary_context_never_creates_a_missing_order(self) -> None:
+        context = await self._call(
+            "agent_entity_context",
+            {"entity": "repair_order", "entity_id": "card-1", "detail": "summary"},
+        )
+
+        self.assertTrue(context.structuredContent["ok"])
+        self.assertEqual([False], self.board_api.repair_order_read_options)
+
+    async def test_non_card_summary_contexts_exclude_private_fields(self) -> None:
+        self.board_api.get_client = lambda client_id, *, order_limit: {
+            "ok": True,
+            "data": {
+                "client": {
+                    "id": client_id,
+                    "short_id": "CL-1",
+                    "client_type": "person",
+                    "updated_at": "2026-07-11T00:00:00+00:00",
+                    "phone": "PRIVATE_CLIENT_PHONE_SENTINEL",
+                    "email": "PRIVATE_CLIENT_EMAIL_SENTINEL",
+                },
+                "vehicles": [{"vin": "PRIVATE_CLIENT_VIN_SENTINEL"}],
+                "repair_orders": [{"paid_total": "PRIVATE_CLIENT_PAYMENT_SENTINEL"}],
+                "meta": {"vehicles_total": 1, "repair_orders_total": 1},
+            },
+        }
+        self.board_api.get_repair_order = lambda card_id, *, create_if_missing: {
+            "ok": True,
+            "data": {
+                "card": {
+                    "id": card_id,
+                    "short_id": "C-1",
+                    "updated_at": "2026-07-11T00:00:00+00:00",
+                    "description": "PRIVATE_CARD_DESCRIPTION_SENTINEL",
+                },
+                "repair_order": {
+                    "number": "42",
+                    "status": "open",
+                    "opened_at": "2026-07-11T00:00:00+00:00",
+                    "closed_at": "",
+                    "phone": "PRIVATE_ORDER_PHONE_SENTINEL",
+                    "paid_total": "PRIVATE_ORDER_PAYMENT_SENTINEL",
+                },
+            },
+        }
+        self.board_api.get_cashbox = lambda cashbox_id, *, transaction_limit: {
+            "ok": True,
+            "data": {
+                "cashbox": {
+                    "id": cashbox_id,
+                    "short_id": "CB-1",
+                    "name": "Cashbox",
+                    "updated_at": "2026-07-11T00:00:00+00:00",
+                    "statistics": {"balance_minor": "PRIVATE_CASHBOX_BALANCE_SENTINEL"},
+                },
+                "transactions": [{"amount_minor": "PRIVATE_TRANSACTION_SENTINEL"}],
+            },
+        }
+        self.board_api.get_inventory_item = lambda item_id: {
+            "ok": True,
+            "data": {
+                "item": {
+                    "id": item_id,
+                    "short_id": "WH-1",
+                    "name": "Item",
+                    "catalog_number": "Catalog",
+                    "unit": "pcs",
+                    "quantity": "2",
+                    "updated_at": "2026-07-11T00:00:00+00:00",
+                    "supplier_price": "PRIVATE_SUPPLIER_PRICE_SENTINEL",
+                }
+            },
+        }
+        self.board_api.get_shared_file_info = lambda file_id: {
+            "ok": True,
+            "data": {
+                "file": {
+                    "id": file_id,
+                    "extension": "pdf",
+                    "mime_type": "application/pdf",
+                    "size_bytes": 42,
+                    "updated_at": "2026-07-11T00:00:00+00:00",
+                    "exists_on_disk": True,
+                    "path": "PRIVATE_FILE_PATH_SENTINEL",
+                }
+            },
+        }
+
+        contexts = [
+            await self._call(
+                "agent_entity_context",
+                {"entity": entity, "entity_id": f"{entity}-1", "detail": "summary"},
+            )
+            for entity in ("client", "repair_order", "cashbox", "inventory", "file")
+        ]
+
+        serialized = json.dumps(
+            [context.structuredContent for context in contexts], ensure_ascii=False
+        )
+        for sentinel in (
+            "PRIVATE_CLIENT_PHONE_SENTINEL",
+            "PRIVATE_CLIENT_EMAIL_SENTINEL",
+            "PRIVATE_CLIENT_VIN_SENTINEL",
+            "PRIVATE_CLIENT_PAYMENT_SENTINEL",
+            "PRIVATE_CARD_DESCRIPTION_SENTINEL",
+            "PRIVATE_ORDER_PHONE_SENTINEL",
+            "PRIVATE_ORDER_PAYMENT_SENTINEL",
+            "PRIVATE_CASHBOX_BALANCE_SENTINEL",
+            "PRIVATE_TRANSACTION_SENTINEL",
+            "PRIVATE_SUPPLIER_PRICE_SENTINEL",
+            "PRIVATE_FILE_PATH_SENTINEL",
+        ):
+            self.assertNotIn(sentinel, serialized)
 
     async def test_store_vin_photo_preview_uses_existing_document_tool_and_never_leaks_base64(
         self,
