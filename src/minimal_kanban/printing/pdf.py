@@ -187,29 +187,6 @@ def render_html_to_pdf_bytes(
     )
 
 
-def _render_preferred_qt_pdf_bytes(
-    html: str,
-    *,
-    paper_size: str = "A4",
-    orientation: str = "portrait",
-    title: str = "AutoStop CRM",
-) -> bytes:
-    try:
-        return _render_webengine_pdf_bytes(
-            html,
-            paper_size=paper_size,
-            orientation=orientation,
-            title=title,
-        )
-    except Exception:
-        return _render_qt_pdf_bytes(
-            html,
-            paper_size=paper_size,
-            orientation=orientation,
-            title=title,
-        )
-
-
 def _qt_page_size(paper_size: str):
     from PySide6.QtGui import QPageSize
 
@@ -339,54 +316,6 @@ def _render_webengine_pdf_bytes(
             page.deleteLater()
         except RuntimeError:
             pass
-        try:
-            pdf_path.unlink(missing_ok=True)
-        except OSError:  # pragma: no cover
-            pass
-
-
-def _render_qt_pdf_bytes(
-    html: str,
-    *,
-    paper_size: str = "A4",
-    orientation: str = "portrait",
-    title: str = "AutoStop CRM",
-) -> bytes:
-    _ensure_qt_application()
-    from PySide6.QtCore import QMarginsF, QSizeF
-    from PySide6.QtGui import QPageLayout, QTextDocument
-    from PySide6.QtPrintSupport import QPrinter
-
-    selected_size = _qt_page_size(paper_size)
-    selected_orientation = _qt_page_orientation(orientation)
-
-    with tempfile.NamedTemporaryFile(
-        prefix="autostopcrm-print-", suffix=".pdf", delete=False
-    ) as tmp:
-        pdf_path = Path(tmp.name)
-    try:
-        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-        printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
-        printer.setOutputFileName(str(pdf_path))
-        printer.setDocName(str(title or "AutoStop CRM"))
-        printer.setPageLayout(
-            QPageLayout(selected_size, selected_orientation, QMarginsF(10, 10, 10, 10))
-        )
-        document = QTextDocument()
-        document.setDocumentMargin(0)
-        document.setDefaultStyleSheet(
-            "body { color: #171717; font-family: 'Segoe UI', Arial, sans-serif; } "
-            "table { border-collapse: collapse; width: 100%; } "
-            "th, td { border: 1px solid #cfcfcf; }"
-        )
-        document.setHtml(str(html or ""))
-        page_size = printer.pageRect(QPrinter.Unit.Point).size()
-        document.setPageSize(QSizeF(page_size.width(), page_size.height()))
-        document.print_(printer)
-        if not pdf_path.exists():
-            raise PdfRenderError("Qt не создал PDF-файл.")
-        return _read_generated_pdf_bytes(pdf_path, label="Qt")
-    finally:
         try:
             pdf_path.unlink(missing_ok=True)
         except OSError:  # pragma: no cover

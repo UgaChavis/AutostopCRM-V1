@@ -2876,10 +2876,6 @@ class AgentRunner(AgentRunnerOutputMixin):
             "related_cards": [],
         }
 
-    def _select_card_autofill_scenarios(self, facts: dict[str, Any]) -> list[dict[str, Any]]:
-        plan = self._build_card_autofill_plan(facts)
-        return plan["scenarios"]
-
     def _build_card_autofill_eligibility(self, facts: dict[str, Any]) -> dict[str, dict[str, Any]]:
         result: dict[str, dict[str, Any]] = {}
         scenario_name = "vin_enrichment"
@@ -3399,10 +3395,6 @@ class AgentRunner(AgentRunnerOutputMixin):
             if not str(vehicle_profile.get(field_name, "") or "").strip():
                 missing.append(field_name)
         return missing
-
-    def _autofill_vin_should_run(self, facts: dict[str, Any]) -> bool:
-        evidence = self._scenario_evidence(facts, "vin_enrichment")
-        return evidence["trigger_found"] and evidence["confidence_enough"]
 
     def _merge_vehicle_context(
         self, current: dict[str, Any], decoded: dict[str, Any]

@@ -2303,7 +2303,6 @@ class PrintingServiceTests(unittest.TestCase):
                 "minimal_kanban.printing.pdf._render_webengine_pdf_bytes",
                 return_value=b"%PDF-1.4 webengine",
             ) as webengine,
-            patch("minimal_kanban.printing.pdf._render_qt_pdf_bytes") as legacy_qt,
         ):
             pdf_bytes = render_html_to_pdf_bytes(
                 "<!doctype html><html><body><h1>Заказ-наряд</h1></body></html>"
@@ -2311,7 +2310,6 @@ class PrintingServiceTests(unittest.TestCase):
 
         self.assertEqual(pdf_bytes, b"%PDF-1.4 webengine")
         webengine.assert_called_once()
-        legacy_qt.assert_not_called()
 
     def test_pdf_renderer_adds_webengine_chromium_flags_without_overwriting(self) -> None:
         env = {"QTWEBENGINE_CHROMIUM_FLAGS": "--existing"}

@@ -1789,15 +1789,6 @@ class SnapshotService:
             compact_entries.append(compact_entry)
         return compact_entries
 
-    def _card_log_value_text(self, value: Any) -> str:
-        if value is None or value == "":
-            return "—"
-        if isinstance(value, bool):
-            return "да" if value else "нет"
-        if isinstance(value, (dict, list)):
-            return _json_dumps(value, sort_keys=True, separators=(",", ":"))
-        return normalize_text(value, default="—", limit=240) or "—"
-
     def _card_log_full_value_text(self, value: Any) -> str:
         if value is None:
             return ""

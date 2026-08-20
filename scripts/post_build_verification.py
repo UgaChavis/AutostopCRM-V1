@@ -260,14 +260,6 @@ def stop_process(process: subprocess.Popen) -> None:
         process.wait(timeout=10)
 
 
-def wait_for_process_exit(process: subprocess.Popen, timeout_seconds: int = 15) -> int:
-    try:
-        return process.wait(timeout=timeout_seconds)
-    except subprocess.TimeoutExpired as exc:
-        stop_process(process)
-        raise VerificationError("Application did not exit in the expected time.") from exc
-
-
 def block_port() -> tuple[socket.socket, int]:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     # The packaged desktop app binds the board API to 0.0.0.0 in normal host mode

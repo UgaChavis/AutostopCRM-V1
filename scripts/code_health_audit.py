@@ -228,10 +228,6 @@ def _relative(path: Path, root: Path) -> str:
     return path.relative_to(root).as_posix()
 
 
-def _line_count(path: Path) -> int:
-    return len(_read_python_source(path).splitlines())
-
-
 def _read_python_source(path: Path) -> str:
     with path.open("rb") as handle:
         raw = handle.read(CODE_HEALTH_SOURCE_MAX_BYTES + 1)
