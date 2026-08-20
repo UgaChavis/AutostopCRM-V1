@@ -19542,12 +19542,6 @@
       return Array.isArray(state.activeCashbox?.transactions) ? state.activeCashbox.transactions : [];
     }
 
-    function cashboxTransactionIsTransfer(item) {
-      if (item?.transfer_group_id || item?.related_transaction_id) return true;
-      const note = String(item?.note || '').trim().toLowerCase();
-      return note.startsWith('перемещение в ') || note.startsWith('перемещение из ');
-    }
-
     function cashboxCancelledTransactionIds() {
       const ids = new Set();
       filteredCashboxTransactions().forEach((item) => {

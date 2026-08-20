@@ -12,11 +12,6 @@
       };
     }
 
-    async function loadCashJournalText() {
-      const data = await loadCashJournalData({ includeMarkdown: true });
-      return String(data?.markdown || data?.text || 'ЗА ВЫБРАННЫЙ ПЕРИОД ДВИЖЕНИЙ НЕТ.');
-    }
-
     function renderCashJournalLoading() {
       return '<div class="cashbox-journal-loading">'
         + '<div class="cashbox-journal-loading__title">ЗАГРУЖАЮ ЖУРНАЛ...</div>'
@@ -51,11 +46,6 @@
         + '<div class="cashbox-journal-stat__label">' + escapeHtml(label) + '</div>'
         + '<div class="cashbox-journal-stat__value" data-balance-sign="' + escapeHtml(sign) + '">' + escapeHtml(value) + '</div>'
         + '</div>';
-    }
-
-    function cashJournalSingleTransferDisplay(incomeMinor, expenseMinor) {
-      const transferMinor = Math.max(Math.abs(finiteNumber(incomeMinor)), Math.abs(finiteNumber(expenseMinor)));
-      return cashboxFormatMinorAmount(transferMinor);
     }
 
     function cashJournalTransferSummaryText(transferMinor, count) {

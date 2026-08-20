@@ -5001,7 +5001,8 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("async function openCashJournalModal()", BOARD_WEB_APP_HTML)
-        self.assertIn("async function loadCashJournalText()", BOARD_WEB_APP_HTML)
+        self.assertNotIn("async function loadCashJournalText()", BOARD_WEB_APP_HTML)
+        self.assertNotIn("function cashJournalSingleTransferDisplay(", BOARD_WEB_APP_HTML)
         self.assertIn("function renderCashJournal(data)", BOARD_WEB_APP_HTML)
         self.assertNotIn("function renderCashJournalCurrentBalances(data)", BOARD_WEB_APP_HTML)
         self.assertIn("function renderCashJournalStats(data)", BOARD_WEB_APP_HTML)
@@ -5211,7 +5212,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("append: true,", BOARD_WEB_APP_HTML)
         self.assertIn("data-cashbox-transactions-load-more", BOARD_WEB_APP_HTML)
         self.assertIn("function cashboxTransactionCanBeCancelled(item)", BOARD_WEB_APP_HTML)
-        self.assertIn("function cashboxTransactionIsTransfer(item)", BOARD_WEB_APP_HTML)
+        self.assertNotIn("function cashboxTransactionIsTransfer(item)", BOARD_WEB_APP_HTML)
         self.assertIn("note.toLowerCase().startsWith('перемещение')", BOARD_WEB_APP_HTML)
         self.assertNotIn("перемещение\x08", BOARD_WEB_APP_HTML)
         self.assertIn("function resetCashboxDragState()", BOARD_WEB_APP_HTML)
