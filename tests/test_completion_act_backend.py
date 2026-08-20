@@ -29,6 +29,21 @@ from minimal_kanban.storage.change_feed_projection import project_print_module  
 from minimal_kanban.storage.change_feed_store import ChangeFeedStore  # noqa: E402
 
 
+def symlink_or_skip(
+    test_case: unittest.TestCase,
+    link: Path,
+    target: Path,
+    *,
+    target_is_directory: bool = False,
+) -> None:
+    try:
+        link.symlink_to(target, target_is_directory=target_is_directory)
+    except OSError as exc:
+        if os.name == "nt" and getattr(exc, "winerror", None) == 1314:
+            test_case.skipTest("Windows symlink privilege is unavailable")
+        raise
+
+
 def build_card(*, client_id: str = "client-exact", row_count: int = 2) -> Card:
     works = [
         {
@@ -427,7 +442,7 @@ class CompletionActBackendTests(unittest.TestCase):
         shard_path = self.service._completion_act_record_path(cycle_key)
         outside = self.base_dir / "outside.json"
         outside.write_text("{}", encoding="utf-8")
-        shard_path.symlink_to(outside)
+        symlink_or_skip(self, shard_path, outside)
         with self.assertRaises(PrintModuleError) as shard_symlink:
             self.service.get_completion_act_form(self.card, client=self.client)
         self.assertEqual(shard_symlink.exception.code, "completion_act_store_corrupt")
@@ -437,7 +452,12 @@ class CompletionActBackendTests(unittest.TestCase):
         self.service._completion_act_forms_dir.rmdir()
         outside_dir = self.base_dir / "outside-dir"
         outside_dir.mkdir()
-        self.service._completion_act_forms_dir.symlink_to(outside_dir, target_is_directory=True)
+        symlink_or_skip(
+            self,
+            self.service._completion_act_forms_dir,
+            outside_dir,
+            target_is_directory=True,
+        )
         with self.assertRaises(PrintModuleError) as directory_symlink:
             PrintModuleService(self.base_dir)
         self.assertEqual(directory_symlink.exception.code, "completion_act_store_corrupt")

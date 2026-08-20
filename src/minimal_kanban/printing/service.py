@@ -1098,6 +1098,18 @@ def _request_payload_fingerprint(value: Any) -> str:
     ).hexdigest()
 
 
+def _fsync_directory(path: Path) -> None:
+    """Persist a directory entry update where directory fsync is supported."""
+
+    if os.name == "nt":
+        return
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 @lru_cache(maxsize=1)
 def _brand_logo_data_uri() -> str:
     try:
@@ -2671,14 +2683,7 @@ class PrintModuleService:
             os.replace(tmp_path, path)
             if os.name != "nt":
                 path.chmod(0o600)
-            directory_descriptor = os.open(
-                self._completion_act_forms_dir,
-                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
-            )
-            try:
-                os.fsync(directory_descriptor)
-            finally:
-                os.close(directory_descriptor)
+            _fsync_directory(self._completion_act_forms_dir)
         finally:
             if descriptor >= 0:
                 os.close(descriptor)
@@ -2747,14 +2752,7 @@ class PrintModuleService:
                 if self._completion_act_forms_path.is_symlink():
                     raise OSError("legacy completion act store became a symlink")
                 self._completion_act_forms_path.unlink()
-                root_descriptor = os.open(
-                    self._root_dir,
-                    os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
-                )
-                try:
-                    os.fsync(root_descriptor)
-                finally:
-                    os.close(root_descriptor)
+                _fsync_directory(self._root_dir)
             except OSError as exc:
                 raise self._completion_act_store_corrupt() from exc
 

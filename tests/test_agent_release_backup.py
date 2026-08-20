@@ -29,6 +29,15 @@ def load_module():
     return module
 
 
+def symlink_or_skip(test_case: unittest.TestCase, link: Path, target: Path) -> None:
+    try:
+        link.symlink_to(target)
+    except OSError as exc:
+        if os.name == "nt" and getattr(exc, "winerror", None) == 1314:
+            test_case.skipTest("Windows symlink privilege is unavailable")
+        raise
+
+
 class AgentReleaseBackupTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -185,7 +194,7 @@ class AgentReleaseBackupTests(unittest.TestCase):
             if os.name != "nt":
                 self.assertEqual(stat.S_IMODE(legacy.stat().st_mode), 0o600)
 
-    def test_sharded_backup_rejects_symlink_and_bounded_directory_overflow(self) -> None:
+    def test_sharded_backup_rejects_symlink(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             crm_data, manager_db, output_root = self._fixture(root)
@@ -195,7 +204,7 @@ class AgentReleaseBackupTests(unittest.TestCase):
             record_path.unlink()
             outside = root / "outside.json"
             outside.write_bytes(record_payload)
-            record_path.symlink_to(outside)
+            symlink_or_skip(self, record_path, outside)
 
             with self.assertRaisesRegex(self.module.BackupError, "symlink"):
                 self.module.create_backup(
@@ -206,10 +215,13 @@ class AgentReleaseBackupTests(unittest.TestCase):
                 )
             self.assertFalse((output_root / "shard-symlink").exists())
 
-            record_path.unlink()
-            record_path.write_bytes(record_payload)
-            if os.name != "nt":
-                record_path.chmod(0o600)
+    def test_sharded_backup_rejects_bounded_directory_overflow(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            crm_data, manager_db, output_root = self._fixture(root)
+            _, shard_dir = self._convert_completion_act_fixture_to_shards(crm_data)
+            record_path = next(shard_dir.glob("*.json"))
+            record_payload = record_path.read_bytes()
             extra = shard_dir / ("f" * 64 + ".json")
             extra.write_bytes(record_payload)
             if os.name != "nt":
@@ -232,7 +244,7 @@ class AgentReleaseBackupTests(unittest.TestCase):
             crm_data, manager_db, output_root = self._fixture(root)
             legacy = crm_data / "printing" / "completion_act_forms.json"
             legacy.unlink()
-            legacy.symlink_to(root / "missing-completion-act-store.json")
+            symlink_or_skip(self, legacy, root / "missing-completion-act-store.json")
 
             with self.assertRaisesRegex(self.module.BackupError, "not a regular file"):
                 self.module.create_backup(
