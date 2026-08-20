@@ -22,6 +22,7 @@ BOARD_WEB_APP_CONTRACT_TEXT = "".join(
         _read_source_chunk("post_printing_styles_and_body.html"),
         PRINTING_WEB_MODULE_HTML,
         _read_source_chunk("app_main_before_printing.js"),
+        _read_source_chunk("cashbox_transactions.js"),
         _read_source_chunk("cashbox_transfer.js"),
         _read_source_chunk("cash_journal.js"),
         PRINTING_WEB_MODULE_SCRIPT,
