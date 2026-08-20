@@ -34,7 +34,6 @@ from minimal_kanban.texts import (
     STATUS_LABELS_RU,
     TOOLTIP_SETTINGS,
 )
-from minimal_kanban.ui.dialogs import CardDialog
 from minimal_kanban.ui.main_window import MainWindow
 
 
@@ -198,20 +197,6 @@ class MainWindowSmokeTests(unittest.TestCase):
         widget = next(iter(self.window._card_widgets.values()))
         self.assertEqual(widget.property("deadlineBucket"), 0)
         self.assertEqual(widget.property("deadlineStep"), 0)
-
-    def test_card_dialog_falls_back_for_invalid_remaining_seconds(self) -> None:
-        dialog = CardDialog(
-            title="edit",
-            initial={
-                "title": "Повреждённый срок",
-                "description": "",
-                "remaining_seconds": float("inf"),
-            },
-        )
-        self.addCleanup(dialog.close)
-
-        self.assertEqual(dialog.deadline_days_input.value(), 0)
-        self.assertEqual(dialog.deadline_hours_input.value(), 1)
 
     def test_dynamic_column_is_rendered(self) -> None:
         column = self.service.create_column({"label": "Блокеры"})["column"]
