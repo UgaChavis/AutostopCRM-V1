@@ -162,6 +162,32 @@ def _pdf_page_texts(path: Path, page_count: int) -> list[str]:
     return pages
 
 
+def _completion_act_footer_sequence(
+    page_texts: list[str],
+    *,
+    platform_name: str | None = None,
+) -> list[tuple[int, int]]:
+    effective_platform = os.name if platform_name is None else platform_name
+    footer_sequence: list[tuple[int, int]] = []
+    for page_text in page_texts:
+        compact = re.sub(r"\s+", " ", page_text)
+        matches = re.findall(r"страница\s+(\d+)\s+из\s+(\d+)", compact, flags=re.IGNORECASE)
+        if len(matches) == 1:
+            footer_sequence.append(tuple(int(value) for value in matches[0]))
+            continue
+        if matches or effective_platform != "nt":
+            return []
+
+        non_empty_lines = [line.strip() for line in page_text.splitlines() if line.strip()]
+        if not non_empty_lines:
+            return []
+        fallback = re.search(r"(\d+)\s+(\d+)\s*$", non_empty_lines[-1])
+        if fallback is None:
+            return []
+        footer_sequence.append(tuple(int(value) for value in fallback.groups()))
+    return footer_sequence
+
+
 def _completion_act_pdf_contract(
     path: Path,
     *,
@@ -174,13 +200,7 @@ def _completion_act_pdf_contract(
     page_texts = _pdf_page_texts(path, page_count)
     if len(page_texts) != page_count or any(not text.strip() for text in page_texts):
         return False
-    footer_sequence: list[tuple[int, int]] = []
-    for page_text in page_texts:
-        compact = re.sub(r"\s+", " ", page_text)
-        matches = re.findall(r"страница\s+(\d+)\s+из\s+(\d+)", compact, flags=re.IGNORECASE)
-        if len(matches) != 1:
-            return False
-        footer_sequence.append(tuple(int(value) for value in matches[0]))
+    footer_sequence = _completion_act_footer_sequence(page_texts)
     if footer_sequence != [(page_number, page_count) for page_number in range(1, page_count + 1)]:
         return False
     combined_text = "\n".join(page_texts)
@@ -2658,33 +2678,41 @@ async def _exercise_completion_act_editor(page: Any, runtime: TempRuntime) -> bo
     repair_order_after = runtime.service.get_repair_order({"card_id": runtime.card_id})[
         "repair_order"
     ]
-    return bool(
-        gear_geometry_ok
-        and main_print_regression_ok
-        and max_items_ui_ok
-        and date_preserved_ok
-        and row_actions_ok
-        and partial_row_warning_ok
-        and preview_ok
-        and editor_print_race_ok
-        and editor_export_race_ok
-        and stale_inflight_print_aborted_ok
-        and screenshot_ok
-        and physical_pdf_regression_ok
-        and pdf_download_ok
-        and save_response_race_ok
-        and focus_return_ok
-        and repair_order_form_source_ok
-        and stale_warning_ok
-        and fresh_items_source_ok
-        and stale_screenshot_ok
-        and draft_restored_ok
-        and mobile_layout_ok
-        and reset_ok
-        and fresh_items_reset_ok
-        and escape_focus_ok
-        and repair_order_after == repair_order_before
-    )
+    checks = {
+        "gear_geometry": gear_geometry_ok,
+        "main_print_regression": main_print_regression_ok,
+        "max_items_ui": max_items_ui_ok,
+        "date_preserved": date_preserved_ok,
+        "row_actions": row_actions_ok,
+        "partial_row_warning": partial_row_warning_ok,
+        "preview": preview_ok,
+        "editor_print_race": editor_print_race_ok,
+        "editor_export_race": editor_export_race_ok,
+        "stale_inflight_print_aborted": stale_inflight_print_aborted_ok,
+        "screenshot": screenshot_ok,
+        "physical_pdf_regression": physical_pdf_regression_ok,
+        "pdf_download": pdf_download_ok,
+        "save_response_race": save_response_race_ok,
+        "focus_return": focus_return_ok,
+        "repair_order_form_source": repair_order_form_source_ok,
+        "stale_warning": stale_warning_ok,
+        "fresh_items_source": fresh_items_source_ok,
+        "stale_screenshot": stale_screenshot_ok,
+        "draft_restored": draft_restored_ok,
+        "mobile_layout": mobile_layout_ok,
+        "reset": reset_ok,
+        "fresh_items_reset": fresh_items_reset_ok,
+        "escape_focus": escape_focus_ok,
+        "repair_order_unchanged": repair_order_after == repair_order_before,
+    }
+    failed_checks = sorted(name for name, passed in checks.items() if not passed)
+    if failed_checks:
+        print(
+            _json_dumps({"completion_act_editor_failed_checks": failed_checks}),
+            file=sys.stderr,
+            flush=True,
+        )
+    return not failed_checks
 
 
 async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]:

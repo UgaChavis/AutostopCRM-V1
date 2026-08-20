@@ -276,6 +276,50 @@ class BrowserSmokeScriptTests(unittest.TestCase):
             self.assertEqual(len(party["signer_position"]), 120)
             self.assertEqual(len(party["signer_name"]), 160)
 
+    def test_completion_act_footer_sequence_accepts_named_footers(self) -> None:
+        module = load_browser_smoke_module()
+
+        self.assertEqual(
+            module._completion_act_footer_sequence(
+                [
+                    "Документ\nстраница 1 из 2",
+                    "Документ\nСТРАНИЦА 2 ИЗ 2",
+                ],
+                platform_name="posix",
+            ),
+            [(1, 2), (2, 2)],
+        )
+
+    def test_completion_act_footer_sequence_accepts_windows_numeric_fallback(self) -> None:
+        module = load_browser_smoke_module()
+
+        pages = [
+            "SMOKE item 1\n- SMOKE-DOC 20 2026 . 1 2",
+            "SMOKE item 2\n- SMOKE-DOC 20 2026 . 2 2",
+        ]
+        self.assertEqual(
+            module._completion_act_footer_sequence(pages, platform_name="nt"),
+            [(1, 2), (2, 2)],
+        )
+        self.assertEqual(
+            module._completion_act_footer_sequence(pages, platform_name="posix"),
+            [],
+        )
+
+    def test_completion_act_footer_sequence_rejects_missing_or_ambiguous_footer(self) -> None:
+        module = load_browser_smoke_module()
+
+        self.assertEqual(
+            module._completion_act_footer_sequence(
+                ["страница 1 из 2\nстраница 1 из 2"], platform_name="nt"
+            ),
+            [],
+        )
+        self.assertEqual(
+            module._completion_act_footer_sequence(["SMOKE item"], platform_name="nt"),
+            [],
+        )
+
     def test_summarize_browser_events_reports_console_page_and_network_failures(self) -> None:
         module = load_browser_smoke_module()
 
