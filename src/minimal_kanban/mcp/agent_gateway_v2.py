@@ -133,6 +133,57 @@ from .web_gateway import (
 
 _GATEWAY_ATTESTATION_RUN_RE = re.compile(r"^AST-GWAT-\d{8}T\d{6}Z$")
 
+_ENTITY_CONTEXT_SUMMARY_FIELDS = {
+    "card": DEFAULT_CARD_FIELDS,
+    "client": ("id", "short_id", "client_type", "updated_at"),
+    "cashbox": ("id", "short_id", "name", "updated_at"),
+    "inventory": (
+        "id",
+        "short_id",
+        "name",
+        "catalog_number",
+        "unit",
+        "quantity",
+        "updated_at",
+    ),
+    "file": ("id", "extension", "mime_type", "size_bytes", "updated_at", "exists_on_disk"),
+}
+_REPAIR_ORDER_CONTEXT_SUMMARY_FIELDS = ("number", "status", "opened_at", "closed_at")
+
+
+def _entity_context_summary(entity: str, data: Any) -> dict[str, Any]:
+    if not isinstance(data, Mapping):
+        return {}
+    if entity == "repair_order":
+        card = data.get("card")
+        repair_order = data.get("repair_order")
+        return {
+            "card": _slim_card(card, ("id", "short_id", "updated_at"))
+            if isinstance(card, Mapping)
+            else {},
+            "repair_order": _slim_card(repair_order, _REPAIR_ORDER_CONTEXT_SUMMARY_FIELDS)
+            if isinstance(repair_order, Mapping)
+            else {},
+        }
+    target_key = {
+        "card": "card",
+        "client": "client",
+        "cashbox": "cashbox",
+        "inventory": "item",
+        "file": "file",
+    }.get(entity)
+    if target_key is None:
+        return {}
+    target = data.get(target_key)
+    summary = {
+        target_key: _slim_card(target, _ENTITY_CONTEXT_SUMMARY_FIELDS[entity])
+        if isinstance(target, Mapping)
+        else {}
+    }
+    if entity == "client" and isinstance(data.get("meta"), Mapping):
+        summary["meta"] = _slim_card(data["meta"], ("vehicles_total", "repair_orders_total"))
+    return summary
+
 
 def _maintenance_release_smoke_headers(
     *,
@@ -2270,7 +2321,7 @@ def register_agent_gateway_v2(
         elif entity == "client":
             response = board_api.get_client(entity_id, order_limit=20 if detail == "full" else 5)
         elif entity == "repair_order":
-            response = board_api.get_repair_order(entity_id)
+            response = board_api.get_repair_order(entity_id, create_if_missing=False)
         elif entity == "cashbox":
             response = board_api.get_cashbox(
                 entity_id, transaction_limit=50 if detail == "full" else 10
@@ -2280,6 +2331,16 @@ def register_agent_gateway_v2(
         else:
             response = board_api.get_shared_file_info(entity_id)
         ok, data, meta, error = _response_data(response)
+        context_data = (
+            _entity_context_summary(entity, data)
+            if detail == "summary"
+            else _compact_object(
+                data,
+                item_limit=50 if detail == "full" else 15,
+                max_depth=8 if detail == "full" else 5,
+            )
+        )
+        source_meta = {} if detail == "summary" else _compact_object(meta)
         payload = _envelope(
             ok=ok,
             summary={
@@ -2288,13 +2349,9 @@ def register_agent_gateway_v2(
                 "detail": detail,
                 "scope": "crm",
             },
-            data=_compact_object(
-                data,
-                item_limit=50 if detail == "full" else 15,
-                max_depth=8 if detail == "full" else 5,
-            ),
+            data=context_data,
             warnings=[] if ok else [_error_code({"error": error}) or "entity_read_failed"],
-            meta={"source_meta": _compact_object(meta)},
+            meta={"source_meta": source_meta},
         )
         return _tool_result(payload, label="agent_entity_context")
 

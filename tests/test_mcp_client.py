@@ -272,6 +272,16 @@ class BoardApiClientTests(unittest.TestCase):
             },
         )
 
+    def test_get_repair_order_can_read_without_creating_a_missing_order(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with patch.object(client, "_request", return_value={"ok": True}) as request:
+            client.get_repair_order("card-1", create_if_missing=False)
+
+        request.assert_called_once_with(
+            "/api/get_repair_order", {"card_id": "card-1", "create_if_missing": False}
+        )
+
     def test_get_cashbox_pagination_limits_are_clamped_before_request(self) -> None:
         client = BoardApiClient("https://board.example/api", bearer_token="secret")
 
