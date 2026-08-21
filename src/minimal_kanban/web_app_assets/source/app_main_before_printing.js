@@ -6668,35 +6668,6 @@
       }
     }
 
-    async function toggleEmployee() {
-      const employee = selectedEmployeeRecord();
-      if (!employee) {
-        setStatus('ВЫБЕРИ СОТРУДНИКА ДЛЯ ПЕРЕКЛЮЧЕНИЯ.', true);
-        return;
-      }
-      if (!confirmDiscardEmployeeChanges()) return;
-      try {
-        const data = await api('/api/toggle_employee', {
-          method: 'POST',
-          body: {
-            employee_id: employee.id,
-            actor_name: state.actor,
-            source: 'ui',
-          },
-        });
-        state.employees = Array.isArray(data?.employees) ? data.employees : [];
-        state.employeesLoadedMonth = state.payrollMonth || currentPayrollMonthValue();
-        state.activeEmployeeId = data?.employee?.id || state.activeEmployeeId;
-        state.employeeCreateMode = false;
-        await loadPayrollReport();
-        renderEmployeesWorkspace();
-        refreshRepairOrderEmployeeSelects();
-        setStatus(data?.employee?.is_active ? 'СОТРУДНИК АКТИВЕН.' : 'СОТРУДНИК ВЫКЛЮЧЕН.', false);
-      } catch (error) {
-        setStatus(error.message, true);
-      }
-    }
-
     async function handleEmployeesMonthChange() {
       if (!confirmDiscardEmployeeChanges()) {
         if (els.employeesMonthInput) {
@@ -16900,14 +16871,6 @@
       if (!columnId || !renderBoardColumnById(columnId, cardsByColumn)) renderBoard();
       updateSnapshotStatusLine({ showSuccess: true });
       return true;
-    }
-
-    function scheduleBackgroundSnapshotRefresh({ showSuccess = false, delay = 900 } = {}) {
-      if (state.backgroundSnapshotTimer) window.clearTimeout(state.backgroundSnapshotTimer);
-      state.backgroundSnapshotTimer = window.setTimeout(() => {
-        state.backgroundSnapshotTimer = null;
-        refreshSnapshot(showSuccess);
-      }, Math.max(0, finiteNumber(delay)));
     }
 
     function clearUnreadHoverTimer(cardId) {

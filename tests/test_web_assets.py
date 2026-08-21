@@ -1902,6 +1902,7 @@ class WebAssetsTests(unittest.TestCase):
             "els.employeeToggleButton?.addEventListener('click', toggleEmployee);",
             BOARD_WEB_APP_HTML,
         )
+        self.assertNotIn("async function toggleEmployee()", BOARD_WEB_APP_HTML)
         self.assertNotIn(
             "els.employeesSearchInput?.addEventListener('input', handleEmployeesSearchInput);",
             BOARD_WEB_APP_HTML,
@@ -2502,6 +2503,7 @@ class WebAssetsTests(unittest.TestCase):
             "scheduleBackgroundSnapshotRefresh({ showSuccess: false, delay: 900 });",
             BOARD_WEB_APP_HTML,
         )
+        self.assertNotIn("function scheduleBackgroundSnapshotRefresh(", BOARD_WEB_APP_HTML)
         self.assertNotIn(
             "closeCardModal();\n        await refreshSnapshot(true);", BOARD_WEB_APP_HTML
         )
