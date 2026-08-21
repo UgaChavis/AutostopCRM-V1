@@ -83,6 +83,7 @@ from .raw_gateway import (
     RAW_API_ROUTES,
     VERSIONED_WRITE_NAMES,
     verify_virtual_api_write_readback,
+    virtual_api_argument_errors,
 )
 from .raw_gateway import (
     request_fingerprint as _request_fingerprint,
@@ -130,6 +131,52 @@ from .web_gateway import (
     invoke_web_research,
     web_research_argument_error,
 )
+
+COMPLETION_ACT_WORKFLOW_OPERATIONS = frozenset(
+    {"save_completion_act_form", "reset_completion_act_form"}
+)
+
+
+def _completion_act_proof_payload(
+    operation: str,
+    payload: Mapping[str, Any],
+    *,
+    correlation_id: str,
+    dry_run_idempotency_key: str,
+) -> dict[str, Any]:
+    form = payload.get("form")
+    if form is None:
+        form = payload.get("form_data")
+    binding: dict[str, Any] = {
+        "contract": "completion_act_workflow_v1",
+        "operation": operation,
+        "card_id": payload.get("card_id"),
+        "expected_version": payload.get("expected_version"),
+        "expected_source_fingerprint": payload.get("expected_source_fingerprint"),
+        "correlation_id": correlation_id,
+        "dry_run_idempotency_key": dry_run_idempotency_key,
+    }
+    if operation == "save_completion_act_form":
+        binding["form"] = form
+    return binding
+
+
+def _completion_act_dry_run_proof(
+    operation: str,
+    payload: Mapping[str, Any],
+    *,
+    correlation_id: str,
+    dry_run_idempotency_key: str,
+) -> str:
+    return _request_fingerprint(
+        _completion_act_proof_payload(
+            operation,
+            payload,
+            correlation_id=correlation_id,
+            dry_run_idempotency_key=dry_run_idempotency_key,
+        )
+    )
+
 
 _GATEWAY_ATTESTATION_RUN_RE = re.compile(r"^AST-GWAT-\d{8}T\d{6}Z$")
 
@@ -1150,6 +1197,102 @@ def register_agent_gateway_v2(
                 _envelope(ok=False, status="failed", warnings=["idempotency_key_required"]),
                 label=workflow_id,
             )
+        completion_act_operation = (
+            workflow_id == "document" and operation in COMPLETION_ACT_WORKFLOW_OPERATIONS
+        )
+        completion_act_correlation = ""
+        if completion_act_operation:
+            completion_act_correlation = str(payload.get("correlation_id") or "").strip()
+            missing_fields = [
+                field
+                for field in (
+                    "card_id",
+                    "expected_version",
+                    "expected_source_fingerprint",
+                    "correlation_id",
+                )
+                if payload.get(field) in {None, ""}
+            ]
+            form = payload.get("form")
+            form_data = payload.get("form_data")
+            if operation == "save_completion_act_form" and (
+                (not isinstance(form, dict) and not isinstance(form_data, dict))
+                or (form is not None and form_data is not None)
+            ):
+                missing_fields.append("form")
+            if mode not in {"dry_run", "apply"}:
+                missing_fields.append("mode")
+            if missing_fields:
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=["completion_act_workflow_contract_required"],
+                        summary={
+                            "workflow_id": workflow_id,
+                            "operation": operation,
+                            "missing_fields": sorted(set(missing_fields)),
+                        },
+                    ),
+                    label=workflow_id,
+                )
+            if mode == "apply":
+                proof = str(payload.get("dry_run_proof") or "").strip()
+                dry_run_key = str(payload.get("dry_run_idempotency_key") or "").strip()
+                if not proof or not dry_run_key:
+                    return _tool_result(
+                        _envelope(
+                            ok=False,
+                            status="blocked",
+                            warnings=["completion_act_dry_run_proof_required"],
+                        ),
+                        label=workflow_id,
+                    )
+                if dry_run_key == idempotency_key:
+                    return _tool_result(
+                        _envelope(
+                            ok=False,
+                            status="blocked",
+                            warnings=["apply_requires_new_idempotency_key"],
+                        ),
+                        label=workflow_id,
+                    )
+                expected_proof = _completion_act_dry_run_proof(
+                    operation,
+                    payload,
+                    correlation_id=completion_act_correlation,
+                    dry_run_idempotency_key=dry_run_key,
+                )
+                if proof != expected_proof:
+                    return _tool_result(
+                        _envelope(
+                            ok=False,
+                            status="blocked",
+                            warnings=["completion_act_dry_run_proof_mismatch"],
+                        ),
+                        label=workflow_id,
+                    )
+            validation_arguments = dict(payload)
+            validation_arguments.pop("correlation_id", None)
+            validation_arguments.pop("dry_run_proof", None)
+            validation_arguments.pop("dry_run_idempotency_key", None)
+            validation_arguments["idempotency_key"] = idempotency_key
+            validation_arguments["actor_name"] = _effective_audit_actor()
+            validation_arguments["source"] = "mcp_agent_gateway_v2"
+            validation_arguments["dry_run"] = mode == "dry_run"
+            validation_errors = virtual_api_argument_errors(
+                DOCUMENT_VIRTUAL_OPERATIONS[operation], validation_arguments
+            )
+            if validation_errors:
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=["completion_act_schema_validation_failed"],
+                        summary={"validation_errors": validation_errors[:20]},
+                    ),
+                    label=workflow_id,
+                )
         is_store_vin_photo_preview = operation == STORE_VIN_PHOTO_PREVIEW_OPERATION
         if is_store_vin_photo_preview and not allow_large_output:
             return _tool_result(
@@ -1556,7 +1699,13 @@ def register_agent_gateway_v2(
             },
             mode=mode,
             dry_run=mode == "dry_run",
-            correlation_id=store_correlation if store_operation else "",
+            correlation_id=(
+                store_correlation
+                if store_operation
+                else completion_act_correlation
+                if completion_act_operation
+                else ""
+            ),
             scope_overrides={"domain": "store", "source": "store"} if store_operation else None,
             refs_only=store_operation,
         )
@@ -1686,9 +1835,14 @@ def register_agent_gateway_v2(
                 "actor_name": _effective_audit_actor(),
             }
         elif workflow_id == "document" and operation in DOCUMENT_VIRTUAL_OPERATIONS:
+            arguments.pop("correlation_id", None)
+            arguments.pop("dry_run_proof", None)
+            arguments.pop("dry_run_idempotency_key", None)
             arguments["actor_name"] = _effective_audit_actor()
             arguments["source"] = "mcp_agent_gateway_v2"
             arguments["dry_run"] = mode == "dry_run"
+            if completion_act_operation:
+                arguments["idempotency_key"] = idempotency_key
         elif (
             risk != "read"
             and tool is not None
@@ -1700,6 +1854,15 @@ def register_agent_gateway_v2(
             if logical_payment
             else await _invoke(target_tool, arguments)
         )
+        if completion_act_operation and mode == "dry_run" and bool(result.get("ok")):
+            result["dry_run_proof"] = _completion_act_dry_run_proof(
+                operation,
+                payload,
+                correlation_id=completion_act_correlation,
+                dry_run_idempotency_key=idempotency_key,
+            )
+            result["correlation_id"] = completion_act_correlation
+            result["dry_run_idempotency_key"] = idempotency_key
         image_base64 = ""
         image_mime_type = ""
         if is_store_vin_photo_preview and bool(result.get("ok")):
@@ -1721,7 +1884,12 @@ def register_agent_gateway_v2(
                 read_target=_read_store_target,
             )
             if store_operation
-            else await _verify_operation(operation, arguments, result, risk)
+            else await _verify_operation(
+                target_tool if completion_act_operation else operation,
+                arguments,
+                result,
+                risk,
+            )
         )
         executor_ok = bool(result.get("ok")) or bool(
             _find_value(
@@ -2214,6 +2382,57 @@ def register_agent_gateway_v2(
                 ),
                 label="agent_search",
             )
+        crm_filters = dict(filters or {})
+        allowed_filters = {"card_id", "number", "status"} if entity == "repair_order" else set()
+        unsupported_filters = sorted(set(crm_filters) - allowed_filters)
+        if unsupported_filters:
+            return _tool_result(
+                _envelope(
+                    ok=False,
+                    status="failed",
+                    warnings=["unsupported_search_filters"],
+                    summary={
+                        "entity": entity,
+                        "unsupported_filters": unsupported_filters,
+                    },
+                ),
+                label="agent_search",
+            )
+        if entity == "repair_order":
+            invalid_filters = [
+                key
+                for key in ("card_id", "number")
+                if key in crm_filters
+                and (not isinstance(crm_filters[key], str) or not str(crm_filters[key]).strip())
+            ]
+            requested_status = crm_filters.get("status")
+            if requested_status is not None and requested_status not in {
+                "open",
+                "ready",
+                "closed",
+                "all",
+            }:
+                invalid_filters.append("status")
+            if invalid_filters:
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="failed",
+                        warnings=["invalid_search_filters"],
+                        summary={"entity": entity, "invalid_filters": sorted(invalid_filters)},
+                    ),
+                    label="agent_search",
+                )
+            repair_order_filters = {
+                key: str(value).strip()
+                for key, value in crm_filters.items()
+                if key in {"card_id", "number"}
+            }
+            repair_order_filters["status"] = str(
+                requested_status or ("all" if include_archived else "open")
+            )
+        else:
+            repair_order_filters = {}
         if entity == "card":
             response = board_api.search_cards(
                 query=query, include_archived=include_archived, limit=effective_limit
@@ -2224,7 +2443,11 @@ def register_agent_gateway_v2(
             keys = ("clients", "items", "results")
         elif entity == "repair_order":
             response = board_api.list_repair_orders(
-                query=query, limit=effective_limit, compact=True, redact_private=True
+                query=query,
+                limit=effective_limit,
+                compact=True,
+                redact_private=True,
+                **repair_order_filters,
             )
             keys = ("repair_orders", "items", "results")
         elif entity == "inventory":
@@ -2249,11 +2472,15 @@ def register_agent_gateway_v2(
                 "query": query,
                 "returned": len(items),
                 "scope": "crm",
+                "applied_filters": repair_order_filters,
             },
             data={"items": items},
             warnings=[] if ok else [_error_code({"error": error}) or "search_failed"],
             page={"limit": effective_limit, "has_more": False},
-            meta={"source_meta": _compact_object(meta)},
+            meta={
+                "source_meta": _compact_object(meta),
+                "applied_filters": repair_order_filters,
+            },
         )
         return _tool_result(payload, label="agent_search")
 
@@ -2655,6 +2882,23 @@ def register_agent_gateway_v2(
                     _envelope(ok=False, status="blocked", warnings=[argument_error]),
                     label="call_raw_capability",
                 )
+        if virtual_route in {
+            "/api/get_completion_act_form",
+            "/api/change_feed/bootstrap",
+            "/api/change_feed/read",
+            "/api/change_feed/ack",
+        }:
+            validation_errors = virtual_api_argument_errors(virtual_route, arguments or {})
+            if validation_errors:
+                return _tool_result(
+                    _envelope(
+                        ok=False,
+                        status="blocked",
+                        warnings=["raw_schema_validation_failed"],
+                        summary={"validation_errors": validation_errors[:20]},
+                    ),
+                    label="call_raw_capability",
+                )
         owner_mode = (
             str((arguments or {}).get("mode") or "dry_run").strip().casefold()
             if normalized_name == "store_owner_api"
@@ -2922,7 +3166,7 @@ def register_agent_gateway_v2(
                     ),
                     label="call_raw_capability",
                 )
-        if normalized_name == "api:/api/save_completion_act_form":
+        if normalized_name in VERSIONED_WRITE_NAMES:
             expected_source_fingerprint = (arguments or {}).get("expected_source_fingerprint")
             if not (
                 isinstance(expected_source_fingerprint, str)
@@ -2976,6 +3220,19 @@ def register_agent_gateway_v2(
                 # operation identity. Never let callers omit or independently
                 # choose the inner API value.
                 effective_arguments["idempotency_key"] = outer_idempotency_key
+                validation_errors = virtual_api_argument_errors(
+                    str(virtual_route), effective_arguments
+                )
+                if validation_errors:
+                    return _tool_result(
+                        _envelope(
+                            ok=False,
+                            status="blocked",
+                            warnings=["raw_schema_validation_failed"],
+                            summary={"validation_errors": validation_errors[:20]},
+                        ),
+                        label="call_raw_capability",
+                    )
             if normalized_name == "store_owner_api":
                 supplied_contract_id = str(
                     effective_arguments.get("expected_contract_id") or ""

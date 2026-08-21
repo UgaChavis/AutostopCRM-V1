@@ -87,6 +87,8 @@ INVENTORY_WORKFLOW_OPERATIONS = frozenset(
 )
 DOCUMENT_WORKFLOW_OPERATIONS = frozenset(
     {
+        "save_completion_act_form",
+        "reset_completion_act_form",
         "download_repair_order_print_pdf",
         "create_document_without_card_pdf",
         "list_shared_files",
@@ -99,6 +101,8 @@ DOCUMENT_WORKFLOW_OPERATIONS = frozenset(
     }
 )
 DOCUMENT_VIRTUAL_OPERATIONS = {
+    "save_completion_act_form": "/api/save_completion_act_form",
+    "reset_completion_act_form": "/api/reset_completion_act_form",
     "update_display_dashboard_message": "/api/update_board_settings",
 }
 

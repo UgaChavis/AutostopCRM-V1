@@ -16,6 +16,7 @@ for source_root in (SRC, TESTS):
 from test_agent_gateway_v2 import (  # noqa: E402
     GATEWAY_ENV,
     FakeBoardApi,
+    completion_act_form,
     register_fake_store_manager_tools,
 )
 
@@ -79,6 +80,63 @@ class CrmParityGatewayTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(list(requests), [item["path"] for item in self.board_api.raw_requests])
 
+    async def test_completion_act_raw_schemas_are_strict_and_reject_invalid_payloads(self) -> None:
+        schema_result = await self._call(
+            "get_raw_capability_schema",
+            {"name": "api:/api/save_completion_act_form"},
+        )
+        schema = schema_result.structuredContent["data"]["input_schema"]
+        self.assertFalse(schema["additionalProperties"])
+        self.assertFalse(schema["properties"]["form"]["additionalProperties"])
+        self.assertEqual(300, schema["properties"]["form"]["properties"]["items"]["maxItems"])
+        self.assertTrue(schema["properties"]["form_data"]["deprecated"])
+
+        async def rejected(arguments: dict, key: str):
+            return await self._call(
+                "call_raw_capability",
+                {
+                    "name": "api:/api/save_completion_act_form",
+                    "arguments": arguments,
+                    "schema_hash": schema_result.structuredContent["summary"]["schema_hash"],
+                    "idempotency_key": key,
+                },
+            )
+
+        base = {
+            "card_id": "card-1",
+            "form": completion_act_form(),
+            "expected_version": 0,
+            "expected_source_fingerprint": "0" * 64,
+        }
+        extra = await rejected({**base, "unexpected": True}, "schema-extra")
+        wrong = await rejected(
+            {**base, "form": {**completion_act_form(), "basis": 42}},
+            "schema-type",
+        )
+        oversized = await rejected(
+            {
+                **base,
+                "form": {
+                    **completion_act_form(),
+                    "items": [
+                        {
+                            "id": str(index),
+                            "section": "manual",
+                            "name": "row",
+                            "unit": "шт",
+                            "quantity": "1",
+                            "price": "1",
+                        }
+                        for index in range(301)
+                    ],
+                },
+            },
+            "schema-oversized",
+        )
+        for result in (extra, wrong, oversized):
+            self.assertFalse(result.structuredContent["ok"])
+            self.assertIn("raw_schema_validation_failed", result.structuredContent["warnings"])
+
     async def test_resolved_parity_writes_require_idempotency_before_execution(self) -> None:
         autofill_schema = await self._call(
             "get_raw_capability_schema",
@@ -120,7 +178,7 @@ class CrmParityGatewayTests(unittest.IsolatedAsyncioTestCase):
                 "name": "api:/api/save_completion_act_form",
                 "arguments": {
                     "card_id": "card-1",
-                    "form": {},
+                    "form": completion_act_form(),
                     "expected_version": 0,
                 },
                 "schema_hash": completion_schema.structuredContent["summary"]["schema_hash"],
@@ -161,13 +219,14 @@ class CrmParityGatewayTests(unittest.IsolatedAsyncioTestCase):
             "/api/open_card": {"card_id": "card-1"},
             "/api/save_completion_act_form": {
                 "card_id": "card-1",
-                "form": {},
+                "form": completion_act_form(),
                 "expected_version": 0,
                 "expected_source_fingerprint": "0" * 64,
             },
             "/api/reset_completion_act_form": {
                 "card_id": "card-1",
                 "expected_version": 0,
+                "expected_source_fingerprint": "0" * 64,
             },
         }
         for route, arguments in requests.items():
@@ -243,7 +302,7 @@ class CrmParityGatewayTests(unittest.IsolatedAsyncioTestCase):
             "api:/api/save_completion_act_form",
             {
                 "card_id": "card-1",
-                "form": {"basis": "Exact gateway draft"},
+                "form": completion_act_form(basis="Exact gateway draft"),
                 "expected_version": 0,
                 "expected_source_fingerprint": "0" * 64,
             },
@@ -254,6 +313,7 @@ class CrmParityGatewayTests(unittest.IsolatedAsyncioTestCase):
             {
                 "card_id": "card-1",
                 "expected_version": 1,
+                "expected_source_fingerprint": "0" * 64,
             },
             "completion-act-card-1-reset-v2",
         )

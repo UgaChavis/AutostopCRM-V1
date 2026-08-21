@@ -193,8 +193,11 @@ writer: it always returns HTTP 409 with
 `scripts/repair_order_number_audit.py` are read-only diagnostics; there is no
 supported API/MCP correction flow.
 
-`list_repair_orders` supports `compact=true` and `redact_private=true` for
-low-payload diagnostics. Works, materials, statuses, and payments must be
+`list_repair_orders` supports exact `card_id`, `number`, and `status` filters,
+applied before fuzzy `query`, sorting, and `limit`; the response returns the
+effective filters in `meta.applied_filters`. Exact misses stay empty and are
+never replaced by fuzzy matches. `compact=true` and `redact_private=true` are
+available for low-payload diagnostics. Works, materials, statuses, and payments must be
 changed through repair-order service routes so validation and audit records
 remain consistent.
 
@@ -234,8 +237,9 @@ They do not save a form or render/export a binary document.
 The completion-act editor uses `/api/get_completion_act_form`,
 `/api/save_completion_act_form`, and `/api/reset_completion_act_form`.
 Save requires `expected_version`, the `expected_source_fingerprint` returned by
-the latest GET, and a unique `idempotency_key`; reset requires the version and
-its own unique key. A stale draft version or changed CRM source returns HTTP
+the latest GET, and a unique `idempotency_key`; reset accepts the legacy HTTP
+shape but the guarded agent route additionally requires the source fingerprint.
+A stale draft version or changed CRM source returns HTTP
 409 without saving. The saved form is a separate print-only draft keyed by card
 and repair-order cycle. Preview/export/print accept the same effective
 form under `document_overrides.completion_act`, ignore caller-supplied totals,
@@ -247,6 +251,15 @@ validated compatibility snapshot. One act
 accepts up to the full repair-order range of 300 combined work/material rows.
 Malformed, oversized, unreadable, or symlinked draft storage fails closed with
 HTTP 503 and is never replaced by a later save.
+
+`draft.state` is `absent`, `active`, or `reset_tombstone`; `revision` and
+`last_operation` are the unambiguous mutation metadata. Legacy `exists`,
+`version`, author, time, and source fields remain during compatibility and refer
+to the latest mutation, including a reset tombstone. UI author/time labels are
+shown only for `active`. The standard A4 act paginator and CSS share one physical
+layout model, keep rows indivisible, greedily fill continuation pages, reserve
+the final accounting/signature block, and enforce only the 40-page safety bound
+for at most 300 rows.
 
 Cashless repair-order payments are gross incoming amounts. The shared backend
 calculation applies the current 15% taxes/fees rule and credits the remaining

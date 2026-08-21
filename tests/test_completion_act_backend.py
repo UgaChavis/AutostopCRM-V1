@@ -161,6 +161,7 @@ class CompletionActBackendTests(unittest.TestCase):
         )
 
         self.assertEqual(before, self.card.to_storage_dict())
+
         self.assertEqual(saved["draft"]["version"], 1)
         self.assertEqual(saved["form"]["document_number"], "ACT-MANUAL")
         cycle_key = self.service._completion_act_cycle_key(self.card, self.card.repair_order)
@@ -226,6 +227,95 @@ class CompletionActBackendTests(unittest.TestCase):
         self.assertTrue(stale["draft"]["is_stale"])
         self.assertEqual(stale["form"]["document_number"], "ACT-MANUAL")
         self.assertEqual(stale["fresh_form"]["items"][0]["price"], "1250")
+
+    def test_dry_run_tombstone_replay_and_concurrent_save_contract(self) -> None:
+        initial = self.service.get_completion_act_form(self.card, client=self.client)
+        changed = deepcopy(initial["form"])
+        changed["basis"] = "ТЕСТ CODEX"
+        records_dir = self.base_dir / "completion_act_forms"
+        before_files = sorted(records_dir.glob("*.json")) if records_dir.exists() else []
+
+        preview = self.service.save_completion_act_form(
+            self.card,
+            client=self.client,
+            form_data=changed,
+            expected_version=0,
+            expected_source_fingerprint=initial["draft"]["current_source_fingerprint"],
+            idempotency_key="save-preview",
+            dry_run=True,
+        )
+        after_preview_files = sorted(records_dir.glob("*.json")) if records_dir.exists() else []
+
+        self.assertEqual(before_files, after_preview_files)
+        self.assertEqual("absent", preview["draft"]["state"])
+        self.assertEqual(0, preview["draft"]["revision"])
+        self.assertEqual(1, preview["dry_run"]["next_version"])
+        self.assertIn("form.basis", preview["dry_run"]["changed_paths"])
+
+        saved = self.service.save_completion_act_form(
+            self.card,
+            client=self.client,
+            form_data=changed,
+            expected_version=0,
+            expected_source_fingerprint=initial["draft"]["current_source_fingerprint"],
+            idempotency_key="save-apply",
+        )
+        self.assertEqual("active", saved["draft"]["state"])
+        self.assertEqual("save", saved["draft"]["last_operation"])
+        self.assertEqual(1, saved["draft"]["revision"])
+
+        reset_preview = self.service.reset_completion_act_form(
+            self.card,
+            client=self.client,
+            expected_version=1,
+            expected_source_fingerprint=saved["draft"]["current_source_fingerprint"],
+            idempotency_key="reset-preview",
+            dry_run=True,
+        )
+        self.assertEqual("active", reset_preview["draft"]["state"])
+        self.assertEqual(2, reset_preview["dry_run"]["next_version"])
+
+        reset = self.service.reset_completion_act_form(
+            self.card,
+            client=self.client,
+            expected_version=1,
+            expected_source_fingerprint=saved["draft"]["current_source_fingerprint"],
+            idempotency_key="reset-apply",
+        )
+        replay = self.service.reset_completion_act_form(
+            self.card,
+            client=self.client,
+            expected_version=1,
+            expected_source_fingerprint=saved["draft"]["current_source_fingerprint"],
+            idempotency_key="reset-apply",
+        )
+
+        self.assertFalse(reset["draft"]["exists"])
+        self.assertEqual("reset_tombstone", reset["draft"]["state"])
+        self.assertEqual("reset", reset["draft"]["last_operation"])
+        self.assertEqual(2, reset["draft"]["revision"])
+        self.assertTrue(replay["draft"]["idempotent_replay"])
+        self.assertEqual(2, replay["draft"]["version"])
+        with self.assertRaises(PrintModuleError) as stale_save:
+            self.service.save_completion_act_form(
+                self.card,
+                client=self.client,
+                form_data=changed,
+                expected_version=1,
+                expected_source_fingerprint=reset["draft"]["current_source_fingerprint"],
+                idempotency_key="stale-after-reset",
+            )
+        self.assertEqual("completion_act_version_conflict", stale_save.exception.code)
+        saved_after_reset = self.service.save_completion_act_form(
+            self.card,
+            client=self.client,
+            form_data=changed,
+            expected_version=2,
+            expected_source_fingerprint=reset["draft"]["current_source_fingerprint"],
+            idempotency_key="save-after-reset",
+        )
+        self.assertEqual("active", saved_after_reset["draft"]["state"])
+        self.assertEqual(3, saved_after_reset["draft"]["revision"])
 
     def test_save_rejects_source_change_after_editor_read(self) -> None:
         initial = self.service.get_completion_act_form(self.card, client=self.client)
@@ -948,7 +1038,7 @@ class CompletionActBackendTests(unittest.TestCase):
             settings=PrintModuleSettings(),
             document_overrides={"completion_act": accepted_layout},
         )
-        self.assertEqual(len(accepted_context["pages"]), 2)
+        self.assertEqual(len(accepted_context["pages"]), 1)
 
     def test_vat_is_rounded_once_from_aggregate_base(self) -> None:
         form = self.service.get_completion_act_form(self.card, client=self.client)["form"]
@@ -1078,6 +1168,23 @@ class CompletionActBackendTests(unittest.TestCase):
             first_key,
             self.service._completion_act_cycle_key(next_card, next_card.repair_order),
         )
+
+    def test_149_short_rows_use_fewer_than_seven_pages_without_loss(self) -> None:
+        card = build_card(row_count=148)
+        context = self.service._completion_act_document_context(
+            card,
+            card.repair_order,
+            client=self.client,
+            settings=PrintModuleSettings(),
+            document_overrides=None,
+        )
+
+        page_item_ids = [item["id"] for page in context["pages"] for item in page["items"]]
+        self.assertEqual(149, len(context["items"]))
+        self.assertEqual([item["id"] for item in context["items"]], page_item_ids)
+        self.assertEqual(len(page_item_ids), len(set(page_item_ids)))
+        self.assertLess(len(context["pages"]), 7)
+        self.assertLessEqual(len(context["pages"]), 40)
 
     def test_all_repair_order_rows_are_preserved_up_to_combined_limit(self) -> None:
         card_121 = build_card(row_count=120)

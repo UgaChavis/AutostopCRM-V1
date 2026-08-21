@@ -3268,6 +3268,8 @@ def create_mcp_server(
     def list_repair_orders(
         limit: McpInt = 50,
         status: Literal["open", "ready", "closed", "all"] = "open",
+        card_id: str | None = None,
+        number: str | None = None,
         query: str | None = None,
         sort_by: Literal["number", "opened_at", "closed_at"] | None = None,
         sort_dir: Literal["asc", "desc"] | None = None,
@@ -3280,6 +3282,8 @@ def create_mcp_server(
             lambda: board_api.list_repair_orders(
                 limit=effective_limit,
                 status=status,
+                card_id=card_id,
+                number=number,
                 query=query,
                 sort_by=sort_by,
                 sort_dir=sort_dir,
@@ -3289,6 +3293,8 @@ def create_mcp_server(
             params={
                 "limit": effective_limit,
                 "status": status,
+                "card_id": card_id,
+                "number": number,
                 "query": query,
                 "sort_by": sort_by,
                 "sort_dir": sort_dir,

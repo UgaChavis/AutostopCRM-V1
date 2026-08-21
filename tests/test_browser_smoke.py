@@ -206,7 +206,7 @@ class BrowserSmokeScriptTests(unittest.TestCase):
         self.assertIn("#completionActLiveWarnings:not([hidden])", script)
         self.assertIn("partial_row_warning_ok", script)
         self.assertIn("_exercise_completion_act_physical_pdf_regression", script)
-        self.assertIn('("standard", False), ("max-final", True)', script)
+        self.assertIn('("short", False, 3), ("long", False, 149), ("max-300", True, 300)', script)
         self.assertIn("await pdf_page.pdf(", script)
         self.assertIn("prefer_css_page_size=True", script)
         self.assertIn('["pdfinfo", str(path)]', script)
@@ -240,7 +240,7 @@ class BrowserSmokeScriptTests(unittest.TestCase):
         self.assertIn("cashboxFinanceAuditButton", script)
         self.assertIn("cashboxJournalAuditButton", script)
 
-    def test_completion_act_pdf_fixtures_cover_26_rows_and_maximum_final_fields(
+    def test_completion_act_pdf_fixtures_cover_short_149_and_300_rows(
         self,
     ) -> None:
         module = load_browser_smoke_module()
@@ -254,18 +254,22 @@ class BrowserSmokeScriptTests(unittest.TestCase):
             "acceptance_text": "",
         }
 
-        standard, standard_names = module._completion_act_pdf_fixture(
-            base_form, label="standard", maximal_final_block=False
+        short, short_names = module._completion_act_pdf_fixture(
+            base_form, label="short", maximal_final_block=False, row_count=3
+        )
+        long_form, long_names = module._completion_act_pdf_fixture(
+            base_form, label="long", maximal_final_block=False, row_count=149
         )
         maximal, maximal_names = module._completion_act_pdf_fixture(
-            base_form, label="max-final", maximal_final_block=True
+            base_form, label="max-300", maximal_final_block=True, row_count=300
         )
 
-        self.assertEqual(len(standard["items"]), 26)
-        self.assertEqual(len(standard_names), 26)
-        self.assertEqual(len(set(standard_names)), 26)
-        self.assertEqual(len(maximal["items"]), 26)
-        self.assertEqual(len(maximal_names), 26)
+        self.assertEqual(len(short["items"]), 3)
+        self.assertEqual(len(short_names), 3)
+        self.assertEqual(len(long_form["items"]), 149)
+        self.assertEqual(len(set(long_names)), 149)
+        self.assertEqual(len(maximal["items"]), 300)
+        self.assertEqual(len(maximal_names), 300)
         self.assertEqual(len(maximal["acceptance_text"]), 1000)
         self.assertEqual(len(maximal["basis"]), 500)
         for party_name in ("performer", "customer"):

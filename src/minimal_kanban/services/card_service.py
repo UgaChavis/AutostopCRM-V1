@@ -1547,6 +1547,30 @@ class CardService(
                 maximum=REPAIR_ORDER_FILE_RETENTION_LIMIT,
             )
             query = normalize_text(payload.get("query"), default="", limit=240)
+            exact_card_id = payload.get("card_id")
+            if exact_card_id is not None and (
+                not isinstance(exact_card_id, str)
+                or not exact_card_id.strip()
+                or len(exact_card_id) > 160
+            ):
+                self._fail(
+                    "validation_error",
+                    "Передайте корректный точный идентификатор карточки.",
+                    details={"field": "card_id"},
+                )
+            exact_card_id = exact_card_id.strip() if isinstance(exact_card_id, str) else ""
+            exact_number = payload.get("number")
+            if exact_number is not None and (
+                not isinstance(exact_number, str)
+                or not exact_number.strip()
+                or len(exact_number) > 80
+            ):
+                self._fail(
+                    "validation_error",
+                    "Передайте корректный точный номер заказ-наряда.",
+                    details={"field": "number"},
+                )
+            exact_number = exact_number.strip() if isinstance(exact_number, str) else ""
             sort_by = self._validated_repair_order_sort_by(payload.get("sort_by"))
             sort_dir = self._validated_repair_order_sort_direction(payload.get("sort_dir"))
             compact = self._validated_optional_bool(payload, "compact", default=False)
@@ -1596,6 +1620,14 @@ class CardService(
                 ordered_cards = archived_cards
             else:
                 ordered_cards = open_cards
+            if exact_card_id:
+                ordered_cards = [card for card in ordered_cards if card.id == exact_card_id]
+            if exact_number:
+                ordered_cards = [
+                    card
+                    for card in ordered_cards
+                    if str(card.repair_order.number or "").strip() == exact_number
+                ]
             filtered_cards = self._filter_repair_order_cards(ordered_cards, query=query)
             sorted_cards = sorted(
                 filtered_cards,
@@ -1619,6 +1651,11 @@ class CardService(
                     "has_more": len(sorted_cards) > limit,
                     "status": status_filter,
                     "query": query,
+                    "applied_filters": {
+                        **({"card_id": exact_card_id} if exact_card_id else {}),
+                        **({"number": exact_number} if exact_number else {}),
+                        "status": status_filter,
+                    },
                     "sort_by": sort_by,
                     "sort_dir": sort_dir,
                     "active_total": len(open_cards),
@@ -3805,6 +3842,7 @@ class CardService(
                     idempotency_key=idempotency_key,
                     filled_by=actor_name,
                     source=form_source,
+                    dry_run=payload.get("dry_run") is True,
                 )
             except PrintModuleError as exc:
                 self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
@@ -3816,6 +3854,7 @@ class CardService(
         expected_version, idempotency_key, form_source = self._completion_act_mutation_metadata(
             payload
         )
+        expected_source_fingerprint = payload.get("expected_source_fingerprint")
         with self._lock:
             bundle = self._store.read_bundle()
             card = self._find_card(bundle["cards"], card_id)
@@ -3834,9 +3873,11 @@ class CardService(
                     repair_order=card.repair_order,
                     client=linked_client,
                     expected_version=expected_version,
+                    expected_source_fingerprint=expected_source_fingerprint,
                     idempotency_key=idempotency_key,
                     filled_by=actor_name,
                     source=form_source,
+                    dry_run=payload.get("dry_run") is True,
                 )
             except PrintModuleError as exc:
                 self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)

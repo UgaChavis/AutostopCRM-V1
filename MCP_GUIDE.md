@@ -105,6 +105,19 @@ idempotency keys. Its payload is the same as `/api/update_board_settings`:
 exact `get_display_dashboard` readback and compares the sanitized body,
 ordered image IDs, and resulting revision before closing the workflow ledger.
 
+Completion-act draft writes are named document operations, not raw fallbacks:
+`agent_document_workflow(operation="save_completion_act_form")` and
+`agent_document_workflow(operation="reset_completion_act_form")`. Both require
+an explicit `dry_run` followed by `apply`, the exact card, current form version,
+current 64-character source fingerprint, and one stable correlation ID. Dry-run
+returns changed paths, next version, and a bound `dry_run_proof` without writing.
+Apply uses a new idempotency key plus the prior dry-run key and proof, then closes
+only after exact completion-act readback. The reset operation is destructive and requires a
+verified pre-reset snapshot for compensation at the ActionContract layer. The
+hidden HTTP/raw compatibility routes remain available, but their strict
+route-specific schemas reject extra fields, invalid types, and more than 300
+rows; `form_data` is a deprecated alias for `form`.
+
 The raw board registry includes `start_card_timer` and `stop_card_timer`.
 `create_card` leaves the timer inactive when `deadline` is omitted; an explicit
 positive deadline starts it. Restarting without a deadline reuses the saved
@@ -287,6 +300,8 @@ the public 24-tool surface. Never print these settings' values.
   cash transaction.
 - Use `agent_document_workflow` and the CRM renderer for standard AutoStop
   documents, including documents without a card.
+- Use named completion-act save/reset operations with dry-run proof, separate
+  idempotency keys, stable correlation, and exact form readback.
 - Use `agent_document_workflow(operation="update_display_dashboard_message")`
   for shared mechanics-board text and photo references; never embed image
   bytes or external HTML in the message.

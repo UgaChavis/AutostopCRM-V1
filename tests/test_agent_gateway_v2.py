@@ -53,6 +53,31 @@ GATEWAY_ENV = {
 }
 
 
+def completion_act_form(*, basis: str = "") -> dict:
+    party = {
+        "legal_name": "",
+        "address": "",
+        "inn": "",
+        "kpp": "",
+        "ogrn": "",
+        "bank_name": "",
+        "bik": "",
+        "settlement_account": "",
+        "correspondent_account": "",
+        "signer_position": "",
+        "signer_name": "",
+    }
+    return {
+        "document_number": "18",
+        "document_date": "21.08.2026",
+        "basis": basis,
+        "performer": dict(party),
+        "customer": dict(party),
+        "items": [],
+        "acceptance_text": "",
+    }
+
+
 class FakeBoardApi:
     base_url = "http://127.0.0.1:41731"
 
@@ -156,6 +181,57 @@ class FakeBoardApi:
                     "updated_at": self.card_updated_at,
                     **self.card_ai_state,
                 }
+            },
+        }
+
+    def list_repair_orders(
+        self,
+        *,
+        limit: int | None = None,
+        status: str | None = None,
+        card_id: str | None = None,
+        number: str | None = None,
+        query: str | None = None,
+        compact: bool | None = None,
+        redact_private: bool | None = None,
+    ) -> dict:
+        del compact, redact_private
+        rows = [
+            {
+                "card_id": "card-open-18",
+                "number": "18",
+                "status": "open",
+                "title": "Основной заказ",
+            },
+            {
+                "card_id": "card-closed-99",
+                "number": "99",
+                "status": "closed",
+                "title": "В тексте упомянут заказ 18",
+            },
+        ]
+        if status and status != "all":
+            rows = [row for row in rows if row["status"] == status]
+        if card_id:
+            rows = [row for row in rows if row["card_id"] == card_id]
+        if number:
+            rows = [row for row in rows if row["number"] == number]
+        if query:
+            normalized = query.casefold()
+            rows = [
+                row for row in rows if normalized in json.dumps(row, ensure_ascii=False).casefold()
+            ]
+        return {
+            "ok": True,
+            "data": {
+                "repair_orders": rows[: limit or 300],
+                "meta": {
+                    "applied_filters": {
+                        **({"card_id": card_id} if card_id else {}),
+                        **({"number": number} if number else {}),
+                        "status": status or "open",
+                    }
+                },
             },
         }
 
@@ -469,6 +545,7 @@ class FakeBoardApi:
                     "draft": {
                         "exists": bool(record and record.get("exists")),
                         "version": int((record or {}).get("version") or 0),
+                        "state": "active" if record and record.get("exists") else "absent",
                         "cycle_key": f"{card_id}:cycle",
                         "current_source_fingerprint": "0" * 64,
                     },
@@ -487,6 +564,26 @@ class FakeBoardApi:
                     "error": {"code": "completion_act_version_conflict"},
                 }
             is_save = path == "/api/save_completion_act_form"
+            if request_payload.get("dry_run") is True:
+                current_form = dict(current.get("form") or {})
+                return {
+                    "ok": True,
+                    "data": {
+                        "card_id": card_id,
+                        "form": current_form,
+                        "draft": {
+                            "exists": bool(current.get("exists")),
+                            "version": current_version,
+                            "cycle_key": f"{card_id}:cycle",
+                        },
+                        "dry_run": {
+                            "validated": True,
+                            "current_version": current_version,
+                            "next_version": current_version + 1,
+                            "changed_paths": ["form.basis"] if is_save else ["draft"],
+                        },
+                    },
+                }
             record = {
                 "exists": is_save,
                 "version": current_version + 1,
@@ -1370,6 +1467,184 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
         tool = self.server._tool_manager.get_tool(name)
         self.assertIsNotNone(tool)
         return await tool.run(arguments or {}, convert_result=False)
+
+    async def test_repair_order_search_applies_exact_filters_and_fails_closed(self) -> None:
+        exact = await self._call(
+            "agent_search",
+            {
+                "entity": "repair_order",
+                "query": "18",
+                "include_archived": True,
+                "limit": 1,
+                "filters": {"number": "18"},
+            },
+        )
+        archived = await self._call(
+            "agent_search",
+            {
+                "entity": "repair_order",
+                "include_archived": True,
+                "filters": {"card_id": "card-closed-99"},
+            },
+        )
+        intersection = await self._call(
+            "agent_search",
+            {
+                "entity": "repair_order",
+                "query": "несовпадающий текст",
+                "include_archived": True,
+                "filters": {"number": "18"},
+            },
+        )
+        unsupported = await self._call(
+            "agent_search",
+            {
+                "entity": "repair_order",
+                "filters": {"vehicle": "КамАЗ"},
+            },
+        )
+
+        self.assertEqual(
+            ["18"], [item["number"] for item in exact.structuredContent["data"]["items"]]
+        )
+        self.assertEqual("all", exact.structuredContent["summary"]["applied_filters"]["status"])
+        self.assertEqual(
+            ["card-closed-99"],
+            [item["card_id"] for item in archived.structuredContent["data"]["items"]],
+        )
+        self.assertEqual([], intersection.structuredContent["data"]["items"])
+        self.assertFalse(unsupported.structuredContent["ok"])
+        self.assertIn("unsupported_search_filters", unsupported.structuredContent["warnings"])
+
+    async def test_named_completion_act_workflow_binds_dry_run_proof_and_reads_back(self) -> None:
+        manager_state: dict = {}
+        self.manager_register.side_effect = lambda server, logger: (
+            register_fake_store_manager_tools(server, logger, manager_state)
+        )
+        board_api = FakeBoardApi()
+        server = create_mcp_server(
+            board_api,
+            self.logger,
+            host="127.0.0.1",
+            port=41841,
+            path="/mcp",
+            public_endpoint_url="https://crm.example/mcp",
+        )
+        tool = server._tool_manager.get_tool("agent_document_workflow")
+        payload = {
+            "card_id": "card-1",
+            "form": completion_act_form(basis="ТЕСТ CODEX"),
+            "expected_version": 0,
+            "expected_source_fingerprint": "0" * 64,
+            "correlation_id": "completion-act-correlation-1",
+        }
+        preview = await tool.run(
+            {
+                "operation": "save_completion_act_form",
+                "payload": payload,
+                "idempotency_key": "completion-act-dry-run",
+                "mode": "dry_run",
+            },
+            convert_result=False,
+        )
+
+        self.assertTrue(preview.structuredContent["ok"])
+        self.assertEqual({}, board_api.completion_act_forms)
+        self.assertEqual(
+            "completion_act_dry_run_non_mutating_readback",
+            preview.structuredContent["verification"]["check"],
+        )
+        proof = preview.structuredContent["data"]["dry_run_proof"]
+        mismatch = await tool.run(
+            {
+                "operation": "save_completion_act_form",
+                "payload": {
+                    **payload,
+                    "dry_run_proof": "f" * 64,
+                    "dry_run_idempotency_key": "completion-act-dry-run",
+                },
+                "idempotency_key": "completion-act-mismatch",
+                "mode": "apply",
+            },
+            convert_result=False,
+        )
+        self.assertFalse(mismatch.structuredContent["ok"])
+        self.assertIn(
+            "completion_act_dry_run_proof_mismatch", mismatch.structuredContent["warnings"]
+        )
+
+        applied = await tool.run(
+            {
+                "operation": "save_completion_act_form",
+                "payload": {
+                    **payload,
+                    "dry_run_proof": proof,
+                    "dry_run_idempotency_key": "completion-act-dry-run",
+                },
+                "idempotency_key": "completion-act-apply",
+                "mode": "apply",
+            },
+            convert_result=False,
+        )
+        replay = await tool.run(
+            {
+                "operation": "save_completion_act_form",
+                "payload": {
+                    **payload,
+                    "dry_run_proof": proof,
+                    "dry_run_idempotency_key": "completion-act-dry-run",
+                },
+                "idempotency_key": "completion-act-apply",
+                "mode": "apply",
+            },
+            convert_result=False,
+        )
+
+        self.assertTrue(applied.structuredContent["ok"])
+        self.assertEqual(
+            "exact_completion_act_draft_readback",
+            applied.structuredContent["verification"]["check"],
+        )
+        self.assertEqual(1, board_api.completion_act_forms["card-1"]["version"])
+        self.assertTrue(replay.structuredContent["summary"]["deduplicated"])
+
+        reset_payload = {
+            "card_id": "card-1",
+            "expected_version": 1,
+            "expected_source_fingerprint": "0" * 64,
+            "correlation_id": "completion-act-reset-correlation-1",
+        }
+        reset_preview = await tool.run(
+            {
+                "operation": "reset_completion_act_form",
+                "payload": reset_payload,
+                "idempotency_key": "completion-act-reset-dry-run",
+                "mode": "dry_run",
+            },
+            convert_result=False,
+        )
+        reset_proof = reset_preview.structuredContent["data"]["dry_run_proof"]
+        reset = await tool.run(
+            {
+                "operation": "reset_completion_act_form",
+                "payload": {
+                    **reset_payload,
+                    "dry_run_proof": reset_proof,
+                    "dry_run_idempotency_key": "completion-act-reset-dry-run",
+                },
+                "idempotency_key": "completion-act-reset-apply",
+                "mode": "apply",
+            },
+            convert_result=False,
+        )
+        self.assertTrue(reset_preview.structuredContent["ok"])
+        self.assertTrue(reset.structuredContent["ok"])
+        self.assertEqual(
+            "exact_completion_act_reset_readback",
+            reset.structuredContent["verification"]["check"],
+        )
+        self.assertFalse(board_api.completion_act_forms["card-1"]["exists"])
+        self.assertEqual(2, board_api.completion_act_forms["card-1"]["version"])
 
     def _create_store_server(self, state: dict | None = None):
         store_state = state if state is not None else {}

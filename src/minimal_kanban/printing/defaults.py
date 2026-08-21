@@ -11,6 +11,7 @@ To add a new printable document:
 
 from __future__ import annotations
 
+from .layout import COMPLETION_ACT_LAYOUT
 from .models import PrintDocumentDefinition, PrintTemplateRecord
 
 BUILTIN_PRINT_DOCUMENTS: tuple[PrintDocumentDefinition, ...] = (
@@ -798,12 +799,24 @@ PRINT_BASE_STYLES = """
     line-height: 0.9;
   }
   .completion-act-page {
+    --completion-act-page-content-height: __COMPLETION_ACT_PAGE_CONTENT_MM__mm;
+    --completion-act-footer-reserve: __COMPLETION_ACT_FOOTER_RESERVE_MM__mm;
+    --completion-act-table-header-height: __COMPLETION_ACT_TABLE_HEADER_MM__mm;
+    --completion-act-row-line-height: __COMPLETION_ACT_ROW_LINE_HEIGHT_MM__mm;
+    --completion-act-row-padding-y: __COMPLETION_ACT_ROW_PADDING_MM__mm;
+    --completion-act-table-border: __COMPLETION_ACT_TABLE_BORDER_MM__mm;
+    --completion-act-first-header-min-height: __COMPLETION_ACT_FIRST_HEADER_MM__mm;
+    --completion-act-final-min-height: __COMPLETION_ACT_FINAL_BLOCK_MM__mm;
+    --completion-act-final-margin-top: __COMPLETION_ACT_FINAL_MARGIN_MM__mm;
     position: relative;
     padding: 11mm 11mm 15mm;
     color: #111;
     font-family: Arial, "Segoe UI", sans-serif;
     font-size: 9pt;
     line-height: 1.22;
+  }
+  .completion-act__first-header {
+    min-height: var(--completion-act-first-header-min-height);
   }
   .completion-act__title {
     margin: 0 0 2.2mm;
@@ -852,7 +865,7 @@ PRINT_BASE_STYLES = """
     border-collapse: collapse;
     table-layout: fixed;
     font-size: 8.6pt;
-    line-height: 1.12;
+    line-height: var(--completion-act-row-line-height);
   }
   .completion-act__items thead {
     display: table-header-group;
@@ -862,13 +875,13 @@ PRINT_BASE_STYLES = """
   }
   .completion-act__items th,
   .completion-act__items td {
-    border: 0.22mm solid #111;
-    padding: 0.75mm 0.8mm;
+    border: var(--completion-act-table-border) solid #111;
+    padding: var(--completion-act-row-padding-y) 0.8mm;
     vertical-align: middle;
     overflow-wrap: anywhere;
   }
   .completion-act__items th {
-    height: 10.5mm;
+    height: var(--completion-act-table-header-height);
     text-align: center;
     font-weight: 700;
   }
@@ -909,7 +922,8 @@ PRINT_BASE_STYLES = """
     font-weight: 800;
   }
   .completion-act__final {
-    margin-top: 2.5mm;
+    min-height: var(--completion-act-final-min-height);
+    margin-top: var(--completion-act-final-margin-top);
     break-inside: avoid;
     page-break-inside: avoid;
   }
@@ -1065,9 +1079,9 @@ PRINT_BASE_STYLES = """
     .completion-act-page.document-page {
       page: completion-act-page;
       width: auto;
-      min-height: 260mm;
+      min-height: var(--completion-act-page-content-height);
       margin: 0;
-      padding: 0 0 8mm;
+      padding: 0 0 var(--completion-act-footer-reserve);
       border: 0;
       box-shadow: none;
       break-after: auto;
@@ -1083,6 +1097,35 @@ PRINT_BASE_STYLES = """
     }
   }
 """.strip()
+PRINT_BASE_STYLES = (
+    PRINT_BASE_STYLES.replace(
+        "__COMPLETION_ACT_TABLE_HEADER_MM__", str(COMPLETION_ACT_LAYOUT.table_header_height_mm)
+    )
+    .replace(
+        "__COMPLETION_ACT_PAGE_CONTENT_MM__", str(COMPLETION_ACT_LAYOUT.page_content_height_mm)
+    )
+    .replace("__COMPLETION_ACT_FOOTER_RESERVE_MM__", str(COMPLETION_ACT_LAYOUT.footer_reserve_mm))
+    .replace(
+        "__COMPLETION_ACT_ROW_PADDING_MM__", str(COMPLETION_ACT_LAYOUT.row_vertical_padding_mm)
+    )
+    .replace(
+        "__COMPLETION_ACT_ROW_LINE_HEIGHT_MM__",
+        str(COMPLETION_ACT_LAYOUT.row_extra_line_height_mm),
+    )
+    .replace("__COMPLETION_ACT_TABLE_BORDER_MM__", str(COMPLETION_ACT_LAYOUT.table_border_mm))
+    .replace(
+        "__COMPLETION_ACT_FIRST_HEADER_MM__",
+        str(COMPLETION_ACT_LAYOUT.first_header_base_height_mm),
+    )
+    .replace(
+        "__COMPLETION_ACT_FINAL_BLOCK_MM__",
+        str(COMPLETION_ACT_LAYOUT.final_block_base_height_mm),
+    )
+    .replace(
+        "__COMPLETION_ACT_FINAL_MARGIN_MM__",
+        str(COMPLETION_ACT_LAYOUT.final_block_margin_top_mm),
+    )
+)
 
 
 _BUILTIN_CREATED_AT = "2026-04-06T00:00:00+00:00"

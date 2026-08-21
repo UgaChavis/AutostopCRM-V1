@@ -2324,9 +2324,16 @@ _PRINTING_SCRIPT_PART2 = r"""
       repairOrderPrintState.completionAct.savedForm = cloneCompletionActValue(savedForm || responseForm);
       repairOrderPrintState.completionAct.freshForm = normalizeCompletionActForm(data?.fresh_form || responseForm);
       repairOrderPrintState.completionAct.sources = data?.sources && typeof data.sources === 'object' ? cloneCompletionActValue(data.sources) : {};
+      const legacyDraftExists = Boolean(data?.draft?.exists);
+      const draftState = ['absent', 'active', 'reset_tombstone'].includes(data?.draft?.state)
+        ? data.draft.state
+        : (legacyDraftExists ? 'active' : 'absent');
       repairOrderPrintState.completionAct.draft = {
-        exists: Boolean(data?.draft?.exists),
+        exists: legacyDraftExists,
+        state: draftState,
         version: Math.max(0, printFiniteNumber(data?.draft?.version, 0)),
+        revision: Math.max(0, printFiniteNumber(data?.draft?.revision, data?.draft?.version || 0)),
+        last_operation: String(data?.draft?.last_operation || ''),
         updated_at: String(data?.draft?.updated_at || ''),
         filled_by: String(data?.draft?.filled_by || ''),
         source_fingerprint: String(data?.draft?.source_fingerprint || ''),
@@ -2346,8 +2353,13 @@ _PRINTING_SCRIPT_PART2 = r"""
       }
       const draft = repairOrderPrintState.completionAct.draft;
       if (printEls.completionActMeta) {
-        const parts = [draft.exists ? ('Сохранён черновик · версия ' + String(draft.version)) : 'Используются актуальные данные CRM'];
-        if (draft.updated_at) parts.push('обновлён ' + draft.updated_at);
+        const parts = draft.state === 'active'
+          ? ['Сохранён черновик · версия ' + String(draft.revision)]
+          : draft.state === 'reset_tombstone'
+            ? ['Черновик сброшен · используются актуальные данные CRM']
+            : ['Используются актуальные данные CRM'];
+        if (draft.state === 'active' && draft.filled_by) parts.push('автор ' + draft.filled_by);
+        if (draft.state === 'active' && draft.updated_at) parts.push('обновлён ' + draft.updated_at);
         printEls.completionActMeta.textContent = parts.join(' · ');
       }
       renderCompletionActStaleWarning();
@@ -2593,6 +2605,7 @@ _PRINTING_SCRIPT_PART2 = r"""
           body: completionActEndpointPayload(
             {
               expected_version: repairOrderPrintState.completionAct.draft.version || 0,
+              expected_source_fingerprint: repairOrderPrintState.completionAct.draft.current_source_fingerprint || '',
               idempotency_key: completionActIdempotencyKey('reset'),
             },
             session.cardId

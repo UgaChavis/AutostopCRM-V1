@@ -41,9 +41,9 @@ def test_manifest_covers_exact_public_and_crm_operation_contracts() -> None:
     assert len(module.PUBLIC_CASE_ORDER) == 24
     assert len(module.BOARD_OPERATION_ORDER) == 10
     assert len(module.INVENTORY_OPERATION_ORDER) == 8
-    assert len(module.DOCUMENT_OPERATION_ORDER) == 8
+    assert len(module.DOCUMENT_OPERATION_ORDER) == 10
     assert len(module.FINANCE_OPERATION_ORDER) == 18
-    assert len(cases) == 71
+    assert len(cases) == 73
     assert len({case.case_id for case in cases}) == len(cases)
     assert "download_store_quote_vin_photo" not in module.DOCUMENT_OPERATION_ORDER
     assert module.MANAGER_RAW_CRM_CAPABILITIES == (
@@ -136,9 +136,9 @@ def test_state_is_stop_the_line_and_contains_no_business_payload(tmp_path) -> No
 
     assert loaded["status"] == "ready"
     assert loaded["summary"] == {
-        "total": 71,
+        "total": 73,
         "passed": 0,
-        "pending": 71,
+        "pending": 73,
         "blocked": 0,
     }
     assert loaded["data_included"] is False
@@ -167,7 +167,7 @@ def test_completed_pending_cleanup_is_successful_but_not_verified() -> None:
         "run_id": "AST-GWAT-20260728T165722Z",
         "status": "completed_pending_cleanup",
         "manifest_sha256": "manifest",
-        "summary": {"total": 71, "passed": 71, "pending": 0, "blocked": 0},
+        "summary": {"total": 73, "passed": 73, "pending": 0, "blocked": 0},
         "cleanup": {"status": "not_started", "verified": False},
     }
 
@@ -185,7 +185,7 @@ def test_safe_summary_omits_cleanup_call_evidence() -> None:
         "run_id": "AST-GWAT-20260728T165722Z",
         "status": "completed",
         "manifest_sha256": "manifest",
-        "summary": {"total": 71, "passed": 71, "pending": 0, "blocked": 0},
+        "summary": {"total": 73, "passed": 73, "pending": 0, "blocked": 0},
         "cleanup": {
             "status": "completed",
             "verified": True,

@@ -11799,6 +11799,30 @@ class CardServiceTests(unittest.TestCase):
         )
         self.assertEqual([item["number"] for item in ordered["repair_orders"]], ["1", "2"])
 
+        exact_number = self.service.list_repair_orders(
+            {
+                "status": "all",
+                "number": "1",
+                "query": "dsg",
+                "limit": 1,
+            }
+        )
+        exact_card = self.service.list_repair_orders(
+            {"status": "all", "card_id": second["card"]["id"], "limit": 1}
+        )
+        empty_intersection = self.service.list_repair_orders(
+            {"status": "all", "number": "1", "query": "bmw"}
+        )
+
+        self.assertEqual(
+            [first["card"]["id"]], [item["card_id"] for item in exact_number["repair_orders"]]
+        )
+        self.assertEqual(
+            [second["card"]["id"]], [item["card_id"] for item in exact_card["repair_orders"]]
+        )
+        self.assertEqual([], empty_intersection["repair_orders"])
+        self.assertEqual({"number": "1", "status": "all"}, exact_number["meta"]["applied_filters"])
+
     def test_repair_order_numeric_number_falls_back_when_digit_string_cannot_be_parsed(
         self,
     ) -> None:

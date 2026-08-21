@@ -41,6 +41,7 @@ from .formatting import (
     _round_money,
     _split_tax_included_amount,
 )
+from .layout import COMPLETION_ACT_LAYOUT
 from .manual_documents import (
     ManualDocumentProfile,
     _first_multiline,
@@ -92,8 +93,6 @@ _JSON_SAFE_MAX_DEPTH = 8
 _COMPLETION_ACT_VAT_RATE = Decimal("0.05")
 _COMPLETION_ACT_MONEY_ABS_MAX = Decimal("999999999.99")
 _COMPLETION_ACT_QUANTITY_ABS_MAX = Decimal("99999.999")
-_COMPLETION_ACT_PAGE_ROWS = 26
-_COMPLETION_ACT_FINAL_PAGE_ROWS = 8
 _COMPLETION_ACT_MAX_PAGES = 40
 _COMPLETION_ACT_FINAL_PAGE_MAX_EXTRA_UNITS = 40
 _COMPLETION_ACT_FINAL_PAGE_COMBINED_EXTRA_UNITS = 32
@@ -157,6 +156,32 @@ def _completion_act_mutation_locked(method: Any) -> Any:
     return wrapped
 
 
+def _nested_changed_paths(current: Any, baseline: Any, *, prefix: str = "form") -> list[str]:
+    if isinstance(current, dict) and isinstance(baseline, dict):
+        paths: list[str] = []
+        for key in sorted(set(current) | set(baseline)):
+            paths.extend(
+                _nested_changed_paths(
+                    current.get(key),
+                    baseline.get(key),
+                    prefix=f"{prefix}.{key}",
+                )
+            )
+        return paths
+    if isinstance(current, list) and isinstance(baseline, list):
+        paths = []
+        for index in range(max(len(current), len(baseline))):
+            paths.extend(
+                _nested_changed_paths(
+                    current[index] if index < len(current) else None,
+                    baseline[index] if index < len(baseline) else None,
+                    prefix=f"{prefix}[{index}]",
+                )
+            )
+        return paths
+    return [] if current == baseline else [prefix]
+
+
 def _completion_act_estimated_lines(value: Any, *, chars_per_line: int) -> int:
     """Return a conservative line estimate for the fixed A4 act typography."""
 
@@ -188,7 +213,7 @@ def _completion_act_estimated_lines(value: Any, *, chars_per_line: int) -> int:
 
 
 def _completion_act_item_page_weight(item: dict[str, Any]) -> int:
-    """Measure one table row in units of a regular single-line row."""
+    """Measure one indivisible table row in tenths of a millimetre."""
 
     estimated_lines = max(
         1,
@@ -196,8 +221,10 @@ def _completion_act_item_page_weight(item: dict[str, Any]) -> int:
         _completion_act_estimated_lines(item.get("unit_display"), chars_per_line=8),
         _completion_act_estimated_lines(item.get("quantity_display"), chars_per_line=10),
     )
-    # A regular row already reserves padding and roughly two text baselines.
-    return max(1, math.ceil(estimated_lines / 2))
+    return (
+        COMPLETION_ACT_LAYOUT.row_base_units
+        + max(0, estimated_lines - 1) * COMPLETION_ACT_LAYOUT.row_extra_line_units
+    )
 
 
 def _completion_act_party_summary_text(party: CompletionActPartyData) -> str:
@@ -233,7 +260,11 @@ def _completion_act_first_page_capacity(form: CompletionActFormData) -> int:
         0,
         _completion_act_estimated_lines(form.basis, chars_per_line=80) - 2,
     )
-    return max(0, _COMPLETION_ACT_PAGE_ROWS - extra_units)
+    fixed_height = (
+        COMPLETION_ACT_LAYOUT.first_header_base_units
+        + extra_units * COMPLETION_ACT_LAYOUT.row_extra_line_units
+    )
+    return max(0, COMPLETION_ACT_LAYOUT.regular_table_body_units - fixed_height)
 
 
 def _completion_act_party_final_extra_units(party: CompletionActPartyData) -> int:
@@ -267,10 +298,11 @@ def _completion_act_final_page_capacity(form: CompletionActFormData) -> int:
         _completion_act_party_final_extra_units(form.performer),
         _completion_act_party_final_extra_units(form.customer),
     )
-    return max(
-        0,
-        _COMPLETION_ACT_FINAL_PAGE_ROWS - acceptance_extra - party_extra,
+    fixed_height = (
+        COMPLETION_ACT_LAYOUT.final_block_base_units
+        + (acceptance_extra + party_extra) * COMPLETION_ACT_LAYOUT.row_extra_line_units
     )
+    return max(0, COMPLETION_ACT_LAYOUT.regular_table_body_units - fixed_height)
 
 
 def _completion_act_final_page_extra_units(form: CompletionActFormData) -> int:
@@ -348,32 +380,42 @@ def _completion_act_page_chunks(
         return [[]]
     first_capacity = _completion_act_first_page_capacity(form)
     final_capacity = _completion_act_final_page_capacity(form)
-    weights = [_completion_act_item_page_weight(item) for item in items]
-    total_weight = sum(weights)
-    if total_weight <= min(first_capacity, final_capacity):
+    combined_capacity = max(
+        0,
+        COMPLETION_ACT_LAYOUT.regular_table_body_units
+        - COMPLETION_ACT_LAYOUT.first_header_base_units
+        - COMPLETION_ACT_LAYOUT.final_block_base_units
+        - (
+            max(0, _completion_act_first_page_capacity(CompletionActFormData()) - first_capacity)
+            + max(0, _completion_act_final_page_capacity(CompletionActFormData()) - final_capacity)
+        ),
+    )
+    heights = [_completion_act_item_page_weight(item) for item in items]
+    total_height = sum(heights)
+    if total_height <= combined_capacity:
         return [list(items)]
 
     index = 0
-    remaining_weight = total_weight
+    remaining_height = total_height
 
     def take_page(capacity: int, *, force_progress: bool) -> list[dict[str, Any]]:
-        nonlocal index, remaining_weight
+        nonlocal index, remaining_height
         start = index
         used = 0
-        while index < len(items) and used + weights[index] <= capacity:
-            used += weights[index]
+        while index < len(items) and used + heights[index] <= capacity:
+            used += heights[index]
             index += 1
         if force_progress and index == start and index < len(items):
             # Retain progress for one legacy row heavier than a page. The
             # aggregate page bound below still rejects an unprintable document.
-            used = weights[index]
+            used = heights[index]
             index += 1
-        remaining_weight -= used
+        remaining_height -= used
         return list(items[start:index])
 
     pages: list[list[dict[str, Any]]] = [take_page(first_capacity, force_progress=False)]
-    while remaining_weight > final_capacity:
-        pages.append(take_page(_COMPLETION_ACT_PAGE_ROWS, force_progress=True))
+    while remaining_height > final_capacity:
+        pages.append(take_page(COMPLETION_ACT_LAYOUT.regular_table_body_units, force_progress=True))
         if len(pages) >= _COMPLETION_ACT_MAX_PAGES:
             raise PrintModuleError(
                 "validation_error",
@@ -2237,6 +2279,7 @@ class PrintModuleService:
         idempotency_key: str = "",
         filled_by: str = "",
         source: str = "manual",
+        dry_run: bool = False,
     ) -> dict[str, Any]:
         order = repair_order or card.repair_order
         settings = self._read_settings()
@@ -2323,6 +2366,28 @@ class PrintModuleService:
                 },
             )
         sparse = _nested_sparse_diff(form.to_dict(), fresh.to_dict()) or {}
+        if dry_run:
+            response = self._completion_act_response(
+                card,
+                order,
+                client=exact_client,
+                settings=settings,
+            )
+            response["dry_run"] = {
+                "validated": True,
+                "would_change": not (
+                    current is not None
+                    and not current.deleted
+                    and current.overrides == sparse
+                    and current.source_fingerprint == current_source_fingerprint
+                ),
+                "current_version": current_version,
+                "next_version": current_version + 1,
+                "changed_paths": _nested_changed_paths(form.to_dict(), response["form"]),
+                "projected_form": form.to_dict(),
+                "source_fingerprint": current_source_fingerprint,
+            }
+            return response
         record = CompletionActDraftData(
             cycle_key=cycle_key,
             overrides=sparse,
@@ -2352,9 +2417,11 @@ class PrintModuleService:
         repair_order: RepairOrder | None = None,
         client: ClientProfile | None = None,
         expected_version: Any = None,
+        expected_source_fingerprint: Any = None,
         idempotency_key: str = "",
         filled_by: str = "",
         source: str = "manual",
+        dry_run: bool = False,
     ) -> dict[str, Any]:
         order = repair_order or card.repair_order
         settings = self._read_settings()
@@ -2370,6 +2437,23 @@ class PrintModuleService:
                 details={"field": "idempotency_key"},
             )
         expected = self._completion_act_expected_version(expected_version)
+        current_source_fingerprint = self._completion_act_source_fingerprint(
+            card,
+            order,
+            exact_client,
+            settings,
+            cycle_key=cycle_key,
+        )
+        if expected_source_fingerprint is not None:
+            if (
+                not isinstance(expected_source_fingerprint, str)
+                or re.fullmatch(r"[0-9a-f]{64}", expected_source_fingerprint) is None
+            ):
+                raise PrintModuleError(
+                    "validation_error",
+                    "Передайте актуальный отпечаток исходных данных акта.",
+                    details={"field": "expected_source_fingerprint"},
+                )
         request_fingerprint = _request_payload_fingerprint(
             {"operation": "reset", "cycle_key": cycle_key}
         )
@@ -2398,17 +2482,45 @@ class PrintModuleService:
                     "cycle_key": cycle_key,
                 },
             )
+        if (
+            expected_source_fingerprint is not None
+            and expected_source_fingerprint != current_source_fingerprint
+        ):
+            raise PrintModuleError(
+                "completion_act_source_conflict",
+                "Исходные данные CRM изменились после открытия редактора акта.",
+                status_code=409,
+                details={
+                    "expected_source_fingerprint": expected_source_fingerprint,
+                    "current_source_fingerprint": current_source_fingerprint,
+                    "cycle_key": cycle_key,
+                },
+            )
+        if dry_run:
+            response = self._completion_act_response(
+                card,
+                order,
+                client=exact_client,
+                settings=settings,
+            )
+            response["dry_run"] = {
+                "validated": True,
+                "would_change": bool(current is not None and not current.deleted),
+                "current_version": current_version,
+                "next_version": current_version + 1,
+                "changed_paths": [
+                    *(["draft.state"] if current is not None and not current.deleted else []),
+                    *_nested_changed_paths(response["fresh_form"], response["form"]),
+                ],
+                "projected_form": response["fresh_form"],
+                "source_fingerprint": current_source_fingerprint,
+            }
+            return response
         record = CompletionActDraftData(
             cycle_key=cycle_key,
             overrides={},
             version=current_version + 1,
-            source_fingerprint=self._completion_act_source_fingerprint(
-                card,
-                order,
-                exact_client,
-                settings,
-                cycle_key=cycle_key,
-            ),
+            source_fingerprint=current_source_fingerprint,
             updated_at=utc_now_iso(),
             filled_by=_normalize_text(filled_by, limit=120),
             source=_normalize_text(source, limit=32).lower() or "manual",
@@ -3170,6 +3282,7 @@ class PrintModuleService:
         cycle_key = self._completion_act_cycle_key(card, order)
         record = self._read_completion_act_record(cycle_key)
         exists = record is not None and not record.deleted
+        state = "absent" if record is None else "active" if exists else "reset_tombstone"
         overrides = record.overrides if exists and record is not None else {}
         fresh = self._default_completion_act_form(card, order, client, settings)
         effective = self._normalized_completion_act_form(_nested_merge(fresh.to_dict(), overrides))
@@ -3205,6 +3318,9 @@ class PrintModuleService:
             "draft": {
                 "exists": exists,
                 "version": record.version if record is not None else 0,
+                "state": state,
+                "revision": record.version if record is not None else 0,
+                "last_operation": record.operation if record is not None else None,
                 "cycle_key": cycle_key,
                 "updated_at": record.updated_at if record is not None else "",
                 "filled_by": record.filled_by if record is not None else "",

@@ -1657,10 +1657,10 @@ async def _completion_act_browser_print_html(page: Any, pages: list[dict[str, An
 
 
 def _completion_act_pdf_fixture(
-    base_form: dict[str, Any], *, label: str, maximal_final_block: bool
+    base_form: dict[str, Any], *, label: str, maximal_final_block: bool, row_count: int = 26
 ) -> tuple[dict[str, Any], list[str]]:
     form = json.loads(json.dumps(base_form))
-    item_names = [f"Smoke PDF {label} row {index:02d}" for index in range(1, 27)]
+    item_names = [f"Smoke PDF {label} row {index:03d}" for index in range(1, row_count + 1)]
     form["document_number"] = f"SMOKE-PDF-{label.upper()}"
     form["items"] = [
         {
@@ -1697,11 +1697,13 @@ async def _exercise_completion_act_physical_pdf_regression(
     base_form = current.get("form", {})
     if not isinstance(base_form, dict):
         return False
-    for label, maximal_final_block in (("standard", False), ("max-final", True)):
+    cases = (("short", False, 3), ("long", False, 149), ("max-300", True, 300))
+    for label, maximal_final_block, row_count in cases:
         form, item_names = _completion_act_pdf_fixture(
             base_form,
             label=label,
             maximal_final_block=maximal_final_block,
+            row_count=row_count,
         )
         request_payload = {
             "card_id": runtime.card_id,
@@ -1721,6 +1723,10 @@ async def _exercise_completion_act_physical_pdf_regression(
         pages = document.get("pages") if isinstance(document, dict) else []
         logical_page_count = int(document.get("page_count") or 0)
         if not isinstance(pages, list) or len(pages) != logical_page_count:
+            return False
+        if label == "long" and logical_page_count >= 7:
+            return False
+        if logical_page_count > 40:
             return False
 
         printable_html = await _completion_act_browser_print_html(page, pages)

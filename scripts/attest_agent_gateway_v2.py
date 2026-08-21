@@ -55,7 +55,7 @@ MANAGER_RAW_CRM_CAPABILITIES = (
 )
 STORE_ONLY_DOCUMENT_OPERATIONS = frozenset({"download_store_quote_vin_photo"})
 CRM_DOCUMENT_OPERATIONS = frozenset(DOCUMENT_WORKFLOW_OPERATIONS) - STORE_ONLY_DOCUMENT_OPERATIONS
-EXPECTED_CRM_OPERATION_COUNT = 44
+EXPECTED_CRM_OPERATION_COUNT = 46
 PUBLIC_CASE_ORDER = (
     "ping_connector",
     "get_connector_identity",
@@ -131,6 +131,8 @@ DOCUMENT_OPERATION_ORDER = (
     "get_shared_file_info",
     "download_shared_file",
     "download_repair_order_print_pdf",
+    "save_completion_act_form",
+    "reset_completion_act_form",
     "update_display_dashboard_message",
     "delete_shared_file",
 )
@@ -3386,6 +3388,261 @@ async def _document_repair_order_pdf_case(
             classification="privacy_payload",
             evidence=evidence,
         )
+    return evidence
+
+
+def _completion_act_mapping(value: Any) -> dict[str, Any] | None:
+    return next(
+        (
+            mapping
+            for mapping in _walk_mappings(value)
+            if isinstance(mapping.get("form"), dict) and isinstance(mapping.get("draft"), dict)
+        ),
+        None,
+    )
+
+
+async def _read_completion_act_form(
+    session: Any,
+    *,
+    card_id: str,
+    evidence: list[dict[str, Any]],
+) -> dict[str, Any]:
+    structured = await _raw_invoke(
+        session,
+        name="api:/api/get_completion_act_form",
+        arguments={"card_id": card_id},
+        idempotency_key="",
+        evidence=evidence,
+    )
+    completion_act = _completion_act_mapping(structured)
+    if completion_act is None:
+        raise AttestationError(
+            "completion_act_exact_read_missing",
+            classification="verification",
+            evidence=evidence,
+        )
+    return completion_act
+
+
+async def _completion_act_dry_apply(
+    session: Any,
+    *,
+    spec: CaseSpec,
+    operation: str,
+    payload: dict[str, Any],
+    prefix: str,
+    attempt: int,
+    purpose: str,
+    evidence: list[dict[str, Any]],
+) -> dict[str, Any]:
+    dry_key = f"{prefix}-{purpose}-dry-a{attempt}"[:160]
+    apply_key = f"{prefix}-{purpose}-apply-a{attempt}"[:160]
+    correlation_id = f"{prefix}-{purpose}-correlation-a{attempt}"[:160]
+    dry_arguments = {
+        "operation": operation,
+        "payload": {**payload, "correlation_id": correlation_id},
+        "idempotency_key": dry_key,
+        "mode": "dry_run",
+    }
+    dry_result, dry_evidence = await _attested_call(
+        session,
+        spec.workflow_tool,
+        dry_arguments,
+    )
+    evidence.append(dry_evidence)
+    after_dry = await _read_completion_act_form(
+        session,
+        card_id=str(payload["card_id"]),
+        evidence=evidence,
+    )
+    if int(after_dry["draft"].get("version") or 0) != int(payload["expected_version"]):
+        raise AttestationError(
+            f"{purpose}_dry_run_changed_backend",
+            classification="backend_effect",
+            evidence=evidence,
+        )
+    proof = str(_first_value(_structured(dry_result), ("dry_run_proof",)) or "")
+    if re.fullmatch(r"[0-9a-f]{64}", proof) is None:
+        raise AttestationError(
+            f"{purpose}_dry_run_proof_invalid",
+            classification="verification",
+            evidence=evidence,
+        )
+    apply_arguments = {
+        "operation": operation,
+        "payload": {
+            **payload,
+            "correlation_id": correlation_id,
+            "dry_run_proof": proof,
+            "dry_run_idempotency_key": dry_key,
+        },
+        "idempotency_key": apply_key,
+        "mode": "apply",
+    }
+    applied, apply_evidence = await _attested_call(
+        session,
+        spec.workflow_tool,
+        apply_arguments,
+    )
+    evidence.append(apply_evidence)
+    replay, replay_evidence = await _attested_call(
+        session,
+        spec.workflow_tool,
+        apply_arguments,
+    )
+    evidence.append(replay_evidence)
+    _assert_workflow_replay(
+        replay,
+        code_prefix=purpose,
+        evidence=evidence,
+    )
+    return _structured(applied)
+
+
+async def _document_completion_act_case(
+    session: Any,
+    *,
+    spec: CaseSpec,
+    state: dict[str, Any],
+) -> list[dict[str, Any]]:
+    evidence: list[dict[str, Any]] = []
+    attempt = _attempt_number(state, spec.case_id)
+    prefix = str(state["refs"]["synthetic_prefix"])
+    card_id = ""
+    failure: AttestationError | None = None
+    try:
+        card_id, _card = await _create_synthetic_board_card(
+            session,
+            spec=spec,
+            state=state,
+            evidence=evidence,
+            ready_unpaid=True,
+        )
+        initial = await _read_completion_act_form(
+            session,
+            card_id=card_id,
+            evidence=evidence,
+        )
+        initial_draft = initial["draft"]
+        initial_version = int(initial_draft.get("version") or 0)
+        source_fingerprint = str(initial_draft.get("current_source_fingerprint") or "")
+        form = json.loads(json.dumps(initial["form"], ensure_ascii=False))
+        form["basis"] = f"{prefix} completion act verification"[:500]
+        save_payload = {
+            "card_id": card_id,
+            "form": form,
+            "expected_version": initial_version,
+            "expected_source_fingerprint": source_fingerprint,
+        }
+
+        if spec.operation == "reset_completion_act_form":
+            await _completion_act_dry_apply(
+                session,
+                spec=spec,
+                operation="save_completion_act_form",
+                payload=save_payload,
+                prefix=prefix,
+                attempt=attempt,
+                purpose="completion-act-reset-fixture-save",
+                evidence=evidence,
+            )
+        else:
+            await _completion_act_dry_apply(
+                session,
+                spec=spec,
+                operation=spec.operation,
+                payload=save_payload,
+                prefix=prefix,
+                attempt=attempt,
+                purpose="completion-act-save",
+                evidence=evidence,
+            )
+            saved = await _read_completion_act_form(
+                session,
+                card_id=card_id,
+                evidence=evidence,
+            )
+            if (
+                str(saved["draft"].get("state") or "") != "active"
+                or int(saved["draft"].get("version") or 0) != initial_version + 1
+                or str(saved["form"].get("basis") or "") != form["basis"]
+            ):
+                raise AttestationError(
+                    "completion_act_save_exact_readback_failed",
+                    classification="backend_effect",
+                    evidence=evidence,
+                )
+
+        active = await _read_completion_act_form(
+            session,
+            card_id=card_id,
+            evidence=evidence,
+        )
+        active_version = int(active["draft"].get("version") or 0)
+        active_fingerprint = str(active["draft"].get("current_source_fingerprint") or "")
+        reset_payload = {
+            "card_id": card_id,
+            "expected_version": active_version,
+            "expected_source_fingerprint": active_fingerprint,
+        }
+        await _completion_act_dry_apply(
+            session,
+            spec=spec,
+            operation="reset_completion_act_form",
+            payload=reset_payload,
+            prefix=prefix,
+            attempt=attempt,
+            purpose=(
+                "completion-act-reset"
+                if spec.operation == "reset_completion_act_form"
+                else "completion-act-save-compensation"
+            ),
+            evidence=evidence,
+        )
+        reset = await _read_completion_act_form(
+            session,
+            card_id=card_id,
+            evidence=evidence,
+        )
+        if (
+            reset["draft"].get("exists") is not False
+            or str(reset["draft"].get("state") or "") != "reset_tombstone"
+            or int(reset["draft"].get("version") or 0) != active_version + 1
+            or reset["form"] != reset.get("fresh_form")
+        ):
+            raise AttestationError(
+                "completion_act_reset_exact_readback_failed",
+                classification="backend_effect",
+                evidence=evidence,
+            )
+    except AttestationError as exc:
+        failure = exc
+    if card_id:
+        try:
+            await _cleanup_synthetic_board_card(
+                session,
+                spec=spec,
+                state=state,
+                card_id=card_id,
+                evidence=evidence,
+            )
+        except AttestationError as cleanup_error:
+            raise AttestationError(
+                "completion_act_fixture_cleanup_failed",
+                classification="backend_effect",
+                evidence=[*evidence, *cleanup_error.evidence],
+            ) from cleanup_error
+    if failure is not None:
+        raise AttestationError(
+            failure.code,
+            classification=failure.classification,
+            evidence=evidence or failure.evidence,
+        ) from failure
+    _assert_response_budget(
+        evidence,
+        code="completion_act_workflow_response_payload_limit_exceeded",
+    )
     return evidence
 
 
@@ -7272,6 +7529,12 @@ async def _operation_case(
         )
     if spec.operation == "download_repair_order_print_pdf":
         return await _document_repair_order_pdf_case(
+            session,
+            spec=spec,
+            state=state,
+        )
+    if spec.operation in {"save_completion_act_form", "reset_completion_act_form"}:
+        return await _document_completion_act_case(
             session,
             spec=spec,
             state=state,

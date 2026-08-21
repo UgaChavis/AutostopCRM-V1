@@ -63,7 +63,6 @@ SCRIPT_INSTRUCTION_FILES = {
 MANAGER_CANONICAL_DOCS = (
     "AGENTS.md",
     "README.md",
-    "docs/agent/autostop_manager_skill.md",
     "docs/agent/board_cleanup_autopilot_playbook.md",
     "docs/agent/command_routes.json",
     "docs/agent/crm_manager_data_playbook.md",
@@ -79,7 +78,6 @@ MANAGER_CANONICAL_DOCS = (
 MANAGER_GATEWAY_INSTRUCTION_DOCS = (
     "AGENTS.md",
     "README.md",
-    "docs/agent/autostop_manager_skill.md",
     "docs/agent/board_cleanup_autopilot_playbook.md",
     "docs/agent/command_routes.json",
     "docs/agent/crm_manager_data_playbook.md",

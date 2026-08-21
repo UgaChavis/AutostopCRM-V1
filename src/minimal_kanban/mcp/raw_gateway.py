@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
@@ -145,6 +146,115 @@ def _change_feed_schema(route: str) -> dict[str, Any] | None:
     }
 
 
+def _completion_act_form_schema() -> dict[str, Any]:
+    party_properties = {
+        "legal_name": {"type": "string", "maxLength": 240},
+        "address": {"type": "string", "maxLength": 320},
+        "inn": {"type": "string", "maxLength": 32},
+        "kpp": {"type": "string", "maxLength": 32},
+        "ogrn": {"type": "string", "maxLength": 32},
+        "bank_name": {"type": "string", "maxLength": 240},
+        "bik": {"type": "string", "maxLength": 32},
+        "settlement_account": {"type": "string", "maxLength": 64},
+        "correspondent_account": {"type": "string", "maxLength": 64},
+        "signer_position": {"type": "string", "maxLength": 120},
+        "signer_name": {"type": "string", "maxLength": 160},
+    }
+    party = {
+        "type": "object",
+        "properties": party_properties,
+        "required": list(party_properties),
+        "additionalProperties": False,
+    }
+    item_properties = {
+        "id": {"type": "string", "maxLength": 128},
+        "section": {"type": "string", "enum": ["works", "materials", "manual"]},
+        "name": {"type": "string", "maxLength": 500},
+        "unit": {"type": "string", "maxLength": 24},
+        "quantity": {"type": "string", "maxLength": 48},
+        "price": {"type": "string", "maxLength": 48},
+    }
+    form_properties = {
+        "document_number": {"type": "string", "maxLength": 80},
+        "document_date": {"type": "string", "maxLength": 64},
+        "basis": {"type": "string", "maxLength": 500},
+        "performer": party,
+        "customer": party,
+        "items": {
+            "type": "array",
+            "maxItems": 300,
+            "items": {
+                "type": "object",
+                "properties": item_properties,
+                "required": list(item_properties),
+                "additionalProperties": False,
+            },
+        },
+        "acceptance_text": {"type": "string", "maxLength": 1000},
+    }
+    return {
+        "type": "object",
+        "properties": form_properties,
+        "required": list(form_properties),
+        "additionalProperties": False,
+    }
+
+
+def _completion_act_schema(route: str) -> dict[str, Any] | None:
+    if route not in {
+        "/api/get_completion_act_form",
+        "/api/save_completion_act_form",
+        "/api/reset_completion_act_form",
+    }:
+        return None
+    properties: dict[str, Any] = {
+        "card_id": {"type": "string", "minLength": 1, "maxLength": 160},
+    }
+    required = ["card_id"]
+    if route != "/api/get_completion_act_form":
+        properties.update(
+            {
+                "expected_version": {"type": "integer", "minimum": 0},
+                "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 128},
+                "source": {"type": "string", "maxLength": 32},
+                "form_source": {"type": "string", "maxLength": 32},
+                "actor_name": {"type": "string", "maxLength": 120},
+                "dry_run": {"type": "boolean"},
+            }
+        )
+        required.extend(["expected_version", "idempotency_key"])
+        properties["expected_source_fingerprint"] = {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+        }
+        required.append("expected_source_fingerprint")
+    schema: dict[str, Any] = {
+        "$id": f"autostopcrm-agent-gateway:{route}",
+        "title": route,
+        "type": "object",
+        "properties": properties,
+        "required": required,
+        "additionalProperties": False,
+    }
+    if route == "/api/save_completion_act_form":
+        form_schema = _completion_act_form_schema()
+        properties.update(
+            {
+                "form": form_schema,
+                "form_data": {
+                    **form_schema,
+                    "deprecated": True,
+                    "description": "Deprecated compatibility alias for form.",
+                },
+            }
+        )
+        schema["oneOf"] = [
+            {"required": ["form"], "not": {"required": ["form_data"]}},
+            {"required": ["form_data"], "not": {"required": ["form"]}},
+        ]
+    return schema
+
+
 def _find_mapping(
     value: Any,
     key: str,
@@ -254,6 +364,31 @@ async def verify_virtual_api_write_readback(
         actual_draft = (
             readback_data.get("draft") if isinstance(readback_data.get("draft"), Mapping) else {}
         )
+        dry_run = (
+            result_data.get("dry_run") if isinstance(result_data.get("dry_run"), Mapping) else {}
+        )
+        if dry_run:
+            current_version = dry_run.get("current_version")
+            passed = bool(
+                result.get("ok")
+                and readback.get("ok")
+                and dry_run.get("validated") is True
+                and type(current_version) is int
+                and actual_draft.get("version") == current_version
+                and actual_draft.get("exists") == result_draft.get("exists")
+                and readback_data.get("form") == result_data.get("form")
+            )
+            return {
+                "required": True,
+                "passed": passed,
+                "check": "completion_act_dry_run_non_mutating_readback",
+                "evidence": {
+                    "card_id": card_id,
+                    "current_version": current_version,
+                    "actual_version": actual_draft.get("version"),
+                    "readback_ok": bool(readback.get("ok")),
+                },
+            }
         expected_version = result_draft.get("version")
         version_exact = (
             type(expected_version) is int
@@ -1185,6 +1320,9 @@ def virtual_api_schema(route: str) -> dict[str, Any]:
     change_feed_schema = _change_feed_schema(route)
     if change_feed_schema is not None:
         return change_feed_schema
+    completion_act_schema = _completion_act_schema(route)
+    if completion_act_schema is not None:
+        return completion_act_schema
     return {
         "$id": f"autostopcrm-agent-gateway:{route}",
         "title": route,
@@ -1207,6 +1345,78 @@ def request_fingerprint(value: Any) -> str:
         default=str,
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def virtual_api_argument_errors(route: str, arguments: Mapping[str, Any]) -> list[str]:
+    """Validate strict virtual-route payloads without adding a runtime JSON Schema dependency."""
+
+    schema = virtual_api_schema(route)
+    errors: list[str] = []
+
+    def validate(value: Any, rule: Mapping[str, Any], path: str) -> None:
+        expected_type = rule.get("type")
+        type_matches = (
+            expected_type == "object"
+            and isinstance(value, Mapping)
+            or expected_type == "array"
+            and isinstance(value, list)
+            or expected_type == "string"
+            and isinstance(value, str)
+            or expected_type == "integer"
+            and isinstance(value, int)
+            and not isinstance(value, bool)
+            or expected_type == "boolean"
+            and isinstance(value, bool)
+            or expected_type is None
+        )
+        if not type_matches:
+            errors.append(f"{path}:type")
+            return
+        if isinstance(value, Mapping):
+            properties = (
+                rule.get("properties") if isinstance(rule.get("properties"), Mapping) else {}
+            )
+            for required in rule.get("required") or []:
+                if required not in value:
+                    errors.append(f"{path}.{required}:required")
+            if rule.get("additionalProperties") is False:
+                for key in value:
+                    if key not in properties:
+                        errors.append(f"{path}.{key}:additional_property")
+            for key, item in value.items():
+                child_rule = properties.get(key)
+                if isinstance(child_rule, Mapping):
+                    validate(item, child_rule, f"{path}.{key}")
+        elif isinstance(value, list):
+            maximum = rule.get("maxItems")
+            if isinstance(maximum, int) and len(value) > maximum:
+                errors.append(f"{path}:max_items")
+            item_rule = rule.get("items")
+            if isinstance(item_rule, Mapping):
+                for index, item in enumerate(value):
+                    validate(item, item_rule, f"{path}[{index}]")
+        elif isinstance(value, str):
+            if isinstance(rule.get("minLength"), int) and len(value) < rule["minLength"]:
+                errors.append(f"{path}:min_length")
+            if isinstance(rule.get("maxLength"), int) and len(value) > rule["maxLength"]:
+                errors.append(f"{path}:max_length")
+            if (
+                isinstance(rule.get("pattern"), str)
+                and re.fullmatch(rule["pattern"], value) is None
+            ):
+                errors.append(f"{path}:pattern")
+            if isinstance(rule.get("enum"), list) and value not in rule["enum"]:
+                errors.append(f"{path}:enum")
+        elif isinstance(value, int) and isinstance(rule.get("minimum"), int):
+            if value < rule["minimum"]:
+                errors.append(f"{path}:minimum")
+
+    validate(arguments, schema, "arguments")
+    if route == "/api/save_completion_act_form":
+        form_count = int("form" in arguments) + int("form_data" in arguments)
+        if form_count != 1:
+            errors.append("arguments:exactly_one_form")
+    return sorted(set(errors))
 
 
 def virtual_api_route(name: str) -> str | None:
@@ -1247,6 +1457,7 @@ __all__ = [
     "request_fingerprint",
     "schema_hash",
     "virtual_api_name",
+    "virtual_api_argument_errors",
     "virtual_api_risk",
     "virtual_api_route",
     "virtual_api_schema",

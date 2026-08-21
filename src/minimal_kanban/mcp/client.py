@@ -980,6 +980,8 @@ class BoardApiClient:
         *,
         limit: int | None = None,
         status: str | None = None,
+        card_id: str | None = None,
+        number: str | None = None,
         query: str | None = None,
         sort_by: str | None = None,
         sort_dir: str | None = None,
@@ -991,6 +993,10 @@ class BoardApiClient:
             payload["limit"] = limit
         if status:
             payload["status"] = status
+        if card_id:
+            payload["card_id"] = card_id
+        if number:
+            payload["number"] = number
         if query is not None:
             payload["query"] = query
         if sort_by:

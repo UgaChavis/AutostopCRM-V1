@@ -212,6 +212,12 @@ class CompletionActAccountingTemplateTests(unittest.TestCase):
         self.assertIn(".completion-act__signature-value", PRINT_BASE_STYLES)
         self.assertIn("overflow-wrap: anywhere;", PRINT_BASE_STYLES)
         self.assertIn("word-break: break-word;", PRINT_BASE_STYLES)
+        self.assertIn("--completion-act-page-content-height: 260.0mm;", PRINT_BASE_STYLES)
+        self.assertIn("--completion-act-table-header-height: 10.5mm;", PRINT_BASE_STYLES)
+        self.assertIn("--completion-act-row-padding-y: 0.75mm;", PRINT_BASE_STYLES)
+        self.assertIn("--completion-act-row-line-height: 3.4mm;", PRINT_BASE_STYLES)
+        self.assertIn("--completion-act-table-border: 0.22mm;", PRINT_BASE_STYLES)
+        self.assertIn("--completion-act-final-min-height: 74.0mm;", PRINT_BASE_STYLES)
 
 
 if __name__ == "__main__":
