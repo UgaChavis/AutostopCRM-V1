@@ -7,6 +7,8 @@ from .assembler import (
     BOARD_WEB_APP_HTML,
     BOARD_WEB_APP_JS,
     BOARD_WEB_APP_JS_PATH,
+    MODULE_MAP_HTML,
+    MODULE_MAP_INFRASTRUCTURE,
 )
 
 __all__ = [
@@ -16,4 +18,6 @@ __all__ = [
     "BOARD_WEB_APP_HTML",
     "BOARD_WEB_APP_JS",
     "BOARD_WEB_APP_JS_PATH",
+    "MODULE_MAP_HTML",
+    "MODULE_MAP_INFRASTRUCTURE",
 ]

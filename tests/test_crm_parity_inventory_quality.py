@@ -18,6 +18,7 @@ from minimal_kanban.web_assets import (
     BOARD_WEB_APP_HTML,
     BOARD_WEB_APP_JS,
     DISPLAY_DASHBOARD_HTML,
+    MODULE_MAP_HTML,
 )
 from scripts import crm_capability_parity
 
@@ -37,6 +38,7 @@ class CrmParityInventoryQualityTests(unittest.TestCase):
                 BOARD_WEB_APP_CSS,
                 BOARD_WEB_APP_JS,
                 DISPLAY_DASHBOARD_HTML,
+                MODULE_MAP_HTML,
             )
             for value in crm_capability_parity.API_ROUTE_PATTERN.findall(text)
             if (route := crm_capability_parity._normalized_route(value))

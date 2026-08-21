@@ -1,0 +1,1976 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <title>Карта IT V10.4 · AutoStop</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #101211;
+      --ink: #e6e9e6;
+      --muted: #bcc4be;
+      --line: #49514c;
+      --accent: #b9ca8d;
+      --public: #82c8d8;
+      --data: #91bd86;
+      --external: #bf9bd7;
+      --network: #89a8e2;
+      --deploy: #d5a66a;
+      --risk: #df8371;
+      --mono: "Cascadia Mono", "Consolas", monospace;
+      --sans: "Segoe UI", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      min-width: 320px;
+      margin: 0;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--mono);
+    }
+    button, a { font: inherit; }
+    button:focus-visible, a:focus-visible {
+      outline: 0;
+      text-decoration: underline;
+      text-decoration-color: var(--accent);
+      text-underline-offset: 4px;
+    }
+    [hidden] { display: none !important; }
+
+    .head {
+      display: none;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: clamp(14px, 2vw, 42px);
+      height: 44px;
+      padding: 0 clamp(14px, 1.5vw, 42px);
+      background: var(--bg);
+      white-space: nowrap;
+    }
+    .head__title {
+      font-size: clamp(12px, .4vw, 14px);
+      font-weight: 700;
+      letter-spacing: .08em;
+    }
+    .head__legend {
+      overflow: hidden;
+      color: var(--muted);
+      font-size: clamp(10px, .32vw, 11px);
+      letter-spacing: .04em;
+      text-align: center;
+      text-overflow: ellipsis;
+    }
+    .head__tools { display: flex; align-items: center; gap: 12px; }
+    .head__meta { color: var(--muted); font-size: 11px; }
+    .tool {
+      padding: 0;
+      border: 0;
+      background: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 12px;
+      letter-spacing: .06em;
+      text-decoration: none;
+      text-transform: uppercase;
+    }
+    .tool:hover { color: var(--accent); }
+
+    .view-switch {
+      position: fixed;
+      top: 14px;
+      left: 18px;
+      z-index: 6;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      color: var(--line);
+      font-family: var(--sans);
+      font-size: 12px;
+      letter-spacing: .03em;
+    }
+    .view-switch__button {
+      padding: 0;
+      border: 0;
+      background: none;
+      color: var(--muted);
+      cursor: pointer;
+      letter-spacing: inherit;
+    }
+    .view-switch__button:hover,
+    .view-switch__button.is-active { color: var(--accent); }
+    .view-switch__button.is-active { text-decoration: underline; text-underline-offset: 4px; }
+
+    .relation-mode {
+      position: fixed;
+      top: 14px;
+      right: 18px;
+      z-index: 6;
+      display: flex;
+      gap: 9px;
+      color: var(--line);
+      font-family: var(--sans);
+      font-size: 12px;
+    }
+    .relation-mode__button {
+      padding: 0;
+      border: 0;
+      background: none;
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .relation-mode__button:hover,
+    .relation-mode__button.is-active { color: var(--accent); }
+    .relation-mode__button.is-active { text-decoration: underline; text-underline-offset: 4px; }
+
+    .map-legend {
+      position: fixed;
+      left: 18px;
+      bottom: 16px;
+      z-index: 5;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 14px;
+      max-width: calc(100vw - 36px);
+      color: var(--muted);
+      font-family: var(--sans);
+      font-size: 11px;
+      letter-spacing: .02em;
+      line-height: 1.2;
+      pointer-events: none;
+      padding: 4px 6px;
+      background: rgba(16, 18, 17, .92);
+    }
+    body.has-detail .map-legend { max-width: calc(100vw - 592px); }
+    .map-legend__item::before {
+      content: "";
+      display: inline-block;
+      width: 24px;
+      margin: 0 6px 3px 0;
+      border-top: 1px solid currentColor;
+    }
+    .map-legend__item--public { color: var(--public); }
+    .map-legend__item--data { color: var(--data); }
+    .map-legend__item--network { color: var(--network); }
+    .map-legend__item--external { color: var(--external); }
+    .map-legend__item--risk { color: var(--risk); }
+    .map-legend__item--external::before,
+    .map-legend__item--risk::before { border-top-style: dashed; }
+    .map-legend__status::before {
+      content: "";
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      margin: 0 7px 0 1px;
+      border: 1px solid currentColor;
+      vertical-align: 1px;
+    }
+    .map-legend__status--warning { color: var(--deploy); }
+    .map-legend__status--warning::before { transform: rotate(45deg); }
+    .map-legend__status--disabled,
+    .map-legend__status--offline,
+    .map-legend__status--unknown { color: var(--risk); }
+    .map-legend__status--disabled::before { width: 8px; height: 0; border-width: 1px 0 0; }
+    .map-legend__status--offline::before { border-width: 2px; border-radius: 50%; }
+    .map-legend__status--unknown::before { border-style: dashed; }
+
+    main { height: 100vh; }
+    .map-scroll {
+      width: 100%;
+      height: 100%;
+      overflow: auto;
+      cursor: grab;
+      overscroll-behavior: contain;
+      scrollbar-color: var(--line) var(--bg);
+      scrollbar-width: none;
+      touch-action: none;
+    }
+    body.has-detail .map-scroll { width: calc(100% - 556px); }
+    .map-scroll::-webkit-scrollbar { width: 0; height: 0; }
+    .map-scroll.is-zoomed { scrollbar-width: thin; }
+    .map-scroll.is-zoomed::-webkit-scrollbar { width: 8px; height: 8px; }
+    .map-scroll.is-zoomed ~ .map-legend { bottom: 22px; }
+    .map-scroll.is-panning { cursor: grabbing; user-select: none; }
+    .map-stage { position: relative; width: 100%; height: 100%; }
+    .map {
+      position: relative;
+      display: grid;
+      grid-template-rows: repeat(var(--zone-count, 6), minmax(110px, 1fr));
+      width: 100%;
+      min-width: 1280px;
+      min-height: 100%;
+      padding: 12px clamp(18px, 2vw, 72px) 28px;
+      isolation: isolate;
+      transform-origin: 0 0;
+      will-change: transform;
+    }
+    .map[data-view="infrastructure"] {
+      grid-template-rows: repeat(var(--zone-count), minmax(120px, 1fr));
+      padding-top: 54px;
+      padding-bottom: 78px;
+    }
+    .links {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      overflow: visible;
+      pointer-events: none;
+    }
+    .edge {
+      fill: none;
+      stroke: var(--line);
+      stroke-width: 1.15;
+      opacity: .92;
+      pointer-events: none;
+      vector-effect: non-scaling-stroke;
+    }
+    .edge--focus { stroke: var(--accent); opacity: .8; }
+    .edge--dimmed { opacity: .3; }
+    .edge--selected { stroke: var(--accent); stroke-width: 1.5; opacity: 1; }
+    .edge--context { opacity: .16; }
+    .edge--bus { stroke-width: 1.45; }
+    .edge--operations { stroke-dasharray: 4 5; }
+    .edge--public { stroke: var(--public); }
+    .edge--data, .edge--backup { stroke: var(--data); }
+    .edge--external { stroke: var(--external); stroke-dasharray: 7 5; }
+    .edge--vpn { stroke: var(--network); stroke-width: 1.55; }
+    .edge--ssh { stroke: var(--deploy); stroke-dasharray: 8 5; }
+    .edge--deploy { stroke: var(--deploy); }
+    .edge--hosting { stroke: var(--muted); stroke-dasharray: 2 5; }
+    .edge--risk, .edge--monitoring { stroke: var(--risk); stroke-dasharray: 2 6; }
+    .edge--critical { stroke-width: 1.35; }
+    .edge.edge--selected { stroke: var(--accent); stroke-width: 1.6; }
+    .edge-hit {
+      fill: none;
+      stroke: transparent;
+      stroke-width: 12;
+      cursor: pointer;
+      pointer-events: stroke;
+      vector-effect: non-scaling-stroke;
+    }
+    .edge-focus-target {
+      fill: transparent;
+      stroke: transparent;
+      cursor: pointer;
+      pointer-events: all;
+      vector-effect: non-scaling-stroke;
+    }
+    .edge-focus-target:focus-visible { stroke: var(--accent); }
+    .edge-label {
+      fill: var(--muted);
+      stroke: var(--bg);
+      stroke-width: 5px;
+      stroke-linejoin: round;
+      paint-order: stroke;
+      font-family: var(--sans);
+      font-size: clamp(12px, .38vw, 14px);
+      letter-spacing: .02em;
+      text-anchor: middle;
+      dominant-baseline: central;
+      pointer-events: none;
+      vector-effect: non-scaling-stroke;
+    }
+    .edge-label--secondary { opacity: 0; pointer-events: none; }
+    .edge-label--dimmed { opacity: .3; }
+    .edge-label--secondary.edge-label--dimmed { opacity: 0; }
+    .edge-label--focus { fill: var(--accent); opacity: 1; }
+    .edge-label--selected { fill: var(--accent); opacity: 1; }
+    .edge-label--hidden { opacity: 0; pointer-events: none; }
+    .edge-group:hover .edge { stroke: var(--accent); opacity: 1; }
+    .edge-group:hover .edge-label { fill: var(--accent); opacity: 1; }
+
+    .zone {
+      position: relative;
+      z-index: 2;
+      display: grid;
+      grid-template-columns: clamp(106px, 6vw, 132px) minmax(0, 1fr);
+      align-items: center;
+      gap: clamp(12px, 1.5vw, 36px);
+      pointer-events: none;
+    }
+    .zone + .zone { border-top: 1px solid rgba(173, 181, 175, .12); }
+    .zone__label {
+      color: var(--muted);
+      opacity: .88;
+      font-family: var(--sans);
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: .03em;
+      max-width: 158px;
+      line-height: 1.22;
+      white-space: normal;
+    }
+    .zone__nodes {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(var(--count), minmax(0, 1fr));
+      align-items: center;
+      gap: clamp(10px, 1.3vw, 38px);
+      min-width: 0;
+    }
+    .map[data-view="infrastructure"] .zone {
+      grid-template-columns: clamp(138px, 7vw, 166px) minmax(0, 1fr);
+      gap: clamp(12px, 1vw, 24px);
+    }
+    .map[data-view="infrastructure"] .zone__nodes { gap: clamp(12px, 1vw, 24px); }
+    .hosting-spine {
+      position: absolute;
+      z-index: 0;
+      bottom: 4px;
+      left: 7%;
+      right: 3%;
+      border-top: 1px dotted var(--deploy);
+      color: var(--deploy);
+      opacity: .45;
+      pointer-events: none;
+      text-align: center;
+    }
+    .hosting-spine::after {
+      content: attr(data-label);
+      position: relative;
+      top: -7px;
+      padding: 0 7px;
+      background: var(--bg);
+      font-size: 9px;
+      letter-spacing: .08em;
+    }
+
+    .module {
+      position: relative;
+      z-index: 2;
+      display: grid;
+      justify-self: center;
+      width: max-content;
+      max-width: min(100%, 230px);
+      min-height: 42px;
+      padding: 4px 6px 4px 18px;
+      border: 0;
+      background: var(--bg);
+      color: var(--ink);
+      cursor: pointer;
+      pointer-events: auto;
+      text-align: left;
+      transition: color .12s ease, opacity .12s ease;
+    }
+    .module::before {
+      content: "";
+      position: absolute;
+      top: 8px;
+      left: 1px;
+      width: 6px;
+      height: 6px;
+      border: 1px solid currentColor;
+      border-radius: 50%;
+      background: var(--bg);
+    }
+    .module[data-role="service"]::before { background: currentColor; }
+    .module[data-role="store"]::before { border-radius: 0; }
+    .module[data-role="external"]::before { border-radius: 0; transform: rotate(45deg); }
+    .module[data-role="operations"]::before { border-style: dashed; }
+    .module[data-role="gateway"]::before,
+    .module[data-role="server"]::before { background: currentColor; border-radius: 0; }
+    .module[data-role="integration"]::before { border-radius: 0; transform: rotate(45deg); }
+    .module[data-role="network"]::before { border-radius: 50%; border-width: 2px; }
+    .module[data-role="endpoint"]::before { border-radius: 0; }
+    .module[data-status="warning"] { color: var(--deploy); }
+    .module[data-status="disabled"],
+    .module[data-status="offline"],
+    .module[data-status="unknown"] { color: var(--risk); }
+    .module[data-status="warning"]::before {
+      border-radius: 0;
+      background: transparent;
+      transform: rotate(45deg);
+    }
+    .module[data-status="disabled"]::before {
+      top: 11px;
+      width: 8px;
+      height: 0;
+      border-width: 1px 0 0;
+      border-radius: 0;
+      background: transparent;
+      transform: none;
+    }
+    .module[data-status="offline"]::before {
+      border-width: 2px;
+      border-radius: 50%;
+      background: transparent;
+      transform: none;
+    }
+    .module[data-status="unknown"]::before {
+      border-radius: 0;
+      border-style: dashed;
+      background: transparent;
+      transform: none;
+    }
+    .module:hover, .module.is-selected, .module.is-relation-endpoint { color: var(--accent); }
+    .module.is-selected .module__id {
+      text-decoration: underline;
+      text-decoration-thickness: 1px;
+      text-underline-offset: 5px;
+    }
+    .module.is-neighbor { opacity: 1; }
+    .module.is-dimmed { opacity: .7; }
+    .module.is-dimmed:hover { opacity: .94; }
+    .module__id {
+      font-size: clamp(12px, .4vw, 14px);
+      font-weight: 700;
+      letter-spacing: .06em;
+    }
+    .module__name {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: clamp(11px, .36vw, 13px);
+      line-height: 1.3;
+    }
+    .module__context {
+      display: none;
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.3;
+    }
+    .module__status {
+      margin-top: 3px;
+      color: currentColor;
+      font-size: 10px;
+      letter-spacing: .07em;
+      opacity: .82;
+      text-transform: uppercase;
+    }
+    .map[data-view="infrastructure"] .module {
+      max-width: min(100%, 210px);
+      min-height: 70px;
+    }
+    .map[data-view="infrastructure"] .module__name {
+      margin: 0;
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: clamp(17px, .54vw, 19px);
+      font-weight: 700;
+      line-height: 1.24;
+    }
+    .module__summary {
+      margin-top: 3px;
+      color: #d1d7d3;
+      font-family: var(--sans);
+      font-size: clamp(14px, .43vw, 15px);
+      line-height: 1.32;
+    }
+    .map[data-view="infrastructure"] .module__id {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: clamp(11px, .34vw, 12px);
+      font-weight: 600;
+      font-family: var(--mono);
+      letter-spacing: .03em;
+    }
+    .map[data-view="infrastructure"] .module.is-selected .module__id { text-decoration: none; }
+    .map[data-view="infrastructure"] .module.is-selected .module__name {
+      text-decoration: underline;
+      text-decoration-thickness: 1px;
+      text-underline-offset: 5px;
+    }
+    .map[data-view="infrastructure"] .module[data-status="active"] .module__status { display: none; }
+    .map[data-view="infrastructure"] .module__status {
+      font-family: var(--sans);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: .01em;
+      text-transform: none;
+    }
+
+    .detail {
+      position: fixed;
+      top: 52px;
+      right: 18px;
+      z-index: 7;
+      width: clamp(280px, 20vw, 420px);
+      max-width: calc(100vw - 48px);
+      padding: 10px 12px;
+      border: 1px solid var(--accent);
+      background: var(--bg);
+      color: var(--muted);
+      font-family: var(--sans);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+    body[data-map-view="infrastructure"] .detail { width: min(520px, calc(100vw - 48px)); }
+    body.has-detail .relation-mode,
+    body.has-detail .map-hint { right: 574px; }
+    .detail__head {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .detail__title {
+      flex: 1;
+      margin-bottom: 7px;
+      color: var(--accent);
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: .05em;
+    }
+    .detail__gear {
+      flex: 0 0 auto;
+      width: 32px;
+      height: 32px;
+      margin: -5px -5px 0 0;
+      padding: 0;
+      border: 0;
+      background: none;
+      color: var(--accent);
+      cursor: pointer;
+      font-size: 16px;
+      line-height: 32px;
+    }
+    .detail__gear:hover { color: var(--ink); }
+    .detail__gear:focus-visible, .module-dialog__close:focus-visible {
+      outline: 1px solid var(--accent);
+      outline-offset: 2px;
+    }
+    .detail__description { margin: 0 0 7px; color: var(--ink); }
+    .detail__paths { overflow-wrap: anywhere; font-size: 13px; }
+    .detail__label {
+      margin-top: 9px;
+      color: var(--ink);
+      font-size: 12px;
+    }
+    .detail__relations {
+      display: grid;
+      gap: 3px;
+      margin-top: 4px;
+      overflow: visible;
+    }
+    .detail[data-grouped="true"] .detail__relations { gap: 5px; }
+    .detail__group {
+      min-width: 0;
+      border-top: 1px solid rgba(185, 202, 141, .22);
+      padding-top: 5px;
+    }
+    .detail__group-title {
+      list-style: none;
+      color: var(--accent);
+      font-size: 12px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      cursor: pointer;
+    }
+    .detail__group-title::-webkit-details-marker { display: none; }
+    .detail__group-title::after { content: " +"; }
+    .detail__group[open] > .detail__group-title::after { content: " −"; }
+    .detail__group-list { display: grid; gap: 3px; }
+    .detail__group[open] .detail__group-list { margin-top: 5px; }
+    .detail__relation {
+      justify-self: start;
+      padding: 0;
+      border: 0;
+      background: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 13px;
+      line-height: 1.35;
+      text-align: left;
+    }
+    .detail__relation:hover { color: var(--accent); }
+
+    .module-dialog {
+      width: min(820px, calc(100vw - 48px));
+      max-height: calc(100vh - 38px);
+      padding: 0;
+      border: 1px solid var(--accent);
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--sans);
+      overflow: hidden;
+    }
+    .module-dialog::backdrop { background: rgba(8, 10, 9, .88); }
+    .module-dialog__head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--line);
+      background: var(--bg);
+    }
+    .module-dialog__eyebrow {
+      margin-bottom: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: .12em;
+    }
+    .module-dialog__title {
+      margin: 0;
+      color: var(--accent);
+      font-size: 18px;
+      letter-spacing: .04em;
+    }
+    .module-dialog__close {
+      min-width: 52px;
+      min-height: 32px;
+      padding: 0 6px;
+      border: 0;
+      background: none;
+      color: var(--muted);
+      cursor: pointer;
+      font: inherit;
+      font-size: 11px;
+    }
+    .module-dialog__close:hover { color: var(--accent); }
+    .module-dialog__body {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px 28px;
+      padding: 20px;
+      max-height: calc(100vh - 136px);
+      overflow: auto;
+    }
+    .module-dialog__section { min-width: 0; }
+    .module-dialog__section--wide { grid-column: 1 / -1; }
+    .module-dialog__label {
+      margin-bottom: 6px;
+      color: var(--accent);
+      font-size: 12px;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    .module-dialog__value {
+      color: var(--ink);
+      font-size: 14px;
+      line-height: 1.55;
+      overflow-wrap: anywhere;
+      white-space: pre-line;
+    }
+    .module-dialog__stats {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1px;
+      border: 1px solid var(--line);
+    }
+    .module-dialog__stat { padding: 10px 12px; border-right: 1px solid var(--line); }
+    .module-dialog__stat:last-child { border-right: 0; }
+    .module-dialog__stat-label { color: var(--muted); font-size: 11px; }
+    .module-dialog__stat-value { margin-top: 3px; color: var(--accent); font-size: 14px; font-weight: 700; }
+    .module-dialog__details { border-top: 1px solid var(--line); padding-top: 8px; }
+    .module-dialog__details > summary { list-style: none; cursor: pointer; }
+    .module-dialog__details > summary::-webkit-details-marker { display: none; }
+    .module-dialog__details > summary::after { content: " +"; }
+    .module-dialog__details[open] > summary::after { content: " −"; }
+    .module-dialog__details[open] .module-dialog__value { margin-top: 6px; }
+    .map-hint {
+      position: fixed;
+      right: 18px;
+      bottom: 16px;
+      z-index: 5;
+      color: var(--muted);
+      font-family: var(--sans);
+      font-size: 11px;
+      letter-spacing: .06em;
+      pointer-events: none;
+      transition: opacity .25s ease;
+    }
+    .map-hint.is-hidden { opacity: 0; }
+
+    @media (max-width: 900px) {
+      .head { grid-template-columns: auto 1fr; padding: 0 12px; }
+      .head__legend, .head__meta, .tool--copy { display: none; }
+      .head__tools { justify-self: end; }
+      .map { min-width: 1180px; }
+      body.has-detail .map-scroll { width: 100%; }
+      body.has-detail .relation-mode { right: 18px; }
+      body.has-detail .map-hint { display: none; }
+      body.has-detail .map-legend { max-width: calc(100vw - 36px); }
+      .detail { left: 12px; right: 12px; width: auto !important; }
+      .module-dialog__body { grid-template-columns: 1fr; }
+      .module-dialog__section--wide { grid-column: auto; }
+      .module-dialog__stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+  </style>
+</head>
+<body>
+  <header class="head">
+    <div class="head__title">AUTOSTOP CRM / КАРТА МОДУЛЕЙ V10.4</div>
+    <div class="head__legend">КЛИК ПО ФОНУ — СБРОС · КЛИК ПО СВЯЗИ — ОПИСАНИЕ · A → B: A ИСПОЛЬЗУЕТ B · КОЛЕСО — МАСШТАБ · ТЯНИТЕ ФОН — ПЕРЕМЕЩЕНИЕ</div>
+    <div class="head__tools">
+      <span class="head__meta" id="mapMeta">…</span>
+      <button class="tool" id="zoomButton" type="button" aria-label="Сбросить масштаб карты">100%</button>
+      <button class="tool tool--copy" id="copyButton" type="button" hidden>ССЫЛКА</button>
+      <button class="tool" id="clearButton" type="button" hidden>ВСЯ КАРТА</button>
+      <a class="tool" href="/">CRM</a>
+    </div>
+  </header>
+
+  <nav class="view-switch" aria-label="Режим карты">
+    <button class="view-switch__button" type="button" data-map-view="application">Карта приложения</button>
+    <span>/</span>
+    <button class="view-switch__button" type="button" data-map-view="infrastructure">Вся IT-инфраструктура</button>
+  </nav>
+  <nav class="relation-mode" id="relationMode" aria-label="Количество отображаемых связей" hidden>
+    <button class="relation-mode__button" type="button" data-relations-mode="primary">Главные связи</button>
+    <span>/</span>
+    <button class="relation-mode__button" type="button" data-relations-mode="all">Все связи</button>
+  </nav>
+
+  <main>
+    <div class="map-scroll" id="mapScroll" tabindex="0" aria-label="Карта модулей AutoStop CRM">
+      <div class="map-stage" id="mapStage">
+        <div class="map" id="mapCanvas">
+          <svg class="links" id="mapLinks" role="group" aria-label="Связи между модулями"></svg>
+        </div>
+      </div>
+    </div>
+    <aside class="detail" id="detail" aria-live="polite" hidden>
+      <div class="detail__head">
+        <div class="detail__title" id="detailTitle"></div>
+        <button class="detail__gear" id="detailGear" type="button" title="Подробно о модуле" hidden>⚙</button>
+      </div>
+      <p class="detail__description" id="detailDescription"></p>
+      <div class="detail__paths" id="detailPaths"></div>
+      <div class="detail__label" id="detailRelationsLabel">Прямые связи</div>
+      <div class="detail__relations" id="detailRelations"></div>
+    </aside>
+    <div class="map-hint" id="mapHint" aria-hidden="true">Колесо — масштаб · Зажмите фон — перемещение · Клик — выбор</div>
+    <div class="map-legend" id="mapLegend" hidden aria-hidden="true">
+      <span class="map-legend__item map-legend__item--public">Публичная связь</span>
+      <span class="map-legend__item map-legend__item--data">Данные</span>
+      <span class="map-legend__item map-legend__item--network">Защищённая сеть</span>
+      <span class="map-legend__item map-legend__item--external">Внешний сервис</span>
+      <span class="map-legend__item map-legend__item--risk">Связь с риском</span>
+      <span class="map-legend__status map-legend__status--warning">Риск</span>
+      <span class="map-legend__status map-legend__status--disabled">Выключено</span>
+      <span class="map-legend__status map-legend__status--offline">Офлайн</span>
+      <span class="map-legend__status map-legend__status--unknown">Статус неизвестен</span>
+    </div>
+  </main>
+
+  <dialog class="module-dialog" id="moduleDialog" aria-labelledby="moduleDialogTitle">
+    <div class="module-dialog__head">
+      <div>
+        <div class="module-dialog__eyebrow">ТЕХНИЧЕСКИЙ ПАСПОРТ МОДУЛЯ</div>
+        <h2 class="module-dialog__title" id="moduleDialogTitle"></h2>
+      </div>
+      <button class="module-dialog__close" id="moduleDialogClose" type="button">ЗАКРЫТЬ</button>
+    </div>
+    <div class="module-dialog__body" id="moduleDialogBody"></div>
+  </dialog>
+
+  <script id="moduleMapData" type="application/json">
+  {
+    "schema_version": "autostopcrm.module-map.v10.4",
+    "verified_at": "2026-08-21",
+    "baseline": "origin/autostopcrm-v1",
+    "aliases": {"CORE": "CARD_SERVICE"},
+    "zones": [
+      {"id": "actors", "label": "ВХОДЫ В СИСТЕМУ", "role": "actor"},
+      {"id": "boundaries", "label": "ИНТЕРФЕЙСЫ", "role": "boundary"},
+      {"id": "services", "label": "БИЗНЕС-МОДУЛИ", "role": "service"},
+      {"id": "stores", "label": "ХРАНИЛИЩА", "role": "store"},
+      {"id": "external", "label": "ВНЕШНИЕ СИСТЕМЫ", "role": "external"},
+      {"id": "operations", "label": "ОБСЛУЖИВАНИЕ", "role": "operations"}
+    ],
+    "modules": [
+      {"id": "DESKTOP", "zone": "actors", "role": "actor", "name": "Запуск на компьютере", "description": "Запускает CRM на этом компьютере и открывает её в браузере.", "paths": ["main.py", "src/minimal_kanban/app.py", "ui/main_window.py"]},
+      {"id": "API_CLIENTS", "zone": "actors", "role": "actor", "name": "Служебные клиенты", "description": "Проверки и служебные программы, которые обращаются к CRM напрямую.", "paths": ["scripts/", "API_GUIDE.md"]},
+      {"id": "MCP_CLIENTS", "zone": "actors", "role": "actor", "name": "ИИ-помощники владельца", "description": "Codex, ChatGPT и другие ИИ-помощники владельца.", "paths": ["Codex", "ChatGPT", "Responses API"]},
+
+      {"id": "UI", "zone": "boundaries", "role": "boundary", "name": "Экран CRM", "description": "Показывает в браузере доску, карточки и рабочие окна оператора.", "paths": ["web_app_assets/source/", "web_app_assets/assembler.py"]},
+      {"id": "API", "zone": "boundaries", "role": "boundary", "name": "Сервер запросов", "description": "Принимает запросы от интерфейса и других программ и возвращает данные CRM.", "paths": ["api/server.py", "api/route_registry.py"]},
+      {"id": "AUTH", "zone": "boundaries", "role": "boundary", "name": "Доступ операторов", "description": "Проверяет пользователя, его сеанс и разрешённые действия.", "paths": ["operator_auth.py", "deployment_security.py"]},
+      {"id": "MCP", "zone": "boundaries", "role": "boundary", "name": "Шлюз для ИИ", "description": "Безопасно передаёт разрешённые команды ИИ-помощников в CRM.", "paths": ["mcp/server.py", "mcp/agent_gateway_v2.py", "mcp/tool_registry.py"]},
+      {"id": "AGENT", "zone": "boundaries", "role": "boundary", "name": "Помощник автосервиса", "description": "Выполняет сценарии по карточкам и помогает искать автомобильные данные.", "paths": ["agent/runner.py", "agent/control.py", "agent/tools.py"]},
+
+      {"id": "CARD_SERVICE", "zone": "services", "role": "service", "name": "Распределитель задач", "description": "Принимает запрос от API и передаёт его нужному бизнес-модулю.", "paths": ["services/card_service.py"]},
+      {"id": "BOARD", "zone": "services", "role": "service", "name": "Рабочая доска", "description": "Управляет карточками, колонками, вложениями и состоянием рабочей доски.", "paths": ["services/card_service.py", "services/column_service.py", "services/snapshot_service.py"]},
+      {"id": "CRM", "zone": "services", "role": "service", "name": "Клиенты и автомобили", "description": "Хранит логику клиентов, компаний, контактов и автомобилей.", "paths": ["services/card_service_clients.py", "services/vehicle_profile_service.py"]},
+      {"id": "REPAIR", "zone": "services", "role": "service", "name": "Заказ-наряды", "description": "Управляет заказ-нарядами, работами, материалами, оплатами и печатью.", "paths": ["repair_order.py", "printing/"]},
+      {"id": "FINANCE", "zone": "services", "role": "service", "name": "Финансы и зарплата", "description": "Считает кассы, платежи, зарплату и финансовые отчёты.", "paths": ["services/card_service_finance.py", "services/card_service_payroll.py"]},
+      {"id": "INVENTORY", "zone": "services", "role": "service", "name": "Склад", "description": "Управляет приходом, списанием, возвратом и движением складских позиций.", "paths": ["services/card_service_inventory.py"]},
+      {"id": "SHARED", "zone": "services", "role": "service", "name": "Общие файлы", "description": "Хранит общие документы и изображения и следит за индексом и лимитами.", "paths": ["services/shared_files_service.py"]},
+      {"id": "DASHBOARD", "zone": "services", "role": "service", "name": "Экран механиков", "description": "Показывает механикам рабочую информацию и показатели недели без редактирования.", "paths": ["services/card_service_dashboard.py", "web_app_assets/source/display_dashboard.html"]},
+
+      {"id": "STATE", "zone": "stores", "role": "store", "name": "Основные данные CRM", "description": "Главное хранилище клиентов, карточек, заказов, финансов и настроек CRM.", "paths": ["storage/json_store.py", "state.json"]},
+      {"id": "EVENTS", "zone": "stores", "role": "store", "name": "История изменений", "description": "Сохраняет историю действий и сообщает другим частям системы об изменениях.", "paths": ["storage/audit_archive.py", "storage/change_feed_store.py"]},
+      {"id": "FILES", "zone": "stores", "role": "store", "name": "Файловое хранилище", "description": "Хранит вложения, печатные документы заказ-нарядов и общие файлы.", "paths": ["attachments/", "repair-orders/", "shared-files/"]},
+      {"id": "AUTH_STATE", "zone": "stores", "role": "store", "name": "Данные доступа", "description": "Хранит пользователей, активные сеансы, OAuth-доступ и журнал действий.", "paths": ["users.json", "mcp-oauth-state.json", "operator-activity/"]},
+
+      {"id": "STORE", "zone": "external", "role": "external", "name": "Приложение магазина", "description": "Внешнее приложение магазина, откуда CRM получает каталог и складские данные.", "paths": ["AutostopManager adapter", "AutoStop App agent API"]},
+      {"id": "RESEARCH", "zone": "external", "role": "external", "name": "Поиск в интернете", "description": "Ищет автомобильную информацию только в разрешённых открытых источниках.", "paths": ["agent/automotive_tools.py", "agent/web_tools.py", "SearXNG", "Crawl4AI"]},
+
+      {"id": "OPS", "zone": "operations", "role": "operations", "name": "Обслуживание системы", "description": "Запускает обновление, резервное копирование и технические проверки системы.", "paths": ["Dockerfile", "docker-compose.yml", "deploy.sh", "scripts/"]}
+    ],
+    "relations": [
+      {"from": "DESKTOP", "to": "UI", "label": "открывает экран", "overview": true},
+      {"from": "DESKTOP", "to": "API", "label": "запускает сервер", "overview": true},
+      {"from": "UI", "to": "API", "label": "отправляет запросы", "overview": true},
+      {"from": "API_CLIENTS", "to": "API", "label": "отправляет запросы", "overview": true},
+      {"from": "MCP_CLIENTS", "to": "MCP", "label": "подключается безопасно", "overview": true},
+      {"from": "MCP", "to": "API", "label": "обращается к API", "overview": true},
+      {"from": "API", "to": "AUTH", "label": "проверяет сеанс", "overview": true},
+      {"from": "API", "to": "CARD_SERVICE", "label": "передаёт задачу", "overview": true},
+      {"from": "API", "to": "SHARED", "label": "работает с файлами", "overview": true},
+      {"from": "AGENT", "to": "API", "label": "получает данные", "overview": true},
+      {"from": "CARD_SERVICE", "to": "BOARD", "label": "управляет доской", "overview": true},
+      {"from": "BOARD", "to": "STATE", "label": "читает и сохраняет", "overview": true},
+      {"from": "BOARD", "to": "FILES", "label": "сохраняет документы", "overview": true},
+      {"from": "BOARD", "to": "EVENTS", "label": "пишет историю", "overview": true},
+      {"from": "SHARED", "to": "FILES", "label": "хранит файлы и индекс", "overview": true},
+      {"from": "AUTH", "to": "AUTH_STATE", "label": "хранит пользователей и сеансы", "overview": true},
+      {"from": "MCP", "to": "STORE", "label": "получает каталог и склад", "overview": true},
+      {"from": "AGENT", "to": "RESEARCH", "label": "ищет в открытых источниках", "overview": true},
+
+      {"from": "API", "to": "AGENT", "label": "запускает и контролирует", "overview": false},
+      {"from": "MCP", "to": "AUTH_STATE", "label": "хранит права доступа", "overview": false},
+      {"from": "MCP", "to": "RESEARCH", "label": "выполняет безопасный поиск", "overview": false},
+      {"from": "CARD_SERVICE", "to": "CRM", "label": "передаёт задачу", "overview": false},
+      {"from": "CARD_SERVICE", "to": "REPAIR", "label": "передаёт задачу", "overview": false},
+      {"from": "CARD_SERVICE", "to": "FINANCE", "label": "передаёт задачу", "overview": false},
+      {"from": "CARD_SERVICE", "to": "INVENTORY", "label": "передаёт задачу", "overview": false},
+      {"from": "CARD_SERVICE", "to": "DASHBOARD", "label": "передаёт задачу", "overview": false},
+      {"from": "REPAIR", "to": "CRM", "label": "использует клиента и автомобиль", "overview": false},
+      {"from": "REPAIR", "to": "FINANCE", "label": "передаёт оплаты и зарплату", "overview": false},
+      {"from": "REPAIR", "to": "INVENTORY", "label": "списывает и возвращает", "overview": false},
+      {"from": "DASHBOARD", "to": "REPAIR", "label": "считает показатели недели", "overview": false},
+      {"from": "DASHBOARD", "to": "SHARED", "label": "показывает изображения", "overview": false},
+      {"from": "CRM", "to": "STATE", "label": "читает и изменяет", "overview": false},
+      {"from": "CRM", "to": "EVENTS", "label": "пишет историю", "overview": false},
+      {"from": "REPAIR", "to": "STATE", "label": "читает и изменяет", "overview": false},
+      {"from": "REPAIR", "to": "FILES", "label": "создаёт документы", "overview": false},
+      {"from": "REPAIR", "to": "EVENTS", "label": "пишет историю", "overview": false},
+      {"from": "FINANCE", "to": "STATE", "label": "читает и изменяет", "overview": false},
+      {"from": "FINANCE", "to": "EVENTS", "label": "пишет историю", "overview": false},
+      {"from": "INVENTORY", "to": "STATE", "label": "читает и изменяет", "overview": false},
+      {"from": "INVENTORY", "to": "EVENTS", "label": "пишет историю", "overview": false},
+      {"from": "DASHBOARD", "to": "STATE", "label": "читает снимок доски", "overview": false},
+      {"from": "SHARED", "to": "EVENTS", "label": "сообщает об изменениях", "overview": false},
+      {"from": "AUTH", "to": "EVENTS", "label": "пишет действия оператора", "overview": false},
+      {"from": "OPS", "to": "API", "label": "обновляет и проверяет", "overview": false},
+      {"from": "OPS", "to": "MCP", "label": "обновляет и проверяет", "overview": false},
+      {"from": "OPS", "to": "STATE", "label": "копирует и восстанавливает", "overview": false}
+    ],
+    "infrastructure": {
+      "verified_at": "2026-08-21",
+      "baseline": "Снимок рабочей IT-инфраструктуры",
+      "aliases": {"CRM": "CRM_API", "STORE": "STORE_APP", "VPS": "PROD_VPS"},
+      "presentation": {
+        "columns": {"INTERNET":2,"PUBLIC_DOMAINS":3,"MCP_CLIENTS_EXT":5,"VPN_CLIENTS":8,"GITHUB":11,"NGINX":3,"CERTBOT":2,"PROD_VPS":2,"CRM_API":3,"CRM_MCP":5,"MANAGER":7,"STORE_APP":9,"GITHUB_RUNNER":11,"CRM_JSON":3,"CRM_CHANGEFEED":4,"MANAGER_DB":7,"STORE_DB":9,"STORE_UPLOADS":10,"STORE_BACKUP":11,"WEB_RESEARCH":4,"OPENAI":5,"PARTS_API":6,"GOOGLE_SEARCH":7,"ROSSKO":8,"TELEGRAM_BRIDGE":9,"TELEGRAM":10,"GMAIL_RELAY":11,"GMAIL":12,"VPN_LOCAL":2,"VPN_TELEGRAM_RELAY":4,"PC_GATEWAY":5,"VPN_FST":7,"PC_MECHANICS":2,"PC_RECEPTION":4,"PC_OFFLINE":7,"HOME_PC_LEGACY":10,"DOCKER_DEBT":2,"LEGACY_VPS":3,"VPN_MONITOR":2,"OAUTH_RELAY":5,"INTEGRATION_AUDIT":8,"STORE_WATCHDOG":9,"STORE_SOURCE":10},
+        "rows": {"DOCKER_DEBT":1,"LEGACY_VPS":1,"OAUTH_RELAY":1,"INTEGRATION_AUDIT":1,"STORE_WATCHDOG":1,"STORE_SOURCE":1,"VPN_MONITOR":2},
+        "summaries": {"INTERNET":"входящий веб-трафик","PUBLIC_DOMAINS":"DNS и адреса сервисов","MCP_CLIENTS_EXT":"разрешённые ИИ-подключения","GITHUB":"код и задания автоматизации","VPN_CLIENTS":"внешние защищённые устройства","NGINX":"принимает и распределяет HTTPS","CERTBOT":"обновляет сертификаты","PROD_VPS":"размещает основные сервисы","CRM_API":"интерфейс и логика CRM","CRM_MCP":"безопасный доступ ИИ к CRM","MANAGER":"каталог и поиск запчастей","STORE_APP":"магазин, каталог и заказы","GITHUB_RUNNER":"выполняет задания GitHub","CRM_JSON":"главные рабочие данные","CRM_CHANGEFEED":"фиксирует историю изменений","MANAGER_DB":"рабочая база адаптера","STORE_DB":"база магазина","STORE_UPLOADS":"изображения и загрузки","STORE_BACKUP":"создаёт резервные копии","WEB_RESEARCH":"поиск в открытых источниках","OPENAI":"внешние ИИ-модели","PARTS_API":"автомобильные данные","GOOGLE_SEARCH":"дополнительный веб-поиск","ROSSKO":"каталог поставщика","TELEGRAM_BRIDGE":"служебные уведомления","TELEGRAM":"доставка сообщений бота","GMAIL_RELAY":"передаёт исходящую почту","GMAIL":"доставляет письма","VPN_LOCAL":"основной защищённый контур","VPN_TELEGRAM_RELAY":"маршрут трафика Telegram","VPN_FST":"отдельный защищённый контур","PC_GATEWAY":"принимает обратные SSH-туннели","PC_MECHANICS":"рабочее место механиков","PC_RECEPTION":"рабочее место приёмки","PC_OFFLINE":"зарегистрирован, но не в сети","HOME_PC_LEGACY":"старый маршрут доступа","INTEGRATION_AUDIT":"проверка внешних связей","STORE_WATCHDOG":"контроль работы магазина","VPN_MONITOR":"наблюдение за VPN","OAUTH_RELAY":"неактивный маршрут OAuth","STORE_SOURCE":"источник рабочей версии","DOCKER_DEBT":"лишние тома и образы","LEGACY_VPS":"непроверенные старые серверы"},
+        "bus_by_relation": {"INTERNET>NGINX":"entry","PUBLIC_DOMAINS>NGINX":"entry","NGINX>CRM_API":"web","NGINX>CRM_MCP":"web","NGINX>STORE_APP":"web","STORE_APP>STORE_DB":"store","STORE_APP>STORE_UPLOADS":"store","STORE_BACKUP>STORE_DB":"store","VPN_CLIENTS>VPN_LOCAL":"vpn","VPN_CLIENTS>VPN_FST":"vpn"},
+        "bus_labels": {"entry":"Публичный вход · домены и HTTPS","web":"Веб-трафик · CRM / MCP / магазин","store":"Данные магазина · база / файлы / резерв","vpn":"Защищённые подключения · две VPN-сети"},
+        "bus_first": {"entry":"INTERNET>NGINX","web":"NGINX>CRM_API","store":"STORE_APP>STORE_DB","vpn":"VPN_CLIENTS>VPN_LOCAL"},
+        "hosting_root": "PROD_VPS"
+      },
+      "zones": [
+        {"id": "entries", "label": "Входы и внешний мир", "role": "actor"},
+        {"id": "edge", "label": "Публичный контур", "role": "gateway"},
+        {"id": "production", "label": "Основной рабочий сервер", "role": "server"},
+        {"id": "data", "label": "Данные и резервные копии", "role": "store"},
+        {"id": "integrations", "label": "Интеграции и поиск", "role": "integration"},
+        {"id": "network", "label": "VPN и удалённый доступ", "role": "network"},
+        {"id": "endpoints", "label": "Управляемые компьютеры", "role": "endpoint"},
+        {"id": "controls", "label": "Контроль и технический долг", "role": "operations"}
+      ],
+      "modules": [
+        {"id": "INTERNET", "zone": "entries", "role": "actor", "name": "Посетители и внешние клиенты", "description": "Входящий интернет-трафик к публичным сайтам и API AutoStop.", "status": "active", "status_label": "внешний контур", "placement": "Интернет", "risk": "Публичный доступ обязан проходить только через nginx и TLS.", "paths": ["HTTPS 443"]},
+        {"id": "PUBLIC_DOMAINS", "zone": "entries", "role": "actor", "name": "Домены AutoStop", "description": "Публичные имена CRM, магазина и перенаправление старого домена.", "status": "active", "status_label": "работает", "placement": "DNS и публичный интернет", "risk": "Доступность зависит от DNS, TLS и основного VPS.", "paths": ["crm.autostopcrm.ru", "autostop24.shop", "autostop24.pro → redirect"]},
+        {"id": "MCP_CLIENTS_EXT", "zone": "entries", "role": "actor", "name": "ИИ-клиенты владельца", "description": "Codex, ChatGPT и другие разрешённые клиенты подключаются к MCP CRM.", "status": "active", "status_label": "защищено", "placement": "Внешние клиентские приложения", "risk": "Требуются OAuth 2.1, PKCE и разрешения владельца.", "paths": ["OAuth 2.1", "PKCE", "HTTPS"]},
+        {"id": "GITHUB", "zone": "entries", "role": "actor", "name": "GitHub и Actions", "description": "Хранит исходный код и выдаёт задания автоматизации локальному исполнителю.", "status": "active", "status_label": "внешний сервис", "placement": "GitHub", "risk": "Рабочий исполнитель получает задания из внешнего контура.", "paths": ["Репозиторий", "GitHub Actions"]},
+        {"id": "VPN_CLIENTS", "zone": "entries", "role": "actor", "name": "VPN-клиенты", "description": "Разрешённые устройства, подключающиеся к локальной и отдельной FST VPN.", "status": "active", "status_label": "защищённый вход", "placement": "Внешние устройства", "risk": "Есть два VPN-контура с пока не разделённой ответственностью.", "paths": ["AmneziaWG"]},
+
+        {"id": "NGINX", "zone": "edge", "role": "gateway", "name": "Единый веб-шлюз", "description": "Принимает публичный HTTPS и направляет запросы в CRM, MCP и магазин.", "status": "active", "status_label": "работает", "placement": "Основной рабочий сервер", "risk": "Единая точка входа и часть общей точки отказа.", "paths": ["nginx", "завершение TLS", "обратный прокси"]},
+        {"id": "CERTBOT", "zone": "edge", "role": "gateway", "name": "Сертификаты TLS", "description": "Автоматически обновляет публичные сертификаты доменов.", "status": "active", "status_label": "таймер активен", "placement": "Основной рабочий сервер", "risk": "Нужно сохранять контроль успешного продления сертификатов.", "paths": ["certbot", "ACME"]},
+
+        {"id": "PROD_VPS", "zone": "production", "role": "server", "name": "Главный сервер AutoStop", "description": "На одном сервере размещена почти вся рабочая IT-инфраструктура AutoStop.", "status": "warning", "status_label": "единая точка отказа · диск 71%", "placement": "Основной рабочий сервер", "risk": "Крупная единая точка отказа; вместе зависят CRM, магазин, VPN, исполнитель и интеграции.", "paths": ["/opt/autostopcrm", "/opt/AutostopManager", "Docker", "systemd"]},
+        {"id": "CRM_API", "zone": "production", "role": "server", "name": "AutoStop CRM · интерфейс и API", "description": "Обслуживает операторский интерфейс, бизнес-логику CRM и локальный HTTP API.", "status": "active", "status_label": "работает", "placement": "Основной рабочий сервер", "risk": "Критичен для основной работы автосервиса.", "paths": ["AutoStop CRM", "HTTP 8000 внутри сервера"]},
+        {"id": "CRM_MCP", "zone": "production", "role": "server", "name": "MCP-шлюз CRM", "description": "Даёт разрешённым ИИ-клиентам безопасный доступ к рабочим сценариям CRM.", "status": "active", "status_label": "работает", "placement": "Основной рабочий сервер", "risk": "Публичные анонимные чтения и любые неразрешённые записи должны оставаться закрыты.", "paths": ["AutoStop CRM MCP", "HTTP 8001 внутри сервера"]},
+        {"id": "MANAGER", "zone": "production", "role": "server", "name": "Адаптер AutostopManager", "description": "Связывает CRM/MCP с каталогом, поиском запчастей и внутренним API магазина.", "status": "active", "status_label": "работает", "placement": "Основной рабочий сервер", "risk": "Зависит от локальной SQLite и нескольких внешних поставщиков.", "paths": ["/opt/AutostopManager", "встроенная версия только для чтения"]},
+        {"id": "STORE_APP", "zone": "production", "role": "server", "name": "Магазин AutoStop App", "description": "Публичное приложение магазина, каталог, заказы и внутренний API помощника.", "status": "active", "status_label": "работает", "placement": "Основной рабочий сервер · Docker", "risk": "Активный исходный каталог не подтверждён как репозиторий Git; старая копия отстаёт.", "paths": ["AutoStop App", "HTTP 8010 внутри сервера", "внутренний API помощника"]},
+        {"id": "GITHUB_RUNNER", "zone": "production", "role": "server", "name": "Локальный исполнитель GitHub Actions", "description": "Выполняет задания GitHub Actions непосредственно на рабочем сервере.", "status": "warning", "status_label": "риск совмещения", "placement": "Основной рабочий сервер", "risk": "Автоматизация и рабочая система находятся на одном сервере; требуется строгая изоляция заданий.", "paths": ["Исполнитель GitHub Actions", "сценарий развёртывания"]},
+
+        {"id": "CRM_JSON", "zone": "data", "role": "store", "name": "Основные данные CRM", "description": "Файловое хранилище карточек, клиентов, заказов, финансов и настроек CRM.", "status": "warning", "status_label": "резервная копия не подтверждена", "placement": "Основной рабочий сервер", "risk": "Регулярное независимое резервирование не подтверждено.", "paths": ["state.json", "хранилище JSON"]},
+        {"id": "CRM_CHANGEFEED", "zone": "data", "role": "store", "name": "История изменений CRM", "description": "Локальная SQLite-лента изменений и техническая история CRM.", "status": "active", "status_label": "работает", "placement": "Основной рабочий сервер", "risk": "Нужно включать в общую политику восстановления CRM.", "paths": ["лента изменений SQLite"]},
+        {"id": "MANAGER_DB", "zone": "data", "role": "store", "name": "Данные AutostopManager", "description": "Локальная SQLite-база адаптера и его рабочих данных.", "status": "warning", "status_label": "резервная копия не подтверждена", "placement": "Основной рабочий сервер", "risk": "Регулярное независимое резервирование не подтверждено.", "paths": ["AutostopManager SQLite"]},
+        {"id": "STORE_DB", "zone": "data", "role": "store", "name": "PostgreSQL магазина", "description": "Главная база каталога, заказов и рабочих данных магазина.", "status": "active", "status_label": "резервная копия проверена", "placement": "Основной рабочий сервер · Docker", "risk": "Критичное хранилище остаётся на том же физическом сервере.", "paths": ["PostgreSQL 5432", "том Docker"]},
+        {"id": "STORE_UPLOADS", "zone": "data", "role": "store", "name": "Файлы магазина", "description": "Загруженные изображения и другие пользовательские файлы магазина.", "status": "active", "status_label": "работает", "placement": "Основной рабочий сервер", "risk": "Политика отдельного внешнего копирования требует подтверждения.", "paths": ["файловое хранилище загрузок"]},
+        {"id": "STORE_BACKUP", "zone": "data", "role": "store", "name": "Резервирование магазина", "description": "Таймер создаёт резервную копию PostgreSQL; формат и оглавление копий проверены.", "status": "active", "status_label": "таймер активен", "placement": "Основной рабочий сервер", "risk": "Локальная копия не защищает от полной потери основного сервера.", "paths": ["pg_dump", "pg_restore", "таймер systemd"]},
+
+        {"id": "WEB_RESEARCH", "zone": "integrations", "role": "integration", "name": "SearXNG + Crawl4AI", "description": "Локальный метапоиск и получение открытых веб-источников для автомобильного помощника.", "status": "active", "status_label": "работает", "placement": "Основной рабочий сервер · Docker", "risk": "Внешний веб-контент всегда считается недоверенным.", "paths": ["SearXNG 8080", "Crawl4AI 11235"]},
+        {"id": "OPENAI", "zone": "integrations", "role": "integration", "name": "OpenAI API", "description": "Внешние модели, используемые разрешёнными сценариями CRM и Manager.", "status": "active", "status_label": "внешний API", "placement": "Интернет", "risk": "Зависимость от внешней доступности, лимитов и защищённых ключей.", "paths": ["HTTPS 443"]},
+        {"id": "PARTS_API", "zone": "integrations", "role": "integration", "name": "PartsAPI", "description": "Внешний источник автомобильных данных и предложений по запчастям.", "status": "active", "status_label": "внешний API", "placement": "Интернет", "risk": "Нужно контролировать таймауты, ответы и ограничения поставщика.", "paths": ["HTTPS 443"]},
+        {"id": "GOOGLE_SEARCH", "zone": "integrations", "role": "integration", "name": "Google Custom Search", "description": "Дополнительный разрешённый канал публичного поиска CRM.", "status": "active", "status_label": "внешний API", "placement": "Интернет", "risk": "Зависимость от квот и корректной фильтрации результатов.", "paths": ["HTTPS 443"]},
+        {"id": "ROSSKO", "zone": "integrations", "role": "integration", "name": "ROSSKO", "description": "Поставщик каталога и предложений запчастей для магазина.", "status": "active", "status_label": "внешний API", "placement": "Интернет", "risk": "Критичная внешняя зависимость Store.", "paths": ["HTTPS 443"]},
+        {"id": "TELEGRAM_BRIDGE", "zone": "integrations", "role": "integration", "name": "Шлюз Telegram", "description": "Локальный шлюз служебных уведомлений и сценариев Telegram.", "status": "active", "status_label": "работает", "placement": "Основной рабочий сервер", "risk": "Зависит от внешнего Telegram и локального VPN-ретранслятора.", "paths": ["Шлюз Telegram"]},
+        {"id": "TELEGRAM", "zone": "integrations", "role": "integration", "name": "Telegram Bot API", "description": "Внешняя сеть Telegram для магазина, мостов и служебных уведомлений.", "status": "active", "status_label": "внешний сервис", "placement": "Интернет", "risk": "Внешняя доступность и сетевые ограничения.", "paths": ["HTTPS 443"]},
+        {"id": "GMAIL_RELAY", "zone": "integrations", "role": "integration", "name": "Почтовый ретранслятор", "description": "Принимает локальную почту магазина и безопасно передаёт её в Gmail.", "status": "active", "status_label": "работает", "placement": "Основной рабочий сервер", "risk": "Нужно контролировать очередь и доставку сообщений.", "paths": ["SMTP 2525 локально", "SMTP 587 наружу"]},
+        {"id": "GMAIL", "zone": "integrations", "role": "integration", "name": "Gmail", "description": "Внешняя почтовая доставка сообщений магазина.", "status": "active", "status_label": "внешний сервис", "placement": "Интернет", "risk": "Зависимость от внешней почты и её ограничений.", "paths": ["SMTP 587"]},
+
+        {"id": "VPN_LOCAL", "zone": "network", "role": "network", "name": "Локальная AmneziaWG", "description": "Основной VPN-контур на рабочем сервере для разрешённых устройств и сетевых маршрутов.", "status": "active", "status_label": "работает", "placement": "Основной рабочий сервер", "risk": "Разделение назначения с FST VPN пока не зафиксировано.", "paths": ["UDP 443 / 47895", "AmneziaWG"]},
+        {"id": "VPN_TELEGRAM_RELAY", "zone": "network", "role": "network", "name": "VPN-ретранслятор Telegram", "description": "Проводит трафик Telegram локального VPN через отдельный TCP-маршрут.", "status": "active", "status_label": "работает", "placement": "Основной рабочий сервер", "risk": "Дополнительная точка сетевой зависимости Telegram.", "paths": ["TCP 10443"]},
+        {"id": "VPN_FST", "zone": "network", "role": "network", "name": "FST.KZ AmneziaWG", "description": "Отдельный VPN на втором сервере для защищённого сетевого трафика.", "status": "warning", "status_label": "нет резерва и проверки состояния", "placement": "Отдельный сервер FST.KZ", "risk": "Конфигурация находится в изменяемом слое контейнера; отдельный том, проверка состояния и резервная копия не обнаружены.", "paths": ["AmneziaWG", "защищённый UDP"]},
+        {"id": "PC_GATEWAY", "zone": "network", "role": "network", "name": "Шлюз управляемых ПК", "description": "Принимает обратные SSH-туннели от компьютеров автосервиса.", "status": "active", "status_label": "работает", "placement": "Основной рабочий сервер", "risk": "Критичен для централизованного удалённого доступа к рабочим ПК.", "paths": ["шлюз обратных SSH-туннелей"]},
+
+        {"id": "PC_MECHANICS", "zone": "endpoints", "role": "endpoint", "name": "Компьютер механиков", "description": "Управляемый Windows-компьютер механиков с активным обратным SSH-каналом.", "status": "active", "status_label": "онлайн", "placement": "Автосервис", "risk": "Доступ зависит от reverse SSH и шлюза основного VPS.", "paths": ["Windows", "reverse SSH"]},
+        {"id": "PC_RECEPTION", "zone": "endpoints", "role": "endpoint", "name": "Компьютер приёмки", "description": "Управляемый Windows-компьютер приёмки с активным обратным SSH-каналом.", "status": "active", "status_label": "онлайн", "placement": "Автосервис", "risk": "Доступ зависит от reverse SSH и шлюза основного VPS.", "paths": ["Windows", "reverse SSH"]},
+        {"id": "PC_OFFLINE", "zone": "endpoints", "role": "endpoint", "name": "Неопознанный управляемый ПК", "description": "Компьютер зарегистрирован в управляемом контуре, но сейчас не подключён.", "status": "offline", "status_label": "офлайн · роль неизвестна", "placement": "Не подтверждено", "risk": "Нужно определить владельца, назначение и необходимость регистрации.", "paths": ["managed fleet record"]},
+        {"id": "HOME_PC_LEGACY", "zone": "endpoints", "role": "endpoint", "name": "Домашний ПК · устаревший", "description": "Доступен по старому маршруту, но не входит в текущий управляемый парк компьютеров.", "status": "unknown", "status_label": "устаревший маршрут", "placement": "Внешняя площадка", "risk": "Маршрут нужно документировать, перенести в управляемый парк или закрыть.", "paths": ["старый удалённый маршрут"]},
+
+        {"id": "INTEGRATION_AUDIT", "zone": "controls", "role": "operations", "name": "Аудит интеграций", "description": "Периодическая техническая проверка интеграций предусмотрена, но сейчас выключена.", "status": "disabled", "status_label": "отключено", "placement": "Основной рабочий сервер", "risk": "Ошибки внешних связей могут обнаруживаться с задержкой.", "paths": ["служба и таймер systemd"]},
+        {"id": "STORE_WATCHDOG", "zone": "controls", "role": "operations", "name": "Контроль магазина", "description": "Автоматический контроль магазина предусмотрен, но сейчас выключен.", "status": "disabled", "status_label": "отключено", "placement": "Основной рабочий сервер", "risk": "Нет отдельного автоматического наблюдателя за работой магазина.", "paths": ["служба и таймер systemd"]},
+        {"id": "VPN_MONITOR", "zone": "controls", "role": "operations", "name": "Мониторинг VPN", "description": "Репозиторий проекта найден, но сборщик и экран наблюдения как службы не запущены.", "status": "disabled", "status_label": "службы отсутствуют", "placement": "Основной рабочий сервер", "risk": "Нет постоянной видимости состояния VPN-клиентов и каналов.", "paths": ["проект мониторинга VPN"]},
+        {"id": "OAUTH_RELAY", "zone": "controls", "role": "operations", "name": "Устаревший OAuth-ретранслятор", "description": "В конфигурации остался маршрут на локальный порт, где сервис уже не работает.", "status": "warning", "status_label": "устаревший маршрут", "placement": "Основной рабочий сервер", "risk": "Нужно подтвердить назначение и удалить либо восстановить маршрут.", "paths": ["неактивный локальный ретранслятор"]},
+        {"id": "STORE_SOURCE", "zone": "controls", "role": "operations", "name": "Исходный код магазина", "description": "Рабочий каталог магазина не подтверждён как репозиторий Git; найденная старая копия отстаёт.", "status": "warning", "status_label": "источник не закреплён", "placement": "Основной рабочий сервер", "risk": "Обновление и воспроизводимость версии магазина сейчас неоднозначны.", "paths": ["рабочий исходный код магазина", "устаревшая копия"]},
+        {"id": "DOCKER_DEBT", "zone": "controls", "role": "operations", "name": "Docker-остатки", "description": "Найдены неиспользуемые тома и заметный объём освобождаемых образов.", "status": "warning", "status_label": "26 лишних томов", "placement": "Основной рабочий сервер", "risk": "Перед очисткой нужно точно подтвердить, что данные не принадлежат рабочим сервисам.", "paths": ["тома Docker", "освобождаемые образы"]},
+        {"id": "LEGACY_VPS", "zone": "controls", "role": "operations", "name": "Старые VPS-алиасы", "description": "Исторические имена серверов не разрешаются либо недоступны; их роль не подтверждена.", "status": "unknown", "status_label": "не определено", "placement": "Не подтверждено", "risk": "Нужно зафиксировать владельца и статус: удалить из учёта либо восстановить документирование.", "paths": ["legacy inventory aliases"]}
+      ],
+      "primary_relations": [
+        "INTERNET>NGINX", "PUBLIC_DOMAINS>NGINX", "NGINX>CRM_API", "NGINX>CRM_MCP", "NGINX>STORE_APP",
+        "MCP_CLIENTS_EXT>CRM_MCP", "CRM_API>CRM_JSON", "CRM_MCP>MANAGER", "MANAGER>STORE_APP",
+        "STORE_APP>STORE_DB", "STORE_APP>STORE_UPLOADS", "STORE_BACKUP>STORE_DB",
+        "VPN_CLIENTS>VPN_LOCAL", "VPN_CLIENTS>VPN_FST", "GITHUB>GITHUB_RUNNER"
+      ],
+      "primary_relation_labels": {
+        "INTERNET>NGINX": "Публичный вход · HTTPS",
+        "PUBLIC_DOMAINS>NGINX": "Домены и сертификаты",
+        "NGINX>CRM_API": "Веб-шлюз → CRM",
+        "NGINX>CRM_MCP": "Веб-шлюз → MCP",
+        "NGINX>STORE_APP": "Веб-шлюз → магазин",
+        "MCP_CLIENTS_EXT>CRM_MCP": "ИИ-клиенты → MCP-шлюз · OAuth",
+        "CRM_API>CRM_JSON": "CRM → основные данные",
+        "CRM_MCP>MANAGER": "MCP-шлюз → адаптер",
+        "MANAGER>STORE_APP": "Адаптер → магазин",
+        "STORE_APP>STORE_DB": "Магазин → PostgreSQL",
+        "STORE_APP>STORE_UPLOADS": "Магазин → файлы",
+        "STORE_BACKUP>STORE_DB": "Резервирование → PostgreSQL",
+        "VPN_CLIENTS>VPN_LOCAL": "VPN-клиенты → локальная сеть",
+        "VPN_CLIENTS>VPN_FST": "VPN-клиенты → сеть FST.KZ",
+        "GITHUB>GITHUB_RUNNER": "GitHub → локальный исполнитель"
+      },
+      "relations": [
+        {"from": "INTERNET", "to": "NGINX", "label": "принимает публичный трафик", "overview": true, "kind": "public", "protocol": "HTTPS 443", "criticality": "critical"},
+        {"from": "PUBLIC_DOMAINS", "to": "NGINX", "label": "направляет домены и TLS", "overview": true, "kind": "public", "protocol": "DNS + HTTPS 443", "criticality": "critical"},
+        {"from": "CERTBOT", "to": "NGINX", "label": "обновляет сертификаты", "overview": false, "kind": "hosting", "protocol": "ACME", "criticality": "high"},
+        {"from": "NGINX", "to": "CRM_API", "label": "передаёт запросы CRM", "overview": true, "kind": "public", "protocol": "HTTP 8000 локально", "criticality": "critical"},
+        {"from": "NGINX", "to": "CRM_MCP", "label": "передаёт MCP-запросы", "overview": true, "kind": "public", "protocol": "HTTP 8001 локально", "criticality": "critical"},
+        {"from": "NGINX", "to": "STORE_APP", "label": "передаёт запросы магазина", "overview": true, "kind": "public", "protocol": "HTTP 8010 локально", "criticality": "critical"},
+        {"from": "MCP_CLIENTS_EXT", "to": "CRM_MCP", "label": "подключаются с разрешением владельца", "overview": true, "kind": "public", "protocol": "OAuth 2.1 + PKCE + HTTPS", "criticality": "critical"},
+
+        {"from": "PROD_VPS", "to": "NGINX", "label": "размещает веб-шлюз", "overview": false, "kind": "hosting", "protocol": "локальный процесс", "criticality": "critical"},
+        {"from": "PROD_VPS", "to": "CRM_API", "label": "размещает CRM", "overview": false, "kind": "hosting", "protocol": "Docker/systemd", "criticality": "critical"},
+        {"from": "PROD_VPS", "to": "CRM_MCP", "label": "размещает MCP", "overview": false, "kind": "hosting", "protocol": "Docker/systemd", "criticality": "critical"},
+        {"from": "PROD_VPS", "to": "MANAGER", "label": "размещает адаптер", "overview": false, "kind": "hosting", "protocol": "локальный процесс", "criticality": "high"},
+        {"from": "PROD_VPS", "to": "STORE_APP", "label": "размещает магазин", "overview": false, "kind": "hosting", "protocol": "Docker", "criticality": "critical"},
+        {"from": "PROD_VPS", "to": "GITHUB_RUNNER", "label": "размещает исполнителя автоматизации", "overview": false, "kind": "hosting", "protocol": "локальный процесс", "criticality": "high"},
+
+        {"from": "CRM_API", "to": "CRM_JSON", "label": "читает и сохраняет основные данные", "overview": true, "kind": "data", "protocol": "локальная файловая система", "criticality": "critical"},
+        {"from": "CRM_API", "to": "CRM_CHANGEFEED", "label": "пишет историю изменений", "overview": false, "kind": "data", "protocol": "SQLite", "criticality": "high"},
+        {"from": "CRM_MCP", "to": "MANAGER", "label": "использует встроенный адаптер", "overview": true, "kind": "internal", "protocol": "embedded/read-only release", "criticality": "critical"},
+        {"from": "MANAGER", "to": "MANAGER_DB", "label": "читает и сохраняет данные адаптера", "overview": false, "kind": "data", "protocol": "SQLite", "criticality": "high"},
+        {"from": "MANAGER", "to": "STORE_APP", "label": "обращается к внутреннему API", "overview": true, "kind": "internal", "protocol": "внутренняя сеть Docker · API помощника", "criticality": "high"},
+        {"from": "CRM_API", "to": "STORE_APP", "label": "получает данные магазина", "overview": false, "kind": "internal", "protocol": "внутренняя сеть Docker · API помощника", "criticality": "high"},
+        {"from": "STORE_APP", "to": "STORE_DB", "label": "читает и сохраняет данные магазина", "overview": true, "kind": "data", "protocol": "PostgreSQL 5432", "criticality": "critical"},
+        {"from": "STORE_APP", "to": "STORE_UPLOADS", "label": "хранит загруженные файлы", "overview": false, "kind": "data", "protocol": "файловая система", "criticality": "high"},
+        {"from": "STORE_BACKUP", "to": "STORE_DB", "label": "копирует и проверяет восстановление", "overview": true, "kind": "backup", "protocol": "pg_dump / pg_restore", "criticality": "critical"},
+
+        {"from": "MANAGER", "to": "WEB_RESEARCH", "label": "ищет в открытых источниках", "overview": true, "kind": "external", "protocol": "HTTP 8080 / 11235 локально", "criticality": "medium"},
+        {"from": "CRM_API", "to": "OPENAI", "label": "использует разрешённые ИИ-сценарии", "overview": false, "kind": "external", "protocol": "HTTPS 443", "criticality": "high"},
+        {"from": "MANAGER", "to": "OPENAI", "label": "использует ИИ для помощника", "overview": false, "kind": "external", "protocol": "HTTPS 443", "criticality": "high"},
+        {"from": "CRM_API", "to": "PARTS_API", "label": "получает автомобильные данные", "overview": false, "kind": "external", "protocol": "HTTPS 443", "criticality": "high"},
+        {"from": "MANAGER", "to": "PARTS_API", "label": "получает предложения запчастей", "overview": false, "kind": "external", "protocol": "HTTPS 443", "criticality": "high"},
+        {"from": "CRM_API", "to": "GOOGLE_SEARCH", "label": "выполняет разрешённый поиск", "overview": false, "kind": "external", "protocol": "HTTPS 443", "criticality": "medium"},
+        {"from": "STORE_APP", "to": "ROSSKO", "label": "получает каталог и предложения", "overview": false, "kind": "external", "protocol": "HTTPS 443", "criticality": "high"},
+        {"from": "STORE_APP", "to": "TELEGRAM", "label": "отправляет сообщения бота", "overview": false, "kind": "external", "protocol": "HTTPS 443", "criticality": "medium"},
+        {"from": "TELEGRAM_BRIDGE", "to": "TELEGRAM", "label": "передаёт служебные сообщения", "overview": false, "kind": "external", "protocol": "HTTPS 443", "criticality": "high"},
+        {"from": "STORE_APP", "to": "GMAIL_RELAY", "label": "передаёт исходящую почту", "overview": false, "kind": "internal", "protocol": "SMTP 2525", "criticality": "high"},
+        {"from": "GMAIL_RELAY", "to": "GMAIL", "label": "доставляет почту", "overview": false, "kind": "external", "protocol": "SMTP 587", "criticality": "high"},
+
+        {"from": "VPN_CLIENTS", "to": "VPN_LOCAL", "label": "подключаются к локальному VPN", "overview": true, "kind": "vpn", "protocol": "AmneziaWG · UDP 443/47895", "criticality": "critical"},
+        {"from": "VPN_CLIENTS", "to": "VPN_FST", "label": "подключаются к отдельному VPN", "overview": true, "kind": "vpn", "protocol": "AmneziaWG · защищённый UDP", "criticality": "critical"},
+        {"from": "VPN_LOCAL", "to": "VPN_TELEGRAM_RELAY", "label": "направляет Telegram-трафик", "overview": false, "kind": "vpn", "protocol": "TCP 10443", "criticality": "high"},
+        {"from": "VPN_TELEGRAM_RELAY", "to": "TELEGRAM", "label": "выходит в Telegram", "overview": false, "kind": "external", "protocol": "HTTPS 443", "criticality": "high"},
+        {"from": "PC_MECHANICS", "to": "PC_GATEWAY", "label": "держит обратный туннель", "overview": true, "kind": "ssh", "protocol": "reverse SSH", "criticality": "critical"},
+        {"from": "PC_RECEPTION", "to": "PC_GATEWAY", "label": "держит обратный туннель", "overview": true, "kind": "ssh", "protocol": "reverse SSH", "criticality": "critical"},
+        {"from": "PC_OFFLINE", "to": "PC_GATEWAY", "label": "зарегистрирован, но не подключён", "overview": false, "kind": "risk", "protocol": "reverse SSH", "criticality": "high"},
+        {"from": "HOME_PC_LEGACY", "to": "PROD_VPS", "label": "доступен по старому маршруту", "overview": false, "kind": "ssh", "protocol": "старый удалённый маршрут", "criticality": "high"},
+
+        {"from": "GITHUB", "to": "GITHUB_RUNNER", "label": "выдаёт задания автоматизации", "overview": true, "kind": "deploy", "protocol": "HTTPS 443", "criticality": "high"},
+        {"from": "GITHUB_RUNNER", "to": "PROD_VPS", "label": "запускает рабочее развёртывание", "overview": false, "kind": "deploy", "protocol": "локальный исполнитель / сценарий SSH", "criticality": "critical"},
+        {"from": "INTEGRATION_AUDIT", "to": "STORE_APP", "label": "должен проверять интеграции, но отключён", "overview": false, "kind": "monitoring", "protocol": "systemd", "criticality": "high"},
+        {"from": "STORE_WATCHDOG", "to": "STORE_APP", "label": "должен следить за сервисом, но отключён", "overview": false, "kind": "monitoring", "protocol": "systemd", "criticality": "high"},
+        {"from": "VPN_MONITOR", "to": "VPN_LOCAL", "label": "должен собирать состояние, но не запущен", "overview": false, "kind": "monitoring", "protocol": "collector/dashboard", "criticality": "high"},
+        {"from": "OAUTH_RELAY", "to": "CRM_MCP", "label": "содержит устаревший маршрут", "overview": false, "kind": "risk", "protocol": "неактивный локальный ретранслятор", "criticality": "high"},
+        {"from": "STORE_SOURCE", "to": "STORE_APP", "label": "неоднозначно определяет рабочую версию", "overview": false, "kind": "risk", "protocol": "filesystem / Git", "criticality": "high"},
+        {"from": "DOCKER_DEBT", "to": "PROD_VPS", "label": "занимает ресурсы неиспользуемыми объектами", "overview": false, "kind": "risk", "protocol": "Docker storage", "criticality": "medium"},
+        {"from": "LEGACY_VPS", "to": "PROD_VPS", "label": "имеет неразрешённую историческую роль", "overview": false, "kind": "risk", "protocol": "inventory", "criticality": "medium"}
+      ]
+    }
+  }
+  </script>
+
+  <script>
+    (function () {
+      'use strict';
+
+      var SVG_NS = 'http://www.w3.org/2000/svg';
+      var payload = JSON.parse(document.getElementById('moduleMapData').textContent);
+      var defaultPrimaryRelations = [
+        'UI>API', 'MCP>API', 'API>AUTH', 'API>CARD_SERVICE',
+        'CARD_SERVICE>BOARD', 'BOARD>STATE', 'MCP>STORE'
+      ];
+      var defaultPrimaryRelationLabels = {
+        'UI>API': 'UI → API · запросы',
+        'MCP>API': 'MCP → API · команды',
+        'API>AUTH': 'API → AUTH · сеанс',
+        'API>CARD_SERVICE': 'API → CARD_SERVICE · задача',
+        'CARD_SERVICE>BOARD': 'CARD_SERVICE → BOARD · доска',
+        'BOARD>STATE': 'BOARD → STATE · данные',
+        'MCP>STORE': 'MCP → STORE · каталог'
+      };
+      var query = new URLSearchParams(window.location.search);
+      var activeView = query.get('view') === 'infra' ? 'infrastructure' : 'application';
+      var showAllRelations = query.get('links') === 'all';
+      var infrastructureData = null;
+      var data;
+      var modules;
+      var primaryRelations;
+      var primaryRelationLabels;
+      var relationIndexByKey;
+
+      function relationKey(relation) {
+        return relation.from + '>' + relation.to;
+      }
+
+      function activateData() {
+        data = activeView === 'infrastructure' ? infrastructureData : payload;
+        modules = new Map(data.modules.map(function (item) { return [item.id, item]; }));
+        primaryRelations = new Set(data.primary_relations || defaultPrimaryRelations);
+        primaryRelationLabels = Object.assign({}, defaultPrimaryRelationLabels, data.primary_relation_labels || {});
+        relationIndexByKey = new Map(data.relations.map(function (relation, index) {
+          return [relationKey(relation), index];
+        }));
+      }
+
+      function loadInfrastructureData() {
+        if (infrastructureData) return Promise.resolve(infrastructureData);
+        var headers = {'Accept': 'application/json'};
+        var operatorToken = localStorage.getItem('kanban-operator-session') || '';
+        if (operatorToken) headers['X-Operator-Session'] = operatorToken;
+        return fetch('/api/get_module_map_infrastructure', {
+          method: 'GET',
+          headers: headers,
+          credentials: 'same-origin'
+        }).then(function (response) {
+          return response.json().catch(function () { return null; }).then(function (body) {
+            if (!response.ok || !body || !body.ok || !body.data) {
+              throw new Error('infrastructure_unavailable');
+            }
+            infrastructureData = body.data;
+            var presentation = infrastructureData.presentation || {};
+            infrastructureColumns = presentation.columns || {};
+            infrastructureRows = presentation.rows || {};
+            infrastructureSummaries = presentation.summaries || {};
+            infrastructureBusByRelation = presentation.bus_by_relation || {};
+            infrastructureBusLabels = presentation.bus_labels || {};
+            infrastructureBusFirst = presentation.bus_first || {};
+            infrastructureHostingRoot = presentation.hosting_root || '';
+            return infrastructureData;
+          });
+        });
+      }
+      var roleDescriptions = {
+        actor: 'Точка входа: запускает систему или обращается к ней как пользователь или служебный клиент.',
+        boundary: 'Граница системы: принимает внешние действия, проверяет доступ и переводит их во внутренние команды.',
+        service: 'Бизнес-логика: выполняет рабочие правила CRM и координирует связанные данные.',
+        store: 'Хранилище: отвечает за сохранность, структуру и чтение постоянных данных.',
+        external: 'Внешний контур: система работает с ним через отдельный интеграционный контракт.',
+        operations: 'Эксплуатационный контур: поддерживает запуск, проверку, резервирование и обслуживание системы.',
+        gateway: 'Публичный шлюз: принимает внешний трафик, завершает TLS и направляет его к внутренним сервисам.',
+        server: 'Сервис рабочего контура: выполняет программу на основном сервере.',
+        integration: 'Интеграция: связывает AutoStop с локальным либо внешним техническим сервисом.',
+        network: 'Сетевой контур: обеспечивает защищённые туннели и удалённый доступ.',
+        endpoint: 'Конечное устройство: рабочий компьютер, подключённый к управляемой инфраструктуре.'
+      };
+      var infrastructureColumns = {};
+      var infrastructureRows = {};
+      var infrastructureSummaries = {};
+      var infrastructureBusByRelation = {};
+      var infrastructureBusLabels = {};
+      var infrastructureBusFirst = {};
+      var infrastructureHostingRoot = '';
+      var selectedId = '';
+      var selectedRelation = null;
+      var relationPoint = null;
+      var frame = 0;
+      var zoom = 1;
+      var fitZoom = 1;
+      var baseWidth = 0;
+      var baseHeight = 0;
+      var mapOffsetX = 0;
+      var mapOffsetY = 0;
+      var panState = null;
+      var suppressBlankClick = false;
+      var els = {
+        scroll: document.getElementById('mapScroll'),
+        stage: document.getElementById('mapStage'),
+        map: document.getElementById('mapCanvas'),
+        links: document.getElementById('mapLinks'),
+        hint: document.getElementById('mapHint'),
+        meta: document.getElementById('mapMeta'),
+        detail: document.getElementById('detail'),
+        detailTitle: document.getElementById('detailTitle'),
+        detailGear: document.getElementById('detailGear'),
+        detailDescription: document.getElementById('detailDescription'),
+        detailPaths: document.getElementById('detailPaths'),
+        detailRelationsLabel: document.getElementById('detailRelationsLabel'),
+        detailRelations: document.getElementById('detailRelations'),
+        zoom: document.getElementById('zoomButton'),
+        copy: document.getElementById('copyButton'),
+        clear: document.getElementById('clearButton'),
+        dialog: document.getElementById('moduleDialog'),
+        dialogTitle: document.getElementById('moduleDialogTitle'),
+        dialogBody: document.getElementById('moduleDialogBody'),
+        dialogClose: document.getElementById('moduleDialogClose'),
+        legend: document.getElementById('mapLegend'),
+        relationMode: document.getElementById('relationMode'),
+        relationButtons: Array.from(document.querySelectorAll('[data-relations-mode]')),
+        viewButtons: Array.from(document.querySelectorAll('[data-map-view]'))
+      };
+
+      function element(tag, className, text) {
+        var node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text !== undefined) node.textContent = text;
+        return node;
+      }
+
+      function svg(tag, attributes) {
+        var node = document.createElementNS(SVG_NS, tag);
+        Object.keys(attributes || {}).forEach(function (name) {
+          node.setAttribute(name, String(attributes[name]));
+        });
+        return node;
+      }
+
+      function directRelations(moduleId) {
+        return data.relations.filter(function (relation) {
+          return relation.from === moduleId || relation.to === moduleId;
+        });
+      }
+
+      function humanRelationText(relation, includeAction) {
+        var from = modules.get(relation.from);
+        var to = modules.get(relation.to);
+        var text = (from ? from.name : relation.from) + ' → ' + (to ? to.name : relation.to);
+        return includeAction ? text + ' · ' + relation.label : text;
+      }
+
+      function renderMeta() {
+        var relation = selectedRelation === null ? null : data.relations[selectedRelation];
+        if (relation) els.meta.textContent = 'СВЯЗЬ: ' + relation.from + ' → ' + relation.to;
+        else if (selectedId) els.meta.textContent = 'ВЫБРАНО: ' + selectedId;
+        else els.meta.textContent = 'МОДУЛИ: ' + data.modules.length + ' · СВЯЗИ: ' + data.relations.length + ' · ' + data.verified_at;
+      }
+
+      function renderViewState() {
+        els.viewButtons.forEach(function (button) {
+          var selected = button.dataset.mapView === activeView;
+          button.classList.toggle('is-active', selected);
+          button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+        });
+        els.legend.hidden = activeView !== 'infrastructure';
+        els.relationMode.hidden = activeView !== 'infrastructure';
+        els.relationButtons.forEach(function (button) {
+          var selected = button.dataset.relationsMode === (showAllRelations ? 'all' : 'primary');
+          button.classList.toggle('is-active', selected);
+          button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+        });
+        els.scroll.setAttribute('aria-label', activeView === 'infrastructure'
+          ? 'Карта IT-инфраструктуры AutoStop'
+          : 'Карта модулей AutoStop CRM');
+        document.title = activeView === 'infrastructure'
+          ? 'IT-инфраструктура V10.4 · AutoStop'
+          : 'Карта модулей V10.4 · AutoStop CRM';
+      }
+
+      function updateViewLocation() {
+        var url = new URL(window.location.href);
+        if (activeView === 'infrastructure') {
+          url.searchParams.set('view', 'infra');
+          if (showAllRelations) url.searchParams.set('links', 'all');
+          else url.searchParams.delete('links');
+        } else {
+          url.searchParams.delete('view');
+          url.searchParams.delete('links');
+        }
+        url.hash = '';
+        window.history.replaceState(null, '', url.pathname + url.search);
+      }
+
+      function setRelationMode(mode) {
+        showAllRelations = mode === 'all';
+        updateViewLocation();
+        renderViewState();
+        scheduleDraw();
+      }
+
+      async function switchView(view) {
+        var next = view === 'infrastructure' ? 'infrastructure' : 'application';
+        if (next === activeView) return;
+        if (next === 'infrastructure') {
+          try {
+            await loadInfrastructureData();
+          } catch (_error) {
+            els.meta.textContent = 'КАРТА ИНФРАСТРУКТУРЫ: НУЖЕН ВХОД ОПЕРАТОРА';
+            return;
+          }
+        }
+        activeView = next;
+        activateData();
+        selectedId = '';
+        selectedRelation = null;
+        relationPoint = null;
+        mapOffsetX = 0;
+        mapOffsetY = 0;
+        updateViewLocation();
+        renderViewState();
+        renderMap();
+        layoutStage();
+        requestAnimationFrame(fitMap);
+      }
+
+      function layoutStage() {
+        baseWidth = Math.max(activeView === 'infrastructure' ? 2040 : 1280, els.scroll.clientWidth);
+        baseHeight = Math.max(activeView === 'infrastructure' ? 1120 : 720, els.scroll.clientHeight);
+        els.map.style.width = baseWidth + 'px';
+        els.map.style.height = baseHeight + 'px';
+        els.map.style.minWidth = '0';
+        els.map.style.minHeight = '0';
+        els.map.style.transform = 'translate(' + mapOffsetX + 'px, ' + mapOffsetY + 'px) scale(' + zoom + ')';
+        els.stage.style.width = Math.max(els.scroll.clientWidth, Math.ceil(baseWidth * zoom + Math.max(0, mapOffsetX))) + 'px';
+        els.stage.style.height = Math.max(els.scroll.clientHeight, Math.ceil(baseHeight * zoom + Math.max(0, mapOffsetY))) + 'px';
+      }
+
+      function setZoom(nextZoom, clientX, clientY) {
+        var minimumZoom = activeView === 'infrastructure' ? .78 : .55;
+        var next = Math.max(minimumZoom, Math.min(1.8, nextZoom));
+        if (Math.abs(next - zoom) < .001) return;
+        var rect = els.scroll.getBoundingClientRect();
+        var anchorX = clientX === undefined ? rect.width / 2 : clientX - rect.left;
+        var anchorY = clientY === undefined ? rect.height / 2 : clientY - rect.top;
+        var contentX = (els.scroll.scrollLeft + anchorX - mapOffsetX) / zoom;
+        var contentY = (els.scroll.scrollTop + anchorY - mapOffsetY) / zoom;
+        zoom = Math.round(next * 100) / 100;
+        layoutStage();
+        els.scroll.scrollLeft = contentX * zoom + mapOffsetX - anchorX;
+        els.scroll.scrollTop = contentY * zoom + mapOffsetY - anchorY;
+        els.scroll.classList.toggle('is-zoomed', Math.abs(zoom - fitZoom) > .01);
+        els.zoom.textContent = Math.round(zoom * 100) + '%';
+        els.zoom.setAttribute('aria-label', 'Сбросить масштаб карты, сейчас ' + Math.round(zoom * 100) + '%');
+        scheduleDraw();
+      }
+
+      function fitMap() {
+        var canvasRect = els.map.getBoundingClientRect();
+        var nodes = Array.from(els.map.querySelectorAll('[data-module-id], .zone__label'));
+        if (!nodes.length) return;
+        var bounds = nodes.map(function (node) { return relativeRect(node, canvasRect); }).reduce(function (box, rect) {
+          return {
+            left: Math.min(box.left, rect.left),
+            right: Math.max(box.right, rect.right),
+            top: Math.min(box.top, rect.top),
+            bottom: Math.max(box.bottom, rect.bottom)
+          };
+        }, {left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity});
+        var contentWidth = Math.max(1, bounds.right - bounds.left);
+        var contentHeight = Math.max(1, bounds.bottom - bounds.top);
+        var safeTop = activeView === 'infrastructure' ? 52 : 36;
+        var safeBottom = activeView === 'infrastructure' ? 74 : 36;
+        var next = Math.min(
+          (els.scroll.clientWidth - 72) / contentWidth,
+          (els.scroll.clientHeight - safeTop - safeBottom) / contentHeight
+        );
+        var minimumZoom = activeView === 'infrastructure' ? .78 : .55;
+        zoom = Math.round(Math.max(minimumZoom, Math.min(1.15, next)) * 100) / 100;
+        fitZoom = zoom;
+        var scaledWidth = contentWidth * zoom;
+        mapOffsetX = Math.round(scaledWidth > els.scroll.clientWidth - 72
+          ? 36 - bounds.left * zoom
+          : (els.scroll.clientWidth - scaledWidth) / 2 - bounds.left * zoom);
+        var scaledHeight = contentHeight * zoom;
+        var availableHeight = els.scroll.clientHeight - safeTop - safeBottom;
+        mapOffsetY = Math.round((scaledHeight > availableHeight
+          ? safeTop
+          : safeTop + (availableHeight - scaledHeight) / 2) - bounds.top * zoom);
+        layoutStage();
+        els.scroll.scrollLeft = 0;
+        els.scroll.scrollTop = 0;
+        els.scroll.classList.remove('is-zoomed');
+        els.zoom.textContent = Math.round(zoom * 100) + '%';
+        els.zoom.setAttribute('aria-label', 'Сбросить масштаб карты, сейчас ' + Math.round(zoom * 100) + '%');
+        scheduleDraw();
+      }
+
+      function renderMap() {
+        els.map.querySelectorAll('.zone').forEach(function (node) { node.remove(); });
+        els.detail.hidden = true;
+        document.body.classList.remove('has-detail');
+        document.body.dataset.mapView = activeView;
+        els.links.replaceChildren();
+        els.map.dataset.view = activeView;
+        els.map.style.setProperty('--zone-count', String(data.zones.length));
+        data.zones.forEach(function (zone) {
+          var section = element('section', 'zone');
+          var zoneModules = data.modules.filter(function (item) { return item.zone === zone.id; });
+          var nodes = element('div', 'zone__nodes');
+          section.dataset.zoneId = zone.id;
+          section.setAttribute('aria-label', zone.label);
+          nodes.style.setProperty('--count', String(activeView === 'infrastructure' ? 11 : zoneModules.length));
+          section.appendChild(element('div', 'zone__label', zone.label));
+
+          if (activeView === 'infrastructure' && zone.id === 'production') {
+            var spine = element('div', 'hosting-spine');
+            spine.dataset.label = 'На главном сервере · 6 сервисов';
+            spine.setAttribute('aria-hidden', 'true');
+            nodes.appendChild(spine);
+          }
+
+          zoneModules.forEach(function (item) {
+            var button = element('button', 'module');
+            button.type = 'button';
+            button.dataset.moduleId = item.id;
+            button.dataset.role = item.role;
+            if (item.status) button.dataset.status = item.status;
+            if (activeView === 'infrastructure' && infrastructureColumns[item.id]) {
+              button.style.gridColumn = String(Math.max(1, infrastructureColumns[item.id] - 1));
+            }
+            if (activeView === 'infrastructure') {
+              button.style.gridRow = String(infrastructureRows[item.id] || 1);
+            }
+            button.setAttribute('aria-label', item.id + ': ' + item.name + '. ' + item.description);
+            button.setAttribute('aria-pressed', 'false');
+            if (activeView === 'infrastructure') {
+              button.appendChild(element('span', 'module__name', item.name));
+              button.appendChild(element('span', 'module__summary', infrastructureSummaries[item.id] || item.description));
+              button.appendChild(element('span', 'module__id', item.id));
+            } else {
+              button.appendChild(element('span', 'module__id', item.id));
+              button.appendChild(element('span', 'module__name', item.name));
+            }
+            if (item.status_label) button.appendChild(element('span', 'module__status', item.status_label));
+            var context = element('span', 'module__context');
+            context.setAttribute('aria-hidden', 'true');
+            button.appendChild(context);
+            nodes.appendChild(button);
+          });
+
+          section.appendChild(nodes);
+          els.map.appendChild(section);
+        });
+        els.map.appendChild(els.links);
+        renderMeta();
+        renderViewState();
+      }
+
+      function setHash(moduleId) {
+        var next = window.location.pathname + window.location.search + (moduleId ? '#' + encodeURIComponent(moduleId) : '');
+        try { window.history.replaceState(null, '', next); }
+        catch (_error) { window.location.hash = moduleId || ''; }
+      }
+
+      function criticalityLabel(value) {
+        return {critical: 'критическая', high: 'высокая', medium: 'средняя'}[value] || value || 'не указана';
+      }
+
+      function relationFacts(relation) {
+        var facts = ['Что происходит: ' + relation.label];
+        if (relation.protocol) facts.push('Канал: ' + relation.protocol);
+        if (relation.criticality) facts.push('Важность: ' + criticalityLabel(relation.criticality));
+        facts.push('В основном режиме: ' + (primaryRelations.has(relation.from + '>' + relation.to) ? 'показана' : 'видна при выборе или в режиме всех связей'));
+        return facts.join(' · ');
+      }
+
+      function moduleFacts(item) {
+        var facts = activeView === 'infrastructure' ? ['Код модуля: ' + item.id] : [];
+        if (item.status_label) facts.push('Состояние: ' + item.status_label);
+        if (item.placement) facts.push('Где: ' + item.placement);
+        if (item.paths && item.paths.length) facts.push((activeView === 'infrastructure' ? 'Контур: ' : 'Код: ') + item.paths.join(' · '));
+        return facts.join(' · ');
+      }
+
+      function relationButton(relation, item) {
+        var button = element('button', 'detail__relation', humanRelationText(relation, true));
+        button.type = 'button';
+        button.dataset.jumpModule = relation.from === item.id ? relation.to : relation.from;
+        return button;
+      }
+
+      function appendRelationGroup(title, relations, item, modifier) {
+        if (!relations.length) return;
+        var group = element('details', 'detail__group' + (modifier ? ' detail__group--' + modifier : ''));
+        var list = element('div', 'detail__group-list');
+        group.open = relations.length <= 2;
+        group.appendChild(element('summary', 'detail__group-title', title + ' · ' + relations.length));
+        relations.forEach(function (relation) { list.appendChild(relationButton(relation, item)); });
+        group.appendChild(list);
+        els.detailRelations.appendChild(group);
+      }
+
+      function renderDetail() {
+        var relation = selectedRelation === null ? null : data.relations[selectedRelation];
+        var item = modules.get(selectedId);
+        var wasOpen = document.body.classList.contains('has-detail');
+        els.detail.hidden = !item && !relation;
+        document.body.classList.toggle('has-detail', !els.detail.hidden);
+        if (wasOpen !== !els.detail.hidden) requestAnimationFrame(fitMap);
+        els.copy.hidden = !item || Boolean(relation);
+        els.clear.hidden = !item && !relation;
+        els.detailGear.hidden = !item || Boolean(relation);
+        els.detail.dataset.grouped = 'false';
+        els.detailRelations.replaceChildren();
+        if (relation) {
+          var from = modules.get(relation.from);
+          var to = modules.get(relation.to);
+          els.detailTitle.textContent = humanRelationText(relation, false);
+          els.detailDescription.textContent = 'Что происходит: ' + relation.label + '.';
+          els.detailPaths.textContent = relationFacts(relation);
+          els.detailRelationsLabel.textContent = 'Участники связи';
+          [from, to].forEach(function (module, index) {
+            var prefix = index ? 'КУДА' : 'ОТКУДА';
+            var button = element('button', 'detail__relation', prefix + ': ' + module.name + ' · ' + module.id);
+            button.type = 'button';
+            button.dataset.jumpModule = module.id;
+            els.detailRelations.appendChild(button);
+          });
+          return;
+        }
+        if (!item) return;
+
+        els.detailRelationsLabel.textContent = activeView === 'infrastructure' ? 'Связи по направлениям' : 'Прямые связи';
+        els.detailGear.setAttribute('aria-label', 'Подробная информация о модуле ' + item.id);
+        els.detailTitle.textContent = activeView === 'infrastructure' ? item.name : item.id + ' / ' + item.name;
+        els.detailDescription.textContent = 'Что делает: ' + item.description;
+        els.detailPaths.textContent = moduleFacts(item);
+        var connections = directRelations(item.id);
+        if (activeView === 'infrastructure') {
+          var risks = connections.filter(function (entry) { return entry.kind === 'risk' || entry.kind === 'monitoring'; });
+          var regular = connections.filter(function (entry) { return !risks.includes(entry); });
+          els.detail.dataset.grouped = 'true';
+          appendRelationGroup('Входящие', regular.filter(function (entry) { return entry.to === item.id; }), item);
+          appendRelationGroup('Исходящие', regular.filter(function (entry) { return entry.from === item.id; }), item);
+          appendRelationGroup('Риски и контроль', risks, item, 'risks');
+        } else {
+          connections.forEach(function (entry) { els.detailRelations.appendChild(relationButton(entry, item)); });
+        }
+      }
+
+      function dialogSection(label, value, wide) {
+        var section = element('section', 'module-dialog__section' + (wide ? ' module-dialog__section--wide' : ''));
+        section.appendChild(element('div', 'module-dialog__label', label));
+        section.appendChild(element('div', 'module-dialog__value', value));
+        return section;
+      }
+
+      function dialogDetails(label, value) {
+        var section = element('details', 'module-dialog__section module-dialog__details');
+        section.appendChild(element('summary', 'module-dialog__label', label));
+        section.appendChild(element('div', 'module-dialog__value', value));
+        return section;
+      }
+
+      function dialogStats(item, zone, incoming, outgoing, risks) {
+        var stats = element('section', 'module-dialog__stats');
+        [
+          ['Состояние', item.status_label || 'работает'],
+          ['Зона', zone.label],
+          ['Входящие', String(incoming.length)],
+          ['Исходящие / риски', outgoing.length + ' / ' + risks.length]
+        ].forEach(function (entry) {
+          var stat = element('div', 'module-dialog__stat');
+          stat.appendChild(element('div', 'module-dialog__stat-label', entry[0]));
+          stat.appendChild(element('div', 'module-dialog__stat-value', entry[1]));
+          stats.appendChild(stat);
+        });
+        return stats;
+      }
+
+      function openModuleDialog() {
+        var item = modules.get(selectedId);
+        if (!item) return;
+        var zone = data.zones.find(function (entry) { return entry.id === item.zone; });
+        var incoming = data.relations.filter(function (relation) { return relation.to === item.id; });
+        var outgoing = data.relations.filter(function (relation) { return relation.from === item.id; });
+        var risks = directRelations(item.id).filter(function (relation) {
+          return relation.kind === 'risk' || relation.kind === 'monitoring';
+        });
+        var neighbors = Array.from(new Set(directRelations(item.id).map(function (relation) {
+          return relation.from === item.id ? relation.to : relation.from;
+        })));
+        var lines = function (relations) {
+          return relations.length ? relations.map(function (relation) {
+            return humanRelationText(relation, true) + (relation.protocol ? ' [' + relation.protocol + ']' : '');
+          }).join('\n') : 'Прямых связей этого типа нет.';
+        };
+        var placement = item.paths && item.paths.length ? item.paths.join('\n') : 'Дополнительных технических путей нет.';
+        if (item.placement) placement = item.placement + '\n' + placement;
+        var state = [
+          item.status_label ? 'Состояние: ' + item.status_label : '',
+          item.risk ? 'Наблюдение: ' + item.risk : 'Отдельный риск не зафиксирован.'
+        ].filter(Boolean).join('\n');
+        els.dialogTitle.textContent = activeView === 'infrastructure' ? item.name + ' · ' + item.id : item.id + ' / ' + item.name;
+        els.dialogBody.replaceChildren(
+          dialogStats(item, zone, incoming, outgoing, risks),
+          dialogSection('Назначение', item.description, true),
+          dialogSection('Место в архитектуре', zone.label + '\n' + roleDescriptions[item.role]),
+          dialogSection(activeView === 'infrastructure' ? 'Размещение и контур' : 'Код и данные', placement),
+          dialogSection('Состояние и контроль', state, true),
+          dialogDetails('Входящие взаимодействия · ' + incoming.length, lines(incoming)),
+          dialogDetails('Исходящие взаимодействия · ' + outgoing.length, lines(outgoing)),
+          dialogDetails('Область влияния · ' + neighbors.length, neighbors.length ? neighbors.map(function (id) {
+            return id + ' · ' + modules.get(id).name;
+          }).join('\n') : 'Изолированный модуль.'),
+          dialogSection('Контроль карты', data.baseline + '\nПроверено: ' + data.verified_at + '\nПрямых связей: ' + directRelations(item.id).length)
+        );
+        if (!els.dialog.open) els.dialog.showModal();
+      }
+
+      function updateModules() {
+        var relations = selectedId ? directRelations(selectedId) : [];
+        var selectedEdge = selectedRelation === null ? null : data.relations[selectedRelation];
+        var relationByNeighbor = new Map();
+        relations.forEach(function (relation) {
+          relationByNeighbor.set(relation.from === selectedId ? relation.to : relation.from, relation);
+        });
+
+        document.querySelectorAll('[data-module-id]').forEach(function (node) {
+          var moduleId = node.dataset.moduleId;
+          var relation = relationByNeighbor.get(moduleId);
+          var isSelected = moduleId === selectedId;
+          var isNeighbor = Boolean(relation) && !isSelected;
+          var isDimmed = Boolean(selectedId) && !isSelected && !isNeighbor;
+          node.classList.toggle('is-selected', isSelected);
+          node.classList.toggle('is-relation-endpoint', Boolean(selectedEdge) && (selectedEdge.from === moduleId || selectedEdge.to === moduleId));
+          node.classList.toggle('is-neighbor', isNeighbor);
+          node.classList.toggle('is-dimmed', isDimmed);
+          node.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+          node.tabIndex = 0;
+          node.querySelector('.module__context').textContent = '';
+        });
+      }
+
+      function relativeRect(node, canvasRect) {
+        var rect = node.getBoundingClientRect();
+        var left = (rect.left - canvasRect.left) / zoom;
+        var top = (rect.top - canvasRect.top) / zoom;
+        var width = rect.width / zoom;
+        var height = rect.height / zoom;
+        return {
+          left: left,
+          right: left + width,
+          top: top,
+          bottom: top + height,
+          midX: left + width / 2,
+          midY: top + height / 2
+        };
+      }
+
+      function pathFor(fromRect, toRect, sameZone, lane) {
+        var fromPoint;
+        var toPoint;
+        if (sameZone) {
+          var rightward = toRect.midX >= fromRect.midX;
+          fromPoint = {x: rightward ? fromRect.right : fromRect.left, y: fromRect.midY};
+          toPoint = {x: rightward ? toRect.left : toRect.right, y: toRect.midY};
+          var laneY = Math.max(20, Math.min(fromRect.top, toRect.top) - 22 - lane * 20);
+          return {
+            d: 'M ' + fromPoint.x + ' ' + fromPoint.y + ' V ' + laneY + ' H ' + toPoint.x + ' V ' + toPoint.y,
+            labelX: (fromPoint.x + toPoint.x) / 2,
+            labelY: laneY - 8,
+            focusX: (fromPoint.x + toPoint.x) / 2,
+            focusY: laneY,
+            fromPoint: fromPoint,
+            toPoint: toPoint
+          };
+        }
+        var downward = toRect.midY > fromRect.midY;
+        fromPoint = {x: fromRect.midX, y: downward ? fromRect.bottom : fromRect.top};
+        toPoint = {x: toRect.midX, y: downward ? toRect.top : toRect.bottom};
+        var distanceY = Math.abs(toPoint.y - fromPoint.y);
+        if (distanceY > 210) {
+          var routeRight = toRect.midX >= fromRect.midX;
+          var corridorX = routeRight
+            ? Math.max(fromRect.right, toRect.right) + 32 + lane * 16
+            : Math.min(fromRect.left, toRect.left) - 32 - lane * 16;
+          corridorX = Math.max(24, Math.min(baseWidth - 24, corridorX));
+          var startY = fromPoint.y + (downward ? 20 : -20);
+          var endY = toPoint.y + (downward ? -20 : 20);
+          return {
+            d: 'M ' + fromPoint.x + ' ' + fromPoint.y + ' V ' + startY + ' H ' + corridorX + ' V ' + endY + ' H ' + toPoint.x + ' V ' + toPoint.y,
+            labelX: corridorX,
+            labelY: (startY + endY) / 2,
+            focusX: (corridorX + toPoint.x) / 2,
+            focusY: endY,
+            fromPoint: fromPoint,
+            toPoint: toPoint
+          };
+        }
+        var middleY = (fromPoint.y + toPoint.y) / 2 + (lane - 2) * 8;
+        return {
+          d: 'M ' + fromPoint.x + ' ' + fromPoint.y + ' V ' + middleY + ' H ' + toPoint.x + ' V ' + toPoint.y,
+          labelX: (fromPoint.x + toPoint.x) / 2,
+          labelY: middleY - 8,
+          focusX: (fromPoint.x + toPoint.x) / 2,
+          focusY: middleY,
+          fromPoint: fromPoint,
+          toPoint: toPoint
+        };
+      }
+
+      function visibleCanvasBounds(canvasRect) {
+        var scrollRect = els.scroll.getBoundingClientRect();
+        return {
+          left: Math.max(0, (scrollRect.left - canvasRect.left) / zoom),
+          right: Math.min(baseWidth, (scrollRect.right - canvasRect.left) / zoom),
+          top: Math.max(0, (scrollRect.top - canvasRect.top) / zoom),
+          bottom: Math.min(baseHeight, (scrollRect.bottom - canvasRect.top) / zoom)
+        };
+      }
+
+      function overlapArea(first, second, padding) {
+        var gap = padding || 0;
+        var width = Math.max(0, Math.min(first.right, second.right + gap) - Math.max(first.left, second.left - gap));
+        var height = Math.max(0, Math.min(first.bottom, second.bottom + gap) - Math.max(first.top, second.top - gap));
+        return width * height;
+      }
+
+      function placeLabel(text, desiredX, desiredY, bounds, obstacles, occupied) {
+        var width = Math.max(64, Math.min(330, text.length * 6.4 + 10));
+        var height = 16;
+        var offsets = [
+          [0, 0], [0, -20], [0, 20], [0, -40], [0, 40], [0, -60], [0, 60],
+          [-56, 0], [56, 0], [-112, 0], [112, 0], [-56, -28], [56, -28], [-56, 28], [56, 28]
+        ];
+        var candidates = offsets.map(function (offset) {
+          var x = Math.max(bounds.left + width / 2 + 8, Math.min(desiredX + offset[0], bounds.right - width / 2 - 8));
+          var y = Math.max(bounds.top + height + 8, Math.min(desiredY + offset[1], bounds.bottom - 8));
+          var rect = {left: x - width / 2, right: x + width / 2, top: y - height / 2, bottom: y + height / 2};
+          var score = Math.hypot(offset[0], offset[1]);
+          obstacles.forEach(function (obstacle) { score += overlapArea(rect, obstacle, 7) * 80; });
+          occupied.forEach(function (other) { score += overlapArea(rect, other, 5) * 120; });
+          return {x: x, y: y, rect: rect, score: score};
+        });
+        candidates.sort(function (a, b) { return a.score - b.score; });
+        occupied.push(candidates[0].rect);
+        return candidates[0];
+      }
+
+      function placeDetail() {
+        if (els.detail.hidden) return;
+        els.detail.style.transform = 'none';
+      }
+
+      function draw() {
+        frame = 0;
+        var width = els.map.scrollWidth;
+        var height = els.map.scrollHeight;
+        var canvasRect = els.map.getBoundingClientRect();
+        var isOverviewState = !selectedId && selectedRelation === null;
+        var shown = data.relations.filter(function (item, index) {
+          if (activeView === 'infrastructure' && isOverviewState) {
+            if (!showAllRelations) return primaryRelations.has(item.from + '>' + item.to);
+            return item.kind !== 'hosting' || item.from !== infrastructureHostingRoot;
+          }
+          if (activeView === 'infrastructure') {
+            if (selectedId === infrastructureHostingRoot && item.kind === 'hosting' && item.from === infrastructureHostingRoot) return false;
+            return primaryRelations.has(item.from + '>' + item.to) || index === selectedRelation || (selectedId && (item.from === selectedId || item.to === selectedId));
+          }
+          return item.overview || index === selectedRelation || (selectedId && (item.from === selectedId || item.to === selectedId));
+        });
+        var view = visibleCanvasBounds(canvasRect);
+        var labelObstacles = Array.from(els.map.querySelectorAll('[data-module-id]')).map(function (node) {
+          return relativeRect(node, canvasRect);
+        });
+        var occupiedLabels = [];
+        var defs = svg('defs');
+        var marker = svg('marker', {id: 'arrow', viewBox: '0 0 8 8', refX: 7, refY: 4, markerWidth: 8, markerHeight: 8, orient: 'auto'});
+        marker.appendChild(svg('path', {d: 'M 0 0 L 8 4 L 0 8 z', fill: '#7b827d'}));
+        var selectedMarker = svg('marker', {id: 'arrowSelected', viewBox: '0 0 8 8', refX: 7, refY: 4, markerWidth: 9, markerHeight: 9, orient: 'auto'});
+        selectedMarker.appendChild(svg('path', {d: 'M 0 0 L 8 4 L 0 8 z', fill: '#b9ca8d'}));
+        defs.appendChild(marker);
+        defs.appendChild(selectedMarker);
+        els.links.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
+        els.links.setAttribute('width', String(width));
+        els.links.setAttribute('height', String(height));
+        els.links.replaceChildren(defs);
+        var focusLayer = svg('g', {'class': 'edge-focus-layer'});
+
+        shown.forEach(function (relation, index) {
+          var relationIndex = data.relations.indexOf(relation);
+          var from = document.querySelector('[data-module-id="' + relation.from + '"]');
+          var to = document.querySelector('[data-module-id="' + relation.to + '"]');
+          if (!from || !to) return;
+          var sameZone = modules.get(relation.from).zone === modules.get(relation.to).zone;
+          var isDirect = Boolean(selectedId) && (relation.from === selectedId || relation.to === selectedId);
+          var isSelectedRelation = relationIndex === selectedRelation;
+          var key = relationKey(relation);
+          var isPrimary = primaryRelations.has(key);
+          var busId = activeView === 'infrastructure' ? infrastructureBusByRelation[key] : '';
+          var isLabelVisible = isSelectedRelation || (isOverviewState && isPrimary && !showAllRelations);
+          if (isOverviewState && busId && infrastructureBusFirst[busId] !== relationKey) {
+            isLabelVisible = false;
+          }
+          var isContextRelation = activeView === 'infrastructure' && isOverviewState && showAllRelations && !isPrimary;
+          var stateClass = isDirect ? ' edge--focus' : (selectedId ? ' edge--dimmed' : '');
+          var fromRect = relativeRect(from, canvasRect);
+          var toRect = relativeRect(to, canvasRect);
+          var geometry = pathFor(fromRect, toRect, sameZone, busId ? 0 : relationIndex % 5);
+          if (isSelectedRelation) relationPoint = {x: geometry.focusX, y: geometry.focusY};
+          var className = 'edge' + stateClass
+            + (isContextRelation ? ' edge--context' : '')
+            + (busId ? ' edge--bus' : '')
+            + (isSelectedRelation ? ' edge--selected' : '')
+            + (modules.get(relation.from).role === 'operations' ? ' edge--operations' : '')
+            + (relation.kind ? ' edge--' + relation.kind : '')
+            + (relation.criticality === 'critical' ? ' edge--critical' : '');
+          var group = svg('g', {'class': 'edge-group'});
+          group.appendChild(svg('path', {
+            'class': className,
+            d: geometry.d,
+            'marker-end': isSelectedRelation ? 'url(#arrowSelected)' : 'url(#arrow)'
+          }));
+          group.appendChild(svg('path', {
+            'class': 'edge-hit',
+            d: geometry.d,
+            tabindex: -1,
+            'aria-hidden': 'true',
+            'data-relation-key': key,
+            'data-detail-x': geometry.labelX,
+            'data-detail-y': geometry.labelY,
+            'data-from-x': geometry.fromPoint.x,
+            'data-from-y': geometry.fromPoint.y,
+            'data-to-x': geometry.toPoint.x,
+            'data-to-y': geometry.toPoint.y
+          }));
+          var labelText = isOverviewState && busId
+            ? infrastructureBusLabels[busId]
+            : (isPrimary && isOverviewState ? primaryRelationLabels[key] : humanRelationText(relation, true));
+          var labelPoint = isLabelVisible
+            ? placeLabel(labelText, geometry.labelX, geometry.labelY, view, labelObstacles, occupiedLabels)
+            : {x: geometry.labelX, y: geometry.labelY};
+          focusLayer.appendChild(svg('rect', {
+            'class': 'edge-focus-target',
+            x: Math.round(geometry.focusX - 10),
+            y: Math.round(geometry.focusY - 10),
+            width: 20,
+            height: 20,
+            rx: 2,
+            tabindex: 0,
+            role: 'button',
+            'aria-label': 'Связь ' + humanRelationText(relation, true),
+            'aria-pressed': isSelectedRelation ? 'true' : 'false',
+            'data-relation-key': key,
+            'data-detail-x': geometry.focusX,
+            'data-detail-y': geometry.focusY
+          }));
+          var label = svg('text', {
+            'class': 'edge-label' + (!isPrimary ? ' edge-label--secondary' : '') + (isDirect ? ' edge-label--focus' : (selectedId ? ' edge-label--dimmed' : '')) + (isSelectedRelation ? ' edge-label--selected' : '') + (!isLabelVisible ? ' edge-label--hidden' : ''),
+            x: Math.round(labelPoint.x),
+            y: Math.round(labelPoint.y),
+            'aria-hidden': 'true'
+          });
+          label.textContent = labelText;
+          group.appendChild(label);
+          els.links.appendChild(group);
+        });
+        els.links.appendChild(focusLayer);
+        placeDetail();
+      }
+
+      function scheduleDraw() {
+        if (frame) cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(draw);
+      }
+
+      function selectModule(moduleId, options) {
+        selectedRelation = null;
+        relationPoint = null;
+        var requested = String(moduleId || '').trim().toUpperCase();
+        var normalized = data.aliases[requested] || requested;
+        selectedId = modules.has(normalized) ? normalized : '';
+        renderMeta();
+        updateModules();
+        renderDetail();
+        scheduleDraw();
+        if (!options || options.updateHash !== false) setHash(selectedId);
+      }
+
+      function selectRelation(index, x, y) {
+        if (!data.relations[index]) return;
+        selectedId = '';
+        selectedRelation = index;
+        relationPoint = {x: Number(x), y: Number(y)};
+        renderMeta();
+        updateModules();
+        renderDetail();
+        scheduleDraw();
+        setHash('');
+      }
+
+      function selectedFromHash() {
+        try { return decodeURIComponent(window.location.hash.slice(1)); }
+        catch (_error) { return ''; }
+      }
+
+      async function copyLink() {
+        if (!selectedId) return;
+        var url = new URL(window.location.href);
+        url.hash = selectedId;
+        try {
+          await navigator.clipboard.writeText(url.href);
+          els.copy.textContent = 'СКОПИРОВАНО';
+          setTimeout(function () { els.copy.textContent = 'ССЫЛКА'; }, 1200);
+        } catch (_error) {
+          window.prompt('Ссылка на модуль', url.href);
+        }
+      }
+
+      function endPan(event) {
+        if (!panState || (event && event.pointerId !== panState.pointerId)) return;
+        var moved = panState.moved;
+        try { els.scroll.releasePointerCapture(panState.pointerId); }
+        catch (_error) { /* pointer already released */ }
+        panState = null;
+        els.scroll.classList.remove('is-panning');
+        if (!moved && event && event.type === 'pointerup') {
+          selectModule('');
+          return;
+        }
+        if (moved) {
+          suppressBlankClick = true;
+          setTimeout(function () { suppressBlankClick = false; }, 0);
+        }
+      }
+
+      els.map.addEventListener('click', function (event) {
+        els.hint.classList.add('is-hidden');
+        var target = event.target instanceof Element ? event.target.closest('[data-module-id]') : null;
+        if (target) {
+          selectModule(target.dataset.moduleId === selectedId ? '' : target.dataset.moduleId);
+          return;
+        }
+        target = event.target instanceof Element ? event.target : null;
+        if (suppressBlankClick) {
+          suppressBlankClick = false;
+          return;
+        }
+        if (!target || !target.closest('.detail, [data-relation-key]')) selectModule('');
+      });
+      els.detailRelations.addEventListener('click', function (event) {
+        var target = event.target instanceof Element ? event.target.closest('[data-jump-module]') : null;
+        if (target) selectModule(target.dataset.jumpModule);
+      });
+      els.detailGear.addEventListener('click', openModuleDialog);
+      els.dialogClose.addEventListener('click', function () { els.dialog.close(); });
+      els.dialog.addEventListener('click', function (event) {
+        if (event.target !== els.dialog) return;
+        var rect = els.dialog.getBoundingClientRect();
+        if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) els.dialog.close();
+      });
+      function activateRelation(target) {
+        if (!target) return;
+        var index = relationIndexByKey.get(target.dataset.relationKey);
+        if (index !== undefined) selectRelation(index, target.dataset.detailX, target.dataset.detailY);
+      }
+      els.links.addEventListener('click', function (event) {
+        var target = event.target instanceof Element ? event.target.closest('[data-relation-key]') : null;
+        activateRelation(target);
+      });
+      els.links.addEventListener('keydown', function (event) {
+        var target = event.target instanceof Element ? event.target.closest('[data-relation-key]') : null;
+        if (target && (event.key === 'Enter' || event.key === ' ')) {
+          event.preventDefault();
+          activateRelation(target);
+        }
+      });
+      els.clear.addEventListener('click', function () { selectModule(''); });
+      els.zoom.addEventListener('click', function () { setZoom(1); });
+      els.copy.addEventListener('click', copyLink);
+      els.relationButtons.forEach(function (button) {
+        button.addEventListener('click', function () { setRelationMode(button.dataset.relationsMode); });
+      });
+      els.viewButtons.forEach(function (button) {
+        button.addEventListener('click', function () { switchView(button.dataset.mapView); });
+      });
+      els.scroll.addEventListener('wheel', function (event) {
+        event.preventDefault();
+        els.hint.classList.add('is-hidden');
+        var speed = event.deltaMode === 1 ? .035 : .001;
+        setZoom(zoom * Math.exp(-event.deltaY * speed), event.clientX, event.clientY);
+      }, {passive: false});
+      els.scroll.addEventListener('pointerdown', function (event) {
+        els.hint.classList.add('is-hidden');
+        var target = event.target instanceof Element ? event.target : null;
+        if (event.button !== 0 || (target && target.closest('button, a, .detail, [data-relation-key]'))) return;
+        panState = {
+          pointerId: event.pointerId,
+          x: event.clientX,
+          y: event.clientY,
+          left: els.scroll.scrollLeft,
+          top: els.scroll.scrollTop,
+          moved: false
+        };
+        els.scroll.classList.add('is-panning');
+        try { els.scroll.setPointerCapture(event.pointerId); }
+        catch (_error) { /* synthetic or already released pointer */ }
+        event.preventDefault();
+      });
+      els.scroll.addEventListener('pointermove', function (event) {
+        if (!panState || event.pointerId !== panState.pointerId) return;
+        if (Math.abs(event.clientX - panState.x) + Math.abs(event.clientY - panState.y) > 4) panState.moved = true;
+        els.scroll.scrollLeft = panState.left - (event.clientX - panState.x);
+        els.scroll.scrollTop = panState.top - (event.clientY - panState.y);
+      });
+      els.scroll.addEventListener('pointerup', endPan);
+      els.scroll.addEventListener('pointercancel', endPan);
+      window.addEventListener('hashchange', function () { selectModule(selectedFromHash(), {updateHash: false}); });
+      window.addEventListener('resize', function () { layoutStage(); scheduleDraw(); });
+      document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape' && els.dialog.open) return;
+        if (event.key === 'Escape' && (selectedId || selectedRelation !== null)) selectModule('');
+        if (event.ctrlKey || event.metaKey || event.altKey) return;
+        if (event.key === '0') setZoom(1);
+        if (event.key === '+' || event.key === '=') setZoom(zoom + .1);
+        if (event.key === '-') setZoom(zoom - .1);
+      });
+
+      async function initialize() {
+        var infrastructureUnavailable = false;
+        if (activeView === 'infrastructure') {
+          try {
+            await loadInfrastructureData();
+          } catch (_error) {
+            activeView = 'application';
+            updateViewLocation();
+            infrastructureUnavailable = true;
+          }
+        }
+        activateData();
+        renderMap();
+        layoutStage();
+        selectModule(selectedFromHash(), {updateHash: false});
+        if (infrastructureUnavailable) els.meta.textContent = 'КАРТА ИНФРАСТРУКТУРЫ: НУЖЕН ВХОД ОПЕРАТОРА';
+        if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { requestAnimationFrame(fitMap); });
+        else requestAnimationFrame(fitMap);
+        setTimeout(function () { els.hint.classList.add('is-hidden'); }, 4800);
+        if (window.ResizeObserver) new ResizeObserver(scheduleDraw).observe(els.map);
+      }
+
+      initialize();
+    }());
+  </script>
+</body>
+</html>

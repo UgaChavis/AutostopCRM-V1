@@ -30,6 +30,9 @@
       "kind": "static_dashboard_shell",
       "business_data_route": "/api/get_display_dashboard"
     },
+    "/module-map": {
+      "kind": "static_module_map"
+    },
     "/favicon.ico": {
       "kind": "static_asset"
     },
@@ -211,6 +214,11 @@
       "expected_coverage": "typed read or guarded virtual api:/api/get_display_dashboard",
       "reason": "The operator dashboard aggregate is readable in the UI but not through the Gateway."
     },
+    "/api/get_module_map_infrastructure": {
+      "kind": "human_private_infrastructure_boundary",
+      "expected_coverage": "intentional exemption",
+      "reason": "Detailed internal topology is available only to an authenticated browser operator and is intentionally excluded from the shared Gateway."
+    },
     "/api/get_operator_profile": {
       "kind": "human_private_profile_boundary",
       "expected_coverage": "intentional exemption",
@@ -258,6 +266,11 @@
     }
   },
   "intentional_exemptions": {
+    "/api/get_module_map_infrastructure": {
+      "kind": "human_private_infrastructure",
+      "scope": "authenticated browser operator session only",
+      "rationale": "Internal paths, network routes and technical debt must not be exposed through the public shell or shared Gateway."
+    },
     "/api/login_operator": {
       "kind": "human_login",
       "scope": "interactive browser operator session only",

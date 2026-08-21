@@ -45,6 +45,7 @@ PARITY_INVENTORY_TEST_FILES = frozenset(
 ALLOWED_INTENTIONAL_EXEMPTIONS = frozenset(
     {
         "/api/get_operator_profile",
+        "/api/get_module_map_infrastructure",
         "/api/login_operator",
         "/api/logout_operator",
         "/api/update_personal_board_preferences",
@@ -538,12 +539,12 @@ def build_inventory(
                 "Only reviewed human-session routes may be intentional parity exemptions.",
             )
         )
-    if len(baseline_gaps) != 13:
+    if len(baseline_gaps) != 14:
         issues.append(
             _issue(
                 "baseline_gap_count_invalid",
                 "manifest",
-                f"Expected the reviewed 13-gap baseline, found {len(baseline_gaps)}.",
+                f"Expected the reviewed 14-gap baseline, found {len(baseline_gaps)}.",
             )
         )
     if not set(exemptions) <= set(baseline_gaps):

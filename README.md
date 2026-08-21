@@ -137,6 +137,12 @@ Run the desktop application or the headless API/MCP runtime:
 Default local endpoints:
 
 - API/UI: `http://127.0.0.1:41731`
+- Module map: `http://127.0.0.1:41731/module-map` (or use the `КАРТА`
+  link in the CRM top bar); select a module or open its stable `#MODULE_ID` link
+  to highlight direct dependencies while the rest of the map stays visible;
+  click any visible connection for its direction and purpose; use the mouse
+  wheel to zoom and drag the empty canvas to pan. The full infrastructure view
+  loads only for an authenticated operator session.
 - TV dashboard: `http://127.0.0.1:41731/dashboard` (open it from board
   settings so it reuses the current operator session)
 - MCP: `http://127.0.0.1:41831/mcp`

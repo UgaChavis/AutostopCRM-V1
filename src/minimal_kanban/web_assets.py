@@ -8,6 +8,8 @@ from .web_app_assets.assembler import (
     BOARD_WEB_APP_JS,
     BOARD_WEB_APP_JS_PATH,
     DISPLAY_DASHBOARD_HTML,
+    MODULE_MAP_HTML,
+    MODULE_MAP_INFRASTRUCTURE,
 )
 
 __all__ = [
@@ -18,4 +20,6 @@ __all__ = [
     "BOARD_WEB_APP_JS",
     "BOARD_WEB_APP_JS_PATH",
     "DISPLAY_DASHBOARD_HTML",
+    "MODULE_MAP_HTML",
+    "MODULE_MAP_INFRASTRUCTURE",
 ]

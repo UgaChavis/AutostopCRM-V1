@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from importlib import resources
 
 from ..printing.web_module import (
@@ -69,3 +70,24 @@ BOARD_WEB_APP_HTML = "".join(
 )
 
 DISPLAY_DASHBOARD_HTML = _read_source_chunk("display_dashboard.html")
+
+
+def _split_module_map_document(document: str) -> tuple[str, dict]:
+    marker = '<script id="moduleMapData" type="application/json">'
+    head, found, after_marker = document.partition(marker)
+    payload_text, closing_marker, tail = after_marker.partition("</script>")
+    if not found or not closing_marker:
+        raise RuntimeError("Module map data markers are incomplete.")
+    payload = json.loads(payload_text)
+    infrastructure = payload.pop("infrastructure", None)
+    if not isinstance(infrastructure, dict) or not isinstance(
+        infrastructure.get("presentation"), dict
+    ):
+        raise RuntimeError("Module map infrastructure payload is incomplete.")
+    public_payload = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    return f"{head}{marker}{public_payload}{closing_marker}{tail}", infrastructure
+
+
+MODULE_MAP_HTML, MODULE_MAP_INFRASTRUCTURE = _split_module_map_document(
+    _read_source_chunk("module_map.html")
+)

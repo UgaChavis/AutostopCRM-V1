@@ -68,6 +68,8 @@ from minimal_kanban.web_assets import (
     BOARD_WEB_APP_HTML,
     BOARD_WEB_APP_JS,
     BOARD_WEB_APP_JS_PATH,
+    MODULE_MAP_HTML,
+    MODULE_MAP_INFRASTRUCTURE,
 )
 
 TEST_API_PORT_START = 0
@@ -1121,6 +1123,67 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(decoded, BOARD_WEB_APP_HTML)
         self.assertLess(len(body), len(decoded.encode("utf-8")) // 4)
 
+    def test_module_map_route_supports_identity_gzip_trailing_slash_and_head(self) -> None:
+        expected = MODULE_MAP_HTML.encode("utf-8")
+
+        for path in ("/module-map", "/module-map/"):
+            with self.subTest(path=path, encoding="identity"):
+                status, headers, body = self.raw_request(path)
+                self.assertEqual(status, 200)
+                self.assertEqual(headers.get("Content-Type"), "text/html; charset=utf-8")
+                self.assertEqual(headers.get("Vary"), "Accept-Encoding")
+                self.assertEqual(headers.get("X-Content-Type-Options"), "nosniff")
+                self.assertNotIn("Content-Encoding", headers)
+                self.assertEqual(body, expected)
+
+            with self.subTest(path=path, encoding="gzip"):
+                status, headers, body = self.raw_request(
+                    path,
+                    headers={"Accept-Encoding": "gzip"},
+                )
+                self.assertEqual(status, 200)
+                self.assertEqual(headers.get("Content-Encoding"), "gzip")
+                self.assertEqual(headers.get("Vary"), "Accept-Encoding")
+                self.assertEqual(gzip.decompress(body), expected)
+
+        status, headers, body = self.raw_request(
+            "/module-map",
+            method="HEAD",
+            headers={"Accept-Encoding": "gzip"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(body, b"")
+        self.assertEqual(headers.get("Content-Encoding"), "gzip")
+        self.assertEqual(
+            int(headers.get("Content-Length", "0")),
+            len(api_server_module._module_map_html_gzip_bytes()),
+        )
+
+    def test_module_map_infrastructure_requires_operator_session(self) -> None:
+        status, rejected = self.request(
+            "/api/get_module_map_infrastructure",
+            method="GET",
+        )
+        self.assertEqual(status, 401)
+        self.assertEqual(rejected["error"]["code"], "unauthorized")
+
+        status, logged_in = self.request(
+            "/api/login_operator",
+            {"username": "admin", "password": "admin"},
+        )
+        self.assertEqual(status, 200)
+        headers = {
+            "X-Operator-Session": logged_in["data"]["session"]["token"],
+        }
+        status, response = self.request(
+            "/api/get_module_map_infrastructure",
+            method="GET",
+            headers=headers,
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(response["ok"])
+        self.assertEqual(response["data"], MODULE_MAP_INFRASTRUCTURE)
+
     def test_html_gzip_negotiation_honors_quality_values_and_exact_tokens(self) -> None:
         rejected_encodings = (
             "gzip;q=0",
@@ -1134,7 +1197,7 @@ class ApiServerTests(unittest.TestCase):
             "*;q=0.5",
         )
 
-        for route in ("/", "/dashboard"):
+        for route in ("/", "/dashboard", "/module-map"):
             for accept_encoding in rejected_encodings:
                 with self.subTest(route=route, accept_encoding=accept_encoding):
                     status, headers, body = self.raw_request(

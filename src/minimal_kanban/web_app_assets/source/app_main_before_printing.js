@@ -887,6 +887,7 @@
       boardScaleValue: document.getElementById('boardScaleValue'),
       boardScaleReset: document.getElementById('boardScaleReset'),
       openDisplayDashboardButton: document.getElementById('openDisplayDashboardButton'),
+      openModuleMapSettingsButton: document.getElementById('openModuleMapSettingsButton'),
       editDisplayDashboardMessageButton: document.getElementById('editDisplayDashboardMessageButton'),
       displayDashboardMessageModal: document.getElementById('displayDashboardMessageModal'),
       displayDashboardMessageMeta: document.getElementById('displayDashboardMessageMeta'),
@@ -17258,6 +17259,15 @@
       const popup = window.open('/dashboard', 'autostop-display-dashboard');
       if (!popup) {
         setStatus('БРАУЗЕР ЗАБЛОКИРОВАЛ ОКНО ДАШБОРДА.', true);
+        return;
+      }
+      popup.focus();
+    }
+
+    function openModuleMap() {
+      const popup = window.open('/module-map', 'autostop-module-map');
+      if (!popup) {
+        setStatus('БРАУЗЕР ЗАБЛОКИРОВАЛ ОКНО СТРУКТУРЫ IT.', true);
         return;
       }
       popup.focus();

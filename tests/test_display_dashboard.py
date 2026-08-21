@@ -415,8 +415,21 @@ class DisplayDashboardApiTests(unittest.TestCase):
 class DisplayDashboardWebContractTests(unittest.TestCase):
     def test_scale_settings_open_named_dashboard_window(self) -> None:
         self.assertIn('id="openDisplayDashboardButton"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            'id="editDisplayDashboardMessageButton" type="button" '
+            'title="НАСТРОИТЬ СООБЩЕНИЕ ДАШБОРДА"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            'id="openModuleMapSettingsButton" type="button"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("ОТКРЫТЬ СТРУКТУРУ IT", BOARD_WEB_APP_HTML)
+        self.assertNotIn("РЕДАКТИРОВАТЬ ДОСКУ СООБЩЕНИЙ", BOARD_WEB_APP_HTML)
         self.assertIn("window.open('/dashboard', 'autostop-display-dashboard')", BOARD_WEB_APP_HTML)
+        self.assertIn("window.open('/module-map', 'autostop-module-map')", BOARD_WEB_APP_HTML)
         self.assertIn("openDisplayDashboardButton?.addEventListener", BOARD_WEB_APP_HTML)
+        self.assertIn("openModuleMapSettingsButton?.addEventListener", BOARD_WEB_APP_HTML)
 
     def test_dashboard_has_required_content_polling_and_recovery_contract(self) -> None:
         self.assertIn("Результаты автосервиса", DISPLAY_DASHBOARD_HTML)

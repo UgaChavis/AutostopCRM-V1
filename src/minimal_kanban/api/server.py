@@ -59,6 +59,8 @@ from ..web_assets import (
     BOARD_WEB_APP_JS,
     BOARD_WEB_APP_JS_PATH,
     DISPLAY_DASHBOARD_HTML,
+    MODULE_MAP_HTML,
+    MODULE_MAP_INFRASTRUCTURE,
 )
 from .change_feed import (
     CHANGE_FEED_ACK_ROUTE,
@@ -74,6 +76,7 @@ from .route_registry import (
 )
 
 STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
+MODULE_MAP_INFRASTRUCTURE_ROUTE = "/api/get_module_map_infrastructure"
 
 
 QUIET_SUCCESS_ROUTES = frozenset(
@@ -467,6 +470,16 @@ def _display_dashboard_html_bytes() -> bytes:
 @cache
 def _display_dashboard_html_gzip_bytes() -> bytes:
     return gzip.compress(_display_dashboard_html_bytes())
+
+
+@cache
+def _module_map_html_bytes() -> bytes:
+    return MODULE_MAP_HTML.encode("utf-8")
+
+
+@cache
+def _module_map_html_gzip_bytes() -> bytes:
+    return gzip.compress(_module_map_html_bytes())
 
 
 def _html_text(value: object, *, fallback: str = "-") -> str:
@@ -912,6 +925,7 @@ class ApiServer:
             CHANGE_FEED_ACK_ROUTE,
         }
         operator_session_routes = set(OPERATOR_SESSION_ROUTES)
+        operator_session_routes.add(MODULE_MAP_INFRASTRUCTURE_ROUTE)
         admin_only_routes = set(ADMIN_ONLY_ROUTES)
         readonly_routes = set(READONLY_GET_ROUTES)
         if operator_service is not None:
@@ -957,6 +971,19 @@ class ApiServer:
                     body = _display_dashboard_html_bytes()
                     self.send_response(HTTPStatus.OK)
                     self._send_headers("text/html; charset=utf-8", len(body))
+                    return
+                if route in {"/module-map", "/module-map/"}:
+                    gzip_ok = _accepts_gzip(self.headers.get("Accept-Encoding", ""))
+                    body = _module_map_html_gzip_bytes() if gzip_ok else _module_map_html_bytes()
+                    extra_headers = {"Vary": "Accept-Encoding"}
+                    if gzip_ok:
+                        extra_headers["Content-Encoding"] = "gzip"
+                    self.send_response(HTTPStatus.OK)
+                    self._send_headers(
+                        "text/html; charset=utf-8",
+                        len(body),
+                        extra_headers=extra_headers,
+                    )
                     return
                 board_asset = _board_asset_bytes(route)
                 if board_asset is not None:
@@ -1246,6 +1273,39 @@ class ApiServer:
                     content_type="text/html; charset=utf-8",
                     request_id=request_id,
                     route=urlsplit(self.path).path or "/dashboard",
+                    extra_headers=extra_headers,
+                )
+
+            def _serve_module_map(self, request_id: str) -> None:
+                gzip_ok = _accepts_gzip(self.headers.get("Accept-Encoding", ""))
+                body = _module_map_html_gzip_bytes() if gzip_ok else _module_map_html_bytes()
+                extra_headers = {"Vary": "Accept-Encoding"}
+                if gzip_ok:
+                    extra_headers["Content-Encoding"] = "gzip"
+                self._send_bytes_response(
+                    body,
+                    content_type="text/html; charset=utf-8",
+                    request_id=request_id,
+                    route=urlsplit(self.path).path or "/module-map",
+                    extra_headers=extra_headers,
+                )
+
+            def _serve_module_map_infrastructure(self, request_id: str, _payload: dict) -> None:
+                body = _json_response(
+                    ok=True,
+                    data=MODULE_MAP_INFRASTRUCTURE,
+                    error=None,
+                    request_id=request_id,
+                )
+                response_body, extra_headers = self._prepare_response_body(
+                    body,
+                    content_type="application/json",
+                )
+                self._send_bytes_response(
+                    response_body,
+                    content_type="application/json",
+                    request_id=request_id,
+                    route=MODULE_MAP_INFRASTRUCTURE_ROUTE,
                     extra_headers=extra_headers,
                 )
 
@@ -1787,6 +1847,9 @@ class ApiServer:
                 if route in {"/dashboard", "/dashboard/"}:
                     self._serve_display_dashboard(request_id)
                     return True
+                if route in {"/module-map", "/module-map/"}:
+                    self._serve_module_map(request_id)
+                    return True
                 board_asset = _board_asset_bytes(route)
                 if board_asset is not None:
                     body, content_type = board_asset
@@ -1849,6 +1912,7 @@ class ApiServer:
                 self, route: str, request_id: str, query: dict
             ) -> bool:
                 handlers = {
+                    MODULE_MAP_INFRASTRUCTURE_ROUTE: self._serve_module_map_infrastructure,
                     "/api/attachment": self._serve_attachment,
                     "/api/shared_file": self._serve_shared_file,
                     "/api/repair_order_text": self._serve_repair_order_text,

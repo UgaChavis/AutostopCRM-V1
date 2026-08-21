@@ -10,6 +10,7 @@ REVIEWED_BASELINE_GAPS = {
     "/api/get_ai_chat_knowledge",
     "/api/get_board_revision",
     "/api/get_display_dashboard",
+    "/api/get_module_map_infrastructure",
     "/api/get_inspection_sheet_form",
     "/api/get_operator_profile",
     "/api/get_repair_order_print_workspace",
@@ -22,6 +23,7 @@ REVIEWED_BASELINE_GAPS = {
 }
 
 INTENTIONAL_HUMAN_SESSION_EXEMPTIONS = {
+    "/api/get_module_map_infrastructure",
     "/api/get_operator_profile",
     "/api/login_operator",
     "/api/logout_operator",
@@ -68,7 +70,7 @@ class CrmCapabilityParityTests(unittest.TestCase):
             INTENTIONAL_HUMAN_SESSION_EXEMPTIONS,
             set(self.inventory["intentional_exemptions"]),
         )
-        self.assertEqual(13, self.inventory["summary"]["baseline_gaps"])
+        self.assertEqual(14, self.inventory["summary"]["baseline_gaps"])
         self.assertEqual(9, self.inventory["summary"]["baseline_gaps_resolved"])
         self.assertTrue(self.inventory["summary"]["parity_complete"])
 

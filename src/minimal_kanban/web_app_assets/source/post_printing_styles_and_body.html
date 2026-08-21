@@ -3367,6 +3367,7 @@
           <button class="btn" id="operatorButton">ОПЕРАТОР</button>
           <button class="btn" id="archiveButton">АРХИВ</button>
           <button class="btn" id="sharedFilesButton">ФАЙЛЫ</button>
+          <a class="btn" id="moduleMapLink" href="/module-map" target="_blank" rel="noopener">КАРТА</a>
         </div>
       </div>
       <div class="topbar-search" role="search" aria-label="Поиск по карточкам">
@@ -3990,8 +3991,11 @@
       </div>
       <div class="dialog__foot">
         <div class="board-settings__actions">
-          <button class="btn btn--accent" id="openDisplayDashboardButton" type="button">ОТКРЫТЬ ДАШБОРД</button>
-          <button class="btn" id="editDisplayDashboardMessageButton" type="button">РЕДАКТИРОВАТЬ ДОСКУ СООБЩЕНИЙ</button>
+          <div class="board-extra-column-actions">
+            <button class="btn btn--accent" id="openDisplayDashboardButton" type="button">ОТКРЫТЬ ДАШБОРД</button>
+            <button class="btn btn--ghost board-extra-column-actions__settings" id="editDisplayDashboardMessageButton" type="button" title="НАСТРОИТЬ СООБЩЕНИЕ ДАШБОРДА" aria-label="НАСТРОИТЬ СООБЩЕНИЕ ДАШБОРДА" aria-controls="displayDashboardMessageModal">&#9881;</button>
+          </div>
+          <button class="btn btn--accent" id="openModuleMapSettingsButton" type="button">ОТКРЫТЬ СТРУКТУРУ IT</button>
           <div class="board-extra-column-actions">
             <button class="btn btn--accent" id="extraBoardColumnToggleButton" type="button">ОТКРЫТЬ ДОП. КОЛОНКУ</button>
             <button class="btn btn--ghost board-extra-column-actions__settings" id="extraBoardColumnFilterButton" type="button" title="НАСТРОИТЬ ФИЛЬТР ДОП. КОЛОНКИ" aria-label="НАСТРОИТЬ ФИЛЬТР ДОП. КОЛОНКИ" aria-controls="extraBoardColumnFilterPanel" aria-expanded="false">&#9881;</button>

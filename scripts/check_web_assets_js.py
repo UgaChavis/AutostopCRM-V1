@@ -23,7 +23,13 @@ class InlineScriptExtractor(HTMLParser):
         if tag.lower() != "script":
             return
         attr_map = {name.lower(): value for name, value in attrs}
-        if attr_map.get("src"):
+        script_type = str(attr_map.get("type") or "").strip().lower()
+        if attr_map.get("src") or script_type not in {
+            "",
+            "application/javascript",
+            "text/javascript",
+            "module",
+        }:
             return
         self._in_inline_script = True
         self._chunks = []
@@ -42,11 +48,20 @@ class InlineScriptExtractor(HTMLParser):
 
 def _browser_javascript_sources() -> list[tuple[str, str]]:
     sys.path.insert(0, str(SRC))
-    from minimal_kanban.web_assets import BOARD_WEB_APP_JS, DISPLAY_DASHBOARD_HTML
+    from minimal_kanban.web_assets import (
+        BOARD_WEB_APP_JS,
+        DISPLAY_DASHBOARD_HTML,
+        MODULE_MAP_HTML,
+    )
 
-    return [("board_external", BOARD_WEB_APP_JS)] + [
-        ("display_dashboard", script) for script in extract_inline_scripts(DISPLAY_DASHBOARD_HTML)
-    ]
+    return (
+        [("board_external", BOARD_WEB_APP_JS)]
+        + [
+            ("display_dashboard", script)
+            for script in extract_inline_scripts(DISPLAY_DASHBOARD_HTML)
+        ]
+        + [("module_map", script) for script in extract_inline_scripts(MODULE_MAP_HTML)]
+    )
 
 
 def extract_inline_scripts(html: str) -> list[str]:
