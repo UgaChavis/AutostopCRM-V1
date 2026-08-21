@@ -297,7 +297,6 @@
       repairOrderTagColor: 'green',
       agentUiBound: false,
       agentContext: { kind: 'board' },
-      aiCompactContext: { kind: 'compact_context' },
       aiCompactContextCache: { signature: '', packet: null },
       agentRefreshTimer: null,
       agentAutofillCountdownTimer: null,
@@ -1725,104 +1724,6 @@
       els.agentDetails = document.getElementById('agentDetails');
     }
 
-    function hydrateAiChatWindowUiRefs() {
-      return;
-    }
-
-    function normalizeAiChatMessageRole(role) {
-      const normalized = String(role || '').trim().toLowerCase();
-      if (normalized === 'assistant' || normalized === 'system' || normalized === 'status') return normalized;
-      return 'user';
-    }
-
-    function aiChatHistoryContextSnapshot() {
-      const source = state.aiCompactContext && typeof state.aiCompactContext === 'object'
-        ? state.aiCompactContext
-        : (state.aiChatWindowContext && typeof state.aiChatWindowContext === 'object'
-          ? state.aiChatWindowContext
-          : buildAiCompactContextPacket());
-      const profile = ensureAiChatWindowPromptProfile();
-      const knowledge = state.aiChatWindowKnowledge && typeof state.aiChatWindowKnowledge === 'object'
-        ? state.aiChatWindowKnowledge
-        : null;
-      return {
-        kind: String(source.kind || 'chat').trim().toLowerCase() || 'chat',
-        card_id: String(source.card_id || '').trim(),
-        repair_order_id: String(source.repair_order_id || '').trim(),
-        source_kind: String(source.kind || 'chat').trim().toLowerCase() || 'chat',
-        card_label: String(source.card_label || '').trim(),
-        repair_order_label: String(source.repair_order_label || '').trim(),
-        repair_order_context_label: String(source.repair_order_context_label || '').trim(),
-        context_label: String(source.context_label || '').trim(),
-        wall_digest_label: String(source.wall_digest?.summary_label || '').trim(),
-        wall_view: String(source.wall_context?.view || '').trim(),
-        wall_available: Boolean(source.wall_context?.has_wall),
-        attachments_ready: Boolean(source.attachments_intake?.ready),
-        attachments_label: String(source.attachments_intake?.label || '').trim(),
-        attachments_card_count: String(source.attachments_intake?.card_attachment_count ?? '').trim(),
-        attachments_repair_order_count: String(source.attachments_intake?.repair_order_attachment_count ?? '').trim(),
-        attachments_total_count: String(source.attachments_intake?.total_attachment_count ?? '').trim(),
-        attachments_card_ids: Array.isArray(source.attachments_intake?.card_attachment_ids) ? source.attachments_intake.card_attachment_ids.slice(0, 12) : [],
-        attachments_repair_order_ids: Array.isArray(source.attachments_intake?.repair_order_attachment_ids) ? source.attachments_intake.repair_order_attachment_ids.slice(0, 12) : [],
-        knowledge_source_labels: Array.isArray(knowledge?.source_labels) ? knowledge.source_labels.slice(0, 6) : [],
-        compact_context_kind: String(source.kind || 'chat').trim().toLowerCase() || 'chat',
-        prompt_profile_kind: 'ai_chat',
-        prompt_profile_user_tune: String(profile.user_tune || '').trim(),
-      };
-    }
-
-    function createAiChatMessage(role, text, meta = {}) {
-      const normalizedRole = normalizeAiChatMessageRole(role);
-      const entry = {
-        id: 'ai-chat-' + (++state.aiChatWindowMessageSeq),
-        role: normalizedRole,
-        text: String(text || '').trim(),
-        tone: normalizedRole === 'system' || normalizedRole === 'status' ? 'idle' : normalizedRole,
-        created_at: new Date().toISOString(),
-        context: aiChatHistoryContextSnapshot(),
-      };
-      const source = meta && typeof meta === 'object' ? meta : {};
-      if (source.source) entry.source = String(source.source || '').trim();
-      if (source.state) entry.state = String(source.state || '').trim().toLowerCase();
-      if (source.kind) entry.kind = String(source.kind || '').trim().toLowerCase();
-      if (source.topic) entry.topic = String(source.topic || '').trim();
-      if (source.hint) entry.hint = String(source.hint || '').trim();
-      if (Array.isArray(source.knowledge_source_labels)) {
-        entry.knowledge_source_labels = source.knowledge_source_labels.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 6);
-      }
-      return entry;
-    }
-
-    function ensureAiChatWindowHistory() {
-      if (!Array.isArray(state.aiChatWindowHistory)) state.aiChatWindowHistory = [];
-      if (state.aiChatWindowHistory.length > 0) return state.aiChatWindowHistory;
-      state.aiChatWindowHistory.push(
-        createAiChatMessage('system', 'Чат-окно готово как отдельный surface. Здесь позже появятся полноценный runtime, markdown и context wiring.', { kind: 'shell', source: 'shell' }),
-        createAiChatMessage('assistant', 'Это рабочий shell нового AI-чата. Пользовательские сообщения уже сохраняются в локальную историю.', { kind: 'shell', source: 'shell' })
-      );
-      return state.aiChatWindowHistory;
-    }
-
-    function ensureAiChatWindowPromptProfile() {
-      if (!state.aiChatWindowPromptProfile || typeof state.aiChatWindowPromptProfile !== 'object') {
-        state.aiChatWindowPromptProfile = {
-          system_instruction: 'Чат отвечает как отдельный рабочий AI surface AutoStop CRM.',
-          response_profile: 'Кратко, структурно, с читаемыми блоками и без лишнего шума.',
-          user_tune: '',
-        };
-      }
-      if (typeof state.aiChatWindowPromptProfile.system_instruction !== 'string') {
-        state.aiChatWindowPromptProfile.system_instruction = 'Чат отвечает как отдельный рабочий AI surface AutoStop CRM.';
-      }
-      if (typeof state.aiChatWindowPromptProfile.response_profile !== 'string') {
-        state.aiChatWindowPromptProfile.response_profile = 'Кратко, структурно, с читаемыми блоками и без лишнего шума.';
-      }
-      if (typeof state.aiChatWindowPromptProfile.user_tune !== 'string') {
-        state.aiChatWindowPromptProfile.user_tune = '';
-      }
-      return state.aiChatWindowPromptProfile;
-    }
-
     function aiChatContextCardLabel(card = state.activeCard) {
       const payload = currentCardPayload();
       const cardId = String(card?.id || state.editingId || payload?.id || '').trim();
@@ -1929,34 +1830,17 @@
         String(attachments.card_attachment_count || '').trim(),
         String(attachments.repair_order_attachment_count || '').trim(),
         String(attachments.items?.[0]?.attachment_id || '').trim(),
-        String(state.aiChatWindowPromptProfile?.user_tune || '').trim(),
       ].join('::');
     }
 
-    function buildAiScenarioContextPacket(scenarioId = 'ai_chat') {
+    function buildAiFullCardEnrichmentContextPacket() {
       const packet = buildAiCompactContextPacket();
-      const normalizedScenarioId = String(scenarioId || 'ai_chat').trim().toLowerCase() || 'ai_chat';
       return {
         ...packet,
         kind: 'compact_context',
-        scenario_id: normalizedScenarioId,
-        scenario_kind: normalizedScenarioId,
-        scenario_context_kind: normalizedScenarioId,
-      };
-    }
-
-    function buildAiFullCardEnrichmentContextPacket() {
-      return buildAiScenarioContextPacket('full_card_enrichment');
-    }
-
-    function buildAiChatWindowContext() {
-      const packet = buildAiCompactContextPacket();
-      return {
-        ...packet,
-        kind: 'chat',
-        scenario_id: 'ai_chat',
-        scenario_kind: 'ai_chat',
-        scenario_context_kind: 'ai_chat',
+        scenario_id: 'full_card_enrichment',
+        scenario_kind: 'full_card_enrichment',
+        scenario_context_kind: 'full_card_enrichment',
       };
     }
 
@@ -2080,7 +1964,7 @@
       const sourceCard = card && typeof card === 'object' ? card : null;
       const payload = currentCardPayload();
       const activeRepairOrder = repairOrder && typeof repairOrder === 'object' ? repairOrder : aiChatActiveRepairOrderScope();
-      const digest = wallDigest && typeof wallDigest === 'object' ? wallDigest : (state.aiCompactContext?.wall_digest && typeof state.aiCompactContext.wall_digest === 'object' ? state.aiCompactContext.wall_digest : buildAiWallDigestPacket());
+      const digest = wallDigest && typeof wallDigest === 'object' ? wallDigest : buildAiWallDigestPacket();
       const cardId = String(sourceCard?.id || state.editingId || payload?.id || '').trim();
       const cardShortId = String(sourceCard?.short_id || cardId || '').trim();
       const cardTitle = String(payload?.title || sourceCard?.title || '').trim();
@@ -2187,7 +2071,7 @@
         : (sourceCard?.repair_order && typeof sourceCard.repair_order === 'object'
           ? sourceCard.repair_order
           : aiChatActiveRepairOrderScope());
-      const digest = wallDigest && typeof wallDigest === 'object' ? wallDigest : (state.aiCompactContext?.wall_digest && typeof state.aiCompactContext.wall_digest === 'object' ? state.aiCompactContext.wall_digest : buildAiWallDigestPacket());
+      const digest = wallDigest && typeof wallDigest === 'object' ? wallDigest : buildAiWallDigestPacket();
       const repairOrderId = String(activeRepairOrder?.id || activeRepairOrder?.number || '').trim();
       const number = String(activeRepairOrder?.number || '').trim();
       const status = String(activeRepairOrder?.status || '').trim();
@@ -2303,9 +2187,7 @@
       const sourceRepairOrder = repairOrder && typeof repairOrder === 'object' ? repairOrder : null;
       const digest = wallDigest && typeof wallDigest === 'object'
         ? wallDigest
-        : (state.aiCompactContext?.wall_digest && typeof state.aiCompactContext.wall_digest === 'object'
-          ? state.aiCompactContext.wall_digest
-          : buildAiWallDigestPacket());
+        : buildAiWallDigestPacket();
       const cardAttachments = Array.isArray(sourceCard?.attachments) ? sourceCard.attachments : [];
       const repairOrderAttachments = Array.isArray(sourceRepairOrder?.attachments) ? sourceRepairOrder.attachments : [];
       const sourceAttachments = [];
@@ -2439,380 +2321,6 @@
       }
       state.aiCompactContextCache = { signature, packet: packetDraft };
       return packetDraft;
-    }
-
-    function aiChatCompactContextSummary(context = state.aiCompactContext) {
-      const packet = context && typeof context === 'object' ? context : buildAiCompactContextPacket();
-      const lines = [
-        packet.card_context?.summary_label || packet.card_label || 'AI-ЧАТ · СВОБОДНАЯ СЕССИЯ',
-        packet.card_context?.key_fields?.length ? packet.card_context.key_fields.slice(0, 3).map((item) => item.value).join(' · ') : '',
-        packet.card_context?.ai_relevant_facts?.client ? 'Клиент: ' + packet.card_context.ai_relevant_facts.client : '',
-        packet.card_context?.ai_relevant_facts?.machine ? 'Машина: ' + packet.card_context.ai_relevant_facts.machine : '',
-        packet.card_context?.ai_relevant_facts?.symptoms ? 'Симптомы: ' + packet.card_context.ai_relevant_facts.symptoms : '',
-        packet.repair_order_context?.summary_label || packet.repair_order_label ? 'Заказ-наряд: ' + (packet.repair_order_context?.summary_label || packet.repair_order_label) : 'Заказ-наряд: не привязан.',
-        packet.wall_digest?.label || packet.wall_context?.label || 'СТЕНА · НЕ ЗАГРУЖЕНА',
-        packet.wall_digest?.key_facts?.length ? packet.wall_digest.key_facts.slice(0, 3).join(' · ') : '',
-        packet.wall_digest?.notable_changes?.length ? packet.wall_digest.notable_changes.slice(0, 2).join(' · ') : '',
-        packet.attachments_intake?.label || 'ВЛОЖЕНИЯ · НЕ ДОСТУПНЫ',
-        packet.attachments_intake?.items?.length ? 'Вложения AI: ' + packet.attachments_intake.items.slice(0, 3).map((item) => item.file_name || item.content_hint || item.attachment_id || 'attachment').join(' · ') : '',
-      ];
-      return lines.join('\n');
-    }
-
-    function aiChatMessageTone(role, message) {
-      if (message && typeof message === 'object' && String(message.state || '').trim()) {
-        return String(message.state).trim().toLowerCase();
-      }
-      if (role === 'assistant') return 'online';
-      if (role === 'system' || role === 'status') return 'idle';
-      return 'online';
-    }
-
-    function aiChatMessageTitle(role) {
-      if (role === 'assistant') return 'AI';
-      if (role === 'system') return 'SYSTEM';
-      if (role === 'status') return 'STATUS';
-      return 'YOU';
-    }
-
-    function aiChatKnowledgeSourceLabels(knowledge = state.aiChatWindowKnowledge) {
-      const packet = knowledge && typeof knowledge === 'object' ? knowledge : null;
-      const labels = Array.isArray(packet?.source_labels) ? packet.source_labels.map((item) => String(item || '').trim()).filter(Boolean) : [];
-      if (!labels.length) labels.push('CRM');
-      return labels;
-    }
-
-    async function resolveAiChatKnowledge(input, context = state.aiCompactContext) {
-      const prompt = String(input || '').trim();
-      const payloadContext = context && typeof context === 'object' ? context : buildAiCompactContextPacket();
-      const promptProfile = ensureAiChatWindowPromptProfile();
-      try {
-        const knowledge = await api('/api/get_ai_chat_knowledge', {
-          method: 'POST',
-          body: {
-            prompt,
-            context: payloadContext,
-            prompt_profile: promptProfile,
-            source: 'ai_chat',
-          },
-        });
-        if (knowledge && typeof knowledge === 'object') return knowledge;
-      } catch (error) {
-        console.warn('ai_chat knowledge lookup failed:', error);
-      }
-      return {
-        kind: 'ai_chat_knowledge',
-        prompt,
-        source_labels: ['CRM'],
-        crm: {
-          kind: 'compact_context',
-          source_kind: 'fallback',
-        },
-        documents: {
-          available: false,
-          requested: false,
-          used: false,
-          count: 0,
-          items: [],
-        },
-        internet: {
-          available: false,
-          requested: false,
-          used: false,
-          count: 0,
-          query: prompt,
-          allowed_domains: [],
-          items: [],
-        },
-        policy: {
-          external_knowledge_used: false,
-          external_knowledge_allowed: false,
-          fallback: true,
-        },
-      };
-    }
-
-    function aiChatRenderInlineMarkdown(source) {
-      const escaped = escapeHtml(String(source || ''));
-      return escaped
-        .replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>')
-        .replace(/(^|[^*])\*([^*\n]+?)\*(?!\*)/g, '$1<em>$2</em>')
-        .replace(/`([^`]+?)`/g, '<code>$1</code>')
-        .replace(/\[([^\]]+?)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
-    }
-
-    function aiChatRenderPlainText(source) {
-      return '<p>' + escapeHtml(String(source || '').trim()).replace(/\n/g, '<br>') + '</p>';
-    }
-
-    function aiChatRenderMarkdown(source) {
-      const input = String(source || '').replace(/\r\n/g, '\n');
-      const lines = input.split('\n');
-      const blocks = [];
-      let paragraph = [];
-      let listItems = [];
-      let listType = '';
-      let codeLines = [];
-      let inCode = false;
-
-      function flushParagraph() {
-        if (!paragraph.length) return;
-        blocks.push('<p>' + aiChatRenderInlineMarkdown(paragraph.join(' ').trim()) + '</p>');
-        paragraph = [];
-      }
-
-      function flushList() {
-        if (!listItems.length) return;
-        const tag = listType === 'ol' ? 'ol' : 'ul';
-        blocks.push('<' + tag + '>' + listItems.map((item) => '<li>' + aiChatRenderInlineMarkdown(item) + '</li>').join('') + '</' + tag + '>');
-        listItems = [];
-        listType = '';
-      }
-
-      function flushCode() {
-        if (!codeLines.length) return;
-        blocks.push('<pre><code>' + escapeHtml(codeLines.join('\n')) + '</code></pre>');
-        codeLines = [];
-      }
-
-      function flushAllText() {
-        flushParagraph();
-        flushList();
-        flushCode();
-      }
-
-      for (const rawLine of lines) {
-        const line = String(rawLine || '');
-        const trimmed = line.trim();
-        if (trimmed.startsWith('```')) {
-          if (inCode) {
-            flushCode();
-            inCode = false;
-          } else {
-            flushParagraph();
-            flushList();
-            inCode = true;
-          }
-          continue;
-        }
-        if (inCode) {
-          codeLines.push(line);
-          continue;
-        }
-        if (!trimmed) {
-          flushAllText();
-          continue;
-        }
-        const bulletMatch = line.match(/^\s*[-*]\s+(.+)$/);
-        if (bulletMatch) {
-          flushParagraph();
-          if (listType && listType !== 'ul') flushList();
-          listType = 'ul';
-          listItems.push(bulletMatch[1]);
-          continue;
-        }
-        const orderedMatch = line.match(/^\s*\d+\.\s+(.+)$/);
-        if (orderedMatch) {
-          flushParagraph();
-          if (listType && listType !== 'ol') flushList();
-          listType = 'ol';
-          listItems.push(orderedMatch[1]);
-          continue;
-        }
-        flushList();
-        paragraph.push(line);
-      }
-
-      if (inCode) flushCode();
-      flushAllText();
-      if (!blocks.length) {
-        return aiChatRenderPlainText(input);
-      }
-      return blocks.join('');
-    }
-
-    function aiChatRenderMessageBody(message) {
-      const normalizedRole = normalizeAiChatMessageRole(message?.role);
-      const content = String(message?.text || '').trim();
-      if (!content) return '<p>...</p>';
-      if (normalizedRole === 'assistant' || normalizedRole === 'system' || normalizedRole === 'status') {
-        return aiChatRenderMarkdown(content);
-      }
-      return aiChatRenderPlainText(content);
-    }
-
-    async function aiChatBuildAssistantResponse(input) {
-      const context = state.aiCompactContext && typeof state.aiCompactContext === 'object'
-        ? state.aiCompactContext
-        : buildAiCompactContextPacket();
-      const profile = ensureAiChatWindowPromptProfile();
-      const prompt = String(input || '').trim();
-      const knowledge = await resolveAiChatKnowledge(prompt, context);
-      state.aiChatWindowKnowledge = knowledge;
-      const sourceLabels = aiChatKnowledgeSourceLabels(knowledge);
-      const documentTitles = Array.isArray(knowledge?.documents?.items)
-        ? knowledge.documents.items.slice(0, 3).map((item) => String(item?.title || item?.document_id || 'document').trim()).filter(Boolean)
-        : [];
-      const internetTitles = Array.isArray(knowledge?.internet?.items)
-        ? knowledge.internet.items.slice(0, 3).map((item) => String(item?.title || item?.domain || item?.url || 'internet result').trim()).filter(Boolean)
-        : [];
-      const responseParts = [
-        'Принял запрос для AI-чата.',
-        prompt ? 'Запрос: ' + prompt : 'Запрос пустой.',
-        'Источники: ' + sourceLabels.join(' · '),
-        context.card_context?.summary_label ? 'Карточка: ' + context.card_context.summary_label : (context.card_label ? 'Карточка: ' + context.card_label : 'Карточка: нет активного scope.'),
-        context.card_context?.ai_relevant_facts?.client ? 'Клиент: ' + context.card_context.ai_relevant_facts.client : '',
-        context.card_context?.ai_relevant_facts?.machine ? 'Машина: ' + context.card_context.ai_relevant_facts.machine : '',
-        context.card_context?.ai_relevant_facts?.symptoms ? 'Симптомы: ' + context.card_context.ai_relevant_facts.symptoms : '',
-        context.card_context?.ai_relevant_facts?.works?.length ? 'Работы: ' + context.card_context.ai_relevant_facts.works.slice(0, 3).join(' · ') : '',
-        context.card_context?.ai_relevant_facts?.notes?.length ? 'Заметки: ' + context.card_context.ai_relevant_facts.notes.slice(0, 2).join(' · ') : '',
-        context.repair_order_context?.summary_label ? 'Заказ-наряд: ' + context.repair_order_context.summary_label : (context.repair_order_label ? 'Заказ-наряд: ' + context.repair_order_label : 'Заказ-наряд: не привязан.'),
-        context.repair_order_context?.ai_relevant_facts?.payment_status_label ? 'Платежный статус: ' + context.repair_order_context.ai_relevant_facts.payment_status_label : '',
-        context.repair_order_context?.ai_relevant_facts?.grand_total ? 'Итог: ' + context.repair_order_context.ai_relevant_facts.grand_total : '',
-        context.repair_order_context?.ai_relevant_facts?.due_total ? 'Остаток: ' + context.repair_order_context.ai_relevant_facts.due_total : '',
-        context.repair_order_context?.work_summary?.length ? 'Работы ЗН: ' + context.repair_order_context.work_summary.slice(0, 3).join(' · ') : '',
-        context.repair_order_context?.material_summary?.length ? 'Материалы ЗН: ' + context.repair_order_context.material_summary.slice(0, 3).join(' · ') : '',
-        context.wall_digest?.label ? 'Контекст стены: ' + context.wall_digest.label : (context.wall_context?.label ? 'Контекст стены: ' + context.wall_context.label : ''),
-        context.wall_digest?.key_facts?.length ? 'Ключевые факты стены: ' + context.wall_digest.key_facts.slice(0, 3).join(' · ') : '',
-        context.wall_digest?.notable_changes?.length ? 'Последние изменения: ' + context.wall_digest.notable_changes.slice(0, 2).join(' · ') : '',
-        context.attachments_intake?.label ? 'Вложенная зона: ' + context.attachments_intake.label : '',
-        context.attachments_intake?.items?.length ? 'Вложения AI: ' + context.attachments_intake.items.slice(0, 3).map((item) => item.file_name || item.content_hint || item.attachment_id || 'attachment').join(' · ') : '',
-        documentTitles.length ? 'Документы: ' + documentTitles.join(' · ') : '',
-        internetTitles.length ? 'Интернет: ' + internetTitles.join(' · ') : '',
-        'Compact context: ' + aiChatCompactContextSummary(context).replace(/\n/g, ' · '),
-        profile.user_tune ? 'Пользовательская настройка: ' + profile.user_tune : '',
-      ].filter(Boolean);
-      const bulletLine = [
-        context.card_context?.card_id ? '- card context available' : '- card context unavailable',
-        context.repair_order_context?.repair_order_id ? '- repair order context available' : '- repair order context unavailable',
-        context.wall_digest?.has_wall ? '- wall digest available' : '- wall digest unavailable',
-        context.attachments_intake?.ready ? '- attachments intake ready' : '- attachments intake unavailable',
-        context.attachments_intake?.items?.length ? '- attachment items available' : '- attachment items unavailable',
-        knowledge?.documents?.used ? '- documents lookup used' : '- documents lookup skipped',
-        knowledge?.internet?.used ? '- internet lookup used' : '- internet lookup skipped',
-      ];
-      return responseParts.join('\n') + '\n\n' + bulletLine.join('\n');
-    }
-
-    function renderAiChatWindowHistory() {
-      hydrateAiChatWindowUiRefs();
-      ensureAiChatWindowHistory();
-      if (!els.aiChatWindowMessages) return;
-      els.aiChatWindowMessages.innerHTML = state.aiChatWindowHistory.map((message) => {
-        const normalizedRole = normalizeAiChatMessageRole(message?.role);
-        const tone = aiChatMessageTone(normalizedRole, message);
-        const title = aiChatMessageTitle(normalizedRole);
-        const text = aiChatRenderMessageBody(message);
-        const metaLine = [];
-        if (message?.created_at) metaLine.push(escapeHtml(String(message.created_at)));
-        if (message?.context?.kind) metaLine.push(escapeHtml(String(message.context.kind)));
-        if (message?.context?.card_label) metaLine.push(escapeHtml(String(message.context.card_label)));
-        if (message?.context?.repair_order_label) metaLine.push(escapeHtml(String(message.context.repair_order_label)));
-        if (message?.context?.repair_order_context_label) metaLine.push(escapeHtml(String(message.context.repair_order_context_label)));
-        const knowledgeSourceLabels = Array.isArray(message?.context?.knowledge_source_labels) && message.context.knowledge_source_labels.length
-          ? message.context.knowledge_source_labels
-          : (Array.isArray(message?.knowledge_source_labels) ? message.knowledge_source_labels : []);
-        if (knowledgeSourceLabels.length) metaLine.push(escapeHtml('Источники: ' + knowledgeSourceLabels.join(' · ')));
-        if (message?.source) metaLine.push(escapeHtml(String(message.source)));
-        return '<article class="ai-chat-window__message" data-role="' + escapeHtml(normalizedRole) + '" data-tone="' + escapeHtml(tone) + '" data-message-id="' + escapeHtml(message?.id || '') + '">' +
-          '<div class="ai-chat-window__message-title">' + title + '</div>' +
-          '<div class="ai-chat-window__message-text">' + text + '</div>' +
-          (metaLine.length ? '<div class="ai-chat-window__message-meta">' + metaLine.join(' · ') + '</div>' : '') +
-        '</article>';
-      }).join('');
-      requestAnimationFrame(() => {
-        if (els.aiChatWindowMessages) {
-          els.aiChatWindowMessages.scrollTop = els.aiChatWindowMessages.scrollHeight;
-        }
-      });
-    }
-
-    function appendAiChatWindowMessage(role, text, meta = {}) {
-      ensureAiChatWindowHistory();
-      const message = createAiChatMessage(role, text, meta);
-      state.aiChatWindowHistory.push(message);
-      renderAiChatWindowHistory();
-      return message;
-    }
-
-    function focusAiChatWindowInput() {
-      hydrateAiChatWindowUiRefs();
-      if (!els.aiChatWindowInput) return;
-      try {
-        els.aiChatWindowInput.focus({ preventScroll: true });
-      } catch (error) {
-        els.aiChatWindowInput.focus();
-      }
-    }
-
-    async function handleAiChatWindowSend() {
-      hydrateAiChatWindowUiRefs();
-      const input = String(els.aiChatWindowInput?.value || '').trim();
-      if (!input) return;
-      state.aiChatWindowKnowledge = null;
-      appendAiChatWindowMessage('user', input, { kind: 'user_input', source: 'composer' });
-      if (els.aiChatWindowInput) els.aiChatWindowInput.value = '';
-      try {
-        const response = await aiChatBuildAssistantResponse(input);
-        appendAiChatWindowMessage('assistant', response, {
-          kind: 'scoped_runtime',
-          source: 'ai_chat',
-          topic: 'reply',
-          knowledge_source_labels: aiChatKnowledgeSourceLabels(),
-        });
-      } catch (error) {
-        appendAiChatWindowMessage('status', 'Ошибка knowledge/chat слоя: ' + String(error?.message || error || 'неизвестная ошибка'), {
-          kind: 'error',
-          source: 'ai_chat',
-          state: 'error',
-        });
-      } finally {
-        state.aiChatWindowHistoryContext = aiChatHistoryContextSnapshot();
-        focusAiChatWindowInput();
-      }
-    }
-
-    function handleAiChatWindowInputKeydown(event) {
-      if (!(event.ctrlKey || event.metaKey) || event.key !== 'Enter') return;
-      event.preventDefault();
-      void handleAiChatWindowSend();
-    }
-
-    function handleAiChatWindowPromptProfileInput(event) {
-      const profile = ensureAiChatWindowPromptProfile();
-      profile.user_tune = String(event?.target?.value || '').replace(/\r\n/g, '\n');
-      state.aiChatWindowPromptProfile = profile;
-      state.aiChatWindowHistoryContext = aiChatHistoryContextSnapshot();
-    }
-
-    function handleAiChatWindowSettingsToggle() {
-      state.aiChatWindowSettingsOpen = !Boolean(state.aiChatWindowSettingsOpen);
-      renderAiChatWindowSettings();
-    }
-
-    function renderAiChatWindowSettings() {
-      hydrateAiChatWindowUiRefs();
-      const profile = ensureAiChatWindowPromptProfile();
-      const isOpen = Boolean(state.aiChatWindowSettingsOpen);
-      if (els.aiChatWindowSettingsPane) {
-        els.aiChatWindowSettingsPane.hidden = !isOpen;
-        els.aiChatWindowSettingsPane.classList.toggle('is-open', isOpen);
-      }
-      if (els.aiChatWindowSettingsButton) {
-        els.aiChatWindowSettingsButton.disabled = false;
-        els.aiChatWindowSettingsButton.dataset.state = isOpen ? 'open' : 'closed';
-        els.aiChatWindowSettingsButton.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
-        els.aiChatWindowSettingsButton.textContent = isOpen ? 'НАСТРОЙКИ ?' : 'НАСТРОЙКИ';
-      }
-      if (els.aiChatWindowPromptSystem) {
-        els.aiChatWindowPromptSystem.textContent = profile.system_instruction;
-      }
-      if (els.aiChatWindowPromptResponse) {
-        els.aiChatWindowPromptResponse.textContent = profile.response_profile;
-      }
-      if (els.aiChatWindowPromptProfileInput && els.aiChatWindowPromptProfileInput.value !== profile.user_tune) {
-        els.aiChatWindowPromptProfileInput.value = profile.user_tune;
-      }
     }
 
     function hydrateAgentTasksUiRefs() {
@@ -7405,45 +6913,6 @@
       return String(kind || '').trim().toLowerCase() === 'card' ? cardAgentContext() : boardAgentContext();
     }
 
-    const AI_SURFACE_SCENARIO_IDS = ['ai_chat', 'full_card_enrichment', 'board_control'];
-    const AI_SURFACE_ENTRY_IDS = {
-      ai_chat: 'future_ai_chat_window',
-      full_card_enrichment: 'future_card_enrichment_trigger',
-      board_control: 'future_board_control_toggle',
-    };
-
-    function buildAiSurfaceContext(kind) {
-      const normalizedKind = String(kind || '').trim().toLowerCase();
-      if (normalizedKind === 'card') {
-        const context = cardAgentContext();
-        return {
-          ...context,
-          kind: 'card',
-          surface: 'ai_entry',
-          scenario_id: 'full_card_enrichment',
-          scenario_context: buildAiFullCardEnrichmentContextPacket(),
-        };
-      }
-      if (normalizedKind === 'board') {
-        const context = boardAgentContext();
-        return {
-          ...context,
-          kind: 'board',
-          surface: 'ai_entry',
-          scenario_id: 'board_control',
-          scenario_context: buildAiScenarioContextPacket('board_control'),
-        };
-      }
-      const context = buildAiChatWindowContext();
-      return {
-        ...context,
-        kind: 'chat',
-        surface: 'ai_entry',
-        scenario_id: 'ai_chat',
-        scenario_context: context,
-      };
-    }
-
     function activeAiTaskContext() {
       if (els.agentModal?.classList.contains('is-open') && state.agentContext && typeof state.agentContext === 'object') {
         return state.agentContext;
@@ -7452,146 +6921,6 @@
         return state.agentContext;
       }
       return { kind: 'board' };
-    }
-
-    function formatAiSurfaceContextLabel(context) {
-      const normalized = context && typeof context === 'object' ? context : { kind: 'chat' };
-      if (String(normalized.kind || '').trim().toLowerCase() === 'card') {
-        const heading = String(normalized.title || normalized.vehicle || normalized.card_id || 'карточка').trim();
-        return 'РЕЖИМ: КАРТОЧКА · ' + heading;
-      }
-      if (String(normalized.kind || '').trim().toLowerCase() === 'board') {
-        return 'РЕЖИМ: ДОСКА';
-      }
-      return 'РЕЖИМ: ОБЩИЙ ЧАТ';
-    }
-
-    function buildFullCardEnrichmentRequestPayload() {
-      const card = state.activeCard && typeof state.activeCard === 'object' ? state.activeCard : null;
-      const cardId = String(card?.id || state.editingId || '').trim();
-      return {
-        card_id: cardId,
-        actor_name: state.actor,
-        scenario_id: 'full_card_enrichment',
-        prompt: String(card?.ai_autofill_prompt || '').trim(),
-        context_packet: buildAiFullCardEnrichmentContextPacket(),
-      };
-    }
-
-    function aiSurfaceScenarioEntryId(scenarioId) {
-      return AI_SURFACE_ENTRY_IDS[String(scenarioId || '').trim().toLowerCase()] || '';
-    }
-
-    function aiSurfaceExposureTone(exposureState) {
-      const normalized = String(exposureState || '').trim().toLowerCase();
-      if (normalized === 'primary' || normalized === 'available') return 'online';
-      if (normalized === 'gated' || normalized === 'legacy_only') return 'busy';
-      if (normalized === 'replaced') return 'idle';
-      if (normalized === 'hidden') return 'idle';
-      return 'idle';
-    }
-
-    function aiSurfaceExposureLabel(exposureState) {
-      const normalized = String(exposureState || '').trim().toLowerCase();
-      if (normalized === 'primary') return 'ОСНОВНОЙ';
-      if (normalized === 'available') return 'ДОСТУПНО';
-      if (normalized === 'gated') return 'ОГРАНИЧЕНО';
-      if (normalized === 'legacy_only') return 'РЕЗЕРВ';
-      if (normalized === 'replaced') return 'ЗАМЕНЕНО';
-      return 'СКРЫТО';
-    }
-
-    function aiSurfaceScenarioMeta(scenario) {
-      const parts = [];
-      const trigger = String(scenario?.trigger_kind || '').trim();
-      const scope = String(scenario?.scope_kind || '').trim();
-      const writePolicy = String(scenario?.write_policy || '').trim();
-      if (trigger) parts.push(trigger);
-      if (scope) parts.push(scope);
-      if (writePolicy) parts.push(writePolicy);
-      return parts.join(' · ');
-    }
-
-    function aiSurfaceScenarioTitle(scenarioId, scenario) {
-      const normalized = String(scenarioId || '').trim().toLowerCase();
-      if (normalized === 'ai_chat') return 'Чат с AI';
-      if (normalized === 'full_card_enrichment') return 'Обогатить карточку';
-      if (normalized === 'board_control') return 'Фоновый контроль доски';
-      return String(scenario?.display_intent || scenarioId || 'AI').trim();
-    }
-
-    function aiSurfaceScenarioDescription(scenarioId) {
-      const normalized = String(scenarioId || '').trim().toLowerCase();
-      if (normalized === 'ai_chat') {
-        return 'Открыть отдельное окно чата для вопросов, разбора ситуации и работы с контекстом CRM.';
-      }
-      if (normalized === 'full_card_enrichment') {
-        return 'Аккуратно дополнить открытую карточку, использовать найденные факты и проверить запись после изменений.';
-      }
-      if (normalized === 'board_control') {
-        return 'Фоновый режим для тихой поддержки качества карточек. Работает по правилам и без ручного чата.';
-      }
-      return 'Отдельный AI-сценарий.';
-    }
-
-    function aiSurfaceScenarioUserMeta(scenarioId) {
-      const normalized = String(scenarioId || '').trim().toLowerCase();
-      if (normalized === 'ai_chat') return 'Ручной режим · без автоматических изменений';
-      if (normalized === 'full_card_enrichment') return 'Только для открытой карточки · безопасные изменения';
-      if (normalized === 'board_control') return 'Фоновый режим · работает по расписанию';
-      return '';
-    }
-
-    function aiSurfacePrimaryPathSummary(primaryPath) {
-      const normalized = String(primaryPath || '').trim().toLowerCase();
-      if (normalized === 'ai_chat') return 'Сейчас главным ручным входом считается AI-чат.';
-      if (normalized === 'full_card_enrichment') return 'Сейчас главным ручным входом считается AI-обогащение карточки.';
-      return 'Новый AI-интерфейс уже отделён от старого меню агента.';
-    }
-
-    function aiSurfaceAvailableScenarioSummary(availableScenarioIds) {
-      const scenarioIds = Array.isArray(availableScenarioIds) ? availableScenarioIds : [];
-      const titles = scenarioIds
-        .map((scenarioId) => aiSurfaceScenarioTitle(scenarioId))
-        .filter(Boolean);
-      if (!titles.length) return 'Сейчас доступных AI-сценариев не отмечено.';
-      return 'Сценарии в этом режиме: ' + titles.join(', ') + '.';
-    }
-
-    function aiSurfaceScenarioSourceList(scenario) {
-      const sources = Array.isArray(scenario?.context_sources) ? scenario.context_sources : [];
-      return sources.map((item) => String(item || '').trim()).filter(Boolean).join(' · ');
-    }
-
-    function aiSurfaceScenarioBoundaryList(scenario) {
-      const boundaries = Array.isArray(scenario?.boundaries) ? scenario.boundaries : [];
-      return boundaries.map((item) => String(item || '').trim()).filter(Boolean).join(' · ');
-    }
-
-    function aiSurfaceScenarioNonGoalList(scenario) {
-      const nonGoals = Array.isArray(scenario?.non_goals) ? scenario.non_goals : [];
-      return nonGoals.map((item) => String(item || '').trim()).filter(Boolean).join(' · ');
-    }
-
-    function aiSurfaceLegacyFallbackVisible(statusPayload, selectedExposureState) {
-      const payload = statusPayload && typeof statusPayload === 'object' ? statusPayload : {};
-      const aiRemodel = payload.ai_remodel && typeof payload.ai_remodel === 'object' ? payload.ai_remodel : {};
-      const effectiveMode = aiRemodel.effective_mode && typeof aiRemodel.effective_mode === 'object' ? aiRemodel.effective_mode : {};
-      const entryExposureMap = effectiveMode.entry_exposure && typeof effectiveMode.entry_exposure === 'object' ? effectiveMode.entry_exposure : {};
-      const selectedState = String(selectedExposureState || '').trim().toLowerCase();
-      const legacyEnabled = Boolean(aiRemodel.legacy_ux_enabled ?? effectiveMode.legacy_ux_enabled ?? true);
-      const legacyPromptState = String(entryExposureMap.agent_manual_prompt?.exposure_state || entryExposureMap.quick_prompts?.exposure_state || 'hidden').trim().toLowerCase();
-      return legacyEnabled && legacyPromptState === 'legacy_only' && selectedState === 'legacy_only';
-    }
-
-    function isFullCardEnrichmentTask(task) {
-      const metadata = task?.metadata && typeof task.metadata === 'object' ? task.metadata : {};
-      const scenarioId = String(metadata.scenario_id || '').trim().toLowerCase();
-      const source = String(task?.source || '').trim().toLowerCase();
-      const trigger = String(metadata.trigger || '').trim().toLowerCase();
-      return scenarioId === 'full_card_enrichment'
-        || source === 'ui_full_card_enrichment'
-        || trigger === 'manual_enrichment';
     }
 
     function currentCardEnrichmentTask(tasks, options = {}) {
@@ -7610,26 +6939,6 @@
         if (includeTerminal) return true;
         return status === 'pending' || status === 'running';
       }) || null;
-    }
-
-    function applyAiSurfaceEntryState(button, exposureRecord, options = {}) {
-      if (!(button instanceof HTMLElement)) return;
-      const keepVisibleWhenHidden = Boolean(options.keepVisibleWhenHidden);
-      const label = String(options.label || 'AI').trim() || 'AI';
-      const exposureState = String(exposureRecord?.exposure_state || 'hidden').trim().toLowerCase();
-      const tone = aiSurfaceExposureTone(exposureState);
-      const exposureLabel = aiSurfaceExposureLabel(exposureState);
-      const hidden = exposureState === 'hidden' || exposureState === 'replaced';
-      button.dataset.state = tone;
-      button.dataset.exposure = exposureState;
-      button.title = label + ' · ' + exposureLabel;
-      button.setAttribute('aria-label', button.title);
-      button.hidden = hidden && !keepVisibleWhenHidden;
-      if (button.hidden) {
-        button.dataset.visible = 'false';
-      } else {
-        button.dataset.visible = 'true';
-      }
     }
 
     function renderFullCardEnrichmentEntryState(statusPayload) {
@@ -7661,91 +6970,6 @@
       els.cardAgentButton.title = title;
       els.cardAgentButton.setAttribute('aria-label', title);
       els.cardAgentButton.disabled = uiState === 'busy' || !currentAgentContextCard()?.id;
-    }
-
-    function renderFullCardEnrichmentResult(statusPayload, scenario, selectedExposureLabel) {
-      const payload = statusPayload && typeof statusPayload === 'object' ? statusPayload : {};
-      const card = currentAgentContextCard();
-      const cardId = String(card?.id || '').trim();
-      const contextPacket = buildAiFullCardEnrichmentContextPacket();
-      const task = currentCardEnrichmentTask(state.agentLatestTasks, { includeTerminal: true });
-      const status = String(task?.status || '').trim().toLowerCase();
-      if (!cardId) {
-        return {
-          state: 'empty',
-          tone: '',
-          html: '<div class="agent-result__fallback">Открой карточку, чтобы запустить AI-обогащение.</div>',
-        };
-      }
-      if (status === 'pending' || status === 'running') {
-        const summaryParts = [
-          contextPacket.card_context?.summary_label || contextPacket.card_label || 'Карточка',
-          contextPacket.repair_order_context?.summary_label || contextPacket.repair_order_label || '',
-          contextPacket.wall_digest?.label || '',
-          contextPacket.attachments_intake?.label || '',
-        ].filter(Boolean);
-        return {
-          state: 'active',
-          tone: 'warning',
-          html: '<div class="agent-result__fallback"><strong>AI-обогащение выполняется.</strong><br>'
-            + escapeHtml(summaryParts.join(' · ') || 'Идёт bounded pipeline full_card_enrichment.')
-            + (task?.id ? '<br><br>Task: ' + escapeHtml(String(task.id || '')) : '')
-            + '</div>',
-        };
-      }
-      if (status === 'failed') {
-        return {
-          state: 'error',
-          tone: 'error',
-          html: '<div class="agent-result__fallback"><strong>AI-обогащение завершилось с ошибкой.</strong><br>'
-            + escapeHtml(formatAgentErrorMessage(task?.error || 'Не удалось выполнить bounded enrichment.'))
-            + '</div>',
-        };
-      }
-      if (status === 'completed') {
-        const display = normalizeAgentDisplay(task);
-        const auditBits = [
-          selectedExposureLabel ? 'СТАТУС: ' + selectedExposureLabel : '',
-          contextPacket.card_context?.summary_label ? 'КАРТОЧКА: ' + contextPacket.card_context.summary_label : '',
-          contextPacket.repair_order_context?.summary_label ? 'ЗН: ' + contextPacket.repair_order_context.summary_label : '',
-          contextPacket.wall_digest?.label ? 'СТЕНА: ' + contextPacket.wall_digest.label : '',
-        ].filter(Boolean);
-        return {
-          state: 'filled',
-          tone: display.tone || 'success',
-          html: (display.title || display.summary || display.sections.length || display.actions.length)
-            ? renderAgentDisplay(display) + (auditBits.length ? '<div class="agent-result__fallback">' + escapeHtml(auditBits.join(' · ')) + '</div>' : '')
-            : '<div class="agent-result__fallback">' + escapeHtml(String(task?.summary || task?.result || 'AI-обогащение завершено.').trim()) + '</div>',
-        };
-      }
-      const sourceList = Array.isArray(scenario?.context_sources) ? scenario.context_sources.map((item) => String(item || '').trim()).filter(Boolean).join(' · ') : '';
-      const readyParts = [
-        contextPacket.card_context?.summary_label || contextPacket.card_label || 'Карточка',
-        contextPacket.repair_order_context?.summary_label || contextPacket.repair_order_label || '',
-        contextPacket.wall_digest?.label || '',
-        contextPacket.attachments_intake?.label || '',
-      ].filter(Boolean);
-      return {
-        state: 'empty',
-        tone: '',
-        html: '<div class="agent-result__fallback"><strong>Full Card Enrichment</strong><br>'
-          + escapeHtml(readyParts.join(' · ') || 'Контекст карточки готов.')
-          + '<br><br>Источники: ' + escapeHtml(sourceList || 'card_context · repair_order_context · wall_digest · attachments')
-          + '<br>Trigger: card-scoped bounded pipeline with verify.'
-          + '</div>',
-      };
-    }
-
-    function renderAiChatWindow(statusPayload) {
-      void statusPayload;
-    }
-
-    function openAiChatWindow() {
-      return reportLegacyAgentRuntimeRetired();
-    }
-
-    function closeAiChatWindow() {
-      return;
     }
 
     function formatAgentContextLabel(context) {
@@ -7780,22 +7004,6 @@
         { label: 'ОПЛАТЫ', prompt: 'Проверь неоплаченные заказ-наряды и покажи краткую сводку.' },
         { label: 'КАССЫ', prompt: 'Покажи краткую сводку по кассам и последним движениям.' },
       ];
-    }
-
-    function handleAiSurfaceScenarioClick(event) {
-      void event;
-    }
-
-    function handleAiSurfaceLegacyClick() {
-      reportLegacyAgentRuntimeRetired();
-    }
-
-    function reportLegacyAgentRuntimeRetired() {
-      setStatus('Старый AI-режим отключён. Используй кнопку "Индикатор карточки".', true);
-    }
-
-    function openAiChatEntry() {
-      return reportLegacyAgentRuntimeRetired();
     }
 
     async function runFullCardEnrichment() {
@@ -7851,27 +7059,6 @@
         renderCardCleanupIndicator();
         setStatus(error.message, true);
       }
-    }
-
-    function handleAiSurfaceModalOverlayClick(event) {
-      void event;
-    }
-
-    function bindAiSurfaceUiEvents() {
-      return;
-    }
-
-    function renderAiEntrySurface(statusPayload) {
-      void statusPayload;
-      renderCardCleanupIndicator();
-    }
-
-    function openAiSurface(kind = 'chat') {
-      return reportLegacyAgentRuntimeRetired();
-    }
-
-    function closeAiSurface() {
-      return;
     }
 
     function summarizeAgentText(value, maxLength = 140) {

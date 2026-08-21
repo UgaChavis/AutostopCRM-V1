@@ -1134,8 +1134,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("api('/api/run_full_card_enrichment'", BOARD_WEB_APP_HTML)
         self.assertNotIn("openAgentModal('card');", BOARD_WEB_APP_HTML)
 
-    def test_ai_chat_and_autofill_controls_use_registered_service_routes(self) -> None:
-        self.assertIn("api('/api/get_ai_chat_knowledge'", BOARD_WEB_APP_HTML)
+    def test_active_ai_controls_use_only_registered_service_routes(self) -> None:
+        self.assertNotIn("api('/api/get_ai_chat_knowledge'", BOARD_WEB_APP_HTML)
         self.assertGreaterEqual(
             BOARD_WEB_APP_HTML.count("api('/api/set_card_ai_autofill'"),
             2,
@@ -1534,14 +1534,22 @@ class WebAssetsTests(unittest.TestCase):
             "if (event.target.classList.contains('modal')) closeAgentModal();", BOARD_WEB_APP_HTML
         )
 
-    def test_ai_ui_exposes_new_entry_surface_and_legacy_fallback(self) -> None:
+    def test_ai_ui_exposes_only_active_card_enrichment_surface(self) -> None:
         self.assertIn('id="cardAgentButton"', BOARD_WEB_APP_HTML)
         self.assertIn('title="Индикатор карточки"', BOARD_WEB_APP_HTML)
         self.assertIn("function renderCardCleanupIndicator()", BOARD_WEB_APP_HTML)
-        self.assertIn(
+        for retired_symbol in (
+            "AI_SURFACE_SCENARIO_IDS",
+            "buildAiSurfaceContext",
+            "openAiSurface",
+            "openAiChatWindow",
+            "resolveAiChatKnowledge",
+            "reportLegacyAgentRuntimeRetired",
+            "aiCompactContext: { kind: 'compact_context' }",
+            "state.aiCompactContext?.",
             'Старый AI-режим отключён. Используй кнопку "Индикатор карточки".',
-            BOARD_WEB_APP_HTML,
-        )
+        ):
+            self.assertNotIn(retired_symbol, BOARD_WEB_APP_HTML)
         self.assertNotIn('id="aiChatButton"', BOARD_WEB_APP_HTML)
         self.assertNotIn('id="agentDockButton"', BOARD_WEB_APP_HTML)
         self.assertNotIn('id="aiSurfaceModal"', BOARD_WEB_APP_HTML)
