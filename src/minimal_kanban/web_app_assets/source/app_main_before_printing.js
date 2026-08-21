@@ -2646,16 +2646,6 @@
       }
     }
 
-    function ensureActor() {
-      if (state.actor) {
-        els.operatorButton.textContent = 'ОПЕРАТОР: ' + state.actor;
-        closeOperatorLoginModal();
-        return true;
-      }
-      openOperatorLoginModal();
-      return false;
-    }
-
     function configureOperatorIdentityUi() {
       const title = els.identityModal?.querySelector('.dialog__title');
       if (title) title.textContent = 'ВХОД ОПЕРАТОРА';
@@ -3704,41 +3694,6 @@
         .replace(/ё/g, 'е')
         .normalize('NFKD')
         .replace(/[\u0300-\u036f]/g, '');
-    }
-
-    function clientPhoneMatchKeys(value) {
-      const text = String(value || '');
-      const candidates = [text, ...(text.match(/\d[\d\s()+-]{7,}\d/g) || [])];
-      const keys = new Set();
-      for (const candidate of candidates) {
-        const digits = String(candidate || '').replace(/\D+/g, '');
-        if (digits.length < 7) continue;
-        keys.add(digits);
-        if (digits.length >= 10) {
-          const lastTen = digits.slice(-10);
-          keys.add(lastTen);
-          keys.add('7' + lastTen);
-          keys.add('8' + lastTen);
-        }
-      }
-      return keys;
-    }
-
-    function clientPhoneSearchVariants(value) {
-      const digits = String(value || '').replace(/\D+/g, '');
-      if (digits.length < 3) return new Set();
-      const variants = new Set([digits]);
-      if (digits.length >= 4 && /[78]/.test(digits[0])) {
-        variants.add(digits.slice(1));
-      }
-      if (digits.length >= 10) {
-        const lastTen = digits.slice(-10);
-        variants.add(lastTen);
-        if (lastTen.length >= 4 && /[78]/.test(lastTen[0])) {
-          variants.add(lastTen.slice(1));
-        }
-      }
-      return new Set(Array.from(variants).filter((variant) => variant.length >= 3));
     }
 
     function normalizePhoneList(values) {
@@ -5514,13 +5469,6 @@
         params.set('days', String(days));
       }
       return params;
-    }
-
-    function employeeSalaryReconciliationPrintUrl(employeeId, options = {}) {
-      const params = employeeSalaryReconciliationQueryParams(employeeId, options);
-      if (!params) return '';
-      if (state.apiToken) params.set('access_token', state.apiToken);
-      return '/employee_salary_reconciliation_print?' + params.toString();
     }
 
     function employeeSalaryReconciliationApiPath(employeeId, options = {}) {
@@ -7754,43 +7702,6 @@
       }).join('');
     }
 
-    function renderAgentTask(task) {
-      if (!els.agentResultPanel) return;
-      if (!task) {
-        els.agentResultPanel.dataset.state = 'empty';
-        els.agentResultPanel.textContent = 'Введите запрос.';
-        delete els.agentResultPanel.dataset.tone;
-        renderAgentActions([]);
-        if (els.agentDetails) els.agentDetails.open = false;
-        return;
-      }
-      const status = String(task.status || '').trim().toLowerCase();
-      if (status === 'running' || status === 'pending') {
-        els.agentResultPanel.dataset.state = 'active';
-        els.agentResultPanel.textContent = 'Задача принята и выполняется.';
-        delete els.agentResultPanel.dataset.tone;
-        renderAgentActions([]);
-        if (els.agentDetails) els.agentDetails.open = false;
-        return;
-      }
-      if (status === 'failed') {
-        els.agentResultPanel.dataset.state = 'error';
-        els.agentResultPanel.dataset.tone = 'error';
-        els.agentResultPanel.innerHTML = '<div class="agent-result__fallback">' + escapeHtml(formatAgentErrorMessage(task.error || 'Агент завершил задачу с ошибкой.')) + '</div>';
-        renderAgentActions([]);
-        if (els.agentDetails) els.agentDetails.open = false;
-        return;
-      }
-      const summary = String(task.summary || '').trim();
-      const result = String(task.result || '').trim();
-      const display = normalizeAgentDisplay(task);
-      els.agentResultPanel.dataset.state = summary || result ? 'filled' : 'empty';
-      els.agentResultPanel.dataset.tone = display.tone || 'success';
-      els.agentResultPanel.innerHTML = (display.title || display.summary || display.sections.length || display.actions.length)
-        ? renderAgentDisplay(display)
-        : '<div class="agent-result__fallback">' + escapeHtml([summary, result].filter(Boolean).join('\n\n') || 'Ответ агента пока пуст.') + '</div>';
-    }
-
     function currentCardAutofillTask(tasks) {
       const items = Array.isArray(tasks) ? tasks : [];
       const card = currentAgentContextCard();
@@ -8101,46 +8012,6 @@
         }
         scheduleAgentRefresh(5000);
       }
-    }
-
-    function openAgentModal(kind = 'board') {
-      if (!requireOperatorSession()) return;
-      ensureAgentUi();
-      bindAgentUiEvents();
-      state.agentContext = buildAgentContext(kind);
-      state.agentTaskId = '';
-      state.agentTaskStatus = '';
-      state.agentAutofillPromptOpen = false;
-      if (els.agentContextLabel) els.agentContextLabel.textContent = formatAgentContextLabel(state.agentContext);
-      renderAgentQuickActions(state.agentContext);
-      if (els.agentTaskInput) {
-        els.agentTaskInput.placeholder = agentPlaceholder(state.agentContext);
-        delete els.agentTaskInput.dataset.agentPromptTemplate;
-        if (!String(els.agentTaskInput.value || '').trim()) els.agentTaskInput.value = '';
-      }
-      if (els.agentResultPanel) {
-        els.agentResultPanel.dataset.state = 'empty';
-        delete els.agentResultPanel.dataset.tone;
-        els.agentResultPanel.innerHTML = '<div class="agent-result__fallback">Лента агента пуста. Запусти задачу или включи автосопровождение.</div>';
-      }
-      state.agentStatusPayload = null;
-      state.agentLatestTasks = [];
-      state.agentLatestActions = [];
-      renderAgentAutofillControls({ agent: { enabled: false } });
-      renderAgentActions([]);
-      renderAgentRuns([]);
-      if (els.agentRunsDetails) els.agentRunsDetails.open = false;
-      if (els.agentDetails) els.agentDetails.open = false;
-      pushModal('agent', els.agentModal);
-      if (state.agentAutofillCountdownTimer) window.clearInterval(state.agentAutofillCountdownTimer);
-      state.agentAutofillCountdownTimer = window.setInterval(() => {
-        renderAgentAutofillControls(state.agentStatusPayload || { agent: { enabled: false } });
-      }, 3000);
-      refreshAgentModalState();
-      window.setTimeout(() => {
-        syncAgentTaskInputHeight();
-        els.agentTaskInput?.focus();
-      }, 0);
     }
 
     function closeAgentModal() {
@@ -13408,13 +13279,6 @@
       );
     }
 
-    function repairOrderProjectedTaxesValue(subtotal, paymentMethod) {
-      if (normalizeRepairOrderPaymentMethod(paymentMethod) !== 'cashless') return 0;
-      return repairOrderRoundMoney(
-        repairOrderCashlessGrossValue(subtotal) - repairOrderRoundMoney(subtotal)
-      );
-    }
-
     function renderRepairOrderPaymentCashboxOptions(selectedId = '') {
       if (!els.repairOrderPaymentCashbox) return;
       const selected = String(selectedId || '').trim();
@@ -15850,17 +15714,6 @@
       return REPAIR_ORDER_SEARCH_FIELDS.includes(normalized) ? normalized : 'summary';
     }
 
-    function repairOrdersSearchFieldLabel(field = state.repairOrdersSearchField) {
-      const normalized = normalizeRepairOrdersSearchField(field);
-      if (normalized === 'number') return '№';
-      if (normalized === 'date') return 'ДАТЫ';
-      if (normalized === 'client') return 'КЛИЕНТ';
-      if (normalized === 'phone') return 'ТЕЛЕФОН';
-      if (normalized === 'vehicle') return 'АВТОМОБИЛЬ';
-      if (normalized === 'license_plate') return 'ГОСНОМЕР';
-      return 'СМЫСЛ КАРТОЧКИ';
-    }
-
     function repairOrdersSearchPlaceholder(field = state.repairOrdersSearchField) {
       const normalized = normalizeRepairOrdersSearchField(field);
       if (normalized === 'number') return 'поиск по номеру заказ-наряда';
@@ -16608,10 +16461,6 @@
       const normalizedCardId = String(cardId || '').trim();
       if (!normalizedCardId) return [];
       return Array.from(els.board?.querySelectorAll('.card[data-card-id="' + CSS.escape(normalizedCardId) + '"]') || []);
-    }
-
-    function boardCardElementById(cardId) {
-      return boardCardElementsById(cardId)[0] || null;
     }
 
     function replaceBoardCardElement(nextCard) {

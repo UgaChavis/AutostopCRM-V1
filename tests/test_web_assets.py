@@ -1439,13 +1439,13 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("if (wasOpen) return;", login_fragment)
 
-        ensure_fragment = BOARD_WEB_APP_HTML[
-            BOARD_WEB_APP_HTML.index("function ensureActor()") : BOARD_WEB_APP_HTML.index(
-                "function configureOperatorIdentityUi()"
-            )
+        session_fragment = BOARD_WEB_APP_HTML[
+            BOARD_WEB_APP_HTML.index(
+                "function requireOperatorSession()"
+            ) : BOARD_WEB_APP_HTML.index("function operatorStatHtml(")
         ]
-        self.assertNotIn("els.identityModal.classList.add('is-open');", ensure_fragment)
-        self.assertIn("openOperatorLoginModal();", ensure_fragment)
+        self.assertNotIn("function ensureActor()", BOARD_WEB_APP_HTML)
+        self.assertIn("openOperatorLoginModal();", session_fragment)
 
     def test_real_data_client_employee_archive_and_files_ui_have_scanability_hooks(self) -> None:
         self.assertIn('id="archiveSearchInput"', BOARD_WEB_APP_HTML)
@@ -1545,6 +1545,8 @@ class WebAssetsTests(unittest.TestCase):
             "openAiChatWindow",
             "resolveAiChatKnowledge",
             "reportLegacyAgentRuntimeRetired",
+            "function openAgentModal(",
+            "function renderAgentTask(",
             "aiCompactContext: { kind: 'compact_context' }",
             "state.aiCompactContext?.",
             'Старый AI-режим отключён. Используй кнопку "Индикатор карточки".',
@@ -1801,7 +1803,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function renderEmployeeSalaryReportModal()", BOARD_WEB_APP_HTML)
         self.assertIn("function downloadEmployeeSalaryReport()", BOARD_WEB_APP_HTML)
         self.assertIn("function loadEmployeeSalaryReconciliation(", BOARD_WEB_APP_HTML)
-        self.assertIn("function employeeSalaryReconciliationPrintUrl(", BOARD_WEB_APP_HTML)
+        self.assertNotIn("function employeeSalaryReconciliationPrintUrl(", BOARD_WEB_APP_HTML)
         self.assertIn("function employeeSalaryReconciliationApiPath(", BOARD_WEB_APP_HTML)
         self.assertIn("function employeeSalaryReconciliationQueryParams(", BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -1824,7 +1826,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("params.set('days', String(days));", BOARD_WEB_APP_HTML)
         self.assertIn("params.set('date_from', dateFrom);", BOARD_WEB_APP_HTML)
         self.assertIn("params.set('date_to', dateTo);", BOARD_WEB_APP_HTML)
-        self.assertIn("/employee_salary_reconciliation_print?", BOARD_WEB_APP_HTML)
+        self.assertNotIn("/employee_salary_reconciliation_print?", BOARD_WEB_APP_HTML)
         self.assertIn('type="button" data-employee-report="', BOARD_WEB_APP_HTML)
         self.assertIn(
             "ВЫБРАТЬ ПЕРИОД И ОТКРЫТЬ ПЕЧАТНЫЙ АКТ СВЕРКИ ЗАРПЛАТЫ",
@@ -2850,8 +2852,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(
             "els.clientSaveButton.classList.toggle('is-dirty', dirty);", BOARD_WEB_APP_HTML
         )
-        self.assertIn("clientPhoneMatchKeys", BOARD_WEB_APP_HTML)
-        self.assertIn("clientPhoneSearchVariants", BOARD_WEB_APP_HTML)
+        self.assertNotIn("function clientPhoneMatchKeys(", BOARD_WEB_APP_HTML)
+        self.assertNotIn("function clientPhoneSearchVariants(", BOARD_WEB_APP_HTML)
         self.assertIn("const CLIENT_PHONE_LIMIT = 3;", BOARD_WEB_APP_HTML)
         self.assertIn("const CLIENT_EMAIL_LIMIT = 3;", BOARD_WEB_APP_HTML)
         self.assertIn('id="clientPhoneFields"', BOARD_WEB_APP_HTML)
@@ -3516,7 +3518,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(
             "const OPERATOR_SESSION_STORAGE_KEY = 'kanban-operator-session';", BOARD_WEB_APP_HTML
         )
-        self.assertEqual(BOARD_WEB_APP_HTML.count("function ensureActor()"), 1)
+        self.assertNotIn("function ensureActor()", BOARD_WEB_APP_HTML)
         self.assertNotIn("localStorage.setItem(ACTOR_STORAGE_KEY", BOARD_WEB_APP_HTML)
         self.assertNotIn("localStorage.removeItem(ACTOR_STORAGE_KEY", BOARD_WEB_APP_HTML)
         self.assertNotIn("Legacy pre-session operator", BOARD_WEB_APP_HTML)
@@ -3828,9 +3830,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function repairOrderCardPaymentsValue(payments)", BOARD_WEB_APP_HTML)
         self.assertIn("function repairOrderTaxRate(value)", BOARD_WEB_APP_HTML)
         self.assertIn("function repairOrderCashlessGrossValue(netAmount)", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            "function repairOrderProjectedTaxesValue(subtotal, paymentMethod)", BOARD_WEB_APP_HTML
-        )
+        self.assertNotIn("function repairOrderProjectedTaxesValue(", BOARD_WEB_APP_HTML)
         self.assertIn("function repairOrderRowsTotalValue(", BOARD_WEB_APP_HTML)
         self.assertIn(
             "const REPAIR_ORDER_ROW_TOTAL_ROUNDING_TOLERANCE = 0.011;",
@@ -4847,6 +4847,7 @@ class WebAssetsTests(unittest.TestCase):
             "function syncRepairOrdersLayout(status = state.repairOrdersFilter)", BOARD_WEB_APP_HTML
         )
         self.assertIn("function normalizeRepairOrdersSearchField(value)", BOARD_WEB_APP_HTML)
+        self.assertNotIn("function repairOrdersSearchFieldLabel(", BOARD_WEB_APP_HTML)
         self.assertIn(
             "function filterRepairOrdersItems(items = state.repairOrdersItems)", BOARD_WEB_APP_HTML
         )
@@ -4855,7 +4856,10 @@ class WebAssetsTests(unittest.TestCase):
             "const REPAIR_ORDER_SEARCH_FIELDS = ['number', 'date', 'client', 'phone', 'vehicle', 'summary', 'license_plate'];",
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn("if (normalized === 'license_plate') return 'ГОСНОМЕР';", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "repairOrdersTableHeadSearchableHtml('Госномер', 'license_plate')",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn(
             "if (normalized === 'license_plate') return 'поиск по госномеру';", BOARD_WEB_APP_HTML
         )
@@ -5773,7 +5777,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(
             "renderBoardColumnHtml(column, index, snapshot, cardsByColumn)", BOARD_WEB_APP_HTML
         )
-        self.assertIn("function boardCardElementById(cardId)", BOARD_WEB_APP_HTML)
+        self.assertNotIn("function boardCardElementById(", BOARD_WEB_APP_HTML)
         self.assertIn("function replaceBoardCardElement(nextCard)", BOARD_WEB_APP_HTML)
         self.assertIn(
             "function applyBoardColumnCardsPatch(nextCards, affectedColumnIds)", BOARD_WEB_APP_HTML

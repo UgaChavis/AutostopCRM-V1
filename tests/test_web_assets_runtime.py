@@ -920,7 +920,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
         fetch_full_card = _source_section(
             self.source,
             "async function fetchFullCard(cardId, expectedUpdatedAt = '')",
-            "function boardCardElementById(",
+            "function boardCardElementsById(",
         )
 
         self._run_node(

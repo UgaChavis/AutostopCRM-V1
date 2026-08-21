@@ -140,18 +140,21 @@ feed result, while 17 model/runtime/render/privacy boundaries have exact allowli
 reasons. A new or reclassified write route fails the gate until this contract
 is complete; call-graph reachability alone is not treated as end-to-end proof.
 
-### Browser AI compatibility
+### Agent compatibility endpoints
 
-The assembled board uses two explicit `CardService` HTTP contracts. They are
-not client-only aliases:
+The retired standalone AI chat and legacy AI entry surface are no longer
+shipped in the assembled board. The related `CardService` HTTP contracts
+remain registered service routes, not client-only aliases:
 
 - `GET|POST /api/get_ai_chat_knowledge` builds the bounded knowledge packet
-  used by the AI chat. It is read-only; POST accepts structured `context` and
-  `prompt_profile`, while GET is suitable for a simple `prompt` query.
+  available to guarded API/Gateway consumers. It is read-only; POST accepts
+  structured `context` and `prompt_profile`, while GET is suitable for a
+  simple `prompt` query. The current browser bundle does not call this route.
 - `POST /api/set_card_ai_autofill` updates the exact card's compatibility
-  state. It is a write route, accepts optional `expected_updated_at`, and
-  returns the current card plus launch/retirement metadata. Service-principal
-  callers must supply the current revision through the guarded Gateway route.
+  state and remains part of the active card-enrichment controls. It is a write
+  route, accepts optional `expected_updated_at`, and returns the current card
+  plus launch/retirement metadata. Service-principal callers must supply the
+  current revision through the guarded Gateway route.
 
 The compatibility write remains subject to maintenance, operator-proxy,
 idempotency, audit, and exact-card readback controls. A deployment without the

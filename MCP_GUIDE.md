@@ -192,8 +192,9 @@ Gateway responses use `agent_envelope_v2` and compact verification evidence.
   bearer calls remain audited as `codex-owner-agent`.
 - Operator-admin raw routes additionally require the local service identity
   and matching bearer token; public proxy traffic cannot claim that identity.
-- Exact UI/backend reads for AI chat knowledge, board revision, display
-  dashboard, inspection form, repair-order print workspace, and employees are
+- Exact backend compatibility reads for AI knowledge, plus UI/backend reads
+  for board revision, display dashboard, inspection form, repair-order print
+  workspace, and employees are
   guarded virtual `api:/api/...` capabilities classified as reads. They do not
   open a write ledger. `set_card_ai_autofill` and audited `open_card` remain
   guarded writes with idempotency plus exact card/activity readback.
