@@ -109,7 +109,7 @@ class AiScenarioDefinition:
 
 @dataclass(frozen=True)
 class AiFeatureFlags:
-    legacy_ux_enabled: bool = True
+    legacy_ux_enabled: bool = False
     ai_chat_enabled: bool = False
     full_card_enrichment_enabled: bool = True
     board_control_enabled: bool = False
@@ -176,14 +176,12 @@ class AiScenarioRegistry:
 
     def rollout_state_for(self, scenario_id: AiScenarioId, flags: AiFeatureFlags) -> AiRolloutState:
         if scenario_id == AiScenarioId.AI_CHAT:
-            if not flags.legacy_ux_enabled and flags.ai_chat_enabled:
-                return AiRolloutState.PRIMARY
             if flags.ai_chat_enabled:
                 return AiRolloutState.AVAILABLE
             return AiRolloutState.HIDDEN
         if scenario_id == AiScenarioId.FULL_CARD_ENRICHMENT:
             if flags.full_card_enrichment_enabled:
-                return AiRolloutState.AVAILABLE
+                return AiRolloutState.PRIMARY
             return AiRolloutState.HIDDEN
         if scenario_id == AiScenarioId.BOARD_CONTROL:
             if flags.board_control_enabled:
@@ -233,14 +231,14 @@ SCENARIO_DEFINITIONS: tuple[AiScenarioDefinition, ...] = (
         tool_classes=("read", "research", "summarize"),
         write_policy=AiWritePolicy.READ_HEAVY_RESTRICTED_WRITE,
         allowed_entry_surfaces=("future_ai_chat_window",),
-        legacy_replacement_scope="legacy_agent_modal_manual_tasks",
+        legacy_replacement_scope="retired_manual_ai_surface",
         future_module_owner="Module 1.2 AI Chat Console",
         boundaries=("not_background", "not_board_daemon", "not_default_write_mode"),
         non_goals=("no legacy modal reuse", "no silent scheduling", "no broad board mutations"),
     ),
     AiScenarioDefinition(
         scenario_id=AiScenarioId.FULL_CARD_ENRICHMENT,
-        display_intent="Future bounded card enrichment flow launched from the card indicator.",
+        display_intent="Active bounded card enrichment flow launched from the card indicator.",
         trigger_kind=AiTriggerKind.USER_INVOKED,
         actor_mode=AiActorMode.INTERACTIVE,
         interaction_style=AiInteractionStyle.DETERMINISTIC,
@@ -254,7 +252,7 @@ SCENARIO_DEFINITIONS: tuple[AiScenarioDefinition, ...] = (
         tool_classes=("read", "bounded_research", "normalize", "patch", "verify"),
         write_policy=AiWritePolicy.BOUNDED_WRITE,
         allowed_entry_surfaces=("future_card_enrichment_trigger", "card_indicator"),
-        legacy_replacement_scope="legacy_card_agent_button_and_card_autofill_menu",
+        legacy_replacement_scope="retired_card_ai_menu",
         future_module_owner="Module 1.3 Card Enrichment Pipeline",
         boundaries=("not_open_ended_chat", "not_board_scope", "not_menu_of_actions"),
         non_goals=(
@@ -262,6 +260,7 @@ SCENARIO_DEFINITIONS: tuple[AiScenarioDefinition, ...] = (
             "no hidden scheduling",
             "no broad board-level writes",
         ),
+        stage="active",
         default_enabled=True,
     ),
     AiScenarioDefinition(
@@ -280,7 +279,7 @@ SCENARIO_DEFINITIONS: tuple[AiScenarioDefinition, ...] = (
         tool_classes=("read", "bounded_update", "verify"),
         write_policy=AiWritePolicy.BOUNDED_BACKGROUND_WRITE,
         allowed_entry_surfaces=("settings_toggle", "background_scheduler"),
-        legacy_replacement_scope="legacy_board_scheduler_and_manual_board_agent_review",
+        legacy_replacement_scope="retired_board_agent_controls",
         future_module_owner="Module 1.4 Board Control Mode",
         boundaries=("not_user_chat", "not_free_agent", "not_autonomous_dispatcher"),
         non_goals=("no arbitrary moves", "no arbitrary deletes", "no free repair-order mutation"),
@@ -300,34 +299,6 @@ LEGACY_SCENARIO_NAMES: tuple[str, ...] = (
     "vin_enrichment",
 )
 
-LEGACY_AI_ENTRY_POINTS: dict[str, dict[str, Any]] = {
-    "board_dock_button": {
-        "surface": "web_assets.agentDockButton",
-        "role": "legacy_ux_entry_point",
-        "replacement": "ai_chat",
-    },
-    "card_agent_button": {
-        "surface": "web_assets.cardAgentButton",
-        "role": "legacy_ux_entry_point",
-        "replacement": "full_card_enrichment",
-    },
-    "quick_prompts": {
-        "surface": "web_assets.quickAgentPrompts",
-        "role": "legacy_ux_shortcut",
-        "replacement": "ai_chat / full_card_enrichment",
-    },
-    "agent_tasks_modal": {
-        "surface": "web_assets.agentTasksModal",
-        "role": "legacy_ux_scheduler_shell",
-        "replacement": "board_control",
-    },
-    "card_autofill_toggle": {
-        "surface": "web_assets.agentAutofillButton",
-        "role": "legacy_ux_entry_point",
-        "replacement": "full_card_enrichment",
-    },
-}
-
 
 class AiBackendComponentKind(StrEnum):
     SERVICE_BOUNDARY = "service_boundary"
@@ -341,7 +312,6 @@ class AiBackendComponentKind(StrEnum):
     EXECUTOR = "executor"
     SCHEDULER = "scheduler"
     LEGACY_GLUE = "legacy_glue"
-    STATUS_SURFACE = "status_surface"
 
 
 class AiBackendReuseCategory(StrEnum):
@@ -591,24 +561,6 @@ BACKEND_COMPONENT_DEFINITIONS: tuple[AiBackendComponentDefinition, ...] = (
         do_not_break=("preserve_source_whitelist_contract", "preserve_source_metadata_shape"),
     ),
     AiBackendComponentDefinition(
-        component_id="manual_prompt_bridge",
-        component_kind=AiBackendComponentKind.LEGACY_GLUE,
-        current_role="freeform textarea -> agent_enqueue_task translation",
-        reuse_category=AiBackendReuseCategory.LEGACY_ONLY_OR_RETIRE_LATER,
-        future_targets=(AiScenarioId.AI_CHAT,),
-        notes=("This bridge is tied to the old manual modal UX and should shrink later.",),
-        do_not_break=("keep_legacy_compatibility_until_ai_chat_exists",),
-    ),
-    AiBackendComponentDefinition(
-        component_id="quick_prompt_bridge",
-        component_kind=AiBackendComponentKind.LEGACY_GLUE,
-        current_role="canned quick prompt preprocessing and prompt injection",
-        reuse_category=AiBackendReuseCategory.LEGACY_ONLY_OR_RETIRE_LATER,
-        future_targets=(AiScenarioId.AI_CHAT, AiScenarioId.FULL_CARD_ENRICHMENT),
-        notes=("This is a convenience shim over the old modal flow.",),
-        do_not_break=("keep_quick_prompt_shortcuts_stable_until_replacement_exists",),
-    ),
-    AiBackendComponentDefinition(
         component_id="autofill_bridge",
         component_kind=AiBackendComponentKind.LEGACY_GLUE,
         current_role="set_card_ai_autofill and on-create trigger plumbing",
@@ -639,23 +591,20 @@ def build_ai_backend_reuse_registry() -> AiBackendReuseRegistry:
 class AiEntrySurfaceKind(StrEnum):
     UI = "ui"
     BACKEND = "backend"
-    STATUS = "status"
     FUTURE = "future"
+    STATUS = "status"
 
 
 class AiEntryExposureState(StrEnum):
     ACTIVE = "active"
     GATED = "gated"
     HIDDEN = "hidden"
-    LEGACY_ONLY = "legacy_only"
-    REPLACED = "replaced"
 
 
 class AiEntryDeactivationPolicy(StrEnum):
     KEEP = "keep"
     GATE = "gate"
     LATER_HIDE = "later_hide"
-    LATER_REMOVE = "later_remove"
 
 
 @dataclass(frozen=True)
@@ -731,105 +680,138 @@ class AiEntrySurfaceRegistry:
         return [item.entry_id for item in self.surfaces]
 
 
-LEGACY_DEACTIVATION_MAP: tuple[AiEntrySurfaceDefinition, ...] = (
+RETIRED_LEGACY_AI_ENTRY_POINTS: dict[str, dict[str, Any]] = {
+    "board_dock_button": {
+        "surface": "web_assets.agentDockButton",
+        "role": "retired_unreachable",
+        "replacement": AiScenarioId.AI_CHAT.value,
+    },
+    "card_agent_button": {
+        "surface": "web_assets.cardAgentButton",
+        "role": "retired_unreachable",
+        "replacement": AiScenarioId.FULL_CARD_ENRICHMENT.value,
+    },
+    "quick_prompts": {
+        "surface": "web_assets.quickAgentPrompts",
+        "role": "retired_unreachable",
+        "replacement": f"{AiScenarioId.AI_CHAT.value} / {AiScenarioId.FULL_CARD_ENRICHMENT.value}",
+    },
+    "agent_tasks_modal": {
+        "surface": "web_assets.agentTasksModal",
+        "role": "retired_unreachable",
+        "replacement": AiScenarioId.BOARD_CONTROL.value,
+    },
+    "card_autofill_toggle": {
+        "surface": "web_assets.agentAutofillButton",
+        "role": "retired_unreachable",
+        "replacement": AiScenarioId.FULL_CARD_ENRICHMENT.value,
+    },
+}
+
+
+RETIRED_AI_ENTRY_TOMBSTONES: tuple[AiEntrySurfaceDefinition, ...] = (
     AiEntrySurfaceDefinition(
         entry_id="board_dock_button",
         location="web_assets.agentDockButton -> openAgentModal('board')",
-        current_behavior="opens the mixed board agent modal",
-        scenario_semantics_today="legacy board-oriented manual AI entry",
+        current_behavior="legacy modal JavaScript remains shipped without a rendered trigger",
+        scenario_semantics_today="retired board-oriented manual AI entry",
         surface_kind=AiEntrySurfaceKind.UI,
-        legacy_status="legacy_only",
+        legacy_status="retired_unreachable",
         deactivation_policy=AiEntryDeactivationPolicy.LATER_HIDE,
         replacement_target=AiScenarioId.AI_CHAT.value,
         replacement_module="Module 1.2 AI Chat Console",
-        rollout_dependency="legacy_ux_enabled / ai_chat rollout",
+        rollout_dependency="ai_chat feature",
         future_module_owner="Module 1.2 AI Chat Console",
-        notes=("Current button remains visible for compatibility.",),
+        notes=("Compatibility tombstone; do not treat as an active UI surface.",),
     ),
     AiEntrySurfaceDefinition(
         entry_id="card_agent_button",
-        location="web_assets.cardAgentButton -> openAgentModal('card')",
-        current_behavior="opens the card-scoped legacy agent modal",
-        scenario_semantics_today="legacy card-scoped AI entry",
+        location="retired web_assets.cardAgentButton -> openAgentModal('card') path",
+        current_behavior="legacy modal branch remains shipped but the button runs card enrichment",
+        scenario_semantics_today="retired card-scoped modal entry",
         surface_kind=AiEntrySurfaceKind.UI,
-        legacy_status="legacy_only",
+        legacy_status="retired_unreachable",
         deactivation_policy=AiEntryDeactivationPolicy.LATER_HIDE,
         replacement_target=AiScenarioId.FULL_CARD_ENRICHMENT.value,
         replacement_module="Module 1.3 Card Enrichment Pipeline",
-        rollout_dependency="legacy_ux_enabled / full_card_enrichment rollout",
+        rollout_dependency="full_card_enrichment feature",
         future_module_owner="Module 1.3 Card Enrichment Pipeline",
-        notes=("Replacement will be a bounded enrichment path, not a new modal clone.",),
+        notes=("The active card button is tracked separately as the enrichment trigger.",),
     ),
     AiEntrySurfaceDefinition(
         entry_id="agent_manual_prompt",
-        location="web_assets.agentTaskInput + agentRunButton -> /api/agent_enqueue_task",
-        current_behavior="submits freeform manual task text to the worker",
-        scenario_semantics_today="legacy manual conversational surface",
+        location="web_assets.agentTaskInput + agentRunButton",
+        current_behavior="freeform prompt handlers remain in an unreachable compatibility body",
+        scenario_semantics_today="retired manual conversational surface",
         surface_kind=AiEntrySurfaceKind.UI,
-        legacy_status="legacy_only",
+        legacy_status="retired_unreachable",
         deactivation_policy=AiEntryDeactivationPolicy.GATE,
         replacement_target=AiScenarioId.AI_CHAT.value,
         replacement_module="Module 1.2 AI Chat Console",
-        rollout_dependency="legacy_ux_enabled / ai_chat rollout",
+        rollout_dependency="ai_chat feature",
         future_module_owner="Module 1.2 AI Chat Console",
-        notes=("This is the main legacy freeform prompt path.",),
+        notes=("Backend enqueue compatibility remains active under its own entry id.",),
     ),
     AiEntrySurfaceDefinition(
         entry_id="quick_prompts",
         location="web_assets.quickAgentPrompts + data-agent-prompt handlers",
-        current_behavior="prefills canned prompts into the manual agent textarea",
-        scenario_semantics_today="legacy shortcut surface for mixed AI tasks",
+        current_behavior="canned prompt JavaScript remains shipped without an entry surface",
+        scenario_semantics_today="retired mixed-task shortcut surface",
         surface_kind=AiEntrySurfaceKind.UI,
-        legacy_status="legacy_only",
+        legacy_status="retired_unreachable",
         deactivation_policy=AiEntryDeactivationPolicy.GATE,
         replacement_target=f"{AiScenarioId.AI_CHAT.value} / {AiScenarioId.FULL_CARD_ENRICHMENT.value}",
         replacement_module="Module 1.2 + Module 1.3",
-        rollout_dependency="legacy_ux_enabled / ai_chat + enrichment rollout",
+        rollout_dependency="ai_chat and full_card_enrichment features",
         future_module_owner="Module 1.2 AI Chat Console",
-        notes=("Quick prompts are currently a shortcut layer, not a new scenario.",),
+        notes=("Compatibility tombstone; no quick-prompt control is rendered.",),
     ),
     AiEntrySurfaceDefinition(
         entry_id="agent_tasks_modal",
-        location="web_assets.agentTasksModal -> /api/agent_scheduled_tasks and run/pause/resume endpoints",
-        current_behavior="shows manual tasks, schedules, and execution controls",
-        scenario_semantics_today="legacy mixed scheduler shell",
+        location="web_assets.agentTasksModal task and scheduler shell",
+        current_behavior="modal JavaScript remains shipped without a rendered opener",
+        scenario_semantics_today="retired mixed scheduler shell",
         surface_kind=AiEntrySurfaceKind.UI,
-        legacy_status="legacy_only",
+        legacy_status="retired_unreachable",
         deactivation_policy=AiEntryDeactivationPolicy.LATER_HIDE,
         replacement_target=AiScenarioId.BOARD_CONTROL.value,
         replacement_module="Module 1.4 Board Control Mode",
-        rollout_dependency="legacy_ux_enabled / board_control rollout",
+        rollout_dependency="board_control feature",
         future_module_owner="Module 1.4 Board Control Mode",
-        notes=("Will later split into background control and separate admin surfaces.",),
+        notes=("Scheduler APIs remain active as backend compatibility seams.",),
     ),
     AiEntrySurfaceDefinition(
         entry_id="card_autofill_toggle",
-        location="web_assets.agentAutofillButton + mini-prompt panel + /api/set_card_ai_autofill",
-        current_behavior="toggles card autofill and opens the mini-prompt panel",
-        scenario_semantics_today="legacy card autofill trigger surface",
+        location="web_assets.agentAutofillButton + mini-prompt panel",
+        current_behavior="legacy toggle JavaScript remains shipped without a rendered control",
+        scenario_semantics_today="retired card autofill UI surface",
         surface_kind=AiEntrySurfaceKind.UI,
-        legacy_status="legacy_only",
+        legacy_status="retired_unreachable",
         deactivation_policy=AiEntryDeactivationPolicy.LATER_HIDE,
         replacement_target=AiScenarioId.FULL_CARD_ENRICHMENT.value,
         replacement_module="Module 1.3 Card Enrichment Pipeline",
-        rollout_dependency="legacy_ux_enabled / full_card_enrichment rollout",
+        rollout_dependency="full_card_enrichment feature",
         future_module_owner="Module 1.3 Card Enrichment Pipeline",
-        notes=("This is the old card autofill control path.",),
+        notes=("The set_card_ai_autofill API remains a backend compatibility seam.",),
     ),
     AiEntrySurfaceDefinition(
         entry_id="agent_status_surface",
         location="web_assets.agentStatusLabel + agentAutofillStatus",
-        current_behavior="shows agent readiness and autofill state in the UI",
-        scenario_semantics_today="read-only agent availability surface",
+        current_behavior="status rendering body remains shipped with the retired modal shell",
+        scenario_semantics_today="retired legacy status surface",
         surface_kind=AiEntrySurfaceKind.STATUS,
-        legacy_status="infrastructure",
-        deactivation_policy=AiEntryDeactivationPolicy.KEEP,
+        legacy_status="retired_unreachable",
+        deactivation_policy=AiEntryDeactivationPolicy.LATER_HIDE,
         replacement_target="none",
         replacement_module="none",
         rollout_dependency="agent runtime availability",
         future_module_owner="Module 1.x shared runtime",
-        notes=("This surface is preserved for diagnostics and does not initiate work.",),
+        notes=("Runtime status stays available through /api/agent_status.",),
     ),
+)
+
+
+AI_ENTRY_SURFACES: tuple[AiEntrySurfaceDefinition, ...] = (
     AiEntrySurfaceDefinition(
         entry_id="agent_enqueue_task_api",
         location="/api/agent_enqueue_task",
@@ -840,9 +822,9 @@ LEGACY_DEACTIVATION_MAP: tuple[AiEntrySurfaceDefinition, ...] = (
         deactivation_policy=AiEntryDeactivationPolicy.KEEP,
         replacement_target=AiScenarioId.AI_CHAT.value,
         replacement_module="Module 1.2 AI Chat Console",
-        rollout_dependency="legacy_ux_enabled / ai_chat rollout",
+        rollout_dependency="ai_chat feature",
         future_module_owner="Module 1.2 AI Chat Console",
-        notes=("Used by current UI and future chat entry seam.",),
+        notes=("Preserved as a backend compatibility seam; the browser has no manual prompt.",),
     ),
     AiEntrySurfaceDefinition(
         entry_id="agent_scheduled_tasks_api",
@@ -904,17 +886,17 @@ LEGACY_DEACTIVATION_MAP: tuple[AiEntrySurfaceDefinition, ...] = (
     ),
     AiEntrySurfaceDefinition(
         entry_id="future_card_enrichment_trigger",
-        location="future card indicator / future card enrichment entry",
-        current_behavior="future bounded card enrichment trigger placeholder",
-        scenario_semantics_today="future deterministic card-scoped path",
-        surface_kind=AiEntrySurfaceKind.FUTURE,
-        legacy_status="future_only",
-        deactivation_policy=AiEntryDeactivationPolicy.GATE,
+        location="web_assets.cardAgentButton -> runFullCardEnrichment",
+        current_behavior="runs bounded full-card enrichment for the open card",
+        scenario_semantics_today="active deterministic card-scoped enrichment path",
+        surface_kind=AiEntrySurfaceKind.UI,
+        legacy_status="active_replacement",
+        deactivation_policy=AiEntryDeactivationPolicy.KEEP,
         replacement_target=AiScenarioId.FULL_CARD_ENRICHMENT.value,
         replacement_module="Module 1.3 Card Enrichment Pipeline",
-        rollout_dependency="full_card_enrichment rollout",
+        rollout_dependency="full_card_enrichment feature",
         future_module_owner="Module 1.3 Card Enrichment Pipeline",
-        notes=("Not yet wired in UI.",),
+        notes=("Entry id is retained for browser status-payload compatibility.",),
     ),
     AiEntrySurfaceDefinition(
         entry_id="future_board_control_toggle",
@@ -954,117 +936,36 @@ def _entry_has_enabled_replacement(
     return False
 
 
-def _entry_has_primary_replacement(
-    entry: AiEntrySurfaceDefinition, mode_config: AiModeConfig
-) -> bool:
-    for scenario_id in _entry_replacement_scenarios(entry):
-        scenario_state = mode_config.scenario_state.get(scenario_id)
-        if scenario_state and scenario_state.primary_interactive:
-            return True
-    return False
-
-
 def build_ai_entry_surface_registry() -> AiEntrySurfaceRegistry:
-    return AiEntrySurfaceRegistry(LEGACY_DEACTIVATION_MAP)
-
-
-def _entry_backend_rollout_state(
-    entry: AiEntrySurfaceDefinition,
-    flags: AiFeatureFlags,
-    *,
-    replacement_enabled: bool,
-    replacement_primary: bool,
-) -> AiEntryExposureState:
-    if entry.entry_id in {
-        "agent_scheduled_tasks_api",
-        "set_card_ai_autofill_api",
-        "card_created_auto_trigger",
-    }:
-        if replacement_primary:
-            return AiEntryExposureState.REPLACED
-        if replacement_enabled:
-            return AiEntryExposureState.GATED
-        return (
-            AiEntryExposureState.LEGACY_ONLY
-            if flags.legacy_ux_enabled
-            else AiEntryExposureState.HIDDEN
-        )
-    return AiEntryExposureState.ACTIVE
+    return AiEntrySurfaceRegistry(AI_ENTRY_SURFACES)
 
 
 def _entry_future_rollout_state(
-    entry: AiEntrySurfaceDefinition,
     *,
     replacement_enabled: bool,
-    replacement_primary: bool,
 ) -> AiEntryExposureState:
-    if entry.entry_id == "future_card_enrichment_trigger" and replacement_enabled:
-        return AiEntryExposureState.ACTIVE
-    if replacement_enabled or replacement_primary:
+    if replacement_enabled:
         return AiEntryExposureState.GATED
     return AiEntryExposureState.HIDDEN
 
 
-def _entry_standard_rollout_state(
-    entry: AiEntrySurfaceDefinition,
-    flags: AiFeatureFlags,
-    *,
-    replacement_enabled: bool,
-    replacement_primary: bool,
+def _entry_rollout_state(
+    entry: AiEntrySurfaceDefinition, mode_config: AiModeConfig
 ) -> AiEntryExposureState:
-    if replacement_primary:
-        return AiEntryExposureState.REPLACED
-    if replacement_enabled:
-        return (
-            AiEntryExposureState.LEGACY_ONLY
-            if flags.legacy_ux_enabled
-            else AiEntryExposureState.REPLACED
-        )
-    if flags.legacy_ux_enabled:
-        if entry.deactivation_policy == AiEntryDeactivationPolicy.KEEP:
-            return AiEntryExposureState.ACTIVE
-        return AiEntryExposureState.LEGACY_ONLY
-    if entry.deactivation_policy == AiEntryDeactivationPolicy.KEEP:
+    if entry.surface_kind == AiEntrySurfaceKind.BACKEND:
         return AiEntryExposureState.ACTIVE
-    if entry.deactivation_policy == AiEntryDeactivationPolicy.GATE:
-        return AiEntryExposureState.HIDDEN
-    if entry.deactivation_policy == AiEntryDeactivationPolicy.LATER_HIDE:
-        return AiEntryExposureState.HIDDEN
+    replacement_enabled = _entry_has_enabled_replacement(entry, mode_config)
+    if entry.entry_id == "future_card_enrichment_trigger":
+        return AiEntryExposureState.ACTIVE if replacement_enabled else AiEntryExposureState.HIDDEN
+    if entry.surface_kind == AiEntrySurfaceKind.FUTURE:
+        return _entry_future_rollout_state(
+            replacement_enabled=replacement_enabled,
+        )
     return AiEntryExposureState.HIDDEN
 
 
-def _entry_rollout_state(
-    entry: AiEntrySurfaceDefinition, flags: AiFeatureFlags, mode_config: AiModeConfig
-) -> AiEntryExposureState:
-    if entry.surface_kind == AiEntrySurfaceKind.STATUS:
-        return AiEntryExposureState.ACTIVE
-    if entry.entry_id == "agent_enqueue_task_api":
-        return AiEntryExposureState.ACTIVE
-    replacement_enabled = _entry_has_enabled_replacement(entry, mode_config)
-    replacement_primary = _entry_has_primary_replacement(entry, mode_config)
-    if entry.surface_kind == AiEntrySurfaceKind.BACKEND:
-        return _entry_backend_rollout_state(
-            entry,
-            flags,
-            replacement_enabled=replacement_enabled,
-            replacement_primary=replacement_primary,
-        )
-    if entry.surface_kind == AiEntrySurfaceKind.FUTURE:
-        return _entry_future_rollout_state(
-            entry,
-            replacement_enabled=replacement_enabled,
-            replacement_primary=replacement_primary,
-        )
-    return _entry_standard_rollout_state(
-        entry,
-        flags,
-        replacement_enabled=replacement_enabled,
-        replacement_primary=replacement_primary,
-    )
-
-
 def get_ai_entry_surface_map() -> dict[str, dict[str, Any]]:
-    return {item.entry_id: item.to_dict() for item in LEGACY_DEACTIVATION_MAP}
+    return {item.entry_id: item.to_dict() for item in AI_ENTRY_SURFACES}
 
 
 def get_ai_entry_exposure_map(
@@ -1075,7 +976,7 @@ def get_ai_entry_exposure_map(
     return {
         item.entry_id: AiEntryExposureRecord(
             entry_id=item.entry_id,
-            exposure_state=_entry_rollout_state(item, resolved_flags, resolved_mode),
+            exposure_state=_entry_rollout_state(item, resolved_mode),
             legacy_status=item.legacy_status,
             deactivation_policy=item.deactivation_policy,
             replacement_target=item.replacement_target,
@@ -1084,7 +985,7 @@ def get_ai_entry_exposure_map(
             surface_kind=item.surface_kind,
             reason=f"{item.deactivation_policy.value}:{item.replacement_target}",
         ).to_dict()
-        for item in LEGACY_DEACTIVATION_MAP
+        for item in AI_ENTRY_SURFACES
     }
 
 
@@ -1102,7 +1003,7 @@ def get_ai_legacy_deactivation_map() -> dict[str, dict[str, Any]]:
             "surface_kind": item.surface_kind.value,
             "scenario_semantics_today": item.scenario_semantics_today,
         }
-        for item in LEGACY_DEACTIVATION_MAP
+        for item in (*RETIRED_AI_ENTRY_TOMBSTONES, *AI_ENTRY_SURFACES)
     }
 
 
@@ -1112,7 +1013,7 @@ def build_ai_scenario_registry() -> AiScenarioRegistry:
 
 def get_ai_feature_flags() -> AiFeatureFlags:
     return AiFeatureFlags(
-        legacy_ux_enabled=_env_flag("MINIMAL_KANBAN_AI_LEGACY_UX_ENABLED", default=True),
+        legacy_ux_enabled=False,
         ai_chat_enabled=_env_flag("MINIMAL_KANBAN_AI_CHAT_ENABLED", default=False),
         full_card_enrichment_enabled=_env_flag(
             "MINIMAL_KANBAN_FULL_CARD_ENRICHMENT_ENABLED", default=True
@@ -1128,9 +1029,7 @@ def get_ai_mode_config(flags: AiFeatureFlags | None = None) -> AiModeConfig:
         item.scenario_id: registry.mode_state_for(item.scenario_id, resolved_flags)
         for item in registry.scenarios
     }
-    return AiModeConfig(
-        legacy_ux_enabled=resolved_flags.legacy_ux_enabled, scenario_state=scenario_state
-    )
+    return AiModeConfig(legacy_ux_enabled=False, scenario_state=scenario_state)
 
 
 def get_ai_effective_mode(flags: AiFeatureFlags | None = None) -> dict[str, Any]:
@@ -1144,7 +1043,7 @@ def get_ai_effective_mode(flags: AiFeatureFlags | None = None) -> dict[str, Any]
             for state in mode_config.scenario_state.values()
             if state.primary_interactive
         ),
-        "legacy_agent_modal_manual_tasks" if resolved_flags.legacy_ux_enabled else "none",
+        "none",
     )
     legacy_compatible_only = [
         scenario_id.value
@@ -1165,7 +1064,7 @@ def get_ai_effective_mode(flags: AiFeatureFlags | None = None) -> dict[str, Any]
         scenario_id for scenario_id, item in scenario_map.items() if bool(item.get("enabled"))
     ]
     return {
-        "legacy_ux_enabled": bool(resolved_flags.legacy_ux_enabled),
+        "legacy_ux_enabled": bool(mode_config.legacy_ux_enabled),
         "primary_interactive_path": primary,
         "legacy_compatible_only": legacy_compatible_only,
         "hidden": hidden,
@@ -1180,16 +1079,16 @@ def get_ai_scenario_map(flags: AiFeatureFlags | None = None) -> dict[str, dict[s
     return build_ai_scenario_registry().to_dict(flags)
 
 
-def get_ai_legacy_entry_point_map() -> dict[str, dict[str, Any]]:
-    return {key: dict(value) for key, value in LEGACY_AI_ENTRY_POINTS.items()}
-
-
 def get_ai_backend_component_registry() -> dict[str, dict[str, Any]]:
     return build_ai_backend_reuse_registry().to_dict()
 
 
 def get_ai_backend_reuse_map() -> dict[str, dict[str, Any]]:
     return build_ai_backend_reuse_registry().grouped_by_category()
+
+
+def get_ai_legacy_entry_point_map() -> dict[str, dict[str, Any]]:
+    return {key: dict(value) for key, value in RETIRED_LEGACY_AI_ENTRY_POINTS.items()}
 
 
 def get_ai_remodel_status_payload() -> dict[str, Any]:
