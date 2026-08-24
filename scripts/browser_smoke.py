@@ -1,92 +1,74 @@
 from __future__ import annotations
 
-# ruff: noqa: E402,I001
+# ruff: noqa: E402,F401,I001
 
 import argparse
 import asyncio
-import base64
 import json
-import logging
 import math
 import os
-import re
-import socket
-import subprocess
 import sys
-import tempfile
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+SCRIPTS = ROOT / "scripts"
+for import_path in (SRC, SCRIPTS):
+    if str(import_path) not in sys.path:
+        sys.path.insert(0, str(import_path))
 
-from minimal_kanban.api.server import ApiServer
 from minimal_kanban.json_safety import reject_deeply_nested_json
-from minimal_kanban.operator_activity import OperatorActivityService
-from minimal_kanban.operator_auth import OperatorAuthService
-from minimal_kanban.services.card_service import CardService
-from minimal_kanban.services.shared_files_service import SharedFilesService
-from minimal_kanban.storage.json_store import JsonStore
 
-SMOKE_SCENARIOS = (
-    "login_gate_hides_board_until_operator_login",
-    "desktop_board_card_roundtrip",
-    "move_card_delta_roundtrip",
-    "personal_extra_board_column",
-    "display_dashboard_popup_1920x1080",
-    "card_timer_start_stop",
-    "card_long_description_controls_reachable",
-    "cashbox_journal_workspace",
-    "cashbox_journal_filters_and_no_audit",
-    "cashbox_journal_compact_cleanup",
-    "cashbox_journal_mode_and_period_navigation",
-    "cashbox_journal_first_render_budget",
-    "cashbox_transaction_cancellation",
-    "repair_order_payments_modal",
-    "repair_order_material_executor_defaults_to_operator_employee",
-    "completion_act_editor_draft_roundtrip",
-    "clients_modal",
-    "clients_search_selects_realistic_row",
-    "files_modal",
-    "shared_files_scanability_markup",
-    "employees_repair_order_returns_to_employee",
-    "employee_shift_accrual_manual_salary",
-    "clients_repair_order_returns_to_client",
-    "repair_orders_list_returns_to_list",
-    "repair_orders_toolbar_stays_available_while_list_scrolls",
-    "repair_order_salary_override_popover",
-    "payroll_chain_reaches_reports_and_reconciliation",
-    "archive_search_filters_visible_rows",
-    "cashboxes_journal_transfer_returns_to_cashbox",
-    "escape_closes_top_modal_only",
-    "operator_admin_employee_binding_returns_to_users",
+from browser_smoke_completion_act import (
+    _arm_browser_print_capture,
+    _capture_browser_print_html,
+    _completion_act_footer_sequence,
+    _completion_act_pdf_contract,
+    _completion_act_pdf_fixture,
+    _exercise_completion_act_cross_card_race,
+    _exercise_completion_act_editor_print_export,
+    _exercise_completion_act_main_print_regression,
+    _exercise_completion_act_max_items_ui,
+    _exercise_completion_act_physical_pdf_regression,
+    _pdf_file_is_parseable,
+    _pdf_page_texts,
+    _pdfinfo_page_count,
 )
-
-MOBILE_SMOKE_SCENARIOS = (
-    "mobile_board_load",
-    "mobile_personal_extra_column",
-    "mobile_card_detail",
-    "mobile_cashboxes_workspace",
-    "mobile_repair_orders_workspace",
-    "mobile_clients_panel",
-    "mobile_employees_panel",
-    "mobile_archive_panel",
-    "mobile_files_panel",
+from browser_smoke_core import (
+    _anonymous_write_rejected,
+    _exercise_board_create_roundtrip,
+    _exercise_client_link_roundtrip,
+    _exercise_files_modal,
+    _exercise_inventory_item_roundtrip,
+    _exercise_repair_order_preview_roundtrip,
 )
-
-SMOKE_SCENARIOS = SMOKE_SCENARIOS + MOBILE_SMOKE_SCENARIOS
-DESKTOP_SMOKE_SCENARIOS = tuple(
-    name
-    for name in SMOKE_SCENARIOS
-    if name not in set(MOBILE_SMOKE_SCENARIOS) | {"login_gate_hides_board_until_operator_login"}
+from browser_smoke_profiles import (
+    BROWSER_DEPENDENCY_PROBES,
+    CORE_SMOKE_SCENARIOS,
+    DESKTOP_SMOKE_SCENARIOS,
+    MOBILE_SMOKE_SCENARIOS,
+    PROFILE_CORE,
+    PROFILE_FULL,
+    SCENARIO_REGISTRY,
+    SMOKE_SCENARIOS,
+    SUPPORTED_PROFILES,
+    missing_browser_dependencies,
+    missing_dependency_result,
+    scenarios_for_profile,
+)
+from browser_smoke_runtime import TempRuntime, _first_free_port, start_temp_runtime
+from browser_smoke_support import (
+    _api_data,
+    _close_card_modal_if_open,
+    _is_modal_open,
+    _wait_clients_search_ready,
+    _wait_modal_closed,
+    _wait_modal_open,
 )
 
 BROWSER_READ_RETRY_LIMIT = 1
@@ -101,110 +83,8 @@ SMOKE_UI_BIND_TIMEOUT_MS = 30000
 BENIGN_FAILED_REQUEST_MARKERS = ("net::ERR_ABORTED", "NS_BINDING_ABORTED", "AbortError")
 
 
-def _pdf_file_is_parseable(path: Path) -> bool:
-    try:
-        from PySide6.QtPdf import QPdfDocument
-    except Exception:
-        return False
-    document = QPdfDocument()
-    try:
-        error = document.load(str(path))
-        return bool(
-            error == QPdfDocument.Error.None_
-            and document.status() == QPdfDocument.Status.Ready
-            and document.pageCount() > 0
-        )
-    finally:
-        document.close()
-
-
-def _pdfinfo_page_count(path: Path) -> int:
-    try:
-        result = subprocess.run(
-            ["pdfinfo", str(path)],
-            check=False,
-            capture_output=True,
-            timeout=30,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return 0
-    if result.returncode != 0:
-        return 0
-    output = result.stdout.decode("utf-8", errors="replace")
-    match = re.search(r"^Pages:\s*(\d+)\s*$", output, flags=re.MULTILINE)
-    return int(match.group(1)) if match else 0
-
-
-def _pdf_page_texts(path: Path, page_count: int) -> list[str]:
-    pages: list[str] = []
-    for page_number in range(1, page_count + 1):
-        try:
-            result = subprocess.run(
-                [
-                    "pdftotext",
-                    "-f",
-                    str(page_number),
-                    "-l",
-                    str(page_number),
-                    "-layout",
-                    str(path),
-                    "-",
-                ],
-                check=False,
-                capture_output=True,
-                timeout=30,
-            )
-        except (OSError, subprocess.SubprocessError):
-            return []
-        if result.returncode != 0:
-            return []
-        pages.append(result.stdout.decode("utf-8", errors="replace").strip("\f\r\n "))
-    return pages
-
-
-def _completion_act_footer_sequence(
-    page_texts: list[str],
-    *,
-    platform_name: str | None = None,
-) -> list[tuple[int, int]]:
-    effective_platform = os.name if platform_name is None else platform_name
-    footer_sequence: list[tuple[int, int]] = []
-    for page_text in page_texts:
-        compact = re.sub(r"\s+", " ", page_text)
-        matches = re.findall(r"страница\s+(\d+)\s+из\s+(\d+)", compact, flags=re.IGNORECASE)
-        if len(matches) == 1:
-            footer_sequence.append(tuple(int(value) for value in matches[0]))
-            continue
-        if matches or effective_platform != "nt":
-            return []
-
-        non_empty_lines = [line.strip() for line in page_text.splitlines() if line.strip()]
-        if not non_empty_lines:
-            return []
-        fallback = re.search(r"(\d+)\s+(\d+)\s*$", non_empty_lines[-1])
-        if fallback is None:
-            return []
-        footer_sequence.append(tuple(int(value) for value in fallback.groups()))
-    return footer_sequence
-
-
-def _completion_act_pdf_contract(
-    path: Path,
-    *,
-    expected_page_count: int,
-    expected_item_names: list[str],
-) -> bool:
-    page_count = _pdfinfo_page_count(path)
-    if page_count != expected_page_count:
-        return False
-    page_texts = _pdf_page_texts(path, page_count)
-    if len(page_texts) != page_count or any(not text.strip() for text in page_texts):
-        return False
-    footer_sequence = _completion_act_footer_sequence(page_texts)
-    if footer_sequence != [(page_number, page_count) for page_number in range(1, page_count + 1)]:
-        return False
-    combined_text = "\n".join(page_texts)
-    return all(combined_text.count(name) == 1 for name in expected_item_names)
+class BrowserLaunchError(RuntimeError):
+    pass
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -295,39 +175,6 @@ def _browser_start_port(value: Any) -> int:
     return int(port)
 
 
-@dataclass
-class TempRuntime:
-    temp_dir: tempfile.TemporaryDirectory[str]
-    api: ApiServer
-    service: CardService
-    cashbox_id: str
-    card_id: str
-    extra_column_card_id: str
-    employee_id: str
-    payroll_card_id: str
-    payroll_month: str
-    salary_override_card_id: str
-    client_id: str
-    client_card_id: str
-    archived_card_id: str
-
-    @property
-    def base_url(self) -> str:
-        return self.api.base_url
-
-    def close(self) -> None:
-        self.api.stop()
-        self.temp_dir.cleanup()
-
-
-def _logger() -> logging.Logger:
-    logger = logging.getLogger("autostop.browser_smoke")
-    logger.handlers.clear()
-    logger.addHandler(logging.NullHandler())
-    logger.propagate = False
-    return logger
-
-
 def configure_stdout_utf8() -> None:
     reconfigure = getattr(sys.stdout, "reconfigure", None)
     if callable(reconfigure):
@@ -390,310 +237,6 @@ def _read_text(url: str, *, timeout: float = 8.0) -> str:
     return _read_bytes(url, accept="text/html", timeout=timeout).decode("utf-8")
 
 
-def _port_has_listener(host: str, port: int) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.settimeout(0.2)
-        return sock.connect_ex((host, port)) == 0
-
-
-def _first_free_port(start_port: int, *, host: str = "127.0.0.1", limit: int = 50) -> int:
-    for candidate in range(start_port, start_port + limit):
-        if not _port_has_listener(host, candidate):
-            return candidate
-    raise RuntimeError("Не удалось найти свободный локальный порт для browser smoke.")
-
-
-def start_temp_runtime(*, start_port: int = 42731) -> TempRuntime:
-    temp_dir = tempfile.TemporaryDirectory(prefix="autostop-browser-smoke-")
-    base_dir = Path(temp_dir.name)
-    logger = _logger()
-    start_port = _first_free_port(start_port)
-    store = JsonStore(state_file=base_dir / "state.json", logger=logger)
-    service = CardService(
-        store,
-        logger,
-        attachments_dir=base_dir / "attachments",
-        repair_orders_dir=base_dir / "repair-orders",
-    )
-    service.set_onboarding_seen(True)
-    cashbox = service.create_cashbox({"name": "Наличный", "actor_name": "SMOKE"})["cashbox"]
-    service.create_cashbox({"name": "Безналичный", "actor_name": "SMOKE"})
-    service.create_cash_transaction(
-        {
-            "cashbox_id": cashbox["id"],
-            "direction": "income",
-            "amount": "1000",
-            "note": "Smoke opening balance",
-            "actor_name": "SMOKE",
-        }
-    )
-    for index in range(260):
-        service.create_cash_transaction(
-            {
-                "cashbox_id": cashbox["id"],
-                "direction": "income" if index % 3 else "expense",
-                "amount": str(10 + index),
-                "note": f"Smoke journal batch {index:03d}",
-                "actor_name": "SMOKE",
-            }
-        )
-    card = service.create_card(
-        {
-            "vehicle": "Toyota Smoke",
-            "title": "Browser smoke initial",
-            "description": "Temporary card created by browser smoke.",
-            "actor_name": "SMOKE",
-        }
-    )["card"]
-    extra_column_card = service.create_card(
-        {
-            "vehicle": "Toyota Extra Column Smoke",
-            "title": "Browser smoke extra column",
-            "tags": [
-                {"label": "ГОТОВ", "color": "green"},
-                {"label": "SMOKE ПЕРВАЯ", "color": "green"},
-                {"label": "SMOKE ВТОРАЯ", "color": "yellow"},
-                {"label": "НАДО ЧТО ТО СДЕЛАТЬ", "color": "red"},
-            ],
-            "actor_name": "SMOKE",
-        }
-    )["card"]
-    employee = service.save_employee(
-        {
-            "name": "Smoke Мастер",
-            "position": "Механик",
-            "salary_mode": "salary_plus_percent",
-            "base_salary": "40000",
-            "work_percent": "25",
-            "actor_name": "SMOKE",
-        }
-    )["employee"]
-    for index in range(1, 16):
-        ranking_employee = service.save_employee(
-            {
-                "name": f"Smoke Сотрудник {index:02d}",
-                "position": "Механик",
-                "salary_mode": "none",
-                "actor_name": "SMOKE",
-            }
-        )["employee"]
-        service.create_employee_shift_accrual(
-            {
-                "employee_id": ranking_employee["id"],
-                "amount": (f"{(16 - index) * 1000}.01" if index == 1 else str((16 - index) * 1000)),
-                "note": "Smoke недельный рейтинг",
-                "actor_name": "SMOKE",
-            }
-        )
-    payroll_card = service.create_card(
-        {
-            "vehicle": "Lada Payroll Smoke",
-            "title": "Browser smoke payroll order",
-            "deadline": {"hours": 2},
-            "actor_name": "SMOKE",
-        }
-    )["card"]
-    service.update_card(
-        {
-            "card_id": payroll_card["id"],
-            "repair_order": {
-                "number": "901",
-                "status": "open",
-                "vehicle": "Lada Payroll Smoke",
-                "payments": [
-                    {
-                        "amount": "20000",
-                        "paid_at": "18.05.2026 10:00",
-                        "payment_method": "cash",
-                    }
-                ],
-                "works": [
-                    {
-                        "name": "Smoke payroll work",
-                        "quantity": "1",
-                        "price": "20000",
-                        "executor_id": employee["id"],
-                        "work_salary_override_enabled": "true",
-                        "work_salary_guarantee": "5000",
-                        "work_salary_percent_override": "45",
-                        "work_salary_note": "Smoke salary override",
-                    }
-                ],
-            },
-            "actor_name": "SMOKE",
-        }
-    )
-    closed_payroll = service.set_repair_order_status(
-        {"card_id": payroll_card["id"], "status": "closed", "actor_name": "SMOKE"}
-    )
-    payroll_month = datetime.strptime(
-        closed_payroll["repair_order"]["closed_at"], "%d.%m.%Y %H:%M"
-    ).strftime("%Y-%m")
-    salary_override_card = service.create_card(
-        {
-            "vehicle": "Lada Salary Override",
-            "title": "Browser smoke salary override gear",
-            "deadline": {"hours": 2},
-            "actor_name": "SMOKE",
-        }
-    )["card"]
-    service.update_card(
-        {
-            "card_id": salary_override_card["id"],
-            "repair_order": {
-                "number": "903",
-                "status": "open",
-                "vehicle": "Lada Salary Override",
-                "payments": [
-                    {
-                        "amount": "20000",
-                        "paid_at": "18.05.2026 11:00",
-                        "payment_method": "cash",
-                    }
-                ],
-                "works": [
-                    {
-                        "name": "Smoke override gear work",
-                        "quantity": "1",
-                        "price": "20000",
-                        "executor_id": employee["id"],
-                    }
-                ],
-            },
-            "actor_name": "SMOKE",
-        }
-    )
-    client = service.create_client(
-        {
-            "display_name": "Smoke Клиент",
-            "phone": "+7 900 000-00-01",
-            "actor_name": "SMOKE",
-        }
-    )["client"]
-    client_card = service.create_card(
-        {
-            "vehicle": "Nissan Client Smoke",
-            "title": "Browser smoke client order",
-            "deadline": {"hours": 2},
-            "actor_name": "SMOKE",
-        }
-    )["card"]
-    service.link_card_to_client(
-        {"card_id": client_card["id"], "client_id": client["id"], "actor_name": "SMOKE"}
-    )
-    service.update_card(
-        {
-            "card_id": client_card["id"],
-            "repair_order": {
-                "number": "902",
-                "status": "open",
-                "client": "Smoke Клиент",
-                "vehicle": "Nissan Client Smoke",
-                "works": [{"name": "Smoke client work", "quantity": "1", "price": "2500"}],
-            },
-            "actor_name": "SMOKE",
-        }
-    )
-    for index in range(18):
-        list_card = service.create_card(
-            {
-                "vehicle": f"Smoke Scroll Vehicle {index:02d}",
-                "title": f"Browser smoke repair-order scroll row {index:02d}",
-                "deadline": {"hours": 2},
-                "actor_name": "SMOKE",
-            }
-        )["card"]
-        service.update_card(
-            {
-                "card_id": list_card["id"],
-                "repair_order": {
-                    "number": str(920 + index),
-                    "status": "open",
-                    "vehicle": f"Smoke Scroll Vehicle {index:02d}",
-                    "works": [
-                        {
-                            "name": f"Smoke scrolling work {index:02d}",
-                            "quantity": "1",
-                            "price": "1000",
-                        }
-                    ],
-                },
-                "actor_name": "SMOKE",
-            }
-        )
-    archived_card = service.create_card(
-        {
-            "vehicle": "Archive Filter Smoke",
-            "title": "Browser smoke archived search target",
-            "description": "Archive search regression row.",
-            "deadline": {"hours": 2},
-            "actor_name": "SMOKE",
-        }
-    )["card"]
-    service.archive_card({"card_id": archived_card["id"], "actor_name": "SMOKE"})
-    shared_files_service = SharedFilesService(
-        storage_dir=base_dir / "shared-files",
-        index_file=base_dir / "shared_files_index.json",
-        logger=logger,
-    )
-    shared_files_service.upload_shared_file(
-        {
-            "file_name": "Очень длинное имя файла для проверки читаемости smoke report.txt",
-            "content_base64": base64.b64encode(b"autostop smoke shared file").decode("ascii"),
-            "mime_type": "text/plain",
-            "x": 24,
-            "y": 24,
-            "actor_name": "SMOKE",
-            "source": "system",
-        }
-    )
-    operator_service = OperatorAuthService(
-        store,
-        service,
-        users_file=base_dir / "users.json",
-        activity_service=OperatorActivityService(
-            activity_dir=base_dir / "operator-activity",
-            logger=logger,
-        ),
-        logger=logger,
-    )
-    admin_session = operator_service.login({"username": "admin", "password": "admin"})["session"]
-    operator_service.set_user_employee(
-        {
-            "_operator_session": admin_session,
-            "username": "admin",
-            "employee_id": employee["id"],
-            "source": "smoke",
-        }
-    )
-    api = ApiServer(
-        service,
-        logger,
-        operator_service=operator_service,
-        host="127.0.0.1",
-        start_port=start_port,
-        fallback_limit=50,
-        bearer_token="",
-        shared_files_service=shared_files_service,
-    )
-    api.start()
-    return TempRuntime(
-        temp_dir=temp_dir,
-        api=api,
-        service=service,
-        cashbox_id=cashbox["id"],
-        card_id=card["id"],
-        extra_column_card_id=extra_column_card["id"],
-        employee_id=employee["id"],
-        payroll_card_id=payroll_card["id"],
-        payroll_month=payroll_month,
-        salary_override_card_id=salary_override_card["id"],
-        client_id=client["id"],
-        client_card_id=client_card["id"],
-        archived_card_id=archived_card["id"],
-    )
-
-
 def summarize_browser_events(
     *,
     console_errors: list[str],
@@ -748,78 +291,6 @@ def is_benign_failed_request(value: str) -> bool:
     ):
         return True
     return False
-
-
-async def _wait_modal_open(page: Any, selector: str) -> None:
-    await page.wait_for_function(
-        "(selector) => document.querySelector(selector)?.classList.contains('is-open')",
-        arg=selector,
-    )
-
-
-async def _wait_modal_closed(page: Any, selector: str) -> None:
-    await page.wait_for_function(
-        "(selector) => !document.querySelector(selector)?.classList.contains('is-open')",
-        arg=selector,
-    )
-
-
-async def _is_modal_open(page: Any, selector: str) -> bool:
-    return bool(
-        await page.evaluate(
-            "(selector) => document.querySelector(selector)?.classList.contains('is-open')",
-            selector,
-        )
-    )
-
-
-async def _close_card_modal_if_open(page: Any) -> bool:
-    if not await _is_modal_open(page, "#cardModal"):
-        return False
-    await page.click("#cardModalCloseButtonTop")
-    await _wait_modal_closed(page, "#cardModal")
-    return True
-
-
-async def _wait_clients_search_ready(
-    page: Any, *, client_id: str, mobile: bool = False, query: str = ""
-) -> None:
-    if mobile:
-        await page.wait_for_timeout(250)
-        await page.wait_for_function(
-            """(expectedQuery) => {
-              const normalizedQuery = String(expectedQuery || '').trim().toLowerCase();
-              const inputValue = String(document.querySelector('#mobileClientsSearchInput')?.value || '').trim().toLowerCase();
-              const meta = document.querySelector('#mobileClientsMeta')?.textContent || '';
-              const rows = Array.from(document.querySelectorAll('#mobileClientsList [data-mobile-client-id]'));
-              return (
-                rows.length > 0 &&
-                inputValue === normalizedQuery &&
-                !meta.includes('ЗАГРУЗКА') &&
-                (!normalizedQuery || rows.some((row) => row.textContent.toLowerCase().includes(normalizedQuery)))
-              );
-            }""",
-            arg=query,
-        )
-        return
-    await page.wait_for_timeout(250)
-    await page.wait_for_function(
-        """([clientId, expectedQuery]) => {
-          const normalizedQuery = String(expectedQuery || '').trim().toLowerCase();
-          const inputValue = String(document.querySelector('#clientsSearchInput')?.value || '').trim().toLowerCase();
-          const meta = document.querySelector('#clientsMeta')?.textContent || '';
-          const row = document.querySelector('[data-client-id="' + clientId + '"]');
-          const rowText = String(row?.textContent || '').toLowerCase();
-          return Boolean(
-            row &&
-            inputValue === normalizedQuery &&
-            !meta.includes('ПОИСК ПО ВСЕМ КЛИЕНТАМ') &&
-            !meta.includes('ЗАГРУЗКА КРАТКОГО СПИСКА') &&
-            (!normalizedQuery || (meta.includes('НАЙДЕНО') && rowText.includes(normalizedQuery)))
-          );
-        }""",
-        arg=[client_id, query],
-    )
 
 
 async def _login(page: Any) -> None:
@@ -880,6 +351,10 @@ async def _login(page: Any) -> None:
 
 async def _login_gate_hides_board(page: Any) -> bool:
     await page.wait_for_selector("#identityModal.is-open")
+    await page.wait_for_function(
+        "() => window.__AUTOSTOP_UI_BOUND__ === true",
+        timeout=SMOKE_UI_BIND_TIMEOUT_MS,
+    )
     await page.fill("#identityInput", "focus-regression-user")
     await page.fill("#identityPassword", "focus-regression-password")
     await page.focus("#identityPassword")
@@ -908,27 +383,26 @@ async def _login_gate_hides_board(page: Any) -> bool:
     )
 
 
-def _api_data(payload: dict[str, Any]) -> dict[str, Any]:
-    data = payload.get("data")
-    return data if isinstance(data, dict) else payload
-
-
 def _payroll_chain_reaches_reports_and_reconciliation(runtime: TempRuntime) -> bool:
     query = urllib.parse.urlencode({"employee_id": runtime.employee_id})
     month_query = urllib.parse.urlencode(
         {"employee_id": runtime.employee_id, "month": runtime.payroll_month}
     )
-    payroll = _api_data(_read_json(f"{runtime.base_url}/api/get_payroll_report?{month_query}"))
+    payroll = _api_data(
+        _read_json(runtime.authenticated_url(f"/api/get_payroll_report?{month_query}"))
+    )
     ledger = _api_data(
-        _read_json(f"{runtime.base_url}/api/get_employee_salary_ledger?{query}&months=6")
+        _read_json(runtime.authenticated_url(f"/api/get_employee_salary_ledger?{query}&months=6"))
     )
     salary_report = _api_data(
-        _read_json(f"{runtime.base_url}/api/get_employee_salary_report?{month_query}")
+        _read_json(runtime.authenticated_url(f"/api/get_employee_salary_report?{month_query}"))
     )
     reconciliation = _api_data(
-        _read_json(f"{runtime.base_url}/api/get_employee_salary_reconciliation?{query}")
+        _read_json(runtime.authenticated_url(f"/api/get_employee_salary_reconciliation?{query}"))
     )
-    print_html = _read_text(f"{runtime.base_url}/employee_salary_reconciliation_print?{query}")
+    print_html = _read_text(
+        runtime.authenticated_url(f"/employee_salary_reconciliation_print?{query}")
+    )
 
     payroll_rows = payroll.get("detail_rows") or []
     payroll_ok = any(
@@ -1232,7 +706,9 @@ async def _exercise_card_modal_roundtrip(
           return statusText.includes('КАРТОЧКА СОХРАНЕНА') && saveButton && !saveButton.disabled;
         }"""
     )
-    snapshot = _read_json(f"{runtime.base_url}/api/get_board_snapshot?compact=1&include_archive=0")
+    snapshot = _read_json(
+        runtime.authenticated_url("/api/get_board_snapshot?compact=1&include_archive=0")
+    )
     cards = snapshot.get("data", {}).get("cards", [])
     roundtrip_ok = any(
         card.get("id") == runtime.card_id and card.get("title") == "Browser smoke saved"
@@ -1408,7 +884,7 @@ async def _exercise_display_dashboard(page: Any) -> bool:
 
 async def _exercise_move_card_delta(page: Any, runtime: TempRuntime) -> bool:
     snapshot = _api_data(
-        _read_json(f"{runtime.base_url}/api/get_board_snapshot?compact=1&include_archive=0")
+        _read_json(runtime.authenticated_url("/api/get_board_snapshot?compact=1&include_archive=0"))
     )
     card = next(
         (item for item in snapshot.get("cards", []) if item.get("id") == runtime.card_id),
@@ -1622,615 +1098,6 @@ async def _exercise_personal_extra_board_column(page: Any, runtime: TempRuntime)
     return bool(rendered and persisted)
 
 
-async def _completion_act_browser_print_html(page: Any, pages: list[dict[str, Any]]) -> str:
-    return str(
-        await page.evaluate(
-            """(pages) => {
-              const parser = new DOMParser();
-              const parsedPages = (Array.isArray(pages) ? pages : []).map((page) => {
-                const documentNode = parser.parseFromString(
-                  String(page?.html || ''),
-                  'text/html'
-                );
-                const shell = documentNode.querySelector('.document-shell');
-                const bodyFragment = shell?.outerHTML || documentNode.body?.innerHTML || '';
-                const headFragments = Array.from(
-                  documentNode.head?.querySelectorAll('style, link[rel="stylesheet"]') || []
-                ).map((node) => node.outerHTML).filter(Boolean);
-                return { bodyFragment, headFragments };
-              }).filter((page) => page.bodyFragment.trim());
-              const headFragments = Array.from(
-                new Set(parsedPages.flatMap((page) => page.headFragments))
-              ).join('');
-              const body = parsedPages.length
-                ? parsedPages.map((page) => page.bodyFragment).join('')
-                : '<main>Нет данных акта для печати.</main>';
-              return '<!doctype html><html lang="ru"><head><meta charset="utf-8">'
-                + '<title>Акт выполненных работ</title>'
-                + headFragments
-                + '<style>.document-shell + .document-shell{break-before:page;page-break-before:always}</style>'
-                + '</head><body>' + body + '</body></html>';
-            }""",
-            pages,
-        )
-    )
-
-
-def _completion_act_pdf_fixture(
-    base_form: dict[str, Any], *, label: str, maximal_final_block: bool, row_count: int = 26
-) -> tuple[dict[str, Any], list[str]]:
-    form = json.loads(json.dumps(base_form))
-    item_names = [f"Smoke PDF {label} row {index:03d}" for index in range(1, row_count + 1)]
-    form["document_number"] = f"SMOKE-PDF-{label.upper()}"
-    form["items"] = [
-        {
-            "id": f"smoke-pdf-{label}-{index:02d}",
-            "section": "works",
-            "name": name,
-            "unit": "ч",
-            "quantity": "1",
-            "price": str(100 + index),
-        }
-        for index, name in enumerate(item_names, start=1)
-    ]
-    if maximal_final_block:
-        form["basis"] = ("Договор на выполнение работ и техническое обслуживание; " * 12)[:500]
-        form["acceptance_text"] = (
-            "Работы выполнены полностью и в срок, качество проверено заказчиком; " * 20
-        )[:1000]
-        for party_name in ("performer", "customer"):
-            party = form.setdefault(party_name, {})
-            party["legal_name"] = ("Организация с длинным полным наименованием " * 8)[:240]
-            party["address"] = (
-                "Красноярский край, город Красноярск, улица Длинная, дом 123, офис 456; " * 6
-            )[:320]
-            party["bank_name"] = ("Банк с длинным официальным наименованием " * 8)[:240]
-            party["signer_position"] = ("Старший руководитель подразделения " * 5)[:120]
-            party["signer_name"] = ("Иванов Иван Иванович " * 8)[:160]
-    return form, item_names
-
-
-async def _exercise_completion_act_physical_pdf_regression(
-    page: Any, runtime: TempRuntime, artifact_dir: Path
-) -> bool:
-    current = runtime.service.get_completion_act_form({"card_id": runtime.card_id})
-    base_form = current.get("form", {})
-    if not isinstance(base_form, dict):
-        return False
-    cases = (("short", False, 3), ("long", False, 149), ("max-300", True, 300))
-    for label, maximal_final_block, row_count in cases:
-        form, item_names = _completion_act_pdf_fixture(
-            base_form,
-            label=label,
-            maximal_final_block=maximal_final_block,
-            row_count=row_count,
-        )
-        request_payload = {
-            "card_id": runtime.card_id,
-            "selected_document_ids": ["completion_act"],
-            "active_document_id": "completion_act",
-            "document_overrides": {"completion_act": form},
-        }
-        preview_response = await page.request.post(
-            f"{runtime.base_url}/api/preview_repair_order_print_documents",
-            data=request_payload,
-        )
-        if not preview_response.ok:
-            return False
-        preview = _api_data(await preview_response.json())
-        documents = preview.get("documents") if isinstance(preview, dict) else []
-        document = documents[0] if isinstance(documents, list) and documents else {}
-        pages = document.get("pages") if isinstance(document, dict) else []
-        logical_page_count = int(document.get("page_count") or 0)
-        if not isinstance(pages, list) or len(pages) != logical_page_count:
-            return False
-        if label == "long" and logical_page_count >= 7:
-            return False
-        if logical_page_count > 40:
-            return False
-
-        printable_html = await _completion_act_browser_print_html(page, pages)
-        if printable_html.lower().count("<!doctype html>") != 1:
-            return False
-        chromium_path = artifact_dir / f"completion-act-{label}-chromium.pdf"
-        pdf_page = await page.context.new_page()
-        try:
-            await pdf_page.emulate_media(media="print")
-            await pdf_page.set_content(printable_html, wait_until="load")
-            await pdf_page.evaluate("() => document.fonts?.ready")
-            await pdf_page.pdf(
-                path=str(chromium_path),
-                format="A4",
-                print_background=True,
-                prefer_css_page_size=True,
-            )
-        finally:
-            await pdf_page.close()
-
-        export_response = await page.request.post(
-            f"{runtime.base_url}/api/export_repair_order_print_pdf",
-            data=request_payload,
-        )
-        if not export_response.ok:
-            return False
-        exported = _api_data(await export_response.json())
-        try:
-            qt_pdf_bytes = base64.b64decode(exported.get("content_base64") or "", validate=True)
-        except (TypeError, ValueError):
-            return False
-        qt_path = artifact_dir / f"completion-act-{label}-qt.pdf"
-        qt_path.write_bytes(qt_pdf_bytes)
-
-        if not (
-            chromium_path.read_bytes().startswith(b"%PDF")
-            and qt_pdf_bytes.startswith(b"%PDF")
-            and _completion_act_pdf_contract(
-                chromium_path,
-                expected_page_count=logical_page_count,
-                expected_item_names=item_names,
-            )
-            and _completion_act_pdf_contract(
-                qt_path,
-                expected_page_count=logical_page_count,
-                expected_item_names=item_names,
-            )
-        ):
-            return False
-    return True
-
-
-async def _arm_browser_print_capture(page: Any) -> None:
-    await page.evaluate(
-        """() => {
-          window.__AUTOSTOP_SMOKE_MAIN_PRINT_HTML__ = '';
-          window.__AUTOSTOP_SMOKE_MAIN_PRINT_OBSERVER__?.disconnect?.();
-          const observer = new MutationObserver((records) => {
-            records.flatMap((record) => Array.from(record.addedNodes || [])).forEach((node) => {
-              if (!(node instanceof HTMLIFrameElement) || node.style.right !== '-12000px') return;
-              const installPrintCapture = () => {
-                if (!node.isConnected || !node.contentWindow || !node.contentDocument) return;
-                node.contentWindow.print = () => {
-                  const root = node.contentDocument?.documentElement;
-                  window.__AUTOSTOP_SMOKE_MAIN_PRINT_HTML__ = root
-                    ? '<!doctype html>' + root.outerHTML
-                    : '';
-                  observer.disconnect();
-                };
-              };
-              installPrintCapture();
-              const timer = window.setInterval(installPrintCapture, 10);
-              window.setTimeout(() => window.clearInterval(timer), 1200);
-            });
-          });
-          observer.observe(document.body, { childList: true });
-          window.__AUTOSTOP_SMOKE_MAIN_PRINT_OBSERVER__ = observer;
-        }"""
-    )
-
-
-async def _capture_browser_print_html(page: Any, button_selector: str) -> str:
-    await _arm_browser_print_capture(page)
-    await page.click(button_selector)
-    await page.wait_for_function(
-        "() => Boolean(window.__AUTOSTOP_SMOKE_MAIN_PRINT_HTML__)", timeout=20_000
-    )
-    await page.wait_for_function(
-        "(selector) => !document.querySelector(selector)?.disabled",
-        arg=button_selector,
-    )
-    return str(await page.evaluate("() => window.__AUTOSTOP_SMOKE_MAIN_PRINT_HTML__"))
-
-
-async def _exercise_completion_act_main_print_regression(
-    page: Any, runtime: TempRuntime, artifact_dir: Path
-) -> bool:
-    current = runtime.service.get_completion_act_form({"card_id": runtime.card_id})
-    base_form = current.get("form", {})
-    if not isinstance(base_form, dict):
-        return False
-    form, item_names = _completion_act_pdf_fixture(
-        base_form, label="main-button", maximal_final_block=False
-    )
-    saved = runtime.service.save_completion_act_form(
-        {
-            "card_id": runtime.card_id,
-            "form": form,
-            "expected_version": int((current.get("draft") or {}).get("version") or 0),
-            "expected_source_fingerprint": str(
-                (current.get("draft") or {}).get("current_source_fingerprint") or ""
-            ),
-            "idempotency_key": "browser-smoke-main-print-save",
-            "actor_name": "SMOKE",
-            "source": "browser_smoke",
-        }
-    )
-    draft_version = int((saved.get("draft") or {}).get("version") or 0)
-    try:
-        async with page.expect_response(
-            lambda response: (
-                response.request.method == "POST"
-                and response.url.split("?", 1)[0].endswith(
-                    "/api/preview_repair_order_print_documents"
-                )
-            )
-        ) as preview_response_info:
-            await page.click('[data-print-document="completion_act"]')
-        preview_response = await preview_response_info.value
-        preview = _api_data(await preview_response.json())
-        documents = preview.get("documents") if isinstance(preview, dict) else []
-        document = documents[0] if isinstance(documents, list) and documents else {}
-        logical_page_count = int(document.get("page_count") or 0)
-        if logical_page_count != 2:
-            return False
-
-        gear = page.locator("[data-completion-act-editor-open]")
-        async with (
-            page.expect_response(
-                lambda response: (
-                    response.request.method == "POST"
-                    and response.url.split("?", 1)[0].endswith("/api/get_completion_act_form")
-                )
-            ),
-            page.expect_response(
-                lambda response: (
-                    response.request.method == "POST"
-                    and response.url.split("?", 1)[0].endswith(
-                        "/api/preview_repair_order_print_documents"
-                    )
-                )
-            ),
-        ):
-            await gear.click()
-        await _wait_modal_open(page, "#completionActEditorModal")
-        discarded_marker = "SMOKE-UNSAVED-DISCARD"
-        async with page.expect_response(
-            lambda response: (
-                response.request.method == "POST"
-                and response.url.split("?", 1)[0].endswith(
-                    "/api/preview_repair_order_print_documents"
-                )
-            )
-        ):
-            await page.fill("#completionActDocumentNumber", discarded_marker)
-        await page.wait_for_function(
-            """(marker) => {
-              const frame = document.querySelector('#completionActPreviewFrame');
-              return (frame?.contentDocument?.body?.innerText || '').includes(marker);
-            }""",
-            arg=discarded_marker,
-        )
-
-        async def delay_preview_response(route: Any) -> None:
-            await asyncio.sleep(0.45)
-            await route.continue_()
-
-        await page.route("**/api/preview_repair_order_print_documents", delay_preview_response)
-        try:
-            page.once("dialog", lambda dialog: asyncio.create_task(dialog.accept()))
-            await page.click("#completionActEditorCloseX")
-            await _wait_modal_closed(page, "#completionActEditorModal")
-            printable_html = await _capture_browser_print_html(page, "#repairOrderPrintRunButton")
-        finally:
-            await page.unroute(
-                "**/api/preview_repair_order_print_documents", delay_preview_response
-            )
-        if (
-            printable_html.lower().count("<!doctype html>") != 1
-            or printable_html.count('class="document-shell"') != logical_page_count
-            or discarded_marker in printable_html
-            or form["document_number"] not in printable_html
-        ):
-            return False
-        chromium_path = artifact_dir / "completion-act-main-button-chromium.pdf"
-        pdf_page = await page.context.new_page()
-        try:
-            await pdf_page.emulate_media(media="print")
-            await pdf_page.set_content(printable_html, wait_until="load")
-            await pdf_page.evaluate("() => document.fonts?.ready")
-            await pdf_page.pdf(
-                path=str(chromium_path),
-                format="A4",
-                print_background=True,
-                prefer_css_page_size=True,
-            )
-        finally:
-            await pdf_page.close()
-        return _completion_act_pdf_contract(
-            chromium_path,
-            expected_page_count=logical_page_count,
-            expected_item_names=item_names,
-        )
-    finally:
-        if draft_version:
-            runtime.service.reset_completion_act_form(
-                {
-                    "card_id": runtime.card_id,
-                    "expected_version": draft_version,
-                    "idempotency_key": "browser-smoke-main-print-reset",
-                    "actor_name": "SMOKE",
-                    "source": "browser_smoke",
-                }
-            )
-
-
-async def _exercise_completion_act_max_items_ui(page: Any, runtime: TempRuntime, gear: Any) -> bool:
-    current = runtime.service.get_completion_act_form({"card_id": runtime.card_id})
-    base_form = current.get("form", {})
-    if not isinstance(base_form, dict):
-        return False
-    form = json.loads(json.dumps(base_form))
-    form["items"] = [
-        {
-            "id": f"smoke-ui-max-{index:03d}",
-            "section": "works" if index <= 150 else "materials",
-            "name": f"Smoke UI maximum row {index:03d}",
-            "unit": "ч" if index <= 150 else "шт",
-            "quantity": "1",
-            "price": "1",
-        }
-        for index in range(1, 301)
-    ]
-    saved = runtime.service.save_completion_act_form(
-        {
-            "card_id": runtime.card_id,
-            "form": form,
-            "expected_version": int((current.get("draft") or {}).get("version") or 0),
-            "expected_source_fingerprint": str(
-                (current.get("draft") or {}).get("current_source_fingerprint") or ""
-            ),
-            "idempotency_key": "browser-smoke-ui-max-save",
-            "actor_name": "SMOKE",
-            "source": "browser_smoke",
-        }
-    )
-    draft_version = int((saved.get("draft") or {}).get("version") or 0)
-    try:
-        async with (
-            page.expect_response(
-                lambda response: (
-                    response.request.method == "POST"
-                    and response.url.split("?", 1)[0].endswith("/api/get_completion_act_form")
-                )
-            ),
-            page.expect_response(
-                lambda response: (
-                    response.request.method == "POST"
-                    and response.url.split("?", 1)[0].endswith(
-                        "/api/preview_repair_order_print_documents"
-                    )
-                )
-            ),
-        ):
-            await gear.click()
-        await _wait_modal_open(page, "#completionActEditorModal")
-        await page.wait_for_function(
-            """() => (
-              document.querySelectorAll('#completionActItemRows [data-completion-act-item]').length === 300 &&
-              document.querySelector('#completionActAddItemButton')?.disabled === true
-            )"""
-        )
-        names = page.locator('#completionActItemRows [data-completion-act-item-field="name"]')
-        rows_preserved = bool(
-            await names.count() == 300
-            and await names.first.input_value() == "Smoke UI maximum row 001"
-            and await names.last.input_value() == "Smoke UI maximum row 300"
-        )
-        await page.click("#completionActEditorCloseX")
-        await _wait_modal_closed(page, "#completionActEditorModal")
-        return rows_preserved
-    finally:
-        if await _is_modal_open(page, "#completionActEditorModal"):
-            await page.click("#completionActEditorCloseX")
-            await _wait_modal_closed(page, "#completionActEditorModal")
-        if draft_version:
-            runtime.service.reset_completion_act_form(
-                {
-                    "card_id": runtime.card_id,
-                    "expected_version": draft_version,
-                    "idempotency_key": "browser-smoke-ui-max-reset",
-                    "actor_name": "SMOKE",
-                    "source": "browser_smoke",
-                }
-            )
-
-
-async def _exercise_completion_act_cross_card_race(page: Any, runtime: TempRuntime) -> bool:
-    card_a_id = runtime.card_id
-    card_b_id = runtime.extra_column_card_id
-    card_a_marker = "SMOKE-CARD-A-ACT"
-    card_b_marker = "SMOKE-CARD-B-ACT"
-    card_b_edit_marker = "SMOKE-CARD-B-EDIT"
-    card_a_customer = "Smoke requisites card A only"
-    card_b_customer = "Smoke requisites card B only"
-    card_a_before = runtime.service.get_completion_act_form({"card_id": card_a_id})
-    card_b_before = runtime.service.get_completion_act_form({"card_id": card_b_id})
-    if card_a_before.get("draft", {}).get("exists") or card_b_before.get("draft", {}).get("exists"):
-        return False
-
-    def marked_form(source: dict[str, Any], *, marker: str, customer_marker: str) -> dict[str, Any]:
-        form = json.loads(json.dumps(source.get("form") or {}))
-        form["document_number"] = marker
-        customer = form.setdefault("customer", {})
-        customer["legal_name"] = customer_marker
-        customer["address"] = f"{customer_marker}, address"
-        customer["inn"] = "2400000000" if marker == card_a_marker else "2400000001"
-        form["items"] = [
-            {
-                "id": f"{marker.lower()}-row",
-                "section": "works",
-                "name": f"{marker} work",
-                "unit": "ч",
-                "quantity": "1",
-                "price": "100",
-            }
-        ]
-        return form
-
-    saved_a = runtime.service.save_completion_act_form(
-        {
-            "card_id": card_a_id,
-            "form": marked_form(
-                card_a_before, marker=card_a_marker, customer_marker=card_a_customer
-            ),
-            "expected_version": int((card_a_before.get("draft") or {}).get("version") or 0),
-            "expected_source_fingerprint": str(
-                (card_a_before.get("draft") or {}).get("current_source_fingerprint") or ""
-            ),
-            "idempotency_key": "browser-smoke-cross-card-a-save",
-            "actor_name": "SMOKE",
-            "source": "browser_smoke",
-        }
-    )
-    saved_b = runtime.service.save_completion_act_form(
-        {
-            "card_id": card_b_id,
-            "form": marked_form(
-                card_b_before, marker=card_b_marker, customer_marker=card_b_customer
-            ),
-            "expected_version": int((card_b_before.get("draft") or {}).get("version") or 0),
-            "expected_source_fingerprint": str(
-                (card_b_before.get("draft") or {}).get("current_source_fingerprint") or ""
-            ),
-            "idempotency_key": "browser-smoke-cross-card-b-save",
-            "actor_name": "SMOKE",
-            "source": "browser_smoke",
-        }
-    )
-
-    def completion_request_card_id(request: Any) -> str:
-        try:
-            payload = request.post_data_json
-        except (TypeError, ValueError):
-            return ""
-        return str(payload.get("card_id") or "") if isinstance(payload, dict) else ""
-
-    def completion_get_response_for(response: Any, card_id: str) -> bool:
-        return bool(
-            response.request.method == "POST"
-            and response.url.split("?", 1)[0].endswith("/api/get_completion_act_form")
-            and completion_request_card_id(response.request) == card_id
-        )
-
-    async def delay_card_a_completion_get(route: Any) -> None:
-        if completion_request_card_id(route.request) == card_a_id:
-            await asyncio.sleep(2.5)
-        await route.continue_()
-
-    async def close_repair_order_and_card() -> None:
-        if await _is_modal_open(page, "#repairOrderModal"):
-            await page.click('[data-close="repair-order"]')
-            await _wait_modal_closed(page, "#repairOrderModal")
-        await _close_card_modal_if_open(page)
-
-    async def open_card_repair_order(card_id: str) -> None:
-        selector = f'.card[data-card-id="{card_id}"]:not([data-virtual-card="true"])'
-        await page.wait_for_selector(selector)
-        await page.click(selector)
-        await _wait_modal_open(page, "#cardModal")
-        await page.wait_for_function(
-            "() => !document.querySelector('#repairOrderButton')?.disabled"
-        )
-        await page.click("#repairOrderButton")
-        await _wait_modal_open(page, "#repairOrderModal")
-
-    await page.route("**/api/get_completion_act_form", delay_card_a_completion_get)
-    cross_card_ok = False
-    try:
-        await page.click("#repairOrderPrintButton")
-        await _wait_modal_open(page, "#repairOrderPrintModal")
-        gear = page.locator("[data-completion-act-editor-open]")
-        async with page.expect_response(
-            lambda response: completion_get_response_for(response, card_a_id)
-        ) as late_card_a_response_info:
-            await gear.click()
-            await _wait_modal_open(page, "#completionActEditorModal")
-            await page.click("#completionActEditorCloseX")
-            await _wait_modal_closed(page, "#completionActEditorModal")
-            await page.click("#repairOrderPrintCloseX")
-            await _wait_modal_closed(page, "#repairOrderPrintModal")
-            await close_repair_order_and_card()
-
-            await open_card_repair_order(card_b_id)
-            await page.click("#repairOrderPrintButton")
-            await _wait_modal_open(page, "#repairOrderPrintModal")
-            async with page.expect_response(
-                lambda response: completion_get_response_for(response, card_b_id)
-            ):
-                await page.click("[data-completion-act-editor-open]")
-            await _wait_modal_open(page, "#completionActEditorModal")
-            await page.wait_for_function(
-                "(marker) => document.querySelector('#completionActDocumentNumber')?.value === marker",
-                arg=card_b_marker,
-            )
-        late_card_a_response = await late_card_a_response_info.value
-        await late_card_a_response.body()
-        await page.wait_for_timeout(100)
-
-        card_b_form_survived = bool(
-            await page.input_value("#completionActDocumentNumber") == card_b_marker
-            and await page.input_value("#completionActCustomerLegalName") == card_b_customer
-            and card_a_customer not in await page.input_value("#completionActCustomerLegalName")
-            and card_a_marker not in await page.input_value("#completionActDocumentNumber")
-        )
-        await page.fill("#completionActDocumentNumber", card_b_edit_marker)
-        async with page.expect_response(
-            lambda response: (
-                response.request.method == "POST"
-                and response.url.split("?", 1)[0].endswith("/api/save_completion_act_form")
-            )
-        ) as card_b_save_response_info:
-            await page.click("#completionActSaveButton")
-        card_b_save_response = await card_b_save_response_info.value
-        card_b_save_card_id = completion_request_card_id(card_b_save_response.request)
-        await page.wait_for_function(
-            "() => !document.querySelector('#completionActSaveButton')?.disabled"
-        )
-        card_a_after = runtime.service.get_completion_act_form({"card_id": card_a_id})
-        card_b_after = runtime.service.get_completion_act_form({"card_id": card_b_id})
-        card_b_print_html = await _capture_browser_print_html(page, "#completionActPrintButton")
-        cross_card_ok = bool(
-            card_b_form_survived
-            and card_b_save_card_id == card_b_id
-            and str((card_a_after.get("form") or {}).get("document_number") or "") == card_a_marker
-            and str((card_b_after.get("form") or {}).get("document_number") or "")
-            == card_b_edit_marker
-            and card_b_edit_marker in card_b_print_html
-            and card_b_customer in card_b_print_html
-            and card_a_marker not in card_b_print_html
-            and card_a_customer not in card_b_print_html
-        )
-
-        await page.click("#completionActEditorCloseX")
-        await _wait_modal_closed(page, "#completionActEditorModal")
-        await page.click("#repairOrderPrintCloseX")
-        await _wait_modal_closed(page, "#repairOrderPrintModal")
-        await close_repair_order_and_card()
-        await open_card_repair_order(card_a_id)
-    finally:
-        await page.unroute("**/api/get_completion_act_form", delay_card_a_completion_get)
-        for card_id, key in (
-            (card_a_id, "browser-smoke-cross-card-a-reset"),
-            (card_b_id, "browser-smoke-cross-card-b-reset"),
-        ):
-            current = runtime.service.get_completion_act_form({"card_id": card_id})
-            version = int((current.get("draft") or {}).get("version") or 0)
-            if version:
-                runtime.service.reset_completion_act_form(
-                    {
-                        "card_id": card_id,
-                        "expected_version": version,
-                        "idempotency_key": key,
-                        "actor_name": "SMOKE",
-                        "source": "browser_smoke",
-                    }
-                )
-    return bool(
-        cross_card_ok
-        and int((saved_a.get("draft") or {}).get("version") or 0) > 0
-        and int((saved_b.get("draft") or {}).get("version") or 0) > 0
-    )
-
-
 async def _exercise_completion_act_editor(page: Any, runtime: TempRuntime) -> bool:
     repair_order_before = runtime.service.get_repair_order({"card_id": runtime.card_id})[
         "repair_order"
@@ -2344,74 +1211,10 @@ async def _exercise_completion_act_editor(page: Any, runtime: TempRuntime) -> bo
         )
     )
 
-    async def delay_editor_preview(route: Any) -> None:
-        await asyncio.sleep(0.45)
-        await route.continue_()
-
-    await page.click('[data-completion-act-section="document"]')
-    editor_print_marker = "SMOKE-EDITOR-PRINT-FRESH"
-    await page.route("**/api/preview_repair_order_print_documents", delay_editor_preview)
-    try:
-        await page.fill("#completionActDocumentNumber", editor_print_marker)
-        editor_print_html = await _capture_browser_print_html(page, "#completionActPrintButton")
-    finally:
-        await page.unroute("**/api/preview_repair_order_print_documents", delay_editor_preview)
-    editor_print_logical_pages = editor_print_html.count('class="document-shell"')
-    editor_print_path = artifact_dir / "completion-act-editor-immediate-print.pdf"
-    editor_print_page = await page.context.new_page()
-    try:
-        await editor_print_page.emulate_media(media="print")
-        await editor_print_page.set_content(editor_print_html, wait_until="load")
-        await editor_print_page.evaluate("() => document.fonts?.ready")
-        await editor_print_page.pdf(
-            path=str(editor_print_path),
-            format="A4",
-            print_background=True,
-            prefer_css_page_size=True,
-        )
-    finally:
-        await editor_print_page.close()
-    editor_print_page_count = _pdfinfo_page_count(editor_print_path)
-    editor_print_text = "\n".join(_pdf_page_texts(editor_print_path, editor_print_page_count))
-    editor_print_race_ok = bool(
-        editor_print_html.lower().count("<!doctype html>") == 1
-        and editor_print_logical_pages > 0
-        and editor_print_marker in editor_print_html
-        and "SMOKE-ACT-1" not in editor_print_html
-        and editor_print_marker in editor_print_text
-        and _completion_act_pdf_contract(
-            editor_print_path,
-            expected_page_count=editor_print_logical_pages,
-            expected_item_names=["Smoke completion work"],
-        )
-    )
-
-    editor_export_marker = "SMOKE-EDITOR-EXPORT-FRESH"
-    await page.route("**/api/preview_repair_order_print_documents", delay_editor_preview)
-    try:
-        await page.fill("#completionActDocumentNumber", editor_export_marker)
-        async with page.expect_download() as editor_export_info:
-            await page.click("#completionActExportButton")
-        editor_export = await editor_export_info.value
-    finally:
-        await page.unroute("**/api/preview_repair_order_print_documents", delay_editor_preview)
-    editor_export_path = artifact_dir / "completion-act-editor-immediate-export.pdf"
-    await editor_export.save_as(str(editor_export_path))
-    editor_export_page_count = _pdfinfo_page_count(editor_export_path)
-    editor_export_text = "\n".join(_pdf_page_texts(editor_export_path, editor_export_page_count))
-    editor_export_race_ok = bool(
-        editor_export.suggested_filename.lower().endswith(".pdf")
-        and editor_export_path.read_bytes().startswith(b"%PDF")
-        and _pdf_file_is_parseable(editor_export_path)
-        and editor_export_page_count == editor_print_logical_pages
-        and editor_export_marker in editor_export_text
-        and editor_print_marker not in editor_export_text
-        and _completion_act_pdf_contract(
-            editor_export_path,
-            expected_page_count=editor_print_logical_pages,
-            expected_item_names=["Smoke completion work"],
-        )
-    )
+    (
+        editor_print_race_ok,
+        editor_export_race_ok,
+    ) = await _exercise_completion_act_editor_print_export(page, artifact_dir)
 
     async def delay_inflight_print_preview(route: Any) -> None:
         await asyncio.sleep(0.15)
@@ -2721,9 +1524,12 @@ async def _exercise_completion_act_editor(page: Any, runtime: TempRuntime) -> bo
     return not failed_checks
 
 
-async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]:
+async def _desktop_board_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]:
     scenarios = {name: False for name in DESKTOP_SMOKE_SCENARIOS}
     await page.wait_for_selector("#board")
+    scenarios["desktop_board_create_roundtrip"] = await _exercise_board_create_roundtrip(
+        page, runtime
+    )
     scenarios["payroll_chain_reaches_reports_and_reconciliation"] = (
         _payroll_chain_reaches_reports_and_reconciliation(runtime)
     )
@@ -2740,7 +1546,12 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     scenarios["personal_extra_board_column"] = await _exercise_personal_extra_board_column(
         page, runtime
     )
+    return scenarios
 
+
+async def _desktop_cashbox_scenarios(
+    page: Any, runtime: TempRuntime, scenarios: dict[str, bool]
+) -> dict[str, bool]:
     await page.click("#cashboxesButton")
     await _wait_modal_open(page, "#cashboxesModal")
     await page.wait_for_selector("#cashboxJournalDownloadButton")
@@ -2896,7 +1707,12 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     )
     await page.click('[data-close="cashboxes"]')
     await _wait_modal_closed(page, "#cashboxesModal")
+    return scenarios
 
+
+async def _desktop_card_repair_scenarios(
+    page: Any, runtime: TempRuntime, scenarios: dict[str, bool]
+) -> dict[str, bool]:
     await page.click(f'[data-card-id="{runtime.card_id}"]')
     await _wait_modal_open(page, "#cardModal")
     async with page.expect_response(
@@ -2975,7 +1791,12 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     await page.click('[data-close="repair-order"]')
     await _wait_modal_closed(page, "#repairOrderModal")
     await _close_card_modal_if_open(page)
+    return scenarios
 
+
+async def _desktop_employee_scenarios(
+    page: Any, runtime: TempRuntime, scenarios: dict[str, bool]
+) -> dict[str, bool]:
     await page.click("#employeesButton")
     await _wait_modal_open(page, "#employeesModal")
     await page.click(f'[data-employee-id="{runtime.employee_id}"]')
@@ -3000,7 +1821,7 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     )
     shift_query = urllib.parse.urlencode({"employee_id": runtime.employee_id, "months": 6})
     shift_ledger = _api_data(
-        _read_json(f"{runtime.base_url}/api/get_employee_salary_ledger?{shift_query}")
+        _read_json(runtime.authenticated_url(f"/api/get_employee_salary_ledger?{shift_query}"))
     )
     scenarios["employee_shift_accrual_manual_salary"] = bool(
         any(row.get("kind") == "shift_accrual" for row in shift_ledger.get("journal_rows") or [])
@@ -3021,7 +1842,12 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     )
     await page.click('[data-close="employees"]')
     await _wait_modal_closed(page, "#employeesModal")
+    return scenarios
 
+
+async def _desktop_client_scenarios(
+    page: Any, runtime: TempRuntime, scenarios: dict[str, bool]
+) -> dict[str, bool]:
     await page.click("#clientsButton")
     await _wait_modal_open(page, "#clientsModal")
     await page.wait_for_selector("#clientNewButton")
@@ -3048,7 +1874,12 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     )
     await page.click('[data-close="clients"]')
     await _wait_modal_closed(page, "#clientsModal")
+    return scenarios
 
+
+async def _desktop_repair_list_scenarios(
+    page: Any, runtime: TempRuntime, scenarios: dict[str, bool]
+) -> dict[str, bool]:
     await page.click("#repairOrdersButton")
     await _wait_modal_open(page, "#repairOrdersModal")
     await page.wait_for_selector(f'[data-open-repair-order-card="{runtime.client_card_id}"]')
@@ -3193,7 +2024,12 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     await _wait_modal_closed(page, "#repairOrderModal")
     await page.click('[data-close="repair-orders"]')
     await _wait_modal_closed(page, "#repairOrdersModal")
+    return scenarios
 
+
+async def _desktop_archive_file_scenarios(
+    page: Any, runtime: TempRuntime, scenarios: dict[str, bool]
+) -> dict[str, bool]:
     await page.click("#archiveButton")
     await _wait_modal_open(page, "#archiveModal")
     await page.wait_for_selector("#archiveSearchInput")
@@ -3235,6 +2071,42 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     )
     await page.click('[data-close="shared-files"]')
     await _wait_modal_closed(page, "#sharedFilesModal")
+    scenarios["repair_order_preview_roundtrip"] = await _exercise_repair_order_preview_roundtrip(
+        page, runtime
+    )
+    scenarios["inventory_item_roundtrip"] = await _exercise_inventory_item_roundtrip(page, runtime)
+    return scenarios
+
+
+async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]:
+    scenarios = await _desktop_board_scenarios(page, runtime)
+    for runner in (
+        _desktop_cashbox_scenarios,
+        _desktop_card_repair_scenarios,
+        _desktop_employee_scenarios,
+        _desktop_client_scenarios,
+        _desktop_repair_list_scenarios,
+        _desktop_archive_file_scenarios,
+    ):
+        await runner(page, runtime, scenarios)
+    return scenarios
+
+
+async def _core_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]:
+    scenarios: dict[str, bool] = {}
+    scenarios["desktop_board_create_roundtrip"] = await _exercise_board_create_roundtrip(
+        page, runtime
+    )
+    _, card_roundtrip_ok, timer_ok = await _exercise_card_modal_roundtrip(page, runtime)
+    scenarios["desktop_board_card_roundtrip"] = bool(card_roundtrip_ok)
+    scenarios["card_timer_start_stop"] = bool(timer_ok)
+    scenarios["move_card_delta_roundtrip"] = await _exercise_move_card_delta(page, runtime)
+    scenarios.update(await _exercise_client_link_roundtrip(page, runtime))
+    scenarios["repair_order_preview_roundtrip"] = await _exercise_repair_order_preview_roundtrip(
+        page, runtime
+    )
+    scenarios["inventory_item_roundtrip"] = await _exercise_inventory_item_roundtrip(page, runtime)
+    scenarios.update(await _exercise_files_modal(page))
     return scenarios
 
 
@@ -3275,7 +2147,7 @@ async def _mobile_scenarios(
     page_errors: list[str],
     failed_requests: list[str],
 ) -> dict[str, bool]:
-    base_url = runtime.base_url
+    base_url = runtime.browser_url
     context = await browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True)
     page = await context.new_page()
     _set_page_timeouts(page)
@@ -3437,11 +2309,28 @@ async def _launch_chromium(playwright: Any, *, headless: bool) -> Any:
         raise RuntimeError("; ".join(fallback_errors)) from bundled_error
 
 
-async def run_browser_smoke(runtime: TempRuntime, *, headless: bool = True) -> dict[str, Any]:
+def _profile_result_ok(
+    required_scenarios: tuple[str, ...],
+    scenarios: dict[str, bool],
+    events: dict[str, Any],
+) -> bool:
+    return bool(events.get("ok") and all(scenarios.get(name) for name in required_scenarios))
+
+
+async def run_browser_smoke(
+    runtime: TempRuntime, *, headless: bool = True, profile: str = PROFILE_FULL
+) -> dict[str, Any]:
+    required_scenarios = scenarios_for_profile(profile)
     try:
         from playwright.async_api import async_playwright
     except ImportError as exc:
-        return {"ok": False, "error": "playwright_missing", "message": str(exc)}
+        return {
+            "ok": False,
+            "error": "playwright_missing",
+            "message": str(exc),
+            "profile": profile,
+            "scenarios": {},
+        }
 
     console_errors: list[str] = []
     page_errors: list[str] = []
@@ -3450,7 +2339,10 @@ async def run_browser_smoke(runtime: TempRuntime, *, headless: bool = True) -> d
     scenarios: dict[str, bool] = {}
 
     async with async_playwright() as playwright:
-        browser = await _launch_chromium(playwright, headless=headless)
+        try:
+            browser = await _launch_chromium(playwright, headless=headless)
+        except Exception as exc:
+            raise BrowserLaunchError(str(exc)) from exc
         try:
             context = await browser.new_context(viewport={"width": 1440, "height": 960})
             page = await context.new_page()
@@ -3466,25 +2358,32 @@ async def run_browser_smoke(runtime: TempRuntime, *, headless: bool = True) -> d
             )
             try:
                 started_at = time.perf_counter()
-                await _goto_with_retry(page, runtime.base_url)
+                await _goto_with_retry(page, runtime.browser_url)
                 scenarios[
                     "login_gate_hides_board_until_operator_login"
                 ] = await _login_gate_hides_board(page)
+                scenarios["anonymous_write_rejected"] = await _anonymous_write_rejected(
+                    page, runtime
+                )
                 await _login(page)
                 await page.wait_for_selector("#board")
                 first_render_ms = round((time.perf_counter() - started_at) * 1000, 1)
-                scenarios.update(await _desktop_scenarios(page, runtime))
+                if profile == PROFILE_CORE:
+                    scenarios.update(await _core_scenarios(page, runtime))
+                else:
+                    scenarios.update(await _desktop_scenarios(page, runtime))
             finally:
                 await _close_with_timeout(context.close())
-            scenarios.update(
-                await _mobile_scenarios(
-                    browser,
-                    runtime,
-                    console_errors=console_errors,
-                    page_errors=page_errors,
-                    failed_requests=failed_requests,
+            if profile == PROFILE_FULL:
+                scenarios.update(
+                    await _mobile_scenarios(
+                        browser,
+                        runtime,
+                        console_errors=console_errors,
+                        page_errors=page_errors,
+                        failed_requests=failed_requests,
+                    )
                 )
-            )
         finally:
             await _close_with_timeout(browser.close())
 
@@ -3494,51 +2393,86 @@ async def run_browser_smoke(runtime: TempRuntime, *, headless: bool = True) -> d
         failed_requests=failed_requests,
         first_render_ms=first_render_ms,
     )
+    scenarios = {name: bool(scenarios.get(name)) for name in required_scenarios}
     return {
-        "ok": bool(events["ok"] and all(scenarios.get(name) for name in SMOKE_SCENARIOS)),
+        "ok": _profile_result_ok(required_scenarios, scenarios, events),
+        "profile": profile,
         "base_url": runtime.base_url,
         "scenarios": scenarios,
         "events": events,
     }
 
 
-async def run_temp_smoke(*, headless: bool = True, start_port: int = 42731) -> dict[str, Any]:
+async def run_temp_smoke(
+    *, headless: bool = True, start_port: int = 42731, profile: str = PROFILE_FULL
+) -> dict[str, Any]:
     runtime = start_temp_runtime(start_port=start_port)
     try:
-        return await run_browser_smoke(runtime, headless=headless)
+        return await run_browser_smoke(runtime, headless=headless, profile=profile)
     finally:
         runtime.close()
 
 
-def main() -> int:
-    configure_stdout_utf8()
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run AutoStop CRM browser smoke on temp data.")
     parser.add_argument("--headed", action="store_true", help="Run Chromium with a visible window.")
+    parser.add_argument("--profile", choices=SUPPORTED_PROFILES, default=PROFILE_FULL)
     parser.add_argument("--start-port", default=42731)
     parser.add_argument(
         "--browser-timeout-seconds",
         default=DEFAULT_BROWSER_SMOKE_TIMEOUT_SECONDS,
     )
     parser.add_argument("--attempts", default=4)
-    args = parser.parse_args()
+    return parser
 
-    attempts = _browser_attempts(args.attempts)
+
+def main() -> int:
+    configure_stdout_utf8()
+    args = build_parser().parse_args()
+
+    missing_dependencies = missing_browser_dependencies(args.profile)
+    if missing_dependencies:
+        print(_json_dumps(missing_dependency_result(args.profile, missing_dependencies)))
+        return 2
+
+    attempts = min(_browser_attempts(args.attempts), 2)
     start_port = _browser_start_port(args.start_port)
     attempt_results: list[dict[str, Any]] = []
     result: dict[str, Any] = {}
     for attempt in range(1, attempts + 1):
+        retryable_launch_failure = False
         try:
             result = asyncio.run(
                 asyncio.wait_for(
-                    run_temp_smoke(headless=not args.headed, start_port=start_port),
+                    run_temp_smoke(
+                        headless=not args.headed,
+                        start_port=start_port,
+                        profile=args.profile,
+                    ),
                     timeout=_browser_timeout_seconds(args.browser_timeout_seconds),
                 )
             )
+        except BrowserLaunchError as exc:
+            retryable_launch_failure = True
+            result = {
+                "ok": False,
+                "error": "browser_smoke_failed",
+                "message": str(exc),
+                "profile": args.profile,
+                "scenarios": {},
+                "events": {
+                    "ok": False,
+                    "console_errors": [],
+                    "page_errors": [],
+                    "failed_requests": [],
+                },
+            }
         except Exception as exc:
             result = {
                 "ok": False,
                 "error": "browser_smoke_failed",
                 "message": str(exc),
+                "profile": args.profile,
                 "scenarios": {},
                 "events": {
                     "ok": False,
@@ -3549,9 +2483,9 @@ def main() -> int:
             }
         result["attempt"] = attempt
         attempt_results.append(result)
-        if result.get("ok") or result.get("error") == "playwright_missing":
+        if result.get("ok") or not retryable_launch_failure:
             break
-    if not result.get("ok") and attempts > 1:
+    if not result.get("ok") and len(attempt_results) > 1:
         result = {**result, "attempts": attempt_results}
     print(_json_dumps(result))
     if result.get("error") == "playwright_missing":

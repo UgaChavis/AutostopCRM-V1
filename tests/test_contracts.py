@@ -213,6 +213,8 @@ EXPECTED_CHANGE_FEED_ROUTES = {
 
 EXPECTED_SMOKE_SCENARIOS = (
     "login_gate_hides_board_until_operator_login",
+    "anonymous_write_rejected",
+    "desktop_board_create_roundtrip",
     "desktop_board_card_roundtrip",
     "move_card_delta_roundtrip",
     "personal_extra_board_column",
@@ -227,11 +229,13 @@ EXPECTED_SMOKE_SCENARIOS = (
     "cashbox_transaction_cancellation",
     "repair_order_payments_modal",
     "repair_order_material_executor_defaults_to_operator_employee",
+    "repair_order_preview_roundtrip",
     "completion_act_editor_draft_roundtrip",
     "clients_modal",
     "clients_search_selects_realistic_row",
     "files_modal",
     "shared_files_scanability_markup",
+    "inventory_item_roundtrip",
     "employees_repair_order_returns_to_employee",
     "employee_shift_accrual_manual_salary",
     "clients_repair_order_returns_to_client",

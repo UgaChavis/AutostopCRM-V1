@@ -127,6 +127,8 @@ Test-CommandVersion -Name "node"
 Test-CommandVersion -Name "npm" -Arguments @("--version")
 Test-CommandVersion -Name "pwsh" -Arguments @("--version")
 Test-CommandVersion -Name "docker"
+Test-CommandVersion -Name "pdfinfo" -Arguments @("-v") -Required
+Test-CommandVersion -Name "pdftotext" -Arguments @("-v") -Required
 
 $venvPython = Join-Path $projectRoot ".venv\Scripts\python.exe"
 if (Test-Path -LiteralPath $venvPython) {
@@ -135,13 +137,15 @@ if (Test-Path -LiteralPath $venvPython) {
     $ruffVersion = Invoke-CapturedCommand -Command $venvPython -Arguments @("-m", "ruff", "--version")
     $preCommitVersion = Invoke-CapturedCommand -Command $venvPython -Arguments @("-m", "pre_commit", "--version")
     $playwrightVersion = Invoke-CapturedCommand -Command $venvPython -Arguments @("-m", "playwright", "--version")
-    $status = if (($pythonVersion.ExitCode -eq 0) -and ($pipCheck.ExitCode -eq 0) -and ($ruffVersion.ExitCode -eq 0) -and ($preCommitVersion.ExitCode -eq 0) -and ($playwrightVersion.ExitCode -eq 0)) { "pass" } else { "fail" }
+    $qtPdfProbe = Invoke-CapturedCommand -Command $venvPython -Arguments @("-c", "from PySide6.QtPdf import QPdfDocument; document = QPdfDocument(); document.close()")
+    $status = if (($pythonVersion.ExitCode -eq 0) -and ($pipCheck.ExitCode -eq 0) -and ($ruffVersion.ExitCode -eq 0) -and ($preCommitVersion.ExitCode -eq 0) -and ($playwrightVersion.ExitCode -eq 0) -and ($qtPdfProbe.ExitCode -eq 0)) { "pass" } else { "fail" }
     Add-Check -Name "python:venv" -Status $status -Summary (($pythonVersion.Output + $pipCheck.Output) -join " | ") -Details @{
         python     = $pythonVersion.Output
         pip_check  = $pipCheck.Output
         ruff       = $ruffVersion.Output
         pre_commit = $preCommitVersion.Output
         playwright = $playwrightVersion.Output
+        qt_pdf     = $qtPdfProbe.Output
     }
 }
 else {

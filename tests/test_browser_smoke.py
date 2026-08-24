@@ -1,14 +1,22 @@
 from __future__ import annotations
 
+import asyncio
 import importlib.util
+import io
 import json
 import sys
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "browser_smoke.py"
+SOURCE_PATHS = tuple(sorted((ROOT / "scripts").glob("browser_smoke*.py")))
+
+
+def browser_smoke_source() -> str:
+    return "\n".join(path.read_text(encoding="utf-8") for path in SOURCE_PATHS)
 
 
 def load_browser_smoke_module():
@@ -38,9 +46,201 @@ class FakeResponse:
 
 
 class BrowserSmokeScriptTests(unittest.TestCase):
+    def test_profile_registry_has_unique_core_subset_and_tags(self) -> None:
+        module = load_browser_smoke_module()
+
+        registry_names = [scenario.name for scenario in module.SCENARIO_REGISTRY]
+        self.assertEqual(len(registry_names), len(set(registry_names)))
+        self.assertTrue(module.CORE_SMOKE_SCENARIOS)
+        self.assertTrue(set(module.CORE_SMOKE_SCENARIOS) < set(module.SMOKE_SCENARIOS))
+        self.assertEqual(
+            module.scenarios_for_profile(module.PROFILE_CORE),
+            module.CORE_SMOKE_SCENARIOS,
+        )
+        self.assertEqual(
+            module.scenarios_for_profile(module.PROFILE_FULL),
+            module.SMOKE_SCENARIOS,
+        )
+        self.assertTrue(
+            all(module.PROFILE_FULL in scenario.tags for scenario in module.SCENARIO_REGISTRY)
+        )
+
+    def test_profile_parser_defaults_to_full_and_rejects_unknown_profile(self) -> None:
+        module = load_browser_smoke_module()
+
+        self.assertEqual(module.build_parser().parse_args([]).profile, module.PROFILE_FULL)
+        self.assertEqual(
+            module.build_parser().parse_args(["--profile", "core"]).profile,
+            module.PROFILE_CORE,
+        )
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            module.build_parser().parse_args(["--profile", "unknown"])
+
+    def test_full_preflight_reports_all_missing_dependencies_deterministically(self) -> None:
+        module = load_browser_smoke_module()
+        available = {
+            "playwright": lambda: True,
+            "chromium": lambda: True,
+            "qt_pdf": lambda: True,
+            "pdfinfo": lambda: True,
+            "pdftotext": lambda: True,
+        }
+
+        with patch.dict(module.BROWSER_DEPENDENCY_PROBES, available, clear=True):
+            self.assertEqual(module.missing_browser_dependencies(module.PROFILE_FULL), [])
+        missing_one = {**available, "pdfinfo": lambda: False}
+        with patch.dict(module.BROWSER_DEPENDENCY_PROBES, missing_one, clear=True):
+            self.assertEqual(
+                module.missing_browser_dependencies(module.PROFILE_FULL),
+                ["pdfinfo"],
+            )
+        missing_pdf_tools = {
+            **available,
+            "pdfinfo": lambda: False,
+            "pdftotext": lambda: False,
+        }
+        with patch.dict(module.BROWSER_DEPENDENCY_PROBES, missing_pdf_tools, clear=True):
+            self.assertEqual(
+                module.missing_browser_dependencies(module.PROFILE_FULL),
+                ["pdfinfo", "pdftotext"],
+            )
+            self.assertEqual(
+                module.missing_browser_dependencies(module.PROFILE_CORE),
+                [],
+            )
+
+    def test_command_probe_rejects_nonzero_version_probe(self) -> None:
+        load_browser_smoke_module()
+        profiles = sys.modules["browser_smoke_profiles"]
+        failed_probe = type("Result", (), {"returncode": 1})()
+
+        with (
+            patch.object(profiles.shutil, "which", return_value="C:/tools/pdfinfo.exe"),
+            patch.object(profiles.subprocess, "run", return_value=failed_probe),
+        ):
+            self.assertFalse(profiles._probe_command("pdfinfo"))
+
+    def test_toolchain_doctor_checks_pdf_dependencies_and_qt_backend(self) -> None:
+        doctor = (ROOT / "scripts" / "toolchain_doctor.ps1").read_text(encoding="utf-8")
+
+        self.assertIn('Test-CommandVersion -Name "pdfinfo" -Arguments @("-v") -Required', doctor)
+        self.assertIn(
+            'Test-CommandVersion -Name "pdftotext" -Arguments @("-v") -Required',
+            doctor,
+        )
+        self.assertIn("from PySide6.QtPdf import QPdfDocument", doctor)
+
+    def test_missing_dependency_main_fails_before_runtime_without_attempts(self) -> None:
+        module = load_browser_smoke_module()
+        output = io.StringIO()
+
+        with (
+            patch.object(module, "missing_browser_dependencies", return_value=["pdfinfo"]),
+            patch.object(module, "start_temp_runtime") as start_runtime,
+            patch.object(sys, "argv", ["browser_smoke.py", "--profile", "full"]),
+            redirect_stdout(output),
+        ):
+            exit_code = module.main()
+
+        self.assertEqual(exit_code, 2)
+        start_runtime.assert_not_called()
+        payload = json.loads(output.getvalue())
+        self.assertEqual(payload["error"], "missing_dependency")
+        self.assertEqual(payload["profile"], "full")
+        self.assertEqual(payload["missing_dependencies"], ["pdfinfo"])
+        self.assertEqual(payload["scenarios"], {})
+        self.assertNotIn("attempt", payload)
+        self.assertNotIn("attempts", payload)
+
+    def test_business_failure_is_not_retried(self) -> None:
+        module = load_browser_smoke_module()
+        output = io.StringIO()
+        failed_result = {
+            "ok": False,
+            "profile": "core",
+            "scenarios": {"desktop_board_card_roundtrip": False},
+            "events": {"ok": True},
+        }
+        runner = AsyncMock(return_value=failed_result)
+
+        with (
+            patch.object(module, "missing_browser_dependencies", return_value=[]),
+            patch.object(module, "run_temp_smoke", runner),
+            patch.object(
+                sys,
+                "argv",
+                ["browser_smoke.py", "--profile", "core", "--attempts", "4"],
+            ),
+            redirect_stdout(output),
+        ):
+            exit_code = module.main()
+
+        self.assertEqual(exit_code, 1)
+        runner.assert_awaited_once()
+        payload = json.loads(output.getvalue())
+        self.assertEqual(payload["attempt"], 1)
+        self.assertNotIn("attempts", payload)
+
+    def test_browser_launch_failure_is_retried_at_most_once(self) -> None:
+        module = load_browser_smoke_module()
+        output = io.StringIO()
+        runner = AsyncMock(side_effect=module.BrowserLaunchError("chromium startup failed"))
+
+        with (
+            patch.object(module, "missing_browser_dependencies", return_value=[]),
+            patch.object(module, "run_temp_smoke", runner),
+            patch.object(
+                sys,
+                "argv",
+                ["browser_smoke.py", "--profile", "core", "--attempts", "4"],
+            ),
+            redirect_stdout(output),
+        ):
+            exit_code = module.main()
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(runner.await_count, 2)
+        payload = json.loads(output.getvalue())
+        self.assertEqual(len(payload["attempts"]), 2)
+
+    def test_temp_runtime_is_closed_on_success_and_browser_failure(self) -> None:
+        module = load_browser_smoke_module()
+
+        class Runtime:
+            def __init__(self) -> None:
+                self.closed = False
+
+            def close(self) -> None:
+                self.closed = True
+
+        for result, side_effect in (({"ok": True}, None), (None, AssertionError("boom"))):
+            runtime = Runtime()
+            runner = AsyncMock(return_value=result, side_effect=side_effect)
+            with (
+                patch.object(module, "start_temp_runtime", return_value=runtime),
+                patch.object(module, "run_browser_smoke", runner),
+            ):
+                if side_effect is None:
+                    asyncio.run(module.run_temp_smoke(profile=module.PROFILE_CORE))
+                else:
+                    with self.assertRaises(AssertionError):
+                        asyncio.run(module.run_temp_smoke(profile=module.PROFILE_CORE))
+            self.assertTrue(runtime.closed)
+
+    def test_missing_or_failed_core_scenario_cannot_pass(self) -> None:
+        module = load_browser_smoke_module()
+        events = {"ok": True}
+        passed = {name: True for name in module.CORE_SMOKE_SCENARIOS}
+
+        self.assertTrue(module._profile_result_ok(module.CORE_SMOKE_SCENARIOS, passed, events))
+        passed.pop(module.CORE_SMOKE_SCENARIOS[-1])
+        self.assertFalse(module._profile_result_ok(module.CORE_SMOKE_SCENARIOS, passed, events))
+        passed[module.CORE_SMOKE_SCENARIOS[-1]] = False
+        self.assertFalse(module._profile_result_ok(module.CORE_SMOKE_SCENARIOS, passed, events))
+
     def test_script_is_import_safe_and_targets_temp_local_runtime_only(self) -> None:
         module = load_browser_smoke_module()
-        script = SCRIPT_PATH.read_text(encoding="utf-8")
+        script = browser_smoke_source()
 
         self.assertIn("desktop_board_card_roundtrip", module.SMOKE_SCENARIOS)
         self.assertIn("personal_extra_board_column", module.SMOKE_SCENARIOS)
@@ -101,11 +301,11 @@ class BrowserSmokeScriptTests(unittest.TestCase):
         self.assertIn("--browser-timeout-seconds", script)
         self.assertIn("--attempts", script)
         self.assertIn('parser.add_argument("--attempts", default=4)', script)
-        self.assertIn("attempts = _browser_attempts(args.attempts)", script)
+        self.assertIn("attempts = min(_browser_attempts(args.attempts), 2)", script)
         self.assertIn("asyncio.wait_for(", script)
         self.assertIn("attempt_results", script)
         self.assertIn('result["attempt"] = attempt', script)
-        self.assertIn("await _goto_with_retry(page, runtime.base_url)", script)
+        self.assertIn("await _goto_with_retry(page, runtime.browser_url)", script)
         self.assertIn("await _goto_with_retry(page, base_url)", script)
         self.assertIn("async def _mobile_scenarios(", script)
         self.assertIn("MOBILE_SMOKE_SCENARIOS", script)
@@ -114,10 +314,8 @@ class BrowserSmokeScriptTests(unittest.TestCase):
         self.assertIn("_mobile_has_no_horizontal_overflow", script)
         self.assertIn('await page.wait_for_selector("#board", state="attached")', script)
         self.assertIn('await page.wait_for_selector("#mobileAppShell")', script)
-        self.assertIn(
-            "await _close_with_timeout(context.close())\n            scenarios.update(\n                await _mobile_scenarios",
-            script,
-        )
+        self.assertIn("if profile == PROFILE_FULL:", script)
+        self.assertIn("await _mobile_scenarios(", script)
         self.assertIn('await page.wait_for_selector("#cashboxesList [data-cashbox-id]")', script)
         self.assertIn("#clientsMeta", script)
         self.assertIn("#mobileClientsMeta", script)
@@ -129,7 +327,7 @@ class BrowserSmokeScriptTests(unittest.TestCase):
 
     def test_temp_runtime_seeds_modal_ladder_data(self) -> None:
         module = load_browser_smoke_module()
-        script = SCRIPT_PATH.read_text(encoding="utf-8")
+        script = browser_smoke_source()
 
         self.assertIn("employee_id", module.TempRuntime.__dataclass_fields__)
         self.assertIn("payroll_card_id", module.TempRuntime.__dataclass_fields__)
