@@ -63,16 +63,13 @@ from ..web_assets import (
     MODULE_MAP_INFRASTRUCTURE,
 )
 from .change_feed import (
-    CHANGE_FEED_ACK_ROUTE,
-    CHANGE_FEED_BOOTSTRAP_ROUTE,
     build_change_feed_routes,
 )
 from .route_registry import (
-    ADMIN_ONLY_ROUTES,
-    OPERATOR_SESSION_ROUTES,
-    PROXIED_WRITE_ROUTES,
     build_operator_routes,
+    build_route_specs,
     build_service_routes,
+    merge_route_specs,
 )
 
 STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
@@ -135,62 +132,6 @@ ACTIVE_INLINE_MIME_TYPES = frozenset(
         "image/svg+xml",
         "text/html",
         "text/xml",
-    }
-)
-
-READONLY_GET_ROUTES = frozenset(
-    {
-        "/api/list_columns",
-        "/api/get_cards",
-        "/api/get_card",
-        "/api/get_board_revision",
-        "/api/get_board_snapshot",
-        "/api/get_board_context",
-        "/api/review_board",
-        "/api/get_board_content",
-        "/api/get_board_events",
-        "/api/get_board_event_page",
-        "/api/list_cashboxes",
-        "/api/get_cash_journal",
-        "/api/finance_audit",
-        "/api/repair_order_number_audit",
-        "/api/list_employees",
-        "/api/list_clients",
-        "/api/search_clients",
-        "/api/get_client",
-        "/api/get_client_stats",
-        "/api/suggest_clients_for_card",
-        "/api/get_payroll_report",
-        "/api/get_display_dashboard",
-        "/api/get_employee_salary_ledger",
-        "/api/get_employee_salary_report",
-        "/api/get_employee_salary_reconciliation",
-        "/api/preview_repair_order_reopen",
-        "/api/get_repair_order_cycles",
-        "/api/get_cashbox",
-        "/api/get_gpt_wall",
-        "/api/get_ai_chat_knowledge",
-        "/api/agent_status",
-        "/api/agent_tasks",
-        "/api/agent_actions",
-        "/api/agent_scheduled_tasks",
-        "/api/get_card_log",
-        "/api/search_cards",
-        "/api/list_archived_cards",
-        "/api/list_overdue_cards",
-        "/api/list_repair_orders",
-        "/api/get_operator_profile",
-        "/api/list_operator_users",
-        "/api/get_operator_user_report",
-        "/api/list_operator_activity",
-        "/api/get_operator_activity_details",
-        "/api/get_operator_activity_aggregates",
-        "/api/export_operator_activity",
-        "/api/list_shared_files",
-        "/api/get_shared_file_info",
-        "/api/list_inventory_items",
-        "/api/get_inventory_item",
-        "/api/list_inventory_movements",
     }
 )
 
@@ -910,38 +851,39 @@ class ApiServer:
                 "storage": storage or shared_files_service.list_shared_files({})["storage"],
             }
 
-        routes = build_service_routes(
+        service_routes = build_service_routes(
             service,
             shared_files_service,
             paste_shared_files_from_clipboard=paste_shared_files_from_clipboard,
         )
-        routes.update(build_change_feed_routes(change_feed_service))
-        proxied_write_routes = set(PROXIED_WRITE_ROUTES)
-        # Feed bootstrap creates a durable consumer checkpoint and ACK advances it.
-        # Both must honor the same maintenance gate as every other state write.
-        proxied_write_routes.update({CHANGE_FEED_BOOTSTRAP_ROUTE, CHANGE_FEED_ACK_ROUTE})
-        maintenance_technical_write_routes = {
-            CHANGE_FEED_BOOTSTRAP_ROUTE,
-            CHANGE_FEED_ACK_ROUTE,
+        feed_routes = build_change_feed_routes(change_feed_service)
+        operator_routes = build_operator_routes(operator_service) if operator_service else {}
+        route_specs = merge_route_specs(
+            build_route_specs(service_routes, registry="service"),
+            build_route_specs(feed_routes, registry="change_feed"),
+            build_route_specs(operator_routes, registry="operator"),
+        )
+        routes = {**service_routes, **feed_routes, **operator_routes}
+        proxied_write_routes = {
+            path
+            for path, spec in route_specs.items()
+            if spec.maintenance_behavior in {"blocked", "technical"}
         }
-        operator_session_routes = set(OPERATOR_SESSION_ROUTES)
+        maintenance_technical_write_routes = {
+            path for path, spec in route_specs.items() if spec.maintenance_behavior == "technical"
+        }
+        operator_session_routes = {
+            path for path, spec in route_specs.items() if spec.auth_kind == "operator"
+        }
         operator_session_routes.add(MODULE_MAP_INFRASTRUCTURE_ROUTE)
-        admin_only_routes = set(ADMIN_ONLY_ROUTES)
-        readonly_routes = set(READONLY_GET_ROUTES)
-        if operator_service is not None:
-            routes.update(build_operator_routes(operator_service))
-            operator_session_routes.update(admin_only_routes)
-            operator_session_routes.update(
-                {
-                    "/api/list_operator_activity",
-                    "/api/get_operator_activity_details",
-                    "/api/get_operator_activity_aggregates",
-                    "/api/export_operator_activity",
-                }
-            )
+        admin_only_routes = {
+            path for path, spec in route_specs.items() if spec.auth_kind == "admin"
+        }
+        readonly_routes = {path for path, spec in route_specs.items() if "GET" in spec.methods}
 
         class RequestHandler(BaseHTTPRequestHandler):
             ROUTES = routes
+            ROUTE_SPECS = route_specs
 
             server_version = "MinimalKanbanAPI/1.0"
             sys_version = ""

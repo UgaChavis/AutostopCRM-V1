@@ -80,6 +80,20 @@ class CrmCapabilityParityTests(unittest.TestCase):
             with self.subTest(route=row["route"]):
                 self.assertIn("ui", row["surfaces"])
                 self.assertIn("backend_registered", row["surfaces"])
+                if row["surfaces"]["backend_registered"]:
+                    self.assertTrue(row["surfaces"]["backend_methods"])
+                    self.assertIn(
+                        row["surfaces"]["backend_mutation_kind"],
+                        {"read", "write", "checkpoint", "render"},
+                    )
+                    self.assertIn(
+                        row["surfaces"]["backend_auth_kind"],
+                        {"bearer", "operator", "admin", "service"},
+                    )
+                    self.assertIn(
+                        row["surfaces"]["backend_maintenance_behavior"],
+                        {"allowed", "blocked", "technical"},
+                    )
                 self.assertIn("selected", row["reachability"])
                 self.assertTrue(row["readback_class"])
                 self.assertTrue(row["test_evidence"])

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 
 RouteHandler = Callable[[dict[str, Any] | None], dict[str, Any]]
 
 
-PROXIED_WRITE_ROUTES = {
+_PROXIED_WRITE_ROUTE_PATHS = {
     "/api/create_card",
     "/api/create_column",
     "/api/rename_column",
@@ -105,7 +106,7 @@ PROXIED_WRITE_ROUTES = {
     "/api/open_card",
 }
 
-OPERATOR_SESSION_ROUTES = {
+_OPERATOR_SESSION_ROUTE_PATHS = {
     "/api/logout_operator",
     "/api/get_operator_profile",
     "/api/update_personal_board_preferences",
@@ -113,7 +114,7 @@ OPERATOR_SESSION_ROUTES = {
     "/api/open_card",
 }
 
-ADMIN_ONLY_ROUTES = {
+_ADMIN_ONLY_ROUTE_PATHS = {
     "/api/list_operator_users",
     "/api/save_operator_user",
     "/api/set_operator_user_employee",
@@ -122,6 +123,268 @@ ADMIN_ONLY_ROUTES = {
     "/api/correct_repair_order_number",
     "/api/finance_audit/apply_safe_fixes",
 }
+
+_OPERATOR_ACTIVITY_ROUTE_PATHS = {
+    "/api/list_operator_activity",
+    "/api/get_operator_activity_details",
+    "/api/get_operator_activity_aggregates",
+    "/api/export_operator_activity",
+}
+
+_READONLY_GET_ROUTE_PATHS = frozenset(
+    {
+        "/api/list_columns",
+        "/api/get_cards",
+        "/api/get_card",
+        "/api/get_board_revision",
+        "/api/get_board_snapshot",
+        "/api/get_board_context",
+        "/api/review_board",
+        "/api/get_board_content",
+        "/api/get_board_events",
+        "/api/get_board_event_page",
+        "/api/list_cashboxes",
+        "/api/get_cash_journal",
+        "/api/finance_audit",
+        "/api/repair_order_number_audit",
+        "/api/list_employees",
+        "/api/list_clients",
+        "/api/search_clients",
+        "/api/get_client",
+        "/api/get_client_stats",
+        "/api/suggest_clients_for_card",
+        "/api/get_payroll_report",
+        "/api/get_display_dashboard",
+        "/api/get_employee_salary_ledger",
+        "/api/get_employee_salary_report",
+        "/api/get_employee_salary_reconciliation",
+        "/api/preview_repair_order_reopen",
+        "/api/get_repair_order_cycles",
+        "/api/get_cashbox",
+        "/api/get_gpt_wall",
+        "/api/get_ai_chat_knowledge",
+        "/api/agent_status",
+        "/api/agent_tasks",
+        "/api/agent_actions",
+        "/api/agent_scheduled_tasks",
+        "/api/get_card_log",
+        "/api/search_cards",
+        "/api/list_archived_cards",
+        "/api/list_overdue_cards",
+        "/api/list_repair_orders",
+        "/api/get_operator_profile",
+        "/api/list_operator_users",
+        "/api/get_operator_user_report",
+        "/api/list_operator_activity",
+        "/api/get_operator_activity_details",
+        "/api/get_operator_activity_aggregates",
+        "/api/export_operator_activity",
+        "/api/list_shared_files",
+        "/api/get_shared_file_info",
+        "/api/list_inventory_items",
+        "/api/get_inventory_item",
+        "/api/list_inventory_movements",
+    }
+)
+
+_CHECKPOINT_ROUTE_PATHS = {
+    "/api/login_operator",
+    "/api/logout_operator",
+    "/api/change_feed/bootstrap",
+    "/api/change_feed/ack",
+}
+_TECHNICAL_MAINTENANCE_ROUTE_PATHS = {
+    "/api/change_feed/bootstrap",
+    "/api/change_feed/ack",
+}
+_MAINTENANCE_SAFE_WRITE_ROUTE_PATHS = {"/api/update_personal_board_preferences"}
+_POST_ONLY_READ_ROUTE_PATHS = frozenset(
+    {
+        "/api/audit_client_links",
+        "/api/audit_repair_order_consistency",
+        "/api/change_feed/read",
+        "/api/fetch_shared_file",
+        "/api/get_card_attachment",
+        "/api/get_card_context",
+        "/api/get_completion_act_form",
+        "/api/get_inspection_sheet_form",
+        "/api/get_repair_order_print_workspace",
+        "/api/get_repair_order_text",
+        "/api/list_card_attachments",
+        "/api/list_cards_missing_manager_data",
+        "/api/list_ready_unpaid_cards",
+        "/api/manager_board_scan",
+        "/api/read_card_attachment",
+        "/api/search_inventory_items",
+        "/api/triage_inbox_cards",
+    }
+)
+
+_ROUTE_MUTATION_GROUPS = (
+    frozenset(_PROXIED_WRITE_ROUTE_PATHS),
+    frozenset(_MAINTENANCE_SAFE_WRITE_ROUTE_PATHS),
+    frozenset(_CHECKPOINT_ROUTE_PATHS),
+    _READONLY_GET_ROUTE_PATHS,
+    _POST_ONLY_READ_ROUTE_PATHS,
+)
+for group_index, group in enumerate(_ROUTE_MUTATION_GROUPS):
+    for other_group in _ROUTE_MUTATION_GROUPS[group_index + 1 :]:
+        overlap = group & other_group
+        if overlap:
+            raise RuntimeError(f"Route has multiple mutation policies: {sorted(overlap)}")
+
+# Complete, reviewed policy catalog for service, operator, and change-feed
+# registries. Adding any route requires placing it in exactly one mutation
+# group above; unknown names never inherit a read policy from their spelling.
+ROUTE_POLICY_PATHS = frozenset().union(*_ROUTE_MUTATION_GROUPS)
+
+RouteMutationKind = Literal["read", "write", "checkpoint", "render"]
+RouteAuthKind = Literal["bearer", "operator", "admin", "service"]
+RouteMaintenanceBehavior = Literal["allowed", "blocked", "technical"]
+RouteResponseKind = Literal["json", "file", "html", "stream"]
+
+
+@dataclass(frozen=True, slots=True)
+class RouteSpec:
+    path: str
+    handler_name: str
+    registry: str
+    methods: frozenset[str]
+    mutation_kind: RouteMutationKind
+    auth_kind: RouteAuthKind
+    maintenance_behavior: RouteMaintenanceBehavior
+    response_kind: RouteResponseKind
+    feed_expectation: str
+    readback_class: str
+
+    @property
+    def is_write(self) -> bool:
+        return self.mutation_kind in {"write", "checkpoint"}
+
+
+def _route_operation(path: str) -> str:
+    return path.removeprefix("/api/").replace("/", "_")
+
+
+def _mutation_kind(path: str) -> RouteMutationKind:
+    if path in _CHECKPOINT_ROUTE_PATHS:
+        return "checkpoint"
+    if path in _PROXIED_WRITE_ROUTE_PATHS or path in _MAINTENANCE_SAFE_WRITE_ROUTE_PATHS:
+        return "write"
+    if path in _READONLY_GET_ROUTE_PATHS or path in _POST_ONLY_READ_ROUTE_PATHS:
+        return "read"
+    raise ValueError(f"Route needs explicit policy metadata: {path}")
+
+
+def _auth_kind(path: str) -> RouteAuthKind:
+    if path in _ADMIN_ONLY_ROUTE_PATHS:
+        return "admin"
+    if path in _OPERATOR_SESSION_ROUTE_PATHS or path in _OPERATOR_ACTIVITY_ROUTE_PATHS:
+        return "operator"
+    return "bearer"
+
+
+def _maintenance_behavior(path: str) -> RouteMaintenanceBehavior:
+    if path in _TECHNICAL_MAINTENANCE_ROUTE_PATHS:
+        return "technical"
+    if path in _PROXIED_WRITE_ROUTE_PATHS:
+        return "blocked"
+    return "allowed"
+
+
+def route_spec(path: str, handler: RouteHandler, *, registry: str) -> RouteSpec:
+    if path not in ROUTE_POLICY_PATHS:
+        raise ValueError(f"Route needs explicit policy metadata: {path}")
+    mutation_kind = _mutation_kind(path)
+    if mutation_kind == "write":
+        feed_expectation = "coverage_required"
+        readback_class = "coverage_required"
+    elif mutation_kind == "checkpoint":
+        feed_expectation = "reviewed_boundary"
+        readback_class = "reviewed_boundary"
+    else:
+        feed_expectation = "not_applicable"
+        readback_class = "not_applicable"
+    spec = RouteSpec(
+        path=path,
+        handler_name=str(getattr(handler, "__name__", type(handler).__name__)),
+        registry=registry,
+        methods=frozenset({"GET", "POST"} if path in _READONLY_GET_ROUTE_PATHS else {"POST"}),
+        mutation_kind=mutation_kind,
+        auth_kind=_auth_kind(path),
+        maintenance_behavior=_maintenance_behavior(path),
+        response_kind="json",
+        feed_expectation=feed_expectation,
+        readback_class=readback_class,
+    )
+    validate_route_spec(spec)
+    return spec
+
+
+def validate_route_spec(spec: RouteSpec) -> None:
+    if not spec.path.startswith("/api/") or "?" in spec.path:
+        raise ValueError(f"Invalid API route path: {spec.path}")
+    if not spec.handler_name or not spec.registry:
+        raise ValueError(f"Route handler metadata is incomplete: {spec.path}")
+    if "POST" not in spec.methods:
+        raise ValueError(f"Registry route must retain POST compatibility: {spec.path}")
+    if spec.auth_kind == "admin" and spec.path not in _ADMIN_ONLY_ROUTE_PATHS:
+        raise ValueError(f"Admin route is not explicitly reviewed: {spec.path}")
+    if spec.is_write and (
+        spec.feed_expectation == "not_applicable" or spec.readback_class == "not_applicable"
+    ):
+        raise ValueError(f"Write route lacks feed/readback metadata: {spec.path}")
+    if spec.maintenance_behavior == "blocked" and not spec.is_write:
+        raise ValueError(f"Read route cannot be maintenance-blocked: {spec.path}")
+
+
+def build_route_specs(routes: dict[str, RouteHandler], *, registry: str) -> dict[str, RouteSpec]:
+    specs = {path: route_spec(path, handler, registry=registry) for path, handler in routes.items()}
+    if len(specs) != len(routes):
+        raise ValueError(f"Duplicate route path in {registry} registry.")
+    return specs
+
+
+def merge_route_specs(*registries: dict[str, RouteSpec]) -> dict[str, RouteSpec]:
+    merged: dict[str, RouteSpec] = {}
+    for registry in registries:
+        overlap = set(merged) & set(registry)
+        if overlap:
+            raise ValueError(f"Route path appears in multiple registries: {sorted(overlap)}")
+        merged.update(registry)
+    return merged
+
+
+def policy_for_route(path: str) -> RouteSpec:
+    def policy_handler(_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        return {}
+
+    policy_handler.__name__ = _route_operation(path)
+    return route_spec(path, policy_handler, registry="policy")
+
+
+# Compatibility exports. Runtime consumers derive policy from their concrete
+# RouteSpecs; these names remain stable for MCP/tests while downstream code
+# migrates. Build the views through the same validated spec constructor so the
+# exported classifications cannot use a second interpretation of route policy.
+_COMPATIBILITY_POLICY_PATHS = ROUTE_POLICY_PATHS
+_COMPATIBILITY_ROUTE_SPECS = {
+    path: policy_for_route(path) for path in sorted(_COMPATIBILITY_POLICY_PATHS)
+}
+PROXIED_WRITE_ROUTES = frozenset(
+    path
+    for path, spec in _COMPATIBILITY_ROUTE_SPECS.items()
+    if spec.mutation_kind == "write" and spec.maintenance_behavior == "blocked"
+)
+OPERATOR_SESSION_ROUTES = frozenset(
+    path for path, spec in _COMPATIBILITY_ROUTE_SPECS.items() if spec.auth_kind == "operator"
+)
+ADMIN_ONLY_ROUTES = frozenset(
+    path for path, spec in _COMPATIBILITY_ROUTE_SPECS.items() if spec.auth_kind == "admin"
+)
+READONLY_GET_ROUTES = frozenset(
+    path for path, spec in _COMPATIBILITY_ROUTE_SPECS.items() if "GET" in spec.methods
+)
 
 
 def build_service_routes(

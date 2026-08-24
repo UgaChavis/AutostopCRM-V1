@@ -15,9 +15,10 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.api.route_registry import (  # noqa: E402
-    PROXIED_WRITE_ROUTES,
     build_operator_routes,
+    build_route_specs,
     build_service_routes,
+    policy_for_route,
 )
 from minimal_kanban.mcp.agent_gateway_v2 import (  # noqa: E402
     PERMANENT_AGENT_GATEWAY_TOOL_NAMES,
@@ -51,7 +52,16 @@ ALLOWED_INTENTIONAL_EXEMPTIONS = frozenset(
         "/api/update_personal_board_preferences",
     }
 )
-READ_OPERATION_OVERRIDES = frozenset({"/api/get_repair_order"})
+READ_OPERATION_OVERRIDES = frozenset(
+    {
+        "/api/attachment",
+        "/api/get_module_map_infrastructure",
+        "/api/health",
+        "/api/repair_order_text",
+        "/api/shared_file",
+        "/api/get_repair_order",
+    }
+)
 WRITE_OPERATION_OVERRIDES = frozenset(
     {
         "/api/login_operator",
@@ -250,10 +260,18 @@ def discover_backend_routes() -> dict[str, dict[str, str]]:
         raise ValueError(f"Service/operator route overlap: {sorted(overlap)}")
     discovered: dict[str, dict[str, str]] = {}
     for registry, routes in (("service", service_routes), ("operator", operator_routes)):
-        for route, handler in routes.items():
+        specs = build_route_specs(routes, registry=registry)
+        for route, spec in specs.items():
             discovered[route] = {
                 "registry": registry,
-                "handler": str(getattr(handler, "__name__", type(handler).__name__)),
+                "handler": spec.handler_name,
+                "methods": ",".join(sorted(spec.methods)),
+                "mutation_kind": spec.mutation_kind,
+                "auth_kind": spec.auth_kind,
+                "maintenance_behavior": spec.maintenance_behavior,
+                "response_kind": spec.response_kind,
+                "feed_expectation": spec.feed_expectation,
+                "readback_class": spec.readback_class,
             }
     return discovered
 
@@ -321,7 +339,16 @@ def _workflow_for_route(route: str) -> tuple[str, str] | None:
 def _is_write_action(route: str) -> bool:
     if route in READ_OPERATION_OVERRIDES:
         return False
-    return route in PROXIED_WRITE_ROUTES or route in WRITE_OPERATION_OVERRIDES
+    if route in WRITE_OPERATION_OVERRIDES:
+        return True
+    if not route.startswith("/api/"):
+        return False
+    try:
+        return policy_for_route(route).is_write
+    except ValueError:
+        # Discovery-only routes without reviewed policy remain high-risk until
+        # either the registry rejects them or parity reports the missing seam.
+        return True
 
 
 def _selected_reachability(
@@ -655,6 +682,19 @@ def build_inventory(
                     "backend_registered": backend is not None,
                     "backend_registry": backend.get("registry") if backend else None,
                     "backend_handler": backend.get("handler") if backend else None,
+                    "backend_methods": backend.get("methods") if backend else None,
+                    "backend_mutation_kind": backend.get("mutation_kind") if backend else None,
+                    "backend_auth_kind": backend.get("auth_kind") if backend else None,
+                    "backend_maintenance_behavior": (
+                        backend.get("maintenance_behavior") if backend else None
+                    ),
+                    "backend_response_kind": backend.get("response_kind") if backend else None,
+                    "backend_feed_expectation": (
+                        backend.get("feed_expectation") if backend else None
+                    ),
+                    "backend_policy_readback_class": (
+                        backend.get("readback_class") if backend else None
+                    ),
                     "special_http": special.get("backend_kind")
                     if isinstance(special, dict)
                     else None,

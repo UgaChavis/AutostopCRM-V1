@@ -56,10 +56,13 @@ codes include `validation_error`, `not_found`, `unauthorized`, `forbidden`,
 | Durable change feed | `/api/change_feed/bootstrap`, `/api/change_feed/read`, `/api/change_feed/ack` | `ChangeFeedService` |
 | Agent compatibility | `/api/get_ai_chat_knowledge`, `/api/set_card_ai_autofill`, scheduled-task and manager-operation routes | `CardService` and agent adapters |
 
-`PROXIED_WRITE_ROUTES`, `OPERATOR_SESSION_ROUTES`, and `ADMIN_ONLY_ROUTES` are
-the authoritative classifications for registry-owned routes. The isolated
-feed routes remain bearer-authenticated; Gateway additionally classifies
-`bootstrap` and `ack` as guarded checkpoint writes.
+Immutable `RouteSpec` entries in `api/route_registry.py` are the authoritative
+classifications for registry-owned routes. They define HTTP methods, mutation,
+auth, maintenance, response, feed, and readback policy. The historical
+`PROXIED_WRITE_ROUTES`, `OPERATOR_SESSION_ROUTES`, `ADMIN_ONLY_ROUTES`, and
+`READONLY_GET_ROUTES` names remain compatibility views derived from those
+specs. Isolated feed routes remain bearer-authenticated; Gateway additionally
+classifies `bootstrap` and `ack` as guarded checkpoint writes.
 
 ## Board And Audit History
 

@@ -13,8 +13,13 @@ from minimal_kanban.api.route_registry import (  # noqa: E402
     ADMIN_ONLY_ROUTES,
     OPERATOR_SESSION_ROUTES,
     PROXIED_WRITE_ROUTES,
+    READONLY_GET_ROUTES,
+    ROUTE_POLICY_PATHS,
     build_operator_routes,
+    build_route_specs,
     build_service_routes,
+    merge_route_specs,
+    policy_for_route,
 )
 from minimal_kanban.mcp.tool_registry import PUBLIC_MCP_TOOL_NAMES  # noqa: E402
 from scripts.browser_smoke import SMOKE_SCENARIOS  # noqa: E402
@@ -200,6 +205,12 @@ EXPECTED_OPERATOR_ROUTES = {
     "/api/delete_operator_user",
 }
 
+EXPECTED_CHANGE_FEED_ROUTES = {
+    "/api/change_feed/ack",
+    "/api/change_feed/bootstrap",
+    "/api/change_feed/read",
+}
+
 EXPECTED_SMOKE_SCENARIOS = (
     "login_gate_hides_board_until_operator_login",
     "desktop_board_card_roundtrip",
@@ -284,6 +295,97 @@ class ContractSnapshotTests(unittest.TestCase):
         self.assertLessEqual(PROXIED_WRITE_ROUTES, all_routes)
         self.assertLessEqual(OPERATOR_SESSION_ROUTES, all_routes)
         self.assertLessEqual(ADMIN_ONLY_ROUTES, all_routes)
+
+    def test_every_registry_handler_has_one_complete_route_spec(self) -> None:
+        service = _FakeService()
+        service_routes = build_service_routes(
+            service,
+            service,
+            paste_shared_files_from_clipboard=service.paste_shared_files_from_clipboard,
+        )
+        operator_routes = build_operator_routes(service)
+        change_feed_routes = {path: service.handler for path in EXPECTED_CHANGE_FEED_ROUTES}
+        specs = merge_route_specs(
+            build_route_specs(service_routes, registry="service"),
+            build_route_specs(operator_routes, registry="operator"),
+            build_route_specs(change_feed_routes, registry="change_feed"),
+        )
+
+        expected_policy_paths = (
+            set(service_routes) | set(operator_routes) | EXPECTED_CHANGE_FEED_ROUTES
+        )
+        self.assertEqual(expected_policy_paths, set(specs))
+        self.assertEqual(frozenset(expected_policy_paths), ROUTE_POLICY_PATHS)
+        self.assertTrue(all(spec.handler_name for spec in specs.values()))
+        self.assertTrue(all("POST" in spec.methods for spec in specs.values()))
+        self.assertTrue(
+            all(
+                spec.feed_expectation != "not_applicable"
+                and spec.readback_class != "not_applicable"
+                for spec in specs.values()
+                if spec.is_write
+            )
+        )
+        self.assertEqual(
+            PROXIED_WRITE_ROUTES,
+            frozenset(
+                path
+                for path, spec in specs.items()
+                if spec.mutation_kind == "write" and spec.maintenance_behavior == "blocked"
+            ),
+        )
+        self.assertEqual(
+            OPERATOR_SESSION_ROUTES,
+            frozenset(path for path, spec in specs.items() if spec.auth_kind == "operator"),
+        )
+        self.assertEqual(
+            ADMIN_ONLY_ROUTES,
+            frozenset(path for path, spec in specs.items() if spec.auth_kind == "admin"),
+        )
+        self.assertEqual(
+            READONLY_GET_ROUTES,
+            frozenset(path for path, spec in specs.items() if "GET" in spec.methods),
+        )
+
+    def test_route_specs_preserve_special_auth_and_maintenance_contracts(self) -> None:
+        admin = policy_for_route("/api/finance_audit/apply_safe_fixes")
+        self.assertEqual("admin", admin.auth_kind)
+        self.assertEqual("blocked", admin.maintenance_behavior)
+        self.assertTrue(admin.is_write)
+
+        preferences = policy_for_route("/api/update_personal_board_preferences")
+        self.assertEqual("operator", preferences.auth_kind)
+        self.assertEqual("allowed", preferences.maintenance_behavior)
+        self.assertEqual("write", preferences.mutation_kind)
+
+        feed_ack = policy_for_route("/api/change_feed/ack")
+        self.assertEqual("checkpoint", feed_ack.mutation_kind)
+        self.assertEqual("technical", feed_ack.maintenance_behavior)
+
+    def test_readonly_get_routes_are_derived_by_route_specs(self) -> None:
+        self.assertTrue(
+            all("GET" in policy_for_route(route).methods for route in READONLY_GET_ROUTES)
+        )
+        self.assertEqual({"POST"}, set(policy_for_route("/api/update_card").methods))
+
+    def test_any_route_without_policy_fails_closed(self) -> None:
+        for route in (
+            "/api/create_unclassified_contract",
+            "/api/import_inventory",
+            "/api/execute_reconciliation",
+            "/api/approve_payment",
+            "/api/read_new_metric",
+        ):
+            with self.subTest(route=route):
+                with self.assertRaisesRegex(ValueError, "explicit policy metadata"):
+                    build_route_specs({route: _FakeService().handler}, registry="test")
+
+    def test_route_specs_reject_cross_registry_overlap(self) -> None:
+        route = "/api/get_card"
+        specs = build_route_specs({route: _FakeService().handler}, registry="first")
+        duplicate = build_route_specs({route: _FakeService().handler}, registry="second")
+        with self.assertRaisesRegex(ValueError, "multiple registries"):
+            merge_route_specs(specs, duplicate)
 
     def test_mcp_public_tool_snapshot_keeps_current_surface(self) -> None:
         self.assertEqual(98, len(PUBLIC_MCP_TOOL_NAMES))
