@@ -39,6 +39,8 @@ CRM_DOCUMENTATION_MANIFESTS = (
 
 DOCUMENTATION_SUFFIXES = (".md", ".txt", ".rst", ".adoc")
 
+ACTIVE_DOC_GLOBS = ("tech_debt/*.md",)
+
 MARKDOWN_LINK_PATTERN = re.compile(r"!?\[[^\]]*\]\((?P<target><[^>]+>|[^)\s]+)")
 
 SCRIPT_INSTRUCTION_SUFFIXES = (
@@ -335,6 +337,18 @@ RUNBOOK_REQUIRED_TEXT = (
         "toolchain audit script is not documented",
     ),
     (
+        "coverage_audit.py",
+        "coverage ratchet command is not documented",
+    ),
+    (
+        "--profile core",
+        "mandatory core browser-smoke profile is not documented",
+    ),
+    (
+        "--profile full",
+        "release browser-smoke profile is not documented",
+    ),
+    (
         "state_size_report.py",
         "state size diagnostics script is not documented",
     ),
@@ -417,6 +431,18 @@ QUALITY_WORKFLOW_REQUIRED_TEXT = (
         "python scripts/docs_audit.py --format text",
         "GitHub quality workflow does not run docs audit",
     ),
+    (
+        "coverage run -m unittest discover -s tests -v",
+        "GitHub quality workflow does not collect full-suite branch coverage",
+    ),
+    (
+        "python scripts/coverage_audit.py --format text",
+        "GitHub quality workflow does not enforce the coverage ratchet",
+    ),
+    (
+        "python scripts/browser_smoke.py --profile core --attempts 1",
+        "GitHub quality workflow does not run the mandatory core browser smoke",
+    ),
 )
 
 
@@ -482,6 +508,8 @@ def _check_unclassified_tracked_docs(root: Path) -> list[Issue]:
             continue
         if relative_path in allowed:
             continue
+        if _matches_relative_glob(path, root, ACTIVE_DOC_GLOBS):
+            continue
         if _matches_relative_glob(path, root, RETIRED_DOC_GLOBS):
             continue
         issues.append(
@@ -524,7 +552,12 @@ def _check_dockerignore_keeps_canonical_markdown(root: Path) -> list[Issue]:
 def _check_canonical_local_links(root: Path) -> list[Issue]:
     root = root.resolve()
     issues: list[Issue] = []
-    for relative_path in CRM_CANONICAL_DOCS:
+    relative_paths = list(CRM_CANONICAL_DOCS)
+    for pattern in ACTIVE_DOC_GLOBS:
+        relative_paths.extend(
+            _display_path(path, root) for path in sorted(root.glob(pattern)) if path.is_file()
+        )
+    for relative_path in dict.fromkeys(relative_paths):
         path = root / relative_path
         if path.suffix.lower() != ".md" or not path.exists():
             continue

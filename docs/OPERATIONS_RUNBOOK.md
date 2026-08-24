@@ -140,7 +140,7 @@ Add the smallest relevant checks:
 
 - UI assets:
   `.\.venv\Scripts\python.exe scripts\check_web_assets_js.py` and
-  `.\.venv\Scripts\python.exe scripts\browser_smoke.py`;
+  `.\.venv\Scripts\python.exe scripts\browser_smoke.py --profile core --attempts 1`;
 - MCP/runtime:
   `.\.venv\Scripts\python.exe scripts\check_agent_gateway_v2.py`;
 - localization:
@@ -154,6 +154,32 @@ It fails on an unknown role or tracked generated artifact; `--format json`
 emits the complete per-file inventory and lifecycle flags. One-off migration
 scripts stay explicitly flagged for review until production evidence permits
 their removal.
+
+The health audit also enforces exact no-growth caps for every grandfathered
+large module, class, and function. Branch coverage is a separate measured
+ratchet. Generate both reports before running its audit:
+
+```powershell
+.\.venv\Scripts\python.exe -m coverage erase
+.\.venv\Scripts\python.exe -m coverage run -m unittest discover -s .\tests -v
+.\.venv\Scripts\python.exe -m coverage combine
+.\.venv\Scripts\python.exe -m coverage json -o coverage-runtime.json
+.\.venv\Scripts\python.exe -m coverage erase
+.\.venv\Scripts\python.exe -m coverage run --source=scripts -m unittest tests.test_agent_release_backup tests.test_agent_release_retention -v
+.\.venv\Scripts\python.exe -m coverage combine
+.\.venv\Scripts\python.exe -m coverage json -o coverage-release.json
+.\.venv\Scripts\python.exe scripts\coverage_audit.py --format text
+```
+
+The measured global and critical-path floors live in
+`scripts/coverage_baseline.json`; do not lower them to make a change pass.
+GitHub Actions replaces the plain full unit invocation with the covered run and
+publishes text, JSON, XML, and HTML evidence.
+
+Before the release-sized browser profile, run
+`.\scripts\toolchain_doctor.ps1 -SkipServer`. `--profile full` fails before
+creating temp runtime state when Chromium, Qt PDF, `pdfinfo`, or `pdftotext` is
+missing. The mandatory `--profile core` does not require the PDF toolchain.
 
 ### Desktop Build and Release
 

@@ -95,7 +95,8 @@ reimplementing those rules.
 - `main.py` — desktop entrypoint.
 - `main_mcp.py` — API/MCP runtime entrypoint.
 - `src/minimal_kanban/api/server.py` and `api/route_registry.py` — HTTP
-  transport and route registry.
+  transport and immutable `RouteSpec` policy registry; auth, maintenance,
+  mutation, response, and readback classifications are derived from its specs.
 - `src/minimal_kanban/services/` — business services.
 - `src/minimal_kanban/storage/json_store.py` — state normalization and
   persistence.
@@ -125,7 +126,12 @@ reimplementing those rules.
 .\scripts\run_checks.ps1
 .\.venv\Scripts\python.exe scripts\crm_capability_parity.py --require-complete
 .\.venv\Scripts\python.exe scripts\crm_change_feed_producer_parity.py --require-complete
+.\.venv\Scripts\python.exe scripts\browser_smoke.py --profile core --attempts 1
 ```
+
+The core browser profile is the short mandatory temp-data gate. Use
+`--profile full` for the release profile after `scripts\toolchain_doctor.ps1`
+confirms Chromium, Qt PDF, `pdfinfo`, and `pdftotext`.
 
 Run the desktop application or the headless API/MCP runtime:
 

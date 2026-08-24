@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 import sys
 import tempfile
@@ -49,6 +50,15 @@ class CodeHealthAuditTests(unittest.TestCase):
                 set(entry.flags),
             )
 
+    def test_technical_debt_markdown_has_a_bounded_noncanonical_role(self) -> None:
+        module = load_code_health_audit_module()
+
+        entry = module.classify_repository_file("tech_debt/001-example.md")
+
+        self.assertEqual("technical_debt_task", entry.role)
+        self.assertEqual((), entry.flags)
+        self.assertNotIn("tech_debt/001-example.md", module.CANONICAL_DOCS)
+
     def test_unclassified_and_generated_tracked_files_are_reported(self) -> None:
         module = load_code_health_audit_module()
 
@@ -91,17 +101,237 @@ class CodeHealthAuditTests(unittest.TestCase):
     def test_allowed_large_module_is_documented_exception(self) -> None:
         module = load_code_health_audit_module()
 
-        self.assertIn(
-            "src/minimal_kanban/services/card_service.py",
-            module.ALLOWED_LARGE_MODULES,
+        module_budget = module.ALLOWED_LARGE_MODULES["src/minimal_kanban/services/card_service.py"]
+        class_budget = module.ALLOWED_LARGE_CLASSES[
+            "src/minimal_kanban/services/card_service.py:CardService"
+        ]
+        function_budget = module.ALLOWED_LARGE_FUNCTIONS[
+            "src/minimal_kanban/mcp/agent_gateway_v2.py:register_agent_gateway_v2"
+        ]
+
+        self.assertIsInstance(module_budget, module.RatchetBudget)
+        self.assertEqual(module_budget.baseline, module_budget.max_allowed)
+        self.assertEqual("012", module_budget.owner_task)
+        self.assertTrue(module_budget.reason)
+        self.assertEqual(class_budget.baseline, class_budget.max_allowed)
+        self.assertEqual(function_budget.baseline, function_budget.max_allowed)
+
+    def test_current_ratchets_are_typed_owned_and_deterministically_measured(self) -> None:
+        module = load_code_health_audit_module()
+
+        report = module.build_report(ROOT)
+        ratchets = report["ratchets"]
+
+        self.assertEqual(36, report["summary"]["size_exemptions_configured"])
+        self.assertEqual(3, report["summary"]["complexity_ratchets_configured"])
+        self.assertEqual(39, len(ratchets))
+        self.assertEqual(
+            sorted(ratchets, key=lambda entry: (entry["metric"], entry["target"])),
+            ratchets,
         )
-        self.assertIn(
-            "src/minimal_kanban/services/card_service.py:CardService",
-            module.ALLOWED_LARGE_CLASSES,
+        self.assertTrue(all(entry["reason"] for entry in ratchets))
+        self.assertTrue(all(entry["owner_task"].isdigit() for entry in ratchets))
+        self.assertTrue(all(entry["present"] for entry in ratchets))
+        self.assertTrue(all(entry["delta"] <= 0 for entry in ratchets))
+        self.assertFalse(
+            {
+                issue["code"]
+                for issue in report["issues"]
+                if issue["code"].endswith("owner_task")
+                or issue["code"].startswith("invalid_ratchet")
+                or issue["code"] == "missing_ratchet_reason"
+            }
         )
-        self.assertIn(
-            "src/minimal_kanban/mcp/agent_gateway_v2.py:register_agent_gateway_v2",
-            module.ALLOWED_LARGE_FUNCTIONS,
+
+    def test_module_size_ratchet_blocks_growth_and_allows_shrink(self) -> None:
+        module = load_code_health_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            task_root = temp_root / "tech_debt"
+            task_root.mkdir()
+            (task_root / "001-owner.md").write_text("# Owner\n", encoding="utf-8")
+            path = temp_root / "sample.py"
+            budget = module.RatchetBudget("fixture module", 3, 3, "001")
+            with patch.multiple(
+                module,
+                ALLOWED_LARGE_MODULES={"sample.py": budget},
+                ALLOWED_LARGE_CLASSES={},
+                ALLOWED_LARGE_FUNCTIONS={},
+                COMPLEXITY_RATCHETS={},
+                EXPECTED_SIZE_EXEMPTION_COUNT=1,
+            ):
+                path.write_text("x = 1\n" * 3, encoding="utf-8")
+                self.assertEqual([], module.audit(temp_root))
+
+                path.write_text("x = 1\n" * 4, encoding="utf-8")
+                growth_issues = module.audit(temp_root)
+
+                path.write_text("x = 1\n" * 2, encoding="utf-8")
+                shrink_report = module.build_report(temp_root)
+
+        self.assertEqual(["size_ratchet_exceeded"], [issue.code for issue in growth_issues])
+        self.assertIn("current=4; max=3; delta=+1", growth_issues[0].detail)
+        self.assertTrue(shrink_report["ok"])
+        self.assertEqual(-1, shrink_report["ratchets"][0]["delta"])
+
+    def test_class_and_function_size_ratchets_are_independent(self) -> None:
+        module = load_code_health_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            task_root = temp_root / "tech_debt"
+            task_root.mkdir()
+            (task_root / "001-owner.md").write_text("# Owner\n", encoding="utf-8")
+            path = temp_root / "sample.py"
+            class_budget = module.RatchetBudget("fixture class", 3, 3, "001")
+            function_budget = module.RatchetBudget("fixture function", 2, 2, "001")
+            with patch.multiple(
+                module,
+                ALLOWED_LARGE_MODULES={},
+                ALLOWED_LARGE_CLASSES={"sample.py:Example": class_budget},
+                ALLOWED_LARGE_FUNCTIONS={"sample.py:Example.run": function_budget},
+                COMPLEXITY_RATCHETS={},
+                EXPECTED_SIZE_EXEMPTION_COUNT=2,
+            ):
+                path.write_text(
+                    "class Example:\n    def run(self):\n        return 1\n",
+                    encoding="utf-8",
+                )
+                self.assertEqual([], module.audit(temp_root))
+
+                path.write_text(
+                    "class Example:\n    def run(self):\n        value = 1\n        return value\n",
+                    encoding="utf-8",
+                )
+                issues = module.audit(temp_root)
+
+        self.assertEqual(2, len(issues))
+        self.assertTrue(all(issue.code == "size_ratchet_exceeded" for issue in issues))
+        self.assertTrue(any("class_lines" in issue.detail for issue in issues))
+        self.assertTrue(any("function_lines" in issue.detail for issue in issues))
+
+    def test_complexity_ratchet_blocks_growth_and_allows_shrink(self) -> None:
+        module = load_code_health_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            task_root = temp_root / "tech_debt"
+            task_root.mkdir()
+            (task_root / "001-owner.md").write_text("# Owner\n", encoding="utf-8")
+            path = temp_root / "sample.py"
+            budget = module.RatchetBudget("fixture complexity", 2, 2, "001")
+            with patch.multiple(
+                module,
+                ALLOWED_LARGE_MODULES={},
+                ALLOWED_LARGE_CLASSES={},
+                ALLOWED_LARGE_FUNCTIONS={},
+                COMPLEXITY_RATCHETS={"sample.py:target": budget},
+                EXPECTED_SIZE_EXEMPTION_COUNT=0,
+            ):
+                path.write_text(
+                    "def target(value):\n    if value:\n        return 1\n    return 0\n",
+                    encoding="utf-8",
+                )
+                self.assertEqual([], module.audit(temp_root))
+
+                path.write_text(
+                    "def target(value):\n"
+                    "    if value > 1:\n"
+                    "        return 2\n"
+                    "    if value:\n"
+                    "        return 1\n"
+                    "    return 0\n",
+                    encoding="utf-8",
+                )
+                growth_issues = module.audit(temp_root)
+
+                path.write_text("def target(value):\n    return value\n", encoding="utf-8")
+                shrink_report = module.build_report(temp_root)
+
+        self.assertEqual(["complexity_ratchet_exceeded"], [issue.code for issue in growth_issues])
+        self.assertIn("current=3; max=2; delta=+1", growth_issues[0].detail)
+        self.assertTrue(shrink_report["ok"])
+        self.assertEqual(-1, shrink_report["ratchets"][0]["delta"])
+
+    def test_missing_ratchet_target_fails_closed(self) -> None:
+        module = load_code_health_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            task_root = temp_root / "tech_debt"
+            task_root.mkdir()
+            (task_root / "001-owner.md").write_text("# Owner\n", encoding="utf-8")
+            budget = module.RatchetBudget("fixture target", 1, 1, "001")
+            with patch.multiple(
+                module,
+                ALLOWED_LARGE_MODULES={},
+                ALLOWED_LARGE_CLASSES={},
+                ALLOWED_LARGE_FUNCTIONS={"missing.py:target": budget},
+                COMPLEXITY_RATCHETS={},
+                EXPECTED_SIZE_EXEMPTION_COUNT=1,
+            ):
+                report = module.build_report(temp_root)
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(
+            ["missing_ratchet_target"],
+            [issue["code"] for issue in report["issues"]],
+        )
+        self.assertFalse(report["ratchets"][0]["present"])
+
+    def test_invalid_missing_and_duplicate_owner_configuration_is_reported(self) -> None:
+        module = load_code_health_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            task_root = temp_root / "tech_debt"
+            task_root.mkdir()
+            (task_root / "001-owner.md").write_text("# Owner\n", encoding="utf-8")
+            (task_root / "002-first.md").write_text("# First\n", encoding="utf-8")
+            (task_root / "002-second.md").write_text("# Second\n", encoding="utf-8")
+            registry = {
+                "missing-reason.py": module.RatchetBudget("", 1, 1, "001"),
+                "invalid-owner.py": module.RatchetBudget("reason", 1, 1, "bad"),
+                "duplicate-owner.py": module.RatchetBudget("reason", 1, 1, "002"),
+                "missing-owner.py": module.RatchetBudget("reason", 1, 1, "003"),
+            }
+            with patch.multiple(
+                module,
+                ALLOWED_LARGE_MODULES=registry,
+                ALLOWED_LARGE_CLASSES={},
+                ALLOWED_LARGE_FUNCTIONS={},
+                COMPLEXITY_RATCHETS={},
+                EXPECTED_SIZE_EXEMPTION_COUNT=4,
+            ):
+                issues = module._ratchet_configuration_issues(temp_root)
+
+        self.assertEqual(
+            {
+                "missing_ratchet_reason",
+                "invalid_owner_task",
+                "missing_owner_task",
+                "duplicate_owner_task",
+            },
+            {issue.code for issue in issues},
+        )
+
+    def test_json_and_text_reports_expose_current_max_and_delta_stably(self) -> None:
+        module = load_code_health_audit_module()
+
+        first = module.build_report(ROOT)
+        second = module.build_report(ROOT)
+        first_json = json.dumps(first, ensure_ascii=False, allow_nan=False)
+        second_json = json.dumps(second, ensure_ascii=False, allow_nan=False)
+        first_text = module.render_text(first)
+
+        self.assertEqual(first_json, second_json)
+        self.assertEqual(first_text, module.render_text(second))
+        self.assertIn("current=", first_text)
+        self.assertIn(" max=", first_text)
+        self.assertIn(" delta=", first_text)
+        self.assertTrue(
+            all({"current", "max_allowed", "delta"} <= set(entry) for entry in first["ratchets"])
         )
 
     def test_untracked_files_are_opt_in_for_server_local_safety(self) -> None:

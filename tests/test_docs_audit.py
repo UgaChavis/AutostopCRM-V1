@@ -93,6 +93,24 @@ class DocsAuditTests(unittest.TestCase):
             issues[0].detail,
         )
 
+    def test_docs_audit_validates_technical_debt_links(self) -> None:
+        module = load_docs_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            tasks = temp_root / "tech_debt"
+            tasks.mkdir()
+            (tasks / "README.md").write_text(
+                "[valid](001-task.md)\n[missing](002-missing.md)\n",
+                encoding="utf-8",
+            )
+            (tasks / "001-task.md").write_text("task\n", encoding="utf-8")
+
+            issues = module._check_canonical_local_links(temp_root)
+
+        self.assertEqual(["canonical_doc_link_missing"], [issue.code for issue in issues])
+        self.assertEqual("tech_debt/README.md", issues[0].path)
+
     def test_scan_forbidden_text_detects_stale_references(self) -> None:
         module = load_docs_audit_module()
 
@@ -202,6 +220,26 @@ class DocsAuditTests(unittest.TestCase):
         self.assertEqual(["unclassified_tracked_doc"], [issue.code for issue in issues])
         self.assertEqual("notes.md", issues[0].path)
 
+    def test_technical_debt_tasks_are_active_noncanonical_docs(self) -> None:
+        module = load_docs_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            task = temp_root / "tech_debt" / "001-task.md"
+            task.parent.mkdir()
+            task.write_text("task\n", encoding="utf-8")
+            subprocess.run(["git", "init"], cwd=temp_root, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "add", "tech_debt/001-task.md"],
+                cwd=temp_root,
+                check=True,
+                capture_output=True,
+            )
+
+            issues = module._check_unclassified_tracked_docs(temp_root)
+
+        self.assertEqual([], issues)
+
     def test_superpowers_planning_docs_are_retired_artifacts(self) -> None:
         module = load_docs_audit_module()
 
@@ -251,6 +289,9 @@ class DocsAuditTests(unittest.TestCase):
                 "manual employee shift accrual route is not documented: /api/create_employee_shift_accrual",
                 "toolchain bootstrap script is not documented: bootstrap_tools.ps1",
                 "toolchain audit script is not documented: toolchain_doctor.ps1",
+                "coverage ratchet command is not documented: coverage_audit.py",
+                "mandatory core browser-smoke profile is not documented: --profile core",
+                "release browser-smoke profile is not documented: --profile full",
                 "card log archive hydration option is not documented: include_full_details",
                 "cashbox transaction pagination offset is not documented: transaction_offset",
                 "immutable repair-order number rejection is not documented: repair_order_number_immutable",
@@ -352,10 +393,20 @@ class DocsAuditTests(unittest.TestCase):
 
             issues = module._check_quality_workflow_required_gates(temp_root)
 
-        self.assertEqual(["quality_workflow_missing_gate"], [issue.code for issue in issues])
+        self.assertEqual(4, len(issues))
+        self.assertEqual({"quality_workflow_missing_gate"}, {issue.code for issue in issues})
         self.assertEqual(
-            "GitHub quality workflow does not run docs audit: python scripts/docs_audit.py --format text",
-            issues[0].detail,
+            {
+                "GitHub quality workflow does not run docs audit: "
+                "python scripts/docs_audit.py --format text",
+                "GitHub quality workflow does not collect full-suite branch coverage: "
+                "coverage run -m unittest discover -s tests -v",
+                "GitHub quality workflow does not enforce the coverage ratchet: "
+                "python scripts/coverage_audit.py --format text",
+                "GitHub quality workflow does not run the mandatory core browser smoke: "
+                "python scripts/browser_smoke.py --profile core --attempts 1",
+            },
+            {issue.detail for issue in issues},
         )
 
     def test_mcp_guide_mentions_transport_security_allowlist_overrides(self) -> None:
