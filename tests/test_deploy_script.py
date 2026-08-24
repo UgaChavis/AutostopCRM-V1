@@ -730,7 +730,8 @@ printf 'status=%s\n' "$status"
         for artifact in (
             "perf-probe-local.json",
             "perf-stage1.json",
-            "browser-smoke.json",
+            "browser-smoke-core.json",
+            "browser-smoke-full.json",
             "perf-probe.json",
             "finance-audit.json",
         ):
@@ -739,7 +740,11 @@ printf 'status=%s\n' "$status"
         self.assertIn("ruff format --check .", workflow)
         self.assertIn("ruff check .", workflow)
         self.assertIn("python scripts/docs_audit.py --format text", workflow)
-        self.assertIn("python -m unittest discover -s tests -v", workflow)
+        self.assertIn("coverage run -m unittest discover -s tests -v", workflow)
+        self.assertEqual(1, workflow.count("unittest discover -s tests -v"))
+        self.assertIn("python scripts/coverage_audit.py --format text", workflow)
+        self.assertIn("coverage-runtime.xml", workflow)
+        self.assertIn("htmlcov/", workflow)
         self.assertIn("python scripts/code_health_audit.py --format text", workflow)
         self.assertIn("python scripts/audit_localization.py", workflow)
         self.assertIn("python scripts/check_web_assets_js.py", workflow)
@@ -749,9 +754,17 @@ printf 'status=%s\n' "$status"
         self.assertIn("python scripts/finance_audit_report.py", workflow)
         self.assertIn("browser_smoke", workflow)
         self.assertIn("poppler-utils", workflow)
-        self.assertIn("python -m playwright install chromium", workflow)
-        self.assertIn("python scripts/browser_smoke.py", workflow)
+        self.assertIn("python -m playwright install --with-deps chromium", workflow)
+        self.assertIn(
+            "python scripts/browser_smoke.py --profile core --attempts 1",
+            workflow,
+        )
+        self.assertIn(
+            "python scripts/browser_smoke.py --profile full --attempts 1",
+            workflow,
+        )
         self.assertIn("playwright", requirements_dev)
+        self.assertIn("coverage==", requirements_dev)
 
     def test_runbook_and_readme_document_quality_gates(self) -> None:
         runbook = (PROJECT_ROOT / "docs" / "OPERATIONS_RUNBOOK.md").read_text(encoding="utf-8")

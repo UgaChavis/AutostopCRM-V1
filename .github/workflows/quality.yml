@@ -13,7 +13,7 @@ on:
         required: false
         default: "false"
       browser_smoke:
-        description: "Run optional temp-data browser smoke"
+        description: "Run the full temp-data browser smoke in addition to mandatory core"
         required: false
         default: "false"
 
@@ -82,6 +82,9 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install -r requirements-dev.txt
 
+      - name: Install Chromium for mandatory browser smoke
+        run: python -m playwright install --with-deps chromium
+
       - name: Validate production Compose configuration
         env:
           AUTOSTOP_MCP_OAUTH_STATE_KEY: ci-only-oauth-state-key
@@ -107,8 +110,42 @@ jobs:
       - name: Docs audit
         run: python scripts/docs_audit.py --format text
 
-      - name: Unit tests
-        run: python -m unittest discover -s tests -v
+      - name: Unit tests with runtime branch coverage
+        run: |
+          coverage erase
+          coverage run -m unittest discover -s tests -v
+          coverage combine
+          coverage report --show-missing | tee coverage-runtime.txt
+          coverage json -o coverage-runtime.json
+          coverage xml -o coverage-runtime.xml
+          coverage html -d htmlcov
+
+      - name: Release backup and restore branch coverage
+        run: |
+          coverage erase
+          coverage run --source=scripts -m unittest \
+            tests.test_agent_release_backup \
+            tests.test_agent_release_retention -v
+          coverage combine
+          coverage report --show-missing | tee coverage-release.txt
+          coverage json -o coverage-release.json
+
+      - name: Coverage ratchet
+        run: python scripts/coverage_audit.py --format text
+
+      - name: Upload coverage evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: branch-coverage-${{ github.sha }}
+          path: |
+            coverage-runtime.txt
+            coverage-runtime.json
+            coverage-runtime.xml
+            coverage-release.txt
+            coverage-release.json
+            htmlcov/
+          if-no-files-found: warn
 
       - name: Code health audit
         run: python scripts/code_health_audit.py --format text
@@ -118,6 +155,22 @@ jobs:
 
       - name: Generated JavaScript syntax
         run: python scripts/check_web_assets_js.py
+
+      - name: Mandatory core browser smoke
+        id: core_browser_smoke
+        env:
+          AUTOSTOP_BROWSER_SMOKE_SCREENSHOT_DIR: output/browser-smoke-core
+        run: python scripts/browser_smoke.py --profile core --attempts 1 | tee browser-smoke-core.json
+
+      - name: Upload failed core browser smoke evidence
+        if: ${{ failure() && steps.core_browser_smoke.outcome == 'failure' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: core-browser-smoke-failure-${{ github.sha }}
+          path: |
+            browser-smoke-core.json
+            output/browser-smoke-core/
+          if-no-files-found: warn
 
       - name: Compile release probe scripts
         run: python -m py_compile scripts/perf_probe.py scripts/perf_workflows.py scripts/finance_audit_report.py scripts/browser_smoke.py
@@ -156,13 +209,9 @@ jobs:
           path: perf-stage1.json
           if-no-files-found: warn
 
-      - name: Optional browser smoke dependencies
+      - name: Optional full browser smoke
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser_smoke == 'true' }}
-        run: python -m playwright install chromium
-
-      - name: Optional browser smoke
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser_smoke == 'true' }}
-        run: python scripts/browser_smoke.py | tee browser-smoke.json
+        run: python scripts/browser_smoke.py --profile full --attempts 1 | tee browser-smoke-full.json
 
       - name: Optional read-only live probes
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.live_probes == 'true' }}
@@ -187,5 +236,6 @@ jobs:
             perf-probe.json
             perf-probe-local.json
             finance-audit.json
-            browser-smoke.json
+            browser-smoke-full.json
+            output/playwright/
           if-no-files-found: ignore

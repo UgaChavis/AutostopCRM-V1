@@ -1,0 +1,30 @@
+[run]
+branch = True
+source =
+    src/minimal_kanban
+relative_files = True
+parallel = True
+omit =
+    */__pycache__/*
+    */.venv/*
+    build/*
+    data/*
+    dist/*
+    release/*
+    tmp/*
+
+[paths]
+source =
+    src/minimal_kanban
+    */src/minimal_kanban
+
+[report]
+precision = 2
+show_missing = True
+skip_empty = True
+exclude_also =
+    if TYPE_CHECKING:
+    if __name__ == .__main__.:
+
+[json]
+pretty_print = True

@@ -1,0 +1,243 @@
+{
+  "schema_version": 1,
+  "policy": {
+    "coverage_version": "7.15.3",
+    "captured_on": "2026-08-23",
+    "captured_platform": "Windows CPython 3.13",
+    "percentage_basis": "covered lines plus covered branches divided by statements plus branches",
+    "floor_rule": "measured baseline rounded down by no more than 0.5 percentage points",
+    "notes": [
+      "Runtime and release-script reports are deliberately separate measurements.",
+      "The card_service floor includes the current attachment implementation until task 010 extracts it."
+    ]
+  },
+  "measurements": {
+    "runtime": {
+      "default_json": "coverage-runtime.json",
+      "source": "src/minimal_kanban",
+      "tests": "python -m unittest discover -s tests"
+    },
+    "release_scripts": {
+      "default_json": "coverage-release.json",
+      "source": "scripts",
+      "tests": "python -m unittest tests.test_agent_release_backup tests.test_agent_release_retention"
+    }
+  },
+  "floors": [
+    {
+      "id": "runtime_global",
+      "measurement": "runtime",
+      "scope": "global",
+      "paths": [],
+      "minimum_percent": 78.5,
+      "baseline": {
+        "covered_lines": 31550,
+        "num_statements": 38060,
+        "covered_branches": 8841,
+        "num_branches": 13186
+      }
+    },
+    {
+      "id": "operator_auth",
+      "measurement": "runtime",
+      "scope": "files",
+      "paths": [
+        "src/minimal_kanban/operator_auth.py"
+      ],
+      "minimum_percent": 83.0,
+      "baseline": {
+        "covered_lines": 683,
+        "num_statements": 782,
+        "covered_branches": 190,
+        "num_branches": 266
+      }
+    },
+    {
+      "id": "api_server",
+      "measurement": "runtime",
+      "scope": "files",
+      "paths": [
+        "src/minimal_kanban/api/server.py"
+      ],
+      "minimum_percent": 86.5,
+      "baseline": {
+        "covered_lines": 889,
+        "num_statements": 1004,
+        "covered_branches": 258,
+        "num_branches": 316
+      }
+    },
+    {
+      "id": "deployment_security",
+      "measurement": "runtime",
+      "scope": "files",
+      "paths": [
+        "src/minimal_kanban/deployment_security.py"
+      ],
+      "minimum_percent": 90.0,
+      "baseline": {
+        "covered_lines": 177,
+        "num_statements": 192,
+        "covered_branches": 59,
+        "num_branches": 70
+      }
+    },
+    {
+      "id": "mcp_oauth_provider",
+      "measurement": "runtime",
+      "scope": "files",
+      "paths": [
+        "src/minimal_kanban/mcp/oauth_provider.py"
+      ],
+      "minimum_percent": 82.0,
+      "baseline": {
+        "covered_lines": 504,
+        "num_statements": 594,
+        "covered_branches": 156,
+        "num_branches": 210
+      }
+    },
+    {
+      "id": "gateway_ledger_raw",
+      "measurement": "runtime",
+      "scope": "files",
+      "paths": [
+        "src/minimal_kanban/mcp/agent_gateway_v2.py",
+        "src/minimal_kanban/mcp/raw_gateway.py"
+      ],
+      "minimum_percent": 82.0,
+      "baseline": {
+        "covered_lines": 1194,
+        "num_statements": 1380,
+        "covered_branches": 487,
+        "num_branches": 658
+      }
+    },
+    {
+      "id": "json_store_change_feed",
+      "measurement": "runtime",
+      "scope": "files",
+      "paths": [
+        "src/minimal_kanban/api/change_feed.py",
+        "src/minimal_kanban/services/change_feed_service.py",
+        "src/minimal_kanban/storage/change_feed_projection.py",
+        "src/minimal_kanban/storage/change_feed_store.py",
+        "src/minimal_kanban/storage/json_store.py"
+      ],
+      "minimum_percent": 85.5,
+      "baseline": {
+        "covered_lines": 1658,
+        "num_statements": 1888,
+        "covered_branches": 495,
+        "num_branches": 620
+      }
+    },
+    {
+      "id": "finance",
+      "measurement": "runtime",
+      "scope": "files",
+      "paths": [
+        "src/minimal_kanban/services/card_service_finance.py",
+        "src/minimal_kanban/services/finance_read_core.py"
+      ],
+      "minimum_percent": 88.5,
+      "baseline": {
+        "covered_lines": 1054,
+        "num_statements": 1146,
+        "covered_branches": 348,
+        "num_branches": 434
+      }
+    },
+    {
+      "id": "payroll",
+      "measurement": "runtime",
+      "scope": "files",
+      "paths": [
+        "src/minimal_kanban/services/card_service_payroll.py",
+        "src/minimal_kanban/services/payroll_active_periods.py",
+        "src/minimal_kanban/services/payroll_constants.py",
+        "src/minimal_kanban/services/payroll_snapshot_preservation.py"
+      ],
+      "minimum_percent": 81.5,
+      "baseline": {
+        "covered_lines": 1660,
+        "num_statements": 1935,
+        "covered_branches": 536,
+        "num_branches": 748
+      }
+    },
+    {
+      "id": "repair_order",
+      "measurement": "runtime",
+      "scope": "files",
+      "paths": [
+        "src/minimal_kanban/repair_order.py",
+        "src/minimal_kanban/services/repair_order_number_audit.py"
+      ],
+      "minimum_percent": 89.0,
+      "baseline": {
+        "covered_lines": 655,
+        "num_statements": 706,
+        "covered_branches": 161,
+        "num_branches": 206
+      }
+    },
+    {
+      "id": "attachments",
+      "measurement": "runtime",
+      "scope": "files",
+      "paths": [
+        "src/minimal_kanban/services/card_service.py",
+        "src/minimal_kanban/services/shared_files_service.py"
+      ],
+      "minimum_percent": 82.0,
+      "baseline": {
+        "covered_lines": 4648,
+        "num_statements": 5372,
+        "covered_branches": 1343,
+        "num_branches": 1922
+      }
+    },
+    {
+      "id": "printing",
+      "measurement": "runtime",
+      "scope": "files",
+      "paths": [
+        "src/minimal_kanban/printing/__init__.py",
+        "src/minimal_kanban/printing/defaults.py",
+        "src/minimal_kanban/printing/errors.py",
+        "src/minimal_kanban/printing/formatting.py",
+        "src/minimal_kanban/printing/layout.py",
+        "src/minimal_kanban/printing/manual_documents.py",
+        "src/minimal_kanban/printing/models.py",
+        "src/minimal_kanban/printing/pdf.py",
+        "src/minimal_kanban/printing/printers.py",
+        "src/minimal_kanban/printing/service.py",
+        "src/minimal_kanban/printing/template_engine.py",
+        "src/minimal_kanban/printing/web_module.py"
+      ],
+      "minimum_percent": 83.5,
+      "baseline": {
+        "covered_lines": 2438,
+        "num_statements": 2815,
+        "covered_branches": 705,
+        "num_branches": 946
+      }
+    },
+    {
+      "id": "release_backup_restore",
+      "measurement": "release_scripts",
+      "scope": "files",
+      "paths": [
+        "scripts/agent_release_backup.py"
+      ],
+      "minimum_percent": 78.0,
+      "baseline": {
+        "covered_lines": 526,
+        "num_statements": 640,
+        "covered_branches": 200,
+        "num_branches": 286
+      }
+    }
+  ]
+}
