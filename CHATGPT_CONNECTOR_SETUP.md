@@ -74,34 +74,22 @@ Use guarded raw discovery only when no named workflow covers the required
 operation. The client must see exactly 24 Gateway v2 tools and no low-level
 legacy names.
 
-Store context is additive to those same tools: use
-`agent_board_digest(scope="store")`, Store entities in `agent_search` and
-`agent_entity_context` (`summary` or `full`, always PII-redacted), and the 7
-allowlisted Store actions only through `agent_inventory_workflow` with explicit
-`dry_run`/`apply`: `assign_quote_request`, `set_quote_request_status`,
+Store context is explicit through `agent_board_digest(scope="store")`,
+`agent_search`, and PII-redacted `agent_entity_context`; the 6 mounted
+`store_*` adapter tools remain internal. The 7 allowlisted Store actions are
+`assign_quote_request`, `set_quote_request_status`,
 `update_quote_request_comment`, `add_quote_request_note`,
 `replace_quote_offer_drafts`, `set_batch_storage_location`, and
-`mark_order_ready`. The 6 mounted `store_*` adapter tools are internal-only and unavailable through raw
-discovery. Use `get_runtime_status` for live CRM/Store runtime diagnostics;
-Store degradation does not make a healthy CRM unusable.
+`mark_order_ready`, available only through `agent_inventory_workflow` with
+explicit `dry_run`/`apply`.
 
-For Store digest delivery, every non-empty page must be acknowledged. Pass its
-exact `page.next_cursor` and `page.ack_token` back as `cursor`/`ack_token` on
-`agent_board_digest`. The terminal ACK page has `next_cursor=null`. Do not
-substitute or decode these opaque values. `agent_bootstrap` is an independent,
-stateless one-request snapshot and never participates in this cursor/ACK flow.
-
-Search also supports `store_sourcing_offer`. To preview a quote request VIN
-photo, call `agent_document_workflow` with
-`operation="download_store_quote_vin_photo"`, the exact quote/photo revision,
-and `allow_large_output=true`; the JPEG is returned as an MCP image and its
-base64 is excluded from structured data.
-
-For one Store mutation, reuse the same stable correlation across dry-run and
-apply but use a different unique idempotency key for each mode. READY is not
-closed while its external notifier is `CLAIMED` or `FAILED`. If an apply is
-already `compensating`, repeat only the exact same request/key to reconcile the
-Store receipt; clients must not invent a new retry request.
+Digest pages require their exact opaque cursor/ACK until the terminal ACK.
+`agent_bootstrap` makes no Store request and reports `not_loaded`; use
+`get_runtime_status` only for explicit diagnostics. Search includes
+`store_sourcing_offer`; `download_store_quote_vin_photo` returns the bounded
+image only with its exact revision and `allow_large_output=true`. Store apply
+uses a distinct key, stable correlation, exact receipt replay after uncertainty,
+and remains compensating while notification is unresolved.
 
 ## Safety
 

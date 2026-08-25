@@ -29,6 +29,7 @@ from ..storage.change_feed_store import ChangeFeedStore
 from ..storage.file_lock import ProcessFileLock
 from ..storage.limited_io import read_bytes_limited
 from .defaults import BUILTIN_PRINT_DOCUMENTS, PRINT_BASE_STYLES, builtin_template_records
+from .document_guard import export_document_meta, invoice_guard
 from .errors import PrintModuleError
 from .formatting import (
     _RU_MONTHS_GENITIVE,
@@ -1695,15 +1696,7 @@ class PrintModuleService:
             pdf_bytes,
             file_name,
             {
-                "documents": [
-                    {
-                        "id": payload["document"].id,
-                        "label": payload["document"].label,
-                        "template_id": payload["template"].id,
-                        "template_name": payload["template"].name,
-                    }
-                    for payload in document_payloads
-                ],
+                "documents": [export_document_meta(payload) for payload in document_payloads],
                 "paper_size": settings.paper_size,
                 "orientation": render_orientation,
             },
@@ -2026,6 +2019,7 @@ class PrintModuleService:
                 if document.id == "completion_act"
                 else ""
             ),
+            "document_guard": invoice_guard(document.id, context),
         }
 
     def _combined_document_html(self, payloads: list[dict[str, Any]]) -> str:

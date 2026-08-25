@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import subprocess
@@ -506,6 +507,28 @@ class DocsAuditTests(unittest.TestCase):
         ]
         gateway_tools = module.load_gateway_expected_tools(ROOT)
 
+        def fingerprint(tools: list[str] | set[str]) -> str:
+            names = sorted(tools)
+            surface = [
+                {"name": name, "inputSchema": {"type": "object", "properties": {}}}
+                for name in names
+            ]
+            canonical = json.dumps(
+                surface, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            ).encode()
+            return hashlib.sha256(canonical).hexdigest()
+
+        def manifest(tools: list[str] | set[str], source: str) -> dict[str, object]:
+            names = sorted(tools)
+            return {
+                "format": "mcp_surface_manifest_v1",
+                "source": source,
+                "expected_tool_count": len(names),
+                "expected_tool_names": names,
+                "schema_fingerprint": fingerprint(tools),
+                "verified_at": "2026-08-25",
+            }
+
         with tempfile.TemporaryDirectory() as temp_dir:
             manager_root = Path(temp_dir)
             source_dir = manager_root / "autostop_manager"
@@ -534,42 +557,26 @@ class DocsAuditTests(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 if path.name == "manager_mcp_catalog.json":
                     path.write_text(
-                        json.dumps(
-                            {
-                                "tool_count": len(manager_tools),
-                                "all_tools": manager_tools,
-                            },
-                            ensure_ascii=False,
-                        ),
+                        json.dumps(manifest(manager_tools, "test manager"), ensure_ascii=False),
                         encoding="utf-8",
                     )
                 elif path.name == "crm_mcp_catalog.json":
                     path.write_text(
-                        json.dumps(
-                            {
-                                "tool_counts": {
-                                    "crm_legacy_tools_hidden_by_gateway": 1,
-                                    "autostop_manager_tools_in_raw_registry": len(manager_tools),
-                                    "production_visible_agent_gateway_v2": len(gateway_tools),
-                                    "guarded_internal_api_write_routes_are_virtual_and_not_counted_as_tools": True,
-                                },
-                                "production_tools_verified": sorted(gateway_tools),
-                                "tool_families": {
-                                    "optional_manager_memory_and_routing": manager_tools
-                                },
-                            },
-                            ensure_ascii=False,
-                        ),
+                        json.dumps(manifest(gateway_tools, "test gateway"), ensure_ascii=False),
                         encoding="utf-8",
                     )
                 else:
                     path.write_text("ok\n", encoding="utf-8")
 
-            issues = module._check_manager_docs_and_catalogs(
-                ROOT,
-                manager_root,
-                {"crm_tool"},
-            )
+            with patch.object(
+                module,
+                "_registered_surface_fingerprints",
+                return_value={
+                    "manager": fingerprint(manager_tools),
+                    "crm": fingerprint(gateway_tools),
+                },
+            ):
+                issues = module._check_manager_docs_and_catalogs(ROOT, manager_root)
 
         self.assertEqual([], issues)
 

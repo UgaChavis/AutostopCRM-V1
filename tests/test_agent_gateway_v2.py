@@ -1806,7 +1806,7 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
         )
         self.assertIsNone(inventory_schema["properties"]["mode"]["default"])
 
-    async def test_store_bootstrap_snapshot_is_one_store_call_and_digest_keeps_owner_stream(
+    async def test_bootstrap_skips_store_and_explicit_digest_keeps_owner_stream(
         self,
     ) -> None:
         server, state = self._create_store_server()
@@ -1820,23 +1820,13 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
         )
 
         self.assertTrue(bootstrap.structuredContent["ok"])
-        self.assertTrue(bootstrap.structuredContent["summary"]["store"]["ok"])
-        self.assertEqual(
-            42,
-            bootstrap.structuredContent["summary"]["store"]["snapshot"]["product_count"],
-        )
+        self.assertIsNone(bootstrap.structuredContent["summary"]["store"]["ok"])
+        self.assertEqual("not_loaded", bootstrap.structuredContent["summary"]["store"]["status"])
+        self.assertNotIn("snapshot", bootstrap.structuredContent["summary"]["store"])
         self.assertEqual("order-1", digest.structuredContent["data"]["items"][0]["id"])
         self.assertEqual("opaque-2", digest.structuredContent["page"]["next_cursor"])
-        bootstrap_calls = [
-            arguments
-            for name, arguments in state["calls"]
-            if name == "store_runtime_status" and arguments["bootstrap_snapshot"]
-        ]
         digest_calls = [arguments for name, arguments in state["calls"] if name == "store_digest"]
-        self.assertEqual(
-            [{"live": True, "bootstrap_snapshot": True}],
-            bootstrap_calls,
-        )
+        self.assertFalse(any(name == "store_runtime_status" for name, _ in state["calls"]))
         self.assertEqual(1, len(digest_calls))
         self.assertEqual("store_digest", digest_calls[0]["stream"])
 
@@ -1874,23 +1864,15 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
         self.assertEqual("digest-ack-1", calls[1]["ack_token"])
         self.assertEqual("digest-ack-2", calls[2]["ack_token"])
 
-    async def test_store_bootstrap_snapshot_never_uses_digest_ack_or_pagination(self) -> None:
+    async def test_bootstrap_never_uses_store_ack_or_runtime_status(self) -> None:
         server, state = self._create_store_server({"store_digest_ack_mode": True})
         tool = server._tool_manager.get_tool("agent_bootstrap")
 
         result = await tool.run({}, convert_result=False)
 
-        snapshot = result.structuredContent["summary"]["store"]["snapshot"]
-        self.assertTrue(snapshot["store_api_ready"])
-        self.assertNotIn("page", snapshot)
-        calls = [arguments for name, arguments in state["calls"] if name == "store_digest"]
-        self.assertEqual([], calls)
-        snapshot_calls = [
-            arguments
-            for name, arguments in state["calls"]
-            if name == "store_runtime_status" and arguments["bootstrap_snapshot"]
-        ]
-        self.assertEqual([{"live": True, "bootstrap_snapshot": True}], snapshot_calls)
+        self.assertTrue(result.structuredContent["ok"])
+        self.assertEqual("not_loaded", result.structuredContent["summary"]["store"]["status"])
+        self.assertFalse(any(name.startswith("store_") for name, _ in state["calls"]))
 
     async def test_store_search_and_exact_context_use_existing_public_tools(self) -> None:
         server, state = self._create_store_server()
@@ -2207,8 +2189,9 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
         )
 
         self.assertTrue(bootstrap.structuredContent["ok"])
-        self.assertEqual("degraded", bootstrap.structuredContent["status"])
-        self.assertIn("store_adapter_degraded", bootstrap.structuredContent["warnings"])
+        self.assertEqual("ready", bootstrap.structuredContent["status"])
+        self.assertEqual("not_loaded", bootstrap.structuredContent["summary"]["store"]["status"])
+        self.assertNotIn("store_adapter_degraded", bootstrap.structuredContent["warnings"])
         self.assertTrue(runtime.structuredContent["ok"])
         self.assertEqual("degraded", runtime.structuredContent["status"])
         self.assertFalse(runtime.structuredContent["data"]["store"]["ok"])

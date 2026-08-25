@@ -71,20 +71,13 @@ account or retain raw journal pages, and returns forum case evidence rather
 than procedure authority. Their schemas are hash-bound, arguments are bounded,
 and page fetches retain the public-HTTP(S)/SSRF guard.
 
-AutoStop CRM remains the source of truth for workshop cards, repair orders,
-payments, cashboxes, files, and board state. AutoStop App owns store catalog,
-stock, batches, suppliers, quote requests, online orders, and marketplace
-state. AutostopManager owns only routing, compact cursors, action contracts,
-and workflow checkpoints. Gateway store reads never access the App database.
-Store digest pages use at-least-once delivery: every non-empty page carries an
-opaque Manager cursor/ACK pair, and durable high-water advances only after the
-final ACK. Bootstrap is a separate stateless one-request snapshot and never
-reads or advances that owner digest.
-Store writes require a matching dry-run and apply with distinct idempotency
-keys but one stable action correlation. Gateway verifies only App-safe DTO
-fields and keeps READY runs compensating until the notifier is `SENT` or
-`NOT_APPLICABLE`; an exact repeated compensating request reconciles through a
-Store receipt replay instead of an automatic POST retry.
+AutoStop CRM owns workshop and financial state; AutoStop App owns Store state;
+AutostopManager owns routing, compact refs, contracts, and checkpoints. Gateway
+never reads the App database. Bootstrap is CRM-only and reports Store as
+`not_loaded`; explicit Store digests use opaque cursor/ACK delivery. Store
+writes require dry-run/apply with distinct keys and stable correlation, exact
+DTO readback, terminal notification state, and same-key receipt reconciliation
+after an uncertain result.
 
 Business rules belong in `src/minimal_kanban/services/`. API, MCP, UI, smoke
 scripts, and compatibility routes must call the same services instead of

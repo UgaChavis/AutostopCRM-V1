@@ -64,7 +64,9 @@ from .gateway_contract import (
 from .gateway_media import (
     store_vin_photo_image as _store_vin_photo_image,
 )
-from .gateway_media import tool_result as _tool_result
+from .gateway_media import (
+    tool_result as _tool_result,
+)
 from .gateway_media import (
     tool_result_with_image as _tool_result_with_image,
 )
@@ -130,6 +132,16 @@ from .web_gateway import (
     create_web_tool_executor,
     invoke_web_research,
     web_research_argument_error,
+)
+from .workflow_guards import (
+    bind_finance_preview,
+    finance_contract_error,
+    finance_ledger_verification,
+    finance_preview_result,
+    finance_request_error,
+    finance_revision_preflight,
+    invoice_document_guard,
+    workflow_error_result,
 )
 
 COMPLETION_ACT_WORKFLOW_OPERATIONS = frozenset(
@@ -1174,29 +1186,16 @@ def register_agent_gateway_v2(
         allow_large_output: bool = False,
     ) -> CallToolResult:
         if is_maintenance_mode():
-            return _tool_result(
-                _envelope(
-                    ok=False,
-                    status="blocked",
-                    warnings=["maintenance_mode_domain_writes_blocked"],
-                ),
-                label=workflow_id,
-            )
+            return workflow_error_result(workflow_id, "maintenance_mode_domain_writes_blocked")
         if operation not in allowed:
-            return _tool_result(
-                _envelope(
-                    ok=False,
-                    status="failed",
-                    warnings=["operation_not_allowed_for_workflow"],
-                    summary={"workflow_id": workflow_id, "operation": operation},
-                ),
-                label=workflow_id,
+            return workflow_error_result(
+                workflow_id,
+                "operation_not_allowed_for_workflow",
+                status="failed",
+                summary={"workflow_id": workflow_id, "operation": operation},
             )
         if not idempotency_key:
-            return _tool_result(
-                _envelope(ok=False, status="failed", warnings=["idempotency_key_required"]),
-                label=workflow_id,
-            )
+            return workflow_error_result(workflow_id, "idempotency_key_required", status="failed")
         completion_act_operation = (
             workflow_id == "document" and operation in COMPLETION_ACT_WORKFLOW_OPERATIONS
         )
@@ -1295,14 +1294,10 @@ def register_agent_gateway_v2(
                 )
         is_store_vin_photo_preview = operation == STORE_VIN_PHOTO_PREVIEW_OPERATION
         if is_store_vin_photo_preview and not allow_large_output:
-            return _tool_result(
-                _envelope(
-                    ok=False,
-                    status="blocked",
-                    summary={"workflow_id": workflow_id, "operation": operation},
-                    warnings=["allow_large_output_required_for_store_vin_photo"],
-                ),
-                label=workflow_id,
+            return workflow_error_result(
+                workflow_id,
+                "allow_large_output_required_for_store_vin_photo",
+                summary={"workflow_id": workflow_id, "operation": operation},
             )
         store_operation = workflow_id == "inventory" and operation in STORE_MANAGEMENT_OPERATIONS
         store_preflight: dict[str, Any] = {}
@@ -1332,273 +1327,21 @@ def register_agent_gateway_v2(
                     label=workflow_id,
                 )
             store_correlation = str(request_validation["correlation_id"])
-        if (
-            operation in {"update_repair_order", "set_repair_order_status", "reopen_repair_order"}
-            and not str(payload.get("expected_updated_at") or "").strip()
-        ):
-            return _tool_result(
-                _envelope(
-                    ok=False,
-                    status="blocked",
-                    warnings=["expected_updated_at_required_reread_exact_card_first"],
-                    summary={"workflow_id": workflow_id, "operation": operation},
-                    next_actions=["agent_entity_context for the exact repair order"],
-                ),
-                label=workflow_id,
+        finance_error = (
+            finance_contract_error(operation, payload) if workflow_id == "finance" else None
+        )
+        if finance_error:
+            warning, missing_fields, next_actions = finance_error
+            return workflow_error_result(
+                workflow_id,
+                warning,
+                summary={
+                    "workflow_id": workflow_id,
+                    "operation": operation,
+                    "missing_fields": missing_fields,
+                },
+                next_actions=next_actions,
             )
-        if workflow_id == "finance" and operation == "create_cashbox":
-            expected_cashbox_ids = payload.get("expected_cashbox_ids")
-            if (
-                not isinstance(expected_cashbox_ids, list)
-                or any(
-                    not isinstance(item, str) or not item.strip() for item in expected_cashbox_ids
-                )
-                or len(set(expected_cashbox_ids)) != len(expected_cashbox_ids)
-            ):
-                return _tool_result(
-                    _envelope(
-                        ok=False,
-                        status="blocked",
-                        warnings=["cashbox_snapshot_required_reread_exact_list_first"],
-                        summary={
-                            "workflow_id": workflow_id,
-                            "operation": operation,
-                            "missing_fields": ["expected_cashbox_ids"],
-                        },
-                        next_actions=["list_cashboxes before creating a cashbox"],
-                    ),
-                    label=workflow_id,
-                )
-        if (
-            workflow_id == "finance"
-            and operation == "create_cash_transaction"
-            and not str(payload.get("expected_updated_at") or "").strip()
-        ):
-            return _tool_result(
-                _envelope(
-                    ok=False,
-                    status="blocked",
-                    warnings=["cashbox_expected_revision_required_reread_exact_cashbox_first"],
-                    summary={
-                        "workflow_id": workflow_id,
-                        "operation": operation,
-                        "missing_fields": ["expected_updated_at"],
-                    },
-                    next_actions=["agent_entity_context for the exact cashbox"],
-                ),
-                label=workflow_id,
-            )
-        if workflow_id == "finance" and operation == "create_cashbox_transfer":
-            missing_revisions = [
-                field
-                for field in (
-                    "expected_from_updated_at",
-                    "expected_to_updated_at",
-                )
-                if not str(payload.get(field) or "").strip()
-            ]
-            if missing_revisions:
-                return _tool_result(
-                    _envelope(
-                        ok=False,
-                        status="blocked",
-                        warnings=[
-                            "cashbox_transfer_expected_revisions_required_reread_exact_cashboxes_first"
-                        ],
-                        summary={
-                            "workflow_id": workflow_id,
-                            "operation": operation,
-                            "missing_fields": missing_revisions,
-                        },
-                        next_actions=["agent_entity_context for both exact cashboxes"],
-                    ),
-                    label=workflow_id,
-                )
-        if workflow_id == "finance" and operation == "record_repair_order_payment":
-            missing_revisions = [
-                field
-                for field in (
-                    "expected_updated_at",
-                    "expected_cashbox_updated_at",
-                )
-                if not str(payload.get(field) or "").strip()
-            ]
-            if missing_revisions:
-                return _tool_result(
-                    _envelope(
-                        ok=False,
-                        status="blocked",
-                        warnings=["payment_expected_revisions_required_reread_exact_targets_first"],
-                        summary={
-                            "workflow_id": workflow_id,
-                            "operation": operation,
-                            "missing_fields": missing_revisions,
-                        },
-                        next_actions=[
-                            "agent_entity_context for the exact repair order and cashbox"
-                        ],
-                    ),
-                    label=workflow_id,
-                )
-        if workflow_id == "finance" and operation == "reorder_cashboxes":
-            expected_cashbox_ids = payload.get("expected_cashbox_ids")
-            if (
-                not isinstance(expected_cashbox_ids, list)
-                or not expected_cashbox_ids
-                or any(
-                    not isinstance(item, str) or not item.strip() for item in expected_cashbox_ids
-                )
-                or len(set(expected_cashbox_ids)) != len(expected_cashbox_ids)
-            ):
-                return _tool_result(
-                    _envelope(
-                        ok=False,
-                        status="blocked",
-                        warnings=["cashbox_order_snapshot_required_reread_exact_list_first"],
-                        summary={
-                            "workflow_id": workflow_id,
-                            "operation": operation,
-                            "missing_fields": ["expected_cashbox_ids"],
-                        },
-                        next_actions=["list_cashboxes before changing cashbox order"],
-                    ),
-                    label=workflow_id,
-                )
-        if workflow_id == "finance" and operation == "create_employee_salary_transaction":
-            missing_revisions = [
-                field
-                for field in (
-                    "expected_cashbox_updated_at",
-                    "expected_employee_updated_at",
-                )
-                if not str(payload.get(field) or "").strip()
-            ]
-            if missing_revisions:
-                return _tool_result(
-                    _envelope(
-                        ok=False,
-                        status="blocked",
-                        warnings=[
-                            "salary_transaction_expected_revisions_required_reread_exact_targets_first"
-                        ],
-                        summary={
-                            "workflow_id": workflow_id,
-                            "operation": operation,
-                            "missing_fields": missing_revisions,
-                        },
-                        next_actions=["get_cashbox and list_employees for the exact targets"],
-                    ),
-                    label=workflow_id,
-                )
-        if (
-            workflow_id == "finance"
-            and operation == "create_employee_shift_accrual"
-            and not str(payload.get("expected_employee_updated_at") or "").strip()
-        ):
-            return _tool_result(
-                _envelope(
-                    ok=False,
-                    status="blocked",
-                    warnings=[
-                        "shift_accrual_expected_employee_revision_required_reread_exact_employee_first"
-                    ],
-                    summary={
-                        "workflow_id": workflow_id,
-                        "operation": operation,
-                        "missing_fields": ["expected_employee_updated_at"],
-                    },
-                    next_actions=["list_employees for the exact employee"],
-                ),
-                label=workflow_id,
-            )
-        if (
-            workflow_id == "finance"
-            and operation
-            in {
-                "cancel_cash_transaction",
-                "cancel_last_cash_transaction",
-            }
-            and not str(payload.get("expected_cashbox_updated_at") or "").strip()
-        ):
-            warning = (
-                "cash_cancellation_expected_revision_required_reread_exact_cashbox_first"
-                if operation == "cancel_cash_transaction"
-                else "cancel_last_cash_transaction_expected_revision_required_reread_exact_cashbox_first"
-            )
-            return _tool_result(
-                _envelope(
-                    ok=False,
-                    status="blocked",
-                    warnings=[warning],
-                    summary={
-                        "workflow_id": workflow_id,
-                        "operation": operation,
-                        "missing_fields": ["expected_cashbox_updated_at"],
-                    },
-                    next_actions=["get_cashbox for the exact transaction and cashbox"],
-                ),
-                label=workflow_id,
-            )
-        if workflow_id == "finance" and operation == "apply_finance_audit_safe_fixes":
-            expected_issue_ids = payload.get("expected_issue_ids")
-            issue_ids = payload.get("issue_ids")
-            missing_fields = []
-            if (
-                not isinstance(expected_issue_ids, list)
-                or any(not isinstance(item, str) or not item.strip() for item in expected_issue_ids)
-                or len(set(expected_issue_ids)) != len(expected_issue_ids)
-            ):
-                missing_fields.append("expected_issue_ids")
-            if (
-                not isinstance(issue_ids, list)
-                or not issue_ids
-                or any(not isinstance(item, str) or not item.strip() for item in issue_ids)
-                or len(set(issue_ids)) != len(issue_ids)
-            ):
-                missing_fields.append("issue_ids")
-            if missing_fields:
-                return _tool_result(
-                    _envelope(
-                        ok=False,
-                        status="blocked",
-                        warnings=["finance_audit_issue_snapshot_required_reread_exact_audit_first"],
-                        summary={
-                            "workflow_id": workflow_id,
-                            "operation": operation,
-                            "missing_fields": missing_fields,
-                        },
-                        next_actions=["read api:/api/finance_audit before applying safe fixes"],
-                    ),
-                    label=workflow_id,
-                )
-        if workflow_id == "finance" and operation == "delete_cashbox":
-            missing_fields = [
-                field
-                for field in (
-                    "expected_cashbox_updated_at",
-                    "expected_transaction_ids",
-                )
-                if (
-                    not str(payload.get(field) or "").strip()
-                    if field == "expected_cashbox_updated_at"
-                    else not isinstance(payload.get(field), list)
-                )
-            ]
-            if missing_fields:
-                return _tool_result(
-                    _envelope(
-                        ok=False,
-                        status="blocked",
-                        warnings=["cashbox_delete_snapshot_required_reread_exact_cashbox_first"],
-                        summary={
-                            "workflow_id": workflow_id,
-                            "operation": operation,
-                            "missing_fields": missing_fields,
-                        },
-                        next_actions=["get_cashbox before deleting the exact cashbox"],
-                    ),
-                    label=workflow_id,
-                )
         if workflow_id == "inventory" and operation in {
             "save_inventory_item",
             "replenish_inventory_item",
@@ -1668,9 +1411,8 @@ def register_agent_gateway_v2(
         tool = raw_tools.get(target_tool)
         virtual_route = _virtual_api_route(target_tool)
         if tool is None and virtual_route is None and not logical_payment:
-            return _tool_result(
-                _envelope(ok=False, status="failed", warnings=["executor_capability_missing"]),
-                label=workflow_id,
+            return workflow_error_result(
+                workflow_id, "executor_capability_missing", status="failed"
             )
         risk = (
             "write"
@@ -1683,9 +1425,14 @@ def register_agent_gateway_v2(
         )
         policy_error = _policy_error(tool_name=operation, risk=risk, arguments=payload)
         if policy_error:
-            return _tool_result(
-                _envelope(ok=False, status="blocked", warnings=[policy_error]), label=workflow_id
-            )
+            return workflow_error_result(workflow_id, policy_error)
+        finance_preview = workflow_id == "finance" and mode == "dry_run"
+        if finance_preview:
+            preflight = await finance_revision_preflight(operation, payload, _invoke)
+            if not preflight["passed"]:
+                return workflow_error_result(
+                    workflow_id, "finance_revision_preflight_failed", summary=preflight
+                )
         request_fingerprint = _request_fingerprint(
             {"workflow_id": workflow_id, "operation": operation, "mode": mode, "payload": payload}
         )
@@ -1721,6 +1468,8 @@ def register_agent_gateway_v2(
                 label=workflow_id,
             )
         if deduplicated:
+            if finance_preview and str(started.get("status") or "") == "completed":
+                started.update(finance_preview_result(operation, payload, idempotency_key))
             if (
                 store_operation
                 and str(mode) == "apply"
@@ -1742,14 +1491,7 @@ def register_agent_gateway_v2(
                 started=started,
             )
         if run_id is None:
-            return _tool_result(
-                _envelope(
-                    ok=False,
-                    status="blocked",
-                    warnings=["durable_workflow_run_id_unavailable"],
-                ),
-                label=workflow_id,
-            )
+            return workflow_error_result(workflow_id, "durable_workflow_run_id_unavailable")
         if store_operation:
             _context, store_preflight = await preflight_store_write(
                 operation, payload, _read_store_target
@@ -1850,9 +1592,13 @@ def register_agent_gateway_v2(
         ):
             arguments["actor_name"] = _effective_audit_actor()
         result = (
-            await _record_repair_order_payment(arguments, idempotency_key=idempotency_key)
-            if logical_payment
-            else await _invoke(target_tool, arguments)
+            finance_preview_result(operation, payload, idempotency_key)
+            if finance_preview
+            else await (
+                _record_repair_order_payment(arguments, idempotency_key=idempotency_key)
+                if logical_payment
+                else _invoke(target_tool, arguments)
+            )
         )
         if completion_act_operation and mode == "dry_run" and bool(result.get("ok")):
             result["dry_run_proof"] = _completion_act_dry_run_proof(
@@ -1875,7 +1621,14 @@ def register_agent_gateway_v2(
                     "warnings": [str(exc)],
                 }
         verification = (
-            await verify_store_operation(
+            {
+                "required": True,
+                "passed": True,
+                "check": "finance_preview_non_mutating",
+                "evidence": {"domain_handler_executed": False},
+            }
+            if finance_preview
+            else await verify_store_operation(
                 operation,
                 payload,
                 result,
@@ -1903,6 +1656,13 @@ def register_agent_gateway_v2(
         ledger_error: dict[str, Any] | None = None
         workflow_status = "failed"
         executing_version = _workflow_state_version(executing)
+        ledger_verification = (
+            store_ledger_verification(verification, executor_ok=True)
+            if store_operation
+            else finance_ledger_verification(operation, payload, verification)
+            if workflow_id == "finance"
+            else {"executor_ok": True, **verification}
+        )
         if result_ok:
             verifying = await _transition(
                 run_id,
@@ -1916,11 +1676,7 @@ def register_agent_gateway_v2(
                     "completed",
                     expected_state_version=_workflow_state_version(verifying),
                     message=f"completed {operation}",
-                    verification=(
-                        store_ledger_verification(verification, executor_ok=True)
-                        if store_operation
-                        else {"executor_ok": True, **verification}
-                    ),
+                    verification=ledger_verification,
                     summary=f"{workflow_id}:{operation}",
                 )
                 ledger_closed = (
@@ -1947,11 +1703,7 @@ def register_agent_gateway_v2(
                 "compensating",
                 expected_state_version=executing_version,
                 message=f"verification failed after executor applied {operation}",
-                verification=(
-                    store_ledger_verification(verification, executor_ok=True)
-                    if store_operation
-                    else {"executor_ok": True, **verification}
-                ),
+                verification=ledger_verification,
             )
             workflow_status = "compensating" if bool(compensation.get("ok")) else "executing"
             if not bool(compensation.get("ok")):
@@ -1969,6 +1721,7 @@ def register_agent_gateway_v2(
                 ledger_error = failed
         overall_ok = result_ok and ledger_closed
         result_data = normalized_store_data(result) if store_operation else result
+        document_guard = invoice_document_guard(result_data)
         binary_document_operation = workflow_id == "document" and operation in {
             "create_document_without_card_pdf",
             "download_repair_order_print_pdf",
@@ -1981,6 +1734,7 @@ def register_agent_gateway_v2(
             if allow_large_output
             else _compact_object(result_data)
         )
+        safe_result.update({"document_guard": document_guard} if document_guard else {})
         source_warnings = (
             [str(item) for item in result.get("warnings") or [] if str(item).strip()]
             if store_operation
@@ -2003,7 +1757,7 @@ def register_agent_gateway_v2(
                 "workflow_id": workflow_id,
                 "operation": operation,
                 "mode": mode or "apply",
-                "executor": target_tool,
+                "executor": None if finance_preview else target_tool,
                 "risk": risk,
             },
             data=safe_result,
@@ -2204,10 +1958,6 @@ def register_agent_gateway_v2(
                 )
             except Exception as exc:  # pragma: no cover
                 manager_payload = {"ok": False, "error": str(exc)}
-        store_snapshot = await _invoke_store(
-            "store_runtime_status",
-            {"live": True, "bootstrap_snapshot": True},
-        )
         context_ok, context_data, _context_meta, context_error = _response_data(
             board_api.get_board_context()
         )
@@ -2223,13 +1973,10 @@ def register_agent_gateway_v2(
             context_data.get("context", context_data) if isinstance(context_data, dict) else {}
         )
         ok = context_ok and cards_ok
-        store_ok = bool(store_snapshot.get("ok"))
         warnings = [] if ok else [str(context_error or cards_error or "bootstrap_degraded")]
-        if not store_ok:
-            warnings.append("store_adapter_degraded")
         payload = _envelope(
             ok=ok,
-            status="ready" if ok and store_ok else "degraded",
+            status="ready" if ok else "degraded",
             summary={
                 "connector": dict(connector_identity),
                 "board": {
@@ -2239,17 +1986,7 @@ def register_agent_gateway_v2(
                     "stickies": context.get("stickies_total"),
                 },
                 "manager": manager_payload.get("summary", manager_payload),
-                "store": {
-                    "ok": store_ok,
-                    "status": str(
-                        store_snapshot.get("status") or ("ready" if store_ok else "degraded")
-                    ),
-                    "snapshot": _compact_object(
-                        store_snapshot.get("summary") or store_snapshot.get("data") or {},
-                        item_limit=10,
-                        key_limit=40,
-                    ),
-                },
+                "store": {"ok": None, "status": "not_loaded"},
                 "security_policy": load_agent_gateway_security_policy().public_dict(),
                 "card_sample": sample,
             },
@@ -2608,14 +2345,48 @@ def register_agent_gateway_v2(
         annotations=_write_annotations("Agent Finance Workflow", destructive=True),
     )
     async def agent_finance_workflow(
-        operation: str, payload: dict[str, Any] | None, idempotency_key: str
+        operation: str,
+        payload: dict[str, Any] | None,
+        idempotency_key: str,
+        mode: Literal["dry_run", "apply"] | None = None,
+        dry_run_proof: str | None = None,
+        dry_run_idempotency_key: str | None = None,
     ) -> CallToolResult:
+        effective_payload = dict(payload or {})
+        request_error = finance_request_error(
+            operation,
+            effective_payload,
+            idempotency_key,
+            mode,
+            dry_run_proof,
+            dry_run_idempotency_key,
+            raw_tools=raw_tools,
+        )
+        if request_error:
+            return workflow_error_result(
+                "finance",
+                request_error[0],
+                summary={"validation_errors": request_error[1]},
+            )
+        if mode == "apply":
+            binding_error = await bind_finance_preview(
+                operation,
+                effective_payload,
+                idempotency_key,
+                str(dry_run_idempotency_key),
+                str(dry_run_proof),
+                start_workflow=_start_idempotent_workflow,
+                transition=_transition,
+            )
+            if binding_error:
+                return workflow_error_result("finance", binding_error)
         return await _execute_workflow(
             workflow_id="finance",
             operation=operation,
-            payload=dict(payload or {}),
+            payload=effective_payload,
             idempotency_key=idempotency_key,
             allowed=FINANCE_WORKFLOW_OPERATIONS,
+            mode=mode,
         )
 
     @server.tool(

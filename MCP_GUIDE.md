@@ -125,46 +125,22 @@ duration. Timer-only actions are audited but do not flag the card as unseen
 content for other operators.
 
 The mounted Manager contributes 6 `INTERNAL_ONLY` Store adapter tools:
-`store_runtime_status`, `store_digest`, `store_search`,
-`store_entity_context`, `download_store_quote_vin_photo`, and
-`store_management_action`. Gateway captures all 6 before hiding the raw registry. They are deliberately absent from raw
-discovery/schema/call: store reads use the named context tools and store writes
-use only `agent_inventory_workflow`.
+`store_runtime_status`, `store_digest`, `store_search`, `store_entity_context`,
+`download_store_quote_vin_photo`, and `store_management_action`. They stay out
+of raw discovery; public access remains through named Gateway tools.
 
-Store coverage is additive to the existing schemas:
+`agent_bootstrap` is CRM-only and reports Store as `not_loaded` without a read.
+Explicit Store context uses `agent_board_digest(scope="store")`,
+`agent_entity_context`, and `agent_search` for `store_part`, `store_order`,
+`store_quote_request`, `store_supplier`, `store_batch`,
+`store_warehouse_operation`, `store_marketplace_listing`, `store_state`, and
+`store_sourcing_offer`. `get_runtime_status` is the explicit health probe;
+`agent_document_workflow(operation="download_store_quote_vin_photo")` returns
+the bounded image only with `allow_large_output=true`.
 
-- `agent_bootstrap` includes one compact stateless Store snapshot from a
-  single Store request. It has no Store cursor/ACK, does not read the change
-  feed, and does not touch `store_digest`;
-- `agent_board_digest(scope="store")` uses the durable `store_digest` stream
-  and accepts the returned `cursor`/`ack_token` pair;
-- `agent_search` supports `store_part`, `store_order`,
-  `store_quote_request`, `store_supplier`, `store_batch`,
-  `store_warehouse_operation`, `store_marketplace_listing`, and
-  `store_state`, and `store_sourcing_offer`;
-- `agent_entity_context` reads one exact Store entity with `detail="summary"`
-  or `detail="full"`; Store PII remains redacted because the service identity
-  has no contact scope;
-- `agent_document_workflow(operation="download_store_quote_vin_photo")`
-  returns a bounded JPEG preview as an MCP image only when
-  `allow_large_output=true`; base64 is never copied into structured output;
-- `get_runtime_status` performs a live Store health probe. Store failure makes
-  the Store section `degraded` while a healthy CRM remains usable;
-- `agent_inventory_workflow` keeps its old CRM default (`mode` omitted means
-  apply) but requires explicit `dry_run` or `apply` for Store actions.
-
-Every non-empty Store digest page, including the final source page, has
-`page.ack_required=true`. Pass its exact opaque Manager cursor and ACK token to
-the same public tool. Intermediate ACK returns the next page; final ACK returns
-an empty terminal page with `next_cursor=null` and only then commits durable
-high-water. Repeating an unacknowledged page or final ACK is idempotent. Raw App
-checkpoint/replay cursors are never public.
-
-The bootstrap snapshot contains Store API readiness, product/active-order/open
-quote counts, aggregate inventory, marketplace state, Store contract version,
-and a safe export-error report (24 hours, 7 days, all time, latest five). Error
-rows contain only time, fixed error code, part/account refs, and attempt count;
-provider messages, payloads, credentials, and contacts are never returned.
+Store digest pages use opaque cursor/ACK replay and commit high-water only
+after the final ACK. Store actions use explicit `dry_run`/`apply` through
+`agent_inventory_workflow`; omitted mode remains CRM-only legacy compatibility.
 
 ## Gateway Guarantees
 
@@ -238,38 +214,17 @@ recreating the CRM container.
 
 For a Store digest, finish the cursor/ACK loop before treating “what is new” as
 consumed. Only `agent_board_digest(scope="store")` participates in that
-ACK/replay/CAS protocol; `agent_bootstrap` is stateless.
+ACK/replay/CAS protocol; `agent_bootstrap` makes no Store request.
 
 For Store writes, `agent_inventory_workflow` permits exactly 7 operations:
 `assign_quote_request`, `set_quote_request_status`,
 `update_quote_request_comment`, `add_quote_request_note`,
 `replace_quote_offer_drafts`, `set_batch_storage_location`, and
-`mark_order_ready`. Supply exact `target_id`, current `expected_updated_at`,
-`owner_intent`, `planned_changes`, a unique idempotency key, and explicit
-`mode`. Dry-run and apply use different idempotency keys but the same stable
-`correlation_id`. If omitted, Gateway derives it from operation, exact target,
-effective revision, and canonical changes; mode, key, and owner wording do not
-affect it. An explicit value is preserved only when it passes the Store format
-validation.
-
-Gateway creates a compact ledger run with `scope.domain=store` and
-`scope.source=store`, then performs the exact revision preflight and closes a
-failed preflight without invoking Store. Successful actions are reread through
-the App-shaped DTO: assignments verify `assigned_user_id`; comments verify
-`has_internal_comment` plus the canonical `internal_comment_sha256`, never raw
-comment text; comment and READY actions retain their two-field change
-envelopes. READY closes only when its notifier state is `SENT` or
-`NOT_APPLICABLE`; `CLAIMED` and `FAILED` keep the core-applied run in
-`compensating`.
-
-Gateway does not automatically retry a Store POST after an uncertain result.
-If the caller repeats the exact same apply request and idempotency key for a
-`compensating` run, Gateway explicitly asks Store for the existing receipt,
-requires `idempotency_replay=true`, rereads the exact target, and may then close
-the ledger. READY dry-runs report bounded notification effects plus
-`external_effect_state`, `idempotency_replay`, and `correlation_id`. Gateway
-never forwards Store `owner_intent`, idempotency keys, credentials, raw comment
-text, or raw metadata in public data.
+`mark_order_ready`. It requires the exact target/revision, owner intent,
+planned changes, distinct mode keys, and one stable correlation. Gateway keeps
+only compact refs/hashes, verifies exact readback, leaves unresolved notifier
+states compensating, and reconciles an uncertain POST only by replaying the
+same apply key and Store receipt; it never retries automatically.
 
 For the active-card timer floor, use `domain="board"`,
 `action="bulk_set_deadline_if_below"`, `target_id="active_cards"`, and planned
@@ -297,8 +252,9 @@ the public 24-tool surface. Never print these settings' values.
 - Do not move, archive, delete, or modify money, clients, files, orders, or
   inventory without explicit owner intent.
 - Search/suggest before creating or linking clients.
-- Use `agent_finance_workflow` for repair-order payments rather than a generic
-  cash transaction.
+- New finance writes use `agent_finance_workflow` with explicit `dry_run`, then
+  `apply` with its bound proof and a different key. Reads omit `mode`; omitted
+  write mode preserves legacy compatibility.
 - Use `agent_document_workflow` and the CRM renderer for standard AutoStop
   documents, including documents without a card.
 - Use named completion-act save/reset operations with dry-run proof, separate

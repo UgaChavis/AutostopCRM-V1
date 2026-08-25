@@ -4,6 +4,7 @@ import argparse
 import ast
 import fnmatch
 import json
+import os
 import re
 import subprocess
 import sys
@@ -741,79 +742,116 @@ def _scan_secret_bundle_issues(secret_bundle: Path, *, root: Path) -> list[Issue
     return issues
 
 
+def _tool_manifest_issues(
+    path: Path,
+    expected_tools: set[str],
+    expected_fingerprint: str,
+    *,
+    prefix: str,
+) -> list[Issue]:
+    if not path.exists():
+        return []
+    manifest = _load_json(path)
+    names = manifest.get("expected_tool_names")
+    catalog_names = (
+        names if isinstance(names, list) and all(isinstance(x, str) for x in names) else []
+    )
+    expected_names = sorted(expected_tools)
+    issues: list[Issue] = []
+    checks = (
+        ("format", manifest.get("format"), "mcp_surface_manifest_v1"),
+        ("count", manifest.get("expected_tool_count"), len(expected_names)),
+        ("tools", catalog_names, expected_names),
+        ("fingerprint", manifest.get("schema_fingerprint"), expected_fingerprint),
+    )
+    for suffix, actual, expected in checks:
+        if actual != expected:
+            detail = (
+                _tool_set_delta(set(catalog_names), expected_tools)
+                if suffix == "tools"
+                else f"catalog has {actual!r}, expected {expected!r}"
+            )
+            issues.append(Issue(f"{prefix}_catalog_{suffix}_mismatch", str(path), detail))
+    if not isinstance(manifest.get("source"), str) or not manifest["source"].strip():
+        issues.append(Issue(f"{prefix}_catalog_source_missing", str(path), "source is required"))
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(manifest.get("verified_at", ""))):
+        issues.append(
+            Issue(
+                f"{prefix}_catalog_verified_at_invalid", str(path), "verified_at must be YYYY-MM-DD"
+            )
+        )
+    return issues
+
+
 def _manager_catalog_issues(
     manager_catalog_path: Path,
     manager_tools: set[str],
-    crm_tools: set[str],
     gateway_tools: set[str],
+    fingerprints: dict[str, str],
 ) -> list[Issue]:
-    issues: list[Issue] = []
-    if manager_catalog_path.exists():
-        manager_catalog = _load_json(manager_catalog_path)
-        catalog_tools = set(manager_catalog.get("all_tools", []))
-        catalog_count = manager_catalog.get("tool_count")
-        if catalog_count != len(manager_tools):
-            issues.append(
-                Issue(
-                    "manager_catalog_count_mismatch",
-                    str(manager_catalog_path),
-                    f"catalog has {catalog_count}, source has {len(manager_tools)}",
-                )
-            )
-        if catalog_tools != manager_tools:
-            issues.append(
-                Issue(
-                    "manager_catalog_tools_mismatch",
-                    str(manager_catalog_path),
-                    _tool_set_delta(catalog_tools, manager_tools),
-                )
-            )
+    return _tool_manifest_issues(
+        manager_catalog_path,
+        manager_tools,
+        fingerprints["manager"],
+        prefix="manager",
+    ) + _tool_manifest_issues(
+        manager_catalog_path.parent / "crm_mcp_catalog.json",
+        gateway_tools,
+        fingerprints["crm"],
+        prefix="crm",
+    )
 
-    crm_catalog_path = manager_catalog_path.parent / "crm_mcp_catalog.json"
-    if crm_catalog_path.exists():
-        crm_catalog = _load_json(crm_catalog_path)
-        tool_counts = crm_catalog.get("tool_counts", {})
-        expected_counts = {
-            "crm_legacy_tools_hidden_by_gateway": len(crm_tools),
-            "autostop_manager_tools_in_raw_registry": len(manager_tools),
-            "production_visible_agent_gateway_v2": len(gateway_tools),
-            "guarded_internal_api_write_routes_are_virtual_and_not_counted_as_tools": True,
+
+def _registered_surface_fingerprints(root: Path, manager_root: Path) -> dict[str, str]:
+    probe = r"""
+import hashlib, json, logging, sys
+crm_root, manager_root = sys.argv[1:3]
+sys.path[:0] = [f"{crm_root}/src", manager_root]
+from autostop_manager.mcp_server import build_server
+from minimal_kanban.mcp.client import BoardApiClient
+from minimal_kanban.mcp.server import create_mcp_server
+def digest(server):
+    tools = sorted(server._tool_manager.list_tools(), key=lambda item: item.name)
+    surface = [{"name": item.name, "inputSchema": item.parameters} for item in tools]
+    value = json.dumps(surface, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(value.encode()).hexdigest()
+manager = build_server()
+crm = create_mcp_server(
+    BoardApiClient("http://127.0.0.1:9"), logging.getLogger("schema-probe"),
+    host="127.0.0.1", port=41831, path="/mcp", bearer_token="schema-probe",
+    public_endpoint_url="https://crm.example/mcp",
+)
+print(json.dumps({"manager": digest(manager), "crm": digest(crm)}))
+"""
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "AUTOSTOP_AGENT_GATEWAY_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_WRITES_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_FINANCE_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_MAIL_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_DESTRUCTIVE_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED": "1",
+            "AUTOSTOP_MCP_OAUTH_ENABLED": "0",
+            "MINIMAL_KANBAN_MCP_BEARER_TOKEN": "schema-probe",
         }
-        if tool_counts != expected_counts:
-            issues.append(
-                Issue(
-                    "crm_catalog_count_mismatch",
-                    str(crm_catalog_path),
-                    f"catalog has {tool_counts}, expected {expected_counts}",
-                )
-            )
-
-        production_tools = set(crm_catalog.get("production_tools_verified", []))
-        if production_tools != gateway_tools:
-            issues.append(
-                Issue(
-                    "crm_catalog_production_tools_mismatch",
-                    str(crm_catalog_path),
-                    _tool_set_delta(production_tools, gateway_tools),
-                )
-            )
-
-        optional_tools = set(
-            crm_catalog.get("tool_families", {}).get(
-                "optional_manager_memory_and_routing",
-                [],
-            )
-        )
-        expected_optional_tools = manager_tools - gateway_tools
-        if optional_tools != expected_optional_tools:
-            issues.append(
-                Issue(
-                    "crm_catalog_optional_tools_mismatch",
-                    str(crm_catalog_path),
-                    _tool_set_delta(optional_tools, expected_optional_tools),
-                )
-            )
-    return issues
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", probe, str(root), str(manager_root)],
+        cwd=root,
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=GIT_COMMAND_TIMEOUT_SECONDS,
+    )
+    payload = json.loads(completed.stdout)
+    if not isinstance(payload, dict) or any(
+        re.fullmatch(r"[0-9a-f]{64}", str(payload.get(key) or "")) is None
+        for key in ("manager", "crm")
+    ):
+        raise ValueError("registered MCP schema fingerprint probe returned invalid data")
+    return {key: str(payload[key]) for key in ("manager", "crm")}
 
 
 def _manager_gateway_instruction_issues(manager_root: Path) -> list[Issue]:
@@ -1244,7 +1282,6 @@ def _check_crm_mcp_surface(root: Path) -> list[Issue]:
 def _check_manager_docs_and_catalogs(
     root: Path,
     manager_root: Path,
-    crm_tools: set[str],
 ) -> list[Issue]:
     issues: list[Issue] = _check_required(
         MANAGER_CANONICAL_DOCS,
@@ -1261,12 +1298,23 @@ def _check_manager_docs_and_catalogs(
 
     manager_tools = extract_decorated_tool_names(manager_tools_path)
     gateway_tools = load_gateway_expected_tools(root)
+    try:
+        fingerprints = _registered_surface_fingerprints(root, manager_root)
+    except (OSError, ValueError, json.JSONDecodeError, subprocess.SubprocessError) as exc:
+        fingerprints = {"manager": "", "crm": ""}
+        issues.append(
+            Issue(
+                "mcp_catalog_schema_probe_failed",
+                str(manager_root),
+                type(exc).__name__,
+            )
+        )
     issues.extend(
         _manager_catalog_issues(
             manager_root / "docs" / "agent" / "manager_mcp_catalog.json",
             manager_tools,
-            crm_tools,
             gateway_tools,
+            fingerprints,
         )
     )
     issues.extend(_manager_doc_forbidden_issues(manager_root))
@@ -1303,12 +1351,10 @@ def audit(
     issues.extend(_scan_retired_candidate_issues(root))
 
     try:
-        crm_tools = load_crm_registry_tools(root)
         issues.extend(_check_crm_mcp_surface(root))
         issues.extend(_check_mcp_guide_gateway_surface(root))
         issues.extend(_check_store_gateway_docs_contract(root))
     except (OSError, SyntaxError, ValueError) as exc:
-        crm_tools = set()
         issues.append(Issue("crm_mcp_audit_error", str(root), str(exc)))
 
     if manager_root is not None:
@@ -1317,7 +1363,6 @@ def audit(
                 _check_manager_docs_and_catalogs(
                     root,
                     manager_root.resolve(),
-                    crm_tools,
                 )
             )
         else:
