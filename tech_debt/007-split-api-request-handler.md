@@ -4,11 +4,49 @@
 Этап: 1
 Оценка: 4–6 дней
 Риск реализации: средний/высокий
-Статус: ready for P1 after completed 006
+Статус: completed 2026-08-25
+
+## Реализация и доказательства (2026-08-25)
+
+- `_make_handler` сокращён с 1 352 до 127 строк; вложенный handler удалён.
+- Выделены `RequestContextFactory` (93 строки), `HttpResponseWriter` (176),
+  `StaticAndDownloadResponder` (449), `OperatorLoginLimiter` (62),
+  `AuthenticationPolicy` (289), `JsonRouteDispatcher` (159) и тонкий
+  `_ApiRequestHandler` (351).
+- Самый длинный adapter method — `do_POST`, 109 строк. На каждый запуск
+  `ApiServer` по-прежнему создаётся уникальный subclass и отдельный limiter;
+  process-global runtime state не появился.
+- Порядок POST-проверок и намеренная GET-асимметрия сохранены. Route policy
+  выводится из immutable `RouteSpec`, а mutable `ROUTES` оставлен совместимым
+  с runtime/test injection.
+- Добавлены 10 transport/auth regression-тестов: malformed/truncated/empty
+  body, bearer/maintenance order, registry-vs-protected GET order,
+  ServiceError/generic envelopes, log secrecy, trusted `X-Real-IP` и release
+  login reservation после non-auth failures, а также fail-closed запрет route
+  без соответствующего `RouteSpec`.
+- Исправлены два найденных TDD-дефекта: ненулевое усечённое тело больше не
+  dispatch-ится, unexpected exception не пишет message/payload в лог. Legacy
+  `Content-Length: 0` по-прежнему означает `{}`.
+- Оба hardening-дефекта найдены TDD в процессе extraction и оставлены в одном
+  полностью проверенном локальном P1 code-change. Искусственно возвращать старую
+  реализацию внутри новых helper-классов только ради истории commits означало
+  бы повторно менять validated tree и повышать риск для auth/body/log
+  семантики. В следующих срезах поведенческие исправления отделять до широкого
+  прогона, когда это не требует обратной хирургии по готовому change-set.
+- `_make_handler` удалён из size/complexity ratchets: gate теперь содержит
+  35/35 size и 2/2 complexity exemptions.
+- Локальный полный covered suite: 1 965 тестов `OK` (`skipped=34`); 13/13
+  coverage floors прошли, global branch coverage 79,36%, `api/server.py`
+  88,83%, release backup/restore 78,40%.
+- Capability parity: 175 actions, 170 covered, 0 gaps, 5 human-session
+  exemptions; change-feed producer parity 100/100. Browser core 11/11 без
+  console/page/request errors; production-sized stage-1 performance gate без
+  нарушений.
+- Независимый итоговый review: 9,4/10, runtime/security blockers не найдено.
 
 ## Результат
 
-`ApiServer._make_handler` перестаёт быть 1 352-строчной фабрикой с 35 methods.
+`ApiServer._make_handler` перестал быть 1 352-строчной фабрикой с 35 methods.
 Transport parsing, auth, static/files и service dispatch тестируются отдельно,
 при этом используется тот же stdlib HTTP server и публичный протокол.
 
@@ -75,7 +113,7 @@ Transport parsing, auth, static/files и service dispatch тестируются
 
 ## Проверки
 
-`python -m unittest tests.test_api tests.test_api_login_rate_limit tests.test_api_proxy_auth -v`
+`python -m unittest tests.test_api tests.test_api_transport_contracts tests.test_contracts -v`
 `python scripts/check_live_connector.py --strict --skip-public-site --skip-public-write-protection --local-api-url http://127.0.0.1:41731 --skip-mcp --operator-username $env:AUTOSTOP_SMOKE_OPERATOR_USERNAME --operator-password $env:AUTOSTOP_SMOKE_OPERATOR_PASSWORD --expect-admin`
 `python scripts/crm_change_feed_producer_parity.py --require-complete`
 

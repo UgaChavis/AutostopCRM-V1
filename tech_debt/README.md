@@ -52,10 +52,11 @@
 
 - 000: deterministic browser/PDF preflight; после установки Poppler полный
   smoke прошёл 44/44 с первой попытки.
-- 001: 36/36 текущих size и 3/3 complexity ratchets имеют exact caps,
-  причины и одного owner; browser exemptions закрыты и удалены.
+- 001: после закрытия 007 текущие 35/35 size и 2/2 complexity ratchets имеют
+  exact caps, причины и одного owner; browser и `_make_handler` exemptions
+  закрыты и удалены.
 - 002: branch-inclusive baseline 78.82%, floor 78.50%, текущий integrated
-  результат 79.18%; 13/13 global/critical floors проходят, covered suite
+  результат 79.36%; 13/13 global/critical floors проходят, covered suite
   заменяет plain unit run в CI.
 - 004: обязательный core smoke покрывает 11 critical temp-data flows и локально
   проходит примерно за 12 секунд; full остаётся отдельным release gate.
@@ -101,7 +102,7 @@
 | 006 | P0 | [Свести HTTP route metadata в один registry](006-unify-api-route-contracts.md) | **Выполнено 2026-08-23** | 001 |
 | 003 | P1 | [Разрезать монолитные test modules и fixtures](003-split-test-suites.md) | Ускорить TDD; выполнять независимыми доменными срезами | 001 |
 | 005 | P1 | [Разрезать web asset source по доменам](005-split-board-web-assets.md) | Убрать 20.2k-строчный god-script без смены frontend stack | 004; свой test-slice из 003 |
-| 007 | P1 | [Разделить HTTP request handler](007-split-api-request-handler.md) | Упростить 1 352-строчную фабрику handler и auth chain | 006 |
+| 007 | P1 | [Разделить HTTP request handler](007-split-api-request-handler.md) | **Выполнено 2026-08-25** | 006 |
 | 008 | P1 | [Разрезать MCP tool registration по доменам](008-split-mcp-tool-registration.md) | Уменьшить 3 623-строчный create_mcp_server | 001; свой test-slice из 003 |
 | 009 | P1 | [Разделить Gateway workflow executor](009-split-gateway-workflow-executor.md) | Изолировать security/idempotency/readback правила hot path | 001, 008; coverage 002 параллельно |
 | 010 | P1 | [Вынести attachment/file I/O из CardService](010-extract-card-attachments.md) | Самый безопасный крупный срез god-service | 001; свой test-slice из 003 |

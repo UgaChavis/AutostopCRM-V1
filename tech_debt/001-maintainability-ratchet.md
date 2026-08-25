@@ -11,15 +11,17 @@
 - Все исходные 39 size-exemptions преобразованы в `RatchetBudget` с reason,
   baseline, `max_allowed` без headroom и одним `owner_task`.
 - После закрытия 004 три browser exemptions удалены; текущий gate содержит
-  36/36 size-ratchets и 3/3 complexity-ratchets.
+  36/36 size-ratchets и 3/3 complexity-ratchets. После закрытия 007 удалены
+  size и complexity ratchets `_make_handler`; текущий gate содержит 35/35 и
+  2/2 соответственно.
 - Owner IDs проверяются против единственного `tech_debt/<id>-*.md`; missing,
   duplicate и некорректные mappings валят audit.
 - Text/JSON отчёты детерминированно показывают current/max/delta/present.
-- Exact complexity caps: API handler 171, Gateway executor 72, `update_card`
-  29. У всех текущих ratchets `delta=0`, роста на одну единицу не разрешено.
+- Текущие exact complexity caps: Gateway executor 72 и `update_card` 29.
+  `_make_handler` сокращён до 127 строк и больше не требует exemption.
 - Synthetic growth/shrink/config/missing-target tests и полный
   `tests.test_code_health_audit`: 18/18 `OK`; include-untracked audit:
-  357 файлов, 0 issues.
+  360 файлов, 0 issues.
 
 ## Результат
 
@@ -31,9 +33,9 @@ grandfathered module/class/function получает измеряемый пот
 
 `scripts/code_health_audit.py` сейчас содержит:
 
-- 17 `ALLOWED_LARGE_MODULES`;
+- 16 `ALLOWED_LARGE_MODULES`;
 - 10 `ALLOWED_LARGE_CLASSES`;
-- 12 `ALLOWED_LARGE_FUNCTIONS`.
+- 9 `ALLOWED_LARGE_FUNCTIONS`.
 
 Значение словаря — только текстовая причина. После попадания в allowlist файл
 может расти без лимита. Строгий Ruff-профиль на текущем HEAD показывает 433
@@ -54,7 +56,7 @@ grandfathered module/class/function получает измеряемый пот
 6. Удаление/снижение exemption становится acceptance criterion последующих
    extraction-задач.
 
-## Карта владельцев всех 39 exemptions
+## Карта владельцев исходных exemptions
 
 | Exemption | Owner | Ожидаемый исход |
 |---|---:|---|
@@ -80,7 +82,7 @@ grandfathered module/class/function получает измеряемый пот
 | test classes `ApiServerTests`, `AgentGatewayV2Tests`, `CardServiceTests`, `WebAssetsTests` | 003 | соответствующий test-slice, удалить |
 | function `scripts/attest_agent_gateway_v2.py:_finance_apply_audit_safe_fixes_case` | 207 | case split, удалить |
 | functions `browser_smoke:_desktop_scenarios`, `_exercise_completion_act_editor` | 004 | scenario split, удалить |
-| function `api/server:_make_handler` | 007 | handler split, удалить |
+| function `api/server:_make_handler` | 007 | **удалено 2026-08-25** |
 | function `demo_seed:_demo_specs` | 001 | оставить bounded data-only cap; запретить рост |
 | function Gateway `register_agent_gateway_v2` | 008 | registry split, удалить |
 | functions Gateway `_execute_workflow`, `call_raw_capability` | 009 | executor split, удалить |
@@ -89,8 +91,8 @@ grandfathered module/class/function получает измеряемый пот
 | function `printing/defaults:builtin_template_records` | 001 | оставить bounded data-only cap; запретить рост |
 | function `test_mcp:test_mcp_tools_reach_backend` | 003 | MCP test-slice, удалить |
 
-Составные строки перечисляют каждую текущую запись поимённо; итоговая
-машинная проверка всё равно обязана посчитать ровно 39 owner mappings. Две
+Составные строки сохраняют исходную карту владельцев; итоговая машинная
+проверка сейчас считает ровно 37 активных owner mappings. Две
 data-only фабрики не дробятся без доказанной боли: для них результат задачи —
 жёсткий текущий cap, а не новый abstraction layer.
 
@@ -124,7 +126,7 @@ data-only фабрики не дробятся без доказанной бо�
 
 - Рост любого текущего allowed hotspot сверх потолка валит audit.
 - Сокращение не требует обновлять baseline вверх.
-- Все 39 существующих exemption имеют owner task из `tech_debt/`.
+- Все 37 текущих exemption имеют owner task из `tech_debt/`.
 - `code_health_audit.py --format text/json` проходит.
 - Docs audit и focused tests проходят.
 
