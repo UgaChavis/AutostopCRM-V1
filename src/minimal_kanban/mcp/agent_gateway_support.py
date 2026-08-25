@@ -52,6 +52,19 @@ MANAGER_WORKFLOW_TOOL_NAMES = frozenset(
         "workflow_cancel",
     }
 )
+MANAGER_GATEWAY_DEPENDENCY_NAMES = frozenset(
+    MANAGER_WORKFLOW_TOOL_NAMES
+    | {
+        "agent_bootstrap",
+        "store_runtime_status",
+        "store_digest",
+        "store_search",
+        "store_entity_context",
+        "store_management_action",
+        "download_store_quote_vin_photo",
+        "store_owner_api",
+    }
+)
 DIAGNOSTIC_TOOL_NAMES = frozenset(
     {"ping_connector", "get_connector_identity", "get_runtime_status"}
 )
@@ -626,5 +639,6 @@ __all__ = [
     "AGENT_GATEWAY_TOOL_NAMES",
     "MAIL_CAPABILITY_NAMES",
     "MANAGER_WORKFLOW_TOOL_NAMES",
+    "MANAGER_GATEWAY_DEPENDENCY_NAMES",
     "PERMANENT_AGENT_GATEWAY_TOOL_NAMES",
 ]

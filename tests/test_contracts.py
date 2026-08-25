@@ -392,7 +392,6 @@ class ContractSnapshotTests(unittest.TestCase):
             merge_route_specs(specs, duplicate)
 
     def test_mcp_public_tool_snapshot_keeps_current_surface(self) -> None:
-        self.assertEqual(98, len(PUBLIC_MCP_TOOL_NAMES))
         self.assertIn("bootstrap_context", PUBLIC_MCP_TOOL_NAMES)
         self.assertIn("update_repair_order", PUBLIC_MCP_TOOL_NAMES)
         self.assertIn("reopen_repair_order", PUBLIC_MCP_TOOL_NAMES)

@@ -24,7 +24,14 @@ if str(SRC) not in sys.path:
 
 from minimal_kanban.mcp.agent_gateway_support import _subset_matches
 from minimal_kanban.mcp.agent_gateway_v2 import register_agent_gateway_v2
-from minimal_kanban.mcp.gateway_contract import DEFAULT_CARD_FIELDS, FINANCE_VIRTUAL_OPERATIONS
+from minimal_kanban.mcp.gateway_contract import (
+    BOARD_WORKFLOW_OPERATIONS,
+    DEFAULT_CARD_FIELDS,
+    DOCUMENT_WORKFLOW_OPERATIONS,
+    FINANCE_VIRTUAL_OPERATIONS,
+    FINANCE_WORKFLOW_OPERATIONS,
+    INVENTORY_WORKFLOW_OPERATIONS,
+)
 from minimal_kanban.mcp.oauth_provider import (
     OAUTH_AUDIT_ACTOR_HEADER,
     OAUTH_AUDIT_ASSERTION_HEADER,
@@ -36,6 +43,7 @@ from minimal_kanban.mcp.server import create_mcp_server
 from minimal_kanban.mcp.store_gateway import (
     INTERNAL_ONLY_CAPABILITY_NAMES,
     STORE_MANAGEMENT_CAPABILITY_NAME,
+    STORE_MANAGEMENT_OPERATIONS,
     STORE_READ_CAPABILITY_NAMES,
     verify_store_readback,
 )
@@ -944,6 +952,11 @@ def _fake_store_bootstrap_snapshot() -> dict:
 def _register_fake_store_context_tools(server, _logger, state: dict) -> None:
     _prepare_fake_store_state(state)
 
+    @server.tool(name="agent_bootstrap")
+    def agent_bootstrap(query: str = "", intent: str | None = None, limit: int = 8) -> dict:
+        del query, intent, limit
+        return {"ok": True, "summary": {"route": "test"}}
+
     @server.tool(name="store_runtime_status", description="INTERNAL_ONLY store runtime")
     def store_runtime_status(
         live: bool = False,
@@ -1779,6 +1792,11 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
         search_schema = self.server._tool_manager.get_tool("agent_search").parameters
         context_schema = self.server._tool_manager.get_tool("agent_entity_context").parameters
         inventory_schema = self.server._tool_manager.get_tool("agent_inventory_workflow").parameters
+        board_workflow_schema = self.server._tool_manager.get_tool(
+            "agent_board_workflow"
+        ).parameters
+        finance_schema = self.server._tool_manager.get_tool("agent_finance_workflow").parameters
+        document_schema = self.server._tool_manager.get_tool("agent_document_workflow").parameters
 
         self.assertEqual("crm", board_schema["properties"]["scope"]["default"])
         self.assertTrue(
@@ -1805,6 +1823,22 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
             set(inventory_schema["required"]),
         )
         self.assertIsNone(inventory_schema["properties"]["mode"]["default"])
+        self.assertEqual(
+            set(BOARD_WORKFLOW_OPERATIONS),
+            set(board_workflow_schema["properties"]["operation"]["enum"]),
+        )
+        self.assertEqual(
+            set(INVENTORY_WORKFLOW_OPERATIONS | STORE_MANAGEMENT_OPERATIONS),
+            set(inventory_schema["properties"]["operation"]["enum"]),
+        )
+        self.assertEqual(
+            set(FINANCE_WORKFLOW_OPERATIONS),
+            set(finance_schema["properties"]["operation"]["enum"]),
+        )
+        self.assertEqual(
+            set(DOCUMENT_WORKFLOW_OPERATIONS),
+            set(document_schema["properties"]["operation"]["enum"]),
+        )
 
     async def test_bootstrap_skips_store_and_explicit_digest_keeps_owner_stream(
         self,
@@ -4394,6 +4428,9 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
     async def test_production_uses_owner_approved_oauth_with_internal_bearer_compatibility(
         self,
     ) -> None:
+        self.manager_register.side_effect = lambda server, logger: (
+            register_fake_store_manager_tools(server, logger, {})
+        )
         with tempfile.TemporaryDirectory() as temp_dir:
             with patch.dict(
                 "os.environ",

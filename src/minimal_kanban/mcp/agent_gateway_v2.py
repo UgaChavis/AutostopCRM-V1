@@ -4,11 +4,12 @@ import asyncio
 import re
 from collections.abc import Mapping
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
+from pydantic import WithJsonSchema
 
 from ..deployment_security import is_maintenance_mode, load_agent_gateway_security_policy
 from ..models import normalize_actor_name
@@ -147,6 +148,24 @@ from .workflow_guards import (
 COMPLETION_ACT_WORKFLOW_OPERATIONS = frozenset(
     {"save_completion_act_form", "reset_completion_act_form"}
 )
+BoardWorkflowOperation = Annotated[
+    str, WithJsonSchema({"type": "string", "enum": sorted(BOARD_WORKFLOW_OPERATIONS)})
+]
+FinanceWorkflowOperation = Annotated[
+    str, WithJsonSchema({"type": "string", "enum": sorted(FINANCE_WORKFLOW_OPERATIONS)})
+]
+InventoryWorkflowOperation = Annotated[
+    str,
+    WithJsonSchema(
+        {
+            "type": "string",
+            "enum": sorted(INVENTORY_WORKFLOW_OPERATIONS | STORE_MANAGEMENT_OPERATIONS),
+        }
+    ),
+]
+DocumentWorkflowOperation = Annotated[
+    str, WithJsonSchema({"type": "string", "enum": sorted(DOCUMENT_WORKFLOW_OPERATIONS)})
+]
 
 
 def _completion_act_proof_payload(
@@ -287,11 +306,17 @@ def register_agent_gateway_v2(
 
     raw_tools = dict(tools)
     manager_bootstrap_tool = raw_tools.get("agent_bootstrap")
-    if "agent_bootstrap" in tools:
-        tool_manager.remove_tool("agent_bootstrap")
     crm_runtime_status_tool = raw_tools.get("get_runtime_status")
-    if "get_runtime_status" in tools:
-        tool_manager.remove_tool("get_runtime_status")
+    passthrough_tools = {
+        "get_connector_identity",
+        "list_agent_workflows",
+        "ping_connector",
+        "prepare_action_contract",
+        "workflow_status",
+    }
+    for name in list(tools):
+        if name not in passthrough_tools:
+            tool_manager.remove_tool(name)
 
     def _oauth_audit_actor() -> str:
         """Return the authenticated OAuth owner, never a caller-supplied actor."""
@@ -326,6 +351,9 @@ def register_agent_gateway_v2(
             OAUTH_AUDIT_ASSERTION_HEADER: assertion,
         }
 
+    async def _board_call(function: Any, /, *args: Any, **kwargs: Any) -> Any:
+        return await asyncio.to_thread(function, *args, **kwargs)
+
     async def _invoke(
         name: str,
         arguments: dict[str, Any],
@@ -359,7 +387,8 @@ def register_agent_gateway_v2(
             }
             try:
                 return _as_dict(
-                    board_api._request(
+                    await _board_call(
+                        board_api._request,
                         virtual_route,
                         payload,
                         method="POST",
@@ -1798,18 +1827,6 @@ def register_agent_gateway_v2(
             )
         return _tool_result(await _invoke(name, arguments), label=name)
 
-    for guarded_ledger_tool in (
-        "start_workflow",
-        "workflow_transition",
-        "workflow_checkpoint",
-        "workflow_wait_for_external",
-        "complete_external_step",
-        "workflow_resume",
-        "workflow_cancel",
-    ):
-        if guarded_ledger_tool in tools:
-            tool_manager.remove_tool(guarded_ledger_tool)
-
     @server.tool(name="start_workflow", annotations=_write_annotations("Start Workflow"))
     async def guarded_start_workflow(
         workflow_id: str,
@@ -1958,12 +1975,12 @@ def register_agent_gateway_v2(
                 )
             except Exception as exc:  # pragma: no cover
                 manager_payload = {"ok": False, "error": str(exc)}
-        context_ok, context_data, _context_meta, context_error = _response_data(
-            board_api.get_board_context()
+        context_response, cards_response = await asyncio.gather(
+            _board_call(board_api.get_board_context),
+            _board_call(board_api.get_cards, include_archived=False, compact=True),
         )
-        cards_ok, cards_data, _cards_meta, cards_error = _response_data(
-            board_api.get_cards(include_archived=False, compact=True)
-        )
+        context_ok, context_data, _context_meta, context_error = _response_data(context_response)
+        cards_ok, cards_data, _cards_meta, cards_error = _response_data(cards_response)
         cards = _items_from_data(cards_data, "cards")
         sample = [
             _slim_card(card, DEFAULT_CARD_FIELDS)
@@ -1972,8 +1989,20 @@ def register_agent_gateway_v2(
         context = (
             context_data.get("context", context_data) if isinstance(context_data, dict) else {}
         )
-        ok = context_ok and cards_ok
-        warnings = [] if ok else [str(context_error or cards_error or "bootstrap_degraded")]
+        manager_ok = bool(manager_payload.get("ok"))
+        ok = context_ok and cards_ok and manager_ok
+        warnings = (
+            []
+            if ok
+            else [
+                str(
+                    context_error
+                    or cards_error
+                    or manager_payload.get("error")
+                    or "bootstrap_degraded"
+                )
+            ]
+        )
         payload = _envelope(
             ok=ok,
             status="ready" if ok else "degraded",
@@ -2034,7 +2063,11 @@ def register_agent_gateway_v2(
                 label="agent_board_digest",
             )
         ok, data, meta, error = _response_data(
-            board_api.get_cards(include_archived=include_archived, compact=True)
+            await _board_call(
+                board_api.get_cards,
+                include_archived=include_archived,
+                compact=True,
+            )
         )
         cards = _items_from_data(data, "cards")
         offset = _cursor_offset(cursor)
@@ -2171,15 +2204,21 @@ def register_agent_gateway_v2(
         else:
             repair_order_filters = {}
         if entity == "card":
-            response = board_api.search_cards(
-                query=query, include_archived=include_archived, limit=effective_limit
+            response = await _board_call(
+                board_api.search_cards,
+                query=query,
+                include_archived=include_archived,
+                limit=effective_limit,
             )
             keys = ("cards", "items", "results")
         elif entity == "client":
-            response = board_api.search_clients(query=query, limit=effective_limit)
+            response = await _board_call(
+                board_api.search_clients, query=query, limit=effective_limit
+            )
             keys = ("clients", "items", "results")
         elif entity == "repair_order":
-            response = board_api.list_repair_orders(
+            response = await _board_call(
+                board_api.list_repair_orders,
                 query=query,
                 limit=effective_limit,
                 compact=True,
@@ -2188,13 +2227,15 @@ def register_agent_gateway_v2(
             )
             keys = ("repair_orders", "items", "results")
         elif entity == "inventory":
-            response = board_api.search_inventory_items(query=query, limit=effective_limit)
+            response = await _board_call(
+                board_api.search_inventory_items, query=query, limit=effective_limit
+            )
             keys = ("items", "inventory_items", "results")
         elif entity == "cashbox":
-            response = board_api.list_cashboxes(limit=effective_limit)
+            response = await _board_call(board_api.list_cashboxes, limit=effective_limit)
             keys = ("cashboxes", "items", "results")
         else:
-            response = board_api.list_shared_files()
+            response = await _board_call(board_api.list_shared_files)
             keys = ("files", "items", "results")
         ok, data, meta, error = _response_data(response)
         items = _items_from_data(data, *keys)[:effective_limit]
@@ -2275,25 +2316,36 @@ def register_agent_gateway_v2(
                 label="agent_entity_context",
             )
         if entity == "card":
-            response = (
-                board_api.get_card_context(
-                    entity_id, event_limit=10, include_repair_order_text=False
+            response = await (
+                _board_call(
+                    board_api.get_card_context,
+                    entity_id,
+                    event_limit=10,
+                    include_repair_order_text=False,
                 )
                 if detail == "full"
-                else board_api.get_card(entity_id)
+                else _board_call(board_api.get_card, entity_id)
             )
         elif entity == "client":
-            response = board_api.get_client(entity_id, order_limit=20 if detail == "full" else 5)
+            response = await _board_call(
+                board_api.get_client,
+                entity_id,
+                order_limit=20 if detail == "full" else 5,
+            )
         elif entity == "repair_order":
-            response = board_api.get_repair_order(entity_id, create_if_missing=False)
+            response = await _board_call(
+                board_api.get_repair_order, entity_id, create_if_missing=False
+            )
         elif entity == "cashbox":
-            response = board_api.get_cashbox(
-                entity_id, transaction_limit=50 if detail == "full" else 10
+            response = await _board_call(
+                board_api.get_cashbox,
+                entity_id,
+                transaction_limit=50 if detail == "full" else 10,
             )
         elif entity == "inventory":
-            response = board_api.get_inventory_item(entity_id)
+            response = await _board_call(board_api.get_inventory_item, entity_id)
         else:
-            response = board_api.get_shared_file_info(entity_id)
+            response = await _board_call(board_api.get_shared_file_info, entity_id)
         ok, data, meta, error = _response_data(response)
         context_data = (
             _entity_context_summary(entity, data)
@@ -2325,7 +2377,7 @@ def register_agent_gateway_v2(
         annotations=_write_annotations("Agent Board Workflow"),
     )
     async def agent_board_workflow(
-        operation: str,
+        operation: BoardWorkflowOperation,
         payload: dict[str, Any] | None,
         idempotency_key: str,
         mode: Literal["dry_run", "apply"] = "dry_run",
@@ -2345,7 +2397,7 @@ def register_agent_gateway_v2(
         annotations=_write_annotations("Agent Finance Workflow", destructive=True),
     )
     async def agent_finance_workflow(
-        operation: str,
+        operation: FinanceWorkflowOperation,
         payload: dict[str, Any] | None,
         idempotency_key: str,
         mode: Literal["dry_run", "apply"] | None = None,
@@ -2398,7 +2450,7 @@ def register_agent_gateway_v2(
         annotations=_write_annotations("Agent Inventory Workflow"),
     )
     async def agent_inventory_workflow(
-        operation: str,
+        operation: InventoryWorkflowOperation,
         payload: dict[str, Any] | None,
         idempotency_key: str,
         mode: Literal["dry_run", "apply"] | None = None,
@@ -2422,7 +2474,7 @@ def register_agent_gateway_v2(
         annotations=_write_annotations("Agent Document Workflow"),
     )
     async def agent_document_workflow(
-        operation: str,
+        operation: DocumentWorkflowOperation,
         payload: dict[str, Any] | None,
         idempotency_key: str,
         allow_large_output: bool = False,
@@ -3299,13 +3351,19 @@ def register_agent_gateway_v2(
         )
         return _tool_result(payload, label="call_raw_capability")
 
-    keep = set(PERMANENT_AGENT_GATEWAY_TOOL_NAMES)
+    expected = set(PERMANENT_AGENT_GATEWAY_TOOL_NAMES)
     if not policy.mail_enabled:
-        keep.difference_update(MAIL_CAPABILITY_NAMES)
-    for name in list(tools):
-        if name not in keep:
-            tool_manager.remove_tool(name)
-    return set(tools)
+        expected.difference_update(MAIL_CAPABILITY_NAMES)
+        for name in MAIL_CAPABILITY_NAMES:
+            if name in tools:
+                tool_manager.remove_tool(name)
+    actual = set(tools)
+    if actual != expected and policy.production:
+        raise RuntimeError(
+            f"Agent Gateway public registry mismatch: missing={sorted(expected - actual)} "
+            f"unexpected={sorted(actual - expected)}"
+        )
+    return actual
 
 
 __all__ = [

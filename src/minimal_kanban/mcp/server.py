@@ -34,6 +34,7 @@ from ..config import (
 from ..deployment_security import load_agent_gateway_security_policy
 from ..services.snapshot_service import GPT_WALL_AGENT_EVENT_LIMIT
 from ..settings_models import derive_allowed_hosts, derive_allowed_origins
+from .agent_gateway_support import MANAGER_GATEWAY_DEPENDENCY_NAMES
 from .agent_gateway_v2 import register_agent_gateway_v2
 from .auth import StaticBearerTokenVerifier, build_auth_settings
 from .client import BoardApiClient, BoardApiTransportError
@@ -44,55 +45,20 @@ from .oauth_provider import (
 )
 from .tool_registry import MCP_TOOL_GROUPS, PUBLIC_MCP_TOOL_NAMES
 
-_AUTOSTOP_MANAGER_READ_ONLY_TOOLS = frozenset(
-    {
-        "agent_brief",
-        "audit_knowledge_annotations",
-        "audit_knowledge_base",
-        "audit_memory",
-        "audit_skill_registry",
-        "cleanup_audit",
-        "crm_health_plan",
-        "decode_vehicle_identity",
-        "estimate_repair_work_cost",
-        "get_store_analytics_report",
-        "list_manager_runs",
-        "lookup_oem_catalog_candidates",
-        "lookup_public_automotive_evidence",
-        "lookup_original_parts",
-        "memory_context_for",
-        "memory_gaps",
-        "memory_map",
-        "memory_topics",
-        "partsapi_catalog_lookup",
-        "prepare_manager_context",
-        "probe_knowledge_base",
-        "recall",
-        "recall_lessons",
-        "recommend_automotive_sources",
-        "recommend_fluid_maintenance_sources",
-        "recommend_service_management_actions",
-        "search_knowledge_base",
-        "store_owner_capabilities",
-        "system_audit",
-        "today_context",
-    }
-)
-
 _AUTOSTOP_MANAGER_WRITE_TOOLS = frozenset(
     {
-        "add_manager_task",
-        "curate_memory",
-        "finish_manager_run",
-        "learn_from_feedback",
-        "manager_journal",
-        "record_manager_run_event",
-        "remember",
-        "start_manager_run",
+        "complete_external_step",
+        "start_workflow",
+        "store_management_action",
         "store_owner_api",
-        "sync_knowledge_base",
+        "workflow_cancel",
+        "workflow_checkpoint",
+        "workflow_resume",
+        "workflow_transition",
+        "workflow_wait_for_external",
     }
 )
+_AUTOSTOP_MANAGER_READ_ONLY_TOOLS = MANAGER_GATEWAY_DEPENDENCY_NAMES - _AUTOSTOP_MANAGER_WRITE_TOOLS
 
 
 def _reject_bool_int(value: Any) -> Any:
@@ -128,11 +94,17 @@ def _try_register_autostop_manager_tools(server: FastMCP, logger: Logger) -> Non
     try:
         from autostop_manager.mcp_tools import register_manager_memory_tools
     except Exception as exc:  # pragma: no cover - optional sibling project
+        if load_agent_gateway_security_policy().production:
+            raise RuntimeError("AutostopManager Gateway dependencies are unavailable") from exc
         logger.info("autostop_manager.memory_tools unavailable: %s", exc)
         return
 
-    register_manager_memory_tools(server)
-    logger.info("autostop_manager.memory_tools registered")
+    register_manager_memory_tools(server, include_tools=MANAGER_GATEWAY_DEPENDENCY_NAMES)
+    tools = getattr(getattr(server, "_tool_manager", None), "_tools", {})
+    missing = MANAGER_GATEWAY_DEPENDENCY_NAMES - set(tools)
+    if missing and load_agent_gateway_security_policy().production:
+        raise RuntimeError(f"AutostopManager Gateway dependencies missing: {sorted(missing)}")
+    logger.info("autostop_manager.memory_tools registered=%s missing=%s", len(tools), len(missing))
 
 
 class DeadlinePayload(BaseModel):

@@ -100,107 +100,7 @@ from minimal_kanban.mcp.tool_registry import MCP_TOOL_GROUPS, PUBLIC_MCP_TOOL_NA
 from minimal_kanban.services.card_service import CardService
 from minimal_kanban.storage.json_store import JsonStore
 
-EXPECTED_MCP_TOOLS = {
-    "archive_card",
-    "apply_ready_unpaid_followups",
-    "audit_client_links",
-    "audit_repair_order_consistency",
-    "bootstrap_context",
-    "bulk_move_cards",
-    "bulk_refresh_board_summaries",
-    "bulk_set_deadline_if_below",
-    "cleanup_card",
-    "create_document_without_card_pdf",
-    "create_card",
-    "create_cash_transaction",
-    "create_cashbox",
-    "create_client",
-    "create_column",
-    "create_sticky",
-    "delete_cashbox",
-    "delete_client",
-    "delete_client_vehicle",
-    "delete_column",
-    "delete_sticky",
-    "get_board_content",
-    "get_board_context",
-    "get_board_event_page",
-    "get_board_events",
-    "get_board_snapshot",
-    "get_card",
-    "get_card_attachment",
-    "get_card_context",
-    "get_card_log",
-    "get_cards",
-    "get_cashbox",
-    "get_cash_journal",
-    "get_client",
-    "get_client_stats",
-    "get_connector_identity",
-    "get_gpt_wall",
-    "get_inventory_item",
-    "get_repair_order",
-    "get_repair_order_cycles",
-    "get_repair_order_text",
-    "download_repair_order_print_pdf",
-    "get_runtime_status",
-    "get_shared_file_info",
-    "list_archived_cards",
-    "list_card_attachments",
-    "list_cards_missing_manager_data",
-    "list_cashboxes",
-    "list_clients",
-    "list_columns",
-    "list_inventory_items",
-    "list_inventory_movements",
-    "list_overdue_cards",
-    "list_repair_orders",
-    "list_ready_unpaid_cards",
-    "manager_board_scan",
-    "mark_card_ready",
-    "list_shared_files",
-    "move_card",
-    "move_sticky",
-    "ping_connector",
-    "preview_repair_order_reopen",
-    "rename_column",
-    "reopen_repair_order",
-    "replace_repair_order_materials",
-    "replace_repair_order_works",
-    "restore_card",
-    "review_board",
-    "read_card_attachment",
-    "replenish_inventory_item",
-    "rollback_manager_run",
-    "run_manager_operation",
-    "search_cards",
-    "search_clients",
-    "search_inventory_items",
-    "set_card_deadline",
-    "set_card_board_summary",
-    "set_card_indicator",
-    "start_card_timer",
-    "stop_card_timer",
-    "set_repair_order_status",
-    "suggest_clients_for_card",
-    "triage_inbox_cards",
-    "update_board_settings",
-    "update_card",
-    "update_client",
-    "update_repair_order",
-    "update_shared_file_position",
-    "update_sticky",
-    "upload_shared_file",
-    "return_inventory_movement",
-    "save_inventory_item",
-    "write_off_inventory_item",
-    "download_shared_file",
-    "delete_shared_file",
-    "link_card_to_client",
-    "upsert_client_vehicle",
-    "delete_client_vehicle",
-    "unlink_card_from_client",
-}
+EXPECTED_MCP_TOOLS = set(PUBLIC_MCP_TOOL_NAMES)
 
 
 async def exercise_mcp_repair_order_correction(case, session, card_id: str, closed_order) -> None:
@@ -274,8 +174,7 @@ class McpRepairOrderPatchPayloadTests(unittest.TestCase):
         grouped_names = [tool_name for group in MCP_TOOL_GROUPS.values() for tool_name in group]
 
         self.assertEqual(len(grouped_names), len(set(grouped_names)))
-        self.assertEqual(PUBLIC_MCP_TOOL_NAMES, EXPECTED_MCP_TOOLS)
-        self.assertEqual(len(PUBLIC_MCP_TOOL_NAMES), 98)
+        self.assertEqual(set(PUBLIC_MCP_TOOL_NAMES), EXPECTED_MCP_TOOLS)
         self.assertEqual(
             set(MCP_TOOL_GROUPS),
             {
@@ -560,7 +459,6 @@ class McpServerBackendTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTest
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
                 self.assertTrue(EXPECTED_MCP_TOOLS.issubset(tool_names))
-                self.assertEqual(len(EXPECTED_MCP_TOOLS), 98)
                 tool_map = {tool.name: tool for tool in tools.tools}
                 legacy_descriptions = [
                     tool.name

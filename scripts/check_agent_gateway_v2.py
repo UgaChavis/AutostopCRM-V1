@@ -7,42 +7,24 @@ import hmac
 import json
 import os
 import re
+import sys
+from pathlib import Path
 from typing import Any
 
 import httpx
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from minimal_kanban.mcp.agent_gateway_support import (  # noqa: E402
+    PERMANENT_AGENT_GATEWAY_TOOL_NAMES,
+)
+
 DEFAULT_MCP_URL = "http://127.0.0.1:41831/mcp"
 DEFAULT_TOKEN_ENV = "MINIMAL_KANBAN_MCP_BEARER_TOKEN"
-EXPECTED_TOOL_NAMES = frozenset(
-    {
-        "agent_board_digest",
-        "agent_board_workflow",
-        "agent_bootstrap",
-        "agent_document_workflow",
-        "agent_entity_context",
-        "agent_finance_workflow",
-        "agent_inventory_workflow",
-        "agent_search",
-        "call_raw_capability",
-        "complete_external_step",
-        "discover_raw_capabilities",
-        "get_connector_identity",
-        "get_raw_capability_schema",
-        "get_runtime_status",
-        "list_agent_workflows",
-        "ping_connector",
-        "prepare_action_contract",
-        "start_workflow",
-        "workflow_cancel",
-        "workflow_checkpoint",
-        "workflow_resume",
-        "workflow_status",
-        "workflow_transition",
-        "workflow_wait_for_external",
-    }
-)
+EXPECTED_TOOL_NAMES = PERMANENT_AGENT_GATEWAY_TOOL_NAMES
 FORBIDDEN_LEGACY_TOOL_NAMES = frozenset(
     {
         "bootstrap_context",

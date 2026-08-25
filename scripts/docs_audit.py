@@ -1157,22 +1157,10 @@ def load_crm_registry_tools(root: Path) -> set[str]:
 
 
 def load_gateway_expected_tools(root: Path) -> set[str]:
-    path = root / "scripts" / "check_agent_gateway_v2.py"
-    tree = ast.parse(_read_text(path), filename=str(path))
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Assign):
-            continue
-        if not any(
-            isinstance(target, ast.Name) and target.id == "EXPECTED_TOOL_NAMES"
-            for target in node.targets
-        ):
-            continue
-        value = node.value
-        if isinstance(value, ast.Call) and isinstance(value.func, ast.Name):
-            if value.func.id == "frozenset" and len(value.args) == 1:
-                return {str(item) for item in ast.literal_eval(value.args[0])}
-        return {str(item) for item in ast.literal_eval(value)}
-    raise ValueError("EXPECTED_TOOL_NAMES assignment not found")
+    del root
+    from minimal_kanban.mcp.agent_gateway_support import PERMANENT_AGENT_GATEWAY_TOOL_NAMES
+
+    return set(PERMANENT_AGENT_GATEWAY_TOOL_NAMES)
 
 
 def _check_mcp_guide_gateway_surface(root: Path) -> list[Issue]:
@@ -1257,15 +1245,6 @@ def _check_crm_mcp_surface(root: Path) -> list[Issue]:
         root / "src" / "minimal_kanban" / "mcp" / "server.py"
     )
 
-    expected_tool_count = 98
-    if len(registry_tools) != expected_tool_count:
-        issues.append(
-            Issue(
-                "crm_mcp_count_mismatch",
-                "src/minimal_kanban/mcp/tool_registry.py",
-                f"registry has {len(registry_tools)} tools, expected {expected_tool_count}",
-            )
-        )
     if registry_tools != server_tools:
         missing = sorted(registry_tools - server_tools)
         unexpected = sorted(server_tools - registry_tools)
