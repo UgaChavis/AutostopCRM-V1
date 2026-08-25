@@ -539,8 +539,9 @@ Store release, separately perform one intentional
 page with its exact `cursor`/`ack_token` through the terminal page before
 recording only compact health/count evidence; never leave a pending delivery
 and never record raw orders or customer data. Verify `agent_bootstrap`
-separately as one Store snapshot request with no Store cursor/ACK and confirm
-that it leaves the owner `store_digest` checkpoint unchanged.
+separately as a CRM-only call: it must report Store as `not_loaded`, return no
+Store snapshot/cursor/ACK, issue no Store request, and leave the owner
+`store_digest` checkpoint unchanged.
 
 After UI changes, run
 `.\.venv\Scripts\python.exe scripts\browser_smoke.py` and manually verify
