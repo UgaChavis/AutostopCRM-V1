@@ -317,10 +317,9 @@ The temporary state is removed on exit and is never the production state file.
 
 Release verification:
 
-```powershell
-.\.venv\Scripts\python.exe scripts\check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --token-env AUTOSTOPCRM_MCP_TOKEN --exhaustive
-.\.venv\Scripts\python.exe scripts\check_mcp_oauth.py --mcp-url https://crm.autostopcrm.ru/mcp
-```
+Run the production Gateway check inside the CRM container so the compatibility
+bearer remains server-local, then verify OAuth separately with
+`scripts/check_mcp_oauth.py`.
 
 Stop-the-line production attestation is separate from release smoke. It freezes
 the live 24 public tools, 43 CRM workflow operations and Manager-used CRM raw

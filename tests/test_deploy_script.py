@@ -226,7 +226,7 @@ class DeployScriptTests(unittest.TestCase):
             ),
         )
         auth_snapshot = script.index('snapshot --backup-dir "$auth_backup_dir"')
-        auth_rotation = script.index('rotate --generate --mcp-url "$PUBLIC_MCP_URL"')
+        auth_rotation = script.index("rotate --generate")
 
         self.assertLess(crm_preflight, manager_preflight)
         for release_action in (
@@ -292,20 +292,23 @@ class DeployScriptTests(unittest.TestCase):
         build_index = script.index('docker tag "$previous_image_id" "$rollback_image"')
         snapshot_index = script.index('snapshot --backup-dir "$auth_backup_dir"')
         recovery_armed_index = script.index("auth_rotated=1", snapshot_index)
-        rotate_index = script.index('rotate --generate --mcp-url "$PUBLIC_MCP_URL"')
+        rotate_index = script.index("rotate --generate")
         maintenance_index = script.index("maintenance_started=1", rotate_index)
         self.assertLess(build_index, snapshot_index)
         self.assertLess(snapshot_index, recovery_armed_index)
         self.assertLess(recovery_armed_index, rotate_index)
         self.assertLess(rotate_index, maintenance_index)
         self.assertIn('restore --backup-dir "$auth_backup_dir"', script)
-        self.assertIn('check --mcp-url "$PUBLIC_MCP_URL"', script)
+        self.assertIn("  check\n", script)
+        self.assertNotIn("CODEX_CONFIG_PATH", script)
+        self.assertNotIn("CODEX_RUNTIME_ENV_PATH", script)
+        self.assertNotIn("--runtime-env", script)
 
     def test_auth_snapshot_remains_recoverable_until_release_commit(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
         snapshot = script.index('snapshot --backup-dir "$auth_backup_dir"')
         recovery_armed = script.index("auth_rotated=1", snapshot)
-        rotate = script.index('rotate --generate --mcp-url "$PUBLIC_MCP_URL"')
+        rotate = script.index("rotate --generate")
         marker_removal = script.index('run_release rm -f "$MAINTENANCE_MARKER_HOST"')
         marked_success = script.index("deployment_succeeded=1", marker_removal)
         trap_removed = script.index("trap - EXIT", marked_success)

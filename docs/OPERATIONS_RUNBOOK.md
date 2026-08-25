@@ -371,24 +371,20 @@ set +a
 python3 scripts/validate_production_env.py --require-production --require-store
 ```
 
-`deploy.sh` snapshots auth state, keeps Codex configured for URL-only OAuth,
-then rotates only the internal CRM/runtime bearer after the image and rollback
-source are ready. For manual repair or initial provisioning, use the same
-helper and never pass a token on the command line:
+`deploy.sh` snapshots and rotates only the internal CRM server bearer after
+the image and rollback source are ready. It never edits Codex configuration.
+For manual server repair, use the same helper and never pass a token on the
+command line:
 
 ```bash
 cd /opt/autostopcrm
 python3 scripts/configure_codex_mcp_auth.py rotate --generate
-set -a
-. /root/.config/autostopcrm/codex-mcp.env
-set +a
 python3 scripts/configure_codex_mcp_auth.py check
 ```
 
-The helper updates server `.env`, removes bearer/static headers from the Codex
-MCP entry, and maintains a mode-`0600` internal runtime env without printing
-the token. Link Codex once with `codex mcp login autostopcrm`; automatic refresh
-then survives normal deploys. Never dump `.env`, container
+The helper updates only server `.env` without printing the token. Configure Codex separately with the URL only and
+link once with `codex mcp login autostopcrm`; automatic refresh then survives
+normal deploys. Never dump `.env`, container
 `.Config.Env`, a full process environment, or credential-bearing config into a
 tool transcript. Report only allowlisted non-secret settings and boolean
 credential checks.
@@ -452,9 +448,8 @@ The bounded release flow:
    immutable CRM image before maintenance; an early EXIT guard owns only this
    attempt's exact Manager paths and Docker refs, so a pre-maintenance failure
    removes or restores them without touching the live/previous release;
-3. provisions stable encrypted OAuth, snapshots auth, removes Codex bearer
-   config, and rotates the internal compatibility bearer with a private
-   rollback copy;
+3. provisions stable encrypted OAuth and rotates the internal compatibility
+   bearer with a private rollback copy, without editing Codex configuration;
 4. creates the maintenance marker and stops only `autostopcrm`;
 5. creates and verifies an atomic backup of CRM state/audit data and Manager
    SQLite;
@@ -525,12 +520,6 @@ For deploy-persistence proof, save the smoke refresh state in a private
 mode-`0600` file with `--state-out`, redeploy, then pass the same path with
 `--refresh-from`. Omit `--state-out` on the last run so the smoke token family
 is revoked. Delete the private smoke file afterward.
-
-From a client with the current credential:
-
-```powershell
-.\.venv\Scripts\python.exe scripts\check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --token-env AUTOSTOPCRM_MCP_TOKEN --exhaustive --require-store --require-web
-```
 
 The recurring `--require-store` probe uses `store_state` search and does not
 advance the owner's durable `store_digest` cursor. After the first coordinated

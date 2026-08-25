@@ -42,8 +42,6 @@ MANAGER_CONTAINER_DIR="${AUTOSTOP_MANAGER_CONTAINER_DIR:-/opt/AutostopManager}"
 MAINTENANCE_MARKER_HOST="${AUTOSTOP_MAINTENANCE_MARKER_HOST:-$CRM_DATA_DIR/.agent-gateway-maintenance}"
 PUBLIC_SITE_URL="${AUTOSTOP_PUBLIC_SITE_URL:-https://crm.autostopcrm.ru}"
 PUBLIC_MCP_URL="${AUTOSTOP_PUBLIC_MCP_URL:-https://crm.autostopcrm.ru/mcp}"
-CODEX_CONFIG_PATH="${AUTOSTOP_CODEX_CONFIG_PATH:-/root/.codex/config.toml}"
-CODEX_RUNTIME_ENV_PATH="${AUTOSTOP_CODEX_RUNTIME_ENV_PATH:-/root/.config/autostopcrm/codex-mcp.env}"
 DESKTOP_INSTRUCTION_PATH="${AUTOSTOP_DESKTOP_INSTRUCTION_PATH:-/root/Desktop/AUTOSTOPCRM_FULL_INSTRUCTION.txt}"
 INSTALL_WATCHDOG="${AUTOSTOP_INSTALL_WATCHDOG:-0}"
 RELEASE_BACKUP_RETENTION_COUNT="${AUTOSTOP_RELEASE_BACKUP_RETENTION_COUNT:-8}"
@@ -720,14 +718,10 @@ restore_auth_configuration() {
   if (( maintenance_started == 1 )); then
     run_maintenance "$PYTHON_BIN" scripts/configure_codex_mcp_auth.py \
       --server-env "$ROOT_DIR/.env" \
-      --codex-config "$CODEX_CONFIG_PATH" \
-      --runtime-env "$CODEX_RUNTIME_ENV_PATH" \
       restore --backup-dir "$auth_backup_dir" || status=$?
   else
     "$PYTHON_BIN" scripts/configure_codex_mcp_auth.py \
       --server-env "$ROOT_DIR/.env" \
-      --codex-config "$CODEX_CONFIG_PATH" \
-      --runtime-env "$CODEX_RUNTIME_ENV_PATH" \
       restore --backup-dir "$auth_backup_dir" || status=$?
   fi
   if (( status == 0 )); then
@@ -859,27 +853,21 @@ on_exit() {
 }
 trap on_exit EXIT
 
-# The server and Codex bearer are changed only after all builds and rollback
-# images are ready. The private snapshot is restored on every failed exit.
+# The internal bearer changes only after all builds and rollback images are
+# ready. Codex OAuth configuration is independent of deploy.
 "$PYTHON_BIN" scripts/configure_codex_mcp_auth.py \
   --server-env "$ROOT_DIR/.env" \
-  --codex-config "$CODEX_CONFIG_PATH" \
-  --runtime-env "$CODEX_RUNTIME_ENV_PATH" \
   snapshot --backup-dir "$auth_backup_dir"
 auth_rotated=1
 if ! "$PYTHON_BIN" scripts/configure_codex_mcp_auth.py \
   --server-env "$ROOT_DIR/.env" \
-  --codex-config "$CODEX_CONFIG_PATH" \
-  --runtime-env "$CODEX_RUNTIME_ENV_PATH" \
-  rotate --generate --mcp-url "$PUBLIC_MCP_URL"; then
+  rotate --generate; then
   exit 2
 fi
 reload_deploy_environment
 "$PYTHON_BIN" scripts/configure_codex_mcp_auth.py \
   --server-env "$ROOT_DIR/.env" \
-  --codex-config "$CODEX_CONFIG_PATH" \
-  --runtime-env "$CODEX_RUNTIME_ENV_PATH" \
-  check --mcp-url "$PUBLIC_MCP_URL"
+  check
 "$PYTHON_BIN" scripts/validate_production_env.py --require-production --require-store
 docker compose config --quiet
 

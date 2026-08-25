@@ -103,9 +103,8 @@ and remains compensating while notification is unresolved.
 
 ## Verification
 
-```powershell
-.\.venv\Scripts\python.exe scripts\check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --token-env AUTOSTOPCRM_MCP_TOKEN --exhaustive --require-store --require-web
-.\.venv\Scripts\python.exe scripts\check_mcp_oauth.py --mcp-url https://crm.autostopcrm.ru/mcp
-```
+Run the exhaustive Gateway check inside the CRM container so its compatibility
+bearer remains server-local. Client setup uses `codex mcp login autostopcrm`
+and the standard OAuth flow only.
 
 This is a safe read-only/dry-run/synthetic check of all 24 visible tools.

@@ -11,20 +11,13 @@ import stat
 import sys
 from collections import Counter
 from pathlib import Path
-from urllib.parse import urlsplit
 
 SERVER_TOKEN_KEY = "MINIMAL_KANBAN_MCP_BEARER_TOKEN"
-CODEX_TOKEN_ENV_KEY = "AUTOSTOPCRM_MCP_TOKEN"
-CODEX_SECTION = "mcp_servers.autostopcrm"
 DEFAULT_SERVER_ENV = Path("/opt/autostopcrm/.env")
-DEFAULT_CODEX_CONFIG = Path("/root/.codex/config.toml")
-DEFAULT_RUNTIME_ENV = Path("/root/.config/autostopcrm/codex-mcp.env")
-DEFAULT_MCP_URL = "https://crm.autostopcrm.ru/mcp"
 MAX_SECRET_FILE_BYTES = 4096
 MAX_AUTH_FILE_BYTES = 2 * 1024 * 1024
 AUTH_BACKUP_VERSION = 1
 _KEY_VALUE_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
-_SECTION_RE = re.compile(r"^\s*\[([^]]+)]\s*(?:#.*)?$")
 _SAFE_TOKEN_RE = re.compile(r"^[A-Za-z0-9._~-]{32,512}$")
 
 # Secrets created anywhere in this process must remain private, including when a
@@ -43,7 +36,7 @@ def _read_small_secret_file(path: Path) -> str:
         raise AuthConfigError("Token file is too large")
     text = raw.decode("utf-8").strip()
     match = _KEY_VALUE_RE.fullmatch(text)
-    if match and match.group(1) in {SERVER_TOKEN_KEY, CODEX_TOKEN_ENV_KEY}:
+    if match and match.group(1) == SERVER_TOKEN_KEY:
         text = match.group(2).strip()
     return text
 
@@ -57,31 +50,6 @@ def _validate_token(token: str) -> None:
     entropy_bits = sum(count * math.log2(length / count) for count in Counter(token).values())
     if len(set(token)) < 20 or entropy_bits < 200.0:
         raise AuthConfigError("Bearer token must have at least 200 bits of estimated entropy")
-
-
-def _normalized_mcp_url(value: str) -> str:
-    try:
-        parsed = urlsplit(str(value or "").strip())
-        port = parsed.port
-    except ValueError as exc:
-        raise AuthConfigError("MCP URL must be a valid HTTPS URL") from exc
-    if (
-        parsed.scheme.lower() != "https"
-        or not parsed.hostname
-        or parsed.username
-        or parsed.password
-        or parsed.query
-        or parsed.fragment
-        or parsed.path.rstrip("/") != "/mcp"
-    ):
-        raise AuthConfigError(
-            "MCP URL must be an HTTPS /mcp endpoint without credentials, query, or fragment"
-        )
-    host = parsed.hostname.lower()
-    if ":" in host:
-        host = f"[{host}]"
-    authority = host if port is None else f"{host}:{port}"
-    return f"https://{authority}/mcp"
 
 
 def _atomic_write_private_bytes(path: Path, payload: bytes) -> None:
@@ -162,49 +130,6 @@ def _upsert_env(path: Path, key: str, value: str) -> None:
     _atomic_write_private(path, "\n".join(updated).rstrip() + "\n")
 
 
-def _upsert_codex_oauth_config(path: Path, *, mcp_url: str) -> None:
-    normalized_mcp_url = _normalized_mcp_url(mcp_url)
-    lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
-    section_start: int | None = None
-    section_end = len(lines)
-    for index, line in enumerate(lines):
-        match = _SECTION_RE.match(line)
-        if not match:
-            continue
-        if match.group(1).strip() == CODEX_SECTION:
-            section_start = index
-            continue
-        if section_start is not None and index > section_start:
-            section_end = index
-            break
-
-    url_line = f'url = "{normalized_mcp_url}"'
-    if section_start is None:
-        if lines and lines[-1].strip():
-            lines.append("")
-        lines.extend(
-            [
-                f"[{CODEX_SECTION}]",
-                url_line,
-            ]
-        )
-    else:
-        removable = re.compile(r"^\s*(?:bearer_token_env_var|http_headers|env_http_headers)\s*=")
-        kept_section = [
-            line for line in lines[section_start + 1 : section_end] if not removable.match(line)
-        ]
-        url_re = re.compile(r"^\s*url\s*=")
-        url_index = next(
-            (index for index, line in enumerate(kept_section) if url_re.match(line)), None
-        )
-        if url_index is None:
-            kept_section.insert(0, url_line)
-        else:
-            kept_section[url_index] = url_line
-        lines[section_start + 1 : section_end] = kept_section
-    _atomic_write_private(path, "\n".join(lines).rstrip() + "\n")
-
-
 def _capture_auth_state(paths: tuple[Path, ...]) -> dict[Path, bytes | None]:
     return {path: _read_bounded_file(path) if path.is_file() else None for path in paths}
 
@@ -223,19 +148,13 @@ def _restore_auth_state(state: dict[Path, bytes | None]) -> None:
 def snapshot(
     *,
     server_env: Path,
-    codex_config: Path,
-    runtime_env: Path,
     backup_dir: Path,
 ) -> dict[str, object]:
     if backup_dir.exists():
         raise AuthConfigError(f"Auth backup directory already exists: {backup_dir}")
     backup_dir.mkdir(parents=True, mode=0o700)
     backup_dir.chmod(0o700)
-    targets = {
-        "server_env": server_env,
-        "codex_config": codex_config,
-        "runtime_env": runtime_env,
-    }
+    targets = {"server_env": server_env}
     manifest: dict[str, object] = {"version": AUTH_BACKUP_VERSION, "files": {}}
     try:
         entries = manifest["files"]
@@ -265,8 +184,6 @@ def snapshot(
 def restore(
     *,
     server_env: Path,
-    codex_config: Path,
-    runtime_env: Path,
     backup_dir: Path,
 ) -> dict[str, object]:
     manifest_path = backup_dir / "manifest.json"
@@ -276,11 +193,7 @@ def restore(
     entries = manifest.get("files")
     if not isinstance(entries, dict):
         raise AuthConfigError("Invalid auth backup manifest")
-    targets = {
-        "server_env": server_env,
-        "codex_config": codex_config,
-        "runtime_env": runtime_env,
-    }
+    targets = {"server_env": server_env}
     restored_state: dict[Path, bytes | None] = {}
     for name, path in targets.items():
         entry = entries.get(name)
@@ -308,88 +221,31 @@ def restore(
 def rotate(
     *,
     server_env: Path,
-    codex_config: Path,
-    runtime_env: Path,
     token: str,
-    mcp_url: str,
 ) -> dict[str, object]:
     _validate_token(token)
-    normalized_mcp_url = _normalized_mcp_url(mcp_url)
-    paths = (server_env, runtime_env, codex_config)
-    previous_state = _capture_auth_state(paths)
+    previous_state = _capture_auth_state((server_env,))
     try:
         _upsert_env(server_env, SERVER_TOKEN_KEY, token)
-        _upsert_env(runtime_env, CODEX_TOKEN_ENV_KEY, token)
-        _upsert_codex_oauth_config(codex_config, mcp_url=normalized_mcp_url)
     except Exception:
         _restore_auth_state(previous_state)
         raise
     return {
         "ok": True,
         "server_env": str(server_env),
-        "codex_config": str(codex_config),
-        "runtime_env": str(runtime_env),
         "token_printed": False,
         "restart_required": True,
-        "mcp_url_updated": True,
     }
 
 
 def check(
     *,
     server_env: Path,
-    codex_config: Path,
-    runtime_env: Path,
-    mcp_url: str = DEFAULT_MCP_URL,
 ) -> dict[str, object]:
-    normalized_mcp_url = _normalized_mcp_url(mcp_url)
     server_token = _env_value(server_env, SERVER_TOKEN_KEY)
-    runtime_token = _env_value(runtime_env, CODEX_TOKEN_ENV_KEY)
-    config_text = codex_config.read_text(encoding="utf-8") if codex_config.is_file() else ""
-    section_start = None
-    section_end = len(config_text.splitlines())
-    config_lines = config_text.splitlines()
-    for index, line in enumerate(config_lines):
-        match = _SECTION_RE.match(line)
-        if not match:
-            continue
-        if match.group(1).strip() == CODEX_SECTION:
-            section_start = index
-            continue
-        if section_start is not None and index > section_start:
-            section_end = index
-            break
-    section_text = (
-        "\n".join(config_lines[section_start + 1 : section_end])
-        if section_start is not None
-        else ""
-    )
-    has_bearer_reference = bool(
-        re.search(
-            rf'^\s*bearer_token_env_var\s*=\s*"{re.escape(CODEX_TOKEN_ENV_KEY)}"\s*$',
-            section_text,
-            flags=re.MULTILINE,
-        )
-    )
-    has_static_headers = bool(
-        re.search(r"^\s*(?:http_headers|env_http_headers)\s*=", section_text, flags=re.MULTILINE)
-    )
-    url_match = re.search(r'^\s*url\s*=\s*"([^"\r\n]+)"\s*$', section_text, flags=re.MULTILINE)
-    configured_url = url_match.group(1) if url_match else ""
-    try:
-        url_matches = bool(
-            configured_url and _normalized_mcp_url(configured_url) == normalized_mcp_url
-        )
-    except AuthConfigError:
-        url_matches = False
-    auth_paths = (server_env, codex_config, runtime_env)
-    secure_modes = all(path.is_file() for path in auth_paths)
+    secure_mode = server_env.is_file()
     if os.name != "nt":
-        secure_modes = secure_modes and all(
-            stat.S_IMODE(path.stat().st_mode) == 0o600 for path in auth_paths
-        )
-    matches = bool(server_token and secrets.compare_digest(server_token, runtime_token))
-    codex_oauth_ready = not has_bearer_reference and not has_static_headers
+        secure_mode = secure_mode and stat.S_IMODE(server_env.stat().st_mode) == 0o600
     token_is_strong = False
     try:
         _validate_token(server_token)
@@ -397,15 +253,8 @@ def check(
     except AuthConfigError:
         pass
     return {
-        "ok": bool(
-            matches and codex_oauth_ready and secure_modes and url_matches and token_is_strong
-        ),
-        "tokens_match": matches,
-        "codex_uses_oauth": codex_oauth_ready,
-        "codex_uses_bearer_env": has_bearer_reference,
-        "codex_has_static_auth_fallback": has_static_headers,
-        "private_file_modes": secure_modes,
-        "mcp_url_matches": url_matches,
+        "ok": bool(secure_mode and token_is_strong),
+        "private_file_mode": secure_mode,
         "token_entropy_valid": token_is_strong,
         "token_printed": False,
     }
@@ -413,20 +262,16 @@ def check(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description=("Rotate the internal AutoStop CRM bearer while keeping Codex on stable OAuth.")
+        description="Rotate the internal AutoStop CRM compatibility bearer."
     )
     parser.add_argument("--server-env", type=Path, default=DEFAULT_SERVER_ENV)
-    parser.add_argument("--codex-config", type=Path, default=DEFAULT_CODEX_CONFIG)
-    parser.add_argument("--runtime-env", type=Path, default=DEFAULT_RUNTIME_ENV)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     rotate_parser = subparsers.add_parser("rotate")
     token_source = rotate_parser.add_mutually_exclusive_group(required=True)
     token_source.add_argument("--generate", action="store_true")
     token_source.add_argument("--token-file", type=Path)
-    rotate_parser.add_argument("--mcp-url", default=DEFAULT_MCP_URL)
-    check_parser = subparsers.add_parser("check")
-    check_parser.add_argument("--mcp-url", default=DEFAULT_MCP_URL)
+    subparsers.add_parser("check")
     snapshot_parser = subparsers.add_parser("snapshot")
     snapshot_parser.add_argument("--backup-dir", type=Path, required=True)
     restore_parser = subparsers.add_parser("restore")
@@ -445,30 +290,18 @@ def main(argv: list[str] | None = None) -> int:
             )
             result = rotate(
                 server_env=args.server_env,
-                codex_config=args.codex_config,
-                runtime_env=args.runtime_env,
                 token=token,
-                mcp_url=args.mcp_url,
             )
         elif args.command == "check":
-            result = check(
-                server_env=args.server_env,
-                codex_config=args.codex_config,
-                runtime_env=args.runtime_env,
-                mcp_url=args.mcp_url,
-            )
+            result = check(server_env=args.server_env)
         elif args.command == "snapshot":
             result = snapshot(
                 server_env=args.server_env,
-                codex_config=args.codex_config,
-                runtime_env=args.runtime_env,
                 backup_dir=args.backup_dir,
             )
         else:
             result = restore(
                 server_env=args.server_env,
-                codex_config=args.codex_config,
-                runtime_env=args.runtime_env,
                 backup_dir=args.backup_dir,
             )
     except (AuthConfigError, OSError, UnicodeError, json.JSONDecodeError) as exc:
