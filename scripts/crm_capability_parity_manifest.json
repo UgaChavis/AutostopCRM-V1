@@ -186,7 +186,7 @@
     "/employee_salary_reconciliation_print": {
       "backend_kind": "authenticated_print_presentation_get",
       "backend_source": "src/minimal_kanban/api/server.py",
-      "backend_evidence_pattern": "\"/employee_salary_reconciliation_print\": (",
+      "backend_evidence_pattern": "\"/employee_salary_reconciliation_print\": self._serve_employee_salary_reconciliation_print",
       "gateway_kind": "guarded_virtual_api_alias",
       "gateway_tool": "call_raw_capability",
       "operation": "api:/api/get_employee_salary_reconciliation",

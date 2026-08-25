@@ -122,9 +122,9 @@ class CodeHealthAuditTests(unittest.TestCase):
         report = module.build_report(ROOT)
         ratchets = report["ratchets"]
 
-        self.assertEqual(36, report["summary"]["size_exemptions_configured"])
-        self.assertEqual(3, report["summary"]["complexity_ratchets_configured"])
-        self.assertEqual(39, len(ratchets))
+        self.assertEqual(35, report["summary"]["size_exemptions_configured"])
+        self.assertEqual(2, report["summary"]["complexity_ratchets_configured"])
+        self.assertEqual(37, len(ratchets))
         self.assertEqual(
             sorted(ratchets, key=lambda entry: (entry["metric"], entry["target"])),
             ratchets,

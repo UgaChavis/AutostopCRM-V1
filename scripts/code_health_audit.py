@@ -18,7 +18,7 @@ MAX_PY_MODULE_LINES = 2500
 MAX_TEST_MODULE_LINES = 3000
 MAX_CLASS_LINES = 2500
 MAX_FUNCTION_LINES = 450
-EXPECTED_SIZE_EXEMPTION_COUNT = 36
+EXPECTED_SIZE_EXEMPTION_COUNT = 35
 
 
 @dataclass(frozen=True)
@@ -130,9 +130,6 @@ ALLOWED_LARGE_FUNCTIONS = {
     "scripts/attest_agent_gateway_v2.py:_finance_apply_audit_safe_fixes_case": RatchetBudget(
         "finance attestation scenario split target", 457, 457, "207"
     ),
-    "src/minimal_kanban/api/server.py:ApiServer._make_handler": RatchetBudget(
-        "API handler split target", 1352, 1352, "007"
-    ),
     "src/minimal_kanban/demo_seed.py:_demo_specs": RatchetBudget(
         "bounded data-only demo seed factory", 957, 957, "001"
     ),
@@ -160,9 +157,6 @@ ALLOWED_LARGE_FUNCTIONS = {
 }
 
 COMPLEXITY_RATCHETS = {
-    "src/minimal_kanban/api/server.py:ApiServer._make_handler": RatchetBudget(
-        "API request handler branch complexity split target", 171, 171, "007"
-    ),
     "src/minimal_kanban/mcp/agent_gateway_v2.py:register_agent_gateway_v2._execute_workflow": RatchetBudget(
         "Gateway workflow branch complexity split target", 72, 72, "009"
     ),

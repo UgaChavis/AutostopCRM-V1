@@ -582,6 +582,1599 @@ def _display_dashboard_shared_file_info(
     return file_info if isinstance(file_info, dict) else None
 
 
+class RequestContextFactory:
+    """Parse bounded HTTP input without deciding authentication or routing."""
+
+    @staticmethod
+    def drain_request_body(handler: BaseHTTPRequestHandler, content_length: int) -> None:
+        remaining = max(0, int(content_length))
+        while remaining > 0:
+            try:
+                chunk = handler.rfile.read(min(65536, remaining))
+            except OSError:
+                break
+            if not chunk:
+                break
+            remaining -= len(chunk)
+
+    @staticmethod
+    def query_payload(query_string: str) -> dict:
+        query_size_bytes = len(query_string.encode("utf-8", errors="surrogatepass"))
+        if query_size_bytes > MAX_QUERY_STRING_BYTES:
+            raise ServiceError(
+                "request_too_large",
+                "Строка запроса превышает допустимый лимит.",
+                status_code=HTTPStatus.REQUEST_URI_TOO_LONG,
+                details={
+                    "max_size_bytes": MAX_QUERY_STRING_BYTES,
+                    "query_size_bytes": query_size_bytes,
+                },
+            )
+        try:
+            parsed = parse_qs(
+                query_string,
+                keep_blank_values=True,
+                max_num_fields=MAX_QUERY_FIELDS,
+            )
+        except ValueError as exc:
+            raise ServiceError(
+                "request_too_large",
+                "Строка запроса содержит слишком много параметров.",
+                status_code=HTTPStatus.REQUEST_URI_TOO_LONG,
+                details={"max_fields": MAX_QUERY_FIELDS},
+            ) from exc
+        payload: dict[str, object] = {}
+        for key, values in parsed.items():
+            if not values:
+                continue
+            value = values[-1]
+            if key == "access_token":
+                payload[key] = value
+                continue
+            lowered = value.lower()
+            if key in BOOLEAN_QUERY_KEYS and lowered in {"true", "1", "yes", "y", "on"}:
+                payload[key] = True
+            elif key in BOOLEAN_QUERY_KEYS and lowered in {
+                "false",
+                "0",
+                "no",
+                "n",
+                "off",
+            }:
+                payload[key] = False
+            else:
+                payload[key] = value
+        return payload
+
+    @staticmethod
+    def read_json_object(handler: BaseHTTPRequestHandler, content_length: int) -> dict:
+        raw_body = handler.rfile.read(content_length) if content_length > 0 else b"{}"
+        if content_length and len(raw_body) != content_length:
+            handler.close_connection = True
+            raise ServiceError(
+                "invalid_json",
+                "Тело запроса передано не полностью.",
+                status_code=HTTPStatus.BAD_REQUEST,
+            )
+        try:
+            payload = json.loads(
+                raw_body.decode("utf-8") or "{}",
+                parse_constant=_reject_json_constant,
+            )
+            reject_deeply_nested_json(payload)
+        except (UnicodeDecodeError, ValueError, RecursionError) as exc:
+            raise ServiceError(
+                "invalid_json",
+                "Тело запроса должно содержать корректный JSON.",
+                status_code=HTTPStatus.BAD_REQUEST,
+            ) from exc
+        if not isinstance(payload, dict):
+            raise ServiceError(
+                "validation_error",
+                "Тело запроса должно быть JSON-объектом.",
+                status_code=HTTPStatus.BAD_REQUEST,
+            )
+        return payload
+
+
+class HttpResponseWriter:
+    """Write the established API envelopes and transport headers."""
+
+    def __init__(self, logger: Logger) -> None:
+        self._logger = logger
+
+    def send_error(
+        self,
+        handler: BaseHTTPRequestHandler,
+        request_id: str,
+        status_code: int,
+        code: str,
+        message: str,
+        details: dict | None = None,
+        *,
+        server_timing: str = "",
+    ) -> None:
+        body = _json_response(
+            ok=False,
+            data=None,
+            error={"code": code, "message": message, "details": details or {}},
+            request_id=request_id,
+        )
+        try:
+            response_body, extra_headers = self.prepare_body(
+                handler,
+                body,
+                content_type="application/json",
+                server_timing=server_timing,
+            )
+            handler.send_response(status_code)
+            self.send_headers(
+                handler,
+                "application/json",
+                len(response_body),
+                extra_headers=extra_headers,
+            )
+            self.write_body(
+                handler,
+                response_body,
+                route=_safe_request_target(handler.path),
+                request_id=request_id,
+                status_code=status_code,
+            )
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            self._logger.warning(
+                "api_client_disconnected route=%s request_id=%s status=%s",
+                _safe_request_target(handler.path),
+                request_id,
+                status_code,
+            )
+
+    def send_bytes(
+        self,
+        handler: BaseHTTPRequestHandler,
+        body: bytes,
+        *,
+        content_type: str,
+        request_id: str,
+        route: str,
+        status_code: int = HTTPStatus.OK,
+        cache_control: str = "no-store",
+        extra_headers: dict[str, str] | None = None,
+    ) -> None:
+        try:
+            handler.send_response(status_code)
+            self.send_headers(
+                handler,
+                content_type,
+                len(body),
+                cache_control=cache_control,
+                extra_headers=extra_headers,
+            )
+            self.write_body(
+                handler,
+                body,
+                route=route,
+                request_id=request_id,
+                status_code=status_code,
+            )
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError) as exc:
+            self._logger.warning(
+                "api_client_disconnected route=%s request_id=%s status=%s error_type=%s",
+                route,
+                request_id,
+                status_code,
+                type(exc).__name__,
+            )
+
+    def send_headers(
+        self,
+        handler: BaseHTTPRequestHandler,
+        content_type: str,
+        content_length: int,
+        *,
+        cache_control: str = "no-store",
+        extra_headers: dict[str, str] | None = None,
+    ) -> None:
+        handler.send_header("Content-Type", content_type)
+        handler.send_header("Content-Length", str(content_length))
+        handler.send_header("Cache-Control", cache_control)
+        handler.send_header("Connection", "close")
+        handler.close_connection = True
+        provided_headers = {key.casefold() for key in (extra_headers or {})}
+        if "x-content-type-options" not in provided_headers:
+            handler.send_header("X-Content-Type-Options", "nosniff")
+        cors_origin = self.cors_allowed_origin(handler)
+        if cors_origin and "access-control-allow-origin" not in provided_headers:
+            handler.send_header("Access-Control-Allow-Origin", cors_origin)
+            handler.send_header("Vary", "Origin")
+            handler.send_header(
+                "Access-Control-Allow-Headers",
+                "Content-Type, Authorization, X-Operator-Session",
+            )
+            handler.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+        for header, value in (extra_headers or {}).items():
+            if value:
+                handler.send_header(header, value)
+        handler.end_headers()
+
+    @staticmethod
+    def cors_allowed_origin(handler: BaseHTTPRequestHandler) -> str:
+        return _same_host_cors_origin(
+            handler.headers.get("Origin", ""),
+            handler.headers.get("Host", ""),
+            allow_named_host=bool(
+                str(handler.headers.get("X-Forwarded-For", "") or "").strip()
+                or str(handler.headers.get("X-Real-IP", "") or "").strip()
+            ),
+        )
+
+    @staticmethod
+    def prepare_body(
+        handler: BaseHTTPRequestHandler,
+        body: bytes,
+        *,
+        content_type: str,
+        server_timing: str = "",
+    ) -> tuple[bytes, dict[str, str]]:
+        headers: dict[str, str] = {}
+        if server_timing:
+            headers["Server-Timing"] = server_timing
+        if (
+            content_type.startswith("application/json")
+            and len(body) >= JSON_GZIP_MIN_BYTES
+            and _accepts_gzip(handler.headers.get("Accept-Encoding", ""))
+        ):
+            headers["Content-Encoding"] = "gzip"
+            headers["Vary"] = "Accept-Encoding"
+            return gzip.compress(body), headers
+        if content_type.startswith("application/json"):
+            headers["Vary"] = "Accept-Encoding"
+        return body, headers
+
+    def write_body(
+        self,
+        handler: BaseHTTPRequestHandler,
+        body: bytes,
+        *,
+        route: str,
+        request_id: str,
+        status_code: int,
+    ) -> bool:
+        try:
+            handler.wfile.write(body)
+            handler.wfile.flush()
+            return True
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError) as exc:
+            self._logger.warning(
+                "api_client_disconnected route=%s request_id=%s status=%s error_type=%s",
+                route,
+                request_id,
+                status_code,
+                type(exc).__name__,
+            )
+            return False
+
+
+class StaticAndDownloadResponder:
+    """Serve public assets and already-authorized binary/content routes."""
+
+    PROTECTED_ROUTES = frozenset(
+        {
+            MODULE_MAP_INFRASTRUCTURE_ROUTE,
+            "/api/attachment",
+            "/api/shared_file",
+            "/api/repair_order_text",
+            "/employee_salary_reconciliation_print",
+        }
+    )
+
+    def __init__(
+        self,
+        *,
+        service: CardService,
+        shared_files_service: SharedFilesService,
+        logger: Logger,
+        api_server: ApiServer,
+        bearer_token: str,
+    ) -> None:
+        self._service = service
+        self._shared_files_service = shared_files_service
+        self._logger = logger
+        self._api_server = api_server
+        self._bearer_token = bearer_token
+
+    def serve_head(
+        self,
+        handler: BaseHTTPRequestHandler,
+        *,
+        route: str,
+        request_id: str,
+    ) -> bool:
+        if route in {"/", "/index.html"}:
+            body = _board_html_bytes()
+            handler.send_response(HTTPStatus.OK)
+            handler._send_headers("text/html; charset=utf-8", len(body))
+            return True
+        if route in {"/dashboard", "/dashboard/"}:
+            body = _display_dashboard_html_bytes()
+            handler.send_response(HTTPStatus.OK)
+            handler._send_headers("text/html; charset=utf-8", len(body))
+            return True
+        if route in {"/module-map", "/module-map/"}:
+            gzip_ok = _accepts_gzip(handler.headers.get("Accept-Encoding", ""))
+            body = _module_map_html_gzip_bytes() if gzip_ok else _module_map_html_bytes()
+            extra_headers = {"Vary": "Accept-Encoding"}
+            if gzip_ok:
+                extra_headers["Content-Encoding"] = "gzip"
+            handler.send_response(HTTPStatus.OK)
+            handler._send_headers(
+                "text/html; charset=utf-8",
+                len(body),
+                extra_headers=extra_headers,
+            )
+            return True
+        board_asset = _board_asset_bytes(route)
+        if board_asset is not None:
+            body, content_type = board_asset
+            extra_headers = {"Vary": "Accept-Encoding"}
+            if _accepts_gzip(handler.headers.get("Accept-Encoding", "")):
+                body = _board_asset_gzip_bytes(route) or body
+                extra_headers["Content-Encoding"] = "gzip"
+            handler.send_response(HTTPStatus.OK)
+            handler._send_headers(
+                content_type,
+                len(body),
+                cache_control=IMMUTABLE_ASSET_CACHE_CONTROL,
+                extra_headers=extra_headers,
+            )
+            return True
+        if route == "/favicon.ico":
+            body = _static_asset_bytes("favicon.ico")
+            handler.send_response(HTTPStatus.OK)
+            handler._send_headers(
+                "image/x-icon",
+                len(body),
+                cache_control="public, max-age=86400, immutable",
+            )
+            return True
+        if route == "/favicon.png":
+            body = _static_asset_bytes("favicon.png")
+            handler.send_response(HTTPStatus.OK)
+            handler._send_headers(
+                "image/png",
+                len(body),
+                cache_control="public, max-age=86400, immutable",
+            )
+            return True
+        if route == "/api/health":
+            body = self._health_body(handler, request_id)
+            handler.send_response(HTTPStatus.OK)
+            handler._send_headers("application/json", len(body))
+            return True
+        return False
+
+    def serve_static_route(
+        self,
+        handler: BaseHTTPRequestHandler,
+        *,
+        route: str,
+        request_id: str,
+    ) -> bool:
+        if route in {"/", "/index.html"}:
+            self._serve_board(handler, request_id)
+            return True
+        if route in {"/dashboard", "/dashboard/"}:
+            self._serve_display_dashboard(handler, request_id)
+            return True
+        if route in {"/module-map", "/module-map/"}:
+            self._serve_module_map(handler, request_id)
+            return True
+        board_asset = _board_asset_bytes(route)
+        if board_asset is not None:
+            body, content_type = board_asset
+            extra_headers = {"Vary": "Accept-Encoding"}
+            if _accepts_gzip(handler.headers.get("Accept-Encoding", "")):
+                body = _board_asset_gzip_bytes(route) or body
+                extra_headers["Content-Encoding"] = "gzip"
+            handler._send_bytes_response(
+                body,
+                content_type=content_type,
+                request_id=request_id,
+                route=route,
+                cache_control=IMMUTABLE_ASSET_CACHE_CONTROL,
+                extra_headers=extra_headers,
+            )
+            return True
+        if route == "/favicon.ico":
+            body = _static_asset_bytes("favicon.ico")
+            handler._send_bytes_response(
+                body,
+                content_type="image/x-icon",
+                request_id=request_id,
+                route=route,
+                cache_control="public, max-age=86400, immutable",
+            )
+            return True
+        if route == "/favicon.png":
+            body = _static_asset_bytes("favicon.png")
+            handler._send_bytes_response(
+                body,
+                content_type="image/png",
+                request_id=request_id,
+                route=route,
+                cache_control="public, max-age=86400, immutable",
+            )
+            return True
+        if route == "/api/health":
+            handler._send_bytes_response(
+                self._health_body(handler, request_id),
+                content_type="application/json",
+                request_id=request_id,
+                route=route,
+            )
+            return True
+        return False
+
+    def serve_protected_route(
+        self,
+        handler: BaseHTTPRequestHandler,
+        *,
+        route: str,
+        request_id: str,
+        payload: dict,
+    ) -> None:
+        handlers = {
+            MODULE_MAP_INFRASTRUCTURE_ROUTE: self._serve_module_map_infrastructure,
+            "/api/attachment": self._serve_attachment,
+            "/api/shared_file": self._serve_shared_file,
+            "/api/repair_order_text": self._serve_repair_order_text,
+            "/employee_salary_reconciliation_print": self._serve_employee_salary_reconciliation_print,
+        }
+        handlers[route](handler, request_id, payload)
+
+    def _health_body(self, handler: BaseHTTPRequestHandler, request_id: str) -> bytes:
+        return _json_response(
+            ok=True,
+            data={
+                "status": "ok",
+                "base_url": self._api_server.base_url,
+                "bind_host": handler.server.server_address[0],
+                "auth_required": bool(self._bearer_token),
+                "maintenance_mode": is_maintenance_mode(),
+            },
+            error=None,
+            request_id=request_id,
+        )
+
+    @staticmethod
+    def _serve_board(handler: BaseHTTPRequestHandler, request_id: str) -> None:
+        gzip_ok = _accepts_gzip(handler.headers.get("Accept-Encoding", ""))
+        body = _board_html_gzip_bytes() if gzip_ok else _board_html_bytes()
+        extra_headers = {"Vary": "Accept-Encoding"}
+        if gzip_ok:
+            extra_headers["Content-Encoding"] = "gzip"
+        handler._send_bytes_response(
+            body,
+            content_type="text/html; charset=utf-8",
+            request_id=request_id,
+            route=urlsplit(handler.path).path or "/",
+            extra_headers=extra_headers,
+        )
+
+    @staticmethod
+    def _serve_display_dashboard(handler: BaseHTTPRequestHandler, request_id: str) -> None:
+        gzip_ok = _accepts_gzip(handler.headers.get("Accept-Encoding", ""))
+        body = _display_dashboard_html_gzip_bytes() if gzip_ok else _display_dashboard_html_bytes()
+        extra_headers = {"Vary": "Accept-Encoding"}
+        if gzip_ok:
+            extra_headers["Content-Encoding"] = "gzip"
+        handler._send_bytes_response(
+            body,
+            content_type="text/html; charset=utf-8",
+            request_id=request_id,
+            route=urlsplit(handler.path).path or "/dashboard",
+            extra_headers=extra_headers,
+        )
+
+    @staticmethod
+    def _serve_module_map(handler: BaseHTTPRequestHandler, request_id: str) -> None:
+        gzip_ok = _accepts_gzip(handler.headers.get("Accept-Encoding", ""))
+        body = _module_map_html_gzip_bytes() if gzip_ok else _module_map_html_bytes()
+        extra_headers = {"Vary": "Accept-Encoding"}
+        if gzip_ok:
+            extra_headers["Content-Encoding"] = "gzip"
+        handler._send_bytes_response(
+            body,
+            content_type="text/html; charset=utf-8",
+            request_id=request_id,
+            route=urlsplit(handler.path).path or "/module-map",
+            extra_headers=extra_headers,
+        )
+
+    @staticmethod
+    def _serve_module_map_infrastructure(
+        handler: BaseHTTPRequestHandler,
+        request_id: str,
+        _payload: dict,
+    ) -> None:
+        body = _json_response(
+            ok=True,
+            data=MODULE_MAP_INFRASTRUCTURE,
+            error=None,
+            request_id=request_id,
+        )
+        response_body, extra_headers = handler._prepare_response_body(
+            body,
+            content_type="application/json",
+        )
+        handler._send_bytes_response(
+            response_body,
+            content_type="application/json",
+            request_id=request_id,
+            route=MODULE_MAP_INFRASTRUCTURE_ROUTE,
+            extra_headers=extra_headers,
+        )
+
+    def _serve_attachment(
+        self,
+        handler: BaseHTTPRequestHandler,
+        request_id: str,
+        payload: dict,
+    ) -> None:
+        try:
+            path, attachment = self._service.get_attachment_download(
+                str(payload.get("card_id", "")),
+                str(payload.get("attachment_id", "")),
+            )
+            body = _read_bounded_file_response(path)
+            handler._send_bytes_response(
+                body,
+                content_type=attachment.mime_type or "application/octet-stream",
+                request_id=request_id,
+                route=urlsplit(handler.path).path,
+                extra_headers={
+                    "Content-Disposition": _content_disposition_header(
+                        attachment.file_name,
+                        disposition="attachment",
+                    ),
+                    "X-Content-Type-Options": "nosniff",
+                },
+            )
+        except ServiceError as exc:
+            handler._send_error_response(
+                request_id, exc.status_code, exc.code, exc.message, exc.details
+            )
+        except FileNotFoundError:
+            handler._send_error_response(
+                request_id,
+                HTTPStatus.NOT_FOUND,
+                "not_found",
+                "Файл не найден на диске.",
+            )
+        except ValueError:
+            handler._send_error_response(
+                request_id,
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                "validation_error",
+                "Файл слишком большой для скачивания через API.",
+            )
+
+    def _serve_shared_file(
+        self,
+        handler: BaseHTTPRequestHandler,
+        request_id: str,
+        payload: dict,
+    ) -> None:
+        try:
+            path, file_meta = self._shared_files_service.get_shared_file_download(
+                str(payload.get("file_id", ""))
+            )
+            body = _read_bounded_file_response(path)
+            disposition = (
+                "inline"
+                if str(payload.get("disposition", "")).strip().lower() == "inline"
+                else "attachment"
+            )
+            disposition, content_type = _shared_file_response_metadata(
+                file_meta,
+                disposition=disposition,
+            )
+            handler._send_bytes_response(
+                body,
+                content_type=content_type,
+                request_id=request_id,
+                route=urlsplit(handler.path).path,
+                extra_headers={
+                    "Content-Disposition": _content_disposition_header(
+                        str(file_meta.get("original_name") or "shared-file"),
+                        disposition=disposition,
+                    ),
+                    "X-Content-Type-Options": "nosniff",
+                },
+            )
+        except ServiceError as exc:
+            handler._send_error_response(
+                request_id, exc.status_code, exc.code, exc.message, exc.details
+            )
+        except FileNotFoundError:
+            handler._send_error_response(
+                request_id,
+                HTTPStatus.NOT_FOUND,
+                "not_found",
+                "Файл не найден на диске.",
+            )
+        except ValueError:
+            handler._send_error_response(
+                request_id,
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                "validation_error",
+                "Файл слишком большой для скачивания через API.",
+            )
+
+    def _serve_repair_order_text(
+        self,
+        handler: BaseHTTPRequestHandler,
+        request_id: str,
+        payload: dict,
+    ) -> None:
+        try:
+            path, file_name = self._service.get_repair_order_text_download(
+                str(payload.get("card_id", ""))
+            )
+            body = _read_bounded_file_response(path)
+            handler._send_bytes_response(
+                body,
+                content_type="text/plain; charset=utf-8",
+                request_id=request_id,
+                route=urlsplit(handler.path).path,
+                extra_headers={
+                    "Content-Disposition": _content_disposition_header(
+                        file_name,
+                        disposition="inline",
+                    ),
+                    "X-Content-Type-Options": "nosniff",
+                },
+            )
+        except ServiceError as exc:
+            handler._send_error_response(
+                request_id, exc.status_code, exc.code, exc.message, exc.details
+            )
+        except FileNotFoundError:
+            handler._send_error_response(
+                request_id,
+                HTTPStatus.NOT_FOUND,
+                "not_found",
+                "Файл заказ-наряда не найден на диске.",
+            )
+        except ValueError:
+            handler._send_error_response(
+                request_id,
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                "validation_error",
+                "Файл заказ-наряда слишком большой для скачивания через API.",
+            )
+
+    def _serve_employee_salary_reconciliation_print(
+        self,
+        handler: BaseHTTPRequestHandler,
+        request_id: str,
+        _payload: dict,
+    ) -> None:
+        route = "/employee_salary_reconciliation_print"
+        started_at = perf_counter()
+        try:
+            report = self._service.get_employee_salary_reconciliation(_payload)
+            body = _employee_salary_reconciliation_print_html(report)
+            app_duration_ms = max(perf_counter() - started_at, 0.0) * 1000
+            handler._send_bytes_response(
+                body,
+                content_type="text/html; charset=utf-8",
+                request_id=request_id,
+                route=route,
+                extra_headers={"Server-Timing": f"app;dur={app_duration_ms:.1f}"},
+            )
+            self._logger.log(
+                _success_log_level(route),
+                "api_request route=%s request_id=%s status=ok duration_ms=%.1f body_bytes=%s",
+                route,
+                request_id,
+                app_duration_ms,
+                len(body),
+            )
+        except ServiceError as exc:
+            self._logger.warning(
+                "api_request route=%s request_id=%s status=error code=%s",
+                route,
+                request_id,
+                exc.code,
+            )
+            handler._send_error_response(
+                request_id, exc.status_code, exc.code, exc.message, exc.details
+            )
+        except Exception as exc:  # pragma: no cover
+            self._logger.error(
+                "api_request_failed route=%s request_id=%s error_type=%s",
+                route,
+                request_id,
+                type(exc).__name__,
+            )
+            handler._send_error_response(
+                request_id,
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                "internal_error",
+                "На сервере произошла непредвиденная ошибка.",
+            )
+
+
+class OperatorLoginLimiter:
+    """Keep failed-login reservations isolated to one ApiServer handler factory."""
+
+    def __init__(self) -> None:
+        self._attempts: dict[str, list[tuple[float, str]]] = {}
+        self._lock = threading.Lock()
+
+    def reserve(self, client_key: str, request_id: str) -> bool:
+        now = perf_counter()
+        with self._lock:
+            recent = [
+                attempt
+                for attempt in self._attempts.pop(client_key, [])
+                if now - attempt[0] < OPERATOR_LOGIN_FAILURE_WINDOW_SECONDS
+            ]
+            if len(recent) >= OPERATOR_LOGIN_FAILURE_LIMIT_PER_CLIENT:
+                self._attempts[client_key] = recent
+                return False
+            recent.append((now, request_id))
+            self._attempts[client_key] = recent
+            while len(self._attempts) > OPERATOR_LOGIN_RATE_LIMIT_MAX_CLIENTS:
+                self._attempts.pop(next(iter(self._attempts)), None)
+            return True
+
+    def release(
+        self,
+        client_key: str,
+        request_id: str,
+        *,
+        clear_client: bool = False,
+    ) -> None:
+        with self._lock:
+            if clear_client:
+                self._attempts.pop(client_key, None)
+                return
+            retained = [
+                attempt
+                for attempt in self._attempts.get(client_key, [])
+                if attempt[1] != request_id
+            ]
+            if retained:
+                self._attempts[client_key] = retained
+            else:
+                self._attempts.pop(client_key, None)
+
+    @staticmethod
+    def client_key(handler: BaseHTTPRequestHandler) -> str:
+        peer_host = str(handler.client_address[0] if handler.client_address else "unknown")
+        try:
+            peer_ip = ipaddress.ip_address(peer_host)
+        except ValueError:
+            return peer_host
+        if peer_ip.is_loopback or peer_ip.is_private:
+            real_ip_header = str(handler.headers.get("X-Real-IP", "") or "").strip()
+            try:
+                real_ip = ipaddress.ip_address(real_ip_header)
+            except ValueError:
+                pass
+            else:
+                if not real_ip.is_unspecified:
+                    return real_ip.compressed
+        return peer_ip.compressed
+
+
+class AuthenticationPolicy:
+    """Apply bearer, operator, admin and trusted-service authentication rules."""
+
+    def __init__(
+        self,
+        *,
+        bearer_token: str,
+        operator_service: OperatorAuthService | None,
+        readonly_routes: set[str],
+        operator_session_routes: set[str],
+        admin_only_routes: set[str],
+        maintenance_technical_write_routes: set[str],
+    ) -> None:
+        self._bearer_token = bearer_token
+        self._operator_service = operator_service
+        self._readonly_routes = frozenset(readonly_routes)
+        self._operator_session_routes = frozenset(operator_session_routes)
+        self._admin_only_routes = frozenset(admin_only_routes)
+        self._maintenance_technical_write_routes = frozenset(maintenance_technical_write_routes)
+        self._login_limiter = OperatorLoginLimiter()
+
+    def authenticate(
+        self,
+        handler: BaseHTTPRequestHandler,
+        request_id: str,
+        query: dict | None = None,
+    ) -> bool:
+        if not self._bearer_token:
+            return True
+        auth_header = handler.headers.get("Authorization", "")
+        if hmac.compare_digest(auth_header, f"Bearer {self._bearer_token}"):
+            return True
+        try:
+            query_payload = (
+                query if query is not None else handler._query_payload(urlsplit(handler.path).query)
+            )
+            access_token = str(query_payload.get("access_token", "") or "").strip()
+        except ServiceError as exc:
+            handler._send_error_response(
+                request_id, exc.status_code, exc.code, exc.message, exc.details
+            )
+            return False
+        if hmac.compare_digest(access_token, self._bearer_token):
+            return True
+        handler._send_error_response(
+            request_id,
+            HTTPStatus.UNAUTHORIZED,
+            "unauthorized",
+            "Для вызова локального API нужен корректный bearer token.",
+        )
+        return False
+
+    def login_operator(
+        self,
+        handler: BaseHTTPRequestHandler,
+        payload: dict,
+        request_id: str,
+    ) -> dict:
+        client_key = self._login_limiter.client_key(handler)
+        if not self._login_limiter.reserve(client_key, request_id):
+            raise ServiceError(
+                "rate_limited",
+                "Слишком много неуспешных попыток входа. Повторите позже.",
+                status_code=HTTPStatus.TOO_MANY_REQUESTS,
+                details={
+                    "retry_after_seconds": OPERATOR_LOGIN_FAILURE_WINDOW_SECONDS,
+                },
+            )
+        try:
+            result = handler.ROUTES["/api/login_operator"](payload)
+        except ServiceError as exc:
+            if exc.code != "unauthorized":
+                self._login_limiter.release(client_key, request_id)
+            raise
+        except Exception:
+            self._login_limiter.release(client_key, request_id)
+            raise
+        self._login_limiter.release(client_key, request_id, clear_client=True)
+        return result
+
+    @staticmethod
+    def is_proxied_request(handler: BaseHTTPRequestHandler) -> bool:
+        return bool(
+            str(handler.headers.get("X-Forwarded-For", "") or "").strip()
+            or str(handler.headers.get("X-Real-IP", "") or "").strip()
+        )
+
+    def maintenance_technical_change_feed_write_allowed(
+        self,
+        handler: BaseHTTPRequestHandler,
+        route: str,
+        payload: dict,
+    ) -> bool:
+        if (
+            route not in self._maintenance_technical_write_routes
+            or str(payload.get("consumer_id") or "").strip() != "gateway-release-smoke"
+            or self._trusted_agent_session(handler, route, payload) is None
+        ):
+            return False
+        return release_smoke_proof_matches(
+            str(get_mcp_bearer_token() or ""),
+            handler.headers.get("X-Autostop-Release-Smoke-Revision", ""),
+            handler.headers.get("X-Autostop-Release-Smoke-Proof", ""),
+        )
+
+    def operator_context_payload(
+        self,
+        handler: BaseHTTPRequestHandler,
+        route: str,
+        payload: dict,
+        request_id: str,
+        *,
+        resolved_operator_session: dict | None = None,
+        operator_session_resolved: bool = False,
+    ) -> dict | None:
+        if self._operator_service is None:
+            if route != "/api/login_operator" and self.is_proxied_request(handler):
+                self._reject(
+                    handler,
+                    request_id,
+                    status=HTTPStatus.SERVICE_UNAVAILABLE,
+                    code="operator_auth_unavailable",
+                    message="Сервис входа операторов временно недоступен.",
+                )
+                return None
+            return payload
+        if operator_session_resolved:
+            session = resolved_operator_session
+        else:
+            session = self._operator_service.resolve_session(
+                handler.headers.get("X-Operator-Session", "")
+            )
+            if session is None:
+                session = self._trusted_agent_session(handler, route, payload)
+        next_payload = self._payload_with_session(route, payload, session)
+        if route != "/api/login_operator" and session is None and self.is_proxied_request(handler):
+            self._reject(
+                handler,
+                request_id,
+                status=HTTPStatus.UNAUTHORIZED,
+                code="unauthorized",
+                message="Для доступа к рабочей CRM нужен вход оператора.",
+            )
+            return None
+        if route in self._admin_only_routes:
+            if session is None:
+                self._reject(
+                    handler,
+                    request_id,
+                    status=HTTPStatus.UNAUTHORIZED,
+                    code="unauthorized",
+                    message="Нужен вход администратора.",
+                )
+                return None
+            if not session.get("is_admin"):
+                self._reject(
+                    handler,
+                    request_id,
+                    status=HTTPStatus.FORBIDDEN,
+                    code="forbidden",
+                    message="Нужны права администратора.",
+                )
+                return None
+            return next_payload
+        if route in self._operator_session_routes:
+            if session is None:
+                self._reject(
+                    handler,
+                    request_id,
+                    status=HTTPStatus.UNAUTHORIZED,
+                    code="unauthorized",
+                    message="Нужен вход оператора.",
+                )
+                return None
+            return next_payload
+        if str(next_payload.get("source", "")).strip().lower() == "ui" and session is None:
+            self._reject(
+                handler,
+                request_id,
+                status=HTTPStatus.UNAUTHORIZED,
+                code="unauthorized",
+                message="Нужен вход оператора.",
+            )
+            return None
+        return next_payload
+
+    def _payload_with_session(
+        self,
+        route: str,
+        payload: dict,
+        session: dict | None,
+    ) -> dict:
+        next_payload = dict(payload)
+        next_payload.pop("_operator_session", None)
+        if session is not None:
+            next_payload["_operator_session"] = session
+            if route not in self._operator_session_routes and route not in self._admin_only_routes:
+                next_payload["actor_name"] = str(
+                    session.get("audit_actor_name") or session["username"]
+                )
+        return next_payload
+
+    def _trusted_agent_session(
+        self,
+        handler: BaseHTTPRequestHandler,
+        route: str,
+        payload: dict,
+    ) -> dict | None:
+        """Authorize the local MCP service identity without impersonating a human."""
+
+        if self.is_proxied_request(handler):
+            return None
+        request_source = payload.get("source")
+        if not isinstance(request_source, str) or request_source.strip() != "mcp_agent_gateway_v2":
+            return None
+        try:
+            policy = load_agent_gateway_security_policy()
+        except Exception:
+            return None
+        if not (policy.gateway_enabled and policy.raw_enabled):
+            return None
+        if route not in self._readonly_routes and not policy.writes_enabled:
+            return None
+        identity = str(handler.headers.get("X-Autostop-Agent-Identity", "") or "").strip()
+        supplied_token = str(handler.headers.get("X-Autostop-Agent-Token", "") or "").strip()
+        expected_token = str(get_mcp_bearer_token() or "").strip()
+        if not identity or not hmac.compare_digest(identity, policy.service_identity):
+            return None
+        if not expected_token or not hmac.compare_digest(supplied_token, expected_token):
+            return None
+        session = {
+            "token": "service-identity",
+            "username": policy.service_identity,
+            "role": "admin",
+            "is_admin": True,
+            "employee_id": "",
+            "service_identity": True,
+        }
+        audit_actor = str(handler.headers.get(OAUTH_AUDIT_ACTOR_HEADER, "") or "").strip()
+        audit_assertion = str(handler.headers.get(OAUTH_AUDIT_ASSERTION_HEADER, "") or "").strip()
+        if bool(audit_actor) != bool(audit_assertion):
+            raise ServiceError(
+                "unauthorized",
+                "OAuth-аудит Gateway не прошёл проверку.",
+                status_code=HTTPStatus.UNAUTHORIZED,
+            )
+        if audit_actor:
+            if not verify_oauth_audit_assertion(
+                subject=audit_actor,
+                method=handler.command,
+                route=route,
+                payload=payload,
+                assertion=audit_assertion,
+            ):
+                raise ServiceError(
+                    "unauthorized",
+                    "OAuth-аудит Gateway не прошёл проверку.",
+                    status_code=HTTPStatus.UNAUTHORIZED,
+                )
+            verified_actor = (
+                self._operator_service.resolve_oauth_audit_admin(audit_actor)
+                if self._operator_service is not None
+                else None
+            )
+            if not verified_actor:
+                raise ServiceError(
+                    "unauthorized",
+                    "OAuth-пользователь больше не является активным администратором CRM.",
+                    status_code=HTTPStatus.UNAUTHORIZED,
+                )
+            session["audit_actor_name"] = verified_actor
+        return session
+
+    @staticmethod
+    def _reject(
+        handler: BaseHTTPRequestHandler,
+        request_id: str,
+        *,
+        status: HTTPStatus,
+        code: str,
+        message: str,
+    ) -> None:
+        handler._send_error_response(
+            request_id,
+            status,
+            code,
+            message,
+            {"auth_type": "operator_session"},
+        )
+
+
+class JsonRouteDispatcher:
+    """Dispatch validated JSON requests through the RouteSpec-backed registry."""
+
+    def __init__(
+        self,
+        *,
+        service: CardService,
+        logger: Logger,
+        authentication_policy: AuthenticationPolicy,
+    ) -> None:
+        self._service = service
+        self._logger = logger
+        self._authentication_policy = authentication_policy
+
+    def dispatch(
+        self,
+        handler: BaseHTTPRequestHandler,
+        route: str,
+        request_id: str,
+        payload: dict,
+        *,
+        resolved_operator_session: dict | None = None,
+        operator_session_resolved: bool = False,
+    ) -> None:
+        started_at = perf_counter()
+        with request_performance_trace() as performance_trace:
+            try:
+                payload = self._authentication_policy.operator_context_payload(
+                    handler,
+                    route,
+                    payload,
+                    request_id,
+                    resolved_operator_session=resolved_operator_session,
+                    operator_session_resolved=operator_session_resolved,
+                )
+                if payload is None:
+                    return
+                route_spec = handler.ROUTE_SPECS.get(route)
+                if route_spec is None or route_spec.path != route:
+                    raise RuntimeError("Request route has no matching RouteSpec.")
+                if route == "/api/get_board_snapshot":
+                    result = self._service.get_board_snapshot_for_http(payload)
+                elif route == "/api/login_operator":
+                    result = self._authentication_policy.login_operator(
+                        handler,
+                        payload,
+                        request_id,
+                    )
+                else:
+                    result = handler.ROUTES[route](payload)
+                if isinstance(result, PreparedSnapshotData):
+                    body = _json_response_from_preencoded_data(
+                        data=result.render(generated_at=utc_now_iso()),
+                        request_id=request_id,
+                    )
+                else:
+                    body = _json_response(
+                        ok=True,
+                        data=result,
+                        error=None,
+                        request_id=request_id,
+                    )
+                app_duration_ms = max(perf_counter() - started_at, 0.0) * 1000
+                server_timing = performance_trace.server_timing(app_duration_ms=app_duration_ms)
+                response_body, extra_headers = handler._prepare_response_body(
+                    body,
+                    content_type="application/json",
+                    server_timing=server_timing,
+                )
+                handler.send_response(HTTPStatus.OK)
+                handler._send_headers(
+                    "application/json",
+                    len(response_body),
+                    extra_headers=extra_headers,
+                )
+                if handler._write_body(
+                    response_body,
+                    route=route,
+                    request_id=request_id,
+                    status_code=HTTPStatus.OK,
+                ):
+                    self._logger.log(
+                        _success_log_level(route),
+                        "api_request route=%s request_id=%s status=ok duration_ms=%.1f "
+                        "body_bytes=%s encoded_bytes=%s gzip=%s %s",
+                        route,
+                        request_id,
+                        app_duration_ms,
+                        len(body),
+                        len(response_body),
+                        bool(extra_headers.get("Content-Encoding") == "gzip"),
+                        performance_trace.log_fields(app_duration_ms=app_duration_ms),
+                    )
+            except ServiceError as exc:
+                app_duration_ms = max(perf_counter() - started_at, 0.0) * 1000
+                self._logger.warning(
+                    "api_request route=%s request_id=%s status=error code=%s %s",
+                    route,
+                    request_id,
+                    exc.code,
+                    performance_trace.log_fields(app_duration_ms=app_duration_ms),
+                )
+                handler._send_error_response(
+                    request_id,
+                    exc.status_code,
+                    exc.code,
+                    exc.message,
+                    exc.details,
+                    server_timing=performance_trace.server_timing(app_duration_ms=app_duration_ms),
+                )
+            except StateFileCorruptedError as exc:
+                app_duration_ms = max(perf_counter() - started_at, 0.0) * 1000
+                self._logger.error(
+                    "api_request route=%s request_id=%s status=error "
+                    "code=state_file_corrupted error=%s %s",
+                    route,
+                    request_id,
+                    exc,
+                    performance_trace.log_fields(app_duration_ms=app_duration_ms),
+                )
+                handler._send_error_response(
+                    request_id,
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    "state_file_corrupted",
+                    "Файл состояния поврежден. Автоматический сброс отключен; "
+                    "восстановите данные из резервной копии.",
+                    server_timing=performance_trace.server_timing(app_duration_ms=app_duration_ms),
+                )
+            except ValueError as exc:
+                app_duration_ms = max(perf_counter() - started_at, 0.0) * 1000
+                self._logger.warning(
+                    "api_request route=%s request_id=%s status=error code=validation_error %s",
+                    route,
+                    request_id,
+                    performance_trace.log_fields(app_duration_ms=app_duration_ms),
+                )
+                handler._send_error_response(
+                    request_id,
+                    HTTPStatus.BAD_REQUEST,
+                    "validation_error",
+                    str(exc) or "Request payload is invalid.",
+                    server_timing=performance_trace.server_timing(app_duration_ms=app_duration_ms),
+                )
+            except Exception as exc:  # pragma: no cover
+                app_duration_ms = max(perf_counter() - started_at, 0.0) * 1000
+                self._logger.error(
+                    "api_request_failed route=%s request_id=%s error_type=%s %s",
+                    route,
+                    request_id,
+                    type(exc).__name__,
+                    performance_trace.log_fields(app_duration_ms=app_duration_ms),
+                )
+                handler._send_error_response(
+                    request_id,
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    "На сервере произошла непредвиденная ошибка.",
+                    server_timing=performance_trace.server_timing(app_duration_ms=app_duration_ms),
+                )
+
+
+class _ApiRequestHandler(BaseHTTPRequestHandler):
+    """Thin stdlib transport adapter; runtime collaborators live on each subclass."""
+
+    server_version = "MinimalKanbanAPI/1.0"
+    sys_version = ""
+
+    def do_OPTIONS(self) -> None:
+        if self.headers.get("Origin") and not self._cors_allowed_origin():
+            self.send_response(HTTPStatus.FORBIDDEN)
+            self._send_headers("application/json", 0)
+            return
+        self.send_response(HTTPStatus.NO_CONTENT)
+        self._send_headers("application/json", 0)
+
+    def do_HEAD(self) -> None:
+        request_id = str(uuid.uuid4())
+        parsed = _request_target_parts(self.path)
+        if parsed is None:
+            self.send_response(HTTPStatus.BAD_REQUEST)
+            self._send_headers("application/json", 0)
+            return
+        route = parsed.path
+        if self.CONTENT_RESPONDER.serve_head(
+            self,
+            route=route,
+            request_id=request_id,
+        ):
+            return
+        self.send_error(HTTPStatus.NOT_IMPLEMENTED, "Unsupported method ('HEAD')")
+
+    def do_GET(self) -> None:
+        request_id = str(uuid.uuid4())
+        parsed = _request_target_parts(self.path)
+        if parsed is None:
+            self._send_error_response(
+                request_id,
+                HTTPStatus.BAD_REQUEST,
+                "validation_error",
+                "Адрес запроса имеет некорректный формат.",
+            )
+            return
+        route = parsed.path
+        try:
+            query = self._query_payload(parsed.query)
+        except ServiceError as exc:
+            self._send_error_response(
+                request_id, exc.status_code, exc.code, exc.message, exc.details
+            )
+            return
+        if self._serve_static_route(route, request_id):
+            return
+        if self._serve_authenticated_get_route(route, request_id, query):
+            return
+        if self._serve_readonly_get_route(route, request_id, query):
+            return
+        self._not_found(request_id)
+
+    def do_POST(self) -> None:
+        request_id = str(uuid.uuid4())
+        if self.headers.get("Origin") and not self._cors_allowed_origin():
+            self._send_error_response(
+                request_id,
+                HTTPStatus.FORBIDDEN,
+                "forbidden",
+                "Cross-origin API request is not allowed.",
+            )
+            return
+        parsed = _request_target_parts(self.path)
+        if parsed is None:
+            self._send_error_response(
+                request_id,
+                HTTPStatus.BAD_REQUEST,
+                "validation_error",
+                "Адрес запроса имеет некорректный формат.",
+            )
+            return
+        route = parsed.path
+        if route not in self.ROUTES:
+            self._not_found(request_id)
+            return
+        content_length = _content_length_header(self.headers.get("Content-Length", "0"))
+        if content_length is None:
+            self._send_error_response(
+                request_id,
+                HTTPStatus.BAD_REQUEST,
+                "validation_error",
+                "Заголовок Content-Length имеет некорректное значение.",
+            )
+            return
+        if content_length < 0:
+            self._send_error_response(
+                request_id,
+                HTTPStatus.BAD_REQUEST,
+                "validation_error",
+                "Заголовок Content-Length не может быть отрицательным.",
+            )
+            return
+        if not self._authenticate(request_id):
+            self._drain_request_body(content_length)
+            return
+        resolved_operator_session: dict | None = None
+        operator_session_resolved = False
+        if route != "/api/login_operator" and self._is_proxied_request():
+            preflight_payload = self._operator_context_payload(route, {}, request_id)
+            if preflight_payload is None:
+                self.close_connection = True
+                return
+            resolved_operator_session = preflight_payload.get("_operator_session")
+            operator_session_resolved = True
+        if content_length > MAX_JSON_BODY_BYTES:
+            self._drain_request_body(min(content_length, OVERSIZED_JSON_DRAIN_BYTES))
+            self.close_connection = True
+            self._send_error_response(
+                request_id,
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                "request_too_large",
+                "Размер JSON-запроса превышает допустимый лимит.",
+                {
+                    "max_size_bytes": MAX_JSON_BODY_BYTES,
+                    "content_length": content_length,
+                },
+            )
+            return
+        if (
+            route in self.PROXIED_WRITE_ROUTES
+            and is_maintenance_mode()
+            and route not in self.MAINTENANCE_TECHNICAL_WRITE_ROUTES
+        ):
+            self._drain_request_body(content_length)
+            self._send_error_response(
+                request_id,
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "maintenance_mode",
+                "Запись временно остановлена на время безопасного обслуживания CRM.",
+            )
+            return
+        try:
+            payload = self.REQUEST_CONTEXT_FACTORY.read_json_object(
+                self,
+                content_length,
+            )
+        except ServiceError as exc:
+            self._send_error_response(
+                request_id, exc.status_code, exc.code, exc.message, exc.details
+            )
+            return
+        if (
+            route in self.MAINTENANCE_TECHNICAL_WRITE_ROUTES
+            and is_maintenance_mode()
+            and not self._maintenance_technical_change_feed_write_allowed(route, payload)
+        ):
+            self._send_error_response(
+                request_id,
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "maintenance_mode",
+                "Запись временно остановлена на время безопасного обслуживания CRM.",
+            )
+            return
+        self.DISPATCHER.dispatch(
+            self,
+            route,
+            request_id,
+            payload,
+            resolved_operator_session=resolved_operator_session,
+            operator_session_resolved=operator_session_resolved,
+        )
+
+    def _drain_request_body(self, content_length: int) -> None:
+        self.REQUEST_CONTEXT_FACTORY.drain_request_body(self, content_length)
+
+    def _query_payload(self, query_string: str) -> dict:
+        return self.REQUEST_CONTEXT_FACTORY.query_payload(query_string)
+
+    def _authenticate(self, request_id: str, query: dict | None = None) -> bool:
+        return self.AUTHENTICATION_POLICY.authenticate(self, request_id, query)
+
+    def _send_error_response(
+        self,
+        request_id: str,
+        status_code: int,
+        code: str,
+        message: str,
+        details: dict | None = None,
+        *,
+        server_timing: str = "",
+    ) -> None:
+        self.RESPONSE_WRITER.send_error(
+            self,
+            request_id,
+            status_code,
+            code,
+            message,
+            details,
+            server_timing=server_timing,
+        )
+
+    def _send_bytes_response(
+        self,
+        body: bytes,
+        *,
+        content_type: str,
+        request_id: str,
+        route: str,
+        status_code: int = HTTPStatus.OK,
+        cache_control: str = "no-store",
+        extra_headers: dict[str, str] | None = None,
+    ) -> None:
+        self.RESPONSE_WRITER.send_bytes(
+            self,
+            body,
+            content_type=content_type,
+            request_id=request_id,
+            route=route,
+            status_code=status_code,
+            cache_control=cache_control,
+            extra_headers=extra_headers,
+        )
+
+    def _not_found(self, request_id: str) -> None:
+        self._send_error_response(
+            request_id,
+            HTTPStatus.NOT_FOUND,
+            "not_found",
+            "Указанный маршрут API не найден.",
+            {"path": _safe_request_target(self.path)},
+        )
+
+    def _send_headers(
+        self,
+        content_type: str,
+        content_length: int,
+        *,
+        cache_control: str = "no-store",
+        extra_headers: dict[str, str] | None = None,
+    ) -> None:
+        self.RESPONSE_WRITER.send_headers(
+            self,
+            content_type,
+            content_length,
+            cache_control=cache_control,
+            extra_headers=extra_headers,
+        )
+
+    def _cors_allowed_origin(self) -> str:
+        return self.RESPONSE_WRITER.cors_allowed_origin(self)
+
+    def _prepare_response_body(
+        self,
+        body: bytes,
+        *,
+        content_type: str,
+        server_timing: str = "",
+    ) -> tuple[bytes, dict[str, str]]:
+        return self.RESPONSE_WRITER.prepare_body(
+            self,
+            body,
+            content_type=content_type,
+            server_timing=server_timing,
+        )
+
+    def _serve_static_route(self, route: str, request_id: str) -> bool:
+        return self.CONTENT_RESPONDER.serve_static_route(
+            self,
+            route=route,
+            request_id=request_id,
+        )
+
+    def _serve_authenticated_get_route(
+        self,
+        route: str,
+        request_id: str,
+        query: dict,
+    ) -> bool:
+        if route not in self.CONTENT_RESPONDER.PROTECTED_ROUTES:
+            return False
+        protected_query = self._operator_context_payload(route, query, request_id)
+        if protected_query is None:
+            return True
+        if not self._authenticate(request_id, protected_query):
+            return True
+        self.CONTENT_RESPONDER.serve_protected_route(
+            self,
+            route=route,
+            request_id=request_id,
+            payload=protected_query,
+        )
+        return True
+
+    def _serve_readonly_get_route(
+        self,
+        route: str,
+        request_id: str,
+        query: dict,
+    ) -> bool:
+        if route not in self.READONLY_ROUTES:
+            return False
+        if not self._authenticate(request_id, query):
+            return True
+        self.DISPATCHER.dispatch(self, route, request_id, query)
+        return True
+
+    def _operator_context_payload(
+        self,
+        route: str,
+        payload: dict,
+        request_id: str,
+        *,
+        resolved_operator_session: dict | None = None,
+        operator_session_resolved: bool = False,
+    ) -> dict | None:
+        return self.AUTHENTICATION_POLICY.operator_context_payload(
+            self,
+            route,
+            payload,
+            request_id,
+            resolved_operator_session=resolved_operator_session,
+            operator_session_resolved=operator_session_resolved,
+        )
+
+    def _maintenance_technical_change_feed_write_allowed(
+        self,
+        route: str,
+        payload: dict,
+    ) -> bool:
+        return self.AUTHENTICATION_POLICY.maintenance_technical_change_feed_write_allowed(
+            self,
+            route,
+            payload,
+        )
+
+    def _is_proxied_request(self) -> bool:
+        return self.AUTHENTICATION_POLICY.is_proxied_request(self)
+
+    def _write_body(
+        self,
+        body: bytes,
+        *,
+        route: str,
+        request_id: str,
+        status_code: int,
+    ) -> bool:
+        return self.RESPONSE_WRITER.write_body(
+            self,
+            body,
+            route=route,
+            request_id=request_id,
+            status_code=status_code,
+        )
+
+    def log_message(self, format: str, *args) -> None:
+        return
+
+
 class ApiServer:
     def __init__(
         self,
@@ -773,45 +2366,15 @@ class ApiServer:
         bearer_token = self._bearer_token
         operator_service = self._operator_service
         api_server = self
-        operator_login_attempts: dict[str, list[tuple[float, str]]] = {}
-        operator_login_attempts_lock = threading.Lock()
-
-        def reserve_operator_login_attempt(client_key: str, request_id: str) -> bool:
-            now = perf_counter()
-            with operator_login_attempts_lock:
-                recent = [
-                    attempt
-                    for attempt in operator_login_attempts.pop(client_key, [])
-                    if now - attempt[0] < OPERATOR_LOGIN_FAILURE_WINDOW_SECONDS
-                ]
-                if len(recent) >= OPERATOR_LOGIN_FAILURE_LIMIT_PER_CLIENT:
-                    operator_login_attempts[client_key] = recent
-                    return False
-                recent.append((now, request_id))
-                operator_login_attempts[client_key] = recent
-                while len(operator_login_attempts) > OPERATOR_LOGIN_RATE_LIMIT_MAX_CLIENTS:
-                    operator_login_attempts.pop(next(iter(operator_login_attempts)), None)
-                return True
-
-        def release_operator_login_attempt(
-            client_key: str,
-            request_id: str,
-            *,
-            clear_client: bool = False,
-        ) -> None:
-            with operator_login_attempts_lock:
-                if clear_client:
-                    operator_login_attempts.pop(client_key, None)
-                    return
-                retained = [
-                    attempt
-                    for attempt in operator_login_attempts.get(client_key, [])
-                    if attempt[1] != request_id
-                ]
-                if retained:
-                    operator_login_attempts[client_key] = retained
-                else:
-                    operator_login_attempts.pop(client_key, None)
+        request_context_factory = RequestContextFactory()
+        response_writer = HttpResponseWriter(logger)
+        content_responder = StaticAndDownloadResponder(
+            service=service,
+            shared_files_service=shared_files_service,
+            logger=logger,
+            api_server=api_server,
+            bearer_token=bearer_token,
+        )
 
         def paste_shared_files_from_clipboard(payload: dict | None = None) -> dict:
             payload = payload or {}
@@ -881,1226 +2444,31 @@ class ApiServer:
         }
         readonly_routes = {path for path, spec in route_specs.items() if "GET" in spec.methods}
 
-        class RequestHandler(BaseHTTPRequestHandler):
+        authentication_policy = AuthenticationPolicy(
+            bearer_token=bearer_token,
+            operator_service=operator_service,
+            readonly_routes=readonly_routes,
+            operator_session_routes=operator_session_routes,
+            admin_only_routes=admin_only_routes,
+            maintenance_technical_write_routes=maintenance_technical_write_routes,
+        )
+        dispatcher = JsonRouteDispatcher(
+            service=service,
+            logger=logger,
+            authentication_policy=authentication_policy,
+        )
+
+        class RequestHandler(_ApiRequestHandler):
             ROUTES = routes
             ROUTE_SPECS = route_specs
-
-            server_version = "MinimalKanbanAPI/1.0"
-            sys_version = ""
-
-            def do_OPTIONS(self) -> None:
-                if self.headers.get("Origin") and not self._cors_allowed_origin():
-                    self.send_response(HTTPStatus.FORBIDDEN)
-                    self._send_headers("application/json", 0)
-                    return
-                self.send_response(HTTPStatus.NO_CONTENT)
-                self._send_headers("application/json", 0)
-
-            def do_HEAD(self) -> None:
-                request_id = str(uuid.uuid4())
-                parsed = _request_target_parts(self.path)
-                if parsed is None:
-                    self.send_response(HTTPStatus.BAD_REQUEST)
-                    self._send_headers("application/json", 0)
-                    return
-                route = parsed.path
-                if route in {"/", "/index.html"}:
-                    body = _board_html_bytes()
-                    self.send_response(HTTPStatus.OK)
-                    self._send_headers("text/html; charset=utf-8", len(body))
-                    return
-                if route in {"/dashboard", "/dashboard/"}:
-                    body = _display_dashboard_html_bytes()
-                    self.send_response(HTTPStatus.OK)
-                    self._send_headers("text/html; charset=utf-8", len(body))
-                    return
-                if route in {"/module-map", "/module-map/"}:
-                    gzip_ok = _accepts_gzip(self.headers.get("Accept-Encoding", ""))
-                    body = _module_map_html_gzip_bytes() if gzip_ok else _module_map_html_bytes()
-                    extra_headers = {"Vary": "Accept-Encoding"}
-                    if gzip_ok:
-                        extra_headers["Content-Encoding"] = "gzip"
-                    self.send_response(HTTPStatus.OK)
-                    self._send_headers(
-                        "text/html; charset=utf-8",
-                        len(body),
-                        extra_headers=extra_headers,
-                    )
-                    return
-                board_asset = _board_asset_bytes(route)
-                if board_asset is not None:
-                    body, content_type = board_asset
-                    extra_headers = {"Vary": "Accept-Encoding"}
-                    if _accepts_gzip(self.headers.get("Accept-Encoding", "")):
-                        body = _board_asset_gzip_bytes(route) or body
-                        extra_headers["Content-Encoding"] = "gzip"
-                    self.send_response(HTTPStatus.OK)
-                    self._send_headers(
-                        content_type,
-                        len(body),
-                        cache_control=IMMUTABLE_ASSET_CACHE_CONTROL,
-                        extra_headers=extra_headers,
-                    )
-                    return
-                if route == "/favicon.ico":
-                    body = _static_asset_bytes("favicon.ico")
-                    self.send_response(HTTPStatus.OK)
-                    self._send_headers(
-                        "image/x-icon",
-                        len(body),
-                        cache_control="public, max-age=86400, immutable",
-                    )
-                    return
-                if route == "/favicon.png":
-                    body = _static_asset_bytes("favicon.png")
-                    self.send_response(HTTPStatus.OK)
-                    self._send_headers(
-                        "image/png",
-                        len(body),
-                        cache_control="public, max-age=86400, immutable",
-                    )
-                    return
-                if route == "/api/health":
-                    body = _json_response(
-                        ok=True,
-                        data={
-                            "status": "ok",
-                            "base_url": api_server.base_url,
-                            "bind_host": self.server.server_address[0],
-                            "auth_required": bool(bearer_token),
-                            "maintenance_mode": is_maintenance_mode(),
-                        },
-                        error=None,
-                        request_id=request_id,
-                    )
-                    self.send_response(HTTPStatus.OK)
-                    self._send_headers("application/json", len(body))
-                    return
-                self.send_error(HTTPStatus.NOT_IMPLEMENTED, "Unsupported method ('HEAD')")
-
-            def do_GET(self) -> None:
-                request_id = str(uuid.uuid4())
-                parsed = _request_target_parts(self.path)
-                if parsed is None:
-                    self._send_error_response(
-                        request_id,
-                        HTTPStatus.BAD_REQUEST,
-                        "validation_error",
-                        "Адрес запроса имеет некорректный формат.",
-                    )
-                    return
-                route = parsed.path
-                try:
-                    query = self._query_payload(parsed.query)
-                except ServiceError as exc:
-                    self._send_error_response(
-                        request_id, exc.status_code, exc.code, exc.message, exc.details
-                    )
-                    return
-                if self._serve_static_route(route, request_id):
-                    return
-                if self._serve_authenticated_get_route(route, request_id, query):
-                    return
-                if self._serve_readonly_get_route(route, request_id, query):
-                    return
-                self._not_found(request_id)
-
-            def do_POST(self) -> None:
-                request_id = str(uuid.uuid4())
-                if self.headers.get("Origin") and not self._cors_allowed_origin():
-                    self._send_error_response(
-                        request_id,
-                        HTTPStatus.FORBIDDEN,
-                        "forbidden",
-                        "Cross-origin API request is not allowed.",
-                    )
-                    return
-                parsed = _request_target_parts(self.path)
-                if parsed is None:
-                    self._send_error_response(
-                        request_id,
-                        HTTPStatus.BAD_REQUEST,
-                        "validation_error",
-                        "Адрес запроса имеет некорректный формат.",
-                    )
-                    return
-                route = parsed.path
-                if route not in self.ROUTES:
-                    self._not_found(request_id)
-                    return
-                content_length = _content_length_header(self.headers.get("Content-Length", "0"))
-                if content_length is None:
-                    self._send_error_response(
-                        request_id,
-                        HTTPStatus.BAD_REQUEST,
-                        "validation_error",
-                        "Заголовок Content-Length имеет некорректное значение.",
-                    )
-                    return
-                if content_length < 0:
-                    self._send_error_response(
-                        request_id,
-                        HTTPStatus.BAD_REQUEST,
-                        "validation_error",
-                        "Заголовок Content-Length не может быть отрицательным.",
-                    )
-                    return
-                if not self._authenticate(request_id):
-                    self._drain_request_body(content_length)
-                    return
-                resolved_operator_session: dict | None = None
-                operator_session_resolved = False
-                if route != "/api/login_operator" and self._is_proxied_request():
-                    preflight_payload = self._operator_context_payload(route, {}, request_id)
-                    if preflight_payload is None:
-                        self.close_connection = True
-                        return
-                    resolved_operator_session = preflight_payload.get("_operator_session")
-                    operator_session_resolved = True
-                if content_length > MAX_JSON_BODY_BYTES:
-                    self._drain_request_body(min(content_length, OVERSIZED_JSON_DRAIN_BYTES))
-                    self.close_connection = True
-                    self._send_error_response(
-                        request_id,
-                        HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
-                        "request_too_large",
-                        "Размер JSON-запроса превышает допустимый лимит.",
-                        {
-                            "max_size_bytes": MAX_JSON_BODY_BYTES,
-                            "content_length": content_length,
-                        },
-                    )
-                    return
-                if (
-                    route in proxied_write_routes
-                    and is_maintenance_mode()
-                    and route not in maintenance_technical_write_routes
-                ):
-                    self._drain_request_body(content_length)
-                    self._send_error_response(
-                        request_id,
-                        HTTPStatus.SERVICE_UNAVAILABLE,
-                        "maintenance_mode",
-                        "Запись временно остановлена на время безопасного обслуживания CRM.",
-                    )
-                    return
-                raw_body = self.rfile.read(content_length) if content_length > 0 else b"{}"
-                try:
-                    payload = json.loads(
-                        raw_body.decode("utf-8") or "{}",
-                        parse_constant=_reject_json_constant,
-                    )
-                    reject_deeply_nested_json(payload)
-                except (UnicodeDecodeError, ValueError, RecursionError):
-                    self._send_error_response(
-                        request_id,
-                        HTTPStatus.BAD_REQUEST,
-                        "invalid_json",
-                        "Тело запроса должно содержать корректный JSON.",
-                    )
-                    return
-                if not isinstance(payload, dict):
-                    self._send_error_response(
-                        request_id,
-                        HTTPStatus.BAD_REQUEST,
-                        "validation_error",
-                        "Тело запроса должно быть JSON-объектом.",
-                    )
-                    return
-                if (
-                    route in maintenance_technical_write_routes
-                    and is_maintenance_mode()
-                    and not self._maintenance_technical_change_feed_write_allowed(route, payload)
-                ):
-                    self._send_error_response(
-                        request_id,
-                        HTTPStatus.SERVICE_UNAVAILABLE,
-                        "maintenance_mode",
-                        "Запись временно остановлена на время безопасного обслуживания CRM.",
-                    )
-                    return
-                self._dispatch(
-                    route,
-                    request_id,
-                    payload,
-                    resolved_operator_session=resolved_operator_session,
-                    operator_session_resolved=operator_session_resolved,
-                )
-
-            def _drain_request_body(self, content_length: int) -> None:
-                remaining = max(0, int(content_length))
-                while remaining > 0:
-                    try:
-                        chunk = self.rfile.read(min(65536, remaining))
-                    except OSError:
-                        break
-                    if not chunk:
-                        break
-                    remaining -= len(chunk)
-
-            def _query_payload(self, query_string: str) -> dict:
-                query_size_bytes = len(query_string.encode("utf-8", errors="surrogatepass"))
-                if query_size_bytes > MAX_QUERY_STRING_BYTES:
-                    raise ServiceError(
-                        "request_too_large",
-                        "Строка запроса превышает допустимый лимит.",
-                        status_code=HTTPStatus.REQUEST_URI_TOO_LONG,
-                        details={
-                            "max_size_bytes": MAX_QUERY_STRING_BYTES,
-                            "query_size_bytes": query_size_bytes,
-                        },
-                    )
-                try:
-                    parsed = parse_qs(
-                        query_string,
-                        keep_blank_values=True,
-                        max_num_fields=MAX_QUERY_FIELDS,
-                    )
-                except ValueError as exc:
-                    raise ServiceError(
-                        "request_too_large",
-                        "Строка запроса содержит слишком много параметров.",
-                        status_code=HTTPStatus.REQUEST_URI_TOO_LONG,
-                        details={"max_fields": MAX_QUERY_FIELDS},
-                    ) from exc
-                payload: dict[str, object] = {}
-                for key, values in parsed.items():
-                    if not values:
-                        continue
-                    value = values[-1]
-                    if key == "access_token":
-                        payload[key] = value
-                        continue
-                    lowered = value.lower()
-                    if key in BOOLEAN_QUERY_KEYS and lowered in {"true", "1", "yes", "y", "on"}:
-                        payload[key] = True
-                    elif key in BOOLEAN_QUERY_KEYS and lowered in {
-                        "false",
-                        "0",
-                        "no",
-                        "n",
-                        "off",
-                    }:
-                        payload[key] = False
-                    else:
-                        payload[key] = value
-                return payload
-
-            def _serve_board(self, request_id: str) -> None:
-                gzip_ok = _accepts_gzip(self.headers.get("Accept-Encoding", ""))
-                body = _board_html_gzip_bytes() if gzip_ok else _board_html_bytes()
-                extra_headers = {"Vary": "Accept-Encoding"}
-                if gzip_ok:
-                    extra_headers["Content-Encoding"] = "gzip"
-                self._send_bytes_response(
-                    body,
-                    content_type="text/html; charset=utf-8",
-                    request_id=request_id,
-                    route=urlsplit(self.path).path or "/",
-                    extra_headers=extra_headers,
-                )
-
-            def _serve_display_dashboard(self, request_id: str) -> None:
-                gzip_ok = _accepts_gzip(self.headers.get("Accept-Encoding", ""))
-                body = (
-                    _display_dashboard_html_gzip_bytes()
-                    if gzip_ok
-                    else _display_dashboard_html_bytes()
-                )
-                extra_headers = {"Vary": "Accept-Encoding"}
-                if gzip_ok:
-                    extra_headers["Content-Encoding"] = "gzip"
-                self._send_bytes_response(
-                    body,
-                    content_type="text/html; charset=utf-8",
-                    request_id=request_id,
-                    route=urlsplit(self.path).path or "/dashboard",
-                    extra_headers=extra_headers,
-                )
-
-            def _serve_module_map(self, request_id: str) -> None:
-                gzip_ok = _accepts_gzip(self.headers.get("Accept-Encoding", ""))
-                body = _module_map_html_gzip_bytes() if gzip_ok else _module_map_html_bytes()
-                extra_headers = {"Vary": "Accept-Encoding"}
-                if gzip_ok:
-                    extra_headers["Content-Encoding"] = "gzip"
-                self._send_bytes_response(
-                    body,
-                    content_type="text/html; charset=utf-8",
-                    request_id=request_id,
-                    route=urlsplit(self.path).path or "/module-map",
-                    extra_headers=extra_headers,
-                )
-
-            def _serve_module_map_infrastructure(self, request_id: str, _payload: dict) -> None:
-                body = _json_response(
-                    ok=True,
-                    data=MODULE_MAP_INFRASTRUCTURE,
-                    error=None,
-                    request_id=request_id,
-                )
-                response_body, extra_headers = self._prepare_response_body(
-                    body,
-                    content_type="application/json",
-                )
-                self._send_bytes_response(
-                    response_body,
-                    content_type="application/json",
-                    request_id=request_id,
-                    route=MODULE_MAP_INFRASTRUCTURE_ROUTE,
-                    extra_headers=extra_headers,
-                )
-
-            def _serve_attachment(self, request_id: str, payload: dict) -> None:
-                try:
-                    path, attachment = service.get_attachment_download(
-                        str(payload.get("card_id", "")),
-                        str(payload.get("attachment_id", "")),
-                    )
-                    body = _read_bounded_file_response(path)
-                    self._send_bytes_response(
-                        body,
-                        content_type=attachment.mime_type or "application/octet-stream",
-                        request_id=request_id,
-                        route=urlsplit(self.path).path,
-                        extra_headers={
-                            "Content-Disposition": _content_disposition_header(
-                                attachment.file_name,
-                                disposition="attachment",
-                            ),
-                            "X-Content-Type-Options": "nosniff",
-                        },
-                    )
-                except ServiceError as exc:
-                    self._send_error_response(
-                        request_id, exc.status_code, exc.code, exc.message, exc.details
-                    )
-                except FileNotFoundError:
-                    self._send_error_response(
-                        request_id,
-                        HTTPStatus.NOT_FOUND,
-                        "not_found",
-                        "Файл не найден на диске.",
-                    )
-                except ValueError:
-                    self._send_error_response(
-                        request_id,
-                        HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
-                        "validation_error",
-                        "Файл слишком большой для скачивания через API.",
-                    )
-
-            def _serve_shared_file(self, request_id: str, payload: dict) -> None:
-                try:
-                    path, file_meta = shared_files_service.get_shared_file_download(
-                        str(payload.get("file_id", ""))
-                    )
-                    body = _read_bounded_file_response(path)
-                    disposition = (
-                        "inline"
-                        if str(payload.get("disposition", "")).strip().lower() == "inline"
-                        else "attachment"
-                    )
-                    disposition, content_type = _shared_file_response_metadata(
-                        file_meta,
-                        disposition=disposition,
-                    )
-                    self._send_bytes_response(
-                        body,
-                        content_type=content_type,
-                        request_id=request_id,
-                        route=urlsplit(self.path).path,
-                        extra_headers={
-                            "Content-Disposition": _content_disposition_header(
-                                str(file_meta.get("original_name") or "shared-file"),
-                                disposition=disposition,
-                            ),
-                            "X-Content-Type-Options": "nosniff",
-                        },
-                    )
-                except ServiceError as exc:
-                    self._send_error_response(
-                        request_id, exc.status_code, exc.code, exc.message, exc.details
-                    )
-                except FileNotFoundError:
-                    self._send_error_response(
-                        request_id,
-                        HTTPStatus.NOT_FOUND,
-                        "not_found",
-                        "Файл не найден на диске.",
-                    )
-                except ValueError:
-                    self._send_error_response(
-                        request_id,
-                        HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
-                        "validation_error",
-                        "Файл слишком большой для скачивания через API.",
-                    )
-
-            def _serve_repair_order_text(self, request_id: str, payload: dict) -> None:
-                try:
-                    path, file_name = service.get_repair_order_text_download(
-                        str(payload.get("card_id", ""))
-                    )
-                    body = _read_bounded_file_response(path)
-                    self._send_bytes_response(
-                        body,
-                        content_type="text/plain; charset=utf-8",
-                        request_id=request_id,
-                        route=urlsplit(self.path).path,
-                        extra_headers={
-                            "Content-Disposition": _content_disposition_header(
-                                file_name,
-                                disposition="inline",
-                            ),
-                            "X-Content-Type-Options": "nosniff",
-                        },
-                    )
-                except ServiceError as exc:
-                    self._send_error_response(
-                        request_id, exc.status_code, exc.code, exc.message, exc.details
-                    )
-                except FileNotFoundError:
-                    self._send_error_response(
-                        request_id,
-                        HTTPStatus.NOT_FOUND,
-                        "not_found",
-                        "Файл заказ-наряда не найден на диске.",
-                    )
-                except ValueError:
-                    self._send_error_response(
-                        request_id,
-                        HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
-                        "validation_error",
-                        "Файл заказ-наряда слишком большой для скачивания через API.",
-                    )
-
-            def _authenticate(self, request_id: str, query: dict | None = None) -> bool:
-                if not bearer_token:
-                    return True
-                auth_header = self.headers.get("Authorization", "")
-                if hmac.compare_digest(auth_header, f"Bearer {bearer_token}"):
-                    return True
-                try:
-                    query_payload = (
-                        query
-                        if query is not None
-                        else self._query_payload(urlsplit(self.path).query)
-                    )
-                    access_token = str(query_payload.get("access_token", "") or "").strip()
-                except ServiceError as exc:
-                    self._send_error_response(
-                        request_id, exc.status_code, exc.code, exc.message, exc.details
-                    )
-                    return False
-                if hmac.compare_digest(access_token, bearer_token):
-                    return True
-                self._send_error_response(
-                    request_id,
-                    HTTPStatus.UNAUTHORIZED,
-                    "unauthorized",
-                    "Для вызова локального API нужен корректный bearer token.",
-                )
-                return False
-
-            def _dispatch(
-                self,
-                route: str,
-                request_id: str,
-                payload: dict,
-                *,
-                resolved_operator_session: dict | None = None,
-                operator_session_resolved: bool = False,
-            ) -> None:
-                started_at = perf_counter()
-                with request_performance_trace() as performance_trace:
-                    try:
-                        payload = self._operator_context_payload(
-                            route,
-                            payload,
-                            request_id,
-                            resolved_operator_session=resolved_operator_session,
-                            operator_session_resolved=operator_session_resolved,
-                        )
-                        if payload is None:
-                            return
-                        if route == "/api/get_board_snapshot":
-                            result = service.get_board_snapshot_for_http(payload)
-                        elif route == "/api/login_operator":
-                            result = self._login_operator(payload, request_id)
-                        else:
-                            result = self.ROUTES[route](payload)
-                        if isinstance(result, PreparedSnapshotData):
-                            body = _json_response_from_preencoded_data(
-                                data=result.render(generated_at=utc_now_iso()),
-                                request_id=request_id,
-                            )
-                        else:
-                            body = _json_response(
-                                ok=True,
-                                data=result,
-                                error=None,
-                                request_id=request_id,
-                            )
-                        app_duration_ms = max(perf_counter() - started_at, 0.0) * 1000
-                        server_timing = performance_trace.server_timing(
-                            app_duration_ms=app_duration_ms
-                        )
-                        response_body, extra_headers = self._prepare_response_body(
-                            body,
-                            content_type="application/json",
-                            server_timing=server_timing,
-                        )
-                        self.send_response(HTTPStatus.OK)
-                        self._send_headers(
-                            "application/json",
-                            len(response_body),
-                            extra_headers=extra_headers,
-                        )
-                        if self._write_body(
-                            response_body,
-                            route=route,
-                            request_id=request_id,
-                            status_code=HTTPStatus.OK,
-                        ):
-                            logger.log(
-                                _success_log_level(route),
-                                "api_request route=%s request_id=%s status=ok duration_ms=%.1f "
-                                "body_bytes=%s encoded_bytes=%s gzip=%s %s",
-                                route,
-                                request_id,
-                                app_duration_ms,
-                                len(body),
-                                len(response_body),
-                                bool(extra_headers.get("Content-Encoding") == "gzip"),
-                                performance_trace.log_fields(app_duration_ms=app_duration_ms),
-                            )
-                    except ServiceError as exc:
-                        app_duration_ms = max(perf_counter() - started_at, 0.0) * 1000
-                        logger.warning(
-                            "api_request route=%s request_id=%s status=error code=%s %s",
-                            route,
-                            request_id,
-                            exc.code,
-                            performance_trace.log_fields(app_duration_ms=app_duration_ms),
-                        )
-                        self._send_error_response(
-                            request_id,
-                            exc.status_code,
-                            exc.code,
-                            exc.message,
-                            exc.details,
-                            server_timing=performance_trace.server_timing(
-                                app_duration_ms=app_duration_ms
-                            ),
-                        )
-                    except StateFileCorruptedError as exc:
-                        app_duration_ms = max(perf_counter() - started_at, 0.0) * 1000
-                        logger.error(
-                            "api_request route=%s request_id=%s status=error "
-                            "code=state_file_corrupted error=%s %s",
-                            route,
-                            request_id,
-                            exc,
-                            performance_trace.log_fields(app_duration_ms=app_duration_ms),
-                        )
-                        self._send_error_response(
-                            request_id,
-                            HTTPStatus.SERVICE_UNAVAILABLE,
-                            "state_file_corrupted",
-                            "Файл состояния поврежден. Автоматический сброс отключен; восстановите данные из резервной копии.",
-                            server_timing=performance_trace.server_timing(
-                                app_duration_ms=app_duration_ms
-                            ),
-                        )
-                    except ValueError as exc:
-                        app_duration_ms = max(perf_counter() - started_at, 0.0) * 1000
-                        logger.warning(
-                            "api_request route=%s request_id=%s status=error "
-                            "code=validation_error %s",
-                            route,
-                            request_id,
-                            performance_trace.log_fields(app_duration_ms=app_duration_ms),
-                        )
-                        self._send_error_response(
-                            request_id,
-                            HTTPStatus.BAD_REQUEST,
-                            "validation_error",
-                            str(exc) or "Request payload is invalid.",
-                            server_timing=performance_trace.server_timing(
-                                app_duration_ms=app_duration_ms
-                            ),
-                        )
-                    except Exception as exc:  # pragma: no cover
-                        app_duration_ms = max(perf_counter() - started_at, 0.0) * 1000
-                        logger.exception(
-                            "api_request_failed route=%s request_id=%s error=%s %s",
-                            route,
-                            request_id,
-                            exc,
-                            performance_trace.log_fields(app_duration_ms=app_duration_ms),
-                        )
-                        self._send_error_response(
-                            request_id,
-                            HTTPStatus.INTERNAL_SERVER_ERROR,
-                            "internal_error",
-                            "На сервере произошла непредвиденная ошибка.",
-                            server_timing=performance_trace.server_timing(
-                                app_duration_ms=app_duration_ms
-                            ),
-                        )
-
-            def _login_operator(self, payload: dict, request_id: str) -> dict:
-                client_key = self._operator_login_client_key()
-                if not reserve_operator_login_attempt(client_key, request_id):
-                    raise ServiceError(
-                        "rate_limited",
-                        "Слишком много неуспешных попыток входа. Повторите позже.",
-                        status_code=HTTPStatus.TOO_MANY_REQUESTS,
-                        details={
-                            "retry_after_seconds": OPERATOR_LOGIN_FAILURE_WINDOW_SECONDS,
-                        },
-                    )
-                try:
-                    result = self.ROUTES["/api/login_operator"](payload)
-                except ServiceError as exc:
-                    if exc.code != "unauthorized":
-                        release_operator_login_attempt(client_key, request_id)
-                    raise
-                except Exception:
-                    release_operator_login_attempt(client_key, request_id)
-                    raise
-                release_operator_login_attempt(client_key, request_id, clear_client=True)
-                return result
-
-            def _operator_login_client_key(self) -> str:
-                peer_host = str(self.client_address[0] if self.client_address else "unknown")
-                try:
-                    peer_ip = ipaddress.ip_address(peer_host)
-                except ValueError:
-                    return peer_host
-                if peer_ip.is_loopback or peer_ip.is_private:
-                    real_ip_header = str(self.headers.get("X-Real-IP", "") or "").strip()
-                    try:
-                        real_ip = ipaddress.ip_address(real_ip_header)
-                    except ValueError:
-                        pass
-                    else:
-                        if not real_ip.is_unspecified:
-                            return real_ip.compressed
-                return peer_ip.compressed
-
-            def _serve_employee_salary_reconciliation_print(
-                self, request_id: str, query: dict
-            ) -> None:
-                route = "/employee_salary_reconciliation_print"
-                started_at = perf_counter()
-                try:
-                    report = service.get_employee_salary_reconciliation(query)
-                    body = _employee_salary_reconciliation_print_html(report)
-                    app_duration_ms = max(perf_counter() - started_at, 0.0) * 1000
-                    self._send_bytes_response(
-                        body,
-                        content_type="text/html; charset=utf-8",
-                        request_id=request_id,
-                        route=route,
-                        extra_headers={"Server-Timing": f"app;dur={app_duration_ms:.1f}"},
-                    )
-                    logger.log(
-                        _success_log_level(route),
-                        "api_request route=%s request_id=%s status=ok duration_ms=%.1f body_bytes=%s",
-                        route,
-                        request_id,
-                        app_duration_ms,
-                        len(body),
-                    )
-                except ServiceError as exc:
-                    logger.warning(
-                        "api_request route=%s request_id=%s status=error code=%s",
-                        route,
-                        request_id,
-                        exc.code,
-                    )
-                    self._send_error_response(
-                        request_id, exc.status_code, exc.code, exc.message, exc.details
-                    )
-                except Exception as exc:  # pragma: no cover
-                    logger.exception(
-                        "api_request_failed route=%s request_id=%s error=%s",
-                        route,
-                        request_id,
-                        exc,
-                    )
-                    self._send_error_response(
-                        request_id,
-                        HTTPStatus.INTERNAL_SERVER_ERROR,
-                        "internal_error",
-                        "На сервере произошла непредвиденная ошибка.",
-                    )
-
-            def _send_error_response(
-                self,
-                request_id: str,
-                status_code: int,
-                code: str,
-                message: str,
-                details: dict | None = None,
-                *,
-                server_timing: str = "",
-            ) -> None:
-                body = _json_response(
-                    ok=False,
-                    data=None,
-                    error={"code": code, "message": message, "details": details or {}},
-                    request_id=request_id,
-                )
-                try:
-                    response_body, extra_headers = self._prepare_response_body(
-                        body,
-                        content_type="application/json",
-                        server_timing=server_timing,
-                    )
-                    self.send_response(status_code)
-                    self._send_headers(
-                        "application/json",
-                        len(response_body),
-                        extra_headers=extra_headers,
-                    )
-                    self._write_body(
-                        response_body,
-                        route=_safe_request_target(self.path),
-                        request_id=request_id,
-                        status_code=status_code,
-                    )
-                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
-                    logger.warning(
-                        "api_client_disconnected route=%s request_id=%s status=%s",
-                        _safe_request_target(self.path),
-                        request_id,
-                        status_code,
-                    )
-
-            def _send_bytes_response(
-                self,
-                body: bytes,
-                *,
-                content_type: str,
-                request_id: str,
-                route: str,
-                status_code: int = HTTPStatus.OK,
-                cache_control: str = "no-store",
-                extra_headers: dict[str, str] | None = None,
-            ) -> None:
-                try:
-                    self.send_response(status_code)
-                    self._send_headers(
-                        content_type,
-                        len(body),
-                        cache_control=cache_control,
-                        extra_headers=extra_headers,
-                    )
-                    self._write_body(
-                        body,
-                        route=route,
-                        request_id=request_id,
-                        status_code=status_code,
-                    )
-                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError) as exc:
-                    logger.warning(
-                        "api_client_disconnected route=%s request_id=%s status=%s error=%s",
-                        route,
-                        request_id,
-                        status_code,
-                        exc,
-                    )
-
-            def _not_found(self, request_id: str) -> None:
-                self._send_error_response(
-                    request_id,
-                    HTTPStatus.NOT_FOUND,
-                    "not_found",
-                    "Указанный маршрут API не найден.",
-                    {"path": _safe_request_target(self.path)},
-                )
-
-            def _send_headers(
-                self,
-                content_type: str,
-                content_length: int,
-                *,
-                cache_control: str = "no-store",
-                extra_headers: dict[str, str] | None = None,
-            ) -> None:
-                self.send_header("Content-Type", content_type)
-                self.send_header("Content-Length", str(content_length))
-                self.send_header("Cache-Control", cache_control)
-                self.send_header("Connection", "close")
-                self.close_connection = True
-                provided_headers = {key.casefold() for key in (extra_headers or {})}
-                if "x-content-type-options" not in provided_headers:
-                    self.send_header("X-Content-Type-Options", "nosniff")
-                cors_origin = self._cors_allowed_origin()
-                if cors_origin and "access-control-allow-origin" not in provided_headers:
-                    self.send_header("Access-Control-Allow-Origin", cors_origin)
-                    self.send_header("Vary", "Origin")
-                    self.send_header(
-                        "Access-Control-Allow-Headers",
-                        "Content-Type, Authorization, X-Operator-Session",
-                    )
-                    self.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
-                for header, value in (extra_headers or {}).items():
-                    if value:
-                        self.send_header(header, value)
-                self.end_headers()
-
-            def _cors_allowed_origin(self) -> str:
-                return _same_host_cors_origin(
-                    self.headers.get("Origin", ""),
-                    self.headers.get("Host", ""),
-                    allow_named_host=self._is_proxied_request(),
-                )
-
-            def _prepare_response_body(
-                self,
-                body: bytes,
-                *,
-                content_type: str,
-                server_timing: str = "",
-            ) -> tuple[bytes, dict[str, str]]:
-                headers: dict[str, str] = {}
-                if server_timing:
-                    headers["Server-Timing"] = server_timing
-                if (
-                    content_type.startswith("application/json")
-                    and len(body) >= JSON_GZIP_MIN_BYTES
-                    and _accepts_gzip(self.headers.get("Accept-Encoding", ""))
-                ):
-                    headers["Content-Encoding"] = "gzip"
-                    headers["Vary"] = "Accept-Encoding"
-                    return gzip.compress(body), headers
-                if content_type.startswith("application/json"):
-                    headers["Vary"] = "Accept-Encoding"
-                return body, headers
-
-            def _serve_static_route(self, route: str, request_id: str) -> bool:
-                if route in {"/", "/index.html"}:
-                    self._serve_board(request_id)
-                    return True
-                if route in {"/dashboard", "/dashboard/"}:
-                    self._serve_display_dashboard(request_id)
-                    return True
-                if route in {"/module-map", "/module-map/"}:
-                    self._serve_module_map(request_id)
-                    return True
-                board_asset = _board_asset_bytes(route)
-                if board_asset is not None:
-                    body, content_type = board_asset
-                    extra_headers = {"Vary": "Accept-Encoding"}
-                    if _accepts_gzip(self.headers.get("Accept-Encoding", "")):
-                        body = _board_asset_gzip_bytes(route) or body
-                        extra_headers["Content-Encoding"] = "gzip"
-                    self._send_bytes_response(
-                        body,
-                        content_type=content_type,
-                        request_id=request_id,
-                        route=route,
-                        cache_control=IMMUTABLE_ASSET_CACHE_CONTROL,
-                        extra_headers=extra_headers,
-                    )
-                    return True
-                if route == "/favicon.ico":
-                    body = _static_asset_bytes("favicon.ico")
-                    self._send_bytes_response(
-                        body,
-                        content_type="image/x-icon",
-                        request_id=request_id,
-                        route=route,
-                        cache_control="public, max-age=86400, immutable",
-                    )
-                    return True
-                if route == "/favicon.png":
-                    body = _static_asset_bytes("favicon.png")
-                    self._send_bytes_response(
-                        body,
-                        content_type="image/png",
-                        request_id=request_id,
-                        route=route,
-                        cache_control="public, max-age=86400, immutable",
-                    )
-                    return True
-                if route == "/api/health":
-                    body = _json_response(
-                        ok=True,
-                        data={
-                            "status": "ok",
-                            "base_url": api_server.base_url,
-                            "bind_host": self.server.server_address[0],
-                            "auth_required": bool(bearer_token),
-                            "maintenance_mode": is_maintenance_mode(),
-                        },
-                        error=None,
-                        request_id=request_id,
-                    )
-                    self._send_bytes_response(
-                        body,
-                        content_type="application/json",
-                        request_id=request_id,
-                        route=route,
-                    )
-                    return True
-                return False
-
-            def _serve_authenticated_get_route(
-                self, route: str, request_id: str, query: dict
-            ) -> bool:
-                handlers = {
-                    MODULE_MAP_INFRASTRUCTURE_ROUTE: self._serve_module_map_infrastructure,
-                    "/api/attachment": self._serve_attachment,
-                    "/api/shared_file": self._serve_shared_file,
-                    "/api/repair_order_text": self._serve_repair_order_text,
-                    "/employee_salary_reconciliation_print": (
-                        self._serve_employee_salary_reconciliation_print
-                    ),
-                }
-                handler = handlers.get(route)
-                if handler is not None:
-                    protected_query = self._operator_context_payload(route, query, request_id)
-                    if protected_query is None:
-                        return True
-                    if not self._authenticate(request_id, protected_query):
-                        return True
-                    handler(request_id, protected_query)
-                    return True
-                return False
-
-            def _serve_readonly_get_route(self, route: str, request_id: str, query: dict) -> bool:
-                if route not in readonly_routes:
-                    return False
-                if not self._authenticate(request_id, query):
-                    return True
-                self._dispatch(route, request_id, query)
-                return True
-
-            def _operator_context_payload_with_session(
-                self, route: str, payload: dict, session: dict | None
-            ) -> dict:
-                next_payload = dict(payload)
-                # This field is server-owned. Never retain a caller-supplied
-                # session or audit actor when no trusted session resolved.
-                next_payload.pop("_operator_session", None)
-                if session is not None:
-                    next_payload["_operator_session"] = session
-                    if route not in operator_session_routes and route not in admin_only_routes:
-                        next_payload["actor_name"] = str(
-                            session.get("audit_actor_name") or session["username"]
-                        )
-                return next_payload
-
-            def _trusted_agent_session(self, route: str, payload: dict) -> dict | None:
-                """Authorize the local MCP service identity without impersonating a human."""
-
-                if self._is_proxied_request():
-                    return None
-                request_source = payload.get("source")
-                if (
-                    not isinstance(request_source, str)
-                    or request_source.strip() != "mcp_agent_gateway_v2"
-                ):
-                    return None
-                try:
-                    policy = load_agent_gateway_security_policy()
-                except Exception:
-                    return None
-                if not (policy.gateway_enabled and policy.raw_enabled):
-                    return None
-                if route not in readonly_routes and not policy.writes_enabled:
-                    return None
-                identity = str(self.headers.get("X-Autostop-Agent-Identity", "") or "").strip()
-                supplied_token = str(self.headers.get("X-Autostop-Agent-Token", "") or "").strip()
-                expected_token = str(get_mcp_bearer_token() or "").strip()
-                if not identity or not hmac.compare_digest(identity, policy.service_identity):
-                    return None
-                if not expected_token or not hmac.compare_digest(supplied_token, expected_token):
-                    return None
-                session = {
-                    "token": "service-identity",
-                    "username": policy.service_identity,
-                    "role": "admin",
-                    "is_admin": True,
-                    "employee_id": "",
-                    "service_identity": True,
-                }
-                audit_actor = str(self.headers.get(OAUTH_AUDIT_ACTOR_HEADER, "") or "").strip()
-                audit_assertion = str(
-                    self.headers.get(OAUTH_AUDIT_ASSERTION_HEADER, "") or ""
-                ).strip()
-                if bool(audit_actor) != bool(audit_assertion):
-                    raise ServiceError(
-                        "unauthorized",
-                        "OAuth-аудит Gateway не прошёл проверку.",
-                        status_code=HTTPStatus.UNAUTHORIZED,
-                    )
-                if audit_actor:
-                    if not verify_oauth_audit_assertion(
-                        subject=audit_actor,
-                        method=self.command,
-                        route=route,
-                        payload=payload,
-                        assertion=audit_assertion,
-                    ):
-                        raise ServiceError(
-                            "unauthorized",
-                            "OAuth-аудит Gateway не прошёл проверку.",
-                            status_code=HTTPStatus.UNAUTHORIZED,
-                        )
-                    verified_actor = (
-                        operator_service.resolve_oauth_audit_admin(audit_actor)
-                        if operator_service is not None
-                        else None
-                    )
-                    if not verified_actor:
-                        raise ServiceError(
-                            "unauthorized",
-                            "OAuth-пользователь больше не является активным администратором CRM.",
-                            status_code=HTTPStatus.UNAUTHORIZED,
-                        )
-                    session["audit_actor_name"] = verified_actor
-                return session
-
-            def _maintenance_technical_change_feed_write_allowed(
-                self, route: str, payload: dict
-            ) -> bool:
-                if (
-                    route not in maintenance_technical_write_routes
-                    or str(payload.get("consumer_id") or "").strip() != "gateway-release-smoke"
-                    or self._trusted_agent_session(route, payload) is None
-                ):
-                    return False
-                return release_smoke_proof_matches(
-                    str(get_mcp_bearer_token() or ""),
-                    self.headers.get("X-Autostop-Release-Smoke-Revision", ""),
-                    self.headers.get("X-Autostop-Release-Smoke-Proof", ""),
-                )
-
-            def _operator_context_payload_reject(
-                self,
-                request_id: str,
-                *,
-                status: HTTPStatus,
-                code: str,
-                message: str,
-            ) -> None:
-                self._send_error_response(
-                    request_id,
-                    status,
-                    code,
-                    message,
-                    {"auth_type": "operator_session"},
-                )
-
-            def _operator_context_payload(
-                self,
-                route: str,
-                payload: dict,
-                request_id: str,
-                *,
-                resolved_operator_session: dict | None = None,
-                operator_session_resolved: bool = False,
-            ) -> dict | None:
-                if operator_service is None:
-                    if route != "/api/login_operator" and self._is_proxied_request():
-                        self._operator_context_payload_reject(
-                            request_id,
-                            status=HTTPStatus.SERVICE_UNAVAILABLE,
-                            code="operator_auth_unavailable",
-                            message="Сервис входа операторов временно недоступен.",
-                        )
-                        return None
-                    return payload
-                if operator_session_resolved:
-                    session = resolved_operator_session
-                else:
-                    session = operator_service.resolve_session(
-                        self.headers.get("X-Operator-Session", "")
-                    )
-                    if session is None:
-                        session = self._trusted_agent_session(route, payload)
-                next_payload = self._operator_context_payload_with_session(route, payload, session)
-                if (
-                    route != "/api/login_operator"
-                    and session is None
-                    and self._is_proxied_request()
-                ):
-                    self._operator_context_payload_reject(
-                        request_id,
-                        status=HTTPStatus.UNAUTHORIZED,
-                        code="unauthorized",
-                        message="Для доступа к рабочей CRM нужен вход оператора.",
-                    )
-                    return None
-                if route in admin_only_routes:
-                    if session is None:
-                        self._operator_context_payload_reject(
-                            request_id,
-                            status=HTTPStatus.UNAUTHORIZED,
-                            code="unauthorized",
-                            message="Нужен вход администратора.",
-                        )
-                        return None
-                    if not session.get("is_admin"):
-                        self._operator_context_payload_reject(
-                            request_id,
-                            status=HTTPStatus.FORBIDDEN,
-                            code="forbidden",
-                            message="Нужны права администратора.",
-                        )
-                        return None
-                    return next_payload
-                if route in operator_session_routes:
-                    if session is None:
-                        self._operator_context_payload_reject(
-                            request_id,
-                            status=HTTPStatus.UNAUTHORIZED,
-                            code="unauthorized",
-                            message="Нужен вход оператора.",
-                        )
-                        return None
-                    return next_payload
-                if str(next_payload.get("source", "")).strip().lower() == "ui" and session is None:
-                    self._operator_context_payload_reject(
-                        request_id,
-                        status=HTTPStatus.UNAUTHORIZED,
-                        code="unauthorized",
-                        message="Нужен вход оператора.",
-                    )
-                    return None
-                return next_payload
-
-            def _is_proxied_request(self) -> bool:
-                return bool(
-                    str(self.headers.get("X-Forwarded-For", "") or "").strip()
-                    or str(self.headers.get("X-Real-IP", "") or "").strip()
-                )
-
-            def _write_body(
-                self, body: bytes, *, route: str, request_id: str, status_code: int
-            ) -> bool:
-                try:
-                    self.wfile.write(body)
-                    self.wfile.flush()
-                    return True
-                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError) as exc:
-                    logger.warning(
-                        "api_client_disconnected route=%s request_id=%s status=%s error=%s",
-                        route,
-                        request_id,
-                        status_code,
-                        exc,
-                    )
-                    return False
-
-            def log_message(self, format: str, *args) -> None:
-                return
+            REQUEST_CONTEXT_FACTORY = request_context_factory
+            RESPONSE_WRITER = response_writer
+            CONTENT_RESPONDER = content_responder
+            AUTHENTICATION_POLICY = authentication_policy
+            DISPATCHER = dispatcher
+            PROXIED_WRITE_ROUTES = frozenset(proxied_write_routes)
+            MAINTENANCE_TECHNICAL_WRITE_ROUTES = frozenset(maintenance_technical_write_routes)
+            READONLY_ROUTES = frozenset(readonly_routes)
 
         return RequestHandler
 
