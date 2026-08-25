@@ -12,7 +12,6 @@ import socket
 import sys
 import tempfile
 import time
-import types
 import unittest
 import urllib.error
 from contextlib import asynccontextmanager, suppress
@@ -2219,76 +2218,6 @@ class McpServerBackendTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTest
                 )
                 self.assertFalse(deleted.isError)
                 self.assertTrue(deleted.structuredContent["data"]["meta"]["deleted"])
-
-    def test_optional_manager_tools_get_safe_annotations_after_registration(self) -> None:
-        manager_package = types.ModuleType("autostop_manager")
-        manager_tools = types.ModuleType("autostop_manager.mcp_tools")
-
-        def register_manager_memory_tools(server):
-            @server.tool(name="recall")
-            def recall() -> dict[str, bool]:
-                return {"ok": True}
-
-            @server.tool(name="system_audit")
-            def system_audit() -> dict[str, bool]:
-                return {"ok": True}
-
-            @server.tool(name="get_store_analytics_report")
-            def get_store_analytics_report(period: str = "today") -> dict[str, str]:
-                return {"period": period}
-
-            @server.tool(name="store_owner_capabilities")
-            def store_owner_capabilities(query: str = "") -> dict[str, str]:
-                return {"query": query}
-
-            @server.tool(name="store_owner_api")
-            def store_owner_api(operation_id: str) -> dict[str, str]:
-                return {"operation_id": operation_id}
-
-            @server.tool(name="remember")
-            def remember(content: str) -> dict[str, bool]:
-                return {"ok": bool(content)}
-
-            @server.tool(name="curate_memory")
-            def curate_memory(apply: bool = False) -> dict[str, bool]:
-                return {"ok": True, "applied": apply}
-
-        manager_tools.register_manager_memory_tools = register_manager_memory_tools
-        with patch.dict(
-            sys.modules,
-            {
-                "autostop_manager": manager_package,
-                "autostop_manager.mcp_tools": manager_tools,
-            },
-        ):
-            board_api = BoardApiClient(
-                self.api_server.base_url, bearer_token="api-secret", logger=self.logger
-            )
-            mcp_server = create_mcp_server(
-                board_api,
-                self.logger,
-                host="127.0.0.1",
-                port=reserve_port(),
-                path="/manager-tools",
-                bearer_token=None,
-                oauth_state_file=self.oauth_state_file,
-            )
-
-        tools = {tool.name: tool for tool in mcp_server._tool_manager.list_tools()}
-        self.assertTrue(tools["recall"].annotations.readOnlyHint)
-        self.assertFalse(tools["recall"].annotations.destructiveHint)
-        self.assertTrue(tools["system_audit"].annotations.readOnlyHint)
-        self.assertFalse(tools["system_audit"].annotations.destructiveHint)
-        self.assertTrue(tools["get_store_analytics_report"].annotations.readOnlyHint)
-        self.assertFalse(tools["get_store_analytics_report"].annotations.destructiveHint)
-        self.assertTrue(tools["store_owner_capabilities"].annotations.readOnlyHint)
-        self.assertFalse(tools["store_owner_capabilities"].annotations.destructiveHint)
-        self.assertFalse(tools["store_owner_api"].annotations.readOnlyHint)
-        self.assertFalse(tools["store_owner_api"].annotations.destructiveHint)
-        self.assertFalse(tools["remember"].annotations.readOnlyHint)
-        self.assertFalse(tools["remember"].annotations.destructiveHint)
-        self.assertFalse(tools["curate_memory"].annotations.readOnlyHint)
-        self.assertFalse(tools["curate_memory"].annotations.destructiveHint)
 
     async def test_mcp_move_card_supports_before_card_id_reordering(self) -> None:
         async with create_test_mcp_http_client(

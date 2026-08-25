@@ -22,16 +22,9 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from minimal_kanban.mcp import gateway_contract as gc
 from minimal_kanban.mcp.agent_gateway_support import _subset_matches
 from minimal_kanban.mcp.agent_gateway_v2 import register_agent_gateway_v2
-from minimal_kanban.mcp.gateway_contract import (
-    BOARD_WORKFLOW_OPERATIONS,
-    DEFAULT_CARD_FIELDS,
-    DOCUMENT_WORKFLOW_OPERATIONS,
-    FINANCE_VIRTUAL_OPERATIONS,
-    FINANCE_WORKFLOW_OPERATIONS,
-    INVENTORY_WORKFLOW_OPERATIONS,
-)
 from minimal_kanban.mcp.oauth_provider import (
     OAUTH_AUDIT_ACTOR_HEADER,
     OAUTH_AUDIT_ASSERTION_HEADER,
@@ -954,7 +947,6 @@ def _register_fake_store_context_tools(server, _logger, state: dict) -> None:
 
     @server.tool(name="agent_bootstrap")
     def agent_bootstrap(query: str = "", intent: str | None = None, limit: int = 8) -> dict:
-        del query, intent, limit
         return {"ok": True, "summary": {"route": "test"}}
 
     @server.tool(name="store_runtime_status", description="INTERNAL_ONLY store runtime")
@@ -1473,7 +1465,7 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
     def test_delete_cashbox_uses_guarded_virtual_route(self) -> None:
         self.assertEqual(
             "/api/delete_cashbox",
-            FINANCE_VIRTUAL_OPERATIONS["delete_cashbox"],
+            gc.FINANCE_VIRTUAL_OPERATIONS["delete_cashbox"],
         )
 
     async def _call(self, name: str, arguments: dict | None = None):
@@ -1792,11 +1784,6 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
         search_schema = self.server._tool_manager.get_tool("agent_search").parameters
         context_schema = self.server._tool_manager.get_tool("agent_entity_context").parameters
         inventory_schema = self.server._tool_manager.get_tool("agent_inventory_workflow").parameters
-        board_workflow_schema = self.server._tool_manager.get_tool(
-            "agent_board_workflow"
-        ).parameters
-        finance_schema = self.server._tool_manager.get_tool("agent_finance_workflow").parameters
-        document_schema = self.server._tool_manager.get_tool("agent_document_workflow").parameters
 
         self.assertEqual("crm", board_schema["properties"]["scope"]["default"])
         self.assertTrue(
@@ -1823,22 +1810,15 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
             set(inventory_schema["required"]),
         )
         self.assertIsNone(inventory_schema["properties"]["mode"]["default"])
-        self.assertEqual(
-            set(BOARD_WORKFLOW_OPERATIONS),
-            set(board_workflow_schema["properties"]["operation"]["enum"]),
-        )
-        self.assertEqual(
-            set(INVENTORY_WORKFLOW_OPERATIONS | STORE_MANAGEMENT_OPERATIONS),
-            set(inventory_schema["properties"]["operation"]["enum"]),
-        )
-        self.assertEqual(
-            set(FINANCE_WORKFLOW_OPERATIONS),
-            set(finance_schema["properties"]["operation"]["enum"]),
-        )
-        self.assertEqual(
-            set(DOCUMENT_WORKFLOW_OPERATIONS),
-            set(document_schema["properties"]["operation"]["enum"]),
-        )
+        inventory_ops = gc.INVENTORY_WORKFLOW_OPERATIONS | STORE_MANAGEMENT_OPERATIONS
+        for tool_name, operations in (
+            ("agent_board_workflow", gc.BOARD_WORKFLOW_OPERATIONS),
+            ("agent_inventory_workflow", inventory_ops),
+            ("agent_finance_workflow", gc.FINANCE_WORKFLOW_OPERATIONS),
+            ("agent_document_workflow", gc.DOCUMENT_WORKFLOW_OPERATIONS),
+        ):
+            schema = self.server._tool_manager.get_tool(tool_name).parameters
+            self.assertEqual(set(operations), set(schema["properties"]["operation"]["enum"]))
 
     async def test_bootstrap_skips_store_and_explicit_digest_keeps_owner_stream(
         self,
@@ -1995,7 +1975,7 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
 
         card = context.structuredContent["data"]["card"]
         serialized = json.dumps(context.structuredContent, ensure_ascii=False)
-        self.assertEqual(set(DEFAULT_CARD_FIELDS), set(card))
+        self.assertEqual(set(gc.DEFAULT_CARD_FIELDS), set(card))
         self.assertNotIn("PRIVATE_DESCRIPTION_SENTINEL", serialized)
         self.assertNotIn("PRIVATE_VIN_SENTINEL", serialized)
         self.assertNotIn("PRIVATE_PAYMENT_SENTINEL", serialized)
@@ -4428,9 +4408,7 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
     async def test_production_uses_owner_approved_oauth_with_internal_bearer_compatibility(
         self,
     ) -> None:
-        self.manager_register.side_effect = lambda server, logger: (
-            register_fake_store_manager_tools(server, logger, {})
-        )
+        self.manager_register.side_effect = lambda s, m: register_fake_store_manager_tools(s, m, {})
         with tempfile.TemporaryDirectory() as temp_dir:
             with patch.dict(
                 "os.environ",
