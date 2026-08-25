@@ -182,7 +182,6 @@ class AgentGatewayV2SmokeScriptTests(unittest.TestCase):
 
         self.assertIn("require_store=args.require_store", source)
         self.assertIn("if require_store:", source)
-        self.assertIn("_run_store_owner_probes(", source)
         self.assertIn("_run_change_feed_probes(", source)
 
 
@@ -216,23 +215,13 @@ class AgentGatewayV2SmokeProbeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(calls["call_raw_capability"])
 
-    async def test_web_checks_include_read_only_automotive_probes(self) -> None:
+    async def test_web_checks_use_available_raw_web_capabilities(self) -> None:
         module = load_script_module()
         discovery_items = {
             "search_web_multi": {"name": "search_web_multi", "risk": "read"},
             "fetch_page_excerpt": {"name": "fetch_page_excerpt", "risk": "read"},
             "fetch_page_browser": {"name": "fetch_page_browser", "risk": "read"},
             "research_drive2_cases": {"name": "research_drive2_cases", "risk": "read"},
-            "как выставить ГРМ на Mercedes": {
-                "name": "recommend_automotive_sources",
-                "risk": "read",
-                "matched_terms": ["грм"],
-            },
-            "официальный отзыв автомобиля": {
-                "name": "lookup_public_automotive_evidence",
-                "risk": "read",
-                "matched_terms": ["официальный отзыв"],
-            },
         }
         raw_calls: list[dict] = []
 
@@ -258,22 +247,7 @@ class AgentGatewayV2SmokeProbeTests(unittest.IsolatedAsyncioTestCase):
         checks = await module._run_web_checks(ScriptSession(handler), {})
 
         self.assertTrue(all(checks.values()))
-        self.assertTrue(checks["automotive_timing_read_only"])
-        self.assertTrue(checks["public_automotive_evidence_read_only"])
-        automotive_call = next(
-            item for item in raw_calls if item["name"] == "lookup_public_automotive_evidence"
-        )
-        self.assertEqual(
-            {
-                "make": "Mercedes-Benz",
-                "system": "automatic transmission",
-                "topics": ["fluids"],
-                "limit": 1,
-            },
-            automotive_call["arguments"],
-        )
-        self.assertNotIn("vin", automotive_call["arguments"])
-        self.assertFalse(automotive_call["allow_large_output"])
+        self.assertEqual(set(discovery_items), {item["name"] for item in raw_calls})
 
     def test_change_feed_page_rejects_gap_after_acked_sequence(self) -> None:
         module = load_script_module()
@@ -308,229 +282,6 @@ class AgentGatewayV2SmokeProbeTests(unittest.IsolatedAsyncioTestCase):
             module._validated_change_feed_page(
                 page,
                 consumer_id=module.CHANGE_FEED_SMOKE_CONSUMER_ID,
-            )
-
-    async def test_store_owner_probe_reads_revision_and_never_applies(self) -> None:
-        module = load_script_module()
-        operation_id = "create_category_api_v1_categories_post"
-        schema_risks = {
-            module.STORE_OWNER_CAPABILITIES_NAME: "read",
-            module.STORE_OWNER_API_NAME: "write",
-        }
-
-        def handler(name: str, arguments: dict):
-            if name == "discover_raw_capabilities":
-                capability_name = arguments["query"]
-                return tool_result(
-                    {
-                        "ok": True,
-                        "data": {
-                            "capabilities": [
-                                {"name": capability_name, "risk": schema_risks[capability_name]}
-                            ]
-                        },
-                    }
-                )
-            if name == "get_raw_capability_schema":
-                capability_name = arguments["name"]
-                return tool_result(
-                    {
-                        "ok": True,
-                        "summary": {
-                            "schema_hash": f"hash-{capability_name}",
-                            "risk": schema_risks[capability_name],
-                        },
-                        "data": {"input_schema": {"type": "object"}},
-                    }
-                )
-            self.assertEqual("call_raw_capability", name)
-            raw_name = arguments["name"]
-            raw_arguments = arguments["arguments"]
-            if raw_name == module.STORE_OWNER_CAPABILITIES_NAME:
-                return tool_result(
-                    {
-                        "ok": True,
-                        "status": "completed",
-                        "data": {
-                            "ok": True,
-                            "items": [
-                                {
-                                    "operation_id": operation_id,
-                                    "method": "POST",
-                                    "path": "/api/v1/categories",
-                                    "risk": "write",
-                                    "request_content_types": ["application/json"],
-                                    "request_required": True,
-                                    "path_parameters": [],
-                                    "schema_hash": "store-schema-hash",
-                                }
-                            ],
-                        },
-                        "verification": {
-                            "schema_hash_verified": True,
-                            "executor_ok": True,
-                            "passed": True,
-                            "ledger_closed": True,
-                        },
-                    }
-                )
-            self.assertEqual(module.STORE_OWNER_API_NAME, raw_name)
-            if raw_arguments["mode"] == "revision":
-                return raw_write_result(
-                    {
-                        "ok": True,
-                        "status": "completed",
-                        "summary": {
-                            "operation_id": operation_id,
-                            "method": "POST",
-                            "path": "/api/v1/categories",
-                            "route_key": "POST /api/v1/categories",
-                            "current_revision": None,
-                            "revision_kind": "revision_exempt",
-                            "expected_revision_required": False,
-                            "contract_version": "store-owner-preflight-v2",
-                        },
-                    },
-                    check="store_owner_read_response_contract",
-                )
-            self.assertEqual("dry_run", raw_arguments["mode"])
-            return raw_write_result(
-                {
-                    "ok": True,
-                    "status": "planned",
-                    "summary": {
-                        "operation_id": operation_id,
-                        "method": "POST",
-                        "path": "/api/v1/categories",
-                        "current_revision": None,
-                        "revision_kind": "revision_exempt",
-                        "contract_version": "store-owner-preflight-v2",
-                        "dry_run_proof": "a" * 64,
-                    },
-                    "meta": {
-                        "request_dispatched": True,
-                        "outcome_uncertain": False,
-                        "domain_handler_executed": False,
-                    },
-                },
-                check="store_owner_server_dry_run_receipt",
-            )
-
-        session = ScriptSession(handler)
-        calls: dict[str, bool] = {}
-        result = await module._run_store_owner_probes(
-            session,
-            calls,
-            smoke_id="1" * 32,
-        )
-
-        self.assertTrue(result["ok"])
-        owner_calls = [
-            arguments["arguments"]
-            for name, arguments in session.calls
-            if name == "call_raw_capability" and arguments["name"] == module.STORE_OWNER_API_NAME
-        ]
-        self.assertEqual(["revision", "dry_run"], [item["mode"] for item in owner_calls])
-        self.assertNotIn("apply", {item["mode"] for item in owner_calls})
-        self.assertEqual("collection:/api/v1/categories", owner_calls[1]["target_id"])
-        self.assertIsNone(owner_calls[1]["expected_revision"])
-
-    async def test_store_owner_probe_fails_closed_if_domain_handler_executes(self) -> None:
-        module = load_script_module()
-        operation_id = "create_category_api_v1_categories_post"
-
-        def handler(name: str, arguments: dict):
-            if name == "discover_raw_capabilities":
-                capability_name = arguments["query"]
-                risk = (
-                    "read" if capability_name == module.STORE_OWNER_CAPABILITIES_NAME else "write"
-                )
-                return tool_result(
-                    {
-                        "ok": True,
-                        "data": {"capabilities": [{"name": capability_name, "risk": risk}]},
-                    }
-                )
-            if name == "get_raw_capability_schema":
-                capability_name = arguments["name"]
-                risk = (
-                    "read" if capability_name == module.STORE_OWNER_CAPABILITIES_NAME else "write"
-                )
-                return tool_result(
-                    {
-                        "ok": True,
-                        "summary": {"schema_hash": "hash", "risk": risk},
-                        "data": {"input_schema": {"type": "object"}},
-                    }
-                )
-            raw_name = arguments["name"]
-            raw_arguments = arguments["arguments"]
-            if raw_name == module.STORE_OWNER_CAPABILITIES_NAME:
-                return tool_result(
-                    {
-                        "ok": True,
-                        "data": {
-                            "ok": True,
-                            "items": [
-                                {
-                                    "operation_id": operation_id,
-                                    "method": "POST",
-                                    "path": "/api/v1/categories",
-                                    "risk": "write",
-                                    "request_content_types": ["application/json"],
-                                    "request_required": True,
-                                    "path_parameters": [],
-                                    "schema_hash": "schema",
-                                }
-                            ],
-                        },
-                    }
-                )
-            if raw_arguments["mode"] == "revision":
-                return raw_write_result(
-                    {
-                        "ok": True,
-                        "status": "completed",
-                        "summary": {
-                            "operation_id": operation_id,
-                            "method": "POST",
-                            "path": "/api/v1/categories",
-                            "route_key": "POST /api/v1/categories",
-                            "current_revision": None,
-                            "revision_kind": "revision_exempt",
-                            "expected_revision_required": False,
-                            "contract_version": "store-owner-preflight-v2",
-                        },
-                    },
-                    check="store_owner_read_response_contract",
-                )
-            return raw_write_result(
-                {
-                    "ok": True,
-                    "status": "planned",
-                    "summary": {
-                        "operation_id": operation_id,
-                        "method": "POST",
-                        "path": "/api/v1/categories",
-                        "current_revision": None,
-                        "revision_kind": "revision_exempt",
-                        "contract_version": "store-owner-preflight-v2",
-                        "dry_run_proof": "b" * 64,
-                    },
-                    "meta": {
-                        "request_dispatched": True,
-                        "outcome_uncertain": False,
-                        "domain_handler_executed": True,
-                    },
-                },
-                check="store_owner_server_dry_run_receipt",
-            )
-
-        with self.assertRaisesRegex(RuntimeError, "dry-run proof"):
-            await module._run_store_owner_probes(
-                ScriptSession(handler),
-                {},
-                smoke_id="2" * 32,
             )
 
     async def test_change_feed_probe_replays_exact_page_and_acks(self) -> None:

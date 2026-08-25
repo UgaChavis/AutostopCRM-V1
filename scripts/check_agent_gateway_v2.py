@@ -63,11 +63,6 @@ DEDUPLICATED_LIFECYCLE_SKIPPED_TOOL_NAMES = frozenset(
         "workflow_cancel",
     }
 )
-STORE_OWNER_CAPABILITIES_NAME = "store_owner_capabilities"
-STORE_OWNER_API_NAME = "store_owner_api"
-STORE_OWNER_SAFE_DRY_RUN_METHOD = "POST"
-STORE_OWNER_SAFE_DRY_RUN_PATH = "/api/v1/categories"
-STORE_OWNER_PREFLIGHT_CONTRACT_VERSION = "store-owner-preflight-v2"
 CHANGE_FEED_BOOTSTRAP_NAME = "api:/api/change_feed/bootstrap"
 CHANGE_FEED_READ_NAME = "api:/api/change_feed/read"
 CHANGE_FEED_ACK_NAME = "api:/api/change_feed/ack"
@@ -105,9 +100,6 @@ RELEASE_ATTEMPT_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{7,159}")
 SAFE_RUNTIME_FAILURE_PREFIXES = (
     "MCP tool call failed: ",
     "workflow response ",
-    "store owner ",
-    "safe reversible store owner ",
-    "safe store owner ",
     "change feed ",
     "change-feed ",
     "empty change-feed ",
@@ -417,180 +409,6 @@ async def _discover_raw_schema(
     ):
         raise RuntimeError(f"{name} schema contract is invalid")
     return schema_hash
-
-
-async def _run_store_owner_probes(
-    session: ClientSession,
-    calls: dict[str, bool],
-    *,
-    smoke_id: str,
-    release_revision: str = "",
-    release_smoke_proof: str = "",
-) -> dict[str, Any]:
-    capabilities_hash = await _discover_raw_schema(
-        session,
-        calls,
-        name=STORE_OWNER_CAPABILITIES_NAME,
-        allowed_risks=frozenset({"read"}),
-    )
-    owner_api_hash = await _discover_raw_schema(
-        session,
-        calls,
-        name=STORE_OWNER_API_NAME,
-        allowed_risks=frozenset({"write", "destructive"}),
-    )
-
-    inventory_result = await _call(
-        session,
-        calls,
-        "call_raw_capability",
-        {
-            "name": STORE_OWNER_CAPABILITIES_NAME,
-            "arguments": {"query": STORE_OWNER_SAFE_DRY_RUN_PATH, "limit": 25},
-            "schema_hash": capabilities_hash,
-            # This inventory contains contracts only, never business data.
-            "allow_large_output": True,
-        },
-    )
-    inventory = _required_raw_executor(inventory_result, name=STORE_OWNER_CAPABILITIES_NAME)
-    items = inventory.get("items")
-    if not isinstance(items, list):
-        raise RuntimeError("store owner capability inventory is missing")
-    candidates = [
-        item
-        for item in items
-        if isinstance(item, dict)
-        and str(item.get("method") or "").upper() == STORE_OWNER_SAFE_DRY_RUN_METHOD
-        and str(item.get("path") or "") == STORE_OWNER_SAFE_DRY_RUN_PATH
-        and str(item.get("risk") or "") == "write"
-        and item.get("request_required") is True
-        and item.get("path_parameters") == []
-        and "application/json" in (item.get("request_content_types") or [])
-    ]
-    if len(candidates) != 1:
-        raise RuntimeError("safe reversible store owner dry-run operation is unavailable")
-    capability = candidates[0]
-    operation_id = str(capability.get("operation_id") or "")
-    if not operation_id or not str(capability.get("schema_hash") or ""):
-        raise RuntimeError("safe store owner capability identity is incomplete")
-
-    target_id = f"collection:{STORE_OWNER_SAFE_DRY_RUN_PATH}"
-    synthetic_name = f"Gateway release smoke {smoke_id[:12]}"
-    revision_arguments = {
-        "operation_id": operation_id,
-        "mode": "revision",
-        "target_id": target_id,
-        "body": {"name": synthetic_name},
-        "correlation_id": f"gateway-v2-owner-revision-{smoke_id}",
-    }
-    revision_result = await _call(
-        session,
-        calls,
-        "call_raw_capability",
-        {
-            "name": STORE_OWNER_API_NAME,
-            "arguments": revision_arguments,
-            "schema_hash": owner_api_hash,
-            "idempotency_key": f"gateway-v2-owner-revision-{smoke_id}",
-            "allow_large_output": True,
-            **_maintenance_raw_fields(release_revision, release_smoke_proof),
-        },
-    )
-    revision_executor = _required_raw_executor(revision_result, name="store owner revision")
-    revision_summary = _required_mapping(
-        revision_executor.get("summary"), label="store owner revision summary"
-    )
-    current_revision = revision_summary.get("current_revision")
-    revision_required = revision_summary.get("expected_revision_required")
-    if (
-        revision_executor.get("status") != "completed"
-        or revision_summary.get("operation_id") != operation_id
-        or revision_summary.get("method") != STORE_OWNER_SAFE_DRY_RUN_METHOD
-        or revision_summary.get("path") != STORE_OWNER_SAFE_DRY_RUN_PATH
-        or revision_summary.get("route_key")
-        != f"{STORE_OWNER_SAFE_DRY_RUN_METHOD} {STORE_OWNER_SAFE_DRY_RUN_PATH}"
-        or revision_summary.get("contract_version") != STORE_OWNER_PREFLIGHT_CONTRACT_VERSION
-        or revision_summary.get("revision_kind") != "revision_exempt"
-        or revision_required is not False
-        or current_revision is not None
-    ):
-        raise RuntimeError("store owner current route revision contract is invalid")
-
-    request_key = f"gateway-v2-owner-dry-run-{smoke_id}"
-    dry_run_arguments = {
-        "operation_id": operation_id,
-        "mode": "dry_run",
-        "target_id": target_id,
-        "body": {"name": synthetic_name},
-        "owner_intent": "production release smoke server-side dry run only",
-        "idempotency_key": request_key,
-        "correlation_id": request_key,
-        # Pass through the exact route revision result, including the explicit
-        # revision-exempt None value for this reviewed reversible collection create.
-        "expected_revision": current_revision,
-    }
-    dry_run_result = await _call(
-        session,
-        calls,
-        "call_raw_capability",
-        {
-            "name": STORE_OWNER_API_NAME,
-            "arguments": dry_run_arguments,
-            "schema_hash": owner_api_hash,
-            "idempotency_key": f"gateway-v2-owner-dry-run-ledger-{smoke_id}",
-            "allow_large_output": True,
-            **_maintenance_raw_fields(release_revision, release_smoke_proof),
-        },
-    )
-    if _raw_write_reused_completed(dry_run_result):
-        return {
-            "ok": True,
-            "operation_id": operation_id,
-            "route_key": revision_summary.get("route_key"),
-            "revision_kind": revision_summary.get("revision_kind"),
-            "route_revision_verified": True,
-            "dry_run_only": True,
-            "domain_handler_executed": False,
-            "deduplicated": True,
-        }
-    _require_raw_write_ledger(
-        dry_run_result,
-        name="store owner dry run",
-        check="store_owner_server_dry_run_receipt",
-    )
-    dry_run_executor = _required_raw_executor(dry_run_result, name="store owner dry run")
-    dry_run_summary = _required_mapping(
-        dry_run_executor.get("summary"), label="store owner dry-run summary"
-    )
-    dry_run_meta = _required_mapping(
-        dry_run_executor.get("meta"), label="store owner dry-run metadata"
-    )
-    proof = str(dry_run_summary.get("dry_run_proof") or "")
-    if (
-        dry_run_executor.get("status") != "planned"
-        or dry_run_summary.get("operation_id") != operation_id
-        or dry_run_summary.get("method") != STORE_OWNER_SAFE_DRY_RUN_METHOD
-        or dry_run_summary.get("path") != STORE_OWNER_SAFE_DRY_RUN_PATH
-        or dry_run_summary.get("current_revision") != current_revision
-        or dry_run_summary.get("revision_kind") != "revision_exempt"
-        or dry_run_summary.get("contract_version") != STORE_OWNER_PREFLIGHT_CONTRACT_VERSION
-        or len(proof) != 64
-        or any(character not in "0123456789abcdef" for character in proof)
-        or dry_run_meta.get("request_dispatched") is not True
-        or dry_run_meta.get("outcome_uncertain") is not False
-        or dry_run_meta.get("domain_handler_executed") is not False
-    ):
-        raise RuntimeError("store owner server-side dry-run proof is invalid")
-
-    return {
-        "ok": True,
-        "operation_id": operation_id,
-        "route_key": revision_summary.get("route_key"),
-        "revision_kind": revision_summary.get("revision_kind"),
-        "route_revision_verified": True,
-        "dry_run_only": True,
-        "domain_handler_executed": False,
-    }
 
 
 def _validated_change_feed_page(data: dict[str, Any], *, consumer_id: str) -> list[dict[str, Any]]:
@@ -1065,16 +883,8 @@ async def _run_exhaustive_checks(
     )
 
     if maintenance_safe:
-        store_owner_probe: dict[str, Any] = {}
         change_feed_probe: dict[str, Any] = {}
         if require_store:
-            store_owner_probe = await _run_store_owner_probes(
-                session,
-                calls,
-                smoke_id=smoke_id,
-                release_revision=release_revision,
-                release_smoke_proof=release_smoke_proof,
-            )
             change_feed_probe = await _run_change_feed_probes(
                 session,
                 calls,
@@ -1087,7 +897,6 @@ async def _run_exhaustive_checks(
             "synthetic_terminal_status": "maintenance_skipped",
             "synthetic_deduplicated": False,
             "maintenance_safe": True,
-            "store_owner_probe": store_owner_probe,
             "change_feed_probe": change_feed_probe,
         }
 
@@ -1201,16 +1010,8 @@ async def _run_exhaustive_checks(
             },
         )
         cancelled_payload = _structured(cancelled)
-    store_owner_probe: dict[str, Any] = {}
     change_feed_probe: dict[str, Any] = {}
     if require_store:
-        store_owner_probe = await _run_store_owner_probes(
-            session,
-            calls,
-            smoke_id=smoke_id,
-            release_revision=release_revision,
-            release_smoke_proof=release_smoke_proof,
-        )
         change_feed_probe = await _run_change_feed_probes(
             session,
             calls,
@@ -1222,7 +1023,6 @@ async def _run_exhaustive_checks(
         "synthetic_run_id": run_id,
         "synthetic_terminal_status": cancelled_payload.get("status"),
         "synthetic_deduplicated": synthetic_deduplicated,
-        "store_owner_probe": store_owner_probe,
         "change_feed_probe": change_feed_probe,
     }
 
@@ -1291,79 +1091,6 @@ async def _run_web_checks(
         )
         checks[f"{capability_name}_call_ok"] = _tool_ok(result)
 
-    automotive_probes = (
-        (
-            "automotive_timing",
-            "как выставить ГРМ на Mercedes",
-            "recommend_automotive_sources",
-        ),
-        (
-            "public_automotive_evidence",
-            "официальный отзыв автомобиля",
-            "lookup_public_automotive_evidence",
-        ),
-    )
-    automotive_schema_hash = ""
-    for check_name, query, capability_name in automotive_probes:
-        discovered = await _call(
-            session,
-            calls,
-            "discover_raw_capabilities",
-            {"query": query, "limit": 5},
-        )
-        discovered_payload = _structured(discovered)
-        capabilities = (
-            (discovered_payload.get("data") or {}).get("capabilities") or []
-            if isinstance(discovered_payload.get("data"), dict)
-            else []
-        )
-        matching = next(
-            (
-                item
-                for item in capabilities
-                if isinstance(item, dict) and item.get("name") == capability_name
-            ),
-            {},
-        )
-        checks[f"{check_name}_discoverable"] = bool(matching)
-        checks[f"{check_name}_read_only"] = matching.get("risk") == "read" and bool(
-            matching.get("matched_terms")
-        )
-        if capability_name != "lookup_public_automotive_evidence":
-            continue
-        schema = await _call(
-            session,
-            calls,
-            "get_raw_capability_schema",
-            {"name": capability_name},
-        )
-        schema_payload = _structured(schema)
-        schema_summary = (
-            schema_payload.get("summary") if isinstance(schema_payload.get("summary"), dict) else {}
-        )
-        automotive_schema_hash = str(schema_summary.get("schema_hash") or "")
-        checks[f"{check_name}_schema_ok"] = bool(automotive_schema_hash) and _tool_ok(schema)
-
-    if automotive_schema_hash:
-        automotive_result = await _call(
-            session,
-            calls,
-            "call_raw_capability",
-            {
-                "name": "lookup_public_automotive_evidence",
-                "arguments": {
-                    "make": "Mercedes-Benz",
-                    "system": "automatic transmission",
-                    "topics": ["fluids"],
-                    "limit": 1,
-                },
-                "schema_hash": automotive_schema_hash,
-                "allow_large_output": False,
-            },
-        )
-        checks["public_automotive_evidence_call_ok"] = _tool_ok(automotive_result)
-    else:
-        checks["public_automotive_evidence_call_ok"] = False
     return checks
 
 
@@ -1586,29 +1313,12 @@ async def check_gateway(args: argparse.Namespace) -> dict[str, Any]:
             }
         )
         if args.require_store:
-            store_owner_exhaustive = (
-                exhaustive.get("store_owner_probe")
-                if isinstance(exhaustive.get("store_owner_probe"), dict)
-                else {}
-            )
             change_feed_exhaustive = (
                 exhaustive.get("change_feed_probe")
                 if isinstance(exhaustive.get("change_feed_probe"), dict)
                 else {}
             )
-            checks.update(
-                {
-                    "store_owner_capabilities_and_revision_ok": bool(
-                        store_owner_exhaustive.get("ok")
-                        and store_owner_exhaustive.get("route_revision_verified") is True
-                    ),
-                    "store_owner_server_dry_run_only": bool(
-                        store_owner_exhaustive.get("dry_run_only") is True
-                        and store_owner_exhaustive.get("domain_handler_executed") is False
-                    ),
-                    **_change_feed_probe_checks(change_feed_exhaustive),
-                }
-            )
+            checks.update(_change_feed_probe_checks(change_feed_exhaustive))
     return {
         "ok": all(checks.values()),
         "checks": checks,

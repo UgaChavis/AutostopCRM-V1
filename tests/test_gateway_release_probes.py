@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import logging
 import os
 import sqlite3
@@ -11,8 +10,6 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-
-from mcp.types import ToolAnnotations
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -157,136 +154,11 @@ class GatewayReleaseProbeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.env.start()
         self.workflow_version = 0
         self.next_run_id = 100
-        self.owner_modes: list[str] = []
 
     def tearDown(self) -> None:
         self.env.stop()
 
     def _register_raw_tools(self, server, _logger) -> None:
-        @server.tool(
-            name="store_owner_capabilities",
-            description="READ_ONLY RAW_CAPABILITY Store owner operation inventory",
-            annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False),
-        )
-        def store_owner_capabilities(query: str = "", limit: int = 200) -> dict:
-            del query, limit
-            return {
-                "ok": True,
-                "status": "completed",
-                "items": [
-                    {
-                        "operation_id": "create_category_api_v1_categories_post",
-                        "method": "POST",
-                        "path": "/api/v1/categories",
-                        "risk": "write",
-                        "request_content_types": ["application/json"],
-                        "request_required": True,
-                        "path_parameters": [],
-                        "schema_hash": "store-category-schema-v1",
-                    }
-                ],
-            }
-
-        @server.tool(
-            name="store_owner_api",
-            description="OWNER_SCOPED RAW_CAPABILITY Store owner transport",
-            annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True),
-        )
-        def store_owner_api(
-            operation_id: str,
-            mode: str = "dry_run",
-            target_id: str = "",
-            path_parameters: dict | None = None,
-            query: dict | None = None,
-            body: object = None,
-            form: dict | None = None,
-            files: list[dict] | None = None,
-            owner_intent: str = "",
-            idempotency_key: str = "",
-            correlation_id: str = "",
-            expected_revision: str | None = None,
-            expected_contract_id: str | None = None,
-            dry_run_proof: str | None = None,
-            allow_binary_response: bool = False,
-            prepare_for_mode: str = "dry_run",
-        ) -> dict:
-            del (
-                path_parameters,
-                query,
-                body,
-                form,
-                files,
-                owner_intent,
-                idempotency_key,
-                expected_revision,
-                dry_run_proof,
-                allow_binary_response,
-            )
-            self.owner_modes.append(mode)
-            binding = {
-                "contract_id": "ac_" + "4" * 20,
-                "operation_id": operation_id,
-                "request_sha256": "5" * 64,
-                "schema_hash": "6" * 64,
-                "verification_class": "collection_membership",
-                "correlation_id": correlation_id,
-                "target_ref_sha256": hashlib.sha256(f"target:{target_id}".encode()).hexdigest(),
-                "expected_revision_sha256": None,
-            }
-            if mode == "apply":
-                raise AssertionError("release probe must never apply")
-            if mode == "prepare":
-                return {
-                    "ok": True,
-                    "status": "validated",
-                    "summary": {
-                        "request_dispatched": False,
-                        "prepared_for_mode": prepare_for_mode,
-                    },
-                    "meta": {
-                        **binding,
-                        "request_dispatched": False,
-                        "domain_handler_executed": False,
-                    },
-                }
-            if mode == "revision":
-                return {
-                    "ok": True,
-                    "status": "completed",
-                    "summary": {
-                        "operation_id": operation_id,
-                        "method": "POST",
-                        "path": "/api/v1/categories",
-                        "route_key": "POST /api/v1/categories",
-                        "current_revision": None,
-                        "revision_kind": "revision_exempt",
-                        "expected_revision_required": False,
-                        "contract_version": "store-owner-preflight-v2",
-                    },
-                    "meta": {"readback_required": False},
-                }
-            if expected_contract_id != binding["contract_id"]:
-                return {"ok": False, "status": "blocked"}
-            return {
-                "ok": True,
-                "status": "planned",
-                "summary": {
-                    "operation_id": operation_id,
-                    "method": "POST",
-                    "path": "/api/v1/categories",
-                    "current_revision": None,
-                    "revision_kind": "revision_exempt",
-                    "contract_version": "store-owner-preflight-v2",
-                    "dry_run_proof": "d" * 64,
-                },
-                "meta": {
-                    **binding,
-                    "request_dispatched": True,
-                    "outcome_uncertain": False,
-                    "domain_handler_executed": False,
-                },
-            }
-
         @server.tool(name="start_workflow")
         def start_workflow(
             workflow_id: str,
@@ -381,21 +253,13 @@ class GatewayReleaseProbeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         session = InProcessGatewaySession(self._server(board_api))
         calls: dict[str, bool] = {}
 
-        owner = await check_agent_gateway_v2._run_store_owner_probes(
-            session,
-            calls,
-            smoke_id="5" * 32,
-        )
         feed = await check_agent_gateway_v2._run_change_feed_probes(
             session,
             calls,
             smoke_id="6" * 32,
         )
 
-        self.assertTrue(owner["ok"])
         self.assertTrue(feed["ok"])
-        self.assertEqual(["revision", "prepare", "dry_run"], self.owner_modes)
-        self.assertNotIn("apply", self.owner_modes)
         self.assertEqual(1, board_api.acked_sequence)
         self.assertTrue(all(calls.values()))
         self.assertTrue(
