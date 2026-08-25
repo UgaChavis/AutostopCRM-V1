@@ -522,6 +522,15 @@ def finance_ledger_verification(
     verification: Mapping[str, Any],
 ) -> dict[str, Any]:
     evidence = verification.get("evidence")
+    if operation in FINANCE_READ_OPERATIONS:
+        return {
+            "check_sha256": request_fingerprint({"check": verification.get("check")}),
+            "executor_ok": True,
+            "passed": bool(verification.get("passed")),
+            "payload_sha256": request_fingerprint({"operation": operation, "payload": payload}),
+            "read_only": True,
+            "target_ref_hashes": _reference_hashes(payload),
+        }
     return {
         "check_sha256": request_fingerprint({"check": verification.get("check")}),
         "executor_ok": True,

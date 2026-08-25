@@ -410,6 +410,24 @@ class AgentGatewayFinancePreviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(legacy.structuredContent["ok"])
         self.assertEqual(1, self.board_api.update_calls)
 
+    async def test_legacy_read_closes_ledger_without_write_only_failure_markers(self) -> None:
+        result = await self._workflow("list_cashboxes", "finance-read-list", {})
+
+        self.assertTrue(result.structuredContent["ok"])
+        self.assertEqual("completed", result.structuredContent["status"])
+        completed = [
+            arguments
+            for name, arguments in self.manager_state["calls"]
+            if name == "workflow_transition"
+            and arguments["status"] == "completed"
+            and arguments["summary"] == "finance:list_cashboxes"
+        ]
+        ledger_verification = completed[-1]["verification"]
+        self.assertTrue(ledger_verification["read_only"])
+        self.assertTrue(ledger_verification["passed"])
+        self.assertNotIn("readback_present", ledger_verification)
+        self.assertNotIn("revision_guarded", ledger_verification)
+
     async def test_invoice_workflow_returns_transient_guard_and_hides_compact_binary(self) -> None:
         result = await self.server._tool_manager.get_tool("agent_document_workflow").run(
             {
