@@ -52,9 +52,9 @@
 
 - 000: deterministic browser/PDF preflight; после установки Poppler полный
   smoke прошёл 44/44 с первой попытки.
-- 001: после закрытия 007 текущие 35/35 size и 2/2 complexity ratchets имеют
-  exact caps, причины и одного owner; browser и `_make_handler` exemptions
-  закрыты и удалены.
+- 001: после закрытия 007 и MCP test-slice 003 текущие 34/34 size и 2/2
+  complexity ratchets имеют exact caps, причины и одного owner; browser,
+  `_make_handler` и module-level `test_mcp.py` exemptions закрыты и удалены.
 - 002: branch-inclusive baseline 78.82%, floor 78.50%, текущий integrated
   результат 79.36%; 13/13 global/critical floors проходят, covered suite
   заменяет plain unit run в CI.
@@ -100,7 +100,7 @@
 | 002 | P0 | [Добавить измеряемый coverage baseline](002-coverage-baseline.md) | **Выполнено локально; hosted CI после publish** | 001 |
 | 004 | P0 | [Сделать малый browser smoke обязательным](004-mandatory-core-browser-smoke.md) | **Выполнено локально; hosted CI после publish** | 000, 001 |
 | 006 | P0 | [Свести HTTP route metadata в один registry](006-unify-api-route-contracts.md) | **Выполнено 2026-08-23** | 001 |
-| 003 | P1 | [Разрезать монолитные test modules и fixtures](003-split-test-suites.md) | Ускорить TDD; выполнять независимыми доменными срезами | 001 |
+| 003 | P1 | [Разрезать монолитные test modules и fixtures](003-split-test-suites.md) | **MCP registration/payload slice выполнен локально; остальные срезы — по production-задачам** | 001 |
 | 005 | P1 | [Разрезать web asset source по доменам](005-split-board-web-assets.md) | Убрать 20.2k-строчный god-script без смены frontend stack | 004; свой test-slice из 003 |
 | 007 | P1 | [Разделить HTTP request handler](007-split-api-request-handler.md) | **Выполнено 2026-08-25** | 006 |
 | 008 | P1 | [Разрезать MCP tool registration по доменам](008-split-mcp-tool-registration.md) | Уменьшить 3 623-строчный create_mcp_server | 001; свой test-slice из 003 |

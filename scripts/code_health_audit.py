@@ -18,7 +18,7 @@ MAX_PY_MODULE_LINES = 2500
 MAX_TEST_MODULE_LINES = 3000
 MAX_CLASS_LINES = 2500
 MAX_FUNCTION_LINES = 450
-EXPECTED_SIZE_EXEMPTION_COUNT = 35
+EXPECTED_SIZE_EXEMPTION_COUNT = 34
 
 
 @dataclass(frozen=True)
@@ -81,9 +81,6 @@ ALLOWED_LARGE_MODULES = {
     ),
     "tests/test_api.py": RatchetBudget(
         "legacy broad API coverage pending route split", 7692, 7692, "003"
-    ),
-    "tests/test_mcp.py": RatchetBudget(
-        "legacy broad MCP coverage pending contract split", 3264, 3264, "003"
     ),
     "tests/test_agent_gateway_v2.py": RatchetBudget(
         "Gateway contract coverage pending family split", 4447, 4447, "003"
@@ -152,7 +149,7 @@ ALLOWED_LARGE_FUNCTIONS = {
         "bounded data-only built-in print template factory", 1164, 1164, "001"
     ),
     "tests/test_mcp.py:McpServerBackendTests.test_mcp_tools_reach_backend": RatchetBudget(
-        "MCP contract test split target", 1229, 1229, "003"
+        "MCP backend test split target", 1169, 1169, "003"
     ),
 }
 

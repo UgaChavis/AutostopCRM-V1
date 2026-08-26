@@ -64,6 +64,9 @@ class FakeBoardApi:
 
 class McpServerHardeningTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
+        self.manager_patch = patch("minimal_kanban.mcp.server._try_register_autostop_manager_tools")
+        self.manager_patch.start()
+        self.addCleanup(self.manager_patch.stop)
         self.board_api = FakeBoardApi()
         self.server = create_mcp_server(
             self.board_api,

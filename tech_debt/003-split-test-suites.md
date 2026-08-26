@@ -4,7 +4,7 @@
 Этап: 1
 Оценка: 4–6 дней суммарно, независимыми доменными срезами
 Риск реализации: низкий
-Статус: ready
+Статус: in progress — MCP registration/payload slice выполнен локально 2026-08-26
 
 ## Результат
 
@@ -17,9 +17,51 @@
 - `tests/test_api.py` — 7 692 строки плюс отдельный auth class.
 - `tests/test_web_assets.py` — 5 963 строки, один `WebAssetsTests`.
 - `tests/test_agent_gateway_v2.py` — 4 447 строк, один большой async class.
-- `tests/test_mcp.py` — 3 264 строки.
+- `tests/test_mcp.py` — 3 264 строки до первого среза; сейчас 2 913 строк,
+  module exemption удалён, а лимит оставшегося end-to-end backend test снижен
+  с 1 229 до текущих 1 169 строк без запаса.
 - Полный suite занимает 333 s; текущий health audit бессрочно исключает эти
   files/classes из size budget.
+
+## Выполненный MCP registration/payload slice (2026-08-26)
+
+- До переноса `tests.test_mcp` выполнял 37 тестов без skip за 62.307 s.
+- Семь существующих test methods механически перенесены в
+  `test_mcp_registration_contracts.py` и `test_mcp_payload_contracts.py`;
+  payload data, aliases, assertions и production API не менялись.
+- Добавлен один временный characterization test полного builtin/raw MCP
+  registry до public whitelist: 98 tool names, 98 уникальных попыток
+  регистрации и точный canonical hash
+  `c7c68b2b73880c7a8d958b6596b7e2d61e37ebd11570ec782ee684355de2fa5d`
+  по input/output schemas и annotations. Отдельная проверка попыток нужна,
+  потому что FastMCP при повторном имени оставляет первый tool без ошибки.
+- Этот snapshot страхует только механический рефакторинг 008 и не создаёт
+  второй production manifest: внешний Gateway surface остаётся ровно 24 tools,
+  а raw name set по-прежнему берётся из `PUBLIC_MCP_TOOL_NAMES`.
+- Registry snapshot изолирован от optional manager tools и feature flags:
+  development environment, OAuth и шесть Gateway switches явно выключены;
+  active Manager dependency set и annotations проверяются отдельным контрактом
+  с fake registrar. Server fixtures также подменяют optional sibling hook,
+  поэтому результат не зависит от версии соседнего AutostopManager checkout.
+- Registration/payload modules выполняют 8/8 тестов без skip. Discovery по
+  `test_mcp*.py` находит и выполняет 136 тестов без skip за 60.803 s: потерь и
+  скрытых duplicate names нет.
+- Полный suite после rebase на актуальный upstream: 1 959 тестов, 34 штатных
+  Windows skip, 373.959 s, `OK`. Снижение на семь тестов относительно ранее
+  зафиксированных 1 966 объясняется upstream cleanup: 12 устаревших Gateway и
+  deploy contract methods заменены пятью актуальными, а не потеряны при этом
+  механическом переносе.
+- Большой end-to-end `test_mcp_tools_reach_backend` сохранён: он по-прежнему
+  проверяет protocol `list_tools` и реальные backend calls. Его function
+  ratchet остаётся активным до следующих backend/transport/runtime срезов.
+- `code_health_audit.py --include-untracked --format text` проходит по 363
+  файлам: size 34/34, complexity 2/2.
+
+Focused-команды для этого среза:
+
+`python -m unittest tests.test_mcp_registration_contracts tests.test_mcp_payload_contracts -v`
+
+`python -m unittest discover -s tests -p "test_mcp*.py" -v`
 
 ## Scope и независимые deliverables
 
@@ -37,7 +79,8 @@
 4. Web slice — разнести `test_web_assets.py` по UI-доменам.
 5. Gateway slice — разнести Gateway tests:
    public surface, workflows, raw escape, Store, OAuth/audit actor.
-6. MCP slice — разнести `test_mcp.py` по payload/schema/backend/transport/runtime.
+6. MCP slice — registration/payload выполнены; далее разнести оставшийся
+   `test_mcp.py` по backend/transport/runtime только по мере нужды production-задач.
 7. Удалять allowlist entry сразу после каждого файла, не в финальном mega
    commit.
 

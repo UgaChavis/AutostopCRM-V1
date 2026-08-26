@@ -10,18 +10,18 @@
 
 - Все исходные 39 size-exemptions преобразованы в `RatchetBudget` с reason,
   baseline, `max_allowed` без headroom и одним `owner_task`.
-- После закрытия 004 три browser exemptions удалены; текущий gate содержит
-  36/36 size-ratchets и 3/3 complexity-ratchets. После закрытия 007 удалены
-  size и complexity ratchets `_make_handler`; текущий gate содержит 35/35 и
-  2/2 соответственно.
+- После закрытия 004 три browser exemptions удалены; gate содержал 36/36
+  size-ratchets и 3/3 complexity-ratchets. После закрытия 007 удалены size и
+  complexity ratchets `_make_handler`, а после MCP-среза 003 — module ratchet
+  `tests/test_mcp.py`; текущий gate содержит 34/34 и 2/2 соответственно.
 - Owner IDs проверяются против единственного `tech_debt/<id>-*.md`; missing,
   duplicate и некорректные mappings валят audit.
 - Text/JSON отчёты детерминированно показывают current/max/delta/present.
 - Текущие exact complexity caps: Gateway executor 72 и `update_card` 29.
   `_make_handler` сокращён до 127 строк и больше не требует exemption.
 - Synthetic growth/shrink/config/missing-target tests и полный
-  `tests.test_code_health_audit`: 18/18 `OK`; include-untracked audit:
-  360 файлов, 0 issues.
+  `tests.test_code_health_audit`: 18/18 `OK`; include-untracked audit после
+  MCP-среза 003 и синхронизации с upstream: 363 файла, 0 issues.
 
 ## Результат
 
@@ -33,7 +33,7 @@ grandfathered module/class/function получает измеряемый пот
 
 `scripts/code_health_audit.py` сейчас содержит:
 
-- 16 `ALLOWED_LARGE_MODULES`;
+- 15 `ALLOWED_LARGE_MODULES`;
 - 10 `ALLOWED_LARGE_CLASSES`;
 - 9 `ALLOWED_LARGE_FUNCTIONS`.
 
@@ -72,7 +72,8 @@ grandfathered module/class/function получает измеряемый пот
 | module `mcp/server.py` | 008 | registry split, удалить |
 | module `printing/service.py` | 014 | components split, удалить |
 | module `printing/web_module.py` | 021 | embedded asset split, удалить |
-| modules `tests/test_service.py`, `test_api.py`, `test_mcp.py`, `test_agent_gateway_v2.py`, `test_web_assets.py` | 003 | пять независимых test-slices, удалить |
+| modules `tests/test_service.py`, `test_api.py`, `test_agent_gateway_v2.py`, `test_web_assets.py` | 003 | четыре независимых test-slices, удалить |
+| module `tests/test_mcp.py` | 003 | **удалено 2026-08-25** после MCP registration/payload slice |
 | classes `PrintModuleService` | 014 | thin facade cap |
 | `CardService` | 012 | снижать cap в 010/011; остаток закрывает 012 |
 | `CardServicePayrollMixin` | 013 | удалить/снизить до facade cap |
@@ -92,7 +93,7 @@ grandfathered module/class/function получает измеряемый пот
 | function `test_mcp:test_mcp_tools_reach_backend` | 003 | MCP test-slice, удалить |
 
 Составные строки сохраняют исходную карту владельцев; итоговая машинная
-проверка сейчас считает ровно 37 активных owner mappings. Две
+проверка сейчас считает ровно 36 активных owner mappings. Две
 data-only фабрики не дробятся без доказанной боли: для них результат задачи —
 жёсткий текущий cap, а не новый abstraction layer.
 
@@ -126,7 +127,7 @@ data-only фабрики не дробятся без доказанной бо�
 
 - Рост любого текущего allowed hotspot сверх потолка валит audit.
 - Сокращение не требует обновлять baseline вверх.
-- Все 37 текущих exemption имеют owner task из `tech_debt/`.
+- Все 36 текущих exemption имеют owner task из `tech_debt/`.
 - `code_health_audit.py --format text/json` проходит.
 - Docs audit и focused tests проходят.
 

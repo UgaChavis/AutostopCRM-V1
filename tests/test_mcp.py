@@ -88,14 +88,9 @@ if str(SRC) not in sys.path:
 from minimal_kanban.api.server import ApiServer
 from minimal_kanban.mcp.client import BoardApiClient, BoardApiTransportError
 from minimal_kanban.mcp.runtime import McpRuntimeStartupError, McpServerRuntime
-from minimal_kanban.mcp.server import (
-    RepairOrderPatchPayload,
-    _normalize_tool_path_alias,
-    _resolved_create_card_deadline,
-    create_mcp_server,
-)
+from minimal_kanban.mcp.server import create_mcp_server
 from minimal_kanban.mcp.session_utils import managed_streamable_http_client
-from minimal_kanban.mcp.tool_registry import MCP_TOOL_GROUPS, PUBLIC_MCP_TOOL_NAMES
+from minimal_kanban.mcp.tool_registry import PUBLIC_MCP_TOOL_NAMES
 from minimal_kanban.services.card_service import CardService
 from minimal_kanban.storage.json_store import JsonStore
 
@@ -166,113 +161,6 @@ async def assert_uvicorn_logging_fallback(case) -> None:
     finally:
         if runtime is not None:
             runtime.stop()
-
-
-class McpRepairOrderPatchPayloadTests(unittest.TestCase):
-    def test_mcp_tool_group_registry_matches_public_snapshot(self) -> None:
-        grouped_names = [tool_name for group in MCP_TOOL_GROUPS.values() for tool_name in group]
-
-        self.assertEqual(len(grouped_names), len(set(grouped_names)))
-        self.assertEqual(set(PUBLIC_MCP_TOOL_NAMES), EXPECTED_MCP_TOOLS)
-        self.assertEqual(
-            set(MCP_TOOL_GROUPS),
-            {
-                "diagnostics_bootstrap",
-                "manager_operations",
-                "board_cards",
-                "clients",
-                "repair_orders",
-                "inventory",
-                "cashboxes",
-                "files",
-            },
-        )
-
-    def test_create_card_deadline_resolver_defaults_invalid_parts(self) -> None:
-        deadline = SimpleNamespace(
-            model_dump=lambda: {
-                "total_seconds": float("inf"),
-                "days": True,
-                "hours": "2.5",
-                "minutes": "",
-                "seconds": None,
-            }
-        )
-
-        self.assertEqual(
-            _resolved_create_card_deadline(deadline),
-            {"days": 1, "hours": 0, "minutes": 0, "seconds": 0},
-        )
-
-    def test_create_card_deadline_resolver_clamps_large_finite_parts(self) -> None:
-        deadline = SimpleNamespace(
-            model_dump=lambda: {
-                "total_seconds": 1e308,
-                "days": 1e308,
-                "hours": 1e308,
-                "minutes": 1e308,
-                "seconds": 1e308,
-            }
-        )
-
-        self.assertEqual(
-            _resolved_create_card_deadline(deadline),
-            {
-                "days": 365,
-                "hours": 23,
-                "minutes": 59,
-                "seconds": 59,
-                "total_seconds": 31_536_000,
-            },
-        )
-
-    def test_repair_order_patch_payload_keeps_api_fields_and_common_aliases(self) -> None:
-        payload = RepairOrderPatchPayload.model_validate(
-            {
-                "comment": "Комментарий для клиента",
-                "clientInformation": "История для клиента",
-                "master_comment": "Комментарий мастера",
-                "internalComment": "Внутренняя заметка",
-                "advancePayment": "500",
-                "payment_history": [{"amount": "500", "payment_method": "cash"}],
-                "licensePlate": "А123АА124",
-                "odometer": "120000",
-            }
-        )
-
-        self.assertEqual(
-            payload.model_dump(exclude_none=True),
-            {
-                "licensePlate": "А123АА124",
-                "odometer": "120000",
-                "advancePayment": "500",
-                "payment_history": [{"amount": "500", "payment_method": "cash"}],
-                "comment": "Комментарий для клиента",
-                "clientInformation": "История для клиента",
-                "master_comment": "Комментарий мастера",
-                "internalComment": "Внутренняя заметка",
-            },
-        )
-
-    def test_repair_order_patch_schema_exposes_natural_manager_fields(self) -> None:
-        properties = RepairOrderPatchPayload.model_json_schema()["properties"]
-
-        for field_name in (
-            "comment",
-            "client_information",
-            "clientInformation",
-            "note",
-            "master_comment",
-            "masterComment",
-            "internal_comment",
-            "internalComment",
-            "advance_payment",
-            "advancePayment",
-            "payment_history",
-            "licensePlate",
-            "odometer",
-        ):
-            self.assertIn(field_name, properties)
 
 
 def reserve_port() -> int:
@@ -365,6 +253,9 @@ async def open_mcp_session(url: str, *, http_client: httpx.AsyncClient | None = 
 
 class _McpServerFixtureMixin:
     def setUp(self) -> None:
+        self.manager_patch = patch("minimal_kanban.mcp.server._try_register_autostop_manager_tools")
+        self.manager_patch.start()
+        self.addCleanup(self.manager_patch.stop)
         self.temp_dir = tempfile.TemporaryDirectory()
         state_file = Path(self.temp_dir.name) / "state.json"
         self.oauth_state_file = Path(self.temp_dir.name) / "mcp-oauth-state.json"
@@ -440,16 +331,6 @@ class _McpServerFixtureMixin:
 
 
 class McpServerBackendTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTestCase):
-    def test_tool_path_alias_normalization_prefers_canonical_short_path(self) -> None:
-        self.assertEqual(
-            _normalize_tool_path_alias("/AutoStopCRM/link_abc123/bootstrap_context"),
-            "/AutoStopCRM/bootstrap_context",
-        )
-        self.assertEqual(
-            _normalize_tool_path_alias("/AutoStopCRM/get_runtime_status"),
-            "/AutoStopCRM/get_runtime_status",
-        )
-
     async def test_mcp_tools_reach_backend(self) -> None:
         async with create_test_mcp_http_client(
             headers={"Authorization": "Bearer mcp-secret"}
@@ -458,66 +339,7 @@ class McpServerBackendTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTest
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
                 self.assertTrue(EXPECTED_MCP_TOOLS.issubset(tool_names))
-                tool_map = {tool.name: tool for tool in tools.tools}
-                legacy_descriptions = [
-                    tool.name
-                    for tool in tools.tools
-                    if "Minimal Kanban" in str(tool.description or "")
-                ]
-                self.assertEqual([], legacy_descriptions)
-                self.assertTrue(tool_map["ping_connector"].annotations.readOnlyHint)
-                self.assertFalse(tool_map["ping_connector"].annotations.destructiveHint)
-                self.assertFalse(tool_map["get_runtime_status"].annotations.openWorldHint)
-                self.assertTrue(tool_map["get_runtime_status"].annotations.readOnlyHint)
-                self.assertFalse(tool_map["create_card"].annotations.readOnlyHint)
-                self.assertTrue(tool_map["delete_sticky"].annotations.destructiveHint)
-                self.assertIn("vehicle_profile_compact", tool_map["get_card"].description)
-                self.assertTrue(tool_map["read_card_attachment"].annotations.readOnlyHint)
-                self.assertTrue(tool_map["list_shared_files"].annotations.readOnlyHint)
-                self.assertFalse(tool_map["upload_shared_file"].annotations.readOnlyHint)
-                self.assertTrue(tool_map["delete_shared_file"].annotations.destructiveHint)
-                self.assertIn("hidden machine wall", tool_map["get_board_content"].description)
-                self.assertIn("Markdown", tool_map["get_board_content"].description)
-                self.assertIn("hidden machine wall", tool_map["get_board_events"].description)
-                self.assertTrue(tool_map["get_board_event_page"].annotations.readOnlyHint)
-                self.assertIn(
-                    "default event_limit is 100", tool_map["get_board_events"].description
-                )
-                update_schema = tool_map["update_repair_order"].inputSchema
-                repair_order_schema = update_schema["properties"]["repair_order"]
-                if "$ref" in repair_order_schema:
-                    definition_name = repair_order_schema["$ref"].rsplit("/", 1)[-1]
-                    repair_order_schema = update_schema["$defs"][definition_name]
-                repair_order_properties = repair_order_schema["properties"]
-                for field_name in (
-                    "comment",
-                    "clientInformation",
-                    "master_comment",
-                    "internalComment",
-                    "advancePayment",
-                    "paymentMethod",
-                    "licensePlate",
-                    "odometer",
-                ):
-                    self.assertIn(field_name, repair_order_properties)
-                for tool_name in EXPECTED_MCP_TOOLS:
-                    description = str(tool_map[tool_name].description or "")
-                    self.assertIn("Scope: current AutoStop CRM board only.", description)
-                    self.assertNotIn("Do not use it for Trello, YouGile", description)
-                for tool_name in ("create_card", "update_card"):
-                    schema_json = json.dumps(
-                        tool_map[tool_name].inputSchema,
-                        ensure_ascii=False,
-                        separators=(",", ":"),
-                    )
-                    self.assertLess(len(schema_json.encode("utf-8")), 3000)
-                    vehicle_profile_schema = tool_map[tool_name].inputSchema["properties"][
-                        "vehicle_profile"
-                    ]
-                    self.assertNotIn("make_display", json.dumps(vehicle_profile_schema))
-                    self.assertIn("additionalProperties", vehicle_profile_schema["anyOf"][0])
-                self.assertNotIn("autofill_vehicle_data", tool_map)
-                self.assertNotIn("autofill_repair_order", tool_map)
+                self.assertEqual(len(EXPECTED_MCP_TOOLS), 98)
 
                 ping = await session.call_tool("ping_connector", {})
                 self.assertFalse(ping.isError)

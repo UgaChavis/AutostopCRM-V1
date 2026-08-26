@@ -301,6 +301,7 @@ Local:
 .\scripts\run_mcp_server.ps1
 .\.venv\Scripts\python.exe scripts\crm_capability_parity.py --require-complete
 .\.venv\Scripts\python.exe scripts\crm_change_feed_producer_parity.py --require-complete
+.\.venv\Scripts\python.exe -m unittest tests.test_mcp_registration_contracts tests.test_mcp_payload_contracts -v
 .\.venv\Scripts\python.exe -m unittest tests.test_mcp tests.test_mcp_main tests.test_agent_gateway_v2 -v
 .\.venv\Scripts\python.exe scripts\check_agent_gateway_v2.py --mcp-url http://127.0.0.1:41831/mcp --exhaustive
 ```
