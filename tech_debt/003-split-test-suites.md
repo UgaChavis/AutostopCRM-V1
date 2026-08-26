@@ -4,7 +4,7 @@
 Этап: 1
 Оценка: 4–6 дней суммарно, независимыми доменными срезами
 Риск реализации: низкий
-Статус: in progress — MCP registration/payload/diagnostics/board-read slice выполнен локально 2026-08-26
+Статус: in progress — MCP registration/payload/diagnostics/board-read slice опубликован и подтверждён hosted CI 2026-08-26
 
 ## Результат
 
@@ -59,6 +59,8 @@
   ratchet остаётся активным до следующих backend/transport/runtime срезов.
 - `code_health_audit.py --include-untracked --format text` проходит по 368
   файлам: size 34/34, complexity 2/2.
+- Core board-read slice опубликован коммитом `6c5c127`; GitHub Actions quality
+  run `32979510635` полностью прошёл на неизменённом SHA.
 
 Focused-команды для этого среза:
 

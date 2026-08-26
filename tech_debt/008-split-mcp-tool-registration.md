@@ -4,7 +4,7 @@
 Этап: 1
 Оценка: 5–8 дней
 Риск реализации: средний
-Статус: in progress — payload и два read-only registrars выполнены локально 2026-08-26
+Статус: in progress — payload и два read-only registrars опубликованы и подтверждены hosted CI 2026-08-26
 
 ## Результат
 
@@ -72,6 +72,8 @@ Production surface по-прежнему ровно 24 Gateway tools.
   `create_mcp_server` 3 561 → 3 492; functions 145 → 141, complexity 208 → 204.
 - Combined focused suite: 26/26 `OK`; MCP-family: 141/141 `OK` за 60.615 s;
   repository suite: 1 965 тестов, 34 штатных Windows skip, 369.278 s, `OK`.
+- Core board-read slice опубликован коммитом `6c5c127`; GitHub Actions quality
+  run `32979510635` полностью прошёл на неизменённом SHA.
 
 ## Минимальная архитектура
 
