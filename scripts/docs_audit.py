@@ -38,6 +38,11 @@ CRM_DOCUMENTATION_MANIFESTS = (
     "requirements-runtime.txt",
 )
 
+CRM_MCP_RAW_TOOL_SOURCE_PATHS = (
+    "src/minimal_kanban/mcp/server.py",
+    "src/minimal_kanban/mcp/connector_diagnostics.py",
+)
+
 DOCUMENTATION_SUFFIXES = (".md", ".txt", ".rst", ".adoc")
 
 ACTIVE_DOC_GLOBS = ("tech_debt/*.md",)
@@ -1241,17 +1246,27 @@ def _check_required(paths: tuple[str, ...], root: Path, label: str) -> list[Issu
 def _check_crm_mcp_surface(root: Path) -> list[Issue]:
     issues: list[Issue] = []
     registry_tools = load_crm_registry_tools(root)
-    server_tools = extract_decorated_tool_names(
-        root / "src" / "minimal_kanban" / "mcp" / "server.py"
-    )
+    implementation_tools: set[str] = set()
+    for relative_path in CRM_MCP_RAW_TOOL_SOURCE_PATHS:
+        source_path = root / relative_path
+        if not source_path.exists():
+            issues.append(
+                Issue(
+                    "missing_crm_mcp_source",
+                    relative_path,
+                    "raw MCP tool implementation source missing",
+                )
+            )
+            continue
+        implementation_tools.update(extract_decorated_tool_names(source_path))
 
-    if registry_tools != server_tools:
-        missing = sorted(registry_tools - server_tools)
-        unexpected = sorted(server_tools - registry_tools)
+    if registry_tools != implementation_tools:
+        missing = sorted(registry_tools - implementation_tools)
+        unexpected = sorted(implementation_tools - registry_tools)
         issues.append(
             Issue(
                 "crm_mcp_registry_mismatch",
-                "src/minimal_kanban/mcp/server.py",
+                "src/minimal_kanban/mcp",
                 f"missing={missing}; unexpected={unexpected}",
             )
         )

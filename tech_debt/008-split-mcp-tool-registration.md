@@ -4,7 +4,7 @@
 Этап: 1
 Оценка: 5–8 дней
 Риск реализации: средний
-Статус: in progress — payload slice выполнен 2026-08-26; registrar slices впереди
+Статус: in progress — payload и первый diagnostics registrar выполнены 2026-08-26
 
 ## Результат
 
@@ -15,9 +15,9 @@ Production surface по-прежнему ровно 24 Gateway tools.
 ## Доказательства
 
 - До первого среза `mcp/server.py` содержал 4 322 строки и 151 function;
-  после синхронизации с upstream и payload extraction — 4 046 строк и 148
-  functions.
-- `create_mcp_server` — 3 623 строки, complexity 211.
+  после payload extraction и первого registrar — 3 988 строк и 145 functions.
+- `create_mcp_server` сокращён с 3 623 до 3 561 строки; branch complexity
+  снизилась с 211 до 208.
 - `tool_registry.py` уже группирует raw tools по 8 доменам / десяткам names,
   но регистрации всё ещё находятся в одном lexical scope.
 - Файл входит в top churn hotspots.
@@ -38,6 +38,26 @@ Production surface по-прежнему ровно 24 Gateway tools.
   137/137 `OK`; полный repository suite: 1 960 тестов, 34 штатных Windows skip,
   388.759 s, `OK`.
 
+## Выполненный connector diagnostics slice (2026-08-26)
+
+- `get_connector_identity`, `ping_connector` и `get_runtime_status` перенесены
+  в 123-строчный `mcp/connector_diagnostics.py`; `bootstrap_context`, OAuth,
+  transport и общие relay helpers остались в `server.py`.
+- Registrar получает frozen/slots context только с используемыми identity,
+  formatting и relay dependencies и возвращает canonical
+  `DIAGNOSTIC_TOOL_NAMES`; новый focused execution/description contract
+  выполняет 2/2 теста.
+- Exact snapshot 98 builtin/raw names, schemas и annotations сохранил прежний
+  hash; production master-switch по-прежнему оставляет ровно три diagnostics,
+  а Gateway runtime wrapper продолжает использовать CRM status tool.
+- Exact ratchets без headroom снижены: `mcp/server.py` 4 046 → 3 988,
+  `create_mcp_server` 3 623 → 3 561. Следующий registrar не должен расширять
+  diagnostics context; при новых shared dependencies сначала выделить общий
+  response support.
+- Combined focused registration/payload/diagnostics/hardening suite: 24/24
+  `OK` за 5.576 s; полный MCP-family: 139/139 `OK` за 65.193 s; repository
+  suite: 1 963 теста, 34 штатных Windows skip, 382.076 s, `OK`.
+
 ## Минимальная архитектура
 
 - `McpRegistrationContext`: client, server, logger, limits, shared helpers.
@@ -51,11 +71,12 @@ Production surface по-прежнему ровно 24 Gateway tools.
 
 1. **Выполнено:** test exact raw tool names/schemas/annotations.
 2. **Выполнено:** вынести payload models.
-3. Вынести read-only family.
-4. Вынести один write family с exact backend tests.
-5. Повторить по доменам.
-6. Оставить transport/OAuth bootstrap в `server.py`.
-7. Удалить large-function/module exemptions, когда budgets достигнуты.
+3. **Выполнено:** вынести permanent connector diagnostics read-only family.
+4. Вынести следующий read-only board family.
+5. Вынести один write family с exact backend tests.
+6. Повторить по доменам.
+7. Оставить transport/OAuth bootstrap в `server.py`.
+8. Удалить large-function/module exemptions, когда budgets достигнуты.
 
 ## TDD-план
 
@@ -86,7 +107,7 @@ Production surface по-прежнему ровно 24 Gateway tools.
 
 ## Проверки
 
-`python -m unittest tests.test_mcp_registration_contracts tests.test_mcp_payload_contracts -v`
+`python -m unittest tests.test_mcp_registration_contracts tests.test_mcp_payload_contracts tests.test_mcp_connector_diagnostics -v`
 `python -m unittest tests.test_mcp tests.test_mcp_main tests.test_mcp_server_hardening -v`
 `python scripts/check_agent_gateway_v2.py --mcp-url http://127.0.0.1:41831/mcp --exhaustive`
 `python scripts/crm_capability_parity.py --require-complete`

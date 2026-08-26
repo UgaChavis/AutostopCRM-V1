@@ -39,6 +39,10 @@ from .agent_gateway_support import MANAGER_GATEWAY_DEPENDENCY_NAMES
 from .agent_gateway_v2 import register_agent_gateway_v2
 from .auth import StaticBearerTokenVerifier, build_auth_settings
 from .client import BoardApiClient, BoardApiTransportError
+from .connector_diagnostics import (
+    ConnectorDiagnosticsContext,
+    register_connector_diagnostics,
+)
 from .oauth_provider import (
     DEFAULT_KANBAN_SCOPES,
     OAUTH_CONSENT_PATH,
@@ -1330,56 +1334,22 @@ def create_mcp_server(
         )
         return "\n".join(lines) + "\n"
 
-    @server.tool(
-        name="get_connector_identity",
-        description=_scoped_description(
-            "Return the hard identity of this MCP connector: name, resource_url, auth mode, and the rule that it manages only the current AutoStop CRM board."
+    register_connector_diagnostics(
+        server,
+        ConnectorDiagnosticsContext(
+            connector_identity=connector_identity,
+            schema_version=CONNECTOR_SCHEMA_VERSION,
+            scoped_description=_scoped_description,
+            read_tool_annotations=_read_tool_annotations,
+            canonical_tool_path=_canonical_tool_path,
+            timed_meta=_timed_meta,
+            relay_data=_relay_data,
+            relay_identity_data=_relay_identity_data,
+            identity_text=_identity_text,
+            runtime_status_payload=_runtime_status_payload,
+            runtime_status_text=_runtime_status_text,
         ),
-        annotations=_read_tool_annotations("Connector Identity"),
-        structured_output=True,
     )
-    def get_connector_identity() -> ConnectorIdentityEnvelope:
-        started_at = perf_counter()
-        return _relay_identity_data(
-            {
-                "identity": dict(connector_identity),
-                "text": _identity_text(),
-            },
-            meta=_timed_meta(
-                "get_connector_identity",
-                started_at,
-                meta={"response_mode": "identity"},
-            ),
-        )
-
-    @server.tool(
-        name="ping_connector",
-        description=_scoped_description(
-            "Return the lightest possible connector ping. Use this first when you need to verify that ChatGPT can execute any AutoStop CRM MCP tool at all."
-        ),
-        annotations=_read_tool_annotations("Connector Ping"),
-        structured_output=True,
-    )
-    def ping_connector() -> JsonEnvelope:
-        started_at = perf_counter()
-        return _relay_data(
-            "ping_connector",
-            {
-                "connector_name": connector_identity["connector_name"],
-                "resource_url": connector_identity["resource_url"],
-                "board_scope": connector_identity["board_scope"],
-                "message": "pong",
-                "schema_version": CONNECTOR_SCHEMA_VERSION,
-                "text": (
-                    "[CONNECTOR PING]\n"
-                    f"connector_name: {connector_identity['connector_name']}\n"
-                    f"resource_url: {connector_identity['resource_url']}\n"
-                    f"canonical_tool_path: {_canonical_tool_path('ping_connector')}\n"
-                    "message: pong\n"
-                ),
-            },
-            meta=_timed_meta("ping_connector", started_at, meta={"response_mode": "ping"}),
-        )
 
     @server.tool(
         name="bootstrap_context",
@@ -1491,34 +1461,6 @@ def create_mcp_server(
                     },
                     "response_mode": "compact_bootstrap" if compact else "summary_bootstrap",
                 },
-            ),
-        )
-
-    @server.tool(
-        name="get_runtime_status",
-        description=_scoped_description(
-            "Return runtime diagnostics for this connector: effective MCP identity, board API health, board counts, and whether the endpoint is publicly reachable in principle."
-        ),
-        annotations=_read_tool_annotations("Runtime Status"),
-        structured_output=True,
-    )
-    def get_runtime_status() -> JsonEnvelope:
-        started_at = perf_counter()
-        runtime_status = _runtime_status_payload()
-        return _relay_data(
-            "get_runtime_status",
-            {
-                "schema_version": CONNECTOR_SCHEMA_VERSION,
-                "runtime_status": runtime_status,
-                "canonical_tool_paths": {
-                    tool_name: _canonical_tool_path(tool_name)
-                    for tool_name in ("ping_connector", "bootstrap_context", "get_runtime_status")
-                },
-                "full_board_context_tool": "get_board_context",
-                "text": _runtime_status_text(runtime_status),
-            },
-            meta=_timed_meta(
-                "get_runtime_status", started_at, meta={"response_mode": "diagnostics"}
             ),
         )
 

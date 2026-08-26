@@ -32,6 +32,36 @@ class DocsAuditTests(unittest.TestCase):
 
         self.assertEqual([], issues)
 
+    def test_crm_mcp_surface_unions_server_and_registrar_sources(self) -> None:
+        module = load_docs_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            for relative_path, tool_name in (
+                ("src/minimal_kanban/mcp/server.py", "server_tool"),
+                (
+                    "src/minimal_kanban/mcp/connector_diagnostics.py",
+                    "diagnostic_tool",
+                ),
+            ):
+                source_path = temp_root / relative_path
+                source_path.parent.mkdir(parents=True, exist_ok=True)
+                source_path.write_text(
+                    '@server.tool(name="' + tool_name + '")\n'
+                    "def registered_tool():\n"
+                    "    return None\n",
+                    encoding="utf-8",
+                )
+
+            with patch.object(
+                module,
+                "load_crm_registry_tools",
+                return_value={"server_tool", "diagnostic_tool"},
+            ):
+                issues = module._check_crm_mcp_surface(temp_root)
+
+        self.assertEqual([], issues)
+
     def test_manager_audit_does_not_restore_intentionally_removed_legacy_maps(self) -> None:
         module = load_docs_audit_module()
 

@@ -94,9 +94,9 @@ reimplementing those rules.
 - `src/minimal_kanban/storage/json_store.py` — state normalization and
   persistence.
 - `src/minimal_kanban/mcp/server.py`, `mcp/payloads.py`,
-  `mcp/tool_registry.py`, and `mcp/agent_gateway_v2.py` — raw MCP
-  implementation, payload contracts, registry, and the production Gateway v2
-  surface.
+  `mcp/connector_diagnostics.py`, `mcp/tool_registry.py`, and
+  `mcp/agent_gateway_v2.py` — raw MCP orchestration, payload contracts,
+  permanent diagnostics, registry, and the production Gateway v2 surface.
 - [`scripts/crm_capability_parity.py`](scripts/crm_capability_parity.py) and its
   JSON manifest — machine-verifiable UI/backend/Gateway capability matrix,
   readback classes, test evidence, reviewed gaps, and human-session exemptions.

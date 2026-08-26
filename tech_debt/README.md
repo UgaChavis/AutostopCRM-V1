@@ -102,10 +102,10 @@
 | 002 | P0 | [Добавить измеряемый coverage baseline](002-coverage-baseline.md) | **Выполнено; hosted CI подтверждён 2026-08-26** | 001 |
 | 004 | P0 | [Сделать малый browser smoke обязательным](004-mandatory-core-browser-smoke.md) | **Выполнено; hosted CI подтверждён 2026-08-26** | 000, 001 |
 | 006 | P0 | [Свести HTTP route metadata в один registry](006-unify-api-route-contracts.md) | **Выполнено 2026-08-23** | 001 |
-| 003 | P1 | [Разрезать монолитные test modules и fixtures](003-split-test-suites.md) | **MCP registration/payload slice опубликован; остальные срезы — по production-задачам** | 001 |
+| 003 | P1 | [Разрезать монолитные test modules и fixtures](003-split-test-suites.md) | **MCP registration/payload/diagnostics slice опубликован; остальные срезы — по production-задачам** | 001 |
 | 005 | P1 | [Разрезать web asset source по доменам](005-split-board-web-assets.md) | Убрать 20.2k-строчный god-script без смены frontend stack | 004; свой test-slice из 003 |
 | 007 | P1 | [Разделить HTTP request handler](007-split-api-request-handler.md) | **Выполнено 2026-08-25** | 006 |
-| 008 | P1 | [Разрезать MCP tool registration по доменам](008-split-mcp-tool-registration.md) | **Payload models вынесены; следующий срез — read-only registrar** | 001; свой test-slice из 003 |
+| 008 | P1 | [Разрезать MCP tool registration по доменам](008-split-mcp-tool-registration.md) | **Payload и permanent diagnostics вынесены; следующий срез — board reads** | 001; свой test-slice из 003 |
 | 009 | P1 | [Разделить Gateway workflow executor](009-split-gateway-workflow-executor.md) | Изолировать security/idempotency/readback правила hot path | 001, 008; coverage 002 параллельно |
 | 010 | P1 | [Вынести attachment/file I/O из CardService](010-extract-card-attachments.md) | Самый безопасный крупный срез god-service | 001; свой test-slice из 003 |
 | 011 | P1 | [Вынести manager operations из CardService](011-extract-manager-service.md) | Отделить активные manager flows от core CRM | 001; свой test-slice из 003 |
