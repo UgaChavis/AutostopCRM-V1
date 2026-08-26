@@ -4,6 +4,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -227,7 +228,13 @@ class ToolPolicyEngineTests(unittest.TestCase):
         executor = AgentToolExecutor(_FakeBoardApi())
         tool_names = {definition.name for definition in executor.definitions}
         self.assertNotIn("autofill_repair_order", tool_names)
-        payload = executor.execute("DECODE_VIN", {"vin": "WBAPF71060A798127"})
+        with patch.object(
+            executor._automotive,
+            "decode_vin",
+            return_value={"vin": "WBAPF71060A798127"},
+        ) as decode_vin:
+            payload = executor.execute("DECODE_VIN", {"vin": "WBAPF71060A798127"})
+        decode_vin.assert_called_once_with("WBAPF71060A798127")
         self.assertEqual(payload["vin"], "WBAPF71060A798127")
 
     def test_agent_tool_executor_exports_repair_order_pdf(self) -> None:
