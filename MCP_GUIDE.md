@@ -10,6 +10,8 @@ MCP client -> MCP adapter -> local HTTP API -> domain services -> JsonStore
 Source of truth:
 
 - `src/minimal_kanban/mcp/server.py` — raw tool implementations;
+- `src/minimal_kanban/mcp/payloads.py` — raw tool payload models and pure
+  payload normalization;
 - `src/minimal_kanban/mcp/tool_registry.py` — raw CRM registry;
 - `src/minimal_kanban/mcp/agent_gateway_v2.py` — production surface;
 - `scripts/check_agent_gateway_v2.py` — exact release contract;

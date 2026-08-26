@@ -4,7 +4,7 @@
 Этап: 1
 Оценка: 4–6 дней суммарно, независимыми доменными срезами
 Риск реализации: низкий
-Статус: in progress — MCP registration/payload slice выполнен локально 2026-08-26
+Статус: in progress — MCP registration/payload slice выполнен и опубликован 2026-08-26
 
 ## Результат
 
@@ -20,8 +20,8 @@
 - `tests/test_mcp.py` — 3 264 строки до первого среза; сейчас 2 913 строк,
   module exemption удалён, а лимит оставшегося end-to-end backend test снижен
   с 1 229 до текущих 1 169 строк без запаса.
-- Полный suite занимает 333 s; текущий health audit бессрочно исключает эти
-  files/classes из size budget.
+- На исходном baseline полный suite занимал 333 s; health audit бессрочно
+  исключал перечисленные files/classes из size budget.
 
 ## Выполненный MCP registration/payload slice (2026-08-26)
 
@@ -43,18 +43,18 @@
   active Manager dependency set и annotations проверяются отдельным контрактом
   с fake registrar. Server fixtures также подменяют optional sibling hook,
   поэтому результат не зависит от версии соседнего AutostopManager checkout.
-- Registration/payload modules выполняют 8/8 тестов без skip. Discovery по
-  `test_mcp*.py` находит и выполняет 136 тестов без skip за 60.803 s: потерь и
+- Registration/payload modules выполняют 9/9 тестов без skip. Discovery по
+  `test_mcp*.py` находит и выполняет 137 тестов без skip за 60.424 s: потерь и
   скрытых duplicate names нет.
-- Полный suite после rebase на актуальный upstream: 1 959 тестов, 34 штатных
-  Windows skip, 373.959 s, `OK`. Снижение на семь тестов относительно ранее
-  зафиксированных 1 966 объясняется upstream cleanup: 12 устаревших Gateway и
-  deploy contract methods заменены пятью актуальными, а не потеряны при этом
-  механическом переносе.
+- Полный suite после payload extraction: 1 960 тестов, 34 штатных Windows
+  skip, 388.759 s, `OK`. От предыдущего результата 1 959 добавлен ровно один
+  compatibility-export contract. Предшествующее снижение с 1 966 до 1 959
+  объяснялось upstream cleanup: 12 устаревших Gateway и deploy contract
+  methods заменили пять актуальных, а не потеряли при механическом переносе.
 - Большой end-to-end `test_mcp_tools_reach_backend` сохранён: он по-прежнему
   проверяет protocol `list_tools` и реальные backend calls. Его function
   ratchet остаётся активным до следующих backend/transport/runtime срезов.
-- `code_health_audit.py --include-untracked --format text` проходит по 363
+- `code_health_audit.py --include-untracked --format text` проходит по 364
   файлам: size 34/34, complexity 2/2.
 
 Focused-команды для этого среза:

@@ -4,7 +4,7 @@
 Этап: 1
 Оценка: 5–8 дней
 Риск реализации: средний
-Статус: ready после 001; coverage 002 и MCP test-slice 003 параллельно
+Статус: in progress — payload slice выполнен 2026-08-26; registrar slices впереди
 
 ## Результат
 
@@ -14,11 +14,29 @@ Production surface по-прежнему ровно 24 Gateway tools.
 
 ## Доказательства
 
-- `mcp/server.py` — 4 322 строки, 151 functions.
+- До первого среза `mcp/server.py` содержал 4 322 строки и 151 function;
+  после синхронизации с upstream и payload extraction — 4 046 строк и 148
+  functions.
 - `create_mcp_server` — 3 623 строки, complexity 211.
 - `tool_registry.py` уже группирует raw tools по 8 доменам / десяткам names,
   но регистрации всё ещё находятся в одном lexical scope.
 - Файл входит в top churn hotspots.
+
+## Выполненный payload slice (2026-08-26)
+
+- 13 Pydantic payload/envelope models, `McpInt` и pure deadline normalization
+  механически перенесены в `mcp/payloads.py` без изменения полей, defaults,
+  limits или validation.
+- Старые imports из `mcp.server` сохранены как compatibility re-exports и
+  проверяются отдельным тестом; новый модуль является каноническим владельцем.
+- Characterization snapshot по 98 builtin/raw tools сохранил тот же canonical
+  hash схем и annotations; production Gateway surface остаётся ровно 24 tools.
+- Module ratchet `mcp/server.py` снижен с 4 322 до текущих 4 046 строк без
+  headroom. `create_mcp_server` пока не уменьшился: его следующий безопасный
+  срез — один read-only registrar.
+- Focused payload/registration/hardening tests: 22/22 `OK`; полный MCP-family:
+  137/137 `OK`; полный repository suite: 1 960 тестов, 34 штатных Windows skip,
+  388.759 s, `OK`.
 
 ## Минимальная архитектура
 
@@ -31,8 +49,8 @@ Production surface по-прежнему ровно 24 Gateway tools.
 
 ## Порядок
 
-1. Test exact raw tool names/schemas/annotations.
-2. Вынести payload models.
+1. **Выполнено:** test exact raw tool names/schemas/annotations.
+2. **Выполнено:** вынести payload models.
 3. Вынести read-only family.
 4. Вынести один write family с exact backend tests.
 5. Повторить по доменам.

@@ -48,7 +48,7 @@
   Оставшиеся compatibility/migration пути нельзя удалять без runtime/data
   доказательств.
 
-## P0 выполнен локально 2026-08-23
+## P0 выполнен и опубликован; hosted CI подтверждён 2026-08-26
 
 - 000: deterministic browser/PDF preflight; после установки Poppler полный
   smoke прошёл 44/44 с первой попытки.
@@ -66,8 +66,10 @@
   audit 13/13; capability parity gaps=0; change-feed parity 100/100; Ruff,
   docs, code-health, localization, JavaScript и Stage-1 performance gates
   проходят без violations.
-- Изменения реализованы без production/deploy и без публикации. Hosted Ubuntu
-  workflow начнёт проверять новые gates после отдельного commit/push.
+- Опубликованный commit `6615143a` прошёл hosted Ubuntu workflow
+  `32935776774`: covered suite, coverage/code-health ratchets, core browser
+  smoke и Stage-1 performance gates зелёные. Production этим publish не
+  обновлялся.
 
 ## Общие правила выполнения
 
@@ -97,13 +99,13 @@
 |---|---|---|---|---|
 | 000 | P0 | [Починить preflight browser/PDF smoke](000-browser-smoke-preflight.md) | **Выполнено 2026-08-23** | — |
 | 001 | P0 | [Зафиксировать числовой maintainability ratchet](001-maintainability-ratchet.md) | **Выполнено 2026-08-23** | — |
-| 002 | P0 | [Добавить измеряемый coverage baseline](002-coverage-baseline.md) | **Выполнено локально; hosted CI после publish** | 001 |
-| 004 | P0 | [Сделать малый browser smoke обязательным](004-mandatory-core-browser-smoke.md) | **Выполнено локально; hosted CI после publish** | 000, 001 |
+| 002 | P0 | [Добавить измеряемый coverage baseline](002-coverage-baseline.md) | **Выполнено; hosted CI подтверждён 2026-08-26** | 001 |
+| 004 | P0 | [Сделать малый browser smoke обязательным](004-mandatory-core-browser-smoke.md) | **Выполнено; hosted CI подтверждён 2026-08-26** | 000, 001 |
 | 006 | P0 | [Свести HTTP route metadata в один registry](006-unify-api-route-contracts.md) | **Выполнено 2026-08-23** | 001 |
-| 003 | P1 | [Разрезать монолитные test modules и fixtures](003-split-test-suites.md) | **MCP registration/payload slice выполнен локально; остальные срезы — по production-задачам** | 001 |
+| 003 | P1 | [Разрезать монолитные test modules и fixtures](003-split-test-suites.md) | **MCP registration/payload slice опубликован; остальные срезы — по production-задачам** | 001 |
 | 005 | P1 | [Разрезать web asset source по доменам](005-split-board-web-assets.md) | Убрать 20.2k-строчный god-script без смены frontend stack | 004; свой test-slice из 003 |
 | 007 | P1 | [Разделить HTTP request handler](007-split-api-request-handler.md) | **Выполнено 2026-08-25** | 006 |
-| 008 | P1 | [Разрезать MCP tool registration по доменам](008-split-mcp-tool-registration.md) | Уменьшить 3 623-строчный create_mcp_server | 001; свой test-slice из 003 |
+| 008 | P1 | [Разрезать MCP tool registration по доменам](008-split-mcp-tool-registration.md) | **Payload models вынесены; следующий срез — read-only registrar** | 001; свой test-slice из 003 |
 | 009 | P1 | [Разделить Gateway workflow executor](009-split-gateway-workflow-executor.md) | Изолировать security/idempotency/readback правила hot path | 001, 008; coverage 002 параллельно |
 | 010 | P1 | [Вынести attachment/file I/O из CardService](010-extract-card-attachments.md) | Самый безопасный крупный срез god-service | 001; свой test-slice из 003 |
 | 011 | P1 | [Вынести manager operations из CardService](011-extract-manager-service.md) | Отделить активные manager flows от core CRM | 001; свой test-slice из 003 |

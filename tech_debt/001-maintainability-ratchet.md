@@ -4,7 +4,7 @@
 Этап: 1
 Оценка: 1–2 дня
 Риск реализации: низкий
-Статус: completed locally 2026-08-23
+Статус: completed; hosted CI confirmed 2026-08-26
 
 ## Реализация и доказательства (2026-08-23)
 
@@ -21,7 +21,7 @@
   `_make_handler` сокращён до 127 строк и больше не требует exemption.
 - Synthetic growth/shrink/config/missing-target tests и полный
   `tests.test_code_health_audit`: 18/18 `OK`; include-untracked audit после
-  MCP-среза 003 и синхронизации с upstream: 363 файла, 0 issues.
+  первого MCP-среза 008: 364 файла, 0 issues.
 
 ## Результат
 

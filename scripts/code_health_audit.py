@@ -68,7 +68,7 @@ ALLOWED_LARGE_MODULES = {
         "agent orchestration split target after the runtime keep decision", 5093, 5093, "206"
     ),
     "src/minimal_kanban/mcp/server.py": RatchetBudget(
-        "MCP registry split target", 4322, 4322, "008"
+        "MCP registry split target", 4046, 4046, "008"
     ),
     "src/minimal_kanban/printing/service.py": RatchetBudget(
         "print rendering workflow split target", 4229, 4229, "014"
