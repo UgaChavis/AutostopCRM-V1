@@ -43,6 +43,10 @@ class DocsAuditTests(unittest.TestCase):
                     "src/minimal_kanban/mcp/connector_diagnostics.py",
                     "diagnostic_tool",
                 ),
+                (
+                    "src/minimal_kanban/mcp/board_reads.py",
+                    "board_read_tool",
+                ),
             ):
                 source_path = temp_root / relative_path
                 source_path.parent.mkdir(parents=True, exist_ok=True)
@@ -56,7 +60,7 @@ class DocsAuditTests(unittest.TestCase):
             with patch.object(
                 module,
                 "load_crm_registry_tools",
-                return_value={"server_tool", "diagnostic_tool"},
+                return_value={"server_tool", "diagnostic_tool", "board_read_tool"},
             ):
                 issues = module._check_crm_mcp_surface(temp_root)
 

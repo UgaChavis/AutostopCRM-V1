@@ -41,6 +41,7 @@ CRM_DOCUMENTATION_MANIFESTS = (
 CRM_MCP_RAW_TOOL_SOURCE_PATHS = (
     "src/minimal_kanban/mcp/server.py",
     "src/minimal_kanban/mcp/connector_diagnostics.py",
+    "src/minimal_kanban/mcp/board_reads.py",
 )
 
 DOCUMENTATION_SUFFIXES = (".md", ".txt", ".rst", ".adoc")

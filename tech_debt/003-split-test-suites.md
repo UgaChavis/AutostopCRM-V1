@@ -4,7 +4,7 @@
 Этап: 1
 Оценка: 4–6 дней суммарно, независимыми доменными срезами
 Риск реализации: низкий
-Статус: in progress — MCP registration/payload/diagnostics slice выполнен 2026-08-26
+Статус: in progress — MCP registration/payload/diagnostics/board-read slice выполнен локально 2026-08-26
 
 ## Результат
 
@@ -23,14 +23,14 @@
 - На исходном baseline полный suite занимал 333 s; health audit бессрочно
   исключал перечисленные files/classes из size budget.
 
-## Выполненный MCP registration/payload/diagnostics slice (2026-08-26)
+## Выполненный MCP registration/payload/diagnostics/board-read slice (2026-08-26)
 
 - До переноса `tests.test_mcp` выполнял 37 тестов без skip за 62.307 s.
 - Семь существующих test methods механически перенесены в
   `test_mcp_registration_contracts.py` и `test_mcp_payload_contracts.py`;
-  payload data, aliases, assertions и production API не менялись. Для первого
-  registrar добавлены два focused contract/execution test в
-  `test_mcp_connector_diagnostics.py`.
+  payload data, aliases, assertions и production API не менялись. Для двух
+  read-only registrars добавлены по два focused contract/execution test в
+  `test_mcp_connector_diagnostics.py` и `test_mcp_board_reads.py`.
 - Добавлен один временный characterization test полного builtin/raw MCP
   registry до public whitelist: 98 tool names, 98 уникальных попыток
   регистрации и точный canonical hash
@@ -45,24 +45,24 @@
   active Manager dependency set и annotations проверяются отдельным контрактом
   с fake registrar. Server fixtures также подменяют optional sibling hook,
   поэтому результат не зависит от версии соседнего AutostopManager checkout.
-- Registration/payload/diagnostics modules выполняют 11/11 тестов без skip.
-  Discovery по `test_mcp*.py` находит и выполняет 139 тестов без skip за
-  65.193 s: потерь и скрытых duplicate names нет.
-- Полный suite после diagnostics extraction: 1 963 теста, 34 штатных Windows
-  skip, 382.076 s, `OK`. От результата payload slice 1 960 добавлены ровно два
-  focused diagnostics test и один regression test multi-source docs audit.
+- Registration/payload/diagnostics/board-read modules выполняют 13/13 тестов
+  без skip. Discovery по `test_mcp*.py` находит и выполняет 141 тест без skip
+  за 60.615 s: потерь и скрытых duplicate names нет.
+- Полный suite после core board-read extraction: 1 965 тестов, 34 штатных
+  Windows skip, 369.278 s, `OK`. От diagnostics slice 1 963 добавлены ровно два
+  focused board-read test; ранее payload/diagnostics дали ещё три контракта.
   Предшествующее снижение с 1 966 до 1 959 объяснялось upstream cleanup: 12
   устаревших Gateway и deploy contract methods заменили пять актуальных, а не
   потеряли при механическом переносе.
 - Большой end-to-end `test_mcp_tools_reach_backend` сохранён: он по-прежнему
   проверяет protocol `list_tools` и реальные backend calls. Его function
   ratchet остаётся активным до следующих backend/transport/runtime срезов.
-- `code_health_audit.py --include-untracked --format text` проходит по 366
+- `code_health_audit.py --include-untracked --format text` проходит по 368
   файлам: size 34/34, complexity 2/2.
 
 Focused-команды для этого среза:
 
-`python -m unittest tests.test_mcp_registration_contracts tests.test_mcp_payload_contracts tests.test_mcp_connector_diagnostics -v`
+`python -m unittest tests.test_mcp_registration_contracts tests.test_mcp_payload_contracts tests.test_mcp_connector_diagnostics tests.test_mcp_board_reads -v`
 
 `python -m unittest discover -s tests -p "test_mcp*.py" -v`
 
@@ -82,8 +82,9 @@ Focused-команды для этого среза:
 4. Web slice — разнести `test_web_assets.py` по UI-доменам.
 5. Gateway slice — разнести Gateway tests:
    public surface, workflows, raw escape, Store, OAuth/audit actor.
-6. MCP slice — registration/payload/diagnostics выполнены; далее разнести оставшийся
-   `test_mcp.py` по backend/transport/runtime только по мере нужды production-задач.
+6. MCP slice — registration/payload и tests двух read-only registrars выполнены;
+   далее разнести оставшийся `test_mcp.py` по backend/transport/runtime только
+   по мере нужды production-задач.
 7. Удалять allowlist entry сразу после каждого файла, не в финальном mega
    commit.
 

@@ -15,6 +15,7 @@ Source of truth:
   payload normalization;
 - `src/minimal_kanban/mcp/connector_diagnostics.py` — permanent connector
   diagnostics registrar;
+- `src/minimal_kanban/mcp/board_reads.py` — core board-read registrar;
 - `src/minimal_kanban/mcp/tool_registry.py` — raw CRM registry;
 - `src/minimal_kanban/mcp/agent_gateway_v2.py` — production surface;
 - `scripts/check_agent_gateway_v2.py` — exact release contract;

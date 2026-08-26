@@ -21,7 +21,7 @@
   `_make_handler` сокращён до 127 строк и больше не требует exemption.
 - Synthetic growth/shrink/config/missing-target tests и полный
   `tests.test_code_health_audit`: 18/18 `OK`; include-untracked audit после
-  payload и diagnostics-срезов 008: 366 файлов, 0 issues.
+  payload, diagnostics и core board-read срезов 008: 368 файлов, 0 issues.
 
 ## Результат
 

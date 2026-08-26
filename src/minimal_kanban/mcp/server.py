@@ -38,6 +38,7 @@ from . import payloads as _payloads
 from .agent_gateway_support import MANAGER_GATEWAY_DEPENDENCY_NAMES
 from .agent_gateway_v2 import register_agent_gateway_v2
 from .auth import StaticBearerTokenVerifier, build_auth_settings
+from .board_reads import BoardReadContext, register_board_reads
 from .client import BoardApiClient, BoardApiTransportError
 from .connector_diagnostics import (
     ConnectorDiagnosticsContext,
@@ -1464,14 +1465,18 @@ def create_mcp_server(
             ),
         )
 
-    @server.tool(
-        name="list_columns",
-        description=_scoped_description("List all columns of the current AutoStop CRM board."),
-        annotations=_read_tool_annotations("List Columns"),
-        structured_output=True,
+    register_board_reads(
+        server,
+        BoardReadContext(
+            board_api=board_api,
+            scoped_description=_scoped_description,
+            read_tool_annotations=_read_tool_annotations,
+            relay_board_call=_relay_board_call,
+            with_cards_list_meta=_with_cards_list_meta,
+            normalize_limit=_normalize_limit,
+            with_data_meta=_with_data_meta,
+        ),
     )
-    def list_columns() -> JsonEnvelope:
-        return _relay_board_call("list_columns", board_api.list_columns)
 
     @server.tool(
         name="create_column",
@@ -1543,39 +1548,6 @@ def create_mcp_server(
                 text=text, x=x, y=y, deadline=deadline.model_dump(), actor_name=actor_name
             ),
         )
-
-    @server.tool(
-        name="get_cards",
-        description=_scoped_description(
-            "Return cards from the current AutoStop CRM board. Archived cards are excluded by default. "
-            "Use compact=true for board scans with lighter payloads; set compact=false when full vehicle_profile, repair_order, attachments, and ai_autofill_log are needed."
-        ),
-        annotations=_read_tool_annotations("List Cards"),
-        structured_output=True,
-    )
-    def get_cards(include_archived: bool = False, compact: bool = True) -> JsonEnvelope:
-        return _relay_board_call(
-            "get_cards",
-            lambda: board_api.get_cards(include_archived=include_archived, compact=compact),
-            params={"include_archived": include_archived, "compact": compact},
-            transform=lambda response: _with_cards_list_meta(
-                response,
-                include_archived=include_archived,
-                compact=compact,
-                response_mode="list",
-            ),
-        )
-
-    @server.tool(
-        name="get_card",
-        description=_scoped_description(
-            "Return one card by card_id from the current AutoStop CRM board, including the full vehicle_profile and the compact vehicle_profile_compact used by the 1.1 card layout."
-        ),
-        annotations=_read_tool_annotations("Get Card"),
-        structured_output=True,
-    )
-    def get_card(card_id: str) -> JsonEnvelope:
-        return _relay_board_call("get_card", lambda: board_api.get_card(card_id))
 
     @server.tool(
         name="list_card_attachments",
@@ -1841,46 +1813,6 @@ def create_mcp_server(
                     "event_limit": effective_event_limit,
                     "include_repair_order_text": include_repair_order_text,
                 },
-            ),
-        )
-
-    @server.tool(
-        name="get_board_snapshot",
-        description=_scoped_description(
-            "Return a structured snapshot of the current AutoStop CRM board: columns, active cards, archived tail, stickies, and settings. "
-            "Cards in the snapshot include vehicle_profile_compact for the 1.1 vehicle card view. "
-            "Use compact=true for lighter GPT scans and include_archive=false when the archived tail is not needed."
-        ),
-        annotations=_read_tool_annotations("Board Snapshot"),
-        structured_output=True,
-    )
-    def get_board_snapshot(
-        archive_limit: McpInt = 10,
-        compact: bool = False,
-        include_archive: bool = True,
-    ) -> JsonEnvelope:
-        effective_archive_limit = (
-            _normalize_limit(archive_limit, default=30, maximum=50) if include_archive else 0
-        )
-        return _relay_board_call(
-            "get_board_snapshot",
-            lambda: board_api.get_board_snapshot(
-                archive_limit=effective_archive_limit,
-                compact=compact,
-                include_archive=include_archive,
-            ),
-            params={
-                "archive_limit": effective_archive_limit,
-                "compact": compact,
-                "include_archive": include_archive,
-            },
-            transform=lambda response: _with_data_meta(
-                response,
-                response_mode="snapshot",
-                view_mode="compact" if compact else "full",
-                archive_limit=effective_archive_limit,
-                include_archive=include_archive,
-                compact=compact,
             ),
         )
 

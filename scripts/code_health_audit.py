@@ -68,7 +68,7 @@ ALLOWED_LARGE_MODULES = {
         "agent orchestration split target after the runtime keep decision", 5093, 5093, "206"
     ),
     "src/minimal_kanban/mcp/server.py": RatchetBudget(
-        "MCP registry split target", 3988, 3988, "008"
+        "MCP registry split target", 3920, 3920, "008"
     ),
     "src/minimal_kanban/printing/service.py": RatchetBudget(
         "print rendering workflow split target", 4229, 4229, "014"
@@ -143,7 +143,7 @@ ALLOWED_LARGE_FUNCTIONS = {
         "raw readback verifier split target", 966, 966, "009"
     ),
     "src/minimal_kanban/mcp/server.py:create_mcp_server": RatchetBudget(
-        "MCP registry split target", 3561, 3561, "008"
+        "MCP registry split target", 3492, 3492, "008"
     ),
     "src/minimal_kanban/printing/defaults.py:builtin_template_records": RatchetBudget(
         "bounded data-only built-in print template factory", 1164, 1164, "001"

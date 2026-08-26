@@ -4,20 +4,20 @@
 Этап: 1
 Оценка: 5–8 дней
 Риск реализации: средний
-Статус: in progress — payload и первый diagnostics registrar выполнены 2026-08-26
+Статус: in progress — payload и два read-only registrars выполнены локально 2026-08-26
 
 ## Результат
 
 `create_mcp_server` собирает tool families из небольших registrars. Payload
-models и backend relay не живут внутри одной 3.6k-строчной функции.
+models и backend relay не живут внутри одной 3.5k-строчной функции.
 Production surface по-прежнему ровно 24 Gateway tools.
 
 ## Доказательства
 
 - До первого среза `mcp/server.py` содержал 4 322 строки и 151 function;
-  после payload extraction и первого registrar — 3 988 строк и 145 functions.
-- `create_mcp_server` сокращён с 3 623 до 3 561 строки; branch complexity
-  снизилась с 211 до 208.
+  после payload extraction и двух registrars — 3 920 строк и 141 function.
+- `create_mcp_server` сокращён с 3 623 до 3 492 строк; branch complexity
+  снизилась с 211 до 204.
 - `tool_registry.py` уже группирует raw tools по 8 доменам / десяткам names,
   но регистрации всё ещё находятся в одном lexical scope.
 - Файл входит в top churn hotspots.
@@ -31,8 +31,8 @@ Production surface по-прежнему ровно 24 Gateway tools.
   проверяются отдельным тестом; новый модуль является каноническим владельцем.
 - Characterization snapshot по 98 builtin/raw tools сохранил тот же canonical
   hash схем и annotations; production Gateway surface остаётся ровно 24 tools.
-- Module ratchet `mcp/server.py` снижен с 4 322 до текущих 4 046 строк без
-  headroom. `create_mcp_server` пока не уменьшился: его следующий безопасный
+- На payload-срезе module ratchet `mcp/server.py` был снижен с 4 322 до 4 046
+  строк без headroom. `create_mcp_server` тогда ещё не уменьшился: следующий
   срез — один read-only registrar.
 - Focused payload/registration/hardening tests: 22/22 `OK`; полный MCP-family:
   137/137 `OK`; полный repository suite: 1 960 тестов, 34 штатных Windows skip,
@@ -58,9 +58,25 @@ Production surface по-прежнему ровно 24 Gateway tools.
   `OK` за 5.576 s; полный MCP-family: 139/139 `OK` за 65.193 s; repository
   suite: 1 963 теста, 34 штатных Windows skip, 382.076 s, `OK`.
 
+## Выполненный core board-read slice (2026-08-26)
+
+- `list_columns`, `get_cards`, `get_card` и `get_board_snapshot` механически
+  перенесены в 128-строчный `mcp/board_reads.py`. Context/event/search,
+  attachments, writes и общие relay/auth helpers остались в `server.py`.
+- Отдельный frozen/slots `BoardReadContext` содержит только client и шесть
+  используемых registration/response helpers; diagnostics context не расширен.
+- TDD-red зафиксировал отсутствующий module; затем exact set, descriptions,
+  annotations, defaults, backend arguments, meta и snapshot limit прошли 2/2.
+  Общий snapshot 98 raw tools и публичная поверхность 24 tools не изменились.
+- Exact ratchets снижены без headroom: `mcp/server.py` 3 988 → 3 920,
+  `create_mcp_server` 3 561 → 3 492; functions 145 → 141, complexity 208 → 204.
+- Combined focused suite: 26/26 `OK`; MCP-family: 141/141 `OK` за 60.615 s;
+  repository suite: 1 965 тестов, 34 штатных Windows skip, 369.278 s, `OK`.
+
 ## Минимальная архитектура
 
-- `McpRegistrationContext`: client, server, logger, limits, shared helpers.
+- Узкий context каждого registrar: client/state и только используемые shared
+  helpers; не создавать общий god-context заранее.
 - Registrars: diagnostics, board, clients, repair orders, finance/payroll,
   inventory, files, manager compatibility.
 - Payload models вынести в `mcp/payloads.py` по доменам.
@@ -72,7 +88,7 @@ Production surface по-прежнему ровно 24 Gateway tools.
 1. **Выполнено:** test exact raw tool names/schemas/annotations.
 2. **Выполнено:** вынести payload models.
 3. **Выполнено:** вынести permanent connector diagnostics read-only family.
-4. Вынести следующий read-only board family.
+4. **Выполнено:** вынести core read-only board family.
 5. Вынести один write family с exact backend tests.
 6. Повторить по доменам.
 7. Оставить transport/OAuth bootstrap в `server.py`.
@@ -107,7 +123,7 @@ Production surface по-прежнему ровно 24 Gateway tools.
 
 ## Проверки
 
-`python -m unittest tests.test_mcp_registration_contracts tests.test_mcp_payload_contracts tests.test_mcp_connector_diagnostics -v`
+`python -m unittest tests.test_mcp_registration_contracts tests.test_mcp_payload_contracts tests.test_mcp_connector_diagnostics tests.test_mcp_board_reads -v`
 `python -m unittest tests.test_mcp tests.test_mcp_main tests.test_mcp_server_hardening -v`
 `python scripts/check_agent_gateway_v2.py --mcp-url http://127.0.0.1:41831/mcp --exhaustive`
 `python scripts/crm_capability_parity.py --require-complete`
