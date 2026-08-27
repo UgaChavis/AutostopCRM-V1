@@ -28,6 +28,7 @@ from ..storage.change_feed_projection import project_print_module
 from ..storage.change_feed_store import ChangeFeedStore
 from ..storage.file_lock import ProcessFileLock
 from ..storage.limited_io import read_bytes_limited
+from . import document_policy
 from .defaults import BUILTIN_PRINT_DOCUMENTS, PRINT_BASE_STYLES, builtin_template_records
 from .document_guard import export_document_meta, invoice_guard
 from .errors import PrintModuleError
@@ -1771,12 +1772,7 @@ class PrintModuleService:
         template_id: str = "",
     ) -> dict[str, Any]:
         normalized_document_type = _normalize_document_type(document_type)
-        if normalized_document_type == "completion_act":
-            raise PrintModuleError(
-                "completion_act_template_locked",
-                "Для акта используется только встроенный стандартный шаблон.",
-                status_code=409,
-            )
+        document_policy.require_template_unlocked(normalized_document_type)
         normalized_name = _normalize_text(name, limit=120)
         normalized_content = _normalize_template_content(content)
         if not normalized_name:
@@ -1785,6 +1781,12 @@ class PrintModuleService:
             raise PrintModuleError("validation_error", "Шаблон не может быть пустым.")
         templates = self._read_custom_templates()
         existing = next((item for item in templates if item.id == template_id), None)
+        if existing is not None:
+            document_policy.require_template_unlocked(existing.document_type)
+            if existing.document_type != normalized_document_type:
+                raise PrintModuleError(
+                    "validation_error", "Шаблон не соответствует выбранному типу документа."
+                )
         now = utc_now_iso()
         if existing is not None:
             existing.name = normalized_name
@@ -1817,12 +1819,7 @@ class PrintModuleService:
 
     def duplicate_template(self, *, template_id: str, name: str = "") -> dict[str, Any]:
         source = self._find_template(template_id)
-        if source.document_type == "completion_act":
-            raise PrintModuleError(
-                "completion_act_template_locked",
-                "Стандартный шаблон акта нельзя дублировать.",
-                status_code=409,
-            )
+        document_policy.require_template_unlocked(source.document_type)
         now = utc_now_iso()
         duplicate = PrintTemplateRecord(
             id=f"custom:{source.document_type}:{uuid.uuid4().hex}",
@@ -1846,6 +1843,7 @@ class PrintModuleService:
 
     def delete_template(self, *, template_id: str) -> dict[str, Any]:
         record = self._find_template(template_id)
+        document_policy.require_template_unlocked(record.document_type)
         if record.is_builtin:
             raise PrintModuleError(
                 "forbidden", "Встроенный шаблон нельзя удалить.", status_code=403
@@ -1866,13 +1864,9 @@ class PrintModuleService:
 
     def set_default_template(self, *, document_type: str, template_id: str) -> dict[str, Any]:
         normalized_document_type = _normalize_document_type(document_type)
-        if normalized_document_type == "completion_act":
-            raise PrintModuleError(
-                "completion_act_template_locked",
-                "Для акта используется только встроенный стандартный шаблон.",
-                status_code=409,
-            )
+        document_policy.require_template_unlocked(normalized_document_type)
         template = self._find_template(template_id)
+        document_policy.require_template_unlocked(template.document_type)
         if template.document_type != normalized_document_type:
             raise PrintModuleError(
                 "validation_error", "Шаблон не соответствует выбранному типу документа."
@@ -1909,12 +1903,14 @@ class PrintModuleService:
             "selected_template_id": selected_template.id,
             "selected_template_name": selected_template.name,
             "template_count": (
-                1 if document.id == "completion_act" else len(template_map.get(document.id, []))
+                1
+                if document_policy.is_template_locked(document.id)
+                else len(template_map.get(document.id, []))
             ),
             "is_default_selected": document.id == "repair_order",
             "supports_form_fill": document.id == "inspection_sheet",
             "supports_completion_act_editor": document.id == "completion_act",
-            "template_locked": document.id == "completion_act",
+            "template_locked": document_policy.is_template_locked(document.id),
         }
 
     def _preview_document_payload(
@@ -1971,9 +1967,10 @@ class PrintModuleService:
         template_overrides: dict[str, str] | None,
         document_overrides: dict[str, Any] | None,
     ) -> dict[str, Any]:
+        document_policy.validate_document_description(document.id, card.description)
         effective_template = template
         if (
-            document.id != "completion_act"
+            not document_policy.is_template_locked(document.id)
             and template_overrides
             and document.id in template_overrides
         ):
@@ -2105,7 +2102,7 @@ class PrintModuleService:
             document_type = _normalize_text(raw_document_type, limit=64)
             if document_type not in self._builtin_documents:
                 continue
-            if document_type == "completion_act":
+            if document_policy.is_template_locked(document_type):
                 continue
             content = _normalize_template_content(raw_content)
             if content:
@@ -2160,7 +2157,7 @@ class PrintModuleService:
             document_type: [] for document_type in SUPPORTED_PRINT_DOCUMENT_TYPES
         }
         for record in combined:
-            if record.document_type == "completion_act" and not record.is_builtin:
+            if document_policy.is_template_locked(record.document_type) and not record.is_builtin:
                 continue
             grouped.setdefault(record.document_type, []).append(record)
         for document_type, records in grouped.items():
@@ -2182,7 +2179,7 @@ class PrintModuleService:
         template_id: str = "",
         settings: PrintModuleSettings,
     ) -> PrintTemplateRecord:
-        if document_type == "completion_act":
+        if document_policy.is_template_locked(document_type):
             builtin_id = self._builtin_documents[document_type].default_template_id
             template = self._builtin_templates.get(builtin_id)
             if template is not None:
@@ -3950,6 +3947,7 @@ class PrintModuleService:
                 "heading": card.heading(),
                 "title": _display(card.title),
                 "description": _display(card.description),
+                "description_html": _line_breaks_html(card.description),
             },
             "repair_order": {
                 **repair_order_payload,
@@ -4146,9 +4144,12 @@ class PrintModuleService:
     ) -> list[str]:
         missing: list[str] = []
         regulated_documents = {"invoice_factura", "upd"}
-        if not _normalize_text(order.client):
+        internal_documents = {"technical_repair_order"}
+        if document.id not in internal_documents and not _normalize_text(order.client):
             missing.append("client")
-        if document.id not in regulated_documents and not _normalize_text(order.phone):
+        if document.id not in {*regulated_documents, *internal_documents} and not _normalize_text(
+            order.phone
+        ):
             missing.append("phone")
         if document.id not in {"parts_sale", *regulated_documents} and not _normalize_text(
             order.vehicle or card.vehicle_display()

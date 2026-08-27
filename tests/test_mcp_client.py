@@ -568,6 +568,18 @@ class BoardApiClientTests(unittest.TestCase):
             },
         )
 
+    def test_manual_document_pdf_export_rejects_technical_repair_order(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+
+        with patch.object(client, "_request") as request:
+            with self.assertRaisesRegex(ValueError, "только в интерфейсе AutoStop CRM"):
+                client.create_document_without_card_pdf(
+                    request_text="Технический заказ-наряд без карточки",
+                    document_type="technical_repair_order",
+                )
+
+        request.assert_not_called()
+
     def test_manual_document_pdf_export_infers_document_type_from_text_request(self) -> None:
         client = BoardApiClient("https://board.example/api", bearer_token="secret")
 

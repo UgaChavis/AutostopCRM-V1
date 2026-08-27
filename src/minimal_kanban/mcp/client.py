@@ -179,6 +179,8 @@ def _manual_document_type_text(value: object) -> str:
 def _normalize_manual_document_type(document_type: object, request_text: object) -> str:
     raw_document_type = str(document_type or "").strip()
     normalized_document_type = raw_document_type.strip().lower()
+    if normalized_document_type == "technical_repair_order":
+        raise ValueError("Технический заказ-наряд доступен только в интерфейсе AutoStop CRM.")
     if normalized_document_type in SUPPORTED_PRINT_DOCUMENT_TYPES:
         return normalized_document_type
     explicit_text = _manual_document_type_text(raw_document_type)

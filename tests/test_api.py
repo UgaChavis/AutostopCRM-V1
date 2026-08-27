@@ -59,6 +59,7 @@ from minimal_kanban.operator_auth import (
     _password_hash,
     _verify_password,
 )
+from minimal_kanban.printing.models import SUPPORTED_PRINT_DOCUMENT_TYPES
 from minimal_kanban.services.card_service import CardService, ServiceError
 from minimal_kanban.services.payroll_constants import EMPLOYEES_MAX_COUNT
 from minimal_kanban.storage.json_store import JsonStore
@@ -5692,16 +5693,7 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(workspace["data"]["card_id"], "manual-document")
         self.assertEqual(
             [item["id"] for item in workspace["data"]["documents"]],
-            [
-                "repair_order",
-                "vehicle_acceptance_act",
-                "invoice",
-                "invoice_factura",
-                "upd",
-                "inspection_sheet",
-                "completion_act",
-                "parts_sale",
-            ],
+            list(SUPPORTED_PRINT_DOCUMENT_TYPES),
         )
 
         status, preview = self.request(

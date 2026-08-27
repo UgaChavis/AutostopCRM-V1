@@ -6,6 +6,7 @@ from typing import Any
 
 SUPPORTED_PRINT_DOCUMENT_TYPES = (
     "repair_order",
+    "technical_repair_order",
     "vehicle_acceptance_act",
     "invoice",
     "invoice_factura",

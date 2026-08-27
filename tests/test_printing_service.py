@@ -3,6 +3,7 @@ from __future__ import annotations
 # ruff: noqa: E402
 import html
 import json
+import re
 import sys
 import tempfile
 import threading
@@ -41,6 +42,7 @@ from minimal_kanban.printing.service import (
     _money_words_display,
 )
 from minimal_kanban.printing.template_engine import TemplateRenderError, render_template
+from minimal_kanban.printing.web_module import PRINTING_WEB_MODULE_SCRIPT
 
 
 def build_card() -> Card:
@@ -340,6 +342,7 @@ class PrintingServiceTests(unittest.TestCase):
             client=profile.client,
             selected_document_ids=[
                 "repair_order",
+                "technical_repair_order",
                 "vehicle_acceptance_act",
                 "invoice",
                 "invoice_factura",
@@ -357,8 +360,12 @@ class PrintingServiceTests(unittest.TestCase):
         )
         self.assertEqual(preview["active_document_id"], "invoice")
         self.assertEqual(len(preview["documents"]), len(SUPPORTED_PRINT_DOCUMENT_TYPES))
-        invoice_html = preview["documents"][2]["pages"][0]["html"]
-        repair_order_html = preview["documents"][0]["pages"][0]["html"]
+        invoice_document = next(item for item in preview["documents"] if item["id"] == "invoice")
+        repair_order_document = next(
+            item for item in preview["documents"] if item["id"] == "repair_order"
+        )
+        invoice_html = invoice_document["pages"][0]["html"]
+        repair_order_html = repair_order_document["pages"][0]["html"]
         self.assertIn("Счет на оплату", invoice_html)
         self.assertIn("ООО Ручной Клиент", invoice_html)
         self.assertIn("2468000000", invoice_html)
@@ -368,7 +375,7 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("5 058,82", invoice_html)
         self.assertIn("1 176,47", invoice_html)
         self.assertIn("3 882,35", invoice_html)
-        self.assertEqual(preview["documents"][0]["template"]["source"], "builtin")
+        self.assertEqual(repair_order_document["template"]["source"], "builtin")
 
     def test_manual_inspection_sheet_drafts_are_isolated_by_document_identity(self) -> None:
         first = self.service.manual_document_profile(
@@ -631,6 +638,244 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("15 235,29", preview["documents"][1]["pages"][0]["html"])
         self.assertIn("Сумма прописью", preview["documents"][1]["pages"][0]["html"])
         self.assertEqual(preview["documents"][0]["missing_fields"], [])
+
+    def test_technical_repair_order_contains_only_operational_details(self) -> None:
+        description_tail = "Полное описание заканчивается этой строкой."
+        description_prefix = "\n".join(["Подробность карточки"] * 24) + "\n"
+        self.card.description = (
+            description_prefix
+            + ("x" * (2_000 - len(description_prefix) - len(description_tail)))
+            + description_tail
+        )
+        self.assertEqual(len(self.card.description), 2_000)
+        self.assertEqual(len(self.card.description.splitlines()), 25)
+        self.card.repair_order.works[0].quantity = "73.5"
+        self.card.repair_order.works[0].price = "123456.78"
+        self.card.repair_order.materials[0].quantity = "64.25"
+        self.card.repair_order.materials[0].price = "98765.43"
+        linked_client = build_business_client()
+
+        preview = self.service.preview_documents(
+            self.card,
+            client=linked_client,
+            selected_document_ids=["technical_repair_order"],
+            active_document_id="technical_repair_order",
+            selected_template_ids={
+                "technical_repair_order": "builtin:repair_order:standard",
+            },
+            template_overrides={
+                "technical_repair_order": (
+                    '<div class="document-page">LEAK {{client.name_display}} '
+                    "{{#works}}{{quantity_display}} {{price_display}} {{total_display}}{{/works}}</div>"
+                ),
+            },
+        )
+
+        document = preview["documents"][0]
+        rendered_html = "".join(page["html"] for page in document["pages"])
+        template_content = self.service._builtin_templates[
+            "builtin:technical_repair_order:standard"
+        ].content
+        self.assertEqual(document["label"], "Технический заказ-наряд")
+        self.assertEqual(document["template"]["id"], "builtin:technical_repair_order:standard")
+        self.assertIn("doc-note--wrap-anywhere", rendered_html)
+        self.assertIn(description_tail, rendered_html)
+        self.assertIn("Диагностика АКПП", rendered_html)
+        self.assertIn("Замена масла АКПП", rendered_html)
+        self.assertIn("ATF", rendered_html)
+        self.assertIn("Фильтр АКПП", rendered_html)
+        self.assertNotIn("Иван Иванов", rendered_html)
+        self.assertNotIn("+7 900 123-45-67", rendered_html)
+        self.assertNotIn("ООО Контрагент", rendered_html)
+        self.assertNotIn("+7 900 000-00-01", rendered_html)
+        self.assertNotIn("info@example.com", rendered_html)
+        self.assertNotIn("2468000000", rendered_html)
+        self.assertNotIn("246801001", rendered_html)
+        self.assertNotIn("40702810900000000001", rendered_html)
+        self.assertNotIn("044525225", rendered_html)
+        self.assertNotIn("30101810400000000225", rendered_html)
+        self.assertNotIn("660000, г. Красноярск, ул. Тестовая, 1", rendered_html)
+        self.assertNotIn("73.5", rendered_html)
+        self.assertNotIn("64.25", rendered_html)
+        self.assertNotIn("123456.78", rendered_html)
+        self.assertNotIn("98765.43", rendered_html)
+        self.assertNotIn("123 456,78", rendered_html)
+        self.assertNotIn("98 765,43", rendered_html)
+        self.assertNotIn(">Кол-во<", rendered_html)
+        self.assertNotIn(">Цена<", rendered_html)
+        self.assertNotIn(">Сумма<", rendered_html)
+        self.assertNotIn("Предоплата", rendered_html)
+        self.assertNotIn("Гарантийные и важные условия", rendered_html)
+        self.assertNotIn("08886-81210", rendered_html)
+        self.assertNotIn("LEAK", rendered_html)
+        self.assertIn("!item.template_locked", PRINTING_WEB_MODULE_SCRIPT)
+        self.assertIn("template_locked ? 'repair_order'", PRINTING_WEB_MODULE_SCRIPT)
+        for forbidden_context in (
+            "quantity",
+            "price",
+            "total",
+            "client",
+            "service",
+            "invoice",
+            "regulated",
+            "repair_order.client",
+            "repair_order.phone",
+            "repair_order.payment",
+            "repair_order.prepayment",
+        ):
+            with self.subTest(forbidden_context=forbidden_context):
+                self.assertIsNone(
+                    re.search(
+                        r"\{\{\{?\s*" + re.escape(forbidden_context),
+                        template_content,
+                    )
+                )
+
+        workspace = self.service.workspace(self.card)
+        workspace_document = next(
+            item for item in workspace["documents"] if item["id"] == "technical_repair_order"
+        )
+        self.assertTrue(workspace_document["template_locked"])
+        self.assertEqual(workspace_document["template_count"], 1)
+        self.assertEqual(
+            [item["id"] for item in workspace["templates"]["technical_repair_order"]],
+            ["builtin:technical_repair_order:standard"],
+        )
+
+        locked_actions = (
+            lambda: self.service.save_template(
+                document_type="technical_repair_order",
+                name="Недопустимый шаблон",
+                content="<div>LEAK</div>",
+            ),
+            lambda: self.service.duplicate_template(
+                template_id="builtin:technical_repair_order:standard"
+            ),
+            lambda: self.service.set_default_template(
+                document_type="technical_repair_order",
+                template_id="builtin:technical_repair_order:standard",
+            ),
+            lambda: self.service.delete_template(
+                template_id="builtin:technical_repair_order:standard"
+            ),
+        )
+        for action in locked_actions:
+            with self.subTest(action=action):
+                with self.assertRaises(PrintModuleError) as locked:
+                    action()
+                self.assertEqual(locked.exception.code, "technical_repair_order_template_locked")
+
+        saved = self.service.save_template(
+            document_type="repair_order",
+            name="Обычный шаблон",
+            content="<div>Обычный шаблон</div>",
+        )
+        stored = self.service._read_custom_templates()
+        legacy_template = next(item for item in stored if item.id == saved["template"]["id"])
+        legacy_template.document_type = "technical_repair_order"
+        legacy_template.content = '<div class="document-page">LEGACY TECH LEAK</div>'
+        self.service._write_custom_templates(stored)
+        settings = self.service._read_settings()
+        settings.default_template_ids["technical_repair_order"] = legacy_template.id
+        self.service._write_settings(settings)
+
+        legacy_workspace = self.service.workspace(self.card)
+        legacy_document = next(
+            item for item in legacy_workspace["documents"] if item["id"] == "technical_repair_order"
+        )
+        self.assertEqual(legacy_document["template_count"], 1)
+        self.assertEqual(
+            [item["id"] for item in legacy_workspace["templates"]["technical_repair_order"]],
+            ["builtin:technical_repair_order:standard"],
+        )
+        legacy_preview = self.service.preview_documents(
+            self.card,
+            client=linked_client,
+            selected_document_ids=["technical_repair_order"],
+            selected_template_ids={"technical_repair_order": legacy_template.id},
+            template_overrides={
+                "technical_repair_order": '<div class="document-page">OVERRIDE LEAK</div>'
+            },
+        )["documents"][0]
+        legacy_html = "".join(page["html"] for page in legacy_preview["pages"])
+        self.assertEqual(
+            legacy_preview["template"]["id"], "builtin:technical_repair_order:standard"
+        )
+        self.assertNotIn("LEGACY TECH LEAK", legacy_html)
+        self.assertNotIn("OVERRIDE LEAK", legacy_html)
+
+        with self.assertRaises(PrintModuleError) as mismatched_update:
+            self.service.save_template(
+                document_type="repair_order",
+                template_id=saved["template"]["id"],
+                name="Попытка обхода",
+                content="<div>LEAK</div>",
+            )
+        self.assertEqual(mismatched_update.exception.code, "technical_repair_order_template_locked")
+
+        self.card.repair_order.client = ""
+        self.card.repair_order.phone = ""
+        without_client = self.service.preview_documents(
+            self.card,
+            selected_document_ids=["technical_repair_order"],
+        )["documents"][0]
+        self.assertNotIn("client", without_client["missing_fields"])
+        self.assertNotIn("phone", without_client["missing_fields"])
+
+    def test_technical_repair_order_rejects_oversized_description_without_truncation(
+        self,
+    ) -> None:
+        descriptions = {
+            "characters": "x" * 2_001,
+            "lines": "\n".join(["строка"] * 26),
+        }
+        entry_points = {
+            "preview": lambda: self.service.preview_documents(
+                self.card, selected_document_ids=["technical_repair_order"]
+            ),
+            "export": lambda: self.service.export_documents_pdf(
+                self.card, selected_document_ids=["technical_repair_order"]
+            ),
+            "print": lambda: self.service.print_documents(
+                self.card,
+                selected_document_ids=["technical_repair_order"],
+                printer_name="Test Printer",
+            ),
+        }
+
+        with (
+            patch.object(printing_service_module, "render_html_to_pdf_bytes") as render_pdf,
+            patch.object(printing_service_module, "print_html") as print_html,
+        ):
+            for case, description in descriptions.items():
+                self.card.description = description
+                for entry_point, action in entry_points.items():
+                    with self.subTest(case=case, entry_point=entry_point):
+                        with self.assertRaises(PrintModuleError) as rejected:
+                            action()
+
+                        self.assertEqual(
+                            rejected.exception.code, "technical_repair_order_description_limit"
+                        )
+                        self.assertIn("2 000 символов и 25 строк", str(rejected.exception))
+                        self.assertEqual(rejected.exception.details["field"], "card.description")
+                        self.assertEqual(rejected.exception.details["max_chars"], 2_000)
+                        self.assertEqual(rejected.exception.details["max_lines"], 25)
+                        self.assertEqual(
+                            rejected.exception.details["actual_chars"], len(description)
+                        )
+                        self.assertEqual(
+                            rejected.exception.details["actual_lines"],
+                            len(description.splitlines()),
+                        )
+
+            render_pdf.assert_not_called()
+            print_html.assert_not_called()
+
+        repair_order = self.service.preview_documents(
+            self.card, selected_document_ids=["repair_order"]
+        )["documents"][0]
+        self.assertEqual(repair_order["id"], "repair_order")
 
     def test_preview_accepts_scalar_document_id_and_ignores_malformed_template_maps(
         self,

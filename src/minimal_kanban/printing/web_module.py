@@ -3022,9 +3022,9 @@ _PRINTING_SCRIPT_PART3 = r"""
     }
 
     function renderPrintTemplateDocumentTypeOptions() {
-      const docs = repairOrderPrintWorkspaceDocuments().filter((item) => item.id !== 'completion_act');
+      const docs = repairOrderPrintWorkspaceDocuments().filter((item) => !item.template_locked);
       const requested = repairOrderPrintState.templateEditor.documentType || repairOrderPrintActiveDocument() || 'repair_order';
-      const current = requested === 'completion_act' ? (docs[0]?.id || 'repair_order') : requested;
+      const current = docs.some((item) => item.id === requested) ? requested : (docs[0]?.id || 'repair_order');
       printEls.templateDocumentType.innerHTML = docs.map((item) => '<option value="' + escapeHtml(item.id) + '"' + (item.id === current ? ' selected' : '') + '>' + escapeHtml(item.label) + '</option>').join('');
       repairOrderPrintState.templateEditor.documentType = current;
       renderPrintTemplateTokenOptions();
@@ -3047,8 +3047,8 @@ _PRINTING_SCRIPT_PART3 = r"""
     }
 
     function openPrintTemplateEditor() {
-      const activeDocument = repairOrderPrintActiveDocument() || 'repair_order';
-      repairOrderPrintState.templateEditor.documentType = activeDocument === 'completion_act' ? 'repair_order' : activeDocument;
+      const activeDocument = repairOrderPrintDocumentMap()[repairOrderPrintActiveDocument()] || null;
+      repairOrderPrintState.templateEditor.documentType = activeDocument?.template_locked ? 'repair_order' : (activeDocument?.id || 'repair_order');
       repairOrderPrintState.templateEditor.templateId = repairOrderPrintSelectedTemplateId(repairOrderPrintState.templateEditor.documentType);
       renderPrintTemplateDocumentTypeOptions();
       renderPrintTemplateList();

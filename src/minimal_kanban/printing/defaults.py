@@ -22,6 +22,12 @@ BUILTIN_PRINT_DOCUMENTS: tuple[PrintDocumentDefinition, ...] = (
         default_template_id="builtin:repair_order:standard",
     ),
     PrintDocumentDefinition(
+        id="technical_repair_order",
+        label="Технический заказ-наряд",
+        description="Работы, материалы и описание карточки без цен и количества.",
+        default_template_id="builtin:technical_repair_order:standard",
+    ),
+    PrintDocumentDefinition(
         id="vehicle_acceptance_act",
         label="Акт приема автомобиля",
         description="Прием автомобиля в работу, фотофиксация и важные условия.",
@@ -240,6 +246,7 @@ PRINT_BASE_STYLES = """
   }
   .doc-section__title { margin: 0 0 6px; font-size: 13px; font-weight: 700; }
   .doc-note { border: 1px solid var(--paper-line); border-radius: 9px; padding: 9px 11px; min-height: 54px; white-space: normal; line-height: 1.5; background: #fcfcfc; }
+  .doc-note--wrap-anywhere { overflow-wrap: anywhere; word-break: break-word; }
   .doc-terms {
     border: 1px solid rgba(0, 0, 0, 0.09);
     border-radius: 10px;
@@ -1158,6 +1165,49 @@ _REPAIR_ORDER_WARRANTY_TERMS_HTML = """
   <li><strong>Исключения:</strong> при ремонте АКПП восстанавливается только механическая часть коробки передач. Если после ремонта выявляется неисправность блока управления КПП, расходы на его ремонт или замену несет заказчик. Гарантия не распространяется на ремонт топливных форсунок, турбокомпрессоров, гидроблоков и соленоидов. Гарантия действует только на замененные оригинальные детали и работы по их установке.</li>
 </ol>
 """.strip()
+
+
+def _technical_repair_order_template_record() -> PrintTemplateRecord:
+    return _record(
+        "technical_repair_order",
+        "standard",
+        "Технический заказ-наряд",
+        """
+<div class="document-page document-page--dense">
+  <div class="doc-kicker">Внутренний документ</div>
+  <h1 class="doc-title">Технический заказ-наряд</h1>
+  <div class="doc-subtitle">№ {{repair_order.number_display}} от {{dates.document_date_display}}</div>
+  <table class="doc-meta-table">
+    <tr>
+      <td><div class="doc-label">Автомобиль</div><div class="doc-value">{{vehicle.display_name}}</div></td>
+      <td><div class="doc-label">Госномер</div><div class="doc-value">{{vehicle.license_plate_display}}</div></td>
+    </tr>
+    <tr>
+      <td><div class="doc-label">VIN</div><div class="doc-value">{{vehicle.vin_display}}</div></td>
+      <td><div class="doc-label">Пробег</div><div class="doc-value">{{vehicle.mileage_display}}</div></td>
+    </tr>
+  </table>
+  <section class="doc-section">
+    <h2 class="doc-section__title">Описание карточки</h2>
+    <div class="doc-note doc-note--wrap-anywhere">{{{card.description_html}}}</div>
+  </section>
+  <section class="doc-section">
+    <h2 class="doc-section__title">Работы</h2>
+    <table class="doc-table"><thead><tr><th>Наименование</th></tr></thead><tbody>
+      {{#works}}<tr><td>{{name}}</td></tr>{{/works}}
+      {{^works}}<tr><td class="doc-table__empty">Работы не указаны</td></tr>{{/works}}
+    </tbody></table>
+  </section>
+  <section class="doc-section">
+    <h2 class="doc-section__title">Материалы / запчасти</h2>
+    <table class="doc-table"><thead><tr><th>Наименование</th></tr></thead><tbody>
+      {{#materials}}<tr><td>{{name}}</td></tr>{{/materials}}
+      {{^materials}}<tr><td class="doc-table__empty">Материалы не указаны</td></tr>{{/materials}}
+    </tbody></table>
+  </section>
+</div>
+        """,
+    )
 
 
 def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
@@ -2323,4 +2373,4 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
 </div>
             """,
         ),
-    )
+    ) + (_technical_repair_order_template_record(),)
