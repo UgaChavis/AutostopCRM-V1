@@ -51,6 +51,10 @@ class DocsAuditTests(unittest.TestCase):
                     "src/minimal_kanban/mcp/board_column_writes.py",
                     "board_column_write_tool",
                 ),
+                (
+                    "src/minimal_kanban/mcp/board_sticky_writes.py",
+                    "board_sticky_write_tool",
+                ),
             ):
                 source_path = temp_root / relative_path
                 source_path.parent.mkdir(parents=True, exist_ok=True)
@@ -69,6 +73,7 @@ class DocsAuditTests(unittest.TestCase):
                     "diagnostic_tool",
                     "board_read_tool",
                     "board_column_write_tool",
+                    "board_sticky_write_tool",
                 },
             ):
                 issues = module._check_crm_mcp_surface(temp_root)

@@ -5,7 +5,7 @@
 Оценка: 5–8 дней
 Риск реализации: средний
 Статус: in progress — опубликованный read baseline дополнен локально
-проверенным board-column write registrar 2026-08-27
+проверенными board-column и sticky write registrars 2026-08-27
 
 ## Результат
 
@@ -89,6 +89,20 @@ Production surface по-прежнему ровно 24 Gateway tools.
   `create_mcp_server` 3 492 → 3 454; functions 141 → 138, complexity 204 → 201.
 - Совместный focused suite: 44/44 `OK`; docs и code-health audits проходят.
 
+## Выполненный board-sticky write slice (2026-08-27)
+
+- `create_sticky`, `update_sticky`, `move_sticky` и `delete_sticky` перенесены
+  в 138-строчный `mcp/board_sticky_writes.py` без изменения payload/backend.
+- Один узкий context используется двумя registrar phases: create остаётся
+  между column и attachment tools, mutations — между repair-order и timer
+  tools. Новый relative-order test фиксирует обе точки явно.
+- Exact schemas/defaults, полный deadline dump, annotations и backend arguments
+  защищены двумя focused tests; raw hash 98 tools и Gateway 24 не изменились.
+- Exact ratchets снижены без headroom: `mcp/server.py` 3 886 → 3 825,
+  `create_mcp_server` 3 454 → 3 388; functions 138 → 134, complexity 201 → 197.
+- Совместный focused suite: 47/47 `OK`; сохранённые backend/transport sticky
+  tests также проходят.
+
 ## Минимальная архитектура
 
 - Узкий context каждого registrar: client/state и только используемые shared
@@ -106,7 +120,8 @@ Production surface по-прежнему ровно 24 Gateway tools.
 3. **Выполнено:** вынести permanent connector diagnostics read-only family.
 4. **Выполнено:** вынести core read-only board family.
 5. **Выполнено:** вынести board-column write family с exact backend tests.
-6. Повторить по доменам.
+6. **Выполнено частично:** вынести sticky write family; далее повторять по
+   небольшим доменам.
 7. Оставить transport/OAuth bootstrap в `server.py`.
 8. Удалить large-function/module exemptions, когда budgets достигнуты.
 

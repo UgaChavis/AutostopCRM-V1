@@ -18,6 +18,8 @@ Source of truth:
 - `src/minimal_kanban/mcp/board_reads.py` — core board-read registrar;
 - `src/minimal_kanban/mcp/board_column_writes.py` — board-column write
   registrar;
+- `src/minimal_kanban/mcp/board_sticky_writes.py` — two-phase sticky write
+  registrar preserving the raw registration order;
 - `src/minimal_kanban/mcp/tool_registry.py` — raw CRM registry;
 - `src/minimal_kanban/mcp/agent_gateway_v2.py` — production surface;
 - `scripts/check_agent_gateway_v2.py` — exact release contract;

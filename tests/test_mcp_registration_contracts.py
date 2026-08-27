@@ -251,6 +251,27 @@ class McpRegistrationContractTests(unittest.TestCase):
             self.assertNotIn("make_display", json.dumps(vehicle_profile_schema))
             self.assertIn("additionalProperties", vehicle_profile_schema["anyOf"][0])
 
+    def test_sticky_registrations_keep_their_legacy_relative_order(self) -> None:
+        _server, attempted_names = _build_builtin_raw_server()
+
+        create_index = attempted_names.index("create_sticky")
+        self.assertEqual(
+            attempted_names[create_index - 1 : create_index + 2],
+            ["delete_column", "create_sticky", "list_card_attachments"],
+        )
+        mutation_index = attempted_names.index("update_sticky")
+        self.assertEqual(
+            attempted_names[mutation_index - 1 : mutation_index + 5],
+            [
+                "replace_repair_order_materials",
+                "update_sticky",
+                "move_sticky",
+                "delete_sticky",
+                "set_card_deadline",
+                "start_card_timer",
+            ],
+        )
+
     def test_active_manager_dependency_tools_get_safe_annotations_after_registration(
         self,
     ) -> None:

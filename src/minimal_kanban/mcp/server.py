@@ -43,6 +43,11 @@ from .board_column_writes import (
     register_board_column_writes,
 )
 from .board_reads import BoardReadContext, register_board_reads
+from .board_sticky_writes import (
+    BoardStickyWriteContext,
+    register_board_sticky_create,
+    register_board_sticky_mutations,
+)
 from .client import BoardApiClient, BoardApiTransportError
 from .connector_diagnostics import (
     ConnectorDiagnosticsContext,
@@ -63,7 +68,6 @@ from .payloads import (
     McpInt,
     RepairOrderPatchPayload,
     RepairOrderRowPayload,
-    StickyDeadlinePayload,
     TagPayload,
     _resolved_create_card_deadline,
 )
@@ -73,6 +77,7 @@ from .tool_registry import MCP_TOOL_GROUPS, PUBLIC_MCP_TOOL_NAMES
 ConnectorIdentityPayload = _payloads.ConnectorIdentityPayload
 ConnectorIdentityToolData = _payloads.ConnectorIdentityToolData
 RepairOrderPaymentPayload = _payloads.RepairOrderPaymentPayload
+StickyDeadlinePayload = _payloads.StickyDeadlinePayload
 _deadline_part_value = _payloads._deadline_part_value
 _reject_bool_int = _payloads._reject_bool_int
 
@@ -1492,28 +1497,13 @@ def create_mcp_server(
         ),
     )
 
-    @server.tool(
-        name="create_sticky",
-        description=_scoped_description(
-            "Create a sticky note on the current AutoStop CRM board. Sticky notes belong only to this board instance. "
-            "The deadline accepts either days/hours/minutes/seconds or total_seconds."
-        ),
-        annotations=_write_tool_annotations("Create Sticky"),
-        structured_output=True,
+    board_sticky_write_context = BoardStickyWriteContext(
+        board_api=board_api,
+        scoped_description=_scoped_description,
+        write_tool_annotations=_write_tool_annotations,
+        relay_board_call=_relay_board_call,
     )
-    def create_sticky(
-        text: str,
-        deadline: StickyDeadlinePayload,
-        x: McpInt = 0,
-        y: McpInt = 0,
-        actor_name: str | None = None,
-    ) -> JsonEnvelope:
-        return _relay_board_call(
-            "create_sticky",
-            lambda: board_api.create_sticky(
-                text=text, x=x, y=y, deadline=deadline.model_dump(), actor_name=actor_name
-            ),
-        )
+    register_board_sticky_create(server, board_sticky_write_context)
 
     @server.tool(
         name="list_card_attachments",
@@ -3621,58 +3611,7 @@ def create_mcp_server(
             ),
         )
 
-    @server.tool(
-        name="update_sticky",
-        description=_scoped_description(
-            "Update the text or deadline of a sticky note on the current AutoStop CRM board. "
-            "The deadline accepts either days/hours/minutes/seconds or total_seconds."
-        ),
-        annotations=_write_tool_annotations("Update Sticky"),
-        structured_output=True,
-    )
-    def update_sticky(
-        sticky_id: str,
-        text: str | None = None,
-        deadline: StickyDeadlinePayload | None = None,
-        actor_name: str | None = None,
-    ) -> JsonEnvelope:
-        return _relay_board_call(
-            "update_sticky",
-            lambda: board_api.update_sticky(
-                sticky_id=sticky_id,
-                text=text,
-                deadline=deadline.model_dump() if deadline is not None else None,
-                actor_name=actor_name,
-            ),
-        )
-
-    @server.tool(
-        name="move_sticky",
-        description=_scoped_description(
-            "Move a sticky note on the current AutoStop CRM board to a new x/y position."
-        ),
-        annotations=_write_tool_annotations("Move Sticky"),
-        structured_output=True,
-    )
-    def move_sticky(sticky_id: str, x: int, y: int, actor_name: str | None = None) -> JsonEnvelope:
-        return _relay_board_call(
-            "move_sticky",
-            lambda: board_api.move_sticky(sticky_id=sticky_id, x=x, y=y, actor_name=actor_name),
-        )
-
-    @server.tool(
-        name="delete_sticky",
-        description=_scoped_description(
-            "Delete a sticky note from the current AutoStop CRM board."
-        ),
-        annotations=_write_tool_annotations("Delete Sticky", destructive=True),
-        structured_output=True,
-    )
-    def delete_sticky(sticky_id: str, actor_name: str | None = None) -> JsonEnvelope:
-        return _relay_board_call(
-            "delete_sticky",
-            lambda: board_api.delete_sticky(sticky_id=sticky_id, actor_name=actor_name),
-        )
+    register_board_sticky_mutations(server, board_sticky_write_context)
 
     @server.tool(
         name="set_card_deadline",

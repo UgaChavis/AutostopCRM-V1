@@ -5,7 +5,7 @@
 Оценка: 4–6 дней суммарно, независимыми доменными срезами
 Риск реализации: низкий
 Статус: in progress — опубликованный MCP read baseline дополнен локально
-проверенным board-column write slice 2026-08-27
+проверенными board-column и sticky write slices 2026-08-27
 
 ## Результат
 
@@ -69,7 +69,7 @@ Focused-команды для этого среза:
 
 `python -m unittest discover -s tests -p "test_mcp*.py" -v`
 
-## Board-column write slice (2026-08-27)
+## Board write slices (2026-08-27)
 
 - Для `create_column`, `rename_column` и `delete_column` добавлен отдельный
   двухтестовый contract/execution module `test_mcp_board_column_writes.py`.
@@ -79,6 +79,15 @@ Focused-команды для этого среза:
   большой end-to-end backend test сохранён и проходит отдельно.
 
 `python -m unittest tests.test_mcp_board_column_writes tests.test_mcp_registration_contracts tests.test_mcp_board_reads tests.test_mcp_payload_contracts tests.test_docs_audit -q`
+
+- Для четырёх sticky write tools добавлены два focused contract/execution
+  tests и отдельная проверка legacy relative order. Она защищает две исходные
+  точки регистрации, которые общий sorted snapshot не различает.
+- Проверяются полный `deadline.model_dump()`, отличие отсутствующего deadline
+  от нулевого, строгие `int` координаты move, destructive delete и exact
+  backend arguments. Совместный focused suite: 47/47 `OK`.
+
+`python -m unittest tests.test_mcp_board_sticky_writes tests.test_mcp_board_column_writes tests.test_mcp_registration_contracts tests.test_mcp_payload_contracts tests.test_mcp_board_reads tests.test_docs_audit -q`
 
 ## Scope и независимые deliverables
 
@@ -96,8 +105,8 @@ Focused-команды для этого среза:
 4. Web slice — разнести `test_web_assets.py` по UI-доменам.
 5. Gateway slice — разнести Gateway tests:
    public surface, workflows, raw escape, Store, OAuth/audit actor.
-6. MCP slice — registration/payload, tests двух read-only registrars и
-   board-column write registrar выполнены; далее разносить оставшийся
+6. MCP slice — registration/payload, tests двух read-only registrars,
+   board-column и sticky write registrars выполнены; далее разносить оставшийся
    `test_mcp.py` по backend/transport/runtime только по мере нужды
    production-задач.
 7. Удалять allowlist entry сразу после каждого файла, не в финальном mega
