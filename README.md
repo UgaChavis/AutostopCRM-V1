@@ -96,9 +96,10 @@ reimplementing those rules.
 - `src/minimal_kanban/mcp/server.py`, `mcp/payloads.py`,
   `mcp/connector_diagnostics.py`, `mcp/board_reads.py`,
   `mcp/board_column_writes.py`, `mcp/board_sticky_writes.py`,
-  `mcp/tool_registry.py`, and `mcp/agent_gateway_v2.py` — raw MCP orchestration,
-  payload contracts, permanent diagnostics, core board reads, column/sticky
-  writes, registry, and the production Gateway v2 surface.
+  `mcp/board_card_timer_writes.py`, `mcp/tool_registry.py`, and
+  `mcp/agent_gateway_v2.py` — raw MCP orchestration, payload contracts,
+  permanent diagnostics, core board reads, focused board writes, registry, and
+  the production Gateway v2 surface.
 - [`scripts/crm_capability_parity.py`](scripts/crm_capability_parity.py) and its
   JSON manifest — machine-verifiable UI/backend/Gateway capability matrix,
   readback classes, test evidence, reviewed gaps, and human-session exemptions.

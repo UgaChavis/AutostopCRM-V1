@@ -38,6 +38,10 @@ from . import payloads as _payloads
 from .agent_gateway_support import MANAGER_GATEWAY_DEPENDENCY_NAMES
 from .agent_gateway_v2 import register_agent_gateway_v2
 from .auth import StaticBearerTokenVerifier, build_auth_settings
+from .board_card_timer_writes import (
+    BoardCardTimerWriteContext,
+    register_board_card_timer_writes,
+)
 from .board_column_writes import (
     BoardColumnWriteContext,
     register_board_column_writes,
@@ -3613,104 +3617,15 @@ def create_mcp_server(
 
     register_board_sticky_mutations(server, board_sticky_write_context)
 
-    @server.tool(
-        name="set_card_deadline",
-        description=_scoped_description(
-            "Change only the deadline of a card on the current AutoStop CRM board. "
-            "The deadline accepts either days/hours/minutes/seconds or total_seconds."
+    register_board_card_timer_writes(
+        server,
+        BoardCardTimerWriteContext(
+            board_api=board_api,
+            scoped_description=_scoped_description,
+            write_tool_annotations=_write_tool_annotations,
+            relay_board_call=_relay_board_call,
         ),
-        annotations=_write_tool_annotations("Set Card Deadline"),
-        structured_output=True,
     )
-    def set_card_deadline(
-        card_id: str,
-        deadline: DeadlinePayload,
-        actor_name: str | None = None,
-        response_mode: Literal["full", "compact"] = "full",
-    ) -> JsonEnvelope:
-        return _relay_board_call(
-            "set_card_deadline",
-            lambda: board_api.set_card_deadline(
-                card_id=card_id,
-                deadline=deadline.model_dump(),
-                actor_name=actor_name,
-                response_mode=response_mode,
-            ),
-        )
-
-    @server.tool(
-        name="start_card_timer",
-        description=_scoped_description(
-            "Start or restart a card timer. Supply a deadline to change the duration; omit it to reuse the card's saved duration."
-        ),
-        annotations=_write_tool_annotations("Start Card Timer"),
-        structured_output=True,
-    )
-    def start_card_timer(
-        card_id: str,
-        deadline: DeadlinePayload | None = None,
-        expected_updated_at: str | None = None,
-        actor_name: str | None = None,
-        response_mode: Literal["full", "compact"] = "full",
-    ) -> JsonEnvelope:
-        return _relay_board_call(
-            "start_card_timer",
-            lambda: board_api.start_card_timer(
-                card_id=card_id,
-                deadline=deadline.model_dump() if deadline is not None else None,
-                expected_updated_at=expected_updated_at,
-                actor_name=actor_name,
-                response_mode=response_mode,
-            ),
-        )
-
-    @server.tool(
-        name="stop_card_timer",
-        description=_scoped_description(
-            "Stop a card timer without deleting the saved duration. A later start begins the full saved duration again."
-        ),
-        annotations=_write_tool_annotations("Stop Card Timer"),
-        structured_output=True,
-    )
-    def stop_card_timer(
-        card_id: str,
-        expected_updated_at: str | None = None,
-        actor_name: str | None = None,
-        response_mode: Literal["full", "compact"] = "full",
-    ) -> JsonEnvelope:
-        return _relay_board_call(
-            "stop_card_timer",
-            lambda: board_api.stop_card_timer(
-                card_id=card_id,
-                expected_updated_at=expected_updated_at,
-                actor_name=actor_name,
-                response_mode=response_mode,
-            ),
-        )
-
-    @server.tool(
-        name="set_card_indicator",
-        description=_scoped_description(
-            "Service tool for changing the signal lamp state of a card. Because the indicator is derived from time, this operation recalculates the deadline to reach the requested color."
-        ),
-        annotations=_write_tool_annotations("Set Card Indicator"),
-        structured_output=True,
-    )
-    def set_card_indicator(
-        card_id: str,
-        indicator: Literal["green", "yellow", "red"],
-        actor_name: str | None = None,
-        response_mode: Literal["full", "compact"] = "full",
-    ) -> JsonEnvelope:
-        return _relay_board_call(
-            "set_card_indicator",
-            lambda: board_api.set_card_indicator(
-                card_id=card_id,
-                indicator=indicator,
-                actor_name=actor_name,
-                response_mode=response_mode,
-            ),
-        )
 
     @server.tool(
         name="move_card",

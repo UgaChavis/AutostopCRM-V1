@@ -4,8 +4,8 @@
 Этап: 1
 Оценка: 5–8 дней
 Риск реализации: средний
-Статус: in progress — опубликованный read baseline дополнен локально
-проверенными board-column и sticky write registrars 2026-08-27
+Статус: in progress — опубликованный read baseline дополнен локально тремя
+проверенными board-write registrars 2026-08-27
 
 ## Результат
 
@@ -103,6 +103,21 @@ Production surface по-прежнему ровно 24 Gateway tools.
 - Совместный focused suite: 47/47 `OK`; сохранённые backend/transport sticky
   tests также проходят.
 
+## Выполненный board-card timer write slice (2026-08-27)
+
+- `set_card_deadline`, `start_card_timer`, `stop_card_timer` и
+  `set_card_indicator` механически перенесены в 134-строчный
+  `mcp/board_card_timer_writes.py` на прежней позиции перед `move_card`.
+- Узкий frozen/slots context содержит те же четыре зависимости, что column и
+  sticky writes; relay, optimistic revision и backend validation не менялись.
+- Focused tests фиксируют exact schemas/descriptions/annotations, полный
+  deadline dump, отличие omitted deadline, response modes, indicator enum и
+  наличие `expected_updated_at` только у start/stop. Relative order также
+  защищён отдельно; raw hash 98 tools и Gateway 24 прежние.
+- Exact ratchets снижены без headroom: `mcp/server.py` 3 825 → 3 740,
+  `create_mcp_server` 3 388 → 3 299; functions 134 → 130, complexity 197 → 193.
+- Совместный focused suite: 50/50 `OK`; end-to-end backend test проходит.
+
 ## Минимальная архитектура
 
 - Узкий context каждого registrar: client/state и только используемые shared
@@ -120,8 +135,8 @@ Production surface по-прежнему ровно 24 Gateway tools.
 3. **Выполнено:** вынести permanent connector diagnostics read-only family.
 4. **Выполнено:** вынести core read-only board family.
 5. **Выполнено:** вынести board-column write family с exact backend tests.
-6. **Выполнено частично:** вынести sticky write family; далее повторять по
-   небольшим доменам.
+6. **Выполнено частично:** вынести sticky и card-timer write families; далее
+   повторять по небольшим доменам после отдельного выбора следующего среза.
 7. Оставить transport/OAuth bootstrap в `server.py`.
 8. Удалить large-function/module exemptions, когда budgets достигнуты.
 

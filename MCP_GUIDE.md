@@ -20,6 +20,8 @@ Source of truth:
   registrar;
 - `src/minimal_kanban/mcp/board_sticky_writes.py` — two-phase sticky write
   registrar preserving the raw registration order;
+- `src/minimal_kanban/mcp/board_card_timer_writes.py` — card deadline, timer,
+  and indicator write registrar;
 - `src/minimal_kanban/mcp/tool_registry.py` — raw CRM registry;
 - `src/minimal_kanban/mcp/agent_gateway_v2.py` — production surface;
 - `scripts/check_agent_gateway_v2.py` — exact release contract;

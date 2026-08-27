@@ -272,6 +272,22 @@ class McpRegistrationContractTests(unittest.TestCase):
             ],
         )
 
+    def test_card_timer_registrations_keep_their_legacy_relative_order(self) -> None:
+        _server, attempted_names = _build_builtin_raw_server()
+
+        timer_index = attempted_names.index("set_card_deadline")
+        self.assertEqual(
+            attempted_names[timer_index - 1 : timer_index + 5],
+            [
+                "delete_sticky",
+                "set_card_deadline",
+                "start_card_timer",
+                "stop_card_timer",
+                "set_card_indicator",
+                "move_card",
+            ],
+        )
+
     def test_active_manager_dependency_tools_get_safe_annotations_after_registration(
         self,
     ) -> None:

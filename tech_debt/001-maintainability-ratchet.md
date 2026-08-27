@@ -20,9 +20,9 @@
 - Текущие exact complexity caps: Gateway executor 72 и `update_card` 29.
   `_make_handler` сокращён до 127 строк и больше не требует exemption.
 - Synthetic growth/shrink/config/missing-target tests и полный
-  `tests.test_code_health_audit`: 18/18 `OK`; после board-sticky write среза
-  008 exact caps снижены до 3 825 строк для `mcp/server.py` и 3 388 строк для
-  `create_mcp_server`; include-untracked audit: 372 файла, 0 issues.
+  `tests.test_code_health_audit`: 18/18 `OK`; после board-card timer среза 008
+  exact caps снижены до 3 740 строк для `mcp/server.py` и 3 299 строк для
+  `create_mcp_server`; include-untracked audit: 374 файла, 0 issues.
 
 ## Результат
 

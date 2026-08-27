@@ -5,7 +5,7 @@
 Оценка: 4–6 дней суммарно, независимыми доменными срезами
 Риск реализации: низкий
 Статус: in progress — опубликованный MCP read baseline дополнен локально
-проверенными board-column и sticky write slices 2026-08-27
+проверенными board-column, sticky и card-timer write slices 2026-08-27
 
 ## Результат
 
@@ -89,6 +89,15 @@ Focused-команды для этого среза:
 
 `python -m unittest tests.test_mcp_board_sticky_writes tests.test_mcp_board_column_writes tests.test_mcp_registration_contracts tests.test_mcp_payload_contracts tests.test_mcp_board_reads tests.test_docs_audit -q`
 
+- Для четырёх card deadline/timer/indicator tools добавлены два focused
+  contract/execution tests и relative-order assertion. Они отдельно фиксируют
+  optional deadline, optimistic revision только для start/stop, Literal enums,
+  response modes и полный deadline dump.
+- Совместный registrar/registration/payload/docs suite: 50/50 `OK`; большой
+  end-to-end backend test с реальными raw tool calls сохранён и проходит.
+
+`python -m unittest tests.test_mcp_board_card_timer_writes tests.test_mcp_board_sticky_writes tests.test_mcp_board_column_writes tests.test_mcp_registration_contracts tests.test_mcp_payload_contracts tests.test_mcp_board_reads tests.test_docs_audit -q`
+
 ## Scope и независимые deliverables
 
 Каждый пункт можно закрывать независимо в рамках production-задачи, которой
@@ -105,8 +114,8 @@ Focused-команды для этого среза:
 4. Web slice — разнести `test_web_assets.py` по UI-доменам.
 5. Gateway slice — разнести Gateway tests:
    public surface, workflows, raw escape, Store, OAuth/audit actor.
-6. MCP slice — registration/payload, tests двух read-only registrars,
-   board-column и sticky write registrars выполнены; далее разносить оставшийся
+6. MCP slice — registration/payload, tests двух read-only registrars и трёх
+   малых board-write registrars выполнены; далее разносить оставшийся
    `test_mcp.py` по backend/transport/runtime только по мере нужды
    production-задач.
 7. Удалять allowlist entry сразу после каждого файла, не в финальном mega
