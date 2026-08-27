@@ -4,7 +4,8 @@
 Этап: 1
 Оценка: 4–6 дней суммарно, независимыми доменными срезами
 Риск реализации: низкий
-Статус: in progress — MCP registration/payload/diagnostics/board-read slice опубликован и подтверждён hosted CI 2026-08-26
+Статус: in progress — опубликованный MCP read baseline дополнен локально
+проверенным board-column write slice 2026-08-27
 
 ## Результат
 
@@ -68,6 +69,17 @@ Focused-команды для этого среза:
 
 `python -m unittest discover -s tests -p "test_mcp*.py" -v`
 
+## Board-column write slice (2026-08-27)
+
+- Для `create_column`, `rename_column` и `delete_column` добавлен отдельный
+  двухтестовый contract/execution module `test_mcp_board_column_writes.py`.
+- Он фиксирует exact tool set, descriptions, annotations, required/default
+  schema и legacy `name` alias, а также точные backend arguments.
+- Совместный focused suite с registration, payload и board reads: 44/44 `OK`;
+  большой end-to-end backend test сохранён и проходит отдельно.
+
+`python -m unittest tests.test_mcp_board_column_writes tests.test_mcp_registration_contracts tests.test_mcp_board_reads tests.test_mcp_payload_contracts tests.test_docs_audit -q`
+
 ## Scope и независимые deliverables
 
 Каждый пункт можно закрывать независимо в рамках production-задачи, которой
@@ -84,9 +96,10 @@ Focused-команды для этого среза:
 4. Web slice — разнести `test_web_assets.py` по UI-доменам.
 5. Gateway slice — разнести Gateway tests:
    public surface, workflows, raw escape, Store, OAuth/audit actor.
-6. MCP slice — registration/payload и tests двух read-only registrars выполнены;
-   далее разнести оставшийся `test_mcp.py` по backend/transport/runtime только
-   по мере нужды production-задач.
+6. MCP slice — registration/payload, tests двух read-only registrars и
+   board-column write registrar выполнены; далее разносить оставшийся
+   `test_mcp.py` по backend/transport/runtime только по мере нужды
+   production-задач.
 7. Удалять allowlist entry сразу после каждого файла, не в финальном mega
    commit.
 

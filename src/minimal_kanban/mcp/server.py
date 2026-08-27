@@ -38,6 +38,10 @@ from . import payloads as _payloads
 from .agent_gateway_support import MANAGER_GATEWAY_DEPENDENCY_NAMES
 from .agent_gateway_v2 import register_agent_gateway_v2
 from .auth import StaticBearerTokenVerifier, build_auth_settings
+from .board_column_writes import (
+    BoardColumnWriteContext,
+    register_board_column_writes,
+)
 from .board_reads import BoardReadContext, register_board_reads
 from .client import BoardApiClient, BoardApiTransportError
 from .connector_diagnostics import (
@@ -1478,53 +1482,15 @@ def create_mcp_server(
         ),
     )
 
-    @server.tool(
-        name="create_column",
-        description=_scoped_description("Create a new column on the current AutoStop CRM board."),
-        annotations=_write_tool_annotations("Create Column"),
-        structured_output=True,
-    )
-    def create_column(
-        label: str | None = None,
-        name: str | None = None,
-        actor_name: str | None = None,
-    ) -> JsonEnvelope:
-        return _relay_board_call(
-            "create_column",
-            lambda: board_api.create_column(
-                label,
-                name=name,
-                actor_name=actor_name,
-            ),
-        )
-
-    @server.tool(
-        name="rename_column",
-        description=_scoped_description(
-            "Rename an existing column on the current AutoStop CRM board while keeping the same column id."
+    register_board_column_writes(
+        server,
+        BoardColumnWriteContext(
+            board_api=board_api,
+            scoped_description=_scoped_description,
+            write_tool_annotations=_write_tool_annotations,
+            relay_board_call=_relay_board_call,
         ),
-        annotations=_write_tool_annotations("Rename Column", idempotent=True),
-        structured_output=True,
     )
-    def rename_column(column_id: str, label: str, actor_name: str | None = None) -> JsonEnvelope:
-        return _relay_board_call(
-            "rename_column",
-            lambda: board_api.rename_column(column_id, label, actor_name=actor_name),
-        )
-
-    @server.tool(
-        name="delete_column",
-        description=_scoped_description(
-            "Delete an empty column from the current AutoStop CRM board. The last remaining column cannot be removed."
-        ),
-        annotations=_write_tool_annotations("Delete Column", destructive=True),
-        structured_output=True,
-    )
-    def delete_column(column_id: str, actor_name: str | None = None) -> JsonEnvelope:
-        return _relay_board_call(
-            "delete_column",
-            lambda: board_api.delete_column(column_id, actor_name=actor_name),
-        )
 
     @server.tool(
         name="create_sticky",

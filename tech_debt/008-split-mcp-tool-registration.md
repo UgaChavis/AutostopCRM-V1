@@ -4,7 +4,8 @@
 Этап: 1
 Оценка: 5–8 дней
 Риск реализации: средний
-Статус: in progress — payload и два read-only registrars опубликованы и подтверждены hosted CI 2026-08-26
+Статус: in progress — опубликованный read baseline дополнен локально
+проверенным board-column write registrar 2026-08-27
 
 ## Результат
 
@@ -75,6 +76,19 @@ Production surface по-прежнему ровно 24 Gateway tools.
 - Core board-read slice опубликован коммитом `6c5c127`; GitHub Actions quality
   run `32979510635` полностью прошёл на неизменённом SHA.
 
+## Выполненный board-column write slice (2026-08-27)
+
+- `create_column`, `rename_column` и `delete_column` механически перенесены в
+  97-строчный `mcp/board_column_writes.py`; relay, auth и backend не менялись.
+- Frozen/slots context содержит только board client, description/annotation
+  factories и relay helper. Exact descriptions, schemas, annotations и legacy
+  `name` alias защищены двумя focused contract/execution tests.
+- Raw snapshot остался 98 tools с прежним canonical hash; Gateway surface —
+  24 tools. End-to-end backend test также проходит.
+- Exact ratchets снижены без headroom: `mcp/server.py` 3 920 → 3 886,
+  `create_mcp_server` 3 492 → 3 454; functions 141 → 138, complexity 204 → 201.
+- Совместный focused suite: 44/44 `OK`; docs и code-health audits проходят.
+
 ## Минимальная архитектура
 
 - Узкий context каждого registrar: client/state и только используемые shared
@@ -91,7 +105,7 @@ Production surface по-прежнему ровно 24 Gateway tools.
 2. **Выполнено:** вынести payload models.
 3. **Выполнено:** вынести permanent connector diagnostics read-only family.
 4. **Выполнено:** вынести core read-only board family.
-5. Вынести один write family с exact backend tests.
+5. **Выполнено:** вынести board-column write family с exact backend tests.
 6. Повторить по доменам.
 7. Оставить transport/OAuth bootstrap в `server.py`.
 8. Удалить large-function/module exemptions, когда budgets достигнуты.
