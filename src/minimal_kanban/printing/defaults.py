@@ -24,7 +24,7 @@ BUILTIN_PRINT_DOCUMENTS: tuple[PrintDocumentDefinition, ...] = (
     PrintDocumentDefinition(
         id="technical_repair_order",
         label="Технический заказ-наряд",
-        description="Работы, материалы и описание карточки без цен и количества.",
+        description="Автомобиль, работы и материалы без цен и количества.",
         default_template_id="builtin:technical_repair_order:standard",
     ),
     PrintDocumentDefinition(
@@ -246,7 +246,6 @@ PRINT_BASE_STYLES = """
   }
   .doc-section__title { margin: 0 0 6px; font-size: 13px; font-weight: 700; }
   .doc-note { border: 1px solid var(--paper-line); border-radius: 9px; padding: 9px 11px; min-height: 54px; white-space: normal; line-height: 1.5; background: #fcfcfc; }
-  .doc-note--wrap-anywhere { overflow-wrap: anywhere; word-break: break-word; }
   .doc-terms {
     border: 1px solid rgba(0, 0, 0, 0.09);
     border-radius: 10px;
@@ -1187,10 +1186,6 @@ def _technical_repair_order_template_record() -> PrintTemplateRecord:
       <td><div class="doc-label">Пробег</div><div class="doc-value">{{vehicle.mileage_display}}</div></td>
     </tr>
   </table>
-  <section class="doc-section">
-    <h2 class="doc-section__title">Описание карточки</h2>
-    <div class="doc-note doc-note--wrap-anywhere">{{{card.description_html}}}</div>
-  </section>
   <section class="doc-section">
     <h2 class="doc-section__title">Работы</h2>
     <table class="doc-table"><thead><tr><th>Наименование</th></tr></thead><tbody>

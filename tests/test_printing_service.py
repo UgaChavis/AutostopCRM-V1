@@ -640,15 +640,12 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertEqual(preview["documents"][0]["missing_fields"], [])
 
     def test_technical_repair_order_contains_only_operational_details(self) -> None:
-        description_tail = "Полное описание заканчивается этой строкой."
-        description_prefix = "\n".join(["Подробность карточки"] * 24) + "\n"
-        self.card.description = (
-            description_prefix
-            + ("x" * (2_000 - len(description_prefix) - len(description_tail)))
-            + description_tail
+        description_marker = "TECHNICAL_DESCRIPTION_MUST_NOT_LEAK"
+        self.card.description = "\n".join([f"{index:02d} " + ("x" * 90) for index in range(30)]) + (
+            "\n" + description_marker
         )
-        self.assertEqual(len(self.card.description), 2_000)
-        self.assertEqual(len(self.card.description.splitlines()), 25)
+        self.assertGreater(len(self.card.description), 2_000)
+        self.assertGreater(len(self.card.description.splitlines()), 25)
         self.card.repair_order.works[0].quantity = "73.5"
         self.card.repair_order.works[0].price = "123456.78"
         self.card.repair_order.materials[0].quantity = "64.25"
@@ -678,8 +675,11 @@ class PrintingServiceTests(unittest.TestCase):
         ].content
         self.assertEqual(document["label"], "Технический заказ-наряд")
         self.assertEqual(document["template"]["id"], "builtin:technical_repair_order:standard")
-        self.assertIn("doc-note--wrap-anywhere", rendered_html)
-        self.assertIn(description_tail, rendered_html)
+        self.assertNotIn("Описание карточки", rendered_html)
+        self.assertNotIn(description_marker, rendered_html)
+        self.assertIn("Toyota Camry XV70", rendered_html)
+        self.assertIn("JTNB11HK103456789", rendered_html)
+        self.assertIn("165000", rendered_html)
         self.assertIn("Диагностика АКПП", rendered_html)
         self.assertIn("Замена масла АКПП", rendered_html)
         self.assertIn("ATF", rendered_html)
@@ -722,6 +722,7 @@ class PrintingServiceTests(unittest.TestCase):
             "repair_order.phone",
             "repair_order.payment",
             "repair_order.prepayment",
+            "card.description",
         ):
             with self.subTest(forbidden_context=forbidden_context):
                 self.assertIsNone(
@@ -822,55 +823,48 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertNotIn("client", without_client["missing_fields"])
         self.assertNotIn("phone", without_client["missing_fields"])
 
-    def test_technical_repair_order_rejects_oversized_description_without_truncation(
+    def test_technical_repair_order_ignores_long_description_in_preview_export_and_print(
         self,
     ) -> None:
-        descriptions = {
-            "characters": "x" * 2_001,
-            "lines": "\n".join(["строка"] * 26),
-        }
-        entry_points = {
-            "preview": lambda: self.service.preview_documents(
+        description_marker = "LONG_TECHNICAL_DESCRIPTION_MUST_NOT_LEAK"
+        self.card.description = "\n".join(
+            [f"{description_marker}-{index:02d}-" + ("x" * 90) for index in range(30)]
+        )
+        self.assertGreater(len(self.card.description), 2_000)
+        self.assertGreater(len(self.card.description.splitlines()), 25)
+
+        with (
+            patch.object(
+                printing_service_module,
+                "render_html_to_pdf_bytes",
+                return_value=b"%PDF-1.4 synthetic-technical-repair-order",
+            ) as render_pdf,
+            patch.object(printing_service_module, "print_html") as print_backend,
+        ):
+            preview = self.service.preview_documents(
                 self.card, selected_document_ids=["technical_repair_order"]
-            ),
-            "export": lambda: self.service.export_documents_pdf(
+            )
+            pdf_bytes, _file_name, _meta = self.service.export_documents_pdf(
                 self.card, selected_document_ids=["technical_repair_order"]
-            ),
-            "print": lambda: self.service.print_documents(
+            )
+            self.service.print_documents(
                 self.card,
                 selected_document_ids=["technical_repair_order"],
                 printer_name="Test Printer",
-            ),
+            )
+
+        self.assertTrue(pdf_bytes.startswith(b"%PDF-"))
+        rendered_documents = {
+            "preview": "".join(page["html"] for page in preview["documents"][0]["pages"]),
+            "export": render_pdf.call_args.args[0],
+            "print": print_backend.call_args.args[0],
         }
-
-        with (
-            patch.object(printing_service_module, "render_html_to_pdf_bytes") as render_pdf,
-            patch.object(printing_service_module, "print_html") as print_html,
-        ):
-            for case, description in descriptions.items():
-                self.card.description = description
-                for entry_point, action in entry_points.items():
-                    with self.subTest(case=case, entry_point=entry_point):
-                        with self.assertRaises(PrintModuleError) as rejected:
-                            action()
-
-                        self.assertEqual(
-                            rejected.exception.code, "technical_repair_order_description_limit"
-                        )
-                        self.assertIn("2 000 символов и 25 строк", str(rejected.exception))
-                        self.assertEqual(rejected.exception.details["field"], "card.description")
-                        self.assertEqual(rejected.exception.details["max_chars"], 2_000)
-                        self.assertEqual(rejected.exception.details["max_lines"], 25)
-                        self.assertEqual(
-                            rejected.exception.details["actual_chars"], len(description)
-                        )
-                        self.assertEqual(
-                            rejected.exception.details["actual_lines"],
-                            len(description.splitlines()),
-                        )
-
-            render_pdf.assert_not_called()
-            print_html.assert_not_called()
+        for entry_point, rendered_html in rendered_documents.items():
+            with self.subTest(entry_point=entry_point):
+                self.assertNotIn("Описание карточки", rendered_html)
+                self.assertNotIn(description_marker, rendered_html)
+                self.assertIn("Диагностика АКПП", rendered_html)
+                self.assertIn("ATF", rendered_html)
 
         repair_order = self.service.preview_documents(
             self.card, selected_document_ids=["repair_order"]

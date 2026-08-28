@@ -1967,7 +1967,6 @@ class PrintModuleService:
         template_overrides: dict[str, str] | None,
         document_overrides: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        document_policy.validate_document_description(document.id, card.description)
         effective_template = template
         if (
             not document_policy.is_template_locked(document.id)
