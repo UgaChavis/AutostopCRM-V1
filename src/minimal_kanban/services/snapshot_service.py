@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 import math
 import time
 from collections.abc import Callable
 from copy import deepcopy
-from datetime import UTC, datetime
+from datetime import datetime
 from threading import RLock
 from typing import Any
 
@@ -26,12 +25,13 @@ from ..models import (
     utc_now,
     utc_now_iso,
 )
-from ..operator_permissions import (
-    EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
-    operator_has_permission,
-)
 from ..storage.json_store import JsonStore
-from .finance_read_core import CASHBOX_NOTIFICATION_SEEN_SETTING_KEY
+from .operator_visibility import (
+    operator_can_access_employees_cashboxes,
+    project_operator_result,
+    public_snapshot_settings,
+    visible_audit_events,
+)
 from .snapshot_cache import (
     COMPACT_SNAPSHOT_CACHE_TTL_SECONDS,
     PreparedSnapshotData,
@@ -39,6 +39,11 @@ from .snapshot_cache import (
     build_prepared_snapshot_data,
     build_snapshot_meta,
     build_snapshot_revision,
+)
+from .snapshot_event_page import (
+    encode_event_page_cursor,
+    event_page_key,
+    redacted_event_page_item,
 )
 
 REVIEW_BOARD_STALE_HOURS_DEFAULT = 48
@@ -50,36 +55,6 @@ GPT_WALL_AGENT_EVENT_LIMIT = 20
 CARD_JOURNAL_COMPACT_DEFAULT_LIMIT = 50
 CARD_JOURNAL_COMPACT_TEXT_LIMIT = 1200
 CARD_JOURNAL_COUNT_MAX = 1_000_000_000
-EMPLOYEES_CASHBOXES_PRIVATE_SETTING_KEYS = frozenset(
-    {
-        "employees",
-        "employee_shift_accruals",
-        "employee_repair_order_accruals",
-        "employee_salary_balance_resets",
-    }
-)
-EMPLOYEES_CASHBOXES_PRIVATE_EVENT_ACTION_MARKERS = (
-    "cash",
-    "employee",
-    "finance",
-    "payment",
-    "payroll",
-    "salary",
-)
-EMPLOYEES_CASHBOXES_PRIVATE_EVENT_DETAIL_KEYS = frozenset(
-    {
-        "amount",
-        "amount_minor",
-        "cashbox_id",
-        "cashbox_name",
-        "employee_id",
-        "employee_name",
-        "payment",
-        "payments",
-        "payroll_postings",
-        "salary",
-    }
-)
 CARD_JOURNAL_ACTION_LABELS = {
     "card_created": "Создана карточка",
     "card_moved": "Перемещена карточка",
@@ -320,36 +295,12 @@ def _json_dumps(
     )
 
 
-def _operator_can_access_employees_cashboxes(payload: dict[str, Any] | None) -> bool:
-    operator_session = (payload or {}).get("_operator_session")
-    return not isinstance(operator_session, dict) or operator_has_permission(
-        operator_session,
-        EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
-    )
-
-
-def _employees_cashboxes_private_event(event: AuditEvent) -> bool:
-    action = str(event.action or "").casefold()
-    if any(marker in action for marker in EMPLOYEES_CASHBOXES_PRIVATE_EVENT_ACTION_MARKERS):
-        return True
-    details = event.details if isinstance(event.details, dict) else {}
-    return any(key in details for key in EMPLOYEES_CASHBOXES_PRIVATE_EVENT_DETAIL_KEYS)
-
-
-def _permission_scoped_snapshot_revision(revision: str) -> str:
-    value = f"employees_cashboxes_restricted:{revision}"
-    return hashlib.sha1(value.encode("utf-8"), usedforsecurity=False).hexdigest()
-
-
-def _public_snapshot_settings(
-    settings: dict[str, Any],
-    *,
-    include_employees_cashboxes: bool = True,
-) -> dict[str, Any]:
-    excluded_keys = {CASHBOX_NOTIFICATION_SEEN_SETTING_KEY}
-    if not include_employees_cashboxes:
-        excluded_keys.update(EMPLOYEES_CASHBOXES_PRIVATE_SETTING_KEYS)
-    return {key: value for key, value in settings.items() if key not in excluded_keys}
+def _event_counts(events: list[AuditEvent]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for event in events:
+        if event.card_id:
+            counts[event.card_id] = counts.get(event.card_id, 0) + 1
+    return counts
 
 
 class SnapshotService:
@@ -441,11 +392,12 @@ class SnapshotService:
     ) -> tuple[dict[str, str], dict[str, int]]:
         if not cards:
             return {}, {}
-        return self._column_labels(columns), self._event_counts(events)
+        return self._column_labels(columns), _event_counts(events)
 
     def _snapshot_revision(
         self,
         *,
+        payload: dict[str, Any],
         columns: list[Column],
         cards: list[Card],
         archive: list[Card],
@@ -457,8 +409,11 @@ class SnapshotService:
         include_archive: bool,
         archive_limit: int,
     ) -> str:
-        event_counts = self._event_counts(events) if cards or archive else {}
-        public_settings = _public_snapshot_settings(settings)
+        event_counts = _event_counts(events) if cards or archive else {}
+        public_settings = public_snapshot_settings(
+            settings,
+            include_employees_cashboxes=operator_can_access_employees_cashboxes(payload),
+        )
         return build_snapshot_revision(
             columns=columns,
             cards=cards,
@@ -471,6 +426,7 @@ class SnapshotService:
             include_archive=include_archive,
             archive_limit=archive_limit,
             json_dumps=_json_dumps,
+            card_projection=lambda card: project_operator_result(payload, card),
         )
 
     def _markdown_value(self, value: Any) -> str:
@@ -694,16 +650,17 @@ class SnapshotService:
             )
             compact_cards = self._validated_optional_bool(payload, "compact", default=False)
             bundle = self._store.read_bundle()
+            events = visible_audit_events(payload, bundle["events"])
             cards = self._visible_cards(bundle["cards"], include_archived=include_archived)
             viewer_username = self._viewer_username(payload)
             column_labels, event_counts = self._card_serialization_context(
                 cards,
                 columns=bundle["columns"],
-                events=bundle["events"],
+                events=events,
             )
             serialized_cards = self._serialize_cards_payload(
                 cards,
-                events=bundle["events"],
+                events=events,
                 column_labels=column_labels,
                 event_counts=event_counts,
                 viewer_username=viewer_username,
@@ -724,26 +681,17 @@ class SnapshotService:
         result = self._get_board_snapshot(payload, prepared=False)
         if isinstance(result, PreparedSnapshotData):  # pragma: no cover - internal invariant
             raise RuntimeError("Prepared snapshot escaped the HTTP-only path.")
-        return result
+        return project_operator_result(payload, result)
 
     def get_board_snapshot_for_http(
         self, payload: dict | None = None
     ) -> dict | PreparedSnapshotData:
-        if _operator_can_access_employees_cashboxes(payload):
+        if operator_can_access_employees_cashboxes(payload):
             return self._get_board_snapshot(payload, prepared=True)
         result = self._get_board_snapshot(payload, prepared=False)
         if isinstance(result, PreparedSnapshotData):  # pragma: no cover - internal invariant
             raise RuntimeError("Prepared snapshot escaped the restricted HTTP path.")
-        restricted = deepcopy(result)
-        restricted["settings"] = _public_snapshot_settings(
-            dict(restricted.get("settings") or {}),
-            include_employees_cashboxes=False,
-        )
-        meta = restricted.get("meta")
-        if isinstance(meta, dict):
-            revision = _permission_scoped_snapshot_revision(str(meta.get("revision") or ""))
-            meta["revision"] = revision
-        return restricted
+        return project_operator_result(payload, result)
 
     def _get_board_snapshot(
         self,
@@ -766,8 +714,10 @@ class SnapshotService:
             )
             bundle, signature = self._store.read_bundle_with_signature()
             viewer_username = self._viewer_username(payload)
+            employees_cashboxes_access = operator_can_access_employees_cashboxes(payload)
             cache_key = self._snapshot_cache.key(
                 viewer_username=viewer_username,
+                employees_cashboxes_access=employees_cashboxes_access,
                 compact_cards=compact_cards,
                 include_archive=include_archive,
                 archive_limit=archive_limit,
@@ -795,19 +745,21 @@ class SnapshotService:
                 else []
             )
             stickies = self._stickies(bundle["stickies"])
+            events = visible_audit_events(payload, bundle["events"])
             column_labels, event_counts = self._card_serialization_context(
                 cards + archive,
                 columns=bundle["columns"],
-                events=bundle["events"],
+                events=events,
             )
             revision = str((cache_entry or {}).get("revision") or "")
             if not revision:
                 revision = self._snapshot_revision(
+                    payload=payload,
                     columns=bundle["columns"],
                     cards=cards,
                     archive=archive,
                     stickies=stickies,
-                    events=bundle["events"],
+                    events=events,
                     settings=bundle["settings"],
                     viewer_username=viewer_username,
                     compact_cards=compact_cards,
@@ -817,7 +769,7 @@ class SnapshotService:
             serialized_columns = [column.to_dict() for column in bundle["columns"]]
             serialized_cards = self._serialize_cards_payload(
                 cards,
-                events=bundle["events"],
+                events=events,
                 column_labels=column_labels,
                 event_counts=event_counts,
                 viewer_username=viewer_username,
@@ -825,14 +777,17 @@ class SnapshotService:
             )
             serialized_archive = self._serialize_cards_payload(
                 archive,
-                events=bundle["events"],
+                events=events,
                 column_labels=column_labels,
                 event_counts=event_counts,
                 viewer_username=viewer_username,
                 compact=compact_cards,
             )
             serialized_stickies = [self._serialize_sticky(sticky) for sticky in stickies]
-            serialized_settings = _public_snapshot_settings(bundle["settings"])
+            serialized_settings = public_snapshot_settings(
+                bundle["settings"],
+                include_employees_cashboxes=employees_cashboxes_access,
+            )
             meta = build_snapshot_meta(
                 archive_limit=archive_limit,
                 compact_cards=compact_cards,
@@ -898,8 +853,10 @@ class SnapshotService:
             )
             bundle, signature = self._store.read_bundle_with_signature()
             viewer_username = self._viewer_username(payload)
+            employees_cashboxes_access = operator_can_access_employees_cashboxes(payload)
             cache_key = self._snapshot_cache.key(
                 viewer_username=viewer_username,
+                employees_cashboxes_access=employees_cashboxes_access,
                 compact_cards=compact_cards,
                 include_archive=include_archive,
                 archive_limit=archive_limit,
@@ -914,13 +871,18 @@ class SnapshotService:
                     else []
                 )
                 stickies = self._stickies(bundle["stickies"])
+                events = visible_audit_events(payload, bundle["events"])
                 revision = self._snapshot_revision(
+                    payload=payload,
                     columns=bundle["columns"],
                     cards=cards,
                     archive=archive,
                     stickies=stickies,
-                    events=bundle["events"],
-                    settings=bundle["settings"],
+                    events=events,
+                    settings=public_snapshot_settings(
+                        bundle["settings"],
+                        include_employees_cashboxes=employees_cashboxes_access,
+                    ),
                     viewer_username=viewer_username,
                     compact_cards=compact_cards,
                     include_archive=include_archive,
@@ -952,9 +914,6 @@ class SnapshotService:
             revision = str(cache_entry["revision"])
             counts = deepcopy(cache_entry["counts"])
             meta = deepcopy(cache_entry["meta"])
-            if not _operator_can_access_employees_cashboxes(payload):
-                revision = _permission_scoped_snapshot_revision(revision)
-                meta["revision"] = revision
             meta["generated_at"] = utc_now_iso()
             return {
                 "revision": revision,
@@ -1011,11 +970,7 @@ class SnapshotService:
             bundle = self._store.read_bundle()
             columns = bundle["columns"]
             cards = bundle["cards"]
-            events = bundle["events"]
-            if not _operator_can_access_employees_cashboxes(payload):
-                events = [
-                    event for event in events if not _employees_cashboxes_private_event(event)
-                ]
+            events = visible_audit_events(payload, bundle["events"])
             now = utc_now()
             column_labels = self._column_labels(columns)
             cards_by_id = {card.id: card for card in cards}
@@ -1132,15 +1087,11 @@ class SnapshotService:
             columns = bundle["columns"]
             cards = bundle["cards"]
             stickies = bundle["stickies"]
-            events = bundle["events"]
-            if not _operator_can_access_employees_cashboxes(payload):
-                events = [
-                    event for event in events if not _employees_cashboxes_private_event(event)
-                ]
+            events = visible_audit_events(payload, bundle["events"])
             column_labels = self._column_labels(columns)
             cards_by_id = {card.id: card for card in cards}
             ordered_cards = self._cards_for_wall(cards, columns, include_archived=include_archived)
-            event_counts = self._event_counts(events)
+            event_counts = _event_counts(events)
             viewer_username = self._viewer_username(payload)
             wall_cards = self._serialize_cards_payload(
                 ordered_cards,
@@ -1294,43 +1245,29 @@ class SnapshotService:
         with self._lock:
             bundle = self._store.read_bundle()
             archived_by_card_id = {card.id: card.archived for card in bundle["cards"]}
-            visible_events = bundle["events"]
-            if not _operator_can_access_employees_cashboxes(payload):
-                visible_events = [
-                    event
-                    for event in visible_events
-                    if not _employees_cashboxes_private_event(event)
-                ]
+            visible_events = visible_audit_events(payload, bundle["events"])
             events = [
                 event
                 for event in visible_events
                 if include_archived or not archived_by_card_id.get(event.card_id or "", False)
             ]
-            ordered = sorted(events, key=self._event_page_key)
+            ordered = sorted(events, key=event_page_key)
             if cursor_key is not None:
-                ordered = [event for event in ordered if self._event_page_key(event) > cursor_key]
+                ordered = [event for event in ordered if event_page_key(event) > cursor_key]
             page_events = ordered[:limit]
             has_more = len(ordered) > len(page_events)
             next_cursor = (
-                self._encode_event_page_cursor(self._event_page_key(page_events[-1]))
+                encode_event_page_cursor(event_page_key(page_events[-1]))
                 if has_more and page_events
                 else None
             )
             return {
-                "events": [self._redacted_event_page_item(event) for event in page_events],
+                "events": [redacted_event_page_item(event) for event in page_events],
                 "next_cursor": next_cursor,
                 "has_more": has_more,
                 "total_count": len(events),
                 "schema_version": "board_event_page.v1",
             }
-
-    def _event_page_key(self, event: AuditEvent) -> tuple[str, str]:
-        occurred_at = (parse_datetime(event.timestamp) or utc_now()).astimezone(UTC).isoformat()
-        return occurred_at, event.id
-
-    def _encode_event_page_cursor(self, key: tuple[str, str]) -> str:
-        raw = json.dumps({"v": 1, "at": key[0], "id": key[1]}, separators=(",", ":"))
-        return base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii").rstrip("=")
 
     def _decode_event_page_cursor(self, value: object) -> tuple[str, str] | None:
         if value in (None, ""):
@@ -1354,148 +1291,6 @@ class SnapshotService:
             self._fail("validation_error", "Некорректный cursor.", details={"field": "cursor"})
         return None
 
-    @staticmethod
-    def _event_page_hash(value: str) -> str:
-        return hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-    def _redacted_event_page_item(self, event: AuditEvent) -> dict[str, Any]:
-        entity_type, entity_ref = self._event_page_entity(event)
-        details = event.details if isinstance(event.details, dict) else {}
-        before_column = details.get("before_column") if event.action == "card_moved" else None
-        after_column = details.get("after_column") if event.action == "card_moved" else None
-        item = {
-            "event_id": event.id,
-            "occurred_at_utc": self._event_page_key(event)[0],
-            "actor_key": self._event_page_actor_key(event.actor_name),
-            "source": event.source,
-            "action_type": event.action,
-            "entity_type": entity_type,
-            "entity_ref_hash": self._event_page_hash(f"{entity_type}:{entity_ref}"),
-            "changed_field_categories": self._event_page_changed_categories(event),
-            "is_financial_action": self._event_page_is_financial(event),
-            "is_destructive_action": self._event_page_is_destructive(event),
-            "operation_result": self._event_page_operation_result(event),
-        }
-        if isinstance(before_column, str):
-            item["card_column_before"] = before_column
-        if isinstance(after_column, str):
-            item["card_column_after"] = after_column
-        return item
-
-    def _event_page_actor_key(self, actor_name: str) -> str:
-        normalized = normalize_actor_name(actor_name, default="SYSTEM").strip().upper()
-        aliases = {
-            "КАТЯ": "KATYA",
-            "KATYA": "KATYA",
-            "UGA": "UGA",
-            "CODEX": "CODEX",
-            "СИСТЕМА": "SYSTEM",
-            "SYSTEM": "SYSTEM",
-        }
-        return aliases.get(normalized, f"ACTOR_{self._event_page_hash(normalized)[:12].upper()}")
-
-    @staticmethod
-    def _event_page_entity(event: AuditEvent) -> tuple[str, str]:
-        action = event.action.casefold()
-        details = event.details if isinstance(event.details, dict) else {}
-        for entity_type, detail_key in (
-            ("cashbox", "cashbox_id"),
-            ("attachment", "attachment_id"),
-            ("sticky", "sticky_id"),
-            ("client", "client_id"),
-            ("inventory_item", "item_id"),
-            ("column", "column_id"),
-        ):
-            value = details.get(detail_key)
-            if isinstance(value, str) and value:
-                return entity_type, value
-        if event.card_id:
-            return "card", event.card_id
-        if "cash" in action or "payment" in action or "salary" in action:
-            return "finance", "board"
-        if "column" in action:
-            return "column", "board"
-        return "board", "board"
-
-    @staticmethod
-    def _event_page_changed_categories(event: AuditEvent) -> list[str]:
-        action = event.action.casefold()
-        details = event.details if isinstance(event.details, dict) else {}
-        categories: set[str] = set()
-        category_by_field = {
-            "title": "card_content",
-            "description": "card_content",
-            "board_summary": "card_content",
-            "vehicle": "vehicle",
-            "vehicle_profile": "vehicle",
-            "column": "column",
-            "before_column": "column",
-            "after_column": "column",
-            "deadline": "deadline",
-            "indicator": "deadline",
-            "timer": "deadline",
-            "tag": "tags",
-            "tags": "tags",
-            "attachment": "attachment",
-            "attachment_id": "attachment",
-            "repair_order": "repair_order",
-            "cashbox_id": "finance",
-            "amount": "finance",
-            "payment": "finance",
-            "client_id": "client",
-            "client": "client",
-            "sticky_id": "sticky",
-            "item_id": "inventory",
-            "column_id": "column",
-        }
-        fields = details.get("fields")
-        if isinstance(fields, list):
-            categories.update(
-                category_by_field.get(str(field).casefold(), "unknown") for field in fields
-            )
-        categories.update(category_by_field[key] for key in details if key in category_by_field)
-        action_categories = (
-            ("cash", "finance"),
-            ("payment", "finance"),
-            ("salary", "finance"),
-            ("repair_order", "repair_order"),
-            ("client", "client"),
-            ("vehicle", "vehicle"),
-            ("attachment", "attachment"),
-            ("sticky", "sticky"),
-            ("column", "column"),
-            ("card_moved", "column"),
-            ("tag", "tags"),
-            ("deadline", "deadline"),
-            ("timer", "deadline"),
-            ("inventory", "inventory"),
-        )
-        categories.update(category for marker, category in action_categories if marker in action)
-        return sorted(categories or {"unknown"})
-
-    @staticmethod
-    def _event_page_is_financial(event: AuditEvent) -> bool:
-        action = event.action.casefold()
-        details = event.details if isinstance(event.details, dict) else {}
-        return any(
-            marker in action for marker in ("cash", "payment", "salary", "payroll", "finance")
-        ) or any(
-            key in details
-            for key in ("amount", "amount_minor", "payment", "payments", "price", "total")
-        )
-
-    @staticmethod
-    def _event_page_is_destructive(event: AuditEvent) -> bool:
-        action = event.action.casefold()
-        return any(marker in action for marker in ("archived", "deleted", "removed", "write_off"))
-
-    @staticmethod
-    def _event_page_operation_result(event: AuditEvent) -> str:
-        action = event.action.casefold()
-        if "failed" in action or "error" in action:
-            return "failed"
-        return "success"
-
     def list_archived_cards(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
@@ -1504,18 +1299,19 @@ class SnapshotService:
             )
             compact_cards = self._validated_optional_bool(payload, "compact", default=False)
             bundle = self._store.read_bundle()
+            events = visible_audit_events(payload, bundle["events"])
             archived_total = sum(1 for card in bundle["cards"] if card.archived)
             archived = self._archived_cards(bundle["cards"], limit=limit)
             viewer_username = self._viewer_username(payload)
             column_labels, event_counts = self._card_serialization_context(
                 archived,
                 columns=bundle["columns"],
-                events=bundle["events"],
+                events=events,
             )
             return {
                 "cards": self._serialize_cards_payload(
                     archived,
-                    events=bundle["events"],
+                    events=events,
                     column_labels=column_labels,
                     event_counts=event_counts,
                     viewer_username=viewer_username,
@@ -1539,7 +1335,7 @@ class SnapshotService:
             limit = self._validated_limit(payload.get("limit"), default=20, maximum=100)
             bundle = self._store.read_bundle()
             columns = bundle["columns"]
-            events = bundle["events"]
+            events = visible_audit_events(payload, bundle["events"])
             viewer_username = self._viewer_username(payload)
             query = self._validated_search_query(payload.get("query"))
             column = self._validated_optional_column(payload.get("column"), columns)
@@ -1623,6 +1419,7 @@ class SnapshotService:
                 payload, "include_archived", default=False
             )
             bundle = self._store.read_bundle()
+            events = visible_audit_events(payload, bundle["events"])
             viewer_username = self._viewer_username(payload)
             overdue_cards = [
                 card
@@ -1633,12 +1430,12 @@ class SnapshotService:
             column_labels, event_counts = self._card_serialization_context(
                 overdue_cards,
                 columns=bundle["columns"],
-                events=bundle["events"],
+                events=events,
             )
             return {
                 "cards": self._serialize_cards_payload(
                     overdue_cards,
-                    events=bundle["events"],
+                    events=events,
                     column_labels=column_labels,
                     event_counts=event_counts,
                     viewer_username=viewer_username,
@@ -1649,13 +1446,14 @@ class SnapshotService:
         with self._lock:
             bundle = self._store.read_bundle()
             card = self._find_card(bundle["cards"], payload.get("card_id"))
+            events = visible_audit_events(payload, bundle["events"])
             column_labels = self._column_labels(bundle["columns"])
             viewer_username = self._viewer_username(payload)
-            event_counts = {card.id: self._event_count_for_card(bundle["events"], card.id)}
+            event_counts = {card.id: self._event_count_for_card(events, card.id)}
             return {
                 "card": self._serialize_card(
                     card,
-                    bundle["events"],
+                    events,
                     column_labels=column_labels,
                     event_counts=event_counts,
                     include_removed_attachments=True,
@@ -1680,8 +1478,14 @@ class SnapshotService:
             )
             bundle = self._store.read_bundle()
             card = self._find_card(bundle["cards"], payload.get("card_id"))
-            card_events = self._events_for_card(bundle["events"], card.id)
-            if include_full_details and self._hydrate_event_details is not None:
+            card_events = visible_audit_events(
+                payload,
+                self._events_for_card(bundle["events"], card.id),
+            )
+            full_details_included = bool(
+                include_full_details and operator_can_access_employees_cashboxes(payload)
+            )
+            if full_details_included and self._hydrate_event_details is not None:
                 card_events = [self._hydrate_event_details(event) for event in card_events]
             events = [
                 event.to_dict()
@@ -1717,7 +1521,7 @@ class SnapshotService:
                 "text_alias": "" if compact else "markdown",
                 "event_order": "newest_first",
                 "compact": compact,
-                "include_full_details": include_full_details,
+                "include_full_details": full_details_included,
             }
             if compact:
                 return {
@@ -3071,14 +2875,6 @@ class SnapshotService:
         else:
             lines.append("- no recent events")
         return "\n".join(lines) + "\n"
-
-    def _event_counts(self, events: list[AuditEvent]) -> dict[str, int]:
-        counts: dict[str, int] = {}
-        for event in events:
-            if not event.card_id:
-                continue
-            counts[event.card_id] = counts.get(event.card_id, 0) + 1
-        return counts
 
     def _event_count_for_card(self, events: list[AuditEvent], card_id: str) -> int:
         return sum(1 for event in events if event.card_id == card_id)

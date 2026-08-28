@@ -53,7 +53,7 @@ ALLOWED_LARGE_MODULES = {
         "raw readback verifier split target", 1465, 1465, "009"
     ),
     "src/minimal_kanban/services/card_service.py": RatchetBudget(
-        "domain facade split target", 11681, 11681, "012"
+        "domain facade split target", 11627, 11627, "012"
     ),
     "src/minimal_kanban/services/card_service_finance.py": RatchetBudget(
         "finance domain split target", 3048, 3048, "019"
@@ -62,7 +62,7 @@ ALLOWED_LARGE_MODULES = {
         "payroll domain split target", 4805, 4805, "013"
     ),
     "src/minimal_kanban/services/snapshot_service.py": RatchetBudget(
-        "snapshot serialization split target", 2992, 2992, "018"
+        "snapshot serialization split target", 2880, 2880, "018"
     ),
     "src/minimal_kanban/agent/runner.py": RatchetBudget(
         "agent orchestration split target after the runtime keep decision", 5093, 5093, "206"
@@ -95,7 +95,7 @@ ALLOWED_LARGE_CLASSES = {
         "print rendering and draft-store split target", 2839, 2839, "014"
     ),
     "src/minimal_kanban/services/card_service.py:CardService": RatchetBudget(
-        "domain facade split target", 11180, 11180, "012"
+        "domain facade split target", 11122, 11122, "012"
     ),
     "src/minimal_kanban/services/card_service_payroll.py:CardServicePayrollMixin": RatchetBudget(
         "payroll domain split target", 4608, 4608, "013"
@@ -104,7 +104,7 @@ ALLOWED_LARGE_CLASSES = {
         "finance domain split target", 3002, 3002, "019"
     ),
     "src/minimal_kanban/services/snapshot_service.py:SnapshotService": RatchetBudget(
-        "snapshot serialization split target", 2696, 2696, "018"
+        "snapshot serialization split target", 2575, 2575, "018"
     ),
     "src/minimal_kanban/agent/runner.py:AgentRunner": RatchetBudget(
         "agent orchestration split target after the runtime keep decision", 4865, 4865, "206"

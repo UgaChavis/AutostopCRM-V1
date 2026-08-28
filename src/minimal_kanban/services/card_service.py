@@ -80,7 +80,6 @@ from ..repair_order import (
     REPAIR_ORDER_STATUS_READY,
     RepairOrder,
     RepairOrderPayment,
-    RepairOrderRow,
     normalize_repair_order_payment_method,
     normalize_repair_order_payments,
     normalize_repair_order_rows,
@@ -88,7 +87,6 @@ from ..repair_order import (
     normalize_repair_order_tags,
     repair_order_payment_method_from_cashbox_name,
     repair_order_payment_method_from_payments,
-    repair_order_payment_method_label,
 )
 from ..storage.audit_archive import (
     AUDIT_ARCHIVE_DIR_NAME,
@@ -118,6 +116,11 @@ from .card_service_payroll import CardServicePayrollMixin
 from .column_service import ColumnService
 from .errors import ServiceError
 from .finance_read_core import FinanceReadCore
+from .operator_visibility import (
+    operator_can_access_employees_cashboxes,
+    preserve_restricted_repair_order_private_fields,
+    visible_audit_events,
+)
 from .ready_column import (
     READY_CARD_TAG_COLOR,
     READY_CARD_TAG_LABEL,
@@ -125,6 +128,7 @@ from .ready_column import (
     ensure_ready_column,
 )
 from .repair_order_number_audit import build_repair_order_number_audit
+from .repair_order_text_renderer import render_bounded_repair_order_text
 from .snapshot_service import SnapshotService
 from .vehicle_profile_service import VehicleProfileService
 
@@ -2581,7 +2585,10 @@ class CardService(
                 bundle["stickies"],
                 bundle["settings"],
             )
-            card_events = self._events_for_card(bundle["events"], card.id)
+            card_events = visible_audit_events(
+                payload,
+                self._events_for_card(bundle["events"], card.id),
+            )
             events = [event.to_dict() for event in card_events[:event_limit]]
             active_attachments = [attachment.to_dict() for attachment in card.active_attachments()]
             removed_attachments = [
@@ -2638,7 +2645,7 @@ class CardService(
                 )
                 else [],
                 "repair_order_text": (
-                    self._repair_order_text_payload(card)
+                    self._repair_order_text_payload(card, operator_payload=payload)
                     if include_repair_order_text and has_repair_order
                     else None
                 ),
@@ -2856,6 +2863,7 @@ class CardService(
                 cash_transactions=bundle["cash_transactions"],
                 settings=bundle["settings"],
                 attestation_run_id=attestation_run_id,
+                operator_session=payload.get("_operator_session"),
             )
             numbering_changed = self._synchronize_repair_order_numbers(cards)
             if changed or numbering_changed:
@@ -3367,6 +3375,7 @@ class CardService(
                 cashboxes=bundle["cashboxes"],
                 cash_transactions=bundle["cash_transactions"],
                 settings=bundle["settings"],
+                operator_session=payload.get("_operator_session"),
             )
             numbering_changed = self._synchronize_repair_order_numbers(cards)
             if changed or numbering_changed:
@@ -3428,6 +3437,7 @@ class CardService(
                 cashboxes=bundle["cashboxes"],
                 cash_transactions=bundle["cash_transactions"],
                 settings=bundle["settings"],
+                operator_session=payload.get("_operator_session"),
             )
             numbering_changed = self._synchronize_repair_order_numbers(cards)
             if changed or numbering_changed:
@@ -3597,7 +3607,12 @@ class CardService(
                 },
             }
 
-    def get_repair_order_text_download(self, card_id: str) -> tuple[Path, str]:
+    def get_repair_order_text_download(
+        self,
+        card_id: str,
+        *,
+        operator_payload: dict[str, Any] | None = None,
+    ) -> tuple[Path | bytes, str]:
         with self._lock:
             bundle = self._store.read_bundle()
             if self._synchronize_repair_order_numbers(bundle["cards"]):
@@ -3616,8 +3631,18 @@ class CardService(
                     status_code=404,
                     details={"card_id": card.id},
                 )
-            path = self._ensure_repair_order_text_file(card, force=True)
-            return path, path.name
+            if operator_can_access_employees_cashboxes(operator_payload):
+                path = self._ensure_repair_order_text_file(card, force=True)
+                return path, path.name
+            file_name = self._repair_order_file_name(card)
+            body = render_bounded_repair_order_text(
+                card,
+                json_dumps=_json_dumps,
+                file_name=file_name,
+                max_bytes=REPAIR_ORDER_TEXT_FILE_MAX_BYTES,
+                operator_payload=operator_payload,
+            ).encode("utf-8")
+            return body, file_name
 
     def get_repair_order_text(self, payload: dict | None = None) -> dict:
         with self._lock:
@@ -3639,7 +3664,11 @@ class CardService(
                     status_code=404,
                     details={"card_id": card.id},
                 )
-            repair_order_text = self._repair_order_text_payload(card, force=True)
+            repair_order_text = self._repair_order_text_payload(
+                card,
+                force=True,
+                operator_payload=payload,
+            )
             return {
                 "card_id": card.id,
                 "heading": card.heading(),
@@ -4575,6 +4604,7 @@ class CardService(
                     cashboxes=bundle["cashboxes"],
                     cash_transactions=bundle["cash_transactions"],
                     settings=bundle["settings"],
+                    operator_session=payload.get("_operator_session"),
                 )
                 changed = repair_order_changed or changed
                 if repair_order_changed:
@@ -7151,6 +7181,7 @@ class CardService(
         settings: dict[str, Any] | None = None,
         attestation_run_id: str = "",
         operation: str = "update",
+        operator_session: dict[str, Any] | None = None,
     ) -> bool:
         previous_order = RepairOrder.from_dict(card.repair_order.to_storage_dict())
         value = self._repair_order_payload_with_immutable_number(card, value)
@@ -7159,6 +7190,11 @@ class CardService(
             cards,
             card=card,
             exclude_card_id=card.id,
+        )
+        order = preserve_restricted_repair_order_private_fields(
+            operator_session,
+            previous_order,
+            order,
         )
         if (
             previous_order.status == REPAIR_ORDER_STATUS_CLOSED
@@ -9881,17 +9917,12 @@ class CardService(
         if not force and path.exists():
             return path
         self._repair_orders_dir.mkdir(parents=True, exist_ok=True)
-        content = self._render_repair_order_text(card)
-        if len(content.encode("utf-8")) > REPAIR_ORDER_TEXT_FILE_MAX_BYTES:
-            self._fail(
-                "repair_order_text_too_large",
-                "Текстовый файл заказ-наряда слишком большой.",
-                status_code=413,
-                details={
-                    "file_name": path.name,
-                    "max_size_bytes": REPAIR_ORDER_TEXT_FILE_MAX_BYTES,
-                },
-            )
+        content = render_bounded_repair_order_text(
+            card,
+            json_dumps=_json_dumps,
+            file_name=path.name,
+            max_bytes=REPAIR_ORDER_TEXT_FILE_MAX_BYTES,
+        )
         temp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
         try:
             temp_path.write_text(content, encoding="utf-8")
@@ -9912,7 +9943,26 @@ class CardService(
         short_id = short_entity_id(card.id, prefix="C")
         return f"{number}__{title}__{short_id}.txt"
 
-    def _repair_order_text_payload(self, card: Card, *, force: bool = False) -> dict[str, str]:
+    def _repair_order_text_payload(
+        self,
+        card: Card,
+        *,
+        force: bool = False,
+        operator_payload: dict[str, Any] | None = None,
+    ) -> dict[str, str]:
+        if not operator_can_access_employees_cashboxes(operator_payload):
+            file_name = self._repair_order_file_name(card)
+            return {
+                "file_name": file_name,
+                "file_path": "",
+                "text": render_bounded_repair_order_text(
+                    card,
+                    json_dumps=_json_dumps,
+                    file_name=file_name,
+                    max_bytes=REPAIR_ORDER_TEXT_FILE_MAX_BYTES,
+                    operator_payload=operator_payload,
+                ),
+            }
         path = self._ensure_repair_order_text_file(card, force=force)
         return {
             "file_name": path.name,
@@ -10001,108 +10051,6 @@ class CardService(
                 shutil.rmtree(candidate)
             except OSError:
                 continue
-
-    def _render_repair_order_text(self, card: Card) -> str:
-        order = card.repair_order
-        lines = [
-            "ЗАКАЗ-НАРЯД",
-            "",
-            f"Номер: {order.number or '-'}",
-            f"Дата: {order.date or '-'}",
-            f"Карточка: {card.heading()}",
-            f"Card ID: {card.id}",
-            "",
-            f"Status: {self._repair_order_status_label(order.status)}",
-            f"Opened at: {order.opened_at or self._repair_order_card_datetime(card.created_at) or '-'}",
-            f"Closed at: {order.closed_at or '-'}",
-            f"Форма оплаты: {order.to_dict()['payment_method_label']}",
-            f"Предоплата: {order.prepayment_amount()}",
-            "",
-            "Оплаты:",
-        ]
-        if order.payments:
-            lines.extend(self._render_repair_order_payments(order.payments))
-        else:
-            lines.append("-")
-        lines.extend(
-            [
-                "",
-                f"Клиент: {order.client or '-'}",
-                f"Телефон: {order.phone or '-'}",
-                f"Автомобиль: {order.vehicle or '-'}",
-                f"Госномер: {order.license_plate or '-'}",
-                "",
-                "Информация для клиента:",
-                order.comment or "-",
-                "",
-                "Master note:",
-                order.note or "-",
-                "",
-                "Работы:",
-            ]
-        )
-        lines.extend(self._render_repair_order_rows(order.works))
-        lines.append(f"Итого работы: {order.works_total_amount()}")
-        lines.extend(["", "Материалы:"])
-        lines.extend(self._render_repair_order_rows(order.materials))
-        lines.append(f"Итого материалы: {order.materials_total_amount()}")
-        payment_summary = order.payment_summary_value()
-        payment_summary_amounts = order.payment_summary_amounts()
-        cash_like_prepayment = payment_summary["base_paid_cash"]
-        cashless_prepayment = payment_summary["base_paid_noncash"]
-        lines.extend(
-            [
-                "",
-                f"Стоимость заказ-наряда за наличный расчет: {order.subtotal_amount()}",
-                f"Стоимость заказ-наряда по безналичному расчету: {order.noncash_total_amount()}",
-                f"Предоплата всего: {order.prepayment_amount()}",
-            ]
-        )
-        if cash_like_prepayment:
-            lines.append(f"Предоплата за наличные: {payment_summary_amounts['base_paid_cash']}")
-        if cashless_prepayment:
-            lines.append(f"Предоплата по безналу: {payment_summary_amounts['base_paid_noncash']}")
-            lines.append(f"Налоги и сборы: {order.taxes_amount()}")
-        lines.extend(
-            [
-                f"Доплата по безналичному расчету: {order.noncash_due_amount()}",
-                f"Доплата по наличному расчету: {order.due_total_amount()}",
-                "",
-                "JSON:",
-                _json_dumps(order.to_storage_dict(), indent=2),
-                "",
-                f"Обновлено: {card.updated_at or card.created_at or '-'}",
-            ]
-        )
-        return "\n".join(lines).strip() + "\n"
-
-    def _render_repair_order_rows(self, rows: list[RepairOrderRow]) -> list[str]:
-        if not rows:
-            return ["-"]
-        lines: list[str] = []
-        for index, row in enumerate(rows, start=1):
-            lines.append(
-                f"{index}. {row.name or '-'} | кол-во: {row.quantity or '-'} | цена: {row.price or '-'} | сумма: {row.total or '-'}"
-            )
-        return lines
-
-    def _render_repair_order_payments(self, payments: list[RepairOrderPayment]) -> list[str]:
-        lines: list[str] = []
-        for index, payment in enumerate(payments, start=1):
-            parts = [
-                payment.paid_at or "-",
-                repair_order_payment_method_label(payment.payment_method),
-                payment.amount or "0",
-            ]
-            if payment.actor_name:
-                parts.append(f"кто: {payment.actor_name}")
-            if payment.cashbox_name:
-                parts.append(f"касса: {payment.cashbox_name}")
-            note = normalize_text(payment.note, default="", limit=240)
-            if note:
-                parts.append(note)
-            lines.append(f"{index}. {' | '.join(parts)}")
-        return lines or ["-"]
 
     def _extract_license_plate(self, card: Card, *, fallback: str = "") -> str:
         if card.vehicle_profile.registration_plate:

@@ -300,6 +300,7 @@
       employeeShiftAccrualOpen: false,
       employeeShiftAccrualDraft: '',
       employeesUiBound: false,
+      operatorAdminPermissionUiBound: false,
       repairOrderPaymentsUiBound: false,
       repairOrderTags: [],
       repairOrderPayments: [],
@@ -2856,6 +2857,11 @@
       return operatorHasPermission(EMPLOYEES_CASHBOXES_ACCESS_PERMISSION);
     }
 
+    function operatorCanResetSalaryBalance() {
+      return operatorCanAccessEmployeesCashboxes()
+        && operatorHasPermission(SALARY_BALANCE_RESET_PERMISSION);
+    }
+
     function requireEmployeesCashboxesAccess() {
       if (operatorCanAccessEmployeesCashboxes()) return true;
       if (!state.operatorSessionToken || !state.actor) {
@@ -2931,12 +2937,21 @@
 
     function syncEmployeesCashboxesAccessUi({ clearCachedData = false } = {}) {
       const canAccess = operatorCanAccessEmployeesCashboxes();
+      const canResetSalaryBalance = operatorCanResetSalaryBalance();
       const previousAccess = Boolean(state.employeesCashboxesAccess);
       const accessChanged = previousAccess !== canAccess;
       if (accessChanged || clearCachedData) state.employeesCashboxesAccessRevision += 1;
       state.employeesCashboxesAccess = canAccess;
 
+      if (!canResetSalaryBalance) {
+        state.employeeSalaryResetPending = false;
+        state.employeeSalaryResetIntent = null;
+      }
+
       if (!canAccess) {
+        if (typeof closeRepairOrderWorkSalaryPopover === 'function') {
+          closeRepairOrderWorkSalaryPopover();
+        }
         if (typeof closeModalAndChildren === 'function') {
           closeModalAndChildren('cashboxes');
           closeModalAndChildren('employees');
@@ -3266,8 +3281,9 @@
             const stats = user.stats || {};
             const employeeLabel = operatorUserEmployeeLabel(user);
             const permissions = Array.isArray(user.permissions) ? user.permissions : [];
-            const canResetSalaryBalance = permissions.includes(SALARY_BALANCE_RESET_PERMISSION);
             const canAccessEmployeesCashboxes = permissions.includes(EMPLOYEES_CASHBOXES_ACCESS_PERMISSION);
+            const canResetSalaryBalance = canAccessEmployeesCashboxes
+              && permissions.includes(SALARY_BALANCE_RESET_PERMISSION);
             return '<div class="operator-user-row">' +
               '<div class="operator-user-row__head"><strong>' + escapeHtml(user.username) + '</strong><span class="operator-user-chip">' + escapeHtml(user.is_admin ? 'АДМИН' : 'ОПЕРАТОР') + '</span></div>' +
               '<div class="operator-user-row__stats">' +
@@ -3295,14 +3311,37 @@
       els.adminUserLogin.value = String(user.username || '');
       els.adminUserPassword.value = '';
       const permissions = Array.isArray(user.permissions) ? user.permissions : [];
-      if (els.adminUserSalaryBalanceReset) {
-        els.adminUserSalaryBalanceReset.checked = permissions.includes(SALARY_BALANCE_RESET_PERMISSION);
-      }
       if (els.adminUserEmployeesCashboxesAccess) {
         els.adminUserEmployeesCashboxesAccess.checked = permissions.includes(EMPLOYEES_CASHBOXES_ACCESS_PERMISSION);
       }
+      if (els.adminUserSalaryBalanceReset) {
+        els.adminUserSalaryBalanceReset.checked = permissions.includes(SALARY_BALANCE_RESET_PERMISSION);
+      }
+      syncOperatorAdminSalaryResetPermission();
       els.operatorUserEditorPanel?.scrollIntoView({ block: 'nearest' });
       els.adminUserPassword?.focus();
+    }
+
+    function syncOperatorAdminSalaryResetPermission() {
+      if (!els.adminUserSalaryBalanceReset) return;
+      const canAccessEmployeesCashboxes = Boolean(els.adminUserEmployeesCashboxesAccess?.checked);
+      if (!canAccessEmployeesCashboxes) els.adminUserSalaryBalanceReset.checked = false;
+      els.adminUserSalaryBalanceReset.disabled = !canAccessEmployeesCashboxes;
+      els.adminUserSalaryBalanceReset.setAttribute(
+        'aria-disabled',
+        canAccessEmployeesCashboxes ? 'false' : 'true',
+      );
+    }
+
+    function bindOperatorAdminPermissionUi() {
+      if (state.operatorAdminPermissionUiBound) return;
+      els.adminUserEmployeesCashboxesAccess?.addEventListener(
+        'change',
+        syncOperatorAdminSalaryResetPermission,
+      );
+      els.adminUserLogin?.addEventListener('input', syncOperatorAdminSalaryResetPermission);
+      state.operatorAdminPermissionUiBound = true;
+      syncOperatorAdminSalaryResetPermission();
     }
 
     function renderOperatorActivityUserOptions() {
@@ -5993,7 +6032,7 @@
         els.employeeSalaryBalance.textContent = String(sheet?.balance_display || sheet?.balance_total || '0');
       }
       if (els.employeeSalaryResetButton) {
-        const canResetBalance = operatorHasPermission(SALARY_BALANCE_RESET_PERMISSION);
+        const canResetBalance = operatorCanResetSalaryBalance();
         const balanceMinor = Number(sheet?.balance_minor);
         els.employeeSalaryResetButton.classList.toggle('hidden', !canResetBalance);
         els.employeeSalaryResetButton.disabled = Boolean(
@@ -6464,7 +6503,7 @@
 
     async function handleEmployeeSalaryReset() {
       if (state.employeeSalaryResetPending) return;
-      if (!operatorHasPermission(SALARY_BALANCE_RESET_PERMISSION)) {
+      if (!operatorCanResetSalaryBalance()) {
         setStatus('НЕТ ПРАВА НА ОБНУЛЕНИЕ ЗАРПЛАТНОГО БАЛАНСА.', true);
         return;
       }
@@ -8464,6 +8503,7 @@
     }
 
     async function openOperatorAdminModal() {
+      bindOperatorAdminPermissionUi();
       setOperatorAdminTab('users');
       await refreshOperatorAdminSurfaces({ openAdminModal: true });
     }
@@ -8485,11 +8525,12 @@
           source: 'ui',
         };
         if (!existingUser || editingPermissions) {
+          const canAccessEmployeesCashboxes = Boolean(els.adminUserEmployeesCashboxesAccess?.checked);
           payload.permissions = [];
-          if (els.adminUserEmployeesCashboxesAccess?.checked) {
+          if (canAccessEmployeesCashboxes) {
             payload.permissions.push(EMPLOYEES_CASHBOXES_ACCESS_PERMISSION);
           }
-          if (els.adminUserSalaryBalanceReset?.checked) {
+          if (canAccessEmployeesCashboxes && els.adminUserSalaryBalanceReset?.checked) {
             payload.permissions.push(SALARY_BALANCE_RESET_PERMISSION);
           }
         }
@@ -8502,6 +8543,7 @@
         els.adminUserPassword.value = '';
         if (els.adminUserSalaryBalanceReset) els.adminUserSalaryBalanceReset.checked = false;
         if (els.adminUserEmployeesCashboxesAccess) els.adminUserEmployeesCashboxesAccess.checked = false;
+        syncOperatorAdminSalaryResetPermission();
         setStatus((data?.meta?.created ? 'Пользователь создан.' : 'Пользователь обновлён.') + ' ' + (data?.user?.username || ''), false);
         await refreshOperatorAdminSurfaces({ openAdminModal: true, refreshProfile: true, tabName: 'users' });
       } catch (error) {
@@ -14130,10 +14172,12 @@
     }
 
     function repairOrderWorkExecutorCellHtml(normalized) {
-      const activeClass = normalized.work_salary_override_enabled === 'true' ? ' is-active' : '';
+      const salaryGearHtml = operatorCanAccessEmployeesCashboxes()
+        ? '<button class="repair-order-work-salary-gear' + (normalized.work_salary_override_enabled === 'true' ? ' is-active' : '') + '" type="button" title="НАСТРОИТЬ НАЧИСЛЕНИЕ" aria-label="НАСТРОИТЬ НАЧИСЛЕНИЕ" data-repair-order-work-salary-gear>⚙</button>'
+        : '';
       return '<div class="repair-order-executor-cell">'
         + '<select class="repair-order-table__select" data-repair-order-cell="executor_id">' + repairOrderExecutorOptionsHtml(normalized.executor_id, normalized.executor_name) + '</select>'
-        + '<button class="repair-order-work-salary-gear' + activeClass + '" type="button" title="НАСТРОИТЬ НАЧИСЛЕНИЕ" aria-label="НАСТРОИТЬ НАЧИСЛЕНИЕ" data-repair-order-work-salary-gear>⚙</button>'
+        + salaryGearHtml
         + '</div>';
     }
 
@@ -14331,6 +14375,10 @@
     }
 
     function openRepairOrderWorkSalaryPopover(button) {
+      if (!operatorCanAccessEmployeesCashboxes()) {
+        closeRepairOrderWorkSalaryPopover();
+        return;
+      }
       const row = button?.closest?.('tr[data-repair-order-row]');
       if (!(row instanceof HTMLElement)) return;
       const rowData = readRepairOrderRowElement(row);
@@ -14360,6 +14408,10 @@
     }
 
     function applyRepairOrderWorkSalaryPopover() {
+      if (!operatorCanAccessEmployeesCashboxes()) {
+        closeRepairOrderWorkSalaryPopover();
+        return;
+      }
       const row = state.repairOrderWorkSalaryRow;
       if (!(row instanceof HTMLElement)) return;
       const guarantee = repairOrderNormalizeNonNegativeRaw(els.repairOrderWorkSalaryGuarantee?.value || '');
@@ -14377,6 +14429,10 @@
     }
 
     function resetRepairOrderWorkSalaryOverride() {
+      if (!operatorCanAccessEmployeesCashboxes()) {
+        closeRepairOrderWorkSalaryPopover();
+        return;
+      }
       const row = state.repairOrderWorkSalaryRow;
       if (!(row instanceof HTMLElement)) return;
       row.dataset.repairOrderWorkSalaryOverrideEnabled = '';

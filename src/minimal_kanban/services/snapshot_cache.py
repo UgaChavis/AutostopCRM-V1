@@ -55,12 +55,19 @@ class SnapshotResponseCache:
     def key(
         *,
         viewer_username: str | None,
+        employees_cashboxes_access: bool,
         compact_cards: bool,
         include_archive: bool,
         archive_limit: int,
     ) -> tuple[Any, ...]:
         normalized_viewer = normalize_actor_name(viewer_username, default="").casefold()
-        return normalized_viewer, compact_cards, include_archive, archive_limit
+        return (
+            normalized_viewer,
+            employees_cashboxes_access,
+            compact_cards,
+            include_archive,
+            archive_limit,
+        )
 
     def get(
         self,
@@ -135,10 +142,14 @@ def build_snapshot_revision(
     include_archive: bool,
     archive_limit: int,
     json_dumps: Callable[..., str],
+    card_projection: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ) -> str:
     def card_signature(card: Card) -> dict[str, Any]:
+        card_payload = card.to_storage_dict()
+        if card_projection is not None:
+            card_payload = card_projection(card_payload)
         return {
-            "card": card.to_storage_dict(),
+            "card": card_payload,
             "events_count": event_counts.get(card.id, 0),
             "viewer_seen_at": str(card.seen_by_users.get(str(viewer_username or "").strip()) or ""),
             "has_unseen_update": card.has_unseen_update_for(viewer_username),

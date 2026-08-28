@@ -298,8 +298,17 @@ positions.
   assignees and payment cashboxes. Those responses set
   `meta.references_only=true` and omit payroll terms, balances, cashbox
   statistics, transaction totals, and notification data.
-- Board snapshots and board-event views omit private employee, payroll, and
-  cashbox-event data for a human session without that permission.
+- Board snapshots, full card/context responses, repair-order text, mutation
+  responses, and board/card journals omit per-row payroll snapshots, salary
+  overrides, payroll postings, and private employee/cashbox event details for
+  a human session without that permission. Operational work fields such as
+  executor, name, quantity, price, and total remain available.
+- Restricted card journals filter private events before hydration, pagination,
+  grouping, totals, and Markdown rendering. Safe repair-order update events
+  retain only their number, status, and work/material counts.
+- Repair-order writes from a restricted human session preserve existing
+  private payroll fields and discard private values supplied for new rows;
+  normal work/material editing is unchanged.
 - `/api/finance_audit` is read-only and also requires
   `employees_cashboxes_access` for human sessions.
 - `/api/finance_audit/apply_safe_fixes` is a maintenance-only write and

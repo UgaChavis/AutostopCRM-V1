@@ -50,6 +50,7 @@ from ..performance import request_performance_trace
 from ..services.card_service import CardService
 from ..services.change_feed_service import ChangeFeedService
 from ..services.errors import ServiceError
+from ..services.operator_visibility import project_operator_result
 from ..services.shared_files_service import SharedFilesService
 from ..services.snapshot_cache import PreparedSnapshotData
 from ..storage.json_store import StateFileCorruptedError
@@ -1075,10 +1076,11 @@ class StaticAndDownloadResponder:
         payload: dict,
     ) -> None:
         try:
-            path, file_name = self._service.get_repair_order_text_download(
-                str(payload.get("card_id", ""))
+            content, file_name = self._service.get_repair_order_text_download(
+                str(payload.get("card_id", "")),
+                operator_payload=payload,
             )
-            body = _read_bounded_file_response(path)
+            body = content if isinstance(content, bytes) else _read_bounded_file_response(content)
             handler._send_bytes_response(
                 body,
                 content_type="text/plain; charset=utf-8",
@@ -1591,6 +1593,7 @@ class JsonRouteDispatcher:
                         request_id=request_id,
                     )
                 else:
+                    result = project_operator_result(payload, result)
                     body = _json_response(
                         ok=True,
                         data=result,

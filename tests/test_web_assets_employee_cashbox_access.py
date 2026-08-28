@@ -129,6 +129,85 @@ class EmployeeCashboxAccessWebAssetTests(unittest.TestCase):
         )
         self.assertIn("payload.permissions.push(SALARY_BALANCE_RESET_PERMISSION);", save)
 
+    def test_admin_editor_enforces_salary_reset_permission_dependency(self) -> None:
+        dependency = _asset_section(
+            "function syncOperatorAdminSalaryResetPermission()",
+            "function renderOperatorActivityUserOptions()",
+        )
+        self.assertIn(
+            "const canAccessEmployeesCashboxes = Boolean("
+            "els.adminUserEmployeesCashboxesAccess?.checked);",
+            dependency,
+        )
+        self.assertIn(
+            "if (!canAccessEmployeesCashboxes) els.adminUserSalaryBalanceReset.checked = false;",
+            dependency,
+        )
+        self.assertIn(
+            "els.adminUserSalaryBalanceReset.disabled = !canAccessEmployeesCashboxes;",
+            dependency,
+        )
+        self.assertIn(
+            "els.adminUserEmployeesCashboxesAccess?.addEventListener(",
+            dependency,
+        )
+
+        opener = _asset_section(
+            "async function openOperatorAdminModal()",
+            "async function saveOperatorUser()",
+        )
+        self.assertIn("bindOperatorAdminPermissionUi();", opener)
+
+        save = _asset_section(
+            "async function saveOperatorUser()", "async function deleteOperatorUser("
+        )
+        self.assertIn(
+            "if (canAccessEmployeesCashboxes && els.adminUserSalaryBalanceReset?.checked)",
+            save,
+        )
+
+    def test_salary_reset_render_and_handler_require_both_permissions(self) -> None:
+        permission_helpers = _asset_section(
+            "function operatorHasPermission(permission)",
+            "function requireEmployeesCashboxesAccess()",
+        )
+        self.assertIn("function operatorCanResetSalaryBalance()", permission_helpers)
+        self.assertIn(
+            "return operatorCanAccessEmployeesCashboxes()",
+            permission_helpers,
+        )
+        self.assertIn(
+            "&& operatorHasPermission(SALARY_BALANCE_RESET_PERMISSION);",
+            permission_helpers,
+        )
+
+        renderer = _asset_section(
+            "function renderEmployeeSalaryModal()",
+            "async function loadEmployeeSalarySheet(",
+        )
+        self.assertIn(
+            "const canResetBalance = operatorCanResetSalaryBalance();",
+            renderer,
+        )
+
+        handler = _asset_section(
+            "async function handleEmployeeSalaryReset()",
+            "async function handleEmployeeSalaryActionConfirm()",
+        )
+        self.assertIn("if (!operatorCanResetSalaryBalance())", handler)
+        self.assertLess(
+            handler.index("if (!operatorCanResetSalaryBalance())"),
+            handler.index("/api/reset_employee_salary_balance"),
+        )
+
+        permission_sync = _asset_section(
+            "function syncEmployeesCashboxesAccessUi(",
+            "function operatorStatHtml(",
+        )
+        self.assertIn("if (!canResetSalaryBalance)", permission_sync)
+        self.assertIn("state.employeeSalaryResetPending = false;", permission_sync)
+        self.assertIn("state.employeeSalaryResetIntent = null;", permission_sync)
+
     def test_reference_only_cashboxes_never_render_a_fake_zero_balance(self) -> None:
         balance = _asset_section(
             "function cashboxBalanceDisplay(cashbox)", "function cashboxBalanceSign("
@@ -141,6 +220,67 @@ class EmployeeCashboxAccessWebAssetTests(unittest.TestCase):
             "async function ensureMobileRepairOrderPaymentCashboxes()",
         )
         self.assertIn("const label = balance ? (name + ' · ' + balance) : name;", selector)
+
+    def test_repair_order_salary_controls_require_employees_cashboxes_access(self) -> None:
+        renderer = _asset_section(
+            "function repairOrderWorkExecutorCellHtml(normalized)",
+            "function repairOrderRowHtml(",
+        )
+        self.assertIn(
+            "const salaryGearHtml = operatorCanAccessEmployeesCashboxes()",
+            renderer,
+        )
+        self.assertIn(
+            'data-repair-order-cell="executor_id"',
+            renderer,
+        )
+        self.assertIn("+ salaryGearHtml", renderer)
+
+        row_renderer = _asset_section(
+            "function repairOrderRowHtml(section, row, index)",
+            "function readRepairOrderRowElement(",
+        )
+        self.assertIn("repairOrderWorkExecutorCellHtml(normalized)", row_renderer)
+        for editable_field in ("name", "quantity", "price"):
+            self.assertIn(
+                "repairOrderRowInputHtml('" + editable_field + "'",
+                row_renderer,
+            )
+
+        for start, end, guarded_action in (
+            (
+                "function openRepairOrderWorkSalaryPopover(button)",
+                "function applyRepairOrderWorkSalaryPopover()",
+                "state.repairOrderWorkSalaryRow = row;",
+            ),
+            (
+                "function applyRepairOrderWorkSalaryPopover()",
+                "function resetRepairOrderWorkSalaryOverride()",
+                "row.dataset.repairOrderWorkSalaryOverrideEnabled = 'true';",
+            ),
+            (
+                "function resetRepairOrderWorkSalaryOverride()",
+                "function syncRepairOrderSectionTotals(",
+                "row.dataset.repairOrderWorkSalaryOverrideEnabled = '';",
+            ),
+        ):
+            section = _asset_section(start, end)
+            self.assertIn("if (!operatorCanAccessEmployeesCashboxes())", section)
+            self.assertIn("closeRepairOrderWorkSalaryPopover();", section)
+            self.assertIn("return;", section)
+            self.assertLess(
+                section.index("if (!operatorCanAccessEmployeesCashboxes())"),
+                section.index(guarded_action),
+            )
+
+        permission_sync = _asset_section(
+            "function syncEmployeesCashboxesAccessUi(",
+            "function operatorStatHtml(",
+        )
+        self.assertIn(
+            "closeRepairOrderWorkSalaryPopover();",
+            permission_sync,
+        )
 
 
 if __name__ == "__main__":
