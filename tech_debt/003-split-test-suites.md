@@ -4,8 +4,9 @@
 Этап: 1
 Оценка: 4–6 дней суммарно, независимыми доменными срезами
 Риск реализации: низкий
-Статус: in progress — MCP read baseline и три board-write test slices
-опубликованы; attachment-read test slice локально проверен 2026-08-28
+Статус: in progress — MCP read baseline, три board-write и attachment-read
+test slices опубликованы; shared-file-read test slice локально проверен
+2026-08-28
 
 ## Результат
 
@@ -112,8 +113,26 @@ Focused-команды для этого среза:
 - Совместный focused registrar/payload/hardening suite проходит 37/37;
   discovery по `test_mcp*.py` выполняет 153/153 без skip. Существующие backend
   attachment roundtrip и client-side limit tests проходят отдельно.
+- Slice опубликован коммитом `6c6a0a6`; GitHub Actions quality run
+  `33147066250` полностью прошёл на неизменённом SHA.
 
 `python -m unittest tests.test_mcp_card_attachment_reads tests.test_mcp_registration_contracts tests.test_mcp_client tests.test_docs_audit -q`
+
+## Shared-file read test slice (2026-08-28)
+
+- Для `list_shared_files`, `get_shared_file_info` и `download_shared_file`
+  добавлен двухтестовый registrar module `test_mcp_shared_file_reads.py` и
+  отдельная проверка legacy relative order перед shared-file writes.
+- Тесты фиксируют exact descriptions, read-only annotations, required/default
+  schema, оба download view modes, backend/relay arguments и response meta.
+- По замечанию независимого ревью предыдущего среза отдельно добавлено
+  выполнение attachment handlers только с обязательными аргументами: теперь
+  forwarding defaults и `include_removed=False` защищены не только схемой.
+- Совместный focused suite проходит 99/99; discovery по `test_mcp*.py`
+  выполняет 157/157 без skip. Raw snapshot остаётся 98 tools с прежним hash;
+  существующие shared-file backend и client limit regressions сохранены.
+
+`python -m unittest tests.test_mcp_shared_file_reads tests.test_mcp_card_attachment_reads tests.test_mcp_registration_contracts tests.test_mcp_payload_contracts tests.test_mcp_server_hardening tests.test_mcp_client tests.test_docs_audit -q`
 
 ## Scope и независимые deliverables
 
@@ -131,7 +150,7 @@ Focused-команды для этого среза:
 4. Web slice — разнести `test_web_assets.py` по UI-доменам.
 5. Gateway slice — разнести Gateway tests:
    public surface, workflows, raw escape, Store, OAuth/audit actor.
-6. MCP slice — registration/payload, tests двух read-only registrars и трёх
+6. MCP slice — registration/payload, tests четырёх read-only registrars и трёх
    малых board-write registrars выполнены; далее разносить оставшийся
    `test_mcp.py` по backend/transport/runtime только по мере нужды
    production-задач.

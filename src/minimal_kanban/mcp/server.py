@@ -79,6 +79,7 @@ from .payloads import (
     TagPayload,
     _resolved_create_card_deadline,
 )
+from .shared_file_reads import SharedFileReadContext, register_shared_file_reads
 from .tool_registry import MCP_TOOL_GROUPS, PUBLIC_MCP_TOOL_NAMES
 
 # Preserve historic imports from mcp.server while payloads.py becomes canonical.
@@ -1524,76 +1525,16 @@ def create_mcp_server(
         ),
     )
 
-    @server.tool(
-        name="list_shared_files",
-        description=_scoped_description(
-            "List shared workshop files from the AutoStop CRM Files module without returning file bytes."
+    register_shared_file_reads(
+        server,
+        SharedFileReadContext(
+            board_api=board_api,
+            scoped_description=_scoped_description,
+            read_tool_annotations=_read_tool_annotations,
+            relay_board_call=_relay_board_call,
+            with_data_meta=_with_data_meta,
         ),
-        annotations=_read_tool_annotations("List Shared Files"),
-        structured_output=True,
     )
-    def list_shared_files() -> JsonEnvelope:
-        return _relay_board_call(
-            "list_shared_files",
-            board_api.list_shared_files,
-            transform=lambda response: _with_data_meta(
-                response,
-                response_mode="shared_file_list",
-                view_mode="metadata",
-            ),
-        )
-
-    @server.tool(
-        name="get_shared_file_info",
-        description=_scoped_description(
-            "Return metadata for one shared workshop file from the AutoStop CRM Files module, including size, name, position, and download path."
-        ),
-        annotations=_read_tool_annotations("Get Shared File Info"),
-        structured_output=True,
-    )
-    def get_shared_file_info(file_id: str) -> JsonEnvelope:
-        return _relay_board_call(
-            "get_shared_file_info",
-            lambda: board_api.get_shared_file_info(file_id),
-            params={"file_id": file_id},
-            transform=lambda response: _with_data_meta(
-                response,
-                response_mode="shared_file_metadata",
-                view_mode="metadata",
-            ),
-        )
-
-    @server.tool(
-        name="download_shared_file",
-        description=_scoped_description(
-            "Fetch one shared workshop file through the AutoStop CRM backend. Small files can return base64; larger files return metadata and download path without file bytes."
-        ),
-        annotations=_read_tool_annotations("Download Shared File"),
-        structured_output=True,
-    )
-    def download_shared_file(
-        file_id: str,
-        include_base64: bool = True,
-        max_base64_bytes: McpInt = 2_097_152,
-    ) -> JsonEnvelope:
-        return _relay_board_call(
-            "download_shared_file",
-            lambda: board_api.download_shared_file(
-                file_id,
-                include_base64=include_base64,
-                max_base64_bytes=max_base64_bytes,
-            ),
-            params={
-                "file_id": file_id,
-                "include_base64": include_base64,
-                "max_base64_bytes": max_base64_bytes,
-            },
-            transform=lambda response: _with_data_meta(
-                response,
-                response_mode="shared_file_download",
-                view_mode="base64" if include_base64 else "metadata",
-            ),
-        )
 
     @server.tool(
         name="upload_shared_file",

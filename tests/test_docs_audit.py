@@ -63,6 +63,10 @@ class DocsAuditTests(unittest.TestCase):
                     "src/minimal_kanban/mcp/card_attachment_reads.py",
                     "card_attachment_read_tool",
                 ),
+                (
+                    "src/minimal_kanban/mcp/shared_file_reads.py",
+                    "shared_file_read_tool",
+                ),
             ):
                 source_path = temp_root / relative_path
                 source_path.parent.mkdir(parents=True, exist_ok=True)
@@ -84,6 +88,7 @@ class DocsAuditTests(unittest.TestCase):
                     "board_sticky_write_tool",
                     "board_card_timer_write_tool",
                     "card_attachment_read_tool",
+                    "shared_file_read_tool",
                 },
             ):
                 issues = module._check_crm_mcp_surface(temp_root)

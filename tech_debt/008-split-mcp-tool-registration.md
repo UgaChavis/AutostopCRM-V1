@@ -4,8 +4,9 @@
 Этап: 1
 Оценка: 5–8 дней
 Риск реализации: средний
-Статус: in progress — read baseline и три board-write registrars опубликованы;
-attachment-read registrar локально проверен 2026-08-28
+Статус: in progress — read baseline, три board-write и attachment-read
+registrars опубликованы; shared-file-read registrar локально проверен
+2026-08-28
 
 ## Результат
 
@@ -16,10 +17,10 @@ Production surface по-прежнему ровно 24 Gateway tools.
 ## Доказательства
 
 - До первого среза `mcp/server.py` содержал 4 322 строки и 151 function;
-  после payload extraction, diagnostics, board reads и трёх board-write
-  registrars, а также attachment reads — 3 673 строки и 127 functions.
-- `create_mcp_server` сокращён с 3 623 до 3 228 строк; branch complexity
-  снизилась с 211 до 190.
+  после payload extraction, diagnostics, board reads, трёх board-write
+  registrars, attachment и shared-file reads — 3 614 строк и 124 functions.
+- `create_mcp_server` сокращён с 3 623 до 3 168 строк; branch complexity
+  снизилась с 211 до 187.
 - `tool_registry.py` уже группирует raw tools по 8 доменам / десяткам names,
   но регистрации всё ещё находятся в одном lexical scope.
 - Файл входит в top churn hotspots.
@@ -136,6 +137,27 @@ Production surface по-прежнему ровно 24 Gateway tools.
   `create_mcp_server` 3 299 → 3 228; functions 130 → 127, complexity 193 → 190.
 - Focused registrar/payload/hardening suite проходит 37/37; полный MCP-family
   выполняет 153/153 без skip.
+- Slice опубликован коммитом `6c6a0a6`; GitHub Actions quality run
+  `33147066250` полностью прошёл на неизменённом SHA.
+
+## Выполненный shared-file read slice (2026-08-28)
+
+- `list_shared_files`, `get_shared_file_info` и `download_shared_file`
+  механически перенесены в 106-строчный `mcp/shared_file_reads.py` без
+  изменения API client, payload, base64 limit или response meta.
+- Узкий frozen/slots context повторно использует только board client,
+  description/annotation factories, relay и data-meta helper. TDD RED
+  зафиксировал отсутствующий module; focused tests защищают обе download
+  ветви и исходную позицию перед shared-file writes.
+- Независимое ревью опубликованного attachment slice оценило его на 9/10 без
+  блокеров. Единственный P2 test gap закрыт отдельным выполнением default
+  attachment arguments; production code не менялся.
+- Raw snapshot остаётся 98 tools с прежним canonical hash, Gateway surface —
+  24 tools. Exact ratchets снижены без headroom: `mcp/server.py` 3 673 → 3 614,
+  `create_mcp_server` 3 228 → 3 168; functions 127 → 124, complexity 190 → 187.
+- Совместный focused suite проходит 99/99; полный MCP-family выполняет 157/157
+  без skip. Существующие backend shared-file roundtrip и client-side base64
+  clamp tests сохранены.
 
 ## Минимальная архитектура
 

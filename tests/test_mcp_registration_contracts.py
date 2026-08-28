@@ -305,6 +305,24 @@ class McpRegistrationContractTests(unittest.TestCase):
             ],
         )
 
+    def test_shared_file_read_registrations_keep_their_legacy_relative_order(
+        self,
+    ) -> None:
+        _server, attempted_names = _build_builtin_raw_server()
+
+        shared_file_index = attempted_names.index("list_shared_files")
+        self.assertEqual(
+            attempted_names[shared_file_index - 1 : shared_file_index + 5],
+            [
+                "read_card_attachment",
+                "list_shared_files",
+                "get_shared_file_info",
+                "download_shared_file",
+                "upload_shared_file",
+                "delete_shared_file",
+            ],
+        )
+
     def test_active_manager_dependency_tools_get_safe_annotations_after_registration(
         self,
     ) -> None:

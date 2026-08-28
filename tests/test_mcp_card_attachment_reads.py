@@ -281,6 +281,59 @@ class CardAttachmentReadRegistrarTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
+    async def test_handler_defaults_reach_backend_and_meta(self) -> None:
+        listed = await self.server._tool_manager.call_tool(
+            "list_card_attachments",
+            {"card_id": "card-defaults"},
+        )
+        content = await self.server._tool_manager.call_tool(
+            "read_card_attachment",
+            {"card_id": "card-defaults", "attachment_id": "attachment-defaults"},
+        )
+
+        self.assertFalse(listed.data["meta"]["include_removed"])
+        self.assertEqual(content.data["meta"]["view_mode"], "preview")
+        self.assertEqual(
+            self.board_api.calls,
+            [
+                (
+                    "list_card_attachments",
+                    {"card_id": "card-defaults", "include_removed": False},
+                ),
+                (
+                    "read_card_attachment",
+                    {
+                        "card_id": "card-defaults",
+                        "attachment_id": "attachment-defaults",
+                        "mode": "preview",
+                        "max_chars": 12_000,
+                        "include_base64": False,
+                        "max_base64_bytes": 1_048_576,
+                    },
+                ),
+            ],
+        )
+        self.assertEqual(
+            self.relay_calls,
+            [
+                (
+                    "list_card_attachments",
+                    {"card_id": "card-defaults", "include_removed": False},
+                ),
+                (
+                    "read_card_attachment",
+                    {
+                        "card_id": "card-defaults",
+                        "attachment_id": "attachment-defaults",
+                        "mode": "preview",
+                        "max_chars": 12_000,
+                        "include_base64": False,
+                        "max_base64_bytes": 1_048_576,
+                    },
+                ),
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
