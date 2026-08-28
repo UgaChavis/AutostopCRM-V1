@@ -148,6 +148,11 @@ class CrmCapabilityParityTests(unittest.TestCase):
             "human_restricted_financial_action",
             rows[route]["decision"]["kind"],
         )
+        self.assertEqual(
+            "interactive browser operator session with employees_cashboxes_access and "
+            "salary_balance_reset permissions",
+            rows[route]["decision"]["scope"],
+        )
 
     def test_binary_http_actions_have_explicit_document_coverage(self) -> None:
         rows = {row["route"]: row for row in self.inventory["matrix"]}

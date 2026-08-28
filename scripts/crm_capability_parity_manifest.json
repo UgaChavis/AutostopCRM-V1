@@ -288,7 +288,7 @@
     },
     "/api/reset_employee_salary_balance": {
       "kind": "human_restricted_financial_action",
-      "scope": "interactive browser operator session with salary_balance_reset permission only",
+      "scope": "interactive browser operator session with employees_cashboxes_access and salary_balance_reset permissions",
       "rationale": "This audited non-cash payroll correction is reserved for explicitly permissioned human operators and must not be discoverable or callable through raw MCP."
     },
     "/api/get_operator_profile": {
