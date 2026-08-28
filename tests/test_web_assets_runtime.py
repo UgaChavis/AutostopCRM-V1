@@ -928,6 +928,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             const assert = require('node:assert/strict');
 
             const EMPLOYEES_CASHBOXES_ACCESS_PERMISSION = 'employees_cashboxes_access';
+            const SALARY_BALANCE_RESET_PERMISSION = 'salary_balance_reset';
             function entry() {{
               const classes = new Set(['hidden']);
               const attributes = new Map([['aria-hidden', 'true']]);
@@ -1033,6 +1034,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             f"""
             const assert = require('node:assert/strict');
 
+            const EMPLOYEES_CASHBOXES_ACCESS_PERMISSION = 'employees_cashboxes_access';
             const SALARY_BALANCE_RESET_PERMISSION = 'salary_balance_reset';
             const state = {{
               operatorProfile: {{ user: {{ permissions: [] }} }},
@@ -1088,7 +1090,10 @@ class WebAssetsRuntimeTests(unittest.TestCase):
               assert.equal(statuses.at(-1)?.isError, true);
               assert.match(statuses.at(-1)?.message || '', /НЕТ ПРАВА/);
 
-              state.operatorProfile.user.permissions = [SALARY_BALANCE_RESET_PERMISSION];
+              state.operatorProfile.user.permissions = [
+                EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
+                SALARY_BALANCE_RESET_PERMISSION,
+              ];
               const firstClick = handleEmployeeSalaryReset();
               assert.equal(state.employeeSalaryResetPending, true);
               assert.equal(requests.length, 1);
@@ -1174,6 +1179,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             }}
             function setStatus(message, isError) {{ statuses.push({{ message, isError }}); }}
             async function refreshOperatorAdminSurfaces() {{}}
+            function syncOperatorAdminSalaryResetPermission() {{}}
 
             {save_flow}
 
@@ -1235,10 +1241,16 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             f"""
             const assert = require('node:assert/strict');
 
+            const EMPLOYEES_CASHBOXES_ACCESS_PERMISSION = 'employees_cashboxes_access';
             const SALARY_BALANCE_RESET_PERMISSION = 'salary_balance_reset';
             const state = {{
               operatorProfile: {{
-                user: {{ permissions: [SALARY_BALANCE_RESET_PERMISSION] }},
+                user: {{
+                  permissions: [
+                    EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
+                    SALARY_BALANCE_RESET_PERMISSION,
+                  ],
+                }},
               }},
               activeEmployeeSalaryId: 'employee-1',
               employeeSalarySheet: {{

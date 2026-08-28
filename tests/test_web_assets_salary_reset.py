@@ -82,7 +82,7 @@ class SalaryBalanceResetWebAssetTests(unittest.TestCase):
             "function renderEmployeeSalaryModal()",
             "async function loadEmployeeSalarySheet(",
         )
-        self.assertIn("operatorHasPermission(SALARY_BALANCE_RESET_PERMISSION)", salary_renderer)
+        self.assertIn("operatorCanResetSalaryBalance()", salary_renderer)
         self.assertIn(
             "els.employeeSalaryResetButton.classList.toggle('hidden', !canResetBalance);",
             salary_renderer,
@@ -97,7 +97,7 @@ class SalaryBalanceResetWebAssetTests(unittest.TestCase):
             "async function handleEmployeeSalaryActionConfirm()",
         )
         self.assertIn("if (state.employeeSalaryResetPending) return;", reset_handler)
-        self.assertIn("if (!operatorHasPermission(SALARY_BALANCE_RESET_PERMISSION))", reset_handler)
+        self.assertIn("if (!operatorCanResetSalaryBalance())", reset_handler)
         self.assertIn("window.confirm(", reset_handler)
         self.assertIn("employeeName", reset_handler)
         self.assertIn("Текущий баланс: ", reset_handler)

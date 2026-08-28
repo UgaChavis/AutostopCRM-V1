@@ -62,7 +62,7 @@ ALLOWED_LARGE_MODULES = {
         "payroll domain split target", 4805, 4805, "013"
     ),
     "src/minimal_kanban/services/snapshot_service.py": RatchetBudget(
-        "snapshot serialization split target", 2880, 2880, "018"
+        "snapshot serialization split target", 2879, 2879, "018"
     ),
     "src/minimal_kanban/agent/runner.py": RatchetBudget(
         "agent orchestration split target after the runtime keep decision", 5093, 5093, "206"
@@ -104,7 +104,7 @@ ALLOWED_LARGE_CLASSES = {
         "finance domain split target", 3002, 3002, "019"
     ),
     "src/minimal_kanban/services/snapshot_service.py:SnapshotService": RatchetBudget(
-        "snapshot serialization split target", 2575, 2575, "018"
+        "snapshot serialization split target", 2574, 2574, "018"
     ),
     "src/minimal_kanban/agent/runner.py:AgentRunner": RatchetBudget(
         "agent orchestration split target after the runtime keep decision", 4865, 4865, "206"

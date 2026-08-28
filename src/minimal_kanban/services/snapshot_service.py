@@ -304,6 +304,8 @@ def _event_counts(events: list[AuditEvent]) -> dict[str, int]:
 
 
 class SnapshotService:
+    _event_counts = staticmethod(_event_counts)
+
     def __init__(
         self,
         store: JsonStore,
@@ -1449,7 +1451,7 @@ class SnapshotService:
             events = visible_audit_events(payload, bundle["events"])
             column_labels = self._column_labels(bundle["columns"])
             viewer_username = self._viewer_username(payload)
-            event_counts = {card.id: self._event_count_for_card(events, card.id)}
+            event_counts = {card.id: _event_counts(events).get(card.id, 0)}
             return {
                 "card": self._serialize_card(
                     card,
@@ -2875,6 +2877,3 @@ class SnapshotService:
         else:
             lines.append("- no recent events")
         return "\n".join(lines) + "\n"
-
-    def _event_count_for_card(self, events: list[AuditEvent], card_id: str) -> int:
-        return sum(1 for event in events if event.card_id == card_id)
