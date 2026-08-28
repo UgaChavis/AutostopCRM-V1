@@ -5,8 +5,8 @@
 Оценка: 5–8 дней
 Риск реализации: средний
 Статус: in progress — read baseline, три board-write, attachment-read и
-shared-file-read registrars опубликованы; shared-file-write registrar локально
-проверен 2026-08-28
+shared-file read/write registrars опубликованы 2026-08-28; следующий домен
+выбирается отдельным малым срезом
 
 ## Результат
 
@@ -181,8 +181,17 @@ Production surface по-прежнему ровно 24 Gateway tools.
   `create_mcp_server` 3 168 → 3 104; functions 124 → 121, complexity 187 → 184.
 - Focused suite проходит 102/102; backend shared-file roundtrip входит в
   зелёный доменный набор из 36 тестов с двумя штатными platform-skip; полный
-  MCP-family выполняет 160/160 без skip. Hosted CI остаётся terminal gate этой
-  волны.
+  MCP-family выполняет 160/160 без skip.
+- Slice опубликован коммитом `ac1d877`; GitHub Actions quality run
+  `33149587104` полностью прошёл на неизменённом SHA за 8m09s.
+- Финальный локальный integration pass: 1 986 тестов, 34 штатных Windows-skip,
+  runtime branch coverage 79,45% при floor 78,50%; все critical-path и release
+  coverage ratchets прошли. Capability parity сохранил 175 actions / 0 gaps,
+  change-feed producer parity — 100/100.
+- Core browser smoke прошёл 11 сценариев без console/page/request errors;
+  local-temp performance и Stage 1 synthetic current-production gates
+  завершились без violations. Сервер и production data в этой волне не
+  затрагивались.
 
 ## Минимальная архитектура
 

@@ -5,8 +5,8 @@
 Оценка: 4–6 дней суммарно, независимыми доменными срезами
 Риск реализации: низкий
 Статус: in progress — MCP read baseline, три board-write, attachment-read и
-shared-file-read test slices опубликованы; shared-file-write test slice
-локально проверен 2026-08-28
+shared-file read/write test slices опубликованы 2026-08-28; дальнейший разнос
+backend/transport/runtime выполняется только вместе с нужными production-срезами
 
 ## Результат
 
@@ -153,6 +153,10 @@ Focused-команды для этого среза:
   Существующий backend shared-file roundtrip также проходит в доменном наборе
   из 36 тестов с двумя штатными platform-skip. Полный MCP-family выполняет
   160/160 без skip.
+- Slice опубликован коммитом `ac1d877`; GitHub Actions quality run
+  `33149587104` полностью прошёл на неизменённом SHA. Финальный локальный suite
+  выполнил 1 986 тестов с 34 штатными Windows-skip и сохранил все coverage
+  floors.
 
 `python -m unittest tests.test_mcp_shared_file_writes tests.test_mcp_shared_file_reads tests.test_mcp_card_attachment_reads tests.test_mcp_registration_contracts tests.test_mcp_payload_contracts tests.test_mcp_server_hardening tests.test_mcp_client tests.test_docs_audit -q`
 
