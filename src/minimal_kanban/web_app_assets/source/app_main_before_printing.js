@@ -37,6 +37,7 @@
       actor: '',
       operatorSessionToken: localStorage.getItem(OPERATOR_SESSION_STORAGE_KEY) || '',
       operatorProfile: null,
+      operatorPermissionRefreshPromise: null,
       employeesCashboxesAccess: false,
       employeesCashboxesAccessRevision: 0,
       personalBoardPreferences: null,
@@ -2521,6 +2522,9 @@
         finishApiPerf({ error: error.code });
         throw error;
       }
+      if (response.status === 403 && payload?.error?.code === 'forbidden') {
+        void refreshOperatorProfileAfterPermissionMismatch(requestOperatorSessionToken, path);
+      }
       if (!payload.ok) {
         const error = new Error(payload.error?.message || 'Ошибка API');
         error.code = payload?.error?.code || '';
@@ -2534,6 +2538,9 @@
         throw error;
       }
       finishApiPerf();
+      if (payload?.data?.meta?.references_only === true && operatorCanAccessEmployeesCashboxes()) {
+        void refreshOperatorProfileAfterPermissionMismatch(requestOperatorSessionToken, path);
+      }
       notifyCashboxesMutation(path, request.method);
       return payload.data;
     }
@@ -3016,6 +3023,28 @@
           personalBoardPreferencesRevision !== state.personalBoardPreferencesRevision,
       });
       return data;
+    }
+
+    function refreshOperatorProfileAfterPermissionMismatch(requestSessionToken, requestPath = '') {
+      const normalizedPath = String(requestPath || '').split('?')[0];
+      if (
+        !requestSessionToken
+        || requestSessionToken !== state.operatorSessionToken
+        || normalizedPath === '/api/get_operator_profile'
+      ) return null;
+      if (state.operatorPermissionRefreshPromise) {
+        return state.operatorPermissionRefreshPromise;
+      }
+      let refreshPromise = null;
+      refreshPromise = loadOperatorProfile(false)
+        .catch(() => null)
+        .finally(() => {
+          if (state.operatorPermissionRefreshPromise === refreshPromise) {
+            state.operatorPermissionRefreshPromise = null;
+          }
+        });
+      state.operatorPermissionRefreshPromise = refreshPromise;
+      return refreshPromise;
     }
 
     async function openOperatorWorkspace() {

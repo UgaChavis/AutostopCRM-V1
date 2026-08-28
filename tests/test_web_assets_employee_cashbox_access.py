@@ -96,6 +96,23 @@ class EmployeeCashboxAccessWebAssetTests(unittest.TestCase):
             loader,
         )
 
+    def test_permission_mismatch_refreshes_profile_and_revokes_cached_ui_access(self) -> None:
+        api_client = _asset_section("async function api(path", "function setApiToken(")
+        self.assertIn(
+            "response.status === 403 && payload?.error?.code === 'forbidden'",
+            api_client,
+        )
+        self.assertIn("payload?.data?.meta?.references_only === true", api_client)
+        self.assertIn("refreshOperatorProfileAfterPermissionMismatch(", api_client)
+
+        refresh_helper = _asset_section(
+            "function refreshOperatorProfileAfterPermissionMismatch(",
+            "async function openOperatorWorkspace()",
+        )
+        self.assertIn("requestSessionToken !== state.operatorSessionToken", refresh_helper)
+        self.assertIn("state.operatorPermissionRefreshPromise", refresh_helper)
+        self.assertIn("loadOperatorProfile(false)", refresh_helper)
+
     def test_admin_editor_preserves_both_registered_permissions(self) -> None:
         self.assertIn(
             'id="adminUserEmployeesCashboxesAccess" type="checkbox"',

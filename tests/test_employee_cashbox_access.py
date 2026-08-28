@@ -402,6 +402,7 @@ class EmployeeCashboxAccessApiTests(unittest.TestCase):
     def test_restricted_board_event_views_filter_employee_and_cashbox_events(self) -> None:
         for route in (
             "/api/get_board_events?event_limit=100",
+            "/api/get_board_event_page?limit=100",
             "/api/get_gpt_wall?event_limit=100",
             "/api/review_board?recent_event_limit=50",
         ):
@@ -419,6 +420,7 @@ class EmployeeCashboxAccessApiTests(unittest.TestCase):
 
         for route in (
             "/api/get_board_events?event_limit=100",
+            "/api/get_board_event_page?limit=100",
             "/api/get_gpt_wall?event_limit=100",
         ):
             with self.subTest(allowed_route=route):
@@ -429,8 +431,9 @@ class EmployeeCashboxAccessApiTests(unittest.TestCase):
                 )
                 self.assertEqual(status, 200)
                 allowed_text = json.dumps(allowed["data"], ensure_ascii=False)
-                self.assertIn("Синтетическая операция доступа", allowed_text)
                 self.assertIn("cash_transaction_created", allowed_text)
+                if "/api/get_board_event_page" not in route:
+                    self.assertIn("Синтетическая операция доступа", allowed_text)
 
     def test_local_internal_calls_without_human_session_keep_full_contract(self) -> None:
         status, cashboxes = self.api.request("/api/list_cashboxes", method="GET")

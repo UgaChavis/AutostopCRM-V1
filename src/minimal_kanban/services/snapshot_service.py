@@ -1294,9 +1294,16 @@ class SnapshotService:
         with self._lock:
             bundle = self._store.read_bundle()
             archived_by_card_id = {card.id: card.archived for card in bundle["cards"]}
+            visible_events = bundle["events"]
+            if not _operator_can_access_employees_cashboxes(payload):
+                visible_events = [
+                    event
+                    for event in visible_events
+                    if not _employees_cashboxes_private_event(event)
+                ]
             events = [
                 event
-                for event in bundle["events"]
+                for event in visible_events
                 if include_archived or not archived_by_card_id.get(event.card_id or "", False)
             ]
             ordered = sorted(events, key=self._event_page_key)
