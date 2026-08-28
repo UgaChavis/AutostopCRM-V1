@@ -97,11 +97,11 @@ reimplementing those rules.
   `mcp/connector_diagnostics.py`, `mcp/board_reads.py`,
   `mcp/board_column_writes.py`, `mcp/board_sticky_writes.py`,
   `mcp/board_card_timer_writes.py`, `mcp/card_attachment_reads.py`,
-  `mcp/shared_file_reads.py`,
+  `mcp/shared_file_reads.py`, `mcp/shared_file_writes.py`,
   `mcp/tool_registry.py`, and
   `mcp/agent_gateway_v2.py` — raw MCP orchestration, payload contracts,
   permanent diagnostics, core board reads, focused board writes, attachment
-  and shared-file reads, registry, and the production Gateway v2 surface.
+  and shared-file operations, registry, and the production Gateway v2 surface.
 - [`scripts/crm_capability_parity.py`](scripts/crm_capability_parity.py) and its
   JSON manifest — machine-verifiable UI/backend/Gateway capability matrix,
   readback classes, test evidence, reviewed gaps, and human-session exemptions.

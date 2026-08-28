@@ -4,9 +4,9 @@
 Этап: 1
 Оценка: 5–8 дней
 Риск реализации: средний
-Статус: in progress — read baseline, три board-write и attachment-read
-registrars опубликованы; shared-file-read registrar локально проверен
-2026-08-28
+Статус: in progress — read baseline, три board-write, attachment-read и
+shared-file-read registrars опубликованы; shared-file-write registrar локально
+проверен 2026-08-28
 
 ## Результат
 
@@ -18,9 +18,10 @@ Production surface по-прежнему ровно 24 Gateway tools.
 
 - До первого среза `mcp/server.py` содержал 4 322 строки и 151 function;
   после payload extraction, diagnostics, board reads, трёх board-write
-  registrars, attachment и shared-file reads — 3 614 строк и 124 functions.
-- `create_mcp_server` сокращён с 3 623 до 3 168 строк; branch complexity
-  снизилась с 211 до 187.
+  registrars, attachment и shared-file operations — 3 551 строка и 121
+  function.
+- `create_mcp_server` сокращён с 3 623 до 3 104 строк; branch complexity
+  снизилась с 211 до 184.
 - `tool_registry.py` уже группирует raw tools по 8 доменам / десяткам names,
   но регистрации всё ещё находятся в одном lexical scope.
 - Файл входит в top churn hotspots.
@@ -158,6 +159,30 @@ Production surface по-прежнему ровно 24 Gateway tools.
 - Совместный focused suite проходит 99/99; полный MCP-family выполняет 157/157
   без skip. Существующие backend shared-file roundtrip и client-side base64
   clamp tests сохранены.
+- Slice опубликован коммитом `84932d3`; GitHub Actions quality run
+  `33148027351` полностью прошёл на неизменённом SHA. Независимый review-pass
+  оценил его на 9,5/10 без findings и блокеров.
+
+## Выполненный shared-file write slice (2026-08-28)
+
+- `upload_shared_file`, `delete_shared_file` и
+  `update_shared_file_position` механически перенесены в 116-строчный
+  `mcp/shared_file_writes.py`; backend, payloads и relay policy не менялись.
+- Узкий frozen/slots context содержит только board client,
+  description/annotation factories и relay helper. TDD RED зафиксировал
+  отсутствующий module; contracts защищают исходную позицию между download и
+  `get_card_context`.
+- Upload test доказывает передачу default/explicit content в backend и
+  отсутствие base64/actor в relay params. Delete сохраняет optimistic
+  `expected_updated_at` и destructive annotation; position остаётся
+  idempotent с обычными integer coordinates.
+- Raw snapshot остаётся 98 tools с прежним canonical hash, Gateway surface —
+  24 tools. Exact ratchets снижены без headroom: `mcp/server.py` 3 614 → 3 551,
+  `create_mcp_server` 3 168 → 3 104; functions 124 → 121, complexity 187 → 184.
+- Focused suite проходит 102/102; backend shared-file roundtrip входит в
+  зелёный доменный набор из 36 тестов с двумя штатными platform-skip; полный
+  MCP-family выполняет 160/160 без skip. Hosted CI остаётся terminal gate этой
+  волны.
 
 ## Минимальная архитектура
 

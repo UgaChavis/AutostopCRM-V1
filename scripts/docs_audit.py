@@ -47,6 +47,7 @@ CRM_MCP_RAW_TOOL_SOURCE_PATHS = (
     "src/minimal_kanban/mcp/board_card_timer_writes.py",
     "src/minimal_kanban/mcp/card_attachment_reads.py",
     "src/minimal_kanban/mcp/shared_file_reads.py",
+    "src/minimal_kanban/mcp/shared_file_writes.py",
 )
 
 DOCUMENTATION_SUFFIXES = (".md", ".txt", ".rst", ".adoc")

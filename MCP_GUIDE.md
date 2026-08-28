@@ -26,6 +26,8 @@ Source of truth:
   and bounded-content read registrar;
 - `src/minimal_kanban/mcp/shared_file_reads.py` — shared workshop file metadata
   and bounded-download read registrar;
+- `src/minimal_kanban/mcp/shared_file_writes.py` — shared workshop file upload,
+  delete, and position write registrar;
 - `src/minimal_kanban/mcp/tool_registry.py` — raw CRM registry;
 - `src/minimal_kanban/mcp/agent_gateway_v2.py` — production surface;
 - `scripts/check_agent_gateway_v2.py` — exact release contract;
