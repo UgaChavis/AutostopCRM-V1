@@ -2786,7 +2786,7 @@ def create_mcp_server(
         description=_scoped_description(
             "Create a standard AutoStop PDF without a CRM card through the CRM print module. "
             "Use this for invoices, invoice-facturas, UPD, completion acts, vehicle acceptance acts, repair orders, inspection sheets, defect reports, and parts sale documents when the user provides the data manually in text. "
-            "You may omit document_type when request_text clearly names the document in Russian, for example УПД, акт выполненных работ, дефектовка, заказ-наряд, счет-фактура, or продажа запчастей."
+            "You may omit document_type when request_text clearly names the document in Russian, for example УПД, акт выполненных работ, дефектовка, заказ-наряд, счет-фактура, or продажа запчастей. Technical repair orders are excluded; use the AutoStop CRM interface."
         ),
         annotations=_read_tool_annotations("Create Document Without Card PDF"),
         structured_output=True,

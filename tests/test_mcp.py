@@ -331,6 +331,33 @@ class _McpServerFixtureMixin:
 
 
 class McpServerBackendTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTestCase):
+    async def test_manual_technical_repair_order_is_rejected_before_api_and_renderer(
+        self,
+    ) -> None:
+        async with create_test_mcp_http_client(
+            headers={"Authorization": "Bearer mcp-secret"}
+        ) as http_client:
+            async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
+                with (
+                    patch.object(BoardApiClient, "_request") as api_request,
+                    patch("minimal_kanban.printing.service.render_html_to_pdf_bytes") as render_pdf,
+                ):
+                    response = await session.call_tool(
+                        "create_document_without_card_pdf",
+                        {
+                            "request_text": "Создай техзаказ-наряд без карточки CRM",
+                            "document_type": "auto",
+                        },
+                    )
+
+        self.assertFalse(response.structuredContent["ok"])
+        self.assertEqual(
+            response.structuredContent["error"]["code"],
+            "board_api_malformed_response",
+        )
+        api_request.assert_not_called()
+        render_pdf.assert_not_called()
+
     async def test_mcp_tools_reach_backend(self) -> None:
         async with create_test_mcp_http_client(
             headers={"Authorization": "Bearer mcp-secret"}

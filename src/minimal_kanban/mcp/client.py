@@ -171,15 +171,28 @@ MANUAL_DOCUMENT_TYPE_ALIASES: tuple[tuple[str, tuple[str, ...]], ...] = (
 
 
 def _manual_document_type_text(value: object) -> str:
-    text = str(value or "").lower().replace("ё", "е")
-    text = re.sub(r"[_\-]+", " ", text)
+    text = str(value or "").casefold().replace("ё", "е")
+    text = re.sub(r"[_\-\u2010-\u2015\u2212\ufe58\ufe63\uff0d]+", " ", text)
+    text = re.sub(r"[^\w]+", " ", text)
     return " ".join(text.split())
+
+
+def _is_technical_repair_order_intent(value: object) -> bool:
+    text = _manual_document_type_text(value)
+    if not text:
+        return False
+    return bool(
+        re.search(r"\btechnical\s+repair\s+order\b", text)
+        or re.search(r"\b(?:техническ\w*|тех)\s*заказ\s*наряд\w*\b", text)
+    )
 
 
 def _normalize_manual_document_type(document_type: object, request_text: object) -> str:
     raw_document_type = str(document_type or "").strip()
-    normalized_document_type = raw_document_type.strip().lower()
-    if normalized_document_type == "technical_repair_order":
+    normalized_document_type = raw_document_type.casefold()
+    if _is_technical_repair_order_intent(raw_document_type) or _is_technical_repair_order_intent(
+        request_text
+    ):
         raise ValueError("Технический заказ-наряд доступен только в интерфейсе AutoStop CRM.")
     if normalized_document_type in SUPPORTED_PRINT_DOCUMENT_TYPES:
         return normalized_document_type
@@ -188,7 +201,7 @@ def _normalize_manual_document_type(document_type: object, request_text: object)
     if not source_text or source_text == "auto":
         source_text = _manual_document_type_text(request_text)
     for resolved_type, aliases in MANUAL_DOCUMENT_TYPE_ALIASES:
-        if any(alias in source_text for alias in aliases):
+        if any(_manual_document_type_text(alias) in source_text for alias in aliases):
             return resolved_type
     return normalized_document_type or "invoice"
 

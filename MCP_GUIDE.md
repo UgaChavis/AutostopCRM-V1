@@ -281,6 +281,8 @@ the public 24-tool surface. Never print these settings' values.
   write mode preserves legacy compatibility.
 - Use `agent_document_workflow` and the CRM renderer for standard AutoStop
   documents, including documents without a card.
+- The cardless MCP document operation deliberately rejects technical repair
+  orders; create them only through the AutoStop CRM interface.
 - Use named completion-act save/reset operations with dry-run proof, separate
   idempotency keys, stable correlation, and exact form readback.
 - Use `agent_document_workflow(operation="update_display_dashboard_message")`

@@ -568,17 +568,36 @@ class BoardApiClientTests(unittest.TestCase):
             },
         )
 
-    def test_manual_document_pdf_export_rejects_technical_repair_order(self) -> None:
-        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+    def test_manual_document_pdf_export_rejects_technical_repair_order_aliases(self) -> None:
+        cases = (
+            ("technical_repair_order", "Документ без карточки"),
+            ("technical repair order", "Документ без карточки"),
+            ("technical-repair-order", "Документ без карточки"),
+            ("technical‑repair‑order", "Документ без карточки"),
+            ("Технический заказ-наряд", "Документ без карточки"),
+            ("ТЕХНИЧЕСКИЙ ЗАКАЗ‑НАРЯД", "Документ без карточки"),
+            ("тех заказ наряд", "Документ без карточки"),
+            ("техзаказ-наряд", "Документ без карточки"),
+            ("техзаказнаряд", "Документ без карточки"),
+            ("техническийзаказнаряд", "Документ без карточки"),
+            ("", "Создай технический заказ-наряд без карточки"),
+            ("auto", "Создай техзаказ-наряд без карточки"),
+            ("repair_order", "Создай техзаказнаряд без карточки"),
+            ("auto", "Create a technical repair-order without a CRM card"),
+            ("repair_order", "Create a technical repair order without a CRM card"),
+        )
 
-        with patch.object(client, "_request") as request:
-            with self.assertRaisesRegex(ValueError, "только в интерфейсе AutoStop CRM"):
-                client.create_document_without_card_pdf(
-                    request_text="Технический заказ-наряд без карточки",
-                    document_type="technical_repair_order",
-                )
+        for document_type, request_text in cases:
+            with self.subTest(document_type=document_type, request_text=request_text):
+                client = BoardApiClient("https://board.example/api", bearer_token="secret")
+                with patch.object(client, "_request") as request:
+                    with self.assertRaisesRegex(ValueError, "только в интерфейсе AutoStop CRM"):
+                        client.create_document_without_card_pdf(
+                            request_text=request_text,
+                            document_type=document_type,
+                        )
 
-        request.assert_not_called()
+                request.assert_not_called()
 
     def test_manual_document_pdf_export_infers_document_type_from_text_request(self) -> None:
         client = BoardApiClient("https://board.example/api", bearer_token="secret")
