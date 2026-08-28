@@ -556,6 +556,7 @@
       ) {
         state.operatorPermissionEditorUsername = '';
         if (els.adminUserSalaryBalanceReset) els.adminUserSalaryBalanceReset.checked = false;
+        if (els.adminUserEmployeesCashboxesAccess) els.adminUserEmployeesCashboxesAccess.checked = false;
       }
     });
     els.adminUsersList.addEventListener('click', handleAdminUsersListClick);

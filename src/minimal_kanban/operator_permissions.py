@@ -4,7 +4,13 @@ from collections.abc import Iterable
 from typing import Any
 
 SALARY_BALANCE_RESET_PERMISSION = "salary_balance_reset"
-OPERATOR_PERMISSION_VALUES = frozenset({SALARY_BALANCE_RESET_PERMISSION})
+EMPLOYEES_CASHBOXES_ACCESS_PERMISSION = "employees_cashboxes_access"
+OPERATOR_PERMISSION_VALUES = frozenset(
+    {
+        EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
+        SALARY_BALANCE_RESET_PERMISSION,
+    }
+)
 
 
 def normalize_operator_permissions(value: Any) -> list[str]:

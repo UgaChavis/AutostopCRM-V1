@@ -112,9 +112,9 @@ or changed by the Gateway service identity.
 
 `/api/reset_employee_salary_balance` is also intentionally absent from raw MCP
 discovery and invocation. It is an audited financial correction reserved for
-an interactive operator session with the `salary_balance_reset` permission;
-the Gateway service identity cannot call it, even through
-`call_raw_capability`.
+an interactive operator session with both `employees_cashboxes_access` and
+`salary_balance_reset`; the Gateway service identity cannot call it, even
+through `call_raw_capability`.
 
 The shared mechanics message board is intentionally different: it is common CRM
 state and is available through the named

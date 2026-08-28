@@ -3267,7 +3267,7 @@
         </div>
         <div class="mobile-more-grid" id="mobileMoreGrid">
           <button class="mobile-module-button" type="button" data-mobile-open="clients">КЛИЕНТЫ</button>
-          <button class="mobile-module-button" type="button" data-mobile-open="employees">СОТРУДНИКИ</button>
+          <button class="mobile-module-button hidden" type="button" data-mobile-open="employees" disabled aria-hidden="true">СОТРУДНИКИ</button>
           <button class="mobile-module-button" type="button" data-mobile-open="archive">АРХИВ</button>
           <button class="mobile-module-button" type="button" data-mobile-open="files">ФАЙЛЫ</button>
         </div>
@@ -3345,7 +3345,7 @@
     </main>
     <nav class="mobile-bottom-nav" aria-label="Мобильная навигация">
       <button class="mobile-bottom-nav__item is-active" type="button" data-mobile-view="board">Доска</button>
-      <button class="mobile-bottom-nav__item" type="button" data-mobile-view="cashboxes">Кассы</button>
+      <button class="mobile-bottom-nav__item hidden" type="button" data-mobile-view="cashboxes" disabled aria-hidden="true">Кассы</button>
       <button class="mobile-bottom-nav__item" type="button" data-mobile-view="inventory">Склад</button>
       <button class="mobile-bottom-nav__item" type="button" data-mobile-view="repair-orders">НАРЯДЫ</button>
       <button class="mobile-bottom-nav__item" type="button" data-mobile-view="more">Еще</button>
@@ -3380,9 +3380,9 @@
       <div class="topbar__actions">
         <button class="btn" id="repairOrdersButton">ЗАКАЗ-НАРЯДЫ</button>
         <button class="btn" id="clientsButton">КЛИЕНТЫ</button>
-        <button class="btn" id="cashboxesButton">КАССЫ</button>
+        <button class="btn hidden" id="cashboxesButton" disabled aria-hidden="true">КАССЫ</button>
         <button class="btn" id="inventoryButton">СКЛАД</button>
-        <button class="btn" id="employeesButton">СОТРУДНИКИ</button>
+        <button class="btn hidden" id="employeesButton" disabled aria-hidden="true">СОТРУДНИКИ</button>
       </div>
     </header>
     <div class="board-scroll">
@@ -3455,8 +3455,12 @@
             <input id="adminUserSalaryBalanceReset" type="checkbox">
             МОЖЕТ ОБНУЛЯТЬ БАЛАНС ЗАРПЛАТЫ
           </label>
+          <label class="agent-tasks-toggle" for="adminUserEmployeesCashboxesAccess">
+            <input id="adminUserEmployeesCashboxesAccess" type="checkbox">
+            ДОСТУП К СОТРУДНИКАМ И КАССАМ
+          </label>
           <div class="dialog__foot" style="padding:0; border:none; margin-top:10px;">
-            <div class="log-row__meta">Администратор создаёт пользователя или обновляет пароль и отдельное право. Для настройки права выберите пользователя в списке.</div>
+            <div class="log-row__meta">Администратор создаёт пользователя или обновляет пароль и отдельные права. Для настройки прав выберите пользователя в списке.</div>
             <button class="btn btn--accent" id="adminSaveUserButton">СОХРАНИТЬ</button>
           </div>
         </div>

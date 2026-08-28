@@ -4,7 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from ..operator_permissions import SALARY_BALANCE_RESET_PERMISSION
+from ..operator_permissions import EMPLOYEES_CASHBOXES_ACCESS_PERMISSION
 
 RouteHandler = Callable[[dict[str, Any] | None], dict[str, Any]]
 
@@ -128,8 +128,35 @@ _ADMIN_ONLY_ROUTE_PATHS = {
     "/api/finance_audit/apply_safe_fixes",
 }
 
+EMPLOYEES_CASHBOXES_PERMISSION_ROUTES = frozenset(
+    {
+        "/api/get_cash_journal",
+        "/api/finance_audit",
+        "/api/finance_audit/apply_safe_fixes",
+        "/api/get_cashbox",
+        "/api/create_cashbox",
+        "/api/reorder_cashboxes",
+        "/api/create_cashbox_transfer",
+        "/api/mark_cashbox_notifications_seen",
+        "/api/delete_cashbox",
+        "/api/create_cash_transaction",
+        "/api/cancel_cash_transaction",
+        "/api/cancel_last_cash_transaction",
+        "/api/save_employee",
+        "/api/toggle_employee",
+        "/api/delete_employee",
+        "/api/get_payroll_report",
+        "/api/get_employee_salary_ledger",
+        "/api/get_employee_salary_report",
+        "/api/get_employee_salary_reconciliation",
+        "/api/create_employee_salary_transaction",
+        "/api/create_employee_shift_accrual",
+        "/api/reset_employee_salary_balance",
+    }
+)
+
 _ROUTE_PERMISSION_REQUIREMENTS = {
-    "/api/reset_employee_salary_balance": SALARY_BALANCE_RESET_PERMISSION,
+    path: EMPLOYEES_CASHBOXES_ACCESS_PERMISSION for path in EMPLOYEES_CASHBOXES_PERMISSION_ROUTES
 }
 
 _OPERATOR_ACTIVITY_ROUTE_PATHS = {
@@ -340,8 +367,14 @@ def validate_route_spec(spec: RouteSpec) -> None:
         raise ValueError(f"Registry route must retain POST compatibility: {spec.path}")
     if spec.auth_kind == "admin" and spec.path not in _ADMIN_ONLY_ROUTE_PATHS:
         raise ValueError(f"Admin route is not explicitly reviewed: {spec.path}")
-    if spec.required_permission and spec.auth_kind != "operator":
-        raise ValueError(f"Permission-scoped route must require an operator: {spec.path}")
+    # Bearer and admin routes may carry a human-session permission overlay:
+    # proxied UI requests are checked against the resolved operator while
+    # trusted local integrations retain their existing service-principal contract.
+    if spec.required_permission and spec.auth_kind not in {"bearer", "operator", "admin"}:
+        raise ValueError(
+            "Permission-scoped route must use bearer, operator, or admin authentication: "
+            f"{spec.path}"
+        )
     if spec.is_write and (
         spec.feed_expectation == "not_applicable" or spec.readback_class == "not_applicable"
     ):

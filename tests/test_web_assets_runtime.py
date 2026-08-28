@@ -312,6 +312,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             function setOperatorSessionToken(token) {{ state.operatorSessionToken = token; }}
             function applyBoardScalePreference() {{}}
             function updateOperatorButton() {{}}
+            function syncEmployeesCashboxesAccessUi() {{}}
             function closeOperatorEmployeeBinding() {{}}
             function popModal() {{}}
             function setStatus() {{}}
@@ -916,6 +917,107 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             """
         )
 
+    def test_employees_cashboxes_permission_hides_revokes_and_clears_ui_state(self) -> None:
+        permission_access = _source_section(
+            self.source,
+            "function operatorHasPermission(permission)",
+            "function operatorStatHtml(",
+        )
+        self._run_node(
+            f"""
+            const assert = require('node:assert/strict');
+
+            const EMPLOYEES_CASHBOXES_ACCESS_PERMISSION = 'employees_cashboxes_access';
+            function entry() {{
+              const classes = new Set(['hidden']);
+              const attributes = new Map([['aria-hidden', 'true']]);
+              return {{
+                disabled: true,
+                classList: {{
+                  toggle(name, force) {{
+                    if (force) classes.add(name);
+                    else classes.delete(name);
+                  }},
+                  contains(name) {{ return classes.has(name); }},
+                }},
+                removeAttribute(name) {{ attributes.delete(name); }},
+                setAttribute(name, value) {{ attributes.set(name, value); }},
+                hasAttribute(name) {{ return attributes.has(name); }},
+              }};
+            }}
+            const cashboxesButton = entry();
+            const employeesButton = entry();
+            const mobileCashboxes = entry();
+            const mobileEmployees = entry();
+            const statuses = [];
+            const closed = [];
+            const state = {{
+              actor: 'USER',
+              operatorSessionToken: 'session-token',
+              operatorProfile: {{ user: {{ permissions: [] }} }},
+              employeesCashboxesAccess: false,
+              employeesCashboxesAccessRevision: 0,
+              mobileView: 'cashboxes',
+              mobileMorePanel: 'employees',
+              cashboxes: [{{ id: 'cashbox-1', statistics: {{ balance_minor: 100 }} }}],
+              cashboxesLoaded: true,
+              employees: [{{ id: 'employee-1', balance_total: '100' }}],
+              employeesLoadedMonth: '2026-08',
+              employeesWorkspaceLoadGeneration: 0,
+            }};
+            const els = {{
+              cashboxesButton,
+              employeesButton,
+              mobileAppShell: {{
+                querySelectorAll() {{ return [mobileCashboxes, mobileEmployees]; }},
+              }},
+              mobileEmployeesPanel: {{ hidden: false }},
+            }};
+            function requireOperatorSession() {{ return true; }}
+            function setStatus(message, isError) {{ statuses.push({{ message, isError }}); }}
+            function closeModalAndChildren(name) {{ closed.push(name); }}
+            function renderMobileMoreModules() {{}}
+            function renderMobileShell() {{}}
+
+            {permission_access}
+
+            syncEmployeesCashboxesAccessUi();
+            assert.equal(state.mobileView, 'board');
+            assert.equal(state.mobileMorePanel, '');
+            for (const element of [cashboxesButton, employeesButton, mobileCashboxes, mobileEmployees]) {{
+              assert.equal(element.classList.contains('hidden'), true);
+              assert.equal(element.disabled, true);
+              assert.equal(element.hasAttribute('aria-hidden'), true);
+            }}
+            closed.length = 0;
+
+            state.operatorProfile.user.permissions = [EMPLOYEES_CASHBOXES_ACCESS_PERMISSION];
+            syncEmployeesCashboxesAccessUi();
+            assert.equal(state.employeesCashboxesAccess, true);
+            assert.equal(state.employeesCashboxesAccessRevision, 1);
+            for (const element of [cashboxesButton, employeesButton, mobileCashboxes, mobileEmployees]) {{
+              assert.equal(element.classList.contains('hidden'), false);
+              assert.equal(element.disabled, false);
+              assert.equal(element.hasAttribute('aria-hidden'), false);
+            }}
+
+            state.mobileView = 'cashboxes';
+            state.mobileMorePanel = 'employees';
+            state.operatorProfile.user.permissions = [];
+            syncEmployeesCashboxesAccessUi();
+            assert.equal(state.employeesCashboxesAccess, false);
+            assert.equal(state.employeesCashboxesAccessRevision, 2);
+            assert.equal(state.mobileView, 'board');
+            assert.equal(state.mobileMorePanel, '');
+            assert.deepEqual(state.cashboxes, []);
+            assert.deepEqual(state.employees, []);
+            assert.deepEqual(closed, ['cashboxes', 'employees']);
+            assert.equal(requireEmployeesCashboxesAccess(), false);
+            assert.equal(statuses.at(-1)?.isError, true);
+            assert.match(statuses.at(-1)?.message || '', /НЕТ ПРАВА/);
+            """
+        )
+
     def test_employee_salary_reset_permission_payload_and_double_click_guard(self) -> None:
         permission_helper = _source_section(
             self.source,
@@ -1045,17 +1147,22 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             f"""
             const assert = require('node:assert/strict');
 
+            const EMPLOYEES_CASHBOXES_ACCESS_PERMISSION = 'employees_cashboxes_access';
             const SALARY_BALANCE_RESET_PERMISSION = 'salary_balance_reset';
             const state = {{
               operatorUsers: [{{
                 username: 'UGA',
-                permissions: [SALARY_BALANCE_RESET_PERMISSION],
+                permissions: [
+                  EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
+                  SALARY_BALANCE_RESET_PERMISSION,
+                ],
               }}],
               operatorPermissionEditorUsername: '',
             }};
             const els = {{
               adminUserLogin: {{ value: 'UGA' }},
               adminUserPassword: {{ value: 'new-password' }},
+              adminUserEmployeesCashboxesAccess: {{ checked: false }},
               adminUserSalaryBalanceReset: {{ checked: false }},
             }};
             const requests = [];
@@ -1084,18 +1191,26 @@ class WebAssetsRuntimeTests(unittest.TestCase):
               state.operatorPermissionEditorUsername = 'UGA';
               els.adminUserLogin.value = 'UGA';
               els.adminUserPassword.value = '';
+              els.adminUserEmployeesCashboxesAccess.checked = true;
               els.adminUserSalaryBalanceReset.checked = false;
               await saveOperatorUser();
-              assert.deepEqual(requests[1].options.body.permissions, []);
+              assert.deepEqual(
+                requests[1].options.body.permissions,
+                [EMPLOYEES_CASHBOXES_ACCESS_PERMISSION],
+              );
 
               state.operatorPermissionEditorUsername = '';
               els.adminUserLogin.value = 'NEW-OPERATOR';
               els.adminUserPassword.value = 'initial-password';
+              els.adminUserEmployeesCashboxesAccess.checked = true;
               els.adminUserSalaryBalanceReset.checked = true;
               await saveOperatorUser();
               assert.deepEqual(
                 requests[2].options.body.permissions,
-                [SALARY_BALANCE_RESET_PERMISSION],
+                [
+                  EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
+                  SALARY_BALANCE_RESET_PERMISSION,
+                ],
               );
               assert.equal(statuses.some((item) => item.isError), false);
             }})().catch((error) => {{
@@ -1584,6 +1699,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
                 function setOperatorSessionToken(value) {{ state.operatorSessionToken = value; }}
                 function applyBoardScalePreference() {{}}
                 function updateOperatorButton() {{}}
+                function syncEmployeesCashboxesAccessUi() {{}}
                 function syncExtraBoardColumnSettingsForm() {{}}
                 function renderBoard() {{}}
                 function operatorStatHtml() {{ return ''; }}
@@ -1667,6 +1783,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
                 function setOperatorSessionToken(value) {{ state.operatorSessionToken = value; }}
                 function applyBoardScalePreference() {{}}
                 function updateOperatorButton() {{}}
+                function syncEmployeesCashboxesAccessUi() {{}}
                 function operatorStatHtml() {{ return ''; }}
                 function formatDate() {{ return ''; }}
                 function renderOperatorActivity() {{}}

@@ -26,6 +26,10 @@ from ..models import (
     utc_now,
     utc_now_iso,
 )
+from ..operator_permissions import (
+    EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
+    operator_has_permission,
+)
 from ..storage.json_store import JsonStore
 from .finance_read_core import CASHBOX_NOTIFICATION_SEEN_SETTING_KEY
 from .snapshot_cache import (
@@ -46,6 +50,36 @@ GPT_WALL_AGENT_EVENT_LIMIT = 20
 CARD_JOURNAL_COMPACT_DEFAULT_LIMIT = 50
 CARD_JOURNAL_COMPACT_TEXT_LIMIT = 1200
 CARD_JOURNAL_COUNT_MAX = 1_000_000_000
+EMPLOYEES_CASHBOXES_PRIVATE_SETTING_KEYS = frozenset(
+    {
+        "employees",
+        "employee_shift_accruals",
+        "employee_repair_order_accruals",
+        "employee_salary_balance_resets",
+    }
+)
+EMPLOYEES_CASHBOXES_PRIVATE_EVENT_ACTION_MARKERS = (
+    "cash",
+    "employee",
+    "finance",
+    "payment",
+    "payroll",
+    "salary",
+)
+EMPLOYEES_CASHBOXES_PRIVATE_EVENT_DETAIL_KEYS = frozenset(
+    {
+        "amount",
+        "amount_minor",
+        "cashbox_id",
+        "cashbox_name",
+        "employee_id",
+        "employee_name",
+        "payment",
+        "payments",
+        "payroll_postings",
+        "salary",
+    }
+)
 CARD_JOURNAL_ACTION_LABELS = {
     "card_created": "Создана карточка",
     "card_moved": "Перемещена карточка",
@@ -286,12 +320,36 @@ def _json_dumps(
     )
 
 
-def _public_snapshot_settings(settings: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: value
-        for key, value in settings.items()
-        if key != CASHBOX_NOTIFICATION_SEEN_SETTING_KEY
-    }
+def _operator_can_access_employees_cashboxes(payload: dict[str, Any] | None) -> bool:
+    operator_session = (payload or {}).get("_operator_session")
+    return not isinstance(operator_session, dict) or operator_has_permission(
+        operator_session,
+        EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
+    )
+
+
+def _employees_cashboxes_private_event(event: AuditEvent) -> bool:
+    action = str(event.action or "").casefold()
+    if any(marker in action for marker in EMPLOYEES_CASHBOXES_PRIVATE_EVENT_ACTION_MARKERS):
+        return True
+    details = event.details if isinstance(event.details, dict) else {}
+    return any(key in details for key in EMPLOYEES_CASHBOXES_PRIVATE_EVENT_DETAIL_KEYS)
+
+
+def _permission_scoped_snapshot_revision(revision: str) -> str:
+    value = f"employees_cashboxes_restricted:{revision}"
+    return hashlib.sha1(value.encode("utf-8"), usedforsecurity=False).hexdigest()
+
+
+def _public_snapshot_settings(
+    settings: dict[str, Any],
+    *,
+    include_employees_cashboxes: bool = True,
+) -> dict[str, Any]:
+    excluded_keys = {CASHBOX_NOTIFICATION_SEEN_SETTING_KEY}
+    if not include_employees_cashboxes:
+        excluded_keys.update(EMPLOYEES_CASHBOXES_PRIVATE_SETTING_KEYS)
+    return {key: value for key, value in settings.items() if key not in excluded_keys}
 
 
 class SnapshotService:
@@ -671,7 +729,21 @@ class SnapshotService:
     def get_board_snapshot_for_http(
         self, payload: dict | None = None
     ) -> dict | PreparedSnapshotData:
-        return self._get_board_snapshot(payload, prepared=True)
+        if _operator_can_access_employees_cashboxes(payload):
+            return self._get_board_snapshot(payload, prepared=True)
+        result = self._get_board_snapshot(payload, prepared=False)
+        if isinstance(result, PreparedSnapshotData):  # pragma: no cover - internal invariant
+            raise RuntimeError("Prepared snapshot escaped the restricted HTTP path.")
+        restricted = deepcopy(result)
+        restricted["settings"] = _public_snapshot_settings(
+            dict(restricted.get("settings") or {}),
+            include_employees_cashboxes=False,
+        )
+        meta = restricted.get("meta")
+        if isinstance(meta, dict):
+            revision = _permission_scoped_snapshot_revision(str(meta.get("revision") or ""))
+            meta["revision"] = revision
+        return restricted
 
     def _get_board_snapshot(
         self,
@@ -880,6 +952,9 @@ class SnapshotService:
             revision = str(cache_entry["revision"])
             counts = deepcopy(cache_entry["counts"])
             meta = deepcopy(cache_entry["meta"])
+            if not _operator_can_access_employees_cashboxes(payload):
+                revision = _permission_scoped_snapshot_revision(revision)
+                meta["revision"] = revision
             meta["generated_at"] = utc_now_iso()
             return {
                 "revision": revision,
@@ -937,6 +1012,10 @@ class SnapshotService:
             columns = bundle["columns"]
             cards = bundle["cards"]
             events = bundle["events"]
+            if not _operator_can_access_employees_cashboxes(payload):
+                events = [
+                    event for event in events if not _employees_cashboxes_private_event(event)
+                ]
             now = utc_now()
             column_labels = self._column_labels(columns)
             cards_by_id = {card.id: card for card in cards}
@@ -1054,6 +1133,10 @@ class SnapshotService:
             cards = bundle["cards"]
             stickies = bundle["stickies"]
             events = bundle["events"]
+            if not _operator_can_access_employees_cashboxes(payload):
+                events = [
+                    event for event in events if not _employees_cashboxes_private_event(event)
+                ]
             column_labels = self._column_labels(columns)
             cards_by_id = {card.id: card for card in cards}
             ordered_cards = self._cards_for_wall(cards, columns, include_archived=include_archived)
@@ -1155,6 +1238,7 @@ class SnapshotService:
                 "event_limit": GPT_WALL_AGENT_EVENT_LIMIT if view_mode == "agent" else 100,
                 "compact": view_mode == "agent",
                 "actor_name": payload.get("actor_name"),
+                "_operator_session": payload.get("_operator_session"),
             }
         )
         sections = wall.get("sections") if isinstance(wall.get("sections"), dict) else {}
@@ -1182,6 +1266,7 @@ class SnapshotService:
                 "include_archived": include_archived,
                 "event_limit": event_limit,
                 "actor_name": payload.get("actor_name"),
+                "_operator_session": payload.get("_operator_session"),
             }
         )
         sections = wall.get("sections") if isinstance(wall.get("sections"), dict) else {}

@@ -19,7 +19,10 @@ if str(SRC) not in sys.path:
 from minimal_kanban.api.server import ApiServer
 from minimal_kanban.operator_activity import OperatorActivityService
 from minimal_kanban.operator_auth import OperatorAuthService
-from minimal_kanban.operator_permissions import SALARY_BALANCE_RESET_PERMISSION
+from minimal_kanban.operator_permissions import (
+    EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
+    SALARY_BALANCE_RESET_PERMISSION,
+)
 from minimal_kanban.services.card_service import CardService
 from minimal_kanban.services.shared_files_service import SharedFilesService
 from minimal_kanban.storage.json_store import JsonStore
@@ -361,7 +364,10 @@ def start_temp_runtime(*, start_port: int = 42731) -> TempRuntime:
         {
             "_operator_session": admin_session,
             "username": admin_session["username"],
-            "permissions": [SALARY_BALANCE_RESET_PERMISSION],
+            "permissions": [
+                EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
+                SALARY_BALANCE_RESET_PERMISSION,
+            ],
             "source": "smoke",
         }
     )

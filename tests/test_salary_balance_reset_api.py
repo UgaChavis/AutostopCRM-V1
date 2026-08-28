@@ -13,7 +13,15 @@ for import_path in (SRC, TESTS):
 
 import test_api as api_test_module  # noqa: E402
 
-from minimal_kanban.operator_permissions import SALARY_BALANCE_RESET_PERMISSION  # noqa: E402
+from minimal_kanban.operator_permissions import (  # noqa: E402
+    EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
+    SALARY_BALANCE_RESET_PERMISSION,
+)
+
+RESET_PERMISSIONS = [
+    EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
+    SALARY_BALANCE_RESET_PERMISSION,
+]
 
 
 class SalaryBalanceResetApiTests(unittest.TestCase):
@@ -44,14 +52,14 @@ class SalaryBalanceResetApiTests(unittest.TestCase):
                 "username": "permission-user",
                 "password": "test-password",
                 "role": "admin",
-                "permissions": [SALARY_BALANCE_RESET_PERMISSION],
+                "permissions": RESET_PERMISSIONS,
             },
             headers=headers,
         )
         self.assertEqual(status, 200)
         self.assertEqual(
             saved["data"]["user"]["permissions"],
-            [SALARY_BALANCE_RESET_PERMISSION],
+            RESET_PERMISSIONS,
         )
 
         status, role_changed = self.api.request(
@@ -63,7 +71,7 @@ class SalaryBalanceResetApiTests(unittest.TestCase):
         self.assertEqual(role_changed["data"]["user"]["role"], "operator")
         self.assertEqual(
             role_changed["data"]["user"]["permissions"],
-            [SALARY_BALANCE_RESET_PERMISSION],
+            RESET_PERMISSIONS,
         )
 
         status, revoked = self.api.request(
@@ -81,9 +89,9 @@ class SalaryBalanceResetApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         admin_headers = {"X-Operator-Session": admin_login["data"]["session"]["token"]}
         for username, role, permissions in (
-            ("UGA", "admin", [SALARY_BALANCE_RESET_PERMISSION]),
-            ("MARIA", "operator", [SALARY_BALANCE_RESET_PERMISSION]),
-            ("CODEX", "admin", []),
+            ("UGA", "admin", RESET_PERMISSIONS),
+            ("MARIA", "operator", RESET_PERMISSIONS),
+            ("CODEX", "admin", [EMPLOYEES_CASHBOXES_ACCESS_PERMISSION]),
         ):
             status, _saved = self.api.request(
                 "/api/save_operator_user",
@@ -126,10 +134,10 @@ class SalaryBalanceResetApiTests(unittest.TestCase):
             "expected_balance_revision": ledgers[0]["balance_revision"],
             "idempotency_key": "api-salary-reset-owner",
             "actor_name": "SPOOFED",
-            "permissions": [SALARY_BALANCE_RESET_PERMISSION],
+            "permissions": RESET_PERMISSIONS,
             "_operator_session": {
                 "username": "SPOOFED",
-                "permissions": [SALARY_BALANCE_RESET_PERMISSION],
+                "permissions": RESET_PERMISSIONS,
             },
         }
         status, unauthenticated = self.api.request(

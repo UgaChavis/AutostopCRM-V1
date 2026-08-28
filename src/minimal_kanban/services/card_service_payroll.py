@@ -23,6 +23,10 @@ from ..models import (
     parse_business_datetime,
     parse_datetime,
 )
+from ..operator_permissions import (
+    EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
+    operator_has_permission,
+)
 from ..repair_order import REPAIR_ORDER_STATUS_CLOSED, RepairOrder, RepairOrderRow
 from ..vehicle_profile import normalize_license_plate
 from .card_service_dashboard import DASHBOARD_VISIBLE_FIELD, is_administrative_position
@@ -2067,6 +2071,26 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
             payload = payload or {}
             bundle = self._store.read_bundle()
             employees = self._employees_from_settings(bundle["settings"])
+            operator_session = payload.get("_operator_session")
+            if isinstance(operator_session, dict) and not operator_has_permission(
+                operator_session, EMPLOYEES_CASHBOXES_ACCESS_PERMISSION
+            ):
+                month = self._validated_payroll_month(payload.get("month"))
+                return {
+                    "employees": [
+                        {
+                            "id": employee["id"],
+                            "name": employee["name"],
+                            "position": employee["position"],
+                            "is_active": employee["is_active"],
+                        }
+                        for employee in employees
+                    ],
+                    "month": month,
+                    "summary": {},
+                    "detail_rows": [],
+                    "meta": {"references_only": True},
+                }
             employees_by_id = {item["id"]: item for item in employees}
             shift_accruals = self._employee_shift_accruals_from_settings(
                 bundle["settings"], employees_by_id=employees_by_id

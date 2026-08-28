@@ -1586,7 +1586,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("Явных изменений для карточки не найдено.", BOARD_WEB_APP_HTML)
 
     def test_employees_module_is_exposed_in_topbar_and_repair_order_rows(self) -> None:
-        self.assertIn('id="employeesButton">СОТРУДНИКИ</button>', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            'id="employeesButton" disabled aria-hidden="true">СОТРУДНИКИ</button>',
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("function ensureEmployeesUi()", BOARD_WEB_APP_HTML)
         self.assertIn('id="employeesModal"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeeSalaryModal"', BOARD_WEB_APP_HTML)

@@ -11,6 +11,7 @@ if str(SRC) not in sys.path:
 
 from minimal_kanban.api.route_registry import (  # noqa: E402
     ADMIN_ONLY_ROUTES,
+    EMPLOYEES_CASHBOXES_PERMISSION_ROUTES,
     OPERATOR_SESSION_ROUTES,
     PROXIED_WRITE_ROUTES,
     READONLY_GET_ROUTES,
@@ -23,7 +24,7 @@ from minimal_kanban.api.route_registry import (  # noqa: E402
 )
 from minimal_kanban.mcp.tool_registry import PUBLIC_MCP_TOOL_NAMES  # noqa: E402
 from minimal_kanban.operator_permissions import (  # noqa: E402
-    SALARY_BALANCE_RESET_PERMISSION,
+    EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
 )
 from scripts.browser_smoke import SMOKE_SCENARIOS  # noqa: E402
 
@@ -190,6 +191,31 @@ EXPECTED_SERVICE_ROUTES = {
     "/api/upload_shared_file",
     "/api/upsert_client_vehicle",
     "/api/write_off_inventory_item",
+}
+
+EXPECTED_EMPLOYEES_CASHBOXES_PERMISSION_ROUTES = {
+    "/api/get_cash_journal",
+    "/api/finance_audit",
+    "/api/finance_audit/apply_safe_fixes",
+    "/api/get_cashbox",
+    "/api/create_cashbox",
+    "/api/reorder_cashboxes",
+    "/api/create_cashbox_transfer",
+    "/api/mark_cashbox_notifications_seen",
+    "/api/delete_cashbox",
+    "/api/create_cash_transaction",
+    "/api/cancel_cash_transaction",
+    "/api/cancel_last_cash_transaction",
+    "/api/save_employee",
+    "/api/toggle_employee",
+    "/api/delete_employee",
+    "/api/get_payroll_report",
+    "/api/get_employee_salary_ledger",
+    "/api/get_employee_salary_report",
+    "/api/get_employee_salary_reconciliation",
+    "/api/create_employee_salary_transaction",
+    "/api/create_employee_shift_accrual",
+    "/api/reset_employee_salary_balance",
 }
 
 EXPECTED_OPERATOR_ROUTES = {
@@ -363,6 +389,10 @@ class ContractSnapshotTests(unittest.TestCase):
         self.assertEqual("admin", admin.auth_kind)
         self.assertEqual("blocked", admin.maintenance_behavior)
         self.assertTrue(admin.is_write)
+        self.assertEqual(
+            EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
+            admin.required_permission,
+        )
 
         preferences = policy_for_route("/api/update_personal_board_preferences")
         self.assertEqual("operator", preferences.auth_kind)
@@ -373,7 +403,26 @@ class ContractSnapshotTests(unittest.TestCase):
         self.assertEqual("operator", salary_reset.auth_kind)
         self.assertEqual("blocked", salary_reset.maintenance_behavior)
         self.assertEqual("write", salary_reset.mutation_kind)
-        self.assertEqual(SALARY_BALANCE_RESET_PERMISSION, salary_reset.required_permission)
+        self.assertEqual(
+            EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
+            salary_reset.required_permission,
+        )
+
+        self.assertEqual(
+            EXPECTED_EMPLOYEES_CASHBOXES_PERMISSION_ROUTES,
+            set(EMPLOYEES_CASHBOXES_PERMISSION_ROUTES),
+        )
+        self.assertEqual(
+            EXPECTED_EMPLOYEES_CASHBOXES_PERMISSION_ROUTES,
+            frozenset(
+                path
+                for path in ROUTE_POLICY_PATHS
+                if policy_for_route(path).required_permission
+                == EMPLOYEES_CASHBOXES_ACCESS_PERMISSION
+            ),
+        )
+        self.assertEqual("", policy_for_route("/api/list_employees").required_permission)
+        self.assertEqual("", policy_for_route("/api/list_cashboxes").required_permission)
 
         feed_ack = policy_for_route("/api/change_feed/ack")
         self.assertEqual("checkpoint", feed_ack.mutation_kind)

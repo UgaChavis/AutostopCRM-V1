@@ -346,6 +346,7 @@ class BrowserSmokeScriptTests(unittest.TestCase):
         self.assertIn("employee_salary_reconciliation_print", script)
         self.assertIn("employeeShiftAccrualButton", script)
         self.assertIn("employee_shift_accrual_manual_salary", script)
+        self.assertIn("EMPLOYEES_CASHBOXES_ACCESS_PERMISSION", script)
         self.assertIn("SALARY_BALANCE_RESET_PERMISSION", script)
         self.assertIn('"username": admin_session["username"]', script)
         self.assertIn("employee_salary_balance_reset_non_cash", script)

@@ -31,11 +31,14 @@
     const EXTRA_BOARD_COLUMN_DEFAULT_TAG_COLOR = 'red';
     const DISPLAY_DASHBOARD_MAX_IMAGES = 8;
     const SALARY_BALANCE_RESET_PERMISSION = 'salary_balance_reset';
+    const EMPLOYEES_CASHBOXES_ACCESS_PERMISSION = 'employees_cashboxes_access';
 
     const state = {
       actor: '',
       operatorSessionToken: localStorage.getItem(OPERATOR_SESSION_STORAGE_KEY) || '',
       operatorProfile: null,
+      employeesCashboxesAccess: false,
+      employeesCashboxesAccessRevision: 0,
       personalBoardPreferences: null,
       personalBoardPreferencesRevision: 0,
       extraBoardColumnSettingsOpen: false,
@@ -226,6 +229,7 @@
       clientSuggestionProfiles: {},
       cashboxes: [],
       cashboxesLoaded: false,
+      cashboxesReferencesOnly: false,
       activeCashboxId: '',
       activeCashbox: null,
       cashboxesLoadController: null,
@@ -954,6 +958,7 @@
       adminUserLogin: document.getElementById('adminUserLogin'),
       adminUserPassword: document.getElementById('adminUserPassword'),
       adminUserSalaryBalanceReset: document.getElementById('adminUserSalaryBalanceReset'),
+      adminUserEmployeesCashboxesAccess: document.getElementById('adminUserEmployeesCashboxesAccess'),
       adminSaveUserButton: document.getElementById('adminSaveUserButton'),
       archiveModal: document.getElementById('archiveModal'),
       archiveList: document.getElementById('archiveList'),
@@ -2810,6 +2815,7 @@
       resetViewerScopedState();
       state.actor = '';
       state.operatorProfile = null;
+      syncEmployeesCashboxesAccessUi({ clearCachedData: true });
       state.personalBoardPreferences = null;
       state.extraBoardColumnSettingsOpen = false;
       state.extraBoardColumnSaving = false;
@@ -2839,6 +2845,117 @@
       return Boolean(normalized && permissions.includes(normalized));
     }
 
+    function operatorCanAccessEmployeesCashboxes() {
+      return operatorHasPermission(EMPLOYEES_CASHBOXES_ACCESS_PERMISSION);
+    }
+
+    function requireEmployeesCashboxesAccess() {
+      if (operatorCanAccessEmployeesCashboxes()) return true;
+      if (!state.operatorSessionToken || !state.actor) {
+        requireOperatorSession();
+      } else {
+        setStatus('НЕТ ПРАВА НА РАЗДЕЛЫ «СОТРУДНИКИ» И «КАССЫ».', true);
+      }
+      return false;
+    }
+
+    function syncEmployeesCashboxesEntry(element, canAccess) {
+      if (!element) return;
+      element.classList?.toggle('hidden', !canAccess);
+      if ('disabled' in element) element.disabled = !canAccess;
+      if (canAccess) element.removeAttribute?.('aria-hidden');
+      else element.setAttribute?.('aria-hidden', 'true');
+    }
+
+    function clearEmployeesCashboxesModuleState() {
+      if (typeof abortCashboxesLoad === 'function') abortCashboxesLoad();
+      if (typeof clearCashboxNotificationHighlights === 'function') clearCashboxNotificationHighlights();
+      state.cashboxes = [];
+      state.cashboxesLoaded = false;
+      state.cashboxesReferencesOnly = false;
+      state.activeCashboxId = '';
+      state.activeCashbox = null;
+      state.cashboxNotification = null;
+      state.cashboxNotificationRefreshPromise = null;
+      state.cashboxNotificationSeenPromise = null;
+      state.cashboxJournalData = null;
+      state.cashboxCancelTransactionId = '';
+      state.cashboxTransferDraft = { sourceId: '', targetId: '', amount: '', note: '' };
+      state.mobileCashboxAction = '';
+      state.employeesWorkspaceLoadGeneration += 1;
+      state.employees = [];
+      state.employeesLoadedMonth = '';
+      state.employeesReferencePromise = null;
+      state.activeEmployeeId = '';
+      state.employeeCreateMode = false;
+      state.employeesReportDetailsOpen = false;
+      state.employeeFormBaseline = null;
+      state.payrollMonth = '';
+      state.payrollReport = null;
+      state.payrollReportMonth = '';
+      state.activeEmployeeSalaryId = '';
+      state.activeEmployeeSalaryReportId = '';
+      state.activeEmployeeSalaryReconciliationReportId = '';
+      state.employeeSalarySheet = null;
+      state.employeeSalaryReport = null;
+      state.employeeSalaryActionKind = '';
+      state.employeeSalaryActionDraft = '';
+      state.employeeSalaryAdvanceOpen = false;
+      state.employeeSalaryAdvanceDraft = '';
+      state.employeeSalaryAdvanceNoteDraft = '';
+      state.employeeSalaryCashboxId = '';
+      state.employeeSalaryResetPending = false;
+      state.employeeSalaryResetIntent = null;
+      state.employeeShiftAccrualOpen = false;
+      state.employeeShiftAccrualDraft = '';
+      state.mobileEmployeesLoading = false;
+      state.mobileMoreLoaded = false;
+      if (els.cashboxesList) els.cashboxesList.textContent = '';
+      if (els.cashboxTransactions) els.cashboxTransactions.textContent = '';
+      if (els.cashboxJournalText) els.cashboxJournalText.textContent = '';
+      if (els.mobileCashboxList) els.mobileCashboxList.textContent = '';
+      if (els.mobileCashboxDetail) els.mobileCashboxDetail.textContent = '';
+      if (els.employeesList) els.employeesList.textContent = '';
+      if (els.employeesDetailTable) els.employeesDetailTable.textContent = '';
+      if (els.mobileEmployeesList) els.mobileEmployeesList.textContent = '';
+      if (els.mobileEmployeeDetail) els.mobileEmployeeDetail.textContent = '';
+      if (typeof renderCashboxNotificationIndicator === 'function') renderCashboxNotificationIndicator();
+    }
+
+    function syncEmployeesCashboxesAccessUi({ clearCachedData = false } = {}) {
+      const canAccess = operatorCanAccessEmployeesCashboxes();
+      const previousAccess = Boolean(state.employeesCashboxesAccess);
+      const accessChanged = previousAccess !== canAccess;
+      if (accessChanged || clearCachedData) state.employeesCashboxesAccessRevision += 1;
+      state.employeesCashboxesAccess = canAccess;
+
+      if (!canAccess) {
+        if (typeof closeModalAndChildren === 'function') {
+          closeModalAndChildren('cashboxes');
+          closeModalAndChildren('employees');
+        }
+        if (state.mobileView === 'cashboxes') state.mobileView = 'board';
+        if (state.mobileMorePanel === 'employees') state.mobileMorePanel = '';
+        if (clearCachedData || previousAccess) clearEmployeesCashboxesModuleState();
+      } else if (accessChanged) {
+        state.cashboxesLoaded = false;
+        state.activeCashbox = null;
+        state.employeesLoadedMonth = '';
+        state.employeesReferencePromise = null;
+        state.mobileMoreLoaded = false;
+      }
+
+      const protectedEntries = [els.cashboxesButton, els.employeesButton];
+      const mobileEntries = els.mobileAppShell?.querySelectorAll?.(
+        '[data-mobile-view="cashboxes"], [data-mobile-open="employees"]',
+      ) || [];
+      mobileEntries.forEach((element) => protectedEntries.push(element));
+      protectedEntries.forEach((element) => syncEmployeesCashboxesEntry(element, canAccess));
+      if (els.mobileEmployeesPanel && !canAccess) els.mobileEmployeesPanel.hidden = true;
+      if (typeof renderMobileMoreModules === 'function') renderMobileMoreModules();
+      if (typeof renderMobileShell === 'function') renderMobileShell();
+    }
+
     function operatorStatHtml(label, value) {
       return '<div class="operator-stat"><div class="operator-stat__label">' + escapeHtml(label) + '</div><div class="operator-stat__value">' + escapeHtml(value) + '</div></div>';
     }
@@ -2862,6 +2979,7 @@
       setOperatorSessionToken(profile?.session?.token || state.operatorSessionToken);
       applyBoardScalePreference({ fallbackValue: state.snapshot?.settings?.board_scale ?? state.boardScale ?? 1, syncInput: true, persistFallback: true });
       updateOperatorButton();
+      syncEmployeesCashboxesAccessUi();
       syncExtraBoardColumnSettingsForm();
       if (state.snapshot) renderBoard();
       const stats = profile?.stats || {};
@@ -3120,6 +3238,7 @@
             const employeeLabel = operatorUserEmployeeLabel(user);
             const permissions = Array.isArray(user.permissions) ? user.permissions : [];
             const canResetSalaryBalance = permissions.includes(SALARY_BALANCE_RESET_PERMISSION);
+            const canAccessEmployeesCashboxes = permissions.includes(EMPLOYEES_CASHBOXES_ACCESS_PERMISSION);
             return '<div class="operator-user-row">' +
               '<div class="operator-user-row__head"><strong>' + escapeHtml(user.username) + '</strong><span class="operator-user-chip">' + escapeHtml(user.is_admin ? 'АДМИН' : 'ОПЕРАТОР') + '</span></div>' +
               '<div class="operator-user-row__stats">' +
@@ -3127,6 +3246,7 @@
                 '<span class="operator-user-chip">ЗАКРЫТО: ' + escapeHtml(stats.cards_archived ?? 0) + '</span>' +
                 '<span class="operator-user-chip">ПЕРЕМЕЩЕНИЙ: ' + escapeHtml(stats.card_moves ?? 0) + '</span>' +
                 '<span class="operator-user-chip">' + escapeHtml(employeeLabel) + '</span>' +
+                '<span class="operator-user-chip">СОТРУДНИКИ И КАССЫ: ' + (canAccessEmployeesCashboxes ? 'ДА' : 'НЕТ') + '</span>' +
                 '<span class="operator-user-chip">ОБНУЛЕНИЕ БАЛАНСА: ' + (canResetSalaryBalance ? 'ДА' : 'НЕТ') + '</span>' +
               '</div>' +
               '<div class="operator-user-row__actions"><span class="log-row__meta">ОБНОВЛЕНО: ' + escapeHtml(formatDate(user.updated_at)) + ' | СТАТИСТИКА: 15 ДНЕЙ</span><div style="display:flex; gap:8px; flex-wrap:wrap;"><button class="btn" type="button" data-open-operator-report="' + escapeHtml(user.username) + '">СТАТИСТИКА</button><button class="btn btn--ghost" type="button" data-edit-operator-permissions="' + escapeHtml(user.username) + '">ПРАВА</button><button class="btn btn--ghost" type="button" data-bind-operator-employee="' + escapeHtml(user.username) + '">СОТРУДНИК</button><button class="btn btn--danger" type="button" data-delete-operator-user="' + escapeHtml(user.username) + '">УДАЛИТЬ</button></div></div>' +
@@ -3145,9 +3265,12 @@
       state.operatorPermissionEditorUsername = normalizedUsername;
       els.adminUserLogin.value = String(user.username || '');
       els.adminUserPassword.value = '';
+      const permissions = Array.isArray(user.permissions) ? user.permissions : [];
       if (els.adminUserSalaryBalanceReset) {
-        const permissions = Array.isArray(user.permissions) ? user.permissions : [];
         els.adminUserSalaryBalanceReset.checked = permissions.includes(SALARY_BALANCE_RESET_PERMISSION);
+      }
+      if (els.adminUserEmployeesCashboxesAccess) {
+        els.adminUserEmployeesCashboxesAccess.checked = permissions.includes(EMPLOYEES_CASHBOXES_ACCESS_PERMISSION);
       }
       els.operatorUserEditorPanel?.scrollIntoView({ block: 'nearest' });
       els.adminUserPassword?.focus();
@@ -5797,6 +5920,7 @@
       const data = await api('/api/list_cashboxes?limit=200');
       state.cashboxes = Array.isArray(data?.cashboxes) ? data.cashboxes : [];
       state.cashboxesLoaded = true;
+      state.cashboxesReferencesOnly = Boolean(data?.meta?.references_only);
       renderEmployeeSalaryCashboxOptions();
     }
 
@@ -6575,6 +6699,7 @@
 
     async function loadEmployeesReference({ month: requestedMonth = '', apply = true } = {}) {
       const viewerStateGeneration = state.viewerStateGeneration;
+      const accessRevision = state.employeesCashboxesAccessRevision;
       const month = String(requestedMonth || state.payrollMonth || currentPayrollMonthValue()).trim();
       if (state.employeesLoadedMonth === month && Array.isArray(state.employees)) {
         return { employees: state.employees, meta: { cached: true, month } };
@@ -6596,7 +6721,10 @@
         state.employeesReferencePromise = { month, viewerStateGeneration, promise: request };
       }
       const data = await request;
-      if (viewerStateGeneration !== state.viewerStateGeneration) return data;
+      if (
+        viewerStateGeneration !== state.viewerStateGeneration
+        || accessRevision !== state.employeesCashboxesAccessRevision
+      ) return data;
       const activeMonth = state.payrollMonth || currentPayrollMonthValue();
       if (apply && month === activeMonth) applyEmployeesReferenceData(data, month);
       return data;
@@ -6691,6 +6819,7 @@
     }
 
     function openEmployeesModal() {
+      if (!requireEmployeesCashboxesAccess()) return;
       ensureEmployeesUi();
       hydrateEmployeesUiRefs();
       bindEmployeesUiEvents();
@@ -8327,9 +8456,13 @@
           source: 'ui',
         };
         if (!existingUser || editingPermissions) {
-          payload.permissions = els.adminUserSalaryBalanceReset?.checked
-            ? [SALARY_BALANCE_RESET_PERMISSION]
-            : [];
+          payload.permissions = [];
+          if (els.adminUserEmployeesCashboxesAccess?.checked) {
+            payload.permissions.push(EMPLOYEES_CASHBOXES_ACCESS_PERMISSION);
+          }
+          if (els.adminUserSalaryBalanceReset?.checked) {
+            payload.permissions.push(SALARY_BALANCE_RESET_PERMISSION);
+          }
         }
         const data = await api('/api/save_operator_user', {
           method: 'POST',
@@ -8339,6 +8472,7 @@
         els.adminUserLogin.value = '';
         els.adminUserPassword.value = '';
         if (els.adminUserSalaryBalanceReset) els.adminUserSalaryBalanceReset.checked = false;
+        if (els.adminUserEmployeesCashboxesAccess) els.adminUserEmployeesCashboxesAccess.checked = false;
         setStatus((data?.meta?.created ? 'Пользователь создан.' : 'Пользователь обновлён.') + ' ' + (data?.user?.username || ''), false);
         await refreshOperatorAdminSurfaces({ openAdminModal: true, refreshProfile: true, tabName: 'users' });
       } catch (error) {
@@ -8402,23 +8536,32 @@
       setStatus('ОЖИДАНИЕ', false, 'pending');
     }
 
+    function mobileViewOrder() {
+      return operatorCanAccessEmployeesCashboxes()
+        ? MOBILE_VIEW_ORDER
+        : MOBILE_VIEW_ORDER.filter((item) => item !== 'cashboxes');
+    }
+
     function normalizeMobileView(view) {
       const normalized = String(view || '').trim();
-      return MOBILE_VIEW_ORDER.includes(normalized) ? normalized : MOBILE_VIEW_ORDER[0];
+      const viewOrder = mobileViewOrder();
+      return viewOrder.includes(normalized) ? normalized : viewOrder[0];
     }
 
     function mobileViewIndex(view) {
-      const index = MOBILE_VIEW_ORDER.indexOf(normalizeMobileView(view));
+      const viewOrder = mobileViewOrder();
+      const index = viewOrder.indexOf(normalizeMobileView(view));
       return index >= 0 ? index : 0;
     }
 
     function shiftMobileView(direction) {
       const delta = finiteNumber(direction);
       if (!delta) return;
+      const viewOrder = mobileViewOrder();
       const currentIndex = mobileViewIndex(state.mobileView);
-      const nextIndex = Math.max(0, Math.min(MOBILE_VIEW_ORDER.length - 1, currentIndex + (delta > 0 ? 1 : -1)));
+      const nextIndex = Math.max(0, Math.min(viewOrder.length - 1, currentIndex + (delta > 0 ? 1 : -1)));
       if (nextIndex === currentIndex) return;
-      setMobileView(MOBILE_VIEW_ORDER[nextIndex]);
+      setMobileView(viewOrder[nextIndex]);
     }
 
     function mobileSwipeIgnoredTarget(target) {
@@ -9471,8 +9614,10 @@
         ? '<option value="">Выберите кассу</option>' + items.map((item) => {
             const itemId = String(item?.id || '').trim();
             const selected = itemId === normalizedSelectedId ? ' selected' : '';
+            const name = String(item?.name || 'Касса');
             const balance = cashboxBalanceDisplay(item);
-            return '<option value="' + escapeHtml(itemId) + '"' + selected + '>' + escapeHtml(String(item?.name || 'Касса') + ' · ' + balance) + '</option>';
+            const label = balance ? (name + ' · ' + balance) : name;
+            return '<option value="' + escapeHtml(itemId) + '"' + selected + '>' + escapeHtml(label) + '</option>';
           }).join('')
         : '<option value="">Кассы не загружены</option>';
       if (!normalizedSelectedId && items.length && !els.mobileRepairOrderPaymentCashbox.value) {
@@ -10266,6 +10411,7 @@
     }
 
     function openMobileEmployeesPanel() {
+      if (!requireEmployeesCashboxesAccess()) return;
       state.mobileMorePanel = 'employees';
       renderMobileMore();
       loadMobileEmployees();
@@ -10571,17 +10717,17 @@
       const loadState = state.mobileMoreLoading
         ? 'ОБНОВЛЯЕТСЯ'
         : (state.mobileMoreLoaded ? 'ДАННЫЕ ГОТОВЫ' : 'ОТКРОЙТЕ ИЛИ ОБНОВИТЕ');
-      return [
-        {
-          id: 'clients',
-          title: 'Клиенты',
-          value: String(mobileMoreClientsTotal()),
-          status: loadState,
-          detail: clients.length
-            ? clients.slice(0, 2).map((client) => clientDisplayName(client)).join(' · ')
-            : 'База клиентов и машин',
-        },
-        {
+      const rows = [{
+        id: 'clients',
+        title: 'Клиенты',
+        value: String(mobileMoreClientsTotal()),
+        status: loadState,
+        detail: clients.length
+          ? clients.slice(0, 2).map((client) => clientDisplayName(client)).join(' · ')
+          : 'База клиентов и машин',
+      }];
+      if (operatorCanAccessEmployeesCashboxes()) {
+        rows.push({
           id: 'employees',
           title: 'Сотрудники',
           value: String(finiteNonNegativeNumber(activeEmployees, employees.length)),
@@ -10589,7 +10735,9 @@
           detail: employees.length
             ? ('Активных: ' + activeEmployees + ' из ' + employees.length)
             : 'Зарплата, смены и начисления',
-        },
+        });
+      }
+      rows.push(
         {
           id: 'archive',
           title: 'Архив',
@@ -10606,7 +10754,8 @@
           status: loadState,
           detail: storageText,
         },
-      ];
+      );
+      return rows;
     }
 
     function renderMobileMoreModules() {
@@ -10634,12 +10783,13 @@
       state.mobileMoreError = '';
       renderMobileMoreModules();
       try {
-        const results = await Promise.allSettled([
+        const tasks = [
           loadClients({ openModal: false }),
-          loadEmployeesReference(),
           loadArchive(false, { force }),
           loadSharedFiles({ openModal: false }),
-        ]);
+        ];
+        if (operatorCanAccessEmployeesCashboxes()) tasks.push(loadEmployeesReference());
+        const results = await Promise.allSettled(tasks);
         const failed = results.filter((item) => item.status === 'rejected');
         state.mobileMoreLoaded = true;
         if (failed.length) {
@@ -10669,6 +10819,7 @@
     function renderMobileShell() {
       if (!els.mobileAppShell) return;
       const view = normalizeMobileView(state.mobileView);
+      state.mobileView = view;
       els.mobileAppShell.dataset.mobileActiveView = view;
       document.querySelectorAll('[data-mobile-view]').forEach((button) => {
         if (!els.mobileAppShell.contains(button)) return;
@@ -10687,6 +10838,8 @@
     }
 
     function setMobileView(view) {
+      const requestedView = String(view || '').trim();
+      if (requestedView === 'cashboxes' && !requireEmployeesCashboxesAccess()) return false;
       state.mobileView = normalizeMobileView(view);
       renderMobileShell();
       if (state.mobileView === 'cashboxes') {
@@ -10701,10 +10854,12 @@
       if (state.mobileView === 'repair-orders' && !state.repairOrdersMetaState && typeof loadRepairOrders === 'function') {
         loadRepairOrders(false);
       }
+      return true;
     }
 
     function setMobileCashboxAction(action) {
       const normalized = ['income', 'expense', 'transfer'].includes(action) ? action : '';
+      if (normalized && !requireEmployeesCashboxesAccess()) return;
       state.mobileCashboxAction = normalized;
       renderMobileCashboxAction();
       if (normalized && els.mobileCashboxAmountInput) els.mobileCashboxAmountInput.focus({ preventScroll: true });
@@ -10727,6 +10882,7 @@
     }
 
     async function submitMobileCashboxAction() {
+      if (!requireEmployeesCashboxesAccess()) return;
       const action = String(state.mobileCashboxAction || '');
       const cashbox = state.activeCashbox?.cashbox
         || (Array.isArray(state.cashboxes) ? state.cashboxes.find((item) => item.id === state.activeCashboxId) : null)
@@ -13491,6 +13647,7 @@
       const data = await api('/api/list_cashboxes?limit=200');
       state.cashboxes = Array.isArray(data?.cashboxes) ? data.cashboxes : [];
       state.cashboxesLoaded = true;
+      state.cashboxesReferencesOnly = Boolean(data?.meta?.references_only);
       renderRepairOrderPaymentCashboxOptions(els.repairOrderPaymentCashbox?.value || '');
     }
 
@@ -18815,8 +18972,13 @@
     }
 
     function cashboxBalanceDisplay(cashbox) {
+      const statistics = cashbox?.statistics;
+      if (
+        !statistics
+        || (statistics.balance_display == null && statistics.balance_minor == null)
+      ) return '';
       const balanceMinor = cashboxBalanceMinor(cashbox);
-      return String(cashbox?.statistics?.balance_display || cashboxFormatMinorAmount(balanceMinor));
+      return String(statistics.balance_display || cashboxFormatMinorAmount(balanceMinor));
     }
 
     function cashboxBalanceSign(balanceMinor) {
@@ -18825,6 +18987,7 @@
 
     function invalidateCashboxesCache() {
       state.cashboxesLoaded = false;
+      state.cashboxesReferencesOnly = false;
       state.cashboxJournalData = null;
     }
 
@@ -18976,13 +19139,22 @@
 
     async function refreshCashboxNotification() {
       if (!state.actor || !state.operatorSessionToken) return null;
+      if (!operatorCanAccessEmployeesCashboxes()) {
+        if (state.cashboxNotification) applyCashboxNotification(null);
+        return null;
+      }
       if (state.cashboxNotificationRefreshPromise) return state.cashboxNotificationRefreshPromise;
       const viewerStateGeneration = state.viewerStateGeneration;
+      const accessRevision = state.employeesCashboxesAccessRevision;
       let request = null;
       request = (async () => {
         try {
           const data = await api('/api/list_cashboxes?limit=1');
-          if (viewerStateGeneration !== state.viewerStateGeneration) return null;
+          if (
+            viewerStateGeneration !== state.viewerStateGeneration
+            || accessRevision !== state.employeesCashboxesAccessRevision
+            || !operatorCanAccessEmployeesCashboxes()
+          ) return null;
           const notification = data?.notification || null;
           applyCashboxNotification(notification);
           if (notification && notification.initialized === false) {
@@ -19217,6 +19389,13 @@
         else applyCashboxNotification(data?.notification || null);
         state.cashboxes = Array.isArray(data?.cashboxes) ? data.cashboxes : [];
         state.cashboxesLoaded = true;
+        state.cashboxesReferencesOnly = Boolean(data?.meta?.references_only);
+        if (state.cashboxesReferencesOnly) {
+          state.activeCashboxId = '';
+          state.activeCashbox = null;
+          renderMobileRepairOrderPaymentCashboxes();
+          return data;
+        }
         const nextId = state.cashboxes.some((item) => item.id === state.activeCashboxId)
           ? state.activeCashboxId
           : (state.cashboxes[0]?.id || '');
@@ -19263,6 +19442,7 @@
     }
 
     function openCashboxesModal() {
+      if (!requireEmployeesCashboxesAccess()) return;
       maybeOpenModal(els.cashboxesModal, true);
       els.cashboxDetailTitle.textContent = 'ЗАГРУЖАЮ КАССЫ...';
       els.cashboxDetailMeta.textContent = '';

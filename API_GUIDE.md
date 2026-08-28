@@ -288,9 +288,23 @@ positions.
 
 ## Finance And Payroll
 
-- `/api/finance_audit` is read-only.
+- Human sessions need the `employees_cashboxes_access` permission to open the
+  Employees and Cashboxes workspaces or call their detailed reports and
+  mutation routes. The administrator role alone does not grant this access.
+  Guarded local bearer/Gateway service calls retain their existing integration
+  contract.
+- `list_employees` and `list_cashboxes` remain available to an authenticated
+  human without that permission only as reference lookups for repair-order
+  assignees and payment cashboxes. Those responses set
+  `meta.references_only=true` and omit payroll terms, balances, cashbox
+  statistics, transaction totals, and notification data.
+- Board snapshots and board-event views omit private employee, payroll, and
+  cashbox-event data for a human session without that permission.
+- `/api/finance_audit` is read-only and also requires
+  `employees_cashboxes_access` for human sessions.
 - `/api/finance_audit/apply_safe_fixes` is a maintenance-only write and
-  requires the runbook's audit, backup, and explicit-owner flow.
+  requires both administrator status and `employees_cashboxes_access`, plus
+  the runbook's audit, backup, and explicit-owner flow.
 - Manual expense transactions require a meaningful note.
 - Cancellation preserves the original transaction and creates audited reversal
   rows; paired transfer movements are reversed together.
@@ -304,8 +318,9 @@ positions.
   does not change a cashbox.
 - `POST /api/reset_employee_salary_balance` records an immutable non-cash
   adjustment that brings one current salary balance to exactly zero. It
-  requires an interactive operator session with the `salary_balance_reset`
-  permission; the administrator role alone is not sufficient.
+  requires an interactive operator session with both
+  `employees_cashboxes_access` and `salary_balance_reset`; the administrator
+  role alone is not sufficient.
 - A reset request must include `employee_id`, `expected_balance_minor`,
   `expected_balance_revision`, and a unique `idempotency_key`. A stale balance
   or revision returns HTTP 409, while an already-zero balance is a write-free

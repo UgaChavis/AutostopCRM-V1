@@ -42,7 +42,10 @@ from ..mcp.oauth_provider import (
 )
 from ..models import utc_now_iso
 from ..operator_auth import OperatorAuthService
-from ..operator_permissions import operator_has_permission
+from ..operator_permissions import (
+    EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
+    operator_has_permission,
+)
 from ..performance import request_performance_trace
 from ..services.card_service import CardService
 from ..services.change_feed_service import ChangeFeedService
@@ -1370,6 +1373,20 @@ class AuthenticationPolicy:
                 message="Для доступа к рабочей CRM нужен вход оператора.",
             )
             return None
+        required_permission = self._operator_permission_routes.get(route, "")
+        if (
+            required_permission
+            and session is not None
+            and not operator_has_permission(session, required_permission)
+        ):
+            self._reject(
+                handler,
+                request_id,
+                status=HTTPStatus.FORBIDDEN,
+                code="forbidden",
+                message="Нет права на это действие.",
+            )
+            return None
         if route in self._admin_only_routes:
             if session is None:
                 self._reject(
@@ -1398,16 +1415,6 @@ class AuthenticationPolicy:
                     status=HTTPStatus.UNAUTHORIZED,
                     code="unauthorized",
                     message="Нужен вход оператора.",
-                )
-                return None
-            required_permission = self._operator_permission_routes.get(route, "")
-            if required_permission and not operator_has_permission(session, required_permission):
-                self._reject(
-                    handler,
-                    request_id,
-                    status=HTTPStatus.FORBIDDEN,
-                    code="forbidden",
-                    message="Нет права на это действие.",
                 )
                 return None
             return next_payload
@@ -1472,6 +1479,7 @@ class AuthenticationPolicy:
             "role": "admin",
             "is_admin": True,
             "employee_id": "",
+            "permissions": [EMPLOYEES_CASHBOXES_ACCESS_PERMISSION],
             "service_identity": True,
         }
         audit_actor = str(handler.headers.get(OAUTH_AUDIT_ACTOR_HEADER, "") or "").strip()
@@ -2314,6 +2322,9 @@ class ApiServer:
             for path, spec in route_specs.items()
             if spec.required_permission
         }
+        operator_permission_routes["/employee_salary_reconciliation_print"] = (
+            EMPLOYEES_CASHBOXES_ACCESS_PERMISSION
+        )
 
         authentication_policy = AuthenticationPolicy(
             bearer_token=bearer_token,

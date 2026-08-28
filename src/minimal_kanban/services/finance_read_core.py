@@ -5,6 +5,10 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from ..models import CashTransaction, business_timezone
+from ..operator_permissions import (
+    EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
+    operator_has_permission,
+)
 
 CASHBOX_NOTIFICATION_SEEN_SETTING_KEY = "_cashbox_notification_seen_by_users"
 
@@ -22,6 +26,22 @@ class FinanceReadCore:
             limit = service._validated_limit(payload.get("limit"), default=200, maximum=1000)
             bundle = service._store.read_bundle()
             cashboxes = service._ordered_cashboxes(bundle["cashboxes"])
+            operator_session = payload.get("_operator_session")
+            if isinstance(operator_session, dict) and not operator_has_permission(
+                operator_session, EMPLOYEES_CASHBOXES_ACCESS_PERMISSION
+            ):
+                reference_cashboxes = [cashbox.to_dict() for cashbox in cashboxes[:limit]]
+                return {
+                    "cashboxes": reference_cashboxes,
+                    "notification": None,
+                    "meta": {
+                        "total": len(cashboxes),
+                        "limit": limit,
+                        "returned": len(reference_cashboxes),
+                        "has_more": len(cashboxes) > len(reference_cashboxes),
+                        "references_only": True,
+                    },
+                }
             transactions = bundle["cash_transactions"]
             serialized_cashboxes = [
                 service._serialize_cashbox(cashbox, transactions) for cashbox in cashboxes[:limit]

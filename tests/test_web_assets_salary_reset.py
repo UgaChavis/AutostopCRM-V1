@@ -33,7 +33,7 @@ class SalaryBalanceResetWebAssetTests(unittest.TestCase):
         self.assertIn("МОЖЕТ ОБНУЛЯТЬ БАЛАНС ЗАРПЛАТЫ", BOARD_WEB_APP_HTML)
         self.assertIn("data-edit-operator-permissions", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "Администратор создаёт пользователя или обновляет пароль и отдельное право.",
+            "Администратор создаёт пользователя или обновляет пароль и отдельные права.",
             BOARD_WEB_APP_HTML,
         )
         permission_editor = _asset_section(
@@ -51,8 +51,14 @@ class SalaryBalanceResetWebAssetTests(unittest.TestCase):
         )
         self.assertIn("const existingUser = (state.operatorUsers || []).find(", permission_save)
         self.assertIn("if (!existingUser || editingPermissions)", permission_save)
+        self.assertIn("payload.permissions = [];", permission_save)
         self.assertIn(
-            "payload.permissions = els.adminUserSalaryBalanceReset?.checked", permission_save
+            "payload.permissions.push(EMPLOYEES_CASHBOXES_ACCESS_PERMISSION);",
+            permission_save,
+        )
+        self.assertIn(
+            "payload.permissions.push(SALARY_BALANCE_RESET_PERMISSION);",
+            permission_save,
         )
         self.assertNotIn("body: {\n            username:", permission_save)
         self.assertIn("body: payload,", permission_save)
