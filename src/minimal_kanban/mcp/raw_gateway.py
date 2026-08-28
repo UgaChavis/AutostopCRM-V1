@@ -20,9 +20,8 @@ CHANGE_FEED_READ_ROUTE = "/api/change_feed/read"
 CHANGE_FEED_ACK_ROUTE = "/api/change_feed/ack"
 CHANGE_FEED_WRITE_ROUTES = frozenset({CHANGE_FEED_BOOTSTRAP_ROUTE, CHANGE_FEED_ACK_ROUTE})
 RAW_API_WRITE_ROUTES = (
-    frozenset(route for route in PROXIED_WRITE_ROUTES if route != "/api/get_repair_order")
-    | CHANGE_FEED_WRITE_ROUTES
-)
+    PROXIED_WRITE_ROUTES - {"/api/get_repair_order", "/api/reset_employee_salary_balance"}
+) | CHANGE_FEED_WRITE_ROUTES
 RAW_API_READ_ROUTES = frozenset(
     {
         "/api/agent_actions",

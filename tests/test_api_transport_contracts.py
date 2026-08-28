@@ -12,7 +12,7 @@ import unittest
 from email.message import Message
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -23,6 +23,9 @@ from minimal_kanban.api.server import (  # noqa: E402
     ApiServer,
     AuthenticationPolicy,
     OperatorLoginLimiter,
+)
+from minimal_kanban.operator_permissions import (  # noqa: E402
+    SALARY_BALANCE_RESET_PERMISSION,
 )
 from minimal_kanban.services.card_service import CardService  # noqa: E402
 from minimal_kanban.services.errors import ServiceError  # noqa: E402
@@ -258,7 +261,76 @@ class AuthenticationPolicyUnitTests(unittest.TestCase):
             client_address=(peer_host, 41731),
             headers=headers,
             ROUTES={},
+            _send_error_response=Mock(),
         )
+
+    def test_operator_permission_route_uses_resolved_session_not_request_body(self) -> None:
+        route = "/api/reset_employee_salary_balance"
+
+        class OperatorService:
+            def __init__(self, session: dict) -> None:
+                self.session = session
+
+            def resolve_session(self, _token: str) -> dict:
+                return dict(self.session)
+
+        denied_handler = self._handler("127.0.0.1")
+        denied_handler.headers["X-Operator-Session"] = "denied-session"
+        denied_policy = AuthenticationPolicy(
+            bearer_token="",
+            operator_service=OperatorService(
+                {"username": "CODEX", "is_admin": True, "permissions": []}
+            ),
+            readonly_routes=set(),
+            operator_session_routes={route},
+            admin_only_routes=set(),
+            maintenance_technical_write_routes={route},
+            operator_permission_routes={route: SALARY_BALANCE_RESET_PERMISSION},
+        )
+        denied = denied_policy.operator_context_payload(
+            denied_handler,
+            route,
+            {
+                "_operator_session": {
+                    "username": "SPOOF",
+                    "permissions": [SALARY_BALANCE_RESET_PERMISSION],
+                }
+            },
+            "permission-denied",
+        )
+        self.assertIsNone(denied)
+        denied_handler._send_error_response.assert_called_once()
+        self.assertEqual(denied_handler._send_error_response.call_args.args[1], 403)
+
+        allowed_handler = self._handler("127.0.0.1")
+        allowed_handler.headers["X-Operator-Session"] = "allowed-session"
+        allowed_policy = AuthenticationPolicy(
+            bearer_token="",
+            operator_service=OperatorService(
+                {
+                    "username": "MARIA",
+                    "is_admin": False,
+                    "permissions": [SALARY_BALANCE_RESET_PERMISSION],
+                }
+            ),
+            readonly_routes=set(),
+            operator_session_routes={route},
+            admin_only_routes=set(),
+            maintenance_technical_write_routes={route},
+            operator_permission_routes={route: SALARY_BALANCE_RESET_PERMISSION},
+        )
+        allowed = allowed_policy.operator_context_payload(
+            allowed_handler,
+            route,
+            {"_operator_session": {"username": "SPOOF"}},
+            "permission-allowed",
+        )
+        self.assertEqual(allowed["_operator_session"]["username"], "MARIA")
+        self.assertEqual(
+            allowed["_operator_session"]["permissions"],
+            [SALARY_BALANCE_RESET_PERMISSION],
+        )
+        allowed_handler._send_error_response.assert_not_called()
 
     def test_login_client_key_trusts_real_ip_only_from_loopback_or_private_peer(self) -> None:
         self.assertEqual(

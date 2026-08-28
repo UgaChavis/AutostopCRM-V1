@@ -32,6 +32,10 @@ from .models import (
     utc_now_iso,
 )
 from .operator_activity import OperatorActivityService
+from .operator_permissions import (
+    normalize_operator_permissions,
+    unknown_operator_permissions,
+)
 from .services.card_service import CardService
 from .services.errors import ServiceError
 from .storage.change_feed_projection import project_operator_users
@@ -316,6 +320,11 @@ class OperatorAuthService:
         username = self._validated_username(payload.get("username"))
         password_provided = "password" in payload and str(payload.get("password") or "").strip()
         requested_role = self._validated_role(payload.get("role")) if "role" in payload else None
+        requested_permissions = (
+            self._validated_permissions(payload.get("permissions"))
+            if "permissions" in payload
+            else None
+        )
         now_iso = utc_now_iso()
         with self._locked_state() as state:
             existing = self._find_user(state["users"], username)
@@ -329,6 +338,7 @@ class OperatorAuthService:
                     "created_at": now_iso,
                     "updated_at": now_iso,
                     "employee_id": "",
+                    "permissions": requested_permissions or [],
                     "stats": {OPEN_COUNT_KEY: 0},
                     ACTION_HISTORY_KEY: [],
                 }
@@ -350,6 +360,8 @@ class OperatorAuthService:
                         status_code=409,
                     )
                 existing["role"] = next_role
+                if requested_permissions is not None:
+                    existing["permissions"] = requested_permissions
                 existing["updated_at"] = now_iso
                 existing["employee_id"] = normalize_text(
                     existing.get("employee_id"), default="", limit=64
@@ -387,9 +399,10 @@ class OperatorAuthService:
                 "Создан пользователь."
                 if created
                 else "Обновлены права пользователя."
-                if requested_role is not None and not password_provided
+                if (requested_role is not None or requested_permissions is not None)
+                and not password_provided
                 else "Обновлены пользователь и права."
-                if requested_role is not None
+                if requested_role is not None or requested_permissions is not None
                 else "Обновлен пароль пользователя."
             ),
             source=str(payload.get("source") or "ui"),
@@ -778,6 +791,7 @@ class OperatorAuthService:
             "created_at": user["created_at"],
             "updated_at": user["updated_at"],
             "employee_id": normalize_text(user.get("employee_id"), default="", limit=64),
+            "permissions": normalize_operator_permissions(user.get("permissions")),
         }
 
     @staticmethod
@@ -938,6 +952,7 @@ class OperatorAuthService:
             "role": user["role"],
             "is_admin": user["role"] == "admin",
             "employee_id": normalize_text(user.get("employee_id"), default="", limit=64),
+            "permissions": normalize_operator_permissions(user.get("permissions")),
         }
 
     def _build_profile_payload(self, user: dict[str, Any], *, token: str) -> dict:
@@ -1264,6 +1279,22 @@ class OperatorAuthService:
             )
         return role
 
+    def _validated_permissions(self, value: Any) -> list[str]:
+        if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+            self._fail(
+                "validation_error",
+                "Поле permissions должно быть списком разрешений.",
+                details={"field": "permissions"},
+            )
+        unknown = unknown_operator_permissions(value)
+        if unknown:
+            self._fail(
+                "validation_error",
+                "Передано неизвестное разрешение пользователя.",
+                details={"field": "permissions", "unknown": unknown},
+            )
+        return normalize_operator_permissions(value)
+
     def _validated_optional_bool(self, payload: dict, field: str, *, default: bool) -> bool:
         if field not in payload:
             return default
@@ -1374,6 +1405,7 @@ class OperatorAuthService:
                     "created_at": now_iso,
                     "updated_at": now_iso,
                     "employee_id": "",
+                    "permissions": [],
                     "stats": {OPEN_COUNT_KEY: 0},
                     ACTION_HISTORY_KEY: [],
                 }
@@ -1533,6 +1565,7 @@ class OperatorAuthService:
                     or utc_now()
                 ).isoformat(),
                 "employee_id": employee_id,
+                "permissions": normalize_operator_permissions(item.get("permissions")),
                 "stats": {
                     OPEN_COUNT_KEY: normalize_int(
                         (stats or {}).get(OPEN_COUNT_KEY),

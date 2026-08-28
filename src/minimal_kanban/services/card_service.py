@@ -2958,16 +2958,13 @@ class CardService(
                 employee = employees_by_id.get(employee_id)
                 if employee is None:
                     continue
-                ledger = self._build_employee_salary_ledger(
-                    bundle["cards"],
-                    bundle["cashboxes"],
-                    bundle["cash_transactions"],
+                before_minor = self._employee_salary_balance_minor_from_bundle(
+                    bundle,
                     employee,
                     shift_accruals=shift_accruals,
                     repair_order_accruals=order_accruals,
                     months=120,
                 )
-                before_minor = normalize_money_minor(ledger.get("balance_total"))
                 bucket["balance_before_minor"] = before_minor
                 bucket["balance_after_minor"] = before_minor - bucket["amount_minor"]
             return {
@@ -6396,6 +6393,7 @@ class CardService(
         events: list[AuditEvent],
         settings: dict[str, Any] | None = None,
         force_cleanup: bool = False,
+        require_compare_and_swap: bool = False,
     ) -> None:
         write_arguments = {
             "columns": columns,
@@ -6416,7 +6414,7 @@ class CardService(
             "settings": bundle["settings"] if settings is None else settings,
         }
         try:
-            if get_fast_state_writes_enabled():
+            if require_compare_and_swap or get_fast_state_writes_enabled():
                 written_bundle = self._store.write_cached_bundle(bundle, **write_arguments)
             else:
                 written_bundle = self._store.write_bundle(**write_arguments)

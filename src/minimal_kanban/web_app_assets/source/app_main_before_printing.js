@@ -30,6 +30,7 @@
     const EXTRA_BOARD_COLUMN_DEFAULT_TAG_LABEL = 'НАДО ЧТО ТО СДЕЛАТЬ';
     const EXTRA_BOARD_COLUMN_DEFAULT_TAG_COLOR = 'red';
     const DISPLAY_DASHBOARD_MAX_IMAGES = 8;
+    const SALARY_BALANCE_RESET_PERMISSION = 'salary_balance_reset';
 
     const state = {
       actor: '',
@@ -55,6 +56,7 @@
       displayDashboardPendingImages: [],
       displayDashboardSelectionRange: null,
       operatorUsers: [],
+      operatorPermissionEditorUsername: '',
       operatorEmployeeBindingUser: '',
       operatorAdminTab: 'users',
       operatorActivityRows: [],
@@ -288,6 +290,8 @@
       employeeSalaryAdvanceDraft: '',
       employeeSalaryAdvanceNoteDraft: '',
       employeeSalaryCashboxId: '',
+      employeeSalaryResetPending: false,
+      employeeSalaryResetIntent: null,
       employeeShiftAccrualOpen: false,
       employeeShiftAccrualDraft: '',
       employeesUiBound: false,
@@ -675,6 +679,7 @@
                   + '<div class="employees-salary-balance__value" id="employeeSalaryBalance">0</div>'
                 + '</div>'
                 + '<div class="employees-salary-actions">'
+                  + '<button class="btn btn--danger hidden" id="employeeSalaryResetButton" type="button">ОБНУЛИТЬ БАЛАНС</button>'
                   + '<button class="btn btn--accent" id="employeeSalaryPayoutButton" type="button">ВЫПЛАТИТЬ ЗАРПЛАТУ</button>'
                   + '<button class="btn btn--accent" id="employeeSalaryAdvanceButton" type="button">ВЫДАТЬ АВАНС</button>'
                 + '</div>'
@@ -948,6 +953,7 @@
       operatorActivityDetailsPanel: document.getElementById('operatorActivityDetailsPanel'),
       adminUserLogin: document.getElementById('adminUserLogin'),
       adminUserPassword: document.getElementById('adminUserPassword'),
+      adminUserSalaryBalanceReset: document.getElementById('adminUserSalaryBalanceReset'),
       adminSaveUserButton: document.getElementById('adminSaveUserButton'),
       archiveModal: document.getElementById('archiveModal'),
       archiveList: document.getElementById('archiveList'),
@@ -1080,6 +1086,7 @@
       employeeSalarySummary: document.getElementById('employeeSalarySummary'),
       employeeSalaryJournalMeta: document.getElementById('employeeSalaryJournalMeta'),
       employeeSalaryJournalTable: document.getElementById('employeeSalaryJournalTable'),
+      employeeSalaryResetButton: document.getElementById('employeeSalaryResetButton'),
       employeeSalaryPayoutButton: document.getElementById('employeeSalaryPayoutButton'),
       employeeSalaryAdvanceButton: document.getElementById('employeeSalaryAdvanceButton'),
       employeeSalaryActionDialog: document.getElementById('employeeSalaryActionDialog'),
@@ -1650,6 +1657,7 @@
       els.employeeSalarySummary = document.getElementById('employeeSalarySummary');
       els.employeeSalaryJournalMeta = document.getElementById('employeeSalaryJournalMeta');
       els.employeeSalaryJournalTable = document.getElementById('employeeSalaryJournalTable');
+      els.employeeSalaryResetButton = document.getElementById('employeeSalaryResetButton');
       els.employeeSalaryPayoutButton = document.getElementById('employeeSalaryPayoutButton');
       els.employeeSalaryAdvanceButton = document.getElementById('employeeSalaryAdvanceButton');
       els.employeeSalaryActionDialog = document.getElementById('employeeSalaryActionDialog');
@@ -2764,6 +2772,8 @@
       state.activeEmployeeSalaryReconciliationReportId = '';
       state.employeeSalarySheet = null;
       state.employeeSalaryReport = null;
+      state.employeeSalaryResetPending = false;
+      state.employeeSalaryResetIntent = null;
       state.fullCardCache.clear();
       state.cardFetchInFlight.clear();
       state.cardSeenSuppressions.clear();
@@ -2821,6 +2831,14 @@
       return false;
     }
 
+    function operatorHasPermission(permission) {
+      const normalized = String(permission || '').trim();
+      const permissions = Array.isArray(state.operatorProfile?.user?.permissions)
+        ? state.operatorProfile.user.permissions
+        : [];
+      return Boolean(normalized && permissions.includes(normalized));
+    }
+
     function operatorStatHtml(label, value) {
       return '<div class="operator-stat"><div class="operator-stat__label">' + escapeHtml(label) + '</div><div class="operator-stat__value">' + escapeHtml(value) + '</div></div>';
     }
@@ -2859,6 +2877,7 @@
       ].join('');
       renderOperatorActivity(profile?.recent_actions || []);
       els.operatorAdminButton.classList.toggle('hidden', !profile?.user?.is_admin);
+      if (els.employeeSalaryModal?.classList.contains('is-open')) renderEmployeeSalaryModal();
       closeOperatorLoginModal();
       void refreshCashboxNotification();
       if (openModal) pushModal('operator-profile', els.operatorProfileModal);
@@ -3099,6 +3118,8 @@
         ? users.map((user) => {
             const stats = user.stats || {};
             const employeeLabel = operatorUserEmployeeLabel(user);
+            const permissions = Array.isArray(user.permissions) ? user.permissions : [];
+            const canResetSalaryBalance = permissions.includes(SALARY_BALANCE_RESET_PERMISSION);
             return '<div class="operator-user-row">' +
               '<div class="operator-user-row__head"><strong>' + escapeHtml(user.username) + '</strong><span class="operator-user-chip">' + escapeHtml(user.is_admin ? 'АДМИН' : 'ОПЕРАТОР') + '</span></div>' +
               '<div class="operator-user-row__stats">' +
@@ -3106,12 +3127,30 @@
                 '<span class="operator-user-chip">ЗАКРЫТО: ' + escapeHtml(stats.cards_archived ?? 0) + '</span>' +
                 '<span class="operator-user-chip">ПЕРЕМЕЩЕНИЙ: ' + escapeHtml(stats.card_moves ?? 0) + '</span>' +
                 '<span class="operator-user-chip">' + escapeHtml(employeeLabel) + '</span>' +
+                '<span class="operator-user-chip">ОБНУЛЕНИЕ БАЛАНСА: ' + (canResetSalaryBalance ? 'ДА' : 'НЕТ') + '</span>' +
               '</div>' +
-              '<div class="operator-user-row__actions"><span class="log-row__meta">ОБНОВЛЕНО: ' + escapeHtml(formatDate(user.updated_at)) + ' | СТАТИСТИКА: 15 ДНЕЙ</span><div style="display:flex; gap:8px; flex-wrap:wrap;"><button class="btn" type="button" data-open-operator-report="' + escapeHtml(user.username) + '">СТАТИСТИКА</button><button class="btn btn--ghost" type="button" data-bind-operator-employee="' + escapeHtml(user.username) + '">СОТРУДНИК</button><button class="btn btn--danger" type="button" data-delete-operator-user="' + escapeHtml(user.username) + '">УДАЛИТЬ</button></div></div>' +
+              '<div class="operator-user-row__actions"><span class="log-row__meta">ОБНОВЛЕНО: ' + escapeHtml(formatDate(user.updated_at)) + ' | СТАТИСТИКА: 15 ДНЕЙ</span><div style="display:flex; gap:8px; flex-wrap:wrap;"><button class="btn" type="button" data-open-operator-report="' + escapeHtml(user.username) + '">СТАТИСТИКА</button><button class="btn btn--ghost" type="button" data-edit-operator-permissions="' + escapeHtml(user.username) + '">ПРАВА</button><button class="btn btn--ghost" type="button" data-bind-operator-employee="' + escapeHtml(user.username) + '">СОТРУДНИК</button><button class="btn btn--danger" type="button" data-delete-operator-user="' + escapeHtml(user.username) + '">УДАЛИТЬ</button></div></div>' +
             '</div>';
           }).join('')
         : '<div class="log-row__meta">ПОЛЬЗОВАТЕЛЕЙ ПОКА НЕТ.</div>';
       renderOperatorEmployeeBindingPanel();
+    }
+
+    function editOperatorUserPermissions(username) {
+      const normalizedUsername = String(username || '').trim().toUpperCase();
+      const user = (state.operatorUsers || []).find(
+        (item) => String(item?.username || '').trim().toUpperCase() === normalizedUsername
+      );
+      if (!user) return;
+      state.operatorPermissionEditorUsername = normalizedUsername;
+      els.adminUserLogin.value = String(user.username || '');
+      els.adminUserPassword.value = '';
+      if (els.adminUserSalaryBalanceReset) {
+        const permissions = Array.isArray(user.permissions) ? user.permissions : [];
+        els.adminUserSalaryBalanceReset.checked = permissions.includes(SALARY_BALANCE_RESET_PERMISSION);
+      }
+      els.operatorUserEditorPanel?.scrollIntoView({ block: 'nearest' });
+      els.adminUserPassword?.focus();
     }
 
     function renderOperatorActivityUserOptions() {
@@ -5800,6 +5839,20 @@
       if (els.employeeSalaryBalance) {
         els.employeeSalaryBalance.textContent = String(sheet?.balance_display || sheet?.balance_total || '0');
       }
+      if (els.employeeSalaryResetButton) {
+        const canResetBalance = operatorHasPermission(SALARY_BALANCE_RESET_PERMISSION);
+        const balanceMinor = Number(sheet?.balance_minor);
+        els.employeeSalaryResetButton.classList.toggle('hidden', !canResetBalance);
+        els.employeeSalaryResetButton.disabled = Boolean(
+          state.employeeSalaryResetPending
+          || !sheet
+          || !Number.isSafeInteger(balanceMinor)
+          || balanceMinor === 0
+        );
+        els.employeeSalaryResetButton.textContent = state.employeeSalaryResetPending
+          ? 'ОБНУЛЕНИЕ...'
+          : 'ОБНУЛИТЬ БАЛАНС';
+      }
       if (els.employeeSalaryJournalMeta) {
         const periods = finiteNonNegativeNumber(sheet?.period_months, 6);
         const rows = finiteNonNegativeNumber(sheet?.journal_total);
@@ -6094,6 +6147,7 @@
         ['Всего начислено', totals.accrued_total_display || totals.accrued_total || '0'],
         ['Выплачено', totals.payout_total_display || totals.payout_total || '0'],
         ['Авансы', totals.advance_total_display || totals.advance_total || '0'],
+        ['Корректировка баланса', totals.adjustment_total_display || totals.adjustment_total || '0'],
         ['Итог к выплате', totals.amount_due_total_display || totals.amount_due_total || '0'],
       ];
       return items.map((item) => {
@@ -6228,6 +6282,113 @@
         setStatus(error.message, true);
       }
       return false;
+    }
+
+    function createEmployeeSalaryResetIdempotencyKey() {
+      if (typeof window.crypto?.randomUUID === 'function') {
+        return 'salary-balance-reset-' + window.crypto.randomUUID();
+      }
+      return 'salary-balance-reset-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+    }
+
+    function employeeSalaryResetIntent(employeeId, balanceMinor, balanceRevision) {
+      const existing = state.employeeSalaryResetIntent;
+      if (
+        existing
+        && existing.employeeId === employeeId
+        && existing.balanceMinor === balanceMinor
+        && existing.balanceRevision === balanceRevision
+      ) return existing;
+      const intent = {
+        employeeId,
+        balanceMinor,
+        balanceRevision,
+        idempotencyKey: createEmployeeSalaryResetIdempotencyKey(),
+      };
+      state.employeeSalaryResetIntent = intent;
+      return intent;
+    }
+
+    async function handleEmployeeSalaryReset() {
+      if (state.employeeSalaryResetPending) return;
+      if (!operatorHasPermission(SALARY_BALANCE_RESET_PERMISSION)) {
+        setStatus('НЕТ ПРАВА НА ОБНУЛЕНИЕ ЗАРПЛАТНОГО БАЛАНСА.', true);
+        return;
+      }
+      const employeeId = String(state.activeEmployeeSalaryId || '').trim();
+      const employee = selectedEmployeeSalaryRecord();
+      const sheet = state.employeeSalarySheet;
+      const balanceMinor = Number(sheet?.balance_minor);
+      const balanceRevision = String(sheet?.balance_revision || '').trim();
+      if (!employeeId || !employee || !Number.isSafeInteger(balanceMinor) || !balanceRevision) {
+        setStatus('ОБНОВИТЕ ЗАРПЛАТНЫЙ ЛИСТ И ПОВТОРИТЕ.', true);
+        return;
+      }
+      if (balanceMinor === 0) {
+        state.employeeSalaryResetIntent = null;
+        setStatus('БАЛАНС УЖЕ РАВЕН НУЛЮ.', false);
+        return;
+      }
+
+      state.employeeSalaryResetPending = true;
+      renderEmployeeSalaryModal();
+      const employeeName = String(employee.name || 'СОТРУДНИК');
+      const balanceDisplay = String(sheet?.balance_display || sheet?.balance_total || balanceMinor);
+      const confirmed = window.confirm(
+        'Обнулить зарплатный баланс сотрудника «' + employeeName + '»?\n\n'
+        + 'Текущий баланс: ' + balanceDisplay + '.\n'
+        + 'Будет записана некассовая корректировка «ОБНУЛЕНИЕ БАЛАНСА». История выплат сохранится.'
+      );
+      if (!confirmed) {
+        state.employeeSalaryResetPending = false;
+        renderEmployeeSalaryModal();
+        return;
+      }
+
+      const intent = employeeSalaryResetIntent(employeeId, balanceMinor, balanceRevision);
+      try {
+        const data = await api('/api/reset_employee_salary_balance', {
+          method: 'POST',
+          body: {
+            employee_id: employeeId,
+            expected_balance_minor: balanceMinor,
+            expected_balance_revision: balanceRevision,
+            idempotency_key: intent.idempotencyKey,
+            source: 'ui',
+          },
+        });
+        state.employeeSalaryResetIntent = null;
+        state.employeeSalarySheet = data?.ledger || null;
+        renderEmployeeSalaryModal();
+        state.employeesLoadedMonth = '';
+        await loadEmployeesReference();
+        await loadPayrollReport();
+        renderEmployeesWorkspace();
+        setStatus(data?.meta?.replayed ? 'ОБНУЛЕНИЕ УЖЕ БЫЛО ПРИМЕНЕНО.' : 'БАЛАНС ОБНУЛЁН.', false);
+      } catch (error) {
+        if (
+          error?.code === 'salary_balance_reset_conflict'
+          || error?.code === 'salary_balance_reset_idempotency_conflict'
+        ) {
+          state.employeeSalaryResetIntent = null;
+          try {
+            await loadEmployeeSalarySheet(employeeId, { openModal: true });
+            setStatus(
+              error?.code === 'salary_balance_reset_conflict'
+                ? 'БАЛАНС ИЗМЕНИЛСЯ. ПРОВЕРЬТЕ НОВУЮ СУММУ И ПОДТВЕРДИТЕ ЕЩЁ РАЗ.'
+                : 'КЛЮЧ ЗАПРОСА УЖЕ ИСПОЛЬЗОВАН. ПРОВЕРЬТЕ СУММУ И ПОДТВЕРДИТЕ ЕЩЁ РАЗ.',
+              true,
+            );
+          } catch (refreshError) {
+            setStatus(refreshError.message, true);
+          }
+        } else {
+          setStatus(error.message, true);
+        }
+      } finally {
+        state.employeeSalaryResetPending = false;
+        renderEmployeeSalaryModal();
+      }
     }
 
     async function handleEmployeeSalaryActionConfirm() {
@@ -6751,6 +6912,10 @@
     function handleEmployeeSalaryActionButtonsClick(event) {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
+      if (target === els.employeeSalaryResetButton) {
+        handleEmployeeSalaryReset();
+        return;
+      }
       if (target === els.employeeSalaryPayoutButton) {
         openEmployeeSalaryDialog('salary_payout');
         return;
@@ -8126,6 +8291,11 @@
         openOperatorUserReport(reportUser);
         return;
       }
+      const editPermissionsUser = target.dataset.editOperatorPermissions;
+      if (editPermissionsUser) {
+        editOperatorUserPermissions(editPermissionsUser);
+        return;
+      }
       const bindUser = target.dataset.bindOperatorEmployee;
       if (bindUser) {
         openOperatorEmployeeBinding(bindUser);
@@ -8142,15 +8312,33 @@
 
     async function saveOperatorUser() {
       try {
+        const username = String(els.adminUserLogin.value || '').trim();
+        const normalizedUsername = username.toUpperCase();
+        const existingUser = (state.operatorUsers || []).find(
+          (item) => String(item?.username || '').trim().toUpperCase() === normalizedUsername
+        );
+        const editingPermissions = Boolean(
+          normalizedUsername
+          && state.operatorPermissionEditorUsername === normalizedUsername
+        );
+        const payload = {
+          username,
+          password: els.adminUserPassword.value,
+          source: 'ui',
+        };
+        if (!existingUser || editingPermissions) {
+          payload.permissions = els.adminUserSalaryBalanceReset?.checked
+            ? [SALARY_BALANCE_RESET_PERMISSION]
+            : [];
+        }
         const data = await api('/api/save_operator_user', {
           method: 'POST',
-          body: {
-            username: els.adminUserLogin.value,
-            password: els.adminUserPassword.value,
-          },
+          body: payload,
         });
+        state.operatorPermissionEditorUsername = '';
         els.adminUserLogin.value = '';
         els.adminUserPassword.value = '';
+        if (els.adminUserSalaryBalanceReset) els.adminUserSalaryBalanceReset.checked = false;
         setStatus((data?.meta?.created ? 'Пользователь создан.' : 'Пользователь обновлён.') + ' ' + (data?.user?.username || ''), false);
         await refreshOperatorAdminSurfaces({ openAdminModal: true, refreshProfile: true, tabName: 'users' });
       } catch (error) {

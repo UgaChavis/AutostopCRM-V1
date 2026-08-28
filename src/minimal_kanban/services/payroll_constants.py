@@ -13,3 +13,7 @@ PAYROLL_ALLOWED_MODES = {
     PAYROLL_MODE_PERCENT_ONLY,
     PAYROLL_MODE_SALARY_PLUS_PERCENT,
 }
+
+
+def repair_order_payroll_scheme(percent: object) -> str:
+    return f"{percent}% от стоимости заказ-наряда за наличный расчёт"

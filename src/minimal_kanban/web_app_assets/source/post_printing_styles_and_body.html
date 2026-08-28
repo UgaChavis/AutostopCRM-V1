@@ -3449,10 +3449,14 @@
           </div>
           <div class="field field--compact">
             <label for="adminUserPassword">ПАРОЛЬ</label>
-            <input id="adminUserPassword" type="password" maxlength="120" placeholder="Минимум 4 символа">
+            <input id="adminUserPassword" type="password" maxlength="120" placeholder="Для существующего можно не менять">
           </div>
+          <label class="agent-tasks-toggle" for="adminUserSalaryBalanceReset">
+            <input id="adminUserSalaryBalanceReset" type="checkbox">
+            МОЖЕТ ОБНУЛЯТЬ БАЛАНС ЗАРПЛАТЫ
+          </label>
           <div class="dialog__foot" style="padding:0; border:none; margin-top:10px;">
-            <div class="log-row__meta">Администратор создает пользователя или обновляет ему пароль.</div>
+            <div class="log-row__meta">Администратор создаёт пользователя или обновляет пароль и отдельное право. Для настройки права выберите пользователя в списке.</div>
             <button class="btn btn--accent" id="adminSaveUserButton">СОХРАНИТЬ</button>
           </div>
         </div>

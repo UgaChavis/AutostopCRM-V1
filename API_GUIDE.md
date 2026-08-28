@@ -58,7 +58,8 @@ codes include `validation_error`, `not_found`, `unauthorized`, `forbidden`,
 
 Immutable `RouteSpec` entries in `api/route_registry.py` are the authoritative
 classifications for registry-owned routes. They define HTTP methods, mutation,
-auth, maintenance, response, feed, and readback policy. The historical
+auth, required fine-grained operator permission, maintenance, response, feed,
+and readback policy. The historical
 `PROXIED_WRITE_ROUTES`, `OPERATOR_SESSION_ROUTES`, `ADMIN_ONLY_ROUTES`, and
 `READONLY_GET_ROUTES` names remain compatibility views derived from those
 specs. Isolated feed routes remain bearer-authenticated; Gateway additionally
@@ -115,10 +116,13 @@ vehicle identifiers, document text, and file names are not copied into the
 feed database.
 
 The commit-bound `state_projection` supplements compatible `AuditEvent` rows
-and covers nested repair-order works, materials, and payments as independent
-entities. Separate authoritative-file projections cover shared files, operator
-accounts, print templates/settings, and inspection drafts. They persist only
-technical ids and irreversible content/routing digests. If an external-file
+and covers nested repair-order works, materials, payments, and immutable salary
+balance resets as independent entities. Salary resets use the
+`employee_salary_balance_reset` entity type rather than changing the generic
+`board_settings` projection. Separate authoritative-file projections cover
+shared files, operator accounts, print templates/settings, and inspection
+drafts. They persist only technical ids and irreversible content/routing
+digests. If an external-file
 commit succeeds while feed publication is interrupted, the next feed read
 reconciles that file without duplicating an event. Operator sessions, external
 agent-runtime state, render-only artifacts, and feed ACK checkpoints have
@@ -135,13 +139,15 @@ release gate:
 ```
 
 The generated matrix joins every discovered write route to its backend
-handler, selected Gateway path, commit sink, and exact producer tests. Routes
-whose capability readback class is only `executor_contract_only` must also be
-resolved by `tests/test_change_feed_route_contracts.py`: currently 57 execute
+handler, selected Gateway path or reviewed human-only boundary, commit sink,
+and exact producer tests. Routes whose capability readback class is only
+`executor_contract_only`, plus the human-only salary reset, must also be
+resolved by `tests/test_change_feed_route_contracts.py`: currently 60 execute
 the canonical registry handler against temporary state and replay the durable
-feed result, while 17 model/runtime/render/privacy boundaries have exact allowlisted
-reasons. A new or reclassified write route fails the gate until this contract
-is complete; call-graph reachability alone is not treated as end-to-end proof.
+feed result, while 17 model/runtime/render/privacy boundaries have exact
+allowlisted reasons. A new or reclassified write route fails the gate until
+this contract is complete; call-graph reachability alone is not treated as
+end-to-end proof.
 
 ### Agent compatibility endpoints
 
@@ -296,6 +302,15 @@ positions.
   by the same operator do not become unread notifications.
 - `/api/create_employee_shift_accrual` records a non-cash payroll accrual and
   does not change a cashbox.
+- `POST /api/reset_employee_salary_balance` records an immutable non-cash
+  adjustment that brings one current salary balance to exactly zero. It
+  requires an interactive operator session with the `salary_balance_reset`
+  permission; the administrator role alone is not sufficient.
+- A reset request must include `employee_id`, `expected_balance_minor`,
+  `expected_balance_revision`, and a unique `idempotency_key`. A stale balance
+  or revision returns HTTP 409, while an already-zero balance is a write-free
+  no-op. Successful resets preserve cash transactions and history, append an
+  audit row, and emit an `employee_salary_balance_reset` change-feed entity.
 
 Financial totals, payroll formulas, and deletion guards live in the services.
 Callers must consume the returned totals and never patch ledgers directly.

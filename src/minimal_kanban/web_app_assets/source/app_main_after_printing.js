@@ -548,6 +548,16 @@
     els.operatorLogoutButton.addEventListener('click', logoutOperator);
     els.operatorAdminButton.addEventListener('click', openOperatorAdminModal);
     els.adminSaveUserButton.addEventListener('click', saveOperatorUser);
+    els.adminUserLogin.addEventListener('input', () => {
+      const normalizedUsername = String(els.adminUserLogin.value || '').trim().toUpperCase();
+      if (
+        state.operatorPermissionEditorUsername
+        && state.operatorPermissionEditorUsername !== normalizedUsername
+      ) {
+        state.operatorPermissionEditorUsername = '';
+        if (els.adminUserSalaryBalanceReset) els.adminUserSalaryBalanceReset.checked = false;
+      }
+    });
     els.adminUsersList.addEventListener('click', handleAdminUsersListClick);
     els.operatorUserEmployeeSaveButton?.addEventListener('click', () => saveOperatorEmployeeBinding());
     els.operatorUserEmployeeClearButton?.addEventListener('click', () => saveOperatorEmployeeBinding(''));

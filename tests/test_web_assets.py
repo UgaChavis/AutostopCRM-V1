@@ -3540,9 +3540,6 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("role: els.adminUserRole.value", BOARD_WEB_APP_HTML)
         self.assertNotIn("els.adminUserRole.value = 'operator';", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "Администратор создает пользователя или обновляет ему пароль.", BOARD_WEB_APP_HTML
-        )
-        self.assertIn(
             'input[type="text"], input[type="password"], input[type="email"], input[type="search"], input[type="month"], textarea, select, input[type="number"]',
             BOARD_WEB_APP_HTML,
         )

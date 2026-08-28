@@ -22,6 +22,9 @@ from minimal_kanban.api.route_registry import (  # noqa: E402
     policy_for_route,
 )
 from minimal_kanban.mcp.tool_registry import PUBLIC_MCP_TOOL_NAMES  # noqa: E402
+from minimal_kanban.operator_permissions import (  # noqa: E402
+    SALARY_BALANCE_RESET_PERMISSION,
+)
 from scripts.browser_smoke import SMOKE_SCENARIOS  # noqa: E402
 
 
@@ -146,6 +149,7 @@ EXPECTED_SERVICE_ROUTES = {
     "/api/replace_repair_order_materials",
     "/api/replace_repair_order_works",
     "/api/reset_completion_act_form",
+    "/api/reset_employee_salary_balance",
     "/api/replenish_inventory_item",
     "/api/return_inventory_movement",
     "/api/restore_card",
@@ -238,6 +242,7 @@ EXPECTED_SMOKE_SCENARIOS = (
     "inventory_item_roundtrip",
     "employees_repair_order_returns_to_employee",
     "employee_shift_accrual_manual_salary",
+    "employee_salary_balance_reset_non_cash",
     "clients_repair_order_returns_to_client",
     "repair_orders_list_returns_to_list",
     "repair_orders_toolbar_stays_available_while_list_scrolls",
@@ -282,6 +287,8 @@ class ContractSnapshotTests(unittest.TestCase):
         self.assertIn("/api/copy_shared_file", PROXIED_WRITE_ROUTES)
         self.assertIn("/api/save_completion_act_form", PROXIED_WRITE_ROUTES)
         self.assertIn("/api/reset_completion_act_form", PROXIED_WRITE_ROUTES)
+        self.assertIn("/api/reset_employee_salary_balance", PROXIED_WRITE_ROUTES)
+        self.assertIn("/api/reset_employee_salary_balance", OPERATOR_SESSION_ROUTES)
         self.assertIn("/api/finance_audit/apply_safe_fixes", ADMIN_ONLY_ROUTES)
         self.assertIn("/api/get_operator_profile", OPERATOR_SESSION_ROUTES)
         self.assertIn("/api/update_personal_board_preferences", OPERATOR_SESSION_ROUTES)
@@ -361,6 +368,12 @@ class ContractSnapshotTests(unittest.TestCase):
         self.assertEqual("operator", preferences.auth_kind)
         self.assertEqual("allowed", preferences.maintenance_behavior)
         self.assertEqual("write", preferences.mutation_kind)
+
+        salary_reset = policy_for_route("/api/reset_employee_salary_balance")
+        self.assertEqual("operator", salary_reset.auth_kind)
+        self.assertEqual("blocked", salary_reset.maintenance_behavior)
+        self.assertEqual("write", salary_reset.mutation_kind)
+        self.assertEqual(SALARY_BALANCE_RESET_PERMISSION, salary_reset.required_permission)
 
         feed_ack = policy_for_route("/api/change_feed/ack")
         self.assertEqual("checkpoint", feed_ack.mutation_kind)

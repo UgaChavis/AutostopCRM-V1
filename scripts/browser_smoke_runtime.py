@@ -19,6 +19,7 @@ if str(SRC) not in sys.path:
 from minimal_kanban.api.server import ApiServer
 from minimal_kanban.operator_activity import OperatorActivityService
 from minimal_kanban.operator_auth import OperatorAuthService
+from minimal_kanban.operator_permissions import SALARY_BALANCE_RESET_PERMISSION
 from minimal_kanban.services.card_service import CardService
 from minimal_kanban.services.shared_files_service import SharedFilesService
 from minimal_kanban.storage.json_store import JsonStore
@@ -29,10 +30,12 @@ class TempRuntime:
     temp_dir: tempfile.TemporaryDirectory[str]
     api: ApiServer
     service: CardService
+    state_store: JsonStore
     cashbox_id: str
     card_id: str
     extra_column_card_id: str
     employee_id: str
+    salary_reset_employee_id: str
     payroll_card_id: str
     payroll_month: str
     salary_override_card_id: str
@@ -148,6 +151,22 @@ def start_temp_runtime(*, start_port: int = 42731) -> TempRuntime:
             "actor_name": "SMOKE",
         }
     )["employee"]
+    salary_reset_employee = service.save_employee(
+        {
+            "name": "Smoke Обнуление Баланса",
+            "position": "Механик",
+            "salary_mode": "none",
+            "actor_name": "SMOKE",
+        }
+    )["employee"]
+    service.create_employee_shift_accrual(
+        {
+            "employee_id": salary_reset_employee["id"],
+            "amount_minor": 12345,
+            "note": "Smoke синтетическое начисление для обнуления баланса",
+            "actor_name": "SMOKE",
+        }
+    )
     for index in range(1, 16):
         ranking_employee = service.save_employee(
             {
@@ -338,10 +357,18 @@ def start_temp_runtime(*, start_port: int = 42731) -> TempRuntime:
         logger=logger,
     )
     admin_session = operator_service.login({"username": "admin", "password": "admin"})["session"]
+    operator_service.save_user(
+        {
+            "_operator_session": admin_session,
+            "username": admin_session["username"],
+            "permissions": [SALARY_BALANCE_RESET_PERMISSION],
+            "source": "smoke",
+        }
+    )
     operator_service.set_user_employee(
         {
             "_operator_session": admin_session,
-            "username": "admin",
+            "username": admin_session["username"],
             "employee_id": employee["id"],
             "source": "smoke",
         }
@@ -362,10 +389,12 @@ def start_temp_runtime(*, start_port: int = 42731) -> TempRuntime:
         temp_dir=temp_dir,
         api=api,
         service=service,
+        state_store=store,
         cashbox_id=cashbox["id"],
         card_id=card["id"],
         extra_column_card_id=extra_column_card["id"],
         employee_id=employee["id"],
+        salary_reset_employee_id=salary_reset_employee["id"],
         payroll_card_id=payroll_card["id"],
         payroll_month=payroll_month,
         salary_override_card_id=salary_override_card["id"],

@@ -4,6 +4,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from ..operator_permissions import SALARY_BALANCE_RESET_PERMISSION
+
 RouteHandler = Callable[[dict[str, Any] | None], dict[str, Any]]
 
 
@@ -39,6 +41,7 @@ _PROXIED_WRITE_ROUTE_PATHS = {
     "/api/return_inventory_movement",
     "/api/create_employee_salary_transaction",
     "/api/create_employee_shift_accrual",
+    "/api/reset_employee_salary_balance",
     "/api/cancel_cash_transaction",
     "/api/cancel_last_cash_transaction",
     "/api/finance_audit/apply_safe_fixes",
@@ -112,6 +115,7 @@ _OPERATOR_SESSION_ROUTE_PATHS = {
     "/api/update_personal_board_preferences",
     "/api/get_display_dashboard",
     "/api/open_card",
+    "/api/reset_employee_salary_balance",
 }
 
 _ADMIN_ONLY_ROUTE_PATHS = {
@@ -122,6 +126,10 @@ _ADMIN_ONLY_ROUTE_PATHS = {
     "/api/get_operator_user_report",
     "/api/correct_repair_order_number",
     "/api/finance_audit/apply_safe_fixes",
+}
+
+_ROUTE_PERMISSION_REQUIREMENTS = {
+    "/api/reset_employee_salary_balance": SALARY_BALANCE_RESET_PERMISSION,
 }
 
 _OPERATOR_ACTIVITY_ROUTE_PATHS = {
@@ -256,6 +264,7 @@ class RouteSpec:
     response_kind: RouteResponseKind
     feed_expectation: str
     readback_class: str
+    required_permission: str
 
     @property
     def is_write(self) -> bool:
@@ -316,6 +325,7 @@ def route_spec(path: str, handler: RouteHandler, *, registry: str) -> RouteSpec:
         response_kind="json",
         feed_expectation=feed_expectation,
         readback_class=readback_class,
+        required_permission=_ROUTE_PERMISSION_REQUIREMENTS.get(path, ""),
     )
     validate_route_spec(spec)
     return spec
@@ -330,6 +340,8 @@ def validate_route_spec(spec: RouteSpec) -> None:
         raise ValueError(f"Registry route must retain POST compatibility: {spec.path}")
     if spec.auth_kind == "admin" and spec.path not in _ADMIN_ONLY_ROUTE_PATHS:
         raise ValueError(f"Admin route is not explicitly reviewed: {spec.path}")
+    if spec.required_permission and spec.auth_kind != "operator":
+        raise ValueError(f"Permission-scoped route must require an operator: {spec.path}")
     if spec.is_write and (
         spec.feed_expectation == "not_applicable" or spec.readback_class == "not_applicable"
     ):
@@ -467,6 +479,7 @@ def build_service_routes(
         "/api/return_inventory_movement": service.return_inventory_movement,
         "/api/create_employee_salary_transaction": service.create_employee_salary_transaction,
         "/api/create_employee_shift_accrual": service.create_employee_shift_accrual,
+        "/api/reset_employee_salary_balance": service.reset_employee_salary_balance,
         "/api/cancel_cash_transaction": service.cancel_cash_transaction,
         "/api/cancel_last_cash_transaction": service.cancel_last_cash_transaction,
         "/api/get_gpt_wall": service.get_gpt_wall,

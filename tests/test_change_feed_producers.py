@@ -15,9 +15,13 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.operator_auth import OperatorAuthService  # noqa: E402
+from minimal_kanban.operator_permissions import SALARY_BALANCE_RESET_PERMISSION  # noqa: E402
 from minimal_kanban.services.card_service import CardService  # noqa: E402
 from minimal_kanban.services.errors import ServiceError  # noqa: E402
 from minimal_kanban.services.shared_files_service import SharedFilesService  # noqa: E402
+from minimal_kanban.storage.change_feed_projection import (  # noqa: E402
+    project_crm_source_signatures,
+)
 from minimal_kanban.storage.json_store import JsonStore  # noqa: E402
 
 
@@ -361,6 +365,67 @@ class ChangeFeedProducerContractTests(unittest.TestCase):
         )
         self.assertEqual(employee["id"], deleted["entity_id"])
         self.assertNotIn(b"PRIVATE-EMPLOYEE-17C2", self.feed_database_bytes())
+
+    def test_salary_balance_reset_is_a_distinct_immutable_state_projection(self) -> None:
+        employee = self.service.save_employee(
+            {"name": "PRIVATE-RESET-EMPLOYEE-71C2", "position": "Mechanic"}
+        )["employee"]
+        self.service.create_employee_shift_accrual(
+            {"employee_id": employee["id"], "amount": "1200"}
+        )
+        ledger = self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
+        before = self.high_water()
+
+        result = self.service.reset_employee_salary_balance(
+            {
+                "employee_id": employee["id"],
+                "expected_balance_minor": ledger["balance_minor"],
+                "expected_balance_revision": ledger["balance_revision"],
+                "idempotency_key": "change-feed-salary-reset-1",
+                "_operator_session": {
+                    "username": "PRIVATE-RESET-ACTOR-93A4",
+                    "permissions": [SALARY_BALANCE_RESET_PERMISSION],
+                },
+            }
+        )
+
+        emitted = self.events_after(before)
+        created = self.assert_single_entity_change(
+            emitted,
+            entity_type="employee_salary_balance_reset",
+            change_type="create",
+        )
+        self.assertEqual(result["balance_reset"]["id"], created["entity_id"])
+        self.assertEqual("state_projection", created["producer"])
+        self.assertFalse(any(event["entity_type"] == "board_settings" for event in emitted))
+        self.assertNotIn(b"PRIVATE-RESET-EMPLOYEE-71C2", self.feed_database_bytes())
+        self.assertNotIn(b"PRIVATE-RESET-ACTOR-93A4", self.feed_database_bytes())
+
+        stored_reset = self.store.read_bundle()["settings"]["employee_salary_balance_resets"][0]
+        signature_key = ("employee_salary_balance_reset", stored_reset["id"])
+        signatures = project_crm_source_signatures(
+            {"settings": {"employee_salary_balance_resets": [stored_reset]}}
+        )
+        changed_signatures = project_crm_source_signatures(
+            {
+                "settings": {
+                    "employee_salary_balance_resets": [
+                        {**stored_reset, "amount_minor": stored_reset["amount_minor"] - 1}
+                    ]
+                }
+            }
+        )
+        empty_signatures = project_crm_source_signatures({"settings": {}})
+        self.assertNotEqual(signatures[signature_key], changed_signatures[signature_key])
+        self.assertEqual(
+            empty_signatures[("board_settings", "board")],
+            signatures[("board_settings", "board")],
+        )
+
+        restart_high_water = self.high_water()
+        restarted = JsonStore(self.base_dir / "state.json", logger=self.logger)
+        restarted.reconcile_change_feed()
+        self.assertEqual(restart_high_water, self.high_water())
 
     def test_state_lifecycle_covers_move_archive_restore_and_tombstone(self) -> None:
         card_id = self.service.create_card({"title": "Lifecycle matrix"})["card"]["id"]

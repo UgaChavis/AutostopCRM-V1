@@ -11,6 +11,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.crm_change_feed_producer_parity import (  # noqa: E402
+    HUMAN_ONLY_WRITE_ROUTES,
     MANIFEST_PATH,
     REQUIRED_CHANGE_TYPES,
     REQUIRED_ENTITY_DOMAINS,
@@ -34,23 +35,36 @@ class CrmChangeFeedProducerParityTests(unittest.TestCase):
         self.assertEqual([], result["issues"])
         self.assertTrue(result["summary"]["producer_complete"])
         self.assertEqual(0, result["summary"]["gaps"])
-        self.assertEqual(100, result["summary"]["write_actions"])
+        self.assertEqual(101, result["summary"]["write_actions"])
         self.assertEqual(76, result["summary"]["executor_contract_only"])
         self.assertEqual(76, result["summary"]["executor_contract_resolved"])
-        self.assertEqual(59, result["summary"]["canonical_route_feed_readback"])
+        self.assertEqual(1, result["summary"]["human_only_write_actions"])
+        self.assertEqual(77, result["summary"]["canonical_contract_required"])
+        self.assertEqual(77, result["summary"]["canonical_contract_resolved"])
+        self.assertEqual(60, result["summary"]["canonical_route_feed_readback"])
         self.assertEqual(17, result["summary"]["reasoned_route_contract_exemptions"])
         self.assertTrue(result["summary"]["canonical_contract_complete"])
         self.assertEqual(len(REQUIRED_ENTITY_DOMAINS), result["summary"]["entity_domains"])
         self.assertEqual(sorted(REQUIRED_CHANGE_TYPES), result["summary"]["change_types"])
         for row in result["matrix"]:
             self.assertEqual("covered", row["status"], row)
-            if row["producer_kind"] != "privacy_exemption":
+            if row["producer_kind"] != "privacy_exemption" and not row["human_only"]:
                 self.assertTrue(row["gateway"], row)
             self.assertTrue(row["route_handler_test_evidence"], row)
             self.assertTrue(row["producer_test_evidence"], row)
             self.assertTrue(row["producer_kind"], row)
             if row["readback_class"] == "executor_contract_only":
                 self.assertTrue(row["canonical_route_contract"], row)
+
+        human_only_rows = {row["route"]: row for row in result["matrix"] if row["human_only"]}
+        self.assertEqual(set(HUMAN_ONLY_WRITE_ROUTES), set(human_only_rows))
+        salary_reset = human_only_rows["/api/reset_employee_salary_balance"]
+        self.assertIsNone(salary_reset["gateway"])
+        self.assertEqual("state_projection", salary_reset["producer_kind"])
+        self.assertEqual(
+            "temp_state_feed_readback",
+            salary_reset["canonical_route_contract"]["class"],
+        )
 
     def test_removing_one_route_creates_a_machine_visible_gap(self) -> None:
         manifest = self.manifest_copy()

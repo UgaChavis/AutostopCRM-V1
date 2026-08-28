@@ -24,6 +24,7 @@ for import_path in (SRC, SCRIPTS):
 
 from minimal_kanban.json_safety import reject_deeply_nested_json
 
+import browser_smoke_salary_balance
 from browser_smoke_completion_act import (
     _arm_browser_print_capture,
     _capture_browser_print_html,
@@ -2083,6 +2084,7 @@ async def _desktop_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]
     for runner in (
         _desktop_cashbox_scenarios,
         _desktop_card_repair_scenarios,
+        browser_smoke_salary_balance.run,
         _desktop_employee_scenarios,
         _desktop_client_scenarios,
         _desktop_repair_list_scenarios,
@@ -2101,6 +2103,7 @@ async def _core_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]:
     scenarios["desktop_board_card_roundtrip"] = bool(card_roundtrip_ok)
     scenarios["card_timer_start_stop"] = bool(timer_ok)
     scenarios["move_card_delta_roundtrip"] = await _exercise_move_card_delta(page, runtime)
+    await browser_smoke_salary_balance.run(page, runtime, scenarios)
     scenarios.update(await _exercise_client_link_roundtrip(page, runtime))
     scenarios["repair_order_preview_roundtrip"] = await _exercise_repair_order_preview_roundtrip(
         page, runtime

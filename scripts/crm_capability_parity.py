@@ -49,6 +49,7 @@ ALLOWED_INTENTIONAL_EXEMPTIONS = frozenset(
         "/api/get_module_map_infrastructure",
         "/api/login_operator",
         "/api/logout_operator",
+        "/api/reset_employee_salary_balance",
         "/api/update_personal_board_preferences",
     }
 )
@@ -566,12 +567,12 @@ def build_inventory(
                 "Only reviewed human-session routes may be intentional parity exemptions.",
             )
         )
-    if len(baseline_gaps) != 14:
+    if len(baseline_gaps) != 15:
         issues.append(
             _issue(
                 "baseline_gap_count_invalid",
                 "manifest",
-                f"Expected the reviewed 14-gap baseline, found {len(baseline_gaps)}.",
+                f"Expected the reviewed 15-gap baseline, found {len(baseline_gaps)}.",
             )
         )
     if not set(exemptions) <= set(baseline_gaps):
@@ -645,7 +646,7 @@ def build_inventory(
                     _issue(
                         "human_session_exemption_became_reachable",
                         route,
-                        "Human login/logout must remain outside service-principal reachability.",
+                        "Reviewed human-session-only route must remain outside service-principal reachability.",
                     )
                 )
         elif actual_coverage:

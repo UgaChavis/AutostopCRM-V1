@@ -21,6 +21,7 @@ from minimal_kanban.api.route_registry import (  # noqa: E402
     build_service_routes,
 )
 from minimal_kanban.operator_auth import OperatorAuthService  # noqa: E402
+from minimal_kanban.operator_permissions import SALARY_BALANCE_RESET_PERMISSION  # noqa: E402
 from minimal_kanban.services.card_service import CardService  # noqa: E402
 from minimal_kanban.services.shared_files_service import SharedFilesService  # noqa: E402
 from minimal_kanban.storage.json_store import JsonStore  # noqa: E402
@@ -102,6 +103,16 @@ class ChangeFeedCanonicalRouteContractTests(unittest.TestCase):
         self.admin_session = self.operators.login(
             {"username": "route-admin", "password": "Route-Admin-Password-71A9"}
         )["session"]
+        self.operators.save_user(
+            {
+                "_operator_session": self.admin_session,
+                "username": "route-admin",
+                "permissions": [SALARY_BALANCE_RESET_PERMISSION],
+            }
+        )
+        resolved_session = self.operators.resolve_session(self.admin_session["token"])
+        self.assertIsNotNone(resolved_session)
+        self.admin_session = resolved_session
         self.consumer = "route-contract"
         self.covered: set[str] = set()
         self._drain_feed()
@@ -163,6 +174,27 @@ class ChangeFeedCanonicalRouteContractTests(unittest.TestCase):
                 "actor_name": "ROUTE-OPERATOR",
                 "through_transaction_id": transaction_id,
             }
+        )
+
+    def _exercise_salary_balance_reset_route(self, employee_id: str) -> None:
+        self._invoke(
+            "/api/create_employee_shift_accrual",
+            {"employee_id": employee_id, "amount": "1200"},
+            producers={"state_projection", "audit_event"},
+            entity_types={"employee_shift_accrual"},
+        )
+        payroll_ledger = self.service.get_employee_salary_ledger({"employee_id": employee_id})
+        self._invoke(
+            "/api/reset_employee_salary_balance",
+            {
+                "employee_id": employee_id,
+                "expected_balance_minor": payroll_ledger["balance_minor"],
+                "expected_balance_revision": payroll_ledger["balance_revision"],
+                "idempotency_key": "route-contract-salary-reset-1",
+                "_operator_session": self.admin_session,
+            },
+            producers={"state_projection", "audit_event"},
+            entity_types={"employee_salary_balance_reset"},
         )
 
     def _exercise_operator_user_routes(self, employee_id: str) -> None:
@@ -678,12 +710,7 @@ class ChangeFeedCanonicalRouteContractTests(unittest.TestCase):
             producers=state_producers,
             entity_types={"cash_transaction", "cashbox"},
         )
-        self._invoke(
-            "/api/create_employee_shift_accrual",
-            {"employee_id": payroll_employee["id"], "amount": "1200"},
-            producers=state_producers,
-            entity_types={"employee_shift_accrual"},
-        )
+        self._exercise_salary_balance_reset_route(payroll_employee["id"])
 
         self._invoke(
             "/api/update_board_settings",
@@ -692,16 +719,16 @@ class ChangeFeedCanonicalRouteContractTests(unittest.TestCase):
             entity_types={"board", "board_settings"},
         )
 
-        executor_routes = set(build_producer_inventory()["executor_contract_only_routes"])
+        canonical_routes = set(build_producer_inventory()["canonical_route_contract_routes"])
         self.assertEqual(
-            executor_routes,
+            canonical_routes,
             self.covered | set(REASONED_ROUTE_CONTRACT_EXEMPTIONS),
             {
                 "unclassified": sorted(
-                    executor_routes - self.covered - set(REASONED_ROUTE_CONTRACT_EXEMPTIONS)
+                    canonical_routes - self.covered - set(REASONED_ROUTE_CONTRACT_EXEMPTIONS)
                 ),
                 "stale": sorted(
-                    (self.covered | set(REASONED_ROUTE_CONTRACT_EXEMPTIONS)) - executor_routes
+                    (self.covered | set(REASONED_ROUTE_CONTRACT_EXEMPTIONS)) - canonical_routes
                 ),
             },
         )

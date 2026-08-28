@@ -45,6 +45,7 @@ _FULL_SCENARIO_NAMES = (
     "inventory_item_roundtrip",
     "employees_repair_order_returns_to_employee",
     "employee_shift_accrual_manual_salary",
+    "employee_salary_balance_reset_non_cash",
     "clients_repair_order_returns_to_client",
     "repair_orders_list_returns_to_list",
     "repair_orders_toolbar_stays_available_while_list_scrolls",
@@ -72,6 +73,7 @@ _CORE_SCENARIO_NAMES = (
     "desktop_board_card_roundtrip",
     "move_card_delta_roundtrip",
     "card_timer_start_stop",
+    "employee_salary_balance_reset_non_cash",
     "clients_search_selects_realistic_row",
     "clients_repair_order_returns_to_client",
     "repair_order_preview_roundtrip",
@@ -84,7 +86,9 @@ _PDF_SCENARIO_NAMES = frozenset({"completion_act_editor_draft_roundtrip"})
 _FINANCE_SCENARIO_NAMES = frozenset(
     name
     for name in _FULL_SCENARIO_NAMES
-    if name.startswith(("cashbox_", "cashboxes_", "payroll_", "employee_shift_"))
+    if name.startswith(
+        ("cashbox_", "cashboxes_", "payroll_", "employee_shift_", "employee_salary_")
+    )
     or name in {"repair_order_payments_modal"}
 )
 

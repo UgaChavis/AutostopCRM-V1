@@ -916,6 +916,327 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             """
         )
 
+    def test_employee_salary_reset_permission_payload_and_double_click_guard(self) -> None:
+        permission_helper = _source_section(
+            self.source,
+            "function operatorHasPermission(permission)",
+            "function operatorStatHtml(",
+        )
+        reset_flow = _source_section(
+            self.source,
+            "function createEmployeeSalaryResetIdempotencyKey()",
+            "async function handleEmployeeSalaryActionConfirm()",
+        )
+        self._run_node(
+            f"""
+            const assert = require('node:assert/strict');
+
+            const SALARY_BALANCE_RESET_PERMISSION = 'salary_balance_reset';
+            const state = {{
+              operatorProfile: {{ user: {{ permissions: [] }} }},
+              activeEmployeeSalaryId: 'employee-1',
+              employeeSalarySheet: {{
+                balance_minor: 1234567,
+                balance_revision: 'salary-revision-1',
+                balance_display: '12 345,67 ₽',
+              }},
+              employeeSalaryResetPending: false,
+              employeeSalaryResetIntent: null,
+              employeesLoadedMonth: '2026-08',
+            }};
+            const requests = [];
+            const confirmations = [];
+            const statuses = [];
+            let salaryModalRenders = 0;
+            let employeesReloads = 0;
+            let payrollReloads = 0;
+            let workspaceRenders = 0;
+
+            global.window = {{
+              crypto: {{ randomUUID() {{ return 'runtime-reset-key'; }} }},
+              confirm(message) {{
+                confirmations.push(message);
+                return true;
+              }},
+            }};
+            function selectedEmployeeSalaryRecord() {{
+              return {{ id: 'employee-1', name: 'Петров Пётр' }};
+            }}
+            function renderEmployeeSalaryModal() {{ salaryModalRenders += 1; }}
+            function setStatus(message, isError) {{ statuses.push({{ message, isError }}); }}
+            function api(path, options = {{}}) {{
+              return new Promise((resolve, reject) => {{
+                requests.push({{ path, options, resolve, reject }});
+              }});
+            }}
+            async function loadEmployeesReference() {{ employeesReloads += 1; }}
+            async function loadPayrollReport() {{ payrollReloads += 1; }}
+            function renderEmployeesWorkspace() {{ workspaceRenders += 1; }}
+            async function loadEmployeeSalarySheet() {{
+              throw new Error('conflict reload is not expected in this scenario');
+            }}
+
+            {permission_helper}
+            {reset_flow}
+
+            (async () => {{
+              await handleEmployeeSalaryReset();
+              assert.equal(requests.length, 0, 'permission denial still sent a reset');
+              assert.equal(confirmations.length, 0, 'permission denial still opened confirmation');
+              assert.equal(statuses.at(-1)?.isError, true);
+              assert.match(statuses.at(-1)?.message || '', /НЕТ ПРАВА/);
+
+              state.operatorProfile.user.permissions = [SALARY_BALANCE_RESET_PERMISSION];
+              const firstClick = handleEmployeeSalaryReset();
+              assert.equal(state.employeeSalaryResetPending, true);
+              assert.equal(requests.length, 1);
+              assert.equal(confirmations.length, 1);
+
+              const secondClick = handleEmployeeSalaryReset();
+              await secondClick;
+              assert.equal(requests.length, 1, 'synchronous double-click sent a second POST');
+              assert.equal(confirmations.length, 1, 'synchronous double-click confirmed twice');
+              assert.equal(
+                state.employeeSalaryResetIntent?.idempotencyKey,
+                'salary-balance-reset-runtime-reset-key',
+              );
+              assert.equal(requests[0].path, '/api/reset_employee_salary_balance');
+              assert.equal(requests[0].options.method, 'POST');
+              assert.deepEqual(requests[0].options.body, {{
+                employee_id: 'employee-1',
+                expected_balance_minor: 1234567,
+                expected_balance_revision: 'salary-revision-1',
+                idempotency_key: 'salary-balance-reset-runtime-reset-key',
+                source: 'ui',
+              }});
+              assert.match(confirmations[0], /Петров Пётр/);
+              assert.match(confirmations[0], /12 345,67 ₽/);
+              assert.match(confirmations[0], /некассовая корректировка/);
+              assert.match(confirmations[0], /История выплат сохранится/);
+
+              requests[0].resolve({{
+                ledger: {{ balance_minor: 0, balance_revision: 'salary-revision-2' }},
+                meta: {{ replayed: false }},
+              }});
+              await firstClick;
+              assert.equal(state.employeeSalaryResetPending, false);
+              assert.equal(state.employeeSalaryResetIntent, null);
+              assert.equal(state.employeeSalarySheet.balance_minor, 0);
+              assert.equal(state.employeesLoadedMonth, '');
+              assert.equal(employeesReloads, 1);
+              assert.equal(payrollReloads, 1);
+              assert.equal(workspaceRenders, 1);
+              assert.ok(salaryModalRenders >= 3);
+              assert.equal(statuses.at(-1)?.message, 'БАЛАНС ОБНУЛЁН.');
+            }})().catch((error) => {{
+              console.error(error);
+              process.exitCode = 1;
+            }});
+            """
+        )
+
+    def test_operator_password_save_preserves_permission_without_explicit_edit(self) -> None:
+        save_flow = _source_section(
+            self.source,
+            "async function saveOperatorUser()",
+            "async function deleteOperatorUser(",
+        )
+        self._run_node(
+            f"""
+            const assert = require('node:assert/strict');
+
+            const SALARY_BALANCE_RESET_PERMISSION = 'salary_balance_reset';
+            const state = {{
+              operatorUsers: [{{
+                username: 'UGA',
+                permissions: [SALARY_BALANCE_RESET_PERMISSION],
+              }}],
+              operatorPermissionEditorUsername: '',
+            }};
+            const els = {{
+              adminUserLogin: {{ value: 'UGA' }},
+              adminUserPassword: {{ value: 'new-password' }},
+              adminUserSalaryBalanceReset: {{ checked: false }},
+            }};
+            const requests = [];
+            const statuses = [];
+
+            async function api(path, options) {{
+              requests.push({{ path, options }});
+              return {{ meta: {{ updated: true }}, user: {{ username: options.body.username }} }};
+            }}
+            function setStatus(message, isError) {{ statuses.push({{ message, isError }}); }}
+            async function refreshOperatorAdminSurfaces() {{}}
+
+            {save_flow}
+
+            (async () => {{
+              await saveOperatorUser();
+              assert.equal(requests[0].path, '/api/save_operator_user');
+              assert.equal(requests[0].options.body.username, 'UGA');
+              assert.equal(requests[0].options.body.password, 'new-password');
+              assert.equal(
+                Object.hasOwn(requests[0].options.body, 'permissions'),
+                false,
+                'ordinary password change revoked an existing permission',
+              );
+
+              state.operatorPermissionEditorUsername = 'UGA';
+              els.adminUserLogin.value = 'UGA';
+              els.adminUserPassword.value = '';
+              els.adminUserSalaryBalanceReset.checked = false;
+              await saveOperatorUser();
+              assert.deepEqual(requests[1].options.body.permissions, []);
+
+              state.operatorPermissionEditorUsername = '';
+              els.adminUserLogin.value = 'NEW-OPERATOR';
+              els.adminUserPassword.value = 'initial-password';
+              els.adminUserSalaryBalanceReset.checked = true;
+              await saveOperatorUser();
+              assert.deepEqual(
+                requests[2].options.body.permissions,
+                [SALARY_BALANCE_RESET_PERMISSION],
+              );
+              assert.equal(statuses.some((item) => item.isError), false);
+            }})().catch((error) => {{
+              console.error(error);
+              process.exitCode = 1;
+            }});
+            """
+        )
+
+    def test_employee_salary_reset_retry_reuses_key_and_conflict_reloads_snapshot(self) -> None:
+        permission_helper = _source_section(
+            self.source,
+            "function operatorHasPermission(permission)",
+            "function operatorStatHtml(",
+        )
+        reset_flow = _source_section(
+            self.source,
+            "function createEmployeeSalaryResetIdempotencyKey()",
+            "async function handleEmployeeSalaryActionConfirm()",
+        )
+        self._run_node(
+            f"""
+            const assert = require('node:assert/strict');
+
+            const SALARY_BALANCE_RESET_PERMISSION = 'salary_balance_reset';
+            const state = {{
+              operatorProfile: {{
+                user: {{ permissions: [SALARY_BALANCE_RESET_PERMISSION] }},
+              }},
+              activeEmployeeSalaryId: 'employee-1',
+              employeeSalarySheet: {{
+                balance_minor: 5000,
+                balance_revision: 'salary-revision-1',
+                balance_display: '50,00 ₽',
+              }},
+              employeeSalaryResetPending: false,
+              employeeSalaryResetIntent: null,
+              employeesLoadedMonth: '2026-08',
+            }};
+            const requests = [];
+            const confirmations = [];
+            const reloads = [];
+            const statuses = [];
+            let uuidCalls = 0;
+
+            global.window = {{
+              crypto: {{
+                randomUUID() {{
+                  uuidCalls += 1;
+                  return 'runtime-reset-key-' + uuidCalls;
+                }},
+              }},
+              confirm(message) {{
+                confirmations.push(message);
+                return true;
+              }},
+            }};
+            function selectedEmployeeSalaryRecord() {{
+              return {{ id: 'employee-1', name: 'Петров Пётр' }};
+            }}
+            function renderEmployeeSalaryModal() {{}}
+            function renderEmployeesWorkspace() {{}}
+            function setStatus(message, isError) {{ statuses.push({{ message, isError }}); }}
+            function api(path, options = {{}}) {{
+              return new Promise((resolve, reject) => {{
+                requests.push({{ path, options, resolve, reject }});
+              }});
+            }}
+            async function loadEmployeesReference() {{}}
+            async function loadPayrollReport() {{}}
+            async function loadEmployeeSalarySheet(employeeId, options) {{
+              reloads.push({{ employeeId, options }});
+              state.employeeSalarySheet = {{
+                balance_minor: 7500,
+                balance_revision: 'salary-revision-3',
+                balance_display: '75,00 ₽',
+              }};
+            }}
+
+            {permission_helper}
+            {reset_flow}
+
+            (async () => {{
+              const uncertainAttempt = handleEmployeeSalaryReset();
+              assert.equal(requests.length, 1);
+              requests[0].reject(new Error('СЕТЕВОЙ ОТВЕТ НЕИЗВЕСТЕН'));
+              await uncertainAttempt;
+              assert.equal(state.employeeSalaryResetPending, false);
+              assert.equal(uuidCalls, 1);
+              const retainedKey = state.employeeSalaryResetIntent?.idempotencyKey;
+              assert.equal(retainedKey, 'salary-balance-reset-runtime-reset-key-1');
+
+              const retryAttempt = handleEmployeeSalaryReset();
+              assert.equal(requests.length, 2);
+              assert.equal(
+                requests[1].options.body.idempotency_key,
+                retainedKey,
+                'uncertain retry did not reuse the original idempotency key',
+              );
+              assert.equal(uuidCalls, 1, 'uncertain retry minted a second key');
+              requests[1].resolve({{
+                ledger: {{ balance_minor: 0, balance_revision: 'salary-revision-2' }},
+                meta: {{ replayed: true }},
+              }});
+              await retryAttempt;
+              assert.equal(state.employeeSalaryResetIntent, null);
+              assert.equal(statuses.at(-1)?.message, 'ОБНУЛЕНИЕ УЖЕ БЫЛО ПРИМЕНЕНО.');
+
+              state.employeeSalarySheet = {{
+                balance_minor: 9000,
+                balance_revision: 'salary-revision-conflict',
+                balance_display: '90,00 ₽',
+              }};
+              const conflictAttempt = handleEmployeeSalaryReset();
+              assert.equal(requests.length, 3);
+              assert.equal(
+                requests[2].options.body.idempotency_key,
+                'salary-balance-reset-runtime-reset-key-2',
+              );
+              const conflict = new Error('BALANCE CHANGED');
+              conflict.code = 'salary_balance_reset_conflict';
+              requests[2].reject(conflict);
+              await conflictAttempt;
+
+              assert.equal(uuidCalls, 2);
+              assert.equal(state.employeeSalaryResetPending, false);
+              assert.equal(state.employeeSalaryResetIntent, null);
+              assert.deepEqual(reloads, [{{
+                employeeId: 'employee-1',
+                options: {{ openModal: true }},
+              }}]);
+              assert.equal(state.employeeSalarySheet.balance_revision, 'salary-revision-3');
+              assert.match(statuses.at(-1)?.message || '', /БАЛАНС ИЗМЕНИЛСЯ/);
+              assert.equal(confirmations.length, 3);
+            }})().catch((error) => {{
+              console.error(error);
+              process.exitCode = 1;
+            }});
+            """
+        )
+
     def test_stale_full_card_response_cannot_cross_operator_sessions(self) -> None:
         fetch_full_card = _source_section(
             self.source,

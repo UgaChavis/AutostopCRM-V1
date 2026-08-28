@@ -67,6 +67,7 @@ ALLOWED_EXEMPTIONS = {
         }
     ),
 }
+HUMAN_ONLY_WRITE_ROUTES = frozenset({"/api/reset_employee_salary_balance"})
 REQUIRED_ENTITY_DOMAINS = frozenset(
     {
         "attachment",
@@ -80,6 +81,7 @@ REQUIRED_ENTITY_DOMAINS = frozenset(
         "completion_act_form",
         "employee",
         "employee_repair_order_accrual",
+        "employee_salary_balance_reset",
         "employee_shift_accrual",
         "inspection_sheet_form",
         "inventory_item",
@@ -425,6 +427,30 @@ def build_producer_inventory(
         kind = str(group["kind"])
         handler = str(capability_row["surfaces"].get("backend_handler") or "")
         route_issues_before = len(issues)
+        human_only = route in HUMAN_ONLY_WRITE_ROUTES
+        gateway = capability_row["reachability"].get("selected")
+        if human_only and (
+            capability_row.get("status") != "intentional_exemption" or gateway is not None
+        ):
+            issues.append(
+                _issue(
+                    "human_only_write_boundary_invalid",
+                    route,
+                    "Reviewed human-only write must remain an intentional Gateway exemption.",
+                )
+            )
+        elif (
+            capability_row.get("status") == "intentional_exemption"
+            and kind not in EXEMPTION_KINDS
+            and not human_only
+        ):
+            issues.append(
+                _issue(
+                    "human_only_write_not_allowlisted",
+                    route,
+                    "Non-exempt producer route has an unreviewed human-only Gateway boundary.",
+                )
+            )
         handler_sources = list(function_locations.get(handler) or [])
         if not handler and kind not in EXEMPTION_KINDS:
             issues.append(
@@ -497,7 +523,10 @@ def build_producer_inventory(
                 )
             )
         canonical_contract: dict[str, str] | None = None
-        if capability_row.get("readback_class") == "executor_contract_only":
+        needs_canonical_contract = (
+            capability_row.get("readback_class") == "executor_contract_only" or human_only
+        )
+        if needs_canonical_contract:
             if route in canonical_routes:
                 canonical_contract = {
                     "class": "temp_state_feed_readback",
@@ -514,7 +543,7 @@ def build_producer_inventory(
                     _issue(
                         "canonical_route_contract_missing",
                         route,
-                        "executor_contract_only route has no temp-state feed readback or reviewed boundary.",
+                        "Contract-required route has no temp-state feed readback or reviewed boundary.",
                     )
                 )
         status = "covered" if len(issues) == route_issues_before else "gap"
@@ -524,7 +553,8 @@ def build_producer_inventory(
                 "action": capability_row["action"],
                 "handler": handler or None,
                 "handler_sources": handler_sources,
-                "gateway": capability_row["reachability"].get("selected"),
+                "gateway": gateway,
+                "human_only": human_only,
                 "readback_class": capability_row.get("readback_class"),
                 "producer_group": str(group["name"]),
                 "producer_kind": kind,
@@ -548,6 +578,17 @@ def build_producer_inventory(
         if row.get("readback_class") == "executor_contract_only"
         and row.get("canonical_route_contract")
     )
+    canonical_contract_routes = sorted(
+        row["route"]
+        for row in matrix
+        if row.get("readback_class") == "executor_contract_only" or row.get("human_only")
+    )
+    canonical_contract_resolved = sum(
+        1
+        for row in matrix
+        if (row.get("readback_class") == "executor_contract_only" or row.get("human_only"))
+        and row.get("canonical_route_contract")
+    )
     summary = {
         "write_actions": len(write_rows),
         "covered": status_counts["covered"],
@@ -557,6 +598,9 @@ def build_producer_inventory(
         "change_types": sorted(declared_changes),
         "executor_contract_only": len(executor_contract_only),
         "executor_contract_resolved": executor_contract_resolved,
+        "human_only_write_actions": sum(bool(row.get("human_only")) for row in matrix),
+        "canonical_contract_required": len(canonical_contract_routes),
+        "canonical_contract_resolved": canonical_contract_resolved,
         "canonical_route_feed_readback": sum(
             1
             for row in matrix
@@ -568,7 +612,8 @@ def build_producer_inventory(
             for row in matrix
             if (row.get("canonical_route_contract") or {}).get("class") == "reasoned_boundary"
         ),
-        "canonical_contract_complete": executor_contract_resolved == len(executor_contract_only),
+        "canonical_contract_complete": canonical_contract_resolved
+        == len(canonical_contract_routes),
         "producer_complete": not issues and status_counts["gap"] == 0,
     }
     return {
@@ -576,6 +621,7 @@ def build_producer_inventory(
         "summary": summary,
         "matrix": matrix,
         "executor_contract_only_routes": executor_contract_only,
+        "canonical_route_contract_routes": canonical_contract_routes,
         "issues": issues,
     }
 

@@ -304,6 +304,7 @@ def _project_settings(
         "employees": "employee",
         "employee_shift_accruals": "employee_shift_accrual",
         "employee_repair_order_accruals": "employee_repair_order_accrual",
+        "employee_salary_balance_resets": "employee_salary_balance_reset",
     }
     for setting_key, entity_type in collection_keys.items():
         for index, item in enumerate(_items(settings.get(setting_key))):
@@ -471,6 +472,22 @@ def project_crm_source_signatures(state: Mapping[str, Any] | object) -> dict[Sou
                 item.get("is_active"),
                 item.get("status"),
             )
+    for index, item in enumerate(_items(settings.get("employee_salary_balance_resets"))):
+        entity_type = "employee_salary_balance_reset"
+        entity_id = _technical_id(item.get("id"), fallback=f"{entity_type}-{index}")
+        signatures[(entity_type, entity_id)] = _source_digest(
+            item.get("created_at"),
+            item.get("employee_id"),
+            item.get("employee_name"),
+            item.get("amount_minor"),
+            item.get("balance_before_minor"),
+            item.get("balance_after_minor"),
+            item.get("ledger_revision_before"),
+            item.get("request_fingerprint"),
+            item.get("idempotency_key"),
+            item.get("actor_name"),
+            item.get("source"),
+        )
     board_settings = {
         key: value
         for key, value in settings.items()
@@ -479,6 +496,7 @@ def project_crm_source_signatures(state: Mapping[str, Any] | object) -> dict[Sou
             "employees",
             "employee_shift_accruals",
             "employee_repair_order_accruals",
+            "employee_salary_balance_resets",
             "ready_column_id",
             *_PRIVATE_VIEWER_SETTING_KEYS,
         }

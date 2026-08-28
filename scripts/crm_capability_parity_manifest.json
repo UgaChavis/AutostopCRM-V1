@@ -249,6 +249,11 @@
       "expected_coverage": "intentional exemption",
       "reason": "Revoking a browser operator session is intentionally separate from the owner's OAuth service-principal session."
     },
+    "/api/reset_employee_salary_balance": {
+      "kind": "human_restricted_financial_boundary",
+      "expected_coverage": "intentional exemption",
+      "reason": "Resetting an employee salary balance is restricted to specifically permissioned human operator sessions and is intentionally unavailable to the Gateway service principal."
+    },
     "/api/update_personal_board_preferences": {
       "kind": "human_private_preference_boundary",
       "expected_coverage": "intentional exemption",
@@ -280,6 +285,11 @@
       "kind": "human_logout",
       "scope": "interactive browser operator session only",
       "rationale": "The service principal must not revoke or mutate an independent human operator browser session."
+    },
+    "/api/reset_employee_salary_balance": {
+      "kind": "human_restricted_financial_action",
+      "scope": "interactive browser operator session with salary_balance_reset permission only",
+      "rationale": "This audited non-cash payroll correction is reserved for explicitly permissioned human operators and must not be discoverable or callable through raw MCP."
     },
     "/api/get_operator_profile": {
       "kind": "human_private_profile",

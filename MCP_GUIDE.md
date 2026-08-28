@@ -110,6 +110,12 @@ not MCP capabilities. They control one human operator's private extra
 board-column view, are restricted to that browser session, and cannot be read
 or changed by the Gateway service identity.
 
+`/api/reset_employee_salary_balance` is also intentionally absent from raw MCP
+discovery and invocation. It is an audited financial correction reserved for
+an interactive operator session with the `salary_balance_reset` permission;
+the Gateway service identity cannot call it, even through
+`call_raw_capability`.
+
 The shared mechanics message board is intentionally different: it is common CRM
 state and is available through the named
 `agent_document_workflow(operation="update_display_dashboard_message")`.

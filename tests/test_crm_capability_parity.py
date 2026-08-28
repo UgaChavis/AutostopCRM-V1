@@ -1,9 +1,22 @@
 from __future__ import annotations
 
+import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from scripts import crm_capability_parity
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from minimal_kanban.mcp.raw_gateway import (  # noqa: E402
+    RAW_API_ROUTES,
+    virtual_api_route,
+)
+from scripts import crm_capability_parity  # noqa: E402
 
 REVIEWED_BASELINE_GAPS = {
     "/api/copy_shared_file",
@@ -17,6 +30,7 @@ REVIEWED_BASELINE_GAPS = {
     "/api/list_employees",
     "/api/login_operator",
     "/api/logout_operator",
+    "/api/reset_employee_salary_balance",
     "/api/update_personal_board_preferences",
     "/api/open_card",
     "/api/set_card_ai_autofill",
@@ -27,6 +41,7 @@ INTENTIONAL_HUMAN_SESSION_EXEMPTIONS = {
     "/api/get_operator_profile",
     "/api/login_operator",
     "/api/logout_operator",
+    "/api/reset_employee_salary_balance",
     "/api/update_personal_board_preferences",
 }
 
@@ -70,7 +85,7 @@ class CrmCapabilityParityTests(unittest.TestCase):
             INTENTIONAL_HUMAN_SESSION_EXEMPTIONS,
             set(self.inventory["intentional_exemptions"]),
         )
-        self.assertEqual(14, self.inventory["summary"]["baseline_gaps"])
+        self.assertEqual(15, self.inventory["summary"]["baseline_gaps"])
         self.assertEqual(9, self.inventory["summary"]["baseline_gaps_resolved"])
         self.assertTrue(self.inventory["summary"]["parity_complete"])
 
@@ -118,6 +133,20 @@ class CrmCapabilityParityTests(unittest.TestCase):
         self.assertEqual(
             INTENTIONAL_HUMAN_SESSION_EXEMPTIONS,
             {route for route, row in rows.items() if row["reachability"]["selected"] is None},
+        )
+
+    def test_salary_balance_reset_is_an_explicit_human_only_financial_boundary(self) -> None:
+        route = "/api/reset_employee_salary_balance"
+        rows = {row["route"]: row for row in self.inventory["matrix"]}
+
+        self.assertNotIn(route, RAW_API_ROUTES)
+        self.assertIsNone(virtual_api_route(f"api:{route}"))
+        self.assertEqual("intentional_exemption", rows[route]["status"])
+        self.assertEqual("human_session_boundary", rows[route]["readback_class"])
+        self.assertIsNone(rows[route]["reachability"]["selected"])
+        self.assertEqual(
+            "human_restricted_financial_action",
+            rows[route]["decision"]["kind"],
         )
 
     def test_binary_http_actions_have_explicit_document_coverage(self) -> None:

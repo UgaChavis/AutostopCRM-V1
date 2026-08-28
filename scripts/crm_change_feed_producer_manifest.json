@@ -20,6 +20,7 @@
     "completion_act_form",
     "employee",
     "employee_repair_order_accrual",
+    "employee_salary_balance_reset",
     "employee_shift_accrual",
     "inspection_sheet_form",
     "inventory_item",
@@ -88,6 +89,7 @@
         "/api/replace_repair_order_materials",
         "/api/replace_repair_order_works",
         "/api/replenish_inventory_item",
+        "/api/reset_employee_salary_balance",
         "/api/restore_card",
         "/api/return_inventory_movement",
         "/api/reopen_repair_order",
@@ -129,6 +131,10 @@
         {
           "source": "tests/test_change_feed_producers.py",
           "pattern": "test_validation_error_and_notification_seen_state_have_correct_event_semantics"
+        },
+        {
+          "source": "tests/test_change_feed_producers.py",
+          "pattern": "test_salary_balance_reset_is_a_distinct_immutable_state_projection"
         },
         {
           "source": "tests/test_service.py",
