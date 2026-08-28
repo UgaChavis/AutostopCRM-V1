@@ -42,9 +42,9 @@ UI / MCP / API clients
   `src/minimal_kanban/api/route_registry.py`. For registry-owned routes,
   update the immutable `RouteSpec`; auth, maintenance, mutation, response,
   feed, and readback sets are compatibility views derived from those specs.
-- MCP tools live in `src/minimal_kanban/mcp/server.py`,
-  `src/minimal_kanban/mcp/tool_registry.py`, and
-  `src/minimal_kanban/mcp/agent_gateway_v2.py`.
+- MCP tools live in `src/minimal_kanban/mcp/`; `server.py` orchestrates domain
+  registrars, `tool_registry.py` owns the raw registry, and
+  `agent_gateway_v2.py` owns the production surface.
 - Automotive/web helpers live in `src/minimal_kanban/agent/`; public research
   starts with `search_web_multi`.
 - Persistence and normalization live in

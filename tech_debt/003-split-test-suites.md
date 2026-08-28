@@ -5,7 +5,7 @@
 Оценка: 4–6 дней суммарно, независимыми доменными срезами
 Риск реализации: низкий
 Статус: in progress — MCP read baseline и три board-write test slices
-опубликованы; hosted CI подтверждён 2026-08-27
+опубликованы; attachment-read test slice локально проверен 2026-08-28
 
 ## Результат
 
@@ -100,6 +100,20 @@ Focused-команды для этого среза:
   `33042892243` полностью прошёл на конечном SHA.
 
 `python -m unittest tests.test_mcp_board_card_timer_writes tests.test_mcp_board_sticky_writes tests.test_mcp_board_column_writes tests.test_mcp_registration_contracts tests.test_mcp_payload_contracts tests.test_mcp_board_reads tests.test_docs_audit -q`
+
+## Card attachment read test slice (2026-08-28)
+
+- Для `list_card_attachments`, `get_card_attachment` и
+  `read_card_attachment` добавлен двухтестовый registrar module
+  `test_mcp_card_attachment_reads.py` и отдельная проверка legacy relative
+  order в registration contracts.
+- Тесты фиксируют exact descriptions, annotations, required/default schema,
+  read mode enum, текстовый/base64 limits, backend arguments и response meta.
+- Совместный focused registrar/payload/hardening suite проходит 37/37;
+  discovery по `test_mcp*.py` выполняет 153/153 без skip. Существующие backend
+  attachment roundtrip и client-side limit tests проходят отдельно.
+
+`python -m unittest tests.test_mcp_card_attachment_reads tests.test_mcp_registration_contracts tests.test_mcp_client tests.test_docs_audit -q`
 
 ## Scope и независимые deliverables
 

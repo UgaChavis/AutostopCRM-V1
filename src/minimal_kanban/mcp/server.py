@@ -52,6 +52,10 @@ from .board_sticky_writes import (
     register_board_sticky_create,
     register_board_sticky_mutations,
 )
+from .card_attachment_reads import (
+    CardAttachmentReadContext,
+    register_card_attachment_reads,
+)
 from .client import BoardApiClient, BoardApiTransportError
 from .connector_diagnostics import (
     ConnectorDiagnosticsContext,
@@ -1509,87 +1513,16 @@ def create_mcp_server(
     )
     register_board_sticky_create(server, board_sticky_write_context)
 
-    @server.tool(
-        name="list_card_attachments",
-        description=_scoped_description(
-            "List attachment metadata for one card from the current AutoStop CRM board without returning file bytes. Use this before reading any attached file."
+    register_card_attachment_reads(
+        server,
+        CardAttachmentReadContext(
+            board_api=board_api,
+            scoped_description=_scoped_description,
+            read_tool_annotations=_read_tool_annotations,
+            relay_board_call=_relay_board_call,
+            with_data_meta=_with_data_meta,
         ),
-        annotations=_read_tool_annotations("List Card Attachments"),
-        structured_output=True,
     )
-    def list_card_attachments(card_id: str, include_removed: bool = False) -> JsonEnvelope:
-        return _relay_board_call(
-            "list_card_attachments",
-            lambda: board_api.list_card_attachments(card_id, include_removed=include_removed),
-            params={"card_id": card_id, "include_removed": include_removed},
-            transform=lambda response: _with_data_meta(
-                response,
-                response_mode="attachment_list",
-                view_mode="metadata",
-                include_removed=include_removed,
-            ),
-        )
-
-    @server.tool(
-        name="get_card_attachment",
-        description=_scoped_description(
-            "Return safe metadata for one card attachment from the current AutoStop CRM board, including content kind, size, hash, and download path, but not file bytes."
-        ),
-        annotations=_read_tool_annotations("Get Card Attachment"),
-        structured_output=True,
-    )
-    def get_card_attachment(card_id: str, attachment_id: str) -> JsonEnvelope:
-        return _relay_board_call(
-            "get_card_attachment",
-            lambda: board_api.get_card_attachment(card_id, attachment_id),
-            params={"card_id": card_id, "attachment_id": attachment_id},
-            transform=lambda response: _with_data_meta(
-                response,
-                response_mode="attachment_metadata",
-                view_mode="metadata",
-            ),
-        )
-
-    @server.tool(
-        name="read_card_attachment",
-        description=_scoped_description(
-            "Read one card attachment for an agent. Text, DOCX, XLSX, and simple PDFs return bounded text; images return dimensions and can include bounded base64/data_url when include_base64=true or mode=base64."
-        ),
-        annotations=_read_tool_annotations("Read Card Attachment"),
-        structured_output=True,
-    )
-    def read_card_attachment(
-        card_id: str,
-        attachment_id: str,
-        mode: Literal["preview", "text", "base64", "auto"] = "preview",
-        max_chars: McpInt = 12_000,
-        include_base64: bool = False,
-        max_base64_bytes: McpInt = 1_048_576,
-    ) -> JsonEnvelope:
-        return _relay_board_call(
-            "read_card_attachment",
-            lambda: board_api.read_card_attachment(
-                card_id,
-                attachment_id,
-                mode=mode,
-                max_chars=max_chars,
-                include_base64=include_base64,
-                max_base64_bytes=max_base64_bytes,
-            ),
-            params={
-                "card_id": card_id,
-                "attachment_id": attachment_id,
-                "mode": mode,
-                "max_chars": max_chars,
-                "include_base64": include_base64,
-                "max_base64_bytes": max_base64_bytes,
-            },
-            transform=lambda response: _with_data_meta(
-                response,
-                response_mode="attachment_read",
-                view_mode=mode,
-            ),
-        )
 
     @server.tool(
         name="list_shared_files",

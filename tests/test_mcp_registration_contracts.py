@@ -272,6 +272,23 @@ class McpRegistrationContractTests(unittest.TestCase):
             ],
         )
 
+    def test_card_attachment_read_registrations_keep_their_legacy_relative_order(
+        self,
+    ) -> None:
+        _server, attempted_names = _build_builtin_raw_server()
+
+        attachment_index = attempted_names.index("list_card_attachments")
+        self.assertEqual(
+            attempted_names[attachment_index - 1 : attachment_index + 4],
+            [
+                "create_sticky",
+                "list_card_attachments",
+                "get_card_attachment",
+                "read_card_attachment",
+                "list_shared_files",
+            ],
+        )
+
     def test_card_timer_registrations_keep_their_legacy_relative_order(self) -> None:
         _server, attempted_names = _build_builtin_raw_server()
 

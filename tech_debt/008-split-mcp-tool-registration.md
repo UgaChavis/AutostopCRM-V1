@@ -5,7 +5,7 @@
 Оценка: 5–8 дней
 Риск реализации: средний
 Статус: in progress — read baseline и три board-write registrars опубликованы;
-hosted CI подтверждён 2026-08-27
+attachment-read registrar локально проверен 2026-08-28
 
 ## Результат
 
@@ -17,9 +17,9 @@ Production surface по-прежнему ровно 24 Gateway tools.
 
 - До первого среза `mcp/server.py` содержал 4 322 строки и 151 function;
   после payload extraction, diagnostics, board reads и трёх board-write
-  registrars — 3 740 строк и 130 functions.
-- `create_mcp_server` сокращён с 3 623 до 3 299 строк; branch complexity
-  снизилась с 211 до 193.
+  registrars, а также attachment reads — 3 673 строки и 127 functions.
+- `create_mcp_server` сокращён с 3 623 до 3 228 строк; branch complexity
+  снизилась с 211 до 190.
 - `tool_registry.py` уже группирует raw tools по 8 доменам / десяткам names,
   но регистрации всё ещё находятся в одном lexical scope.
 - Файл входит в top churn hotspots.
@@ -121,6 +121,21 @@ Production surface по-прежнему ровно 24 Gateway tools.
 - Три board-write registrars опубликованы коммитами `bc87712`, `e4496bc` и
   `0a700f1`; GitHub Actions quality run `33042892243` полностью прошёл на
   конечном SHA.
+
+## Выполненный card attachment read slice (2026-08-28)
+
+- `list_card_attachments`, `get_card_attachment` и `read_card_attachment`
+  механически перенесены в 123-строчный `mcp/card_attachment_reads.py` без
+  изменения API client, payload, limits или response meta.
+- Узкий frozen/slots context содержит board client, description/annotation
+  factories, relay и data-meta helper. TDD-контракт фиксирует exact schemas,
+  annotations, backend arguments и исходную позицию перед shared-file tools.
+- Raw snapshot остался 98 tools с прежним canonical hash, Gateway surface —
+  24 tools; существующие backend attachment и client limit regressions зелёные.
+- Exact ratchets снижены без headroom: `mcp/server.py` 3 740 → 3 673,
+  `create_mcp_server` 3 299 → 3 228; functions 130 → 127, complexity 193 → 190.
+- Focused registrar/payload/hardening suite проходит 37/37; полный MCP-family
+  выполняет 153/153 без skip.
 
 ## Минимальная архитектура
 
