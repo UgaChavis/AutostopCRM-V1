@@ -102,10 +102,10 @@
 | 002 | P0 | [Добавить измеряемый coverage baseline](002-coverage-baseline.md) | **Выполнено; hosted CI подтверждён 2026-08-26** | 001 |
 | 004 | P0 | [Сделать малый browser smoke обязательным](004-mandatory-core-browser-smoke.md) | **Выполнено; hosted CI подтверждён 2026-08-26** | 000, 001 |
 | 006 | P0 | [Свести HTTP route metadata в один registry](006-unify-api-route-contracts.md) | **Выполнено 2026-08-23** | 001 |
-| 003 | P1 | [Разрезать монолитные test modules и fixtures](003-split-test-suites.md) | **Read baseline опубликован; три board-write test slices локально готовы** | 001 |
+| 003 | P1 | [Разрезать монолитные test modules и fixtures](003-split-test-suites.md) | **MCP read baseline и три board-write test slices опубликованы; задача продолжается** | 001 |
 | 005 | P1 | [Разрезать web asset source по доменам](005-split-board-web-assets.md) | Убрать 20.2k-строчный god-script без смены frontend stack | 004; свой test-slice из 003 |
 | 007 | P1 | [Разделить HTTP request handler](007-split-api-request-handler.md) | **Выполнено 2026-08-25** | 006 |
-| 008 | P1 | [Разрезать MCP tool registration по доменам](008-split-mcp-tool-registration.md) | **Три малых board-write registrars локально готовы к публикации** | 001; свой test-slice из 003 |
+| 008 | P1 | [Разрезать MCP tool registration по доменам](008-split-mcp-tool-registration.md) | **Read baseline и три малых board-write registrars опубликованы; задача продолжается** | 001; свой test-slice из 003 |
 | 009 | P1 | [Разделить Gateway workflow executor](009-split-gateway-workflow-executor.md) | Изолировать security/idempotency/readback правила hot path | 001, 008; coverage 002 параллельно |
 | 010 | P1 | [Вынести attachment/file I/O из CardService](010-extract-card-attachments.md) | Самый безопасный крупный срез god-service | 001; свой test-slice из 003 |
 | 011 | P1 | [Вынести manager operations из CardService](011-extract-manager-service.md) | Отделить активные manager flows от core CRM | 001; свой test-slice из 003 |
@@ -120,9 +120,9 @@
 
 ## Рекомендуемые волны
 
-- Волна A — 000–002, 004, 006 — выполнена локально 2026-08-23. Hosted gates
-  активируются после публикации изменений.
-- Волна B — доменные срезы 003, 005, 007–008, 010–011, 017–021. В основном механические разрезы с
+- Волна A — 000–002, 004, 006 — выполнена и опубликована; hosted gates
+  подтверждены 2026-08-26.
+- Волна B — доменные срезы 003, 005, 007–008, 010–011, 017–018, 021. В основном механические разрезы с
   сохранением facade и DTO.
 - Волна C — 009, 012–014, 019–020. Здесь выше бизнес- и security-риск; каждую задачу
   выполнять отдельной серией маленьких commits после characterization.

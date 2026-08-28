@@ -4,8 +4,8 @@
 Этап: 1
 Оценка: 4–6 дней суммарно, независимыми доменными срезами
 Риск реализации: низкий
-Статус: in progress — опубликованный MCP read baseline дополнен локально
-проверенными board-column, sticky и card-timer write slices 2026-08-27
+Статус: in progress — MCP read baseline и три board-write test slices
+опубликованы; hosted CI подтверждён 2026-08-27
 
 ## Результат
 
@@ -95,6 +95,9 @@ Focused-команды для этого среза:
   response modes и полный deadline dump.
 - Совместный registrar/registration/payload/docs suite: 50/50 `OK`; большой
   end-to-end backend test с реальными raw tool calls сохранён и проходит.
+- Board-column, sticky и card-timer test slices опубликованы коммитами
+  `bc87712`, `e4496bc` и `0a700f1`; GitHub Actions quality run
+  `33042892243` полностью прошёл на конечном SHA.
 
 `python -m unittest tests.test_mcp_board_card_timer_writes tests.test_mcp_board_sticky_writes tests.test_mcp_board_column_writes tests.test_mcp_registration_contracts tests.test_mcp_payload_contracts tests.test_mcp_board_reads tests.test_docs_audit -q`
 
