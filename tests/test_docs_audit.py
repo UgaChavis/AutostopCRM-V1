@@ -420,10 +420,9 @@ class DocsAuditTests(unittest.TestCase):
                 "mcp_guide_store_search_entities_stale",
                 "store_management_operations_stale",
                 "store_vin_photo_workflow_missing",
+                "mcp_guide_store_safety_contract_stale",
                 "mcp_guide_store_internal_count_stale",
-                "chatgpt_store_internal_count_stale",
                 "mcp_guide_store_operation_count_stale",
-                "chatgpt_store_operation_count_stale",
                 "chatgpt_bootstrap_cursor_stale",
             },
             {issue.code for issue in issues},
@@ -568,10 +567,51 @@ class DocsAuditTests(unittest.TestCase):
         self.assertIn("47 CRM workflow operations", issues[0].detail)
         self.assertEqual([], corrected_issues)
 
+    def test_agent_connector_docs_contract_matches_compacted_baseline(self) -> None:
+        module = load_docs_audit_module()
+
+        self.assertEqual([], module._check_agent_connector_doc_contract(ROOT))
+        total_lines = sum(
+            len((ROOT / relative_path).read_text(encoding="utf-8").splitlines())
+            for relative_path in module.AGENT_CONNECTOR_DOCS
+        )
+
+        self.assertEqual(module.AGENT_CONNECTOR_DOC_MAX_TOTAL_LINES, total_lines)
+        self.assertLess(total_lines, 266)
+
+    def test_agent_connector_docs_contract_enforces_cap_and_wrapped_semantics(self) -> None:
+        module = load_docs_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            (temp_root / "AGENTS.md").write_text("owner\ngate\n", encoding="utf-8")
+            (temp_root / "CHATGPT_CONNECTOR_SETUP.md").write_text(
+                "client rules\n", encoding="utf-8"
+            )
+            with (
+                patch.object(module, "AGENTS_REQUIRED_TEXT", (("owner gate", "missing owner"),)),
+                patch.object(
+                    module,
+                    "CHATGPT_CONNECTOR_REQUIRED_TEXT",
+                    (("auth gate", "missing auth"),),
+                ),
+                patch.object(module, "AGENT_CONNECTOR_DOC_MAX_TOTAL_LINES", 2),
+            ):
+                issues = module._check_agent_connector_doc_contract(temp_root)
+
+        self.assertEqual(
+            [
+                "chatgpt_connector_setup_missing_contract",
+                "agent_connector_docs_line_cap_exceeded",
+            ],
+            [issue.code for issue in issues],
+        )
+        self.assertEqual("current=3; max=2; delta=+1", issues[1].detail)
+
     def test_chatgpt_connector_setup_mentions_current_endpoint_and_safety(self) -> None:
         module = load_docs_audit_module()
 
-        self.assertEqual([], module._check_api_guide_required_routes(ROOT))
+        self.assertEqual([], module._check_agent_connector_doc_contract(ROOT))
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
@@ -580,16 +620,21 @@ class DocsAuditTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = module._check_api_guide_required_routes(temp_root)
+            issues = module._check_agent_connector_doc_contract(temp_root)
 
         self.assertEqual(
             {
-                "production ChatGPT connector URL is not documented: https://crm.autostopcrm.ru/mcp",
-                "ChatGPT connector bootstrap call is not documented: agent_bootstrap",
-                "ChatGPT connector runtime diagnostic call is not documented: get_runtime_status",
-                "ChatGPT connector write-safety rule is not documented: Public anonymous writes must remain blocked",
-                "current direct ChatGPT/Codex OAuth flow is not documented: owner-approved OAuth 2.1",
-                "Responses API MCP authorization field is not documented: authorization",
+                "ChatGPT connector setup is missing a required client/auth contract: "
+                f"{required_text}"
+                for required_text in (
+                    "https://crm.autostopcrm.ru/mcp",
+                    "[MCP_GUIDE.md](MCP_GUIDE.md)",
+                    "agent_bootstrap",
+                    "get_runtime_status",
+                    "Public anonymous writes must remain blocked",
+                    "owner-approved OAuth 2.1",
+                    "authorization",
+                )
             },
             {issue.detail for issue in issues},
         )

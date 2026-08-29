@@ -158,9 +158,11 @@ Explicit Store context uses `agent_board_digest(scope="store")`,
 `agent_entity_context`, and `agent_search` for `store_part`, `store_order`,
 `store_quote_request`, `store_supplier`, `store_batch`,
 `store_warehouse_operation`, `store_marketplace_listing`, `store_state`, and
-`store_sourcing_offer`. `get_runtime_status` is the explicit health probe;
+`store_sourcing_offer`. Store search and `agent_entity_context` are PII-redacted
+by the Manager adapter. `get_runtime_status` is the explicit health probe;
 `agent_document_workflow(operation="download_store_quote_vin_photo")` returns
-the bounded image only with `allow_large_output=true`.
+the bounded image only when `expected_photo_sha256` matches the current photo
+and `allow_large_output=true`.
 
 Store digest pages use opaque cursor/ACK replay and commit high-water only
 after the final ACK. Store actions use explicit `dry_run`/`apply` through

@@ -22,6 +22,7 @@ from minimal_kanban.json_safety import reject_deeply_nested_json  # noqa: E402
 
 GIT_COMMAND_TIMEOUT_SECONDS = 15
 DOCS_AUDIT_TEXT_MAX_BYTES = 2 * 1024 * 1024
+AGENT_CONNECTOR_DOC_MAX_TOTAL_LINES = 177
 
 CRM_CANONICAL_DOCS = (
     "AGENTS.md",
@@ -31,6 +32,11 @@ CRM_CANONICAL_DOCS = (
     "MCP_GUIDE.md",
     "README.md",
     "docs/OPERATIONS_RUNBOOK.md",
+)
+
+AGENT_CONNECTOR_DOCS = (
+    "AGENTS.md",
+    "CHATGPT_CONNECTOR_SETUP.md",
 )
 
 CRM_DOCUMENTATION_MANIFESTS = (
@@ -394,31 +400,39 @@ MCP_GUIDE_REQUIRED_TEXT = (
     ),
 )
 
-CHATGPT_CONNECTOR_REQUIRED_TEXT = (
-    (
+AGENTS_REQUIRED_TEXT = tuple(
+    (required_text, "agent instructions are missing a required safety contract")
+    for required_text in (
+        "Deploy only on an explicit user request",
+        "Production evidence",
+        "compare all Git revisions",
+        "run live smoke",
+        "Finance stop-line",
+        "read-only/dry-run",
+        "verified-backup",
+        "explicit-owner flow",
+        "compatibility names",
+        "read-only production and rollback evidence",
+        "`minimal_kanban`",
+        "`%APPDATA%\\Minimal Kanban`",
+        "`Start Kanban.exe`",
+    )
+) + tuple(
+    (f"`{relative_path}`", f"agent instructions do not route canonical doc: {relative_path}")
+    for relative_path in CRM_CANONICAL_DOCS
+)
+
+CHATGPT_CONNECTOR_REQUIRED_TEXT = tuple(
+    (required_text, "ChatGPT connector setup is missing a required client/auth contract")
+    for required_text in (
         "https://crm.autostopcrm.ru/mcp",
-        "production ChatGPT connector URL is not documented",
-    ),
-    (
+        "[MCP_GUIDE.md](MCP_GUIDE.md)",
         "agent_bootstrap",
-        "ChatGPT connector bootstrap call is not documented",
-    ),
-    (
         "get_runtime_status",
-        "ChatGPT connector runtime diagnostic call is not documented",
-    ),
-    (
         "Public anonymous writes must remain blocked",
-        "ChatGPT connector write-safety rule is not documented",
-    ),
-    (
         "owner-approved OAuth 2.1",
-        "current direct ChatGPT/Codex OAuth flow is not documented",
-    ),
-    (
         "authorization",
-        "Responses API MCP authorization field is not documented",
-    ),
+    )
 )
 
 RUNBOOK_REQUIRED_TEXT = (
@@ -807,9 +821,11 @@ def _missing_text_issues(
     if not path.exists():
         return []
     text = _read_text(path)
+    compact_text = " ".join(text.split())
     issues: list[Issue] = []
     for required_text, detail in required_texts:
-        if required_text not in text:
+        compact_required_text = " ".join(required_text.split())
+        if compact_required_text not in compact_text:
             issues.append(
                 Issue(
                     issue_code,
@@ -817,6 +833,40 @@ def _missing_text_issues(
                     f"{detail}: {required_text}",
                 )
             )
+    return issues
+
+
+def _check_agent_connector_doc_contract(root: Path) -> list[Issue]:
+    paths = tuple(root / relative_path for relative_path in AGENT_CONNECTOR_DOCS)
+    issues = [
+        *_missing_text_issues(
+            paths[0],
+            AGENTS_REQUIRED_TEXT,
+            issue_code="agents_missing_contract",
+            root=root,
+        ),
+        *_missing_text_issues(
+            paths[1],
+            CHATGPT_CONNECTOR_REQUIRED_TEXT,
+            issue_code="chatgpt_connector_setup_missing_contract",
+            root=root,
+        ),
+    ]
+    if not all(path.exists() for path in paths):
+        return issues
+
+    total_lines = sum(len(_read_text(path).splitlines()) for path in paths)
+    if total_lines > AGENT_CONNECTOR_DOC_MAX_TOTAL_LINES:
+        issues.append(
+            Issue(
+                "agent_connector_docs_line_cap_exceeded",
+                " + ".join(AGENT_CONNECTOR_DOCS),
+                (
+                    f"current={total_lines}; max={AGENT_CONNECTOR_DOC_MAX_TOTAL_LINES}; "
+                    f"delta=+{total_lines - AGENT_CONNECTOR_DOC_MAX_TOTAL_LINES}"
+                ),
+            )
+        )
     return issues
 
 
@@ -1027,12 +1077,6 @@ def _check_api_guide_required_routes(root: Path) -> list[Issue]:
             root / "MCP_GUIDE.md",
             MCP_GUIDE_REQUIRED_TEXT,
             issue_code="mcp_guide_missing_contract",
-            root=root,
-        ),
-        *_missing_text_issues(
-            root / "CHATGPT_CONNECTOR_SETUP.md",
-            CHATGPT_CONNECTOR_REQUIRED_TEXT,
-            issue_code="chatgpt_connector_setup_missing_contract",
             root=root,
         ),
         *_missing_text_issues(
@@ -1431,7 +1475,6 @@ def _check_store_gateway_docs_contract(root: Path) -> list[Issue]:
     mcp_text = _read_text(mcp_path)
     chatgpt_text = _read_text(chatgpt_path)
     compact_mcp = " ".join(mcp_text.split())
-    compact_chatgpt = " ".join(chatgpt_text.split())
     reads = set(contract["read_capabilities"])
     management = str(contract["management_capability"])
     internal_capabilities = reads | {management}
@@ -1458,22 +1501,34 @@ def _check_store_gateway_docs_contract(root: Path) -> list[Issue]:
         code="mcp_guide_store_search_entities_stale",
         label="Store search entities",
     )
-    for path, text in ((mcp_path, mcp_text), (chatgpt_path, chatgpt_text)):
-        missing_items(
-            path=path,
-            text=text,
-            items=operations,
-            code="store_management_operations_stale",
-            label="Store management operations",
-        )
-        if "download_store_quote_vin_photo" not in text:
-            issues.append(
-                Issue(
-                    "store_vin_photo_workflow_missing",
-                    _display_path(path, root),
-                    "public Store VIN photo workflow is not documented",
-                )
+    missing_items(
+        path=mcp_path,
+        text=mcp_text,
+        items=operations,
+        code="store_management_operations_stale",
+        label="Store management operations",
+    )
+    if "download_store_quote_vin_photo" not in mcp_text:
+        issues.append(
+            Issue(
+                "store_vin_photo_workflow_missing",
+                _display_path(mcp_path, root),
+                "public Store VIN photo workflow is not documented",
             )
+        )
+    missing_safety_text = sorted(
+        text
+        for text in ("PII-redacted", "expected_photo_sha256", "allow_large_output=true")
+        if text not in mcp_text
+    )
+    if missing_safety_text:
+        issues.append(
+            Issue(
+                "mcp_guide_store_safety_contract_stale",
+                _display_path(mcp_path, root),
+                f"missing Store safety text: {missing_safety_text}",
+            )
+        )
 
     expected_internal_mcp = f"{len(internal_capabilities)} `INTERNAL_ONLY`"
     if expected_internal_mcp not in compact_mcp:
@@ -1484,28 +1539,11 @@ def _check_store_gateway_docs_contract(root: Path) -> list[Issue]:
                 f"expected current internal Store count text: {expected_internal_mcp}",
             )
         )
-    expected_internal_chatgpt = f"{len(internal_capabilities)} mounted `store_*` adapter tools"
-    if expected_internal_chatgpt not in compact_chatgpt:
-        issues.append(
-            Issue(
-                "chatgpt_store_internal_count_stale",
-                _display_path(chatgpt_path, root),
-                f"expected current internal Store count text: {expected_internal_chatgpt}",
-            )
-        )
     if f"exactly {len(operations)} operations" not in compact_mcp:
         issues.append(
             Issue(
                 "mcp_guide_store_operation_count_stale",
                 _display_path(mcp_path, root),
-                f"expected current Store operation count: {len(operations)}",
-            )
-        )
-    if f"{len(operations)} allowlisted Store actions" not in compact_chatgpt:
-        issues.append(
-            Issue(
-                "chatgpt_store_operation_count_stale",
-                _display_path(chatgpt_path, root),
                 f"expected current Store operation count: {len(operations)}",
             )
         )
@@ -1749,6 +1787,7 @@ def audit(
 
     issues.extend(_check_script_instruction_text(root))
     issues.extend(_check_api_guide_required_routes(root))
+    issues.extend(_check_agent_connector_doc_contract(root))
     issues.extend(_check_short_server_instruction_commands(root))
     issues.extend(_check_quality_workflow_required_gates(root))
     issues.extend(_scan_retired_candidate_issues(root))
