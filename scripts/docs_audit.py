@@ -1175,12 +1175,22 @@ def load_gateway_expected_tools(root: Path) -> set[str]:
     return set(PERMANENT_AGENT_GATEWAY_TOOL_NAMES)
 
 
+def load_expected_crm_operation_count(root: Path) -> int:
+    path = root / "scripts" / "attest_agent_gateway_v2.py"
+    tree = ast.parse(_read_text(path), filename=str(path))
+    count = _literal_assignment(tree, "EXPECTED_CRM_OPERATION_COUNT")
+    if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+        raise ValueError("EXPECTED_CRM_OPERATION_COUNT must be a positive integer")
+    return count
+
+
 def _check_mcp_guide_gateway_surface(root: Path) -> list[Issue]:
     path = root / "MCP_GUIDE.md"
     if not path.exists():
         return []
     text = _read_text(path)
     expected_tools = load_gateway_expected_tools(root)
+    expected_operation_count = load_expected_crm_operation_count(root)
     missing_tools = sorted(
         tool_name for tool_name in expected_tools if f"`{tool_name}`" not in text
     )
@@ -1200,6 +1210,15 @@ def _check_mcp_guide_gateway_surface(root: Path) -> list[Issue]:
                 "mcp_guide_gateway_count_stale",
                 _display_path(path, root),
                 f"expected current visible-tool count text: {expected_count_text}",
+            )
+        )
+    expected_operation_count_text = f"{expected_operation_count} CRM workflow operations"
+    if expected_operation_count_text not in text:
+        issues.append(
+            Issue(
+                "mcp_guide_gateway_operation_count_stale",
+                _display_path(path, root),
+                f"expected current CRM operation count text: {expected_operation_count_text}",
             )
         )
     return issues

@@ -514,18 +514,59 @@ class DocsAuditTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
             (temp_root / "MCP_GUIDE.md").write_text(
-                "Production advertises exactly 2 tools: `agent_bootstrap`.\n",
+                "Production advertises exactly 2 tools and 46 CRM workflow operations: "
+                "`agent_bootstrap`.\n",
                 encoding="utf-8",
             )
-            with patch.object(
-                module,
-                "load_gateway_expected_tools",
-                return_value={"agent_bootstrap", "new_gateway_tool"},
+            with (
+                patch.object(
+                    module,
+                    "load_gateway_expected_tools",
+                    return_value={"agent_bootstrap", "new_gateway_tool"},
+                ),
+                patch.object(module, "load_expected_crm_operation_count", return_value=46),
             ):
                 issues = module._check_mcp_guide_gateway_surface(temp_root)
 
         self.assertEqual(["mcp_guide_gateway_tools_missing"], [issue.code for issue in issues])
         self.assertIn("new_gateway_tool", issues[0].detail)
+
+    def test_mcp_guide_operation_count_is_derived_from_attestation_source(self) -> None:
+        module = load_docs_audit_module()
+
+        self.assertEqual([], module._check_mcp_guide_gateway_surface(ROOT))
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            attestation = temp_root / "scripts" / "attest_agent_gateway_v2.py"
+            attestation.parent.mkdir(parents=True)
+            attestation.write_text("EXPECTED_CRM_OPERATION_COUNT = 47\n", encoding="utf-8")
+            guide = temp_root / "MCP_GUIDE.md"
+            guide.write_text(
+                "Production advertises exactly 1 tools and 46 CRM workflow operations: "
+                "`agent_bootstrap`.\n",
+                encoding="utf-8",
+            )
+
+            with patch.object(
+                module,
+                "load_gateway_expected_tools",
+                return_value={"agent_bootstrap"},
+            ):
+                issues = module._check_mcp_guide_gateway_surface(temp_root)
+                guide.write_text(
+                    "Production advertises exactly 1 tools and 47 CRM workflow operations: "
+                    "`agent_bootstrap`.\n",
+                    encoding="utf-8",
+                )
+                corrected_issues = module._check_mcp_guide_gateway_surface(temp_root)
+
+        self.assertEqual(
+            ["mcp_guide_gateway_operation_count_stale"],
+            [issue.code for issue in issues],
+        )
+        self.assertIn("47 CRM workflow operations", issues[0].detail)
+        self.assertEqual([], corrected_issues)
 
     def test_chatgpt_connector_setup_mentions_current_endpoint_and_safety(self) -> None:
         module = load_docs_audit_module()

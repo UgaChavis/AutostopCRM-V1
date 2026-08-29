@@ -349,7 +349,7 @@ bearer remains server-local, then verify OAuth separately with
 `scripts/check_mcp_oauth.py`.
 
 Stop-the-line production attestation is separate from release smoke. It freezes
-the live 24 public tools, 43 CRM workflow operations and Manager-used CRM raw
+the live 24 public tools, 46 CRM workflow operations and Manager-used CRM raw
 capabilities, then executes one case per invocation:
 
 ```bash

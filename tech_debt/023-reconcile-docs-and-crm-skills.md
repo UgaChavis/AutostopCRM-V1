@@ -8,8 +8,8 @@
 
 Repo docs audit зелёный, но ручная проверка нашла drift:
 
-- `MCP_GUIDE.md` и task 009 говорят о 43 CRM workflow operations, current
-  attestation требует 46;
+- `MCP_GUIDE.md` говорит о 43 CRM workflow operations, хотя task 009 и current
+  attestation требуют 46;
 - backlog хранит 175 capability actions и 100 writes, current parity — 176 и
   101/101;
 - `AGENTS.md` и connector note повторяют детали, уже канонические в runbook и
