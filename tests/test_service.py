@@ -1,5 +1,5 @@
 from __future__ import annotations
-# ruff: noqa: I001,E402,F401,UP017,F841,UP012
+# ruff: noqa: I001,E402,F401,UP017,UP012
 
 import base64
 import hashlib
@@ -4097,9 +4097,7 @@ class CardServiceTests(unittest.TestCase):
                 "work_percent": "20",
             }
         )["employee"]
-        cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
-            "cashbox"
-        ]
+        self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})
         open_card = self.service.create_card(
             {
                 "vehicle": "KIA RIO",
@@ -4168,7 +4166,7 @@ class CardServiceTests(unittest.TestCase):
                 "actor_name": "ADMIN",
             }
         )["transaction"]
-        advance = self.service.create_employee_salary_transaction(
+        self.service.create_employee_salary_transaction(
             {
                 "employee_id": employee["id"],
                 "transaction_kind": "salary_advance",
