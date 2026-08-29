@@ -379,6 +379,7 @@ class DocsAuditTests(unittest.TestCase):
                 "desktop build entrypoint is not documented: build_app.ps1",
                 "portable release assembly is not documented: prepare_release.ps1",
                 "complete desktop release gate is not documented: run_quality_pass.ps1",
+                "canonical local CI profile is not documented: run_checks.ps1 -Profile ci",
                 "portable executable verification is not documented: post_build_verification.py",
                 "payroll audit tool is not documented: payroll_audit_report.py",
                 "client data-quality maintenance tool is not documented: client_data_quality_maintenance.py",
@@ -461,21 +462,13 @@ class DocsAuditTests(unittest.TestCase):
 
             issues = module._check_quality_workflow_required_gates(temp_root)
 
-        self.assertEqual(4, len(issues))
+        expected_details = {
+            f"{detail}: {required_text}"
+            for required_text, detail in module.QUALITY_WORKFLOW_REQUIRED_TEXT
+        }
+        self.assertEqual(len(expected_details), len(issues))
         self.assertEqual({"quality_workflow_missing_gate"}, {issue.code for issue in issues})
-        self.assertEqual(
-            {
-                "GitHub quality workflow does not run docs audit: "
-                "python scripts/docs_audit.py --format text",
-                "GitHub quality workflow does not collect full-suite branch coverage: "
-                "coverage run -m unittest discover -s tests -v",
-                "GitHub quality workflow does not enforce the coverage ratchet: "
-                "python scripts/coverage_audit.py --format text",
-                "GitHub quality workflow does not run the mandatory core browser smoke: "
-                "python scripts/browser_smoke.py --profile core --attempts 1",
-            },
-            {issue.detail for issue in issues},
-        )
+        self.assertEqual(expected_details, {issue.detail for issue in issues})
 
     def test_mcp_guide_mentions_transport_security_allowlist_overrides(self) -> None:
         module = load_docs_audit_module()

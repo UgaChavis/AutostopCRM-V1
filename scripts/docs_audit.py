@@ -413,6 +413,7 @@ AGENTS_REQUIRED_TEXT = tuple(
         "explicit-owner flow",
         "compatibility names",
         "read-only production and rollback evidence",
+        "run_checks.ps1 -Profile ci",
         "`minimal_kanban`",
         "`%APPDATA%\\Minimal Kanban`",
         "`Start Kanban.exe`",
@@ -517,6 +518,10 @@ RUNBOOK_REQUIRED_TEXT = (
         "complete desktop release gate is not documented",
     ),
     (
+        "run_checks.ps1 -Profile ci",
+        "canonical local CI profile is not documented",
+    ),
+    (
         "post_build_verification.py",
         "portable executable verification is not documented",
     ),
@@ -550,6 +555,14 @@ QUALITY_WORKFLOW_REQUIRED_TEXT = (
     (
         "python scripts/browser_smoke.py --profile core --attempts 1",
         "GitHub quality workflow does not run the mandatory core browser smoke",
+    ),
+    (
+        "python scripts/crm_capability_parity.py --require-complete",
+        "GitHub quality workflow does not enforce capability parity",
+    ),
+    (
+        "python scripts/crm_change_feed_producer_parity.py --require-complete",
+        "GitHub quality workflow does not enforce change-feed parity",
     ),
 )
 

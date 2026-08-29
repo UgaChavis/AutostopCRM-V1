@@ -1,7 +1,7 @@
 # 016. Закрыть пробел test collection и локального quality gate
 
 Приоритет: P0
-Статус: slices 1–2 completed 2026-08-29; slices 3–4 pending
+Статус: выполнено 2026-08-30
 Риск изменения продукта: низкий; меняются tests/tooling
 
 ## Проблема
@@ -44,9 +44,27 @@
 
 - Три pytest-style функции преобразованы в собираемые `unittest.TestCase`, а
   guard запрещает новые module-level `test_*` вне точного attestation registry.
-- Commit `2f8b5d7` и hosted workflow `33248712521` зелёные. Срезы 3–4 про F841
-  и единый локальный quality profile остаются отдельными незавершёнными
-  изменениями; этот результат их не закрывает.
+- Срезы collection/guard опубликованы commit `2f8b5d7`; hosted workflow
+  `33248712521` зелёный.
+- Из `tests/test_service.py` удалён устаревший file-wide `F841` suppression и
+  две неиспользуемые привязки без удаления самих side-effect вызовов. Commit
+  `ec51902`; hosted workflow `33264017412` зелёный.
+- `scripts/run_checks.ps1 -Profile ci` последовательно зеркалит 25 обязательных
+  non-container gates hosted quality job: Ruff, docs, обе coverage-сессии и
+  ratchet, code health/localization/JS, capability/change-feed parity, core
+  browser smoke, compile и два performance gate. Coverage и pycache изолированы
+  в уникальном временном каталоге с проверяемой очисткой и восстановлением env.
+- Первый полный Windows/Python 3.13.12 прогон нового профиля прошёл: 2 103 теста,
+  34 ожидаемых platform skip, runtime branch coverage 79.74%, все 13 critical
+  coverage floors, 396-file code-health audit, parity gaps=0, core browser smoke
+  и production-scale synthetic performance thresholds.
+- Hosted-only отличия перечислены явно: Ubuntu/Python 3.12, production Compose
+  config и `docker-runtime-assets`. Live/full-browser блоки остаются только
+  ручными `workflow_dispatch` inputs и выключены по умолчанию; локальный профиль
+  не читает `.env`, не обращается к production и не запускает deploy.
+- Отдельный Windows/Python 3.12 hosted job сейчас не добавлен: он дублировал бы
+  полный локальный Windows gate. Вернуться к нему нужно только при повторяемом
+  Windows-only дефекте, который не воспроизводится этим профилем.
 
 ## Приёмка
 

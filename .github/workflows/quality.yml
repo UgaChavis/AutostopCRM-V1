@@ -183,6 +183,11 @@ jobs:
       - name: Generated JavaScript syntax
         run: python scripts/check_web_assets_js.py
 
+      - name: Capability and change-feed parity
+        run: |
+          python scripts/crm_capability_parity.py --require-complete
+          python scripts/crm_change_feed_producer_parity.py --require-complete
+
       - name: Mandatory core browser smoke
         id: core_browser_smoke
         env:

@@ -123,14 +123,16 @@ reimplementing those rules.
 .\scripts\setup_dev.ps1 -InstallGitHooks
 .\scripts\doctor.ps1
 .\scripts\run_checks.ps1
-.\.venv\Scripts\python.exe scripts\crm_capability_parity.py --require-complete
-.\.venv\Scripts\python.exe scripts\crm_change_feed_producer_parity.py --require-complete
-.\.venv\Scripts\python.exe scripts\browser_smoke.py --profile core --attempts 1
+.\scripts\run_checks.ps1 -Profile ci
 ```
 
-The core browser profile is the short mandatory temp-data gate. Use
-`--profile full` for the release profile after `scripts\toolchain_doctor.ps1`
-confirms Chromium, Qt PDF, `pdfinfo`, and `pdftotext`.
+The default profile is the fast changed-file gate. `-Profile ci` is the
+canonical serial local mirror of mandatory non-container quality gates,
+including branch coverage, parity, core browser smoke, and bounded performance
+checks. Hosted CI remains required for Ubuntu/Python 3.12, production Compose
+validation, and `docker-runtime-assets`. Use browser `--profile full` only for
+release verification after `scripts\toolchain_doctor.ps1` confirms the PDF
+toolchain.
 
 Run the desktop application or the headless API/MCP runtime:
 

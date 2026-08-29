@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -825,9 +826,312 @@ printf 'status=%s\n' "$status"
         self.assertIn("playwright", requirements_dev)
         self.assertIn("coverage==", requirements_dev)
 
+    def test_local_ci_profile_matches_mandatory_hosted_quality_gates(self) -> None:
+        profile = (PROJECT_ROOT / "scripts" / "run_checks.ps1").read_text(encoding="utf-8")
+        workflow = (PROJECT_ROOT / ".github" / "workflows" / "quality.yml").read_text(
+            encoding="utf-8"
+        )
+        ci_profile = profile[profile.index("$managedEnvironmentNames = @(") :]
+        workflow_flat = re.sub(r"\\\s*\n", " ", workflow)
+        workflow_flat = re.sub(r"\s+", " ", workflow_flat)
+
+        def workflow_step_block(step_name: str) -> str:
+            pattern = re.compile(
+                rf"^      - name: {re.escape(step_name)}\n.*?"
+                r"(?=^      - name: |\Z)",
+                re.DOTALL | re.MULTILINE,
+            )
+            matches = pattern.findall(workflow)
+            self.assertEqual(1, len(matches), step_name)
+            return matches[0]
+
+        def step_args(step_name: str) -> tuple[str, ...]:
+            pattern = re.compile(
+                rf'Invoke-Python\s+-StepName\s+"{re.escape(step_name)}"\s+'
+                r"-Arguments\s+@\((?P<args>.*?)\)",
+                re.DOTALL,
+            )
+            matches = list(pattern.finditer(ci_profile))
+            self.assertEqual(1, len(matches), step_name)
+            return tuple(re.findall(r'"([^"]*)"', matches[0].group("args")))
+
+        self.assertIn('[ValidateSet("changed", "ci")]', profile)
+        self.assertIn('$Profile = "changed"', profile)
+        self.assertEqual(2, profile.count(") + $targets)"))
+        expected_steps = (
+            (
+                "Full Ruff format",
+                ("-m", "ruff", "format", "--check", "."),
+                "ruff format --check .",
+            ),
+            ("Full Ruff lint", ("-m", "ruff", "check", "."), "ruff check ."),
+            (
+                "Documentation audit",
+                ("scripts/docs_audit.py", "--format", "text"),
+                "python scripts/docs_audit.py --format text",
+            ),
+            (
+                "Erase stale runtime coverage",
+                ("-m", "coverage", "erase"),
+                "coverage erase",
+            ),
+            (
+                "Runtime branch coverage",
+                ("-m", "coverage", "run", "-m", "unittest", "discover", "-s", "tests", "-v"),
+                "coverage run -m unittest discover -s tests -v",
+            ),
+            (
+                "Combine runtime coverage",
+                ("-m", "coverage", "combine"),
+                "coverage combine",
+            ),
+            (
+                "Report runtime coverage",
+                ("-m", "coverage", "report", "--show-missing"),
+                "coverage report --show-missing",
+            ),
+            (
+                "Write runtime coverage JSON",
+                ("-m", "coverage", "json", "-o", "coverage-runtime.json"),
+                "coverage json -o coverage-runtime.json",
+            ),
+            (
+                "Write runtime coverage XML",
+                ("-m", "coverage", "xml", "-o", "coverage-runtime.xml"),
+                "coverage xml -o coverage-runtime.xml",
+            ),
+            (
+                "Write runtime coverage HTML",
+                ("-m", "coverage", "html", "-d", "htmlcov"),
+                "coverage html -d htmlcov",
+            ),
+            (
+                "Erase stale release coverage",
+                ("-m", "coverage", "erase"),
+                "coverage erase",
+            ),
+            (
+                "Release branch coverage",
+                (
+                    "-m",
+                    "coverage",
+                    "run",
+                    "--source=scripts",
+                    "-m",
+                    "unittest",
+                    "tests.test_agent_release_backup",
+                    "tests.test_agent_release_retention",
+                    "-v",
+                ),
+                "coverage run --source=scripts -m unittest tests.test_agent_release_backup "
+                "tests.test_agent_release_retention -v",
+            ),
+            (
+                "Combine release coverage",
+                ("-m", "coverage", "combine"),
+                "coverage combine",
+            ),
+            (
+                "Report release coverage",
+                ("-m", "coverage", "report", "--show-missing"),
+                "coverage report --show-missing",
+            ),
+            (
+                "Write release coverage JSON",
+                ("-m", "coverage", "json", "-o", "coverage-release.json"),
+                "coverage json -o coverage-release.json",
+            ),
+            (
+                "Coverage ratchet",
+                ("scripts/coverage_audit.py", "--format", "text"),
+                "python scripts/coverage_audit.py --format text",
+            ),
+            (
+                "Repository code health",
+                ("scripts/code_health_audit.py", "--format", "text"),
+                "python scripts/code_health_audit.py --format text",
+            ),
+            (
+                "Localization audit",
+                ("scripts/audit_localization.py",),
+                "python scripts/audit_localization.py",
+            ),
+            (
+                "Generated browser JavaScript",
+                ("scripts/check_web_assets_js.py",),
+                "python scripts/check_web_assets_js.py",
+            ),
+            (
+                "CRM capability parity",
+                ("scripts/crm_capability_parity.py", "--require-complete"),
+                "python scripts/crm_capability_parity.py --require-complete",
+            ),
+            (
+                "Change-feed producer parity",
+                ("scripts/crm_change_feed_producer_parity.py", "--require-complete"),
+                "python scripts/crm_change_feed_producer_parity.py --require-complete",
+            ),
+            (
+                "Mandatory core browser smoke",
+                ("scripts/browser_smoke.py", "--profile", "core", "--attempts", "1"),
+                "python scripts/browser_smoke.py --profile core --attempts 1",
+            ),
+            (
+                "Compile release probe scripts",
+                (
+                    "-m",
+                    "py_compile",
+                    "scripts/perf_probe.py",
+                    "scripts/perf_workflows.py",
+                    "scripts/finance_audit_report.py",
+                    "scripts/browser_smoke.py",
+                ),
+                "python -m py_compile scripts/perf_probe.py scripts/perf_workflows.py "
+                "scripts/finance_audit_report.py scripts/browser_smoke.py",
+            ),
+            (
+                "Local temp performance probe",
+                (
+                    "scripts/perf_probe.py",
+                    "--local-temp-server",
+                    "--iterations",
+                    "1",
+                    "--max-snapshot-gzip-ms",
+                    "1200",
+                    "--max-snapshot-gzip-bytes",
+                    "120000",
+                    "--max-revision-ms",
+                    "800",
+                    "--max-get-card-ms",
+                    "800",
+                ),
+                "python scripts/perf_probe.py --local-temp-server --iterations 1 "
+                "--max-snapshot-gzip-ms 1200 --max-snapshot-gzip-bytes 120000 "
+                "--max-revision-ms 800 --max-get-card-ms 800",
+            ),
+            (
+                "Stage 1 production-scale performance gates",
+                (
+                    "scripts/perf_workflows.py",
+                    "--synthetic-state-profile",
+                    "current-production",
+                    "--stage1-only",
+                    "--skip-browser",
+                    "--warmup-iterations",
+                    "2",
+                    "--iterations",
+                    "20",
+                    "--max-backend-write-ms",
+                    "600",
+                    "--max-storage-write-ms",
+                    "550",
+                    "--max-revision-server-ms",
+                    "20",
+                    "--max-get-card-direct-ms",
+                    "20",
+                    "--max-list-cashboxes-ms",
+                    "50",
+                    "--max-feed-read-ms",
+                    "50",
+                    "--max-feed-replay-ms",
+                    "20",
+                ),
+                "python scripts/perf_workflows.py --synthetic-state-profile current-production "
+                "--stage1-only --skip-browser --warmup-iterations 2 --iterations 20 "
+                "--max-backend-write-ms 600 --max-storage-write-ms 550 "
+                "--max-revision-server-ms 20 --max-get-card-direct-ms 20 "
+                "--max-list-cashboxes-ms 50 --max-feed-read-ms 50 --max-feed-replay-ms 20",
+            ),
+        )
+        local_positions: list[int] = []
+        hosted_cursor = 0
+        for step_name, expected_args, hosted_command in expected_steps:
+            with self.subTest(step_name=step_name):
+                self.assertEqual(expected_args, step_args(step_name))
+                local_positions.append(ci_profile.index(f'StepName "{step_name}"'))
+                hosted_index = workflow_flat.find(hosted_command, hosted_cursor)
+                self.assertGreaterEqual(hosted_index, 0, hosted_command)
+                hosted_cursor = hosted_index + len(hosted_command)
+
+        self.assertEqual(sorted(local_positions), local_positions)
+        self.assertEqual(1, ci_profile.count('"scripts/finance_audit_report.py"'))
+        for environment_name in (
+            "PYTHONPYCACHEPREFIX",
+            "COVERAGE_FILE",
+            "QT_QPA_PLATFORM",
+            "QTWEBENGINE_DISABLE_SANDBOX",
+            "AUTOSTOP_BROWSER_SMOKE_SCREENSHOT_DIR",
+        ):
+            with self.subTest(environment_name=environment_name):
+                self.assertIn(f'"{environment_name}"', ci_profile)
+        self.assertIn("$env:PYTHONPYCACHEPREFIX = $ciPycachePath", ci_profile)
+        self.assertIn('$env:COVERAGE_FILE = Join-Path $ciPycachePath ".coverage"', ci_profile)
+        self.assertIn("finally", ci_profile)
+        self.assertIn("SetEnvironmentVariable", ci_profile)
+        self.assertIn("StartsWith($tempRootPrefix", ci_profile)
+        self.assertIn("Remove-Item -LiteralPath $ciPycachePath -Recurse -Force", ci_profile)
+        for forbidden in (
+            "https://crm.autostopcrm.ru",
+            "--base-url",
+            "--mcp-url",
+            "check_live_connector.py",
+            "deploy.sh",
+            "docker compose",
+            ".env",
+            "Start-Job",
+            "Start-ThreadJob",
+            "Start-Process",
+            "ForEach-Object -Parallel",
+            '"full"',
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, ci_profile)
+
+        self.assertIn(": > .env", workflow)
+        self.assertIn("trap 'rm -f .env' EXIT", workflow)
+        self.assertIn("docker compose config --quiet", workflow)
+
+        dispatch_inputs = workflow[workflow.index("    inputs:") : workflow.index("\njobs:")]
+        for input_name in ("browser_smoke", "live_probes"):
+            with self.subTest(input_name=input_name):
+                pattern = re.compile(
+                    rf"^      {re.escape(input_name)}:\n.*?"
+                    r"(?=^      [a-z][a-z0-9_-]*:|\Z)",
+                    re.DOTALL | re.MULTILINE,
+                )
+                matches = pattern.findall(dispatch_inputs)
+                self.assertEqual(1, len(matches))
+                self.assertIn('default: "false"', matches[0])
+
+        full_browser_block = workflow_step_block("Optional full browser smoke")
+        self.assertIn(
+            "if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser_smoke == 'true' }}",
+            full_browser_block,
+        )
+        self.assertIn(
+            "python scripts/browser_smoke.py --profile full --attempts 1",
+            full_browser_block,
+        )
+
+        live_probe_block = workflow_step_block("Optional read-only live probes")
+        self.assertIn(
+            "if: ${{ github.event_name == 'workflow_dispatch' && inputs.live_probes == 'true' }}",
+            live_probe_block,
+        )
+        self.assertIn("--base-url https://crm.autostopcrm.ru", live_probe_block)
+        self.assertIn("python scripts/finance_audit_report.py", live_probe_block)
+        for hosted_only in (
+            "Ubuntu/Python 3.12",
+            "production Compose configuration",
+            "docker-runtime-assets",
+        ):
+            with self.subTest(hosted_only=hosted_only):
+                self.assertIn(hosted_only, profile)
+
     def test_runbook_and_readme_document_quality_gates(self) -> None:
         runbook = (PROJECT_ROOT / "docs" / "OPERATIONS_RUNBOOK.md").read_text(encoding="utf-8")
         readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+        agents = (PROJECT_ROOT / "AGENTS.md").read_text(encoding="utf-8")
 
         self.assertIn("Release Checklist", runbook)
         self.assertIn("Finance Audit-First", runbook)
@@ -842,6 +1146,14 @@ printf 'status=%s\n' "$status"
         self.assertIn("AUTOSTOP_CRAWL4AI_SECRET_KEY", runbook)
         self.assertIn("Crawl4AI credential is absent or they", runbook)
         self.assertNotIn("--operator-username admin --operator-password admin", runbook)
+        self.assertIn("run_checks.ps1 -Profile ci", runbook)
+        self.assertIn("run_checks.ps1 -Profile ci", readme)
+        self.assertIn("run_checks.ps1 -Profile ci", agents)
+        self.assertIn("Ubuntu/Python 3.12", runbook)
+        self.assertIn("docker-runtime-assets", runbook)
+        self.assertIn("never runs live probes", runbook)
+        self.assertIn("`.env`", runbook)
+        self.assertIn("accesses production", runbook)
         self.assertIn("docs/OPERATIONS_RUNBOOK.md", readme)
 
     def test_prepare_release_generates_current_start_guide(self) -> None:

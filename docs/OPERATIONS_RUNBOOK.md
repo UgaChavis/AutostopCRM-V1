@@ -133,26 +133,29 @@ Each `--skill-path` must name a direct, non-linked `autostopcrm-*` directory
 under `~/.codex/skills` with a regular `SKILL.md`; unselected skills are ignored.
 The secret-bundle scan reports stale instruction classes, never secret values.
 
-For shared Python/service/API/MCP behavior:
+Use the fast changed-file profile while iterating:
 
 ```powershell
 .\scripts\run_checks.ps1
-.\.venv\Scripts\python.exe -m ruff format --check .
-.\.venv\Scripts\python.exe -m ruff check .
-.\.venv\Scripts\python.exe -m unittest discover -s .\tests -v
 ```
 
-Add the smallest relevant checks:
+For shared behavior and before publishing a substantial slice, run the one
+canonical local CI profile:
 
-- UI assets:
-  `.\.venv\Scripts\python.exe scripts\check_web_assets_js.py` and
-  `.\.venv\Scripts\python.exe scripts\browser_smoke.py --profile core --attempts 1`;
-- MCP/runtime:
-  `.\.venv\Scripts\python.exe scripts\check_agent_gateway_v2.py`;
-- localization:
-  `.\.venv\Scripts\python.exe scripts\audit_localization.py`;
-- repository health:
-  `.\.venv\Scripts\python.exe scripts\code_health_audit.py --format text`.
+```powershell
+.\scripts\run_checks.ps1 -Profile ci
+```
+
+It runs full Ruff, docs, the two serial branch-coverage measurements and
+`coverage_audit.py`, code health, localization, generated JavaScript,
+capability and change-feed parity, mandatory browser `--profile core`, compile,
+and bounded local performance gates. It uses an isolated Python cache so
+coverage and compile cannot race on Windows. It never runs live probes, edits
+`.env`, or accesses production.
+
+The local profile is not a complete hosted attestation. GitHub CI remains
+required for the Ubuntu/Python 3.12 harness, production Compose configuration,
+and `docker-runtime-assets` container contract.
 
 The repository-health audit classifies every tracked file as a canonical doc,
 manifest, runtime code/asset, operations tool, test, or deploy configuration.
@@ -162,25 +165,9 @@ scripts stay explicitly flagged for review until production evidence permits
 their removal.
 
 The health audit also enforces exact no-growth caps for every grandfathered
-large module, class, and function. Branch coverage is a separate measured
-ratchet. Generate both reports before running its audit:
-
-```powershell
-.\.venv\Scripts\python.exe -m coverage erase
-.\.venv\Scripts\python.exe -m coverage run -m unittest discover -s .\tests -v
-.\.venv\Scripts\python.exe -m coverage combine
-.\.venv\Scripts\python.exe -m coverage json -o coverage-runtime.json
-.\.venv\Scripts\python.exe -m coverage erase
-.\.venv\Scripts\python.exe -m coverage run --source=scripts -m unittest tests.test_agent_release_backup tests.test_agent_release_retention -v
-.\.venv\Scripts\python.exe -m coverage combine
-.\.venv\Scripts\python.exe -m coverage json -o coverage-release.json
-.\.venv\Scripts\python.exe scripts\coverage_audit.py --format text
-```
-
-The measured global and critical-path floors live in
+large module, class, and function. Branch-coverage floors live in
 `scripts/coverage_baseline.json`; do not lower them to make a change pass.
-GitHub Actions replaces the plain full unit invocation with the covered run and
-publishes text, JSON, XML, and HTML evidence.
+GitHub Actions publishes the full coverage evidence.
 
 Before the release-sized browser profile, run
 `.\scripts\toolchain_doctor.ps1 -SkipServer`. `--profile full` fails before
@@ -193,9 +180,9 @@ missing. The mandatory `--profile core` does not require the PDF toolchain.
   atomically publishes `build/` and `dist/`.
 - `scripts/prepare_release.ps1` calls that build, assembles the portable
   `release/Start Kanban.exe`, and publishes it from `release.staging/`.
-- `scripts/run_quality_pass.ps1` is the complete desktop gate: environment and
-  lint checks, all unit tests, localization, `prepare_release.ps1`, then
-  `scripts/post_build_verification.py` against the portable executable.
+- `scripts/run_quality_pass.ps1` is the separate desktop packaging gate. It
+  reruns its lint, test, and localization prechecks, then `prepare_release.ps1`
+  and `scripts/post_build_verification.py` against the portable executable.
 
 Do not treat a successful `build_app.ps1` alone as a verified release.
 
@@ -205,7 +192,7 @@ The mandatory stage-1 gate uses synthetic production-sized state and does not
 touch business data:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\perf_workflows.py --synthetic-state-profile current-production --stage1-only --skip-browser --warmup-iterations 2 --iterations 20 --max-backend-write-ms 600 --max-storage-write-ms 550 --max-revision-server-ms 20 --max-get-card-direct-ms 20
+.\.venv\Scripts\python.exe scripts\perf_workflows.py --synthetic-state-profile current-production --stage1-only --skip-browser --warmup-iterations 2 --iterations 20 --max-backend-write-ms 600 --max-storage-write-ms 550 --max-revision-server-ms 20 --max-get-card-direct-ms 20 --max-list-cashboxes-ms 50 --max-feed-read-ms 50 --max-feed-replay-ms 20
 ```
 
 Local read/workflow checks:

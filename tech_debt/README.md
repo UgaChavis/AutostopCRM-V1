@@ -115,7 +115,7 @@ production этим publish не обновлялся.
 |---|---|---|---|---|
 | 001 | P0 | [Зафиксировать числовой maintainability ratchet](001-maintainability-ratchet.md) | **Выполнено 2026-08-23** | — |
 | 015 | P0 | [Восстановить MCP/browser performance smoke](015-repair-performance-smoke-contracts.md) | Два документированных gate сейчас падают и не входят в CI | 001, 004 |
-| 016 | P0 | [Закрыть test collection/local quality gaps](016-close-test-collection-gap.md) | **Collection и guard опубликованы (`33248712521`); F841 и единый local profile ещё открыты** | 001, 002 |
+| 016 | P0 | [Закрыть test collection/local quality gaps](016-close-test-collection-gap.md) | **Выполнено 2026-08-30: collection/guard и F841 опубликованы; единый 25-step local CI profile принят полным прогоном** | 001, 002 |
 | 022 | P0 | [Защитить Docker runtime PNG](022-protect-docker-runtime-assets.md) | **Выполнено; hosted CI `33255765251` зелёный** | 001 |
 | 023 | P0 | [Синхронизировать canonical repo docs](023-reconcile-docs-and-crm-skills.md) | **Срезы 1–3 опубликованы; финальный consolidation в этом срезе** | — |
 | 024 | P0 | [Актуализировать локальные CRM skills](024-reconcile-local-crm-skills.md) | User-level skills содержат stale и небезопасные инструкции | 023 |
@@ -138,9 +138,9 @@ production этим publish не обновлялся.
 
 - Завершённая база 000/002/004/006/007 сведена в таблицу выше; отдельные журналы
   удалены после проверки всех 36 активных ratchet mappings и прямых ссылок.
-- Волна 0 — 016, 015, 022, 023 и отдельный local-only slice 024. Сначала
-  восстановить доверие к gates, Docker context и инструкциям; затем
-  зафиксировать новый baseline.
+- Волна 0 — 016, 022, 023 и local-only slice 024 завершены; следующий gate —
+  015. После восстановления MCP/browser performance smoke зафиксировать новый
+  baseline и переходить к структурным срезам.
 - Волна 1 — следующий read-only registrar/test slice 008+003, первый JS slice
   005, docs/generated cleanup и read-only inventory 017.
 - Волна 2 — 010, 011 и pure read-model slices 018. Каждый перенос уменьшает

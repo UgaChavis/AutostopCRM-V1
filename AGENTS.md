@@ -76,7 +76,7 @@ below are the source of truth; keep this file compact.
 Run focused checks first, then broaden for shared behavior:
 
 - docs: `.\.venv\Scripts\python.exe scripts/docs_audit.py --format text`;
-- Python/service/API/MCP: focused `unittest`, then `.\scripts\run_checks.ps1`;
+- Python/service/API/MCP: focused `unittest`, then `.\scripts\run_checks.ps1`; shared/full: `.\scripts\run_checks.ps1 -Profile ci`, then hosted CI;
 - formatting/lint: Ruff format-check and lint;
 - UI: `scripts/check_web_assets_js.py` plus relevant browser smoke;
 - Gateway/runtime: `scripts/check_agent_gateway_v2.py`; use `--exhaustive` for a
