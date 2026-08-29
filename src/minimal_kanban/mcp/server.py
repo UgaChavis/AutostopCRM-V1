@@ -4,7 +4,6 @@ import html
 import json
 import math
 import os
-import sys
 import threading
 import time
 from collections.abc import Callable
@@ -61,6 +60,7 @@ from .connector_diagnostics import (
     ConnectorDiagnosticsContext,
     register_connector_diagnostics,
 )
+from .manager_registration import _try_register_autostop_manager_tools
 from .oauth_provider import (
     DEFAULT_KANBAN_SCOPES,
     OAUTH_CONSENT_PATH,
@@ -105,43 +105,6 @@ _AUTOSTOP_MANAGER_WRITE_TOOLS = frozenset(
     }
 )
 _AUTOSTOP_MANAGER_READ_ONLY_TOOLS = MANAGER_GATEWAY_DEPENDENCY_NAMES - _AUTOSTOP_MANAGER_WRITE_TOOLS
-
-
-def _try_register_autostop_manager_tools(server: FastMCP, logger: Logger) -> None:
-    configured_path = os.environ.get("AUTOSTOP_MANAGER_PATH", "").strip()
-    repo_root = Path(__file__).resolve().parents[3]
-    candidates = []
-    if configured_path:
-        candidates.append(Path(configured_path).expanduser())
-    candidates.extend(
-        [
-            repo_root.parent / "AutostopManager",
-            repo_root.parent.parent / "AutostopManager",
-            Path("/opt/AutostopManager"),
-        ]
-    )
-
-    for candidate in candidates:
-        if candidate.exists():
-            candidate_text = str(candidate)
-            if candidate_text not in sys.path:
-                sys.path.insert(0, candidate_text)
-            break
-
-    try:
-        from autostop_manager.mcp_tools import register_manager_memory_tools
-    except Exception as exc:  # pragma: no cover - optional sibling project
-        if load_agent_gateway_security_policy().production:
-            raise RuntimeError("AutostopManager Gateway dependencies are unavailable") from exc
-        logger.info("autostop_manager.memory_tools unavailable: %s", exc)
-        return
-
-    register_manager_memory_tools(server, include_tools=MANAGER_GATEWAY_DEPENDENCY_NAMES)
-    tools = getattr(getattr(server, "_tool_manager", None), "_tools", {})
-    missing = MANAGER_GATEWAY_DEPENDENCY_NAMES - set(tools)
-    if missing and load_agent_gateway_security_policy().production:
-        raise RuntimeError(f"AutostopManager Gateway dependencies missing: {sorted(missing)}")
-    logger.info("autostop_manager.memory_tools registered=%s missing=%s", len(tools), len(missing))
 
 
 CONNECTOR_SCHEMA_VERSION = "2026-04-13"

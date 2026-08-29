@@ -28,6 +28,11 @@ if str(SRC) not in sys.path:
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
+from minimal_kanban.mcp.manager_registration import (  # noqa: E402, I001
+    AutostopManagerCompatibilityError,
+    AutostopManagerUnavailableError,
+)
+
 
 _LOCAL_ISOLATED_ENVIRONMENT = {
     "AUTOSTOP_STORE_API_URL": "",
@@ -312,10 +317,14 @@ def _logger() -> logging.Logger:
 
 
 def start_local_mcp_runtime(args: argparse.Namespace) -> LocalMcpRuntime:
-    from browser_smoke_runtime import start_temp_runtime
-
     _retry_retained_local_runtime_cleanup()
     logger = _logger()
+    from minimal_kanban.mcp.manager_registration import preflight_autostop_manager_registrar
+
+    preflight_autostop_manager_registrar(logger, strict=True)
+
+    from browser_smoke_runtime import start_temp_runtime
+
     api_runtime = start_temp_runtime(start_port=args.start_port)
     environment_lease: _EnvironmentLease | None = None
     local_runtime: LocalMcpRuntime | None = None
@@ -696,6 +705,14 @@ def main() -> int:
 
     try:
         result = asyncio.run(run_mcp_perf(args))
+    except (AutostopManagerCompatibilityError, AutostopManagerUnavailableError) as exc:
+        error = (
+            "autostop_manager_incompatible"
+            if isinstance(exc, AutostopManagerCompatibilityError)
+            else "autostop_manager_unavailable"
+        )
+        print(_json_dumps({"ok": False, "error": error, "stage": "local_preflight"}))
+        return 2
     except Exception as exc:  # noqa: BLE001 - perf CLI must report connection/setup failures.
         print(
             _json_dumps(

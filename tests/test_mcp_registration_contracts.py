@@ -21,6 +21,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from minimal_kanban.mcp import manager_registration as manager_registration_module  # noqa: E402
 from minimal_kanban.mcp import server as mcp_server_module  # noqa: E402
 from minimal_kanban.mcp.agent_gateway_support import (  # noqa: E402
     MANAGER_GATEWAY_DEPENDENCY_NAMES,
@@ -401,6 +402,74 @@ class McpRegistrationContractTests(unittest.TestCase):
             self.assertFalse(annotations.destructiveHint, tool_name)
             self.assertFalse(annotations.idempotentHint, tool_name)
             self.assertFalse(annotations.openWorldHint, tool_name)
+
+    def test_manager_preflight_rejects_legacy_registrar_without_invoking_it(self) -> None:
+        manager_package = types.ModuleType("autostop_manager")
+        manager_tools = types.ModuleType("autostop_manager.mcp_tools")
+        sentinel = "PRIVATE-LEGACY-MANAGER-PATH"
+        invocations: list[object] = []
+
+        def register_manager_memory_tools(server: object, store: object = sentinel) -> None:
+            invocations.append((server, store))
+
+        manager_tools.register_manager_memory_tools = register_manager_memory_tools
+        with (
+            patch.dict(os.environ, _RAW_REGISTRATION_ENV, clear=False),
+            patch.object(sys, "path", list(sys.path)),
+            patch.dict(
+                sys.modules,
+                {
+                    "autostop_manager": manager_package,
+                    "autostop_manager.mcp_tools": manager_tools,
+                },
+            ),
+            self.assertRaises(
+                manager_registration_module.AutostopManagerCompatibilityError
+            ) as raised,
+        ):
+            manager_registration_module.preflight_autostop_manager_registrar(
+                _test_logger(),
+                strict=True,
+            )
+
+        self.assertEqual([], invocations)
+        self.assertEqual(
+            "AutostopManager registrar does not support selective tool registration.",
+            str(raised.exception),
+        )
+        self.assertNotIn(sentinel, str(raised.exception))
+
+    def test_manager_preflight_keeps_missing_import_optional_unless_strict(self) -> None:
+        sentinel = "PRIVATE-MANAGER-IMPORT-DETAIL"
+        real_import = __import__
+
+        def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "autostop_manager.mcp_tools":
+                raise ImportError(sentinel)
+            return real_import(name, globals, locals, fromlist, level)
+
+        with (
+            patch.dict(os.environ, _RAW_REGISTRATION_ENV, clear=False),
+            patch.object(sys, "path", list(sys.path)),
+            patch("builtins.__import__", side_effect=guarded_import),
+        ):
+            manager_registration_module.preflight_autostop_manager_registrar(
+                _test_logger(),
+                strict=False,
+            )
+            with self.assertRaises(
+                manager_registration_module.AutostopManagerUnavailableError
+            ) as raised:
+                manager_registration_module.preflight_autostop_manager_registrar(
+                    _test_logger(),
+                    strict=True,
+                )
+
+        self.assertEqual(
+            "AutostopManager Gateway dependencies are unavailable.",
+            str(raised.exception),
+        )
+        self.assertNotIn(sentinel, str(raised.exception))
 
     def test_tool_path_alias_normalization_prefers_canonical_short_path(self) -> None:
         self.assertEqual(

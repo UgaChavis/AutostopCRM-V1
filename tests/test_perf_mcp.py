@@ -46,12 +46,16 @@ class PerfMcpTests(unittest.TestCase):
         )
         with (
             patch.dict(module.os.environ, {"TEST_MCP_TOKEN": secret}),
+            patch(
+                "minimal_kanban.mcp.manager_registration.preflight_autostop_manager_registrar"
+            ) as preflight,
             patch.object(module, "_run_mcp_perf_payload", side_effect=fake_run),
         ):
             result = asyncio.run(module.run_mcp_perf(args))
 
         self.assertEqual(captured_headers, {"Authorization": f"Bearer {secret}"})
         self.assertNotIn(secret, module._json_dumps(result))
+        preflight.assert_not_called()
 
     def test_remote_http_is_rejected_before_a_bearer_can_be_attached(self) -> None:
         module = load_perf_mcp_module()
@@ -256,6 +260,9 @@ class PerfMcpTests(unittest.TestCase):
 
             with (
                 patch.dict(module.os.environ, poison, clear=False),
+                patch(
+                    "minimal_kanban.mcp.manager_registration.preflight_autostop_manager_registrar"
+                ),
                 patch("browser_smoke_runtime.start_temp_runtime", return_value=api_runtime),
                 patch(
                     "minimal_kanban.mcp.client.BoardApiClient",
@@ -312,6 +319,9 @@ class PerfMcpTests(unittest.TestCase):
             )
             args = SimpleNamespace(start_port=42731, mcp_start_port=42831)
             with (
+                patch(
+                    "minimal_kanban.mcp.manager_registration.preflight_autostop_manager_registrar"
+                ),
                 patch("browser_smoke_runtime.start_temp_runtime", return_value=api_runtime),
                 patch(
                     "minimal_kanban.mcp.server.create_mcp_server",
@@ -323,6 +333,30 @@ class PerfMcpTests(unittest.TestCase):
 
             api_runtime.close.assert_called_once_with()
             self.assertEqual(original_environment, dict(module.os.environ))
+
+    def test_manager_preflight_fails_before_local_api_or_environment_start(self) -> None:
+        module = load_perf_mcp_module()
+        original_environment = dict(module.os.environ)
+        args = SimpleNamespace(start_port=42731, mcp_start_port=42831)
+        preflight_error = module.AutostopManagerCompatibilityError(
+            "PRIVATE-INCOMPATIBLE-MANAGER-DETAIL"
+        )
+
+        with (
+            patch(
+                "minimal_kanban.mcp.manager_registration.preflight_autostop_manager_registrar",
+                side_effect=preflight_error,
+            ) as preflight,
+            patch("browser_smoke_runtime.start_temp_runtime") as start_temp_runtime,
+            self.assertRaises(module.AutostopManagerCompatibilityError),
+        ):
+            module.start_local_mcp_runtime(args)
+
+        preflight.assert_called_once_with(module._logger(), strict=True)
+        start_temp_runtime.assert_not_called()
+        self.assertEqual(original_environment, dict(module.os.environ))
+        self.assertEqual({}, module._ACTIVE_LOCAL_RUNTIMES)
+        self.assertEqual([], module._RETAINED_FAILED_LOCAL_RUNTIMES)
 
     def test_failed_mcp_runtime_start_stops_every_owned_resource(self) -> None:
         module = load_perf_mcp_module()
@@ -340,6 +374,9 @@ class PerfMcpTests(unittest.TestCase):
             mcp_runtime.start.side_effect = RuntimeError("mcp start failed")
             args = SimpleNamespace(start_port=42731, mcp_start_port=42831)
             with (
+                patch(
+                    "minimal_kanban.mcp.manager_registration.preflight_autostop_manager_registrar"
+                ),
                 patch("browser_smoke_runtime.start_temp_runtime", return_value=api_runtime),
                 patch("minimal_kanban.mcp.server.create_mcp_server", return_value=object()),
                 patch(
@@ -414,6 +451,9 @@ class PerfMcpTests(unittest.TestCase):
 
             try:
                 with (
+                    patch(
+                        "minimal_kanban.mcp.manager_registration.preflight_autostop_manager_registrar"
+                    ),
                     patch("browser_smoke_runtime.start_temp_runtime", return_value=api_runtime),
                     patch("minimal_kanban.mcp.server.create_mcp_server", return_value=object()),
                     patch(
@@ -685,6 +725,40 @@ class PerfMcpTests(unittest.TestCase):
         self.assertEqual("https://crm.example", payload["mcp_url"])
         self.assertEqual("ValueError", payload["error"])
         self.assertNotIn(secret, encoded)
+
+    def test_main_reports_fixed_local_manager_preflight_failure(self) -> None:
+        module = load_perf_mcp_module()
+        sentinel = "PRIVATE-INCOMPATIBLE-MANAGER-DETAIL"
+
+        for error_type, error_code in (
+            (module.AutostopManagerCompatibilityError, "autostop_manager_incompatible"),
+            (module.AutostopManagerUnavailableError, "autostop_manager_unavailable"),
+        ):
+            with self.subTest(error_code=error_code):
+                stdout = io.StringIO()
+
+                async def failing_run(_args):
+                    raise error_type(sentinel)
+
+                with (
+                    patch.object(module, "run_mcp_perf", side_effect=failing_run),
+                    patch.object(sys, "argv", ["perf_mcp.py", "--local-temp-server"]),
+                    redirect_stdout(stdout),
+                ):
+                    exit_code = module.main()
+
+                encoded = stdout.getvalue()
+                self.assertEqual(2, exit_code)
+                self.assertEqual(
+                    {
+                        "ok": False,
+                        "error": error_code,
+                        "stage": "local_preflight",
+                    },
+                    json.loads(encoded),
+                )
+                self.assertNotIn(sentinel, encoded)
+                self.assertNotIn("crm.autostopcrm.ru", encoded)
 
     def test_report_url_drops_a_potentially_sensitive_path(self) -> None:
         module = load_perf_mcp_module()
