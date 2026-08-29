@@ -63,6 +63,12 @@ CI выполняет HTTP probe и synthetic Stage-1 с `--skip-browser`, по�
   stderr. Ошибки state benchmark превращаются в безопасный failed row без
   traceback. MCP surface/preflight и success-only browser login остаются
   следующими отдельными подсрезами.
+- Третий browser-contract подсрез сохраняет process-owned `browser_url` отдельно
+  от безопасного origin, скрывает runtime и URL с bearer из `repr`/JSON и
+  использует temp runtime для защищённого print-route. Success-only login вынесен
+  в общий support helper: browser smoke по-прежнему сначала проверяет негативный
+  login regression, а performance workflow выполняет только успешный путь.
+  MCP surface/preflight остаётся следующим отдельным подсрезом.
 
 ## Приёмка
 

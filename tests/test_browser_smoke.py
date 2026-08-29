@@ -9,7 +9,7 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, call, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "browser_smoke.py"
@@ -47,6 +47,122 @@ class FakeResponse:
 
 
 class BrowserSmokeScriptTests(unittest.TestCase):
+    def test_success_login_helper_uses_only_local_admin_success_path(self) -> None:
+        load_browser_smoke_module()
+        support = sys.modules["browser_smoke_support"]
+        page = SimpleNamespace(
+            wait_for_selector=AsyncMock(),
+            wait_for_function=AsyncMock(),
+            fill=AsyncMock(),
+            click=AsyncMock(),
+            evaluate=AsyncMock(return_value=False),
+        )
+        order = Mock()
+        order.attach_mock(page.wait_for_selector, "wait_for_selector")
+        order.attach_mock(page.wait_for_function, "wait_for_function")
+        order.attach_mock(page.fill, "fill")
+        order.attach_mock(page.click, "click")
+        order.attach_mock(page.evaluate, "evaluate")
+
+        asyncio.run(support._login_successfully(page))
+
+        page.wait_for_selector.assert_awaited_once_with("#identityInput", state="visible")
+        self.assertEqual(
+            page.fill.await_args_list,
+            [
+                call("#identityInput", "admin"),
+                call("#identityPassword", "admin"),
+            ],
+        )
+        page.click.assert_awaited_once_with("#identitySave")
+        waits = " ".join(str(item) for item in page.wait_for_function.await_args_list)
+        self.assertIn("__AUTOSTOP_UI_BOUND__", waits)
+        self.assertIn("#identityModal", waits)
+        self.assertIn("Неверный логин или пароль", waits)
+        self.assertNotIn("wrong-password", waits)
+        page.evaluate.assert_awaited_once()
+        ordered_calls = order.mock_calls
+        ui_ready = call.wait_for_function(
+            "() => window.__AUTOSTOP_UI_BOUND__ === true",
+            timeout=support.SMOKE_UI_BIND_TIMEOUT_MS,
+        )
+        modal_closed = call.wait_for_function(
+            "(selector) => !document.querySelector(selector)?.classList.contains('is-open')",
+            arg="#identityModal",
+        )
+        status_ready_index = next(
+            index
+            for index, item in enumerate(ordered_calls)
+            if item.args and "statusLine" in str(item.args[0])
+        )
+        self.assertLess(
+            ordered_calls.index(ui_ready), ordered_calls.index(call.fill("#identityInput", "admin"))
+        )
+        self.assertLess(
+            ordered_calls.index(call.fill("#identityPassword", "admin")),
+            ordered_calls.index(call.click("#identitySave")),
+        )
+        self.assertLess(
+            ordered_calls.index(call.click("#identitySave")), ordered_calls.index(modal_closed)
+        )
+        self.assertLess(ordered_calls.index(modal_closed), status_ready_index)
+
+    def test_browser_login_keeps_negative_regression_before_success_helper(self) -> None:
+        module = load_browser_smoke_module()
+        page = SimpleNamespace(
+            wait_for_selector=AsyncMock(),
+            wait_for_function=AsyncMock(),
+            fill=AsyncMock(),
+            click=AsyncMock(),
+            evaluate=AsyncMock(),
+        )
+        success = AsyncMock()
+        order = Mock()
+        order.attach_mock(page.wait_for_selector, "wait_for_selector")
+        order.attach_mock(page.wait_for_function, "wait_for_function")
+        order.attach_mock(page.evaluate, "evaluate")
+        order.attach_mock(page.fill, "fill")
+        order.attach_mock(page.click, "click")
+        order.attach_mock(success, "success")
+
+        with patch.object(module, "_login_successfully", success):
+            asyncio.run(module._login(page))
+
+        self.assertEqual(
+            page.fill.await_args_list,
+            [
+                call("#identityInput", "admin"),
+                call("#identityPassword", "wrong-password"),
+            ],
+        )
+        injected_failure = str(page.evaluate.await_args)
+        self.assertIn("browser-smoke-login-failure", injected_failure)
+        waits = " ".join(str(item) for item in page.wait_for_function.await_args_list)
+        self.assertIn("Неверный логин или пароль", waits)
+        success.assert_awaited_once_with(page)
+        ordered_calls = order.mock_calls
+        ui_ready = call.wait_for_function(
+            "() => window.__AUTOSTOP_UI_BOUND__ === true",
+            timeout=module.SMOKE_UI_BIND_TIMEOUT_MS,
+        )
+        error_visible_index = next(
+            index
+            for index, item in enumerate(ordered_calls)
+            if item.args and "identityMeta" in str(item.args[0])
+        )
+        failure_injected_index = next(
+            index
+            for index, item in enumerate(ordered_calls)
+            if item.args and "browser-smoke-login-failure" in str(item.args[0])
+        )
+        wrong_password_index = ordered_calls.index(call.fill("#identityPassword", "wrong-password"))
+        submit_index = ordered_calls.index(call.click("#identitySave"))
+        self.assertLess(ordered_calls.index(ui_ready), failure_injected_index)
+        self.assertLess(failure_injected_index, wrong_password_index)
+        self.assertLess(wrong_password_index, submit_index)
+        self.assertLess(submit_index, error_visible_index)
+        self.assertLess(error_visible_index, ordered_calls.index(call.success(page)))
+
     def test_profile_registry_has_unique_core_subset_and_tags(self) -> None:
         module = load_browser_smoke_module()
 

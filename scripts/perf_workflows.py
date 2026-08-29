@@ -15,7 +15,7 @@ import tempfile
 import time
 import urllib.parse
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -58,6 +58,7 @@ REPORT_OMITTED_KEYS = frozenset(
     {
         "base_url",
         "body",
+        "browser_url",
         "console_errors",
         "content",
         "data",
@@ -179,12 +180,23 @@ MODAL_WORKFLOWS = (
 @dataclass
 class BrowserRuntime:
     base_url: str
+    browser_url: str = field(repr=False)
     card_id: str
     local_temp_server: bool
     employee_id: str = ""
     payroll_card_id: str = ""
     salary_override_card_id: str = ""
-    runtime: Any | None = None
+    runtime: Any | None = field(default=None, repr=False)
+
+    def authenticated_url(self, path: str) -> str:
+        if not self.local_temp_server or self.runtime is None:
+            raise ValueError(
+                "Authenticated browser navigation requires a process-owned local temp runtime."
+            )
+        build_url = getattr(self.runtime, "authenticated_url", None)
+        if not callable(build_url):
+            raise ValueError("Local temp runtime does not support authenticated navigation.")
+        return str(build_url(path))
 
     def close(self) -> None:
         if self.runtime is not None:
@@ -500,6 +512,7 @@ def start_browser_runtime(args: argparse.Namespace) -> BrowserRuntime:
     runtime = start_temp_runtime(start_port=args.start_port)
     return BrowserRuntime(
         base_url=runtime.base_url,
+        browser_url=runtime.browser_url,
         card_id=args.card_id or runtime.card_id,
         local_temp_server=True,
         employee_id=runtime.employee_id,
@@ -793,9 +806,9 @@ async def measure_browser_action(
 
 
 async def login_browser(page: Any) -> None:
-    from browser_smoke import _login
+    from browser_smoke_support import _login_successfully
 
-    await _login(page)
+    await _login_successfully(page)
 
 
 async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
@@ -856,7 +869,7 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
 
             page.on("response", record_response)
             try:
-                await goto_with_retry(page, runtime.base_url, wait_until="domcontentloaded")
+                await goto_with_retry(page, runtime.browser_url, wait_until="domcontentloaded")
                 await login_browser(page)
                 await page.wait_for_selector("#board", timeout=15000)
                 card_selector = f'[data-card-id="{runtime.card_id}"]'
@@ -1108,7 +1121,9 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                         query = urllib.parse.urlencode({"employee_id": runtime.employee_id})
                         await goto_with_retry(
                             page,
-                            f"{runtime.base_url}/employee_salary_reconciliation_print?{query}",
+                            runtime.authenticated_url(
+                                f"/employee_salary_reconciliation_print?{query}"
+                            ),
                             wait_until="domcontentloaded",
                         )
                         await page.wait_for_selector("text=Акт сверки зарплаты", timeout=10000)

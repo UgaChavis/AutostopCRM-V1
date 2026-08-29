@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import importlib.util
 import io
@@ -9,7 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "perf_workflows.py"
@@ -77,30 +78,42 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
         self.assertIn("async def close_modal_best_effort(", script)
         self.assertIn("async def goto_with_retry(", script)
         self.assertIn("ERR_CONNECTION_TIMED_OUT", script)
-        self.assertIn(
-            "await goto_with_retry(\n"
-            "                            page,\n"
-            '                            f"{runtime.base_url}/employee_salary_reconciliation_print?{query}"',
+        self.assertIn("await goto_with_retry(page, runtime.browser_url", script)
+        self.assertIn("runtime.authenticated_url(", script)
+        self.assertIn('f"/employee_salary_reconciliation_print?{query}"', script)
+        self.assertNotIn(
+            'f"{runtime.base_url}/employee_salary_reconciliation_print?{query}"',
             script,
         )
+        navigation_index = script.index("await goto_with_retry(page, runtime.browser_url")
+        login_index = script.index("await login_browser(page)", navigation_index)
+        board_index = script.index('await page.wait_for_selector("#board"', login_index)
+        card_index = script.index("await page.wait_for_selector(card_selector", board_index)
+        self.assertLess(navigation_index, login_index)
+        self.assertLess(login_index, board_index)
+        self.assertLess(board_index, card_index)
         self.assertNotIn("print_page = await context.new_page()", script)
+        self.assertIn("browser_url", self.module.BrowserRuntime.__dataclass_fields__)
         self.assertIn("salary_override_card_id", self.module.BrowserRuntime.__dataclass_fields__)
         self.assertIn("employee_id", self.module.BrowserRuntime.__dataclass_fields__)
 
     def test_browser_write_workflows_require_local_temp_runtime(self) -> None:
         remote_runtime = self.module.BrowserRuntime(
             base_url="https://crm.example",
+            browser_url="https://crm.example",
             card_id="remote-card",
             local_temp_server=False,
         )
         local_runtime = self.module.BrowserRuntime(
             base_url="http://127.0.0.1:42999",
+            browser_url="http://127.0.0.1:42999/?access_token=temp-token",
             card_id="temp-card",
             local_temp_server=True,
             runtime=object(),
         )
         unowned_runtime = self.module.BrowserRuntime(
             base_url="http://127.0.0.1:42999",
+            browser_url="http://127.0.0.1:42999/?access_token=unowned-token",
             card_id="unowned-card",
             local_temp_server=True,
         )
@@ -108,6 +121,57 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
         self.assertFalse(self.module.browser_write_workflows_enabled(remote_runtime))
         self.assertTrue(self.module.browser_write_workflows_enabled(local_runtime))
         self.assertFalse(self.module.browser_write_workflows_enabled(unowned_runtime))
+        with self.assertRaisesRegex(ValueError, "process-owned local temp runtime"):
+            unowned_runtime.authenticated_url("/employee_salary_reconciliation_print")
+
+    def test_browser_runtime_preserves_private_temp_navigation_contract(self) -> None:
+        secret = "BROWSER-NAVIGATION-SECRET"
+        base_url = "http://127.0.0.1:42999"
+        temp_runtime = SimpleNamespace(
+            base_url=base_url,
+            browser_url=f"{base_url}/?access_token={secret}",
+            card_id="temp-card",
+            employee_id="employee-id",
+            payroll_card_id="payroll-card-id",
+            salary_override_card_id="salary-card-id",
+            api_token=secret,
+            authenticated_url=lambda path: (
+                f"{base_url}{path}{'&' if '?' in path else '?'}access_token={secret}"
+            ),
+            close=lambda: None,
+        )
+        smoke_module = ModuleType("browser_smoke")
+        smoke_module.start_temp_runtime = lambda *, start_port: temp_runtime
+        args = SimpleNamespace(local_temp_server=True, start_port=42999, card_id="")
+
+        with patch.dict(sys.modules, {"browser_smoke": smoke_module}):
+            runtime = self.module.start_browser_runtime(args)
+
+        self.assertEqual(runtime.base_url, base_url)
+        self.assertEqual(runtime.browser_url, temp_runtime.browser_url)
+        self.assertEqual(
+            runtime.authenticated_url(
+                "/employee_salary_reconciliation_print?employee_id=employee-id"
+            ),
+            f"{base_url}/employee_salary_reconciliation_print"
+            f"?employee_id=employee-id&access_token={secret}",
+        )
+        self.assertNotIn(secret, repr(runtime))
+        self.assertNotIn("api_token", repr(runtime))
+
+    def test_perf_login_uses_success_only_support_helper(self) -> None:
+        page = object()
+        helper = AsyncMock()
+        support_module = ModuleType("browser_smoke_support")
+        support_module._login_successfully = helper
+
+        with patch.dict(sys.modules, {"browser_smoke_support": support_module}):
+            asyncio.run(self.module.login_browser(page))
+
+        helper.assert_awaited_once_with(page)
+        script = SCRIPT_PATH.read_text(encoding="utf-8")
+        self.assertIn("from browser_smoke_support import _login_successfully", script)
+        self.assertNotIn("from browser_smoke import _login", script)
 
     def test_remote_browser_runtime_fails_closed_before_network_access(self) -> None:
         args = SimpleNamespace(
@@ -388,6 +452,7 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
                 "http://private-user:private-password@127.0.0.1:42731/"
                 "?access_token=browser-secret#fragment"
             ),
+            "browser_url": "http://127.0.0.1:42731/?access_token=navigation-secret",
             "card_id": "card-secret",
             "id": "record-secret",
             "entity_ids": ["entity-secret"],
@@ -430,6 +495,7 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
         self.assertNotIn("payload", encoded)
         for secret in (
             "browser-secret",
+            "navigation-secret",
             "card-secret",
             "employee-secret",
             "entity-secret",

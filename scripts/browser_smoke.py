@@ -64,9 +64,11 @@ from browser_smoke_profiles import (
 )
 from browser_smoke_runtime import TempRuntime, _first_free_port, start_temp_runtime
 from browser_smoke_support import (
+    SMOKE_UI_BIND_TIMEOUT_MS,
     _api_data,
     _close_card_modal_if_open,
     _is_modal_open,
+    _login_successfully,
     _wait_clients_search_ready,
     _wait_modal_closed,
     _wait_modal_open,
@@ -80,7 +82,6 @@ DEFAULT_BROWSER_SMOKE_TIMEOUT_SECONDS = 240.0
 PLAYWRIGHT_CLOSE_TIMEOUT_SECONDS = 10.0
 SMOKE_ACTION_TIMEOUT_MS = 20000
 SMOKE_NAVIGATION_TIMEOUT_MS = 15000
-SMOKE_UI_BIND_TIMEOUT_MS = 30000
 BENIGN_FAILED_REQUEST_MARKERS = ("net::ERR_ABORTED", "NS_BINDING_ABORTED", "AbortError")
 
 
@@ -335,19 +336,7 @@ async def _login(page: Any) -> None:
           );
         }"""
     )
-    await page.fill("#identityInput", "admin")
-    await page.fill("#identityPassword", "admin")
-    await page.click("#identitySave")
-    await _wait_modal_closed(page, "#identityModal")
-    await page.wait_for_function(
-        """() => {
-          const statusText = document.querySelector('#statusLine')?.textContent || '';
-          return !statusText.includes('Неверный логин или пароль');
-        }"""
-    )
-    if await _is_modal_open(page, "#operatorProfileModal"):
-        await page.click('[data-close="operator-profile"]')
-        await _wait_modal_closed(page, "#operatorProfileModal")
+    await _login_successfully(page)
 
 
 async def _login_gate_hides_board(page: Any) -> bool:

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+SMOKE_UI_BIND_TIMEOUT_MS = 30000
+
 
 async def _wait_modal_open(page: Any, selector: str) -> None:
     await page.wait_for_selector(f"{selector}.is-open")
@@ -24,6 +26,27 @@ async def _is_modal_open(page: Any, selector: str) -> bool:
             selector,
         )
     )
+
+
+async def _login_successfully(page: Any) -> None:
+    await page.wait_for_selector("#identityInput", state="visible")
+    await page.wait_for_function(
+        "() => window.__AUTOSTOP_UI_BOUND__ === true",
+        timeout=SMOKE_UI_BIND_TIMEOUT_MS,
+    )
+    await page.fill("#identityInput", "admin")
+    await page.fill("#identityPassword", "admin")
+    await page.click("#identitySave")
+    await _wait_modal_closed(page, "#identityModal")
+    await page.wait_for_function(
+        """() => {
+          const statusText = document.querySelector('#statusLine')?.textContent || '';
+          return !statusText.includes('Неверный логин или пароль');
+        }"""
+    )
+    if await _is_modal_open(page, "#operatorProfileModal"):
+        await page.click('[data-close="operator-profile"]')
+        await _wait_modal_closed(page, "#operatorProfileModal")
 
 
 async def _close_card_modal_if_open(page: Any) -> bool:
