@@ -205,7 +205,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Compile release probe scripts
-        run: python -m py_compile scripts/perf_probe.py scripts/perf_workflows.py scripts/finance_audit_report.py scripts/browser_smoke.py
+        run: python -m py_compile scripts/perf_probe.py scripts/perf_mcp.py scripts/perf_workflows.py scripts/finance_audit_report.py scripts/browser_smoke.py
 
       - name: Local temp performance probe
         run: |

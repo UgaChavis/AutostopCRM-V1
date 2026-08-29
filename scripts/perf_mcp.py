@@ -10,7 +10,7 @@ import statistics
 import sys
 import threading
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -32,9 +32,22 @@ from minimal_kanban.mcp.manager_registration import (  # noqa: E402, I001
     AutostopManagerCompatibilityError,
     AutostopManagerUnavailableError,
 )
+from minimal_kanban.mcp.agent_gateway_support import (  # noqa: E402, I001
+    AGENT_GATEWAY_FORMAT,
+    PERMANENT_AGENT_GATEWAY_TOOL_NAMES,
+)
 
 
 _LOCAL_ISOLATED_ENVIRONMENT = {
+    "AUTOSTOP_DEPLOYMENT_ENV": "development",
+    "AUTOSTOP_AGENT_GATEWAY_ENABLED": "1",
+    "AUTOSTOP_AGENT_GATEWAY_WRITES_ENABLED": "1",
+    "AUTOSTOP_AGENT_GATEWAY_FINANCE_ENABLED": "0",
+    "AUTOSTOP_AGENT_GATEWAY_MAIL_ENABLED": "1",
+    "AUTOSTOP_AGENT_GATEWAY_DESTRUCTIVE_ENABLED": "0",
+    "AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED": "0",
+    "AUTOSTOP_AGENT_SERVICE_IDENTITY": "perf-mcp-local",
+    "AUTOSTOP_MCP_OAUTH_ENABLED": "0",
     "AUTOSTOP_STORE_API_URL": "",
     "AUTOSTOP_STORE_READ_TOKEN": "",
     "AUTOSTOP_STORE_QUOTE_TOKEN": "",
@@ -43,6 +56,43 @@ _LOCAL_ISOLATED_ENVIRONMENT = {
     "MINIMAL_KANBAN_MCP_BEARER_TOKEN": "",
 }
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+_GATEWAY_SCENARIOS = (
+    "mcp.tools_list",
+    "mcp.agent_bootstrap",
+    "mcp.agent_board_digest",
+    "mcp.agent_entity_context",
+    "mcp.agent_board_workflow_dry_run",
+)
+_LOCAL_WORKFLOW_SCENARIO = "mcp.agent_board_workflow_dry_run"
+
+
+class GatewayV2SurfaceMismatchError(RuntimeError):
+    def __init__(self, *, actual_tool_count: int) -> None:
+        super().__init__("Gateway v2 public tool surface is incompatible.")
+        self.actual_tool_count = actual_tool_count
+
+
+class LocalMcpOwnershipError(RuntimeError):
+    pass
+
+
+def _single_nested_preflight_error(error: BaseException) -> BaseException | None:
+    leaves: list[BaseException] = []
+
+    def collect(current: BaseException) -> None:
+        if isinstance(current, BaseExceptionGroup):
+            for nested in current.exceptions:
+                collect(nested)
+            return
+        leaves.append(current)
+
+    collect(error)
+    if len(leaves) == 1 and isinstance(
+        leaves[0],
+        (GatewayV2SurfaceMismatchError, LocalMcpOwnershipError),
+    ):
+        return leaves[0]
+    return None
 
 
 class _RedactingArgumentParser(argparse.ArgumentParser):
@@ -124,7 +174,7 @@ def _try_cleanup(callback: Callable[[], Any]) -> bool:
 
 @dataclass
 class LocalMcpRuntime:
-    mcp_url: str
+    mcp_url: str = field(repr=False)
     card_id: str = field(repr=False)
     api_runtime: Any = field(repr=False)
     mcp_runtime: Any | None = field(repr=False)
@@ -338,6 +388,7 @@ def start_local_mcp_runtime(args: argparse.Namespace) -> LocalMcpRuntime:
         environment_lease = _EnvironmentLease.apply(
             {
                 **_LOCAL_ISOLATED_ENVIRONMENT,
+                "AUTOSTOP_MAINTENANCE_MARKER": str(base_dir / "maintenance-disabled"),
                 "AUTOSTOP_MANAGER_DB": str(base_dir / "autostop-manager.sqlite3"),
                 "AUTOSTOP_MANAGER_ENV_FILE": str(manager_env_file),
             }
@@ -386,69 +437,110 @@ async def _measure(awaitable_factory: Callable[[], Awaitable[Any]]) -> tuple[flo
     return (time.perf_counter() - started_at) * 1000, result
 
 
-def _structured_payload(result: Any) -> Any:
+def _strict_gateway_envelope(result: Any) -> tuple[dict[str, Any] | None, str | None]:
+    is_error = getattr(result, "isError", False) is True
     payload = getattr(result, "structuredContent", None)
-    if payload is not None:
-        return payload
-    if hasattr(result, "model_dump"):
-        return result.model_dump(mode="json")
-    return result
+    if not isinstance(payload, Mapping):
+        return None, "tool_error" if is_error else "invalid_structured_content"
+    envelope = dict(payload)
+    if (
+        envelope.get("format") != AGENT_GATEWAY_FORMAT
+        or type(envelope.get("ok")) is not bool
+        or not isinstance(envelope.get("status"), str)
+        or not envelope["status"].strip()
+        or any(
+            not isinstance(envelope.get(key), Mapping)
+            for key in ("summary", "verification", "page", "meta")
+        )
+        or any(
+            not isinstance(envelope.get(key), list)
+            for key in ("changes", "warnings", "next_actions")
+        )
+    ):
+        return None, "invalid_gateway_envelope"
+    if is_error and envelope["ok"]:
+        return None, "tool_result_inconsistent"
+    return envelope, None if envelope["ok"] else "application_error"
 
 
-async def _call_tool_sample(
+async def _call_gateway_tool_sample(
     session: ClientSession,
     tool_name: str,
     args: dict[str, Any],
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
     try:
         duration_ms, result = await _measure(lambda: session.call_tool(tool_name, args))
-        payload = _structured_payload(result)
-        application_error = isinstance(payload, dict) and payload.get("ok") is False
-        return {
-            "duration_ms": duration_ms,
-            "payload_bytes": payload_size(payload),
-            "error": "tool_error"
-            if getattr(result, "isError", False)
-            else "application_error"
-            if application_error
-            else None,
-        }
-    except Exception as exc:  # noqa: BLE001 - perf report should capture all failures.
-        return {
-            "duration_ms": 0.0,
-            "payload_bytes": 0,
-            "error": type(exc).__name__,
-        }
+        envelope, error = _strict_gateway_envelope(result)
+        return (
+            {
+                "duration_ms": duration_ms,
+                "payload_bytes": payload_size(envelope) if envelope is not None else 0,
+                "error": error,
+            },
+            envelope,
+        )
+    except Exception:  # noqa: BLE001 - reports expose only one fixed transport code.
+        return (
+            {
+                "duration_ms": 0.0,
+                "payload_bytes": 0,
+                "error": "transport_error",
+            },
+            None,
+        )
 
 
 async def _list_tools_sample(session: ClientSession) -> tuple[dict[str, Any], list[str]]:
     try:
         duration_ms, result = await _measure(session.list_tools)
-        tools_payload = [
-            {
-                "name": tool.name,
-                "description": tool.description,
-                "inputSchema": tool.inputSchema,
-            }
-            for tool in result.tools
-        ]
+        tools = getattr(result, "tools", None)
+        if not isinstance(tools, list):
+            raise TypeError("invalid tool list")
+        tool_descriptors: list[dict[str, Any]] = []
+        tool_names: list[str] = []
+        for tool in tools:
+            name = getattr(tool, "name", None)
+            description = getattr(tool, "description", None)
+            input_schema = getattr(tool, "inputSchema", None)
+            if not isinstance(name, str):
+                raise TypeError("invalid tool name")
+            if description is not None and not isinstance(description, str):
+                raise TypeError("invalid tool description")
+            if not isinstance(input_schema, Mapping):
+                raise TypeError("invalid tool input schema")
+            tool_names.append(name)
+            tool_descriptors.append(
+                {
+                    "name": name,
+                    "description": description or "",
+                    "inputSchema": dict(input_schema),
+                }
+            )
         return (
             {
                 "duration_ms": duration_ms,
-                "payload_bytes": payload_size(tools_payload),
+                "payload_bytes": payload_size(tool_descriptors),
                 "error": None,
             },
-            [tool.name for tool in result.tools],
+            tool_names,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - reports expose only one fixed list error.
         return (
             {
                 "duration_ms": 0.0,
                 "payload_bytes": 0,
-                "error": type(exc).__name__,
+                "error": "tool_list_error",
             },
             [],
         )
+
+
+def _require_gateway_v2_surface(tool_names: list[str]) -> None:
+    if (
+        len(tool_names) != len(PERMANENT_AGENT_GATEWAY_TOOL_NAMES)
+        or frozenset(tool_names) != PERMANENT_AGENT_GATEWAY_TOOL_NAMES
+    ):
+        raise GatewayV2SurfaceMismatchError(actual_tool_count=len(tool_names))
 
 
 def _writes_enabled(local_runtime: LocalMcpRuntime | None, mcp_url: str) -> bool:
@@ -478,62 +570,181 @@ def _writes_enabled(local_runtime: LocalMcpRuntime | None, mcp_url: str) -> bool
     )
 
 
-async def _discover_card_id(session: ClientSession, requested: str) -> str:
-    if requested.strip():
-        return requested.strip()
-    result = await session.call_tool("get_cards", {"compact": True, "include_archived": False})
-    payload = result.structuredContent if hasattr(result, "structuredContent") else {}
-    cards = payload.get("data", {}).get("cards", []) if isinstance(payload, dict) else []
-    if isinstance(cards, list) and cards:
-        return str(cards[0].get("id") or "").strip()
+def _safe_entity_id(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    normalized = value.strip()
+    if (
+        not normalized
+        or normalized != value
+        or len(normalized) > 160
+        or any(ord(character) < 32 or ord(character) == 127 for character in normalized)
+    ):
+        return ""
+    return normalized
+
+
+def _card_id_from_digest(envelope: Mapping[str, Any] | None) -> str:
+    if not isinstance(envelope, Mapping) or envelope.get("ok") is not True:
+        return ""
+    data = envelope.get("data")
+    cards = data.get("cards") if isinstance(data, Mapping) else None
+    if not isinstance(cards, list):
+        return ""
+    for card in cards:
+        if isinstance(card, Mapping):
+            card_id = _safe_entity_id(card.get("id"))
+            if card_id:
+                return card_id
     return ""
 
 
-async def _move_column_pair(session: ClientSession, card_id: str) -> tuple[str, str]:
-    card_result = await session.call_tool("get_card", {"card_id": card_id})
-    card_payload = card_result.structuredContent
-    current_column = str(card_payload.get("data", {}).get("card", {}).get("column") or "")
-    columns_result = await session.call_tool("list_columns", {})
-    columns_payload = columns_result.structuredContent
-    columns = columns_payload.get("data", {}).get("columns", [])
-    if isinstance(columns, list):
-        for column in columns:
-            column_id = str(column.get("id") or "")
-            if column_id and column_id != current_column:
-                return current_column, column_id
-    return current_column, current_column
+def _failed_sample(error: str) -> dict[str, Any]:
+    return {"duration_ms": 0.0, "payload_bytes": 0, "error": error}
 
 
-def _move_target_for_iteration(columns: tuple[str, str], index: int) -> str:
-    current_column, alternative_column = columns
-    if not current_column or not alternative_column or current_column == alternative_column:
-        return ""
-    return alternative_column if index % 2 == 0 else current_column
+def _contract_violations(
+    rows: list[dict[str, Any]],
+    *,
+    iterations: int,
+    writes_enabled: bool,
+) -> list[str]:
+    violations: list[str] = []
+    rows_by_scenario: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        scenario = row.get("scenario")
+        if not isinstance(scenario, str) or scenario not in _GATEWAY_SCENARIOS:
+            violations.append("gateway:unexpected_scenario")
+            continue
+        if scenario in rows_by_scenario:
+            violations.append(f"{scenario}:duplicate_scenario")
+            continue
+        rows_by_scenario[scenario] = row
+
+    for scenario in _GATEWAY_SCENARIOS:
+        row = rows_by_scenario.get(scenario)
+        if row is None:
+            violations.append(f"{scenario}:missing_scenario")
+            continue
+        skipped = row.get("skipped") is True
+        remote_workflow = not writes_enabled and scenario == _LOCAL_WORKFLOW_SCENARIO
+        if skipped:
+            if not remote_workflow:
+                violations.append(f"{scenario}:required_scenario_skipped")
+            if row.get("iterations") != 0:
+                violations.append(f"{scenario}:iteration_count_mismatch")
+            continue
+        if remote_workflow:
+            violations.append(f"{scenario}:remote_workflow_not_skipped")
+        if row.get("iterations") != iterations:
+            violations.append(f"{scenario}:iteration_count_mismatch")
+        failed_requests = row.get("failed_requests")
+        if not isinstance(failed_requests, list):
+            violations.append(f"{scenario}:invalid_failed_requests")
+            continue
+        for error in failed_requests:
+            violations.append(f"{scenario}:{error}")
+    return violations
 
 
-def _write_skip_rows(
-    *, card_id: str, writes_enabled: bool, move_columns: tuple[str, str]
-) -> list[dict[str, Any]]:
-    if not writes_enabled:
-        reason = "Write scenarios require a process-created local temp runtime."
-        return [
-            skipped_row("mcp.update_card", reason),
-            skipped_row("mcp.move_card", reason),
-        ]
-    if not card_id:
-        reason = "No card_id available."
-        return [
-            skipped_row("mcp.update_card", reason),
-            skipped_row("mcp.move_card", reason),
-        ]
-    if not _move_target_for_iteration(move_columns, 0):
-        return [
-            skipped_row(
-                "mcp.move_card",
-                "No distinct local temp columns are available for write samples.",
+async def _run_gateway_session(
+    session: ClientSession,
+    *,
+    mcp_url: str,
+    args: argparse.Namespace,
+    local_runtime: LocalMcpRuntime | None,
+) -> dict[str, Any]:
+    scenario_samples: dict[str, list[dict[str, Any]]] = {
+        scenario: [] for scenario in _GATEWAY_SCENARIOS
+    }
+    iterations = max(1, args.iterations)
+    writes_enabled = _writes_enabled(local_runtime, mcp_url)
+    if local_runtime is not None and not writes_enabled:
+        raise LocalMcpOwnershipError("Local MCP runtime ownership is invalid.")
+    first_tools_sample, tool_names = await _list_tools_sample(session)
+    _require_gateway_v2_surface(tool_names)
+    scenario_samples["mcp.tools_list"].append(first_tools_sample)
+    local_card_id = (
+        _safe_entity_id(local_runtime.card_id)
+        if writes_enabled and local_runtime is not None
+        else ""
+    )
+
+    for index in range(iterations):
+        if index > 0:
+            tools_sample, current_tool_names = await _list_tools_sample(session)
+            _require_gateway_v2_surface(current_tool_names)
+            scenario_samples["mcp.tools_list"].append(tools_sample)
+
+        bootstrap_sample, _ = await _call_gateway_tool_sample(
+            session,
+            "agent_bootstrap",
+            {"sample_limit": 8},
+        )
+        scenario_samples["mcp.agent_bootstrap"].append(bootstrap_sample)
+
+        digest_sample, digest_envelope = await _call_gateway_tool_sample(
+            session,
+            "agent_board_digest",
+            {"scope": "crm", "include_archived": False, "limit": 50},
+        )
+        scenario_samples["mcp.agent_board_digest"].append(digest_sample)
+        card_id = local_card_id or _card_id_from_digest(digest_envelope)
+        if card_id:
+            context_sample, _ = await _call_gateway_tool_sample(
+                session,
+                "agent_entity_context",
+                {"entity": "card", "entity_id": card_id, "detail": "summary"},
             )
-        ]
-    return []
+            scenario_samples["mcp.agent_entity_context"].append(context_sample)
+        else:
+            scenario_samples["mcp.agent_entity_context"].append(
+                _failed_sample("fixture_unavailable")
+            )
+
+        if writes_enabled:
+            workflow_sample, _ = await _call_gateway_tool_sample(
+                session,
+                "agent_board_workflow",
+                {
+                    "operation": "manager_board_scan",
+                    "payload": {"limit": 5},
+                    "idempotency_key": f"perf-mcp-manager-board-scan-{index}",
+                    "mode": "dry_run",
+                },
+            )
+            scenario_samples["mcp.agent_board_workflow_dry_run"].append(workflow_sample)
+
+    rows = [
+        summarize(samples, scenario) for scenario, samples in scenario_samples.items() if samples
+    ]
+    if not writes_enabled:
+        rows.append(
+            skipped_row(
+                "mcp.agent_board_workflow_dry_run",
+                "Remote MCP targets are read-only.",
+            )
+        )
+    violations = _contract_violations(
+        rows,
+        iterations=iterations,
+        writes_enabled=writes_enabled,
+    )
+    return {
+        "ok": not violations,
+        "target_kind": "local_temp" if writes_enabled else "remote_read_only",
+        "mcp_url": "<local-temp>" if writes_enabled else _report_mcp_url(mcp_url),
+        "surface": AGENT_GATEWAY_FORMAT,
+        "tool_count": len(tool_names),
+        "safe_mode": {
+            "local_temp_server": writes_enabled,
+            "remote_read_only": not writes_enabled,
+            "gateway_v2_only": True,
+        },
+        "rows": rows,
+        "violations": violations,
+        "threshold_status": "failed" if violations else "passed",
+    }
 
 
 async def _run_mcp_perf_payload(
@@ -542,121 +753,32 @@ async def _run_mcp_perf_payload(
     args: argparse.Namespace,
     local_runtime: LocalMcpRuntime | None,
 ) -> dict[str, Any]:
-    rows: list[dict[str, Any]] = []
-    scenario_samples: dict[str, list[dict[str, Any]]] = {
-        "mcp.tools_list": [],
-        "mcp.ping_connector": [],
-        "mcp.runtime_status": [],
-        "mcp.bootstrap_context_compact": [],
-        "mcp.get_card": [],
-        "mcp.get_card_log_compact": [],
-        "mcp.update_card": [],
-        "mcp.move_card": [],
-    }
     timeout = httpx.Timeout(45.0, connect=10.0, read=45.0, write=45.0, pool=45.0)
-    async with httpx.AsyncClient(
-        headers=headers,
-        timeout=timeout,
-        follow_redirects=False,
-        trust_env=False,
-    ) as http_client:
-        async with streamable_http_client(mcp_url, http_client=http_client) as (
-            read,
-            write,
-            _,
-        ):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                first_tools_sample, tool_names = await _list_tools_sample(session)
-                scenario_samples["mcp.tools_list"].append(first_tools_sample)
-                card_id = await _discover_card_id(
-                    session,
-                    local_runtime.card_id if local_runtime else "",
-                )
-                move_columns = ("", "")
-                writes_enabled = _writes_enabled(local_runtime, mcp_url)
-                if writes_enabled and card_id:
-                    move_columns = await _move_column_pair(session, card_id)
-
-                for index in range(max(1, args.iterations)):
-                    if index > 0:
-                        sample, _ = await _list_tools_sample(session)
-                        scenario_samples["mcp.tools_list"].append(sample)
-                    scenario_samples["mcp.ping_connector"].append(
-                        await _call_tool_sample(session, "ping_connector", {})
+    try:
+        async with httpx.AsyncClient(
+            headers=headers,
+            timeout=timeout,
+            follow_redirects=False,
+            trust_env=False,
+        ) as http_client:
+            async with streamable_http_client(mcp_url, http_client=http_client) as (
+                read,
+                write,
+                _,
+            ):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    return await _run_gateway_session(
+                        session,
+                        mcp_url=mcp_url,
+                        args=args,
+                        local_runtime=local_runtime,
                     )
-                    scenario_samples["mcp.runtime_status"].append(
-                        await _call_tool_sample(session, "get_runtime_status", {})
-                    )
-                    scenario_samples["mcp.bootstrap_context_compact"].append(
-                        await _call_tool_sample(
-                            session,
-                            "bootstrap_context",
-                            {"compact": True, "include_archived": False, "event_limit": 50},
-                        )
-                    )
-                    if card_id:
-                        scenario_samples["mcp.get_card"].append(
-                            await _call_tool_sample(session, "get_card", {"card_id": card_id})
-                        )
-                        scenario_samples["mcp.get_card_log_compact"].append(
-                            await _call_tool_sample(
-                                session,
-                                "get_card_log",
-                                {"card_id": card_id, "compact": True, "limit": 50},
-                            )
-                        )
-                        if writes_enabled:
-                            scenario_samples["mcp.update_card"].append(
-                                await _call_tool_sample(
-                                    session,
-                                    "update_card",
-                                    {
-                                        "card_id": card_id,
-                                        "description": f"MCP perf update {index}",
-                                        "actor_name": "PERF",
-                                    },
-                                )
-                            )
-                            move_target = _move_target_for_iteration(move_columns, index)
-                            if move_target:
-                                scenario_samples["mcp.move_card"].append(
-                                    await _call_tool_sample(
-                                        session,
-                                        "move_card",
-                                        {
-                                            "card_id": card_id,
-                                            "column": move_target,
-                                            "actor_name": "PERF",
-                                        },
-                                    )
-                                )
-
-                if not card_id:
-                    rows.append(skipped_row("mcp.get_card", "No card_id available."))
-                    rows.append(skipped_row("mcp.get_card_log_compact", "No card_id available."))
-                rows.extend(
-                    _write_skip_rows(
-                        card_id=card_id,
-                        writes_enabled=writes_enabled,
-                        move_columns=move_columns,
-                    )
-                )
-
-                rows.extend(
-                    summarize(samples, scenario)
-                    for scenario, samples in scenario_samples.items()
-                    if samples
-                )
-                return {
-                    "mcp_url": _report_mcp_url(mcp_url),
-                    "tool_count": len(tool_names),
-                    "safe_mode": {
-                        "local_temp_server": writes_enabled,
-                        "remote_read_only": not writes_enabled,
-                    },
-                    "rows": rows,
-                }
+    except BaseExceptionGroup as exc:
+        preflight_error = _single_nested_preflight_error(exc)
+        if preflight_error is not None:
+            raise preflight_error from None
+        raise
 
 
 async def run_mcp_perf(args: argparse.Namespace) -> dict[str, Any]:
@@ -713,24 +835,65 @@ def main() -> int:
         )
         print(_json_dumps({"ok": False, "error": error, "stage": "local_preflight"}))
         return 2
-    except Exception as exc:  # noqa: BLE001 - perf CLI must report connection/setup failures.
+    except GatewayV2SurfaceMismatchError as exc:
         print(
             _json_dumps(
                 {
                     "ok": False,
-                    "mcp_url": _report_mcp_url(args.mcp_url),
-                    "error": type(exc).__name__,
-                },
+                    "error": "gateway_v2_surface_mismatch",
+                    "stage": "mcp_preflight",
+                    "expected_tool_count": len(PERMANENT_AGENT_GATEWAY_TOOL_NAMES),
+                    "actual_tool_count": exc.actual_tool_count,
+                }
             )
         )
         return 2
+    except LocalMcpOwnershipError:
+        print(
+            _json_dumps(
+                {
+                    "ok": False,
+                    "error": "local_runtime_ownership_invalid",
+                    "stage": "local_preflight",
+                }
+            )
+        )
+        return 2
+    except Exception as exc:  # noqa: BLE001 - perf CLI must report connection/setup failures.
+        payload = {
+            "ok": False,
+            "target_kind": "local_temp" if args.local_temp_server else "remote_read_only",
+            "error": type(exc).__name__,
+        }
+        if not args.local_temp_server:
+            payload["mcp_url"] = _report_mcp_url(args.mcp_url)
+        print(_json_dumps(payload))
+        return 2
     print(_json_dumps(result))
-    failed = [
-        row
-        for row in result.get("rows", [])
-        if row.get("failed_requests") and not row.get("skipped")
-    ]
-    return 1 if failed else 0
+    rows = result.get("rows")
+    expected_target_kind = "local_temp" if args.local_temp_server else "remote_read_only"
+    valid_rows = (
+        rows if isinstance(rows, list) and all(isinstance(row, dict) for row in rows) else None
+    )
+    contract_violations = (
+        _contract_violations(
+            valid_rows,
+            iterations=args.iterations,
+            writes_enabled=args.local_temp_server,
+        )
+        if valid_rows is not None
+        else ["report:invalid_rows"]
+    )
+    violations = result.get("violations")
+    passed = (
+        result.get("ok") is True
+        and result.get("target_kind") == expected_target_kind
+        and result.get("threshold_status") == "passed"
+        and isinstance(violations, list)
+        and not violations
+        and not contract_violations
+    )
+    return 0 if passed else 1
 
 
 if __name__ == "__main__":

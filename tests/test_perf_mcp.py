@@ -4,6 +4,7 @@ import asyncio
 import importlib.util
 import io
 import json
+import socket
 import sys
 import tempfile
 import threading
@@ -26,6 +27,54 @@ def load_perf_mcp_module():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def free_loopback_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        return int(probe.getsockname()[1])
+
+
+def gateway_result(*, data=None, ok: bool = True, is_error: bool = False):
+    return SimpleNamespace(
+        structuredContent={
+            "ok": ok,
+            "format": "agent_envelope_v2",
+            "run_id": None,
+            "status": "completed" if ok else "failed",
+            "summary": {},
+            "data": data,
+            "changes": [],
+            "verification": {},
+            "warnings": [],
+            "next_actions": [],
+            "page": {},
+            "meta": {"response_mode": "agent_compact"},
+        },
+        isError=is_error,
+    )
+
+
+class RecordingGatewaySession:
+    def __init__(self, tool_names, *, card_id: str = "remote-card-id") -> None:
+        self.tool_names = list(tool_names)
+        self.card_id = card_id
+        self.list_calls = 0
+        self.calls: list[tuple[str, dict]] = []
+
+    async def list_tools(self):
+        self.list_calls += 1
+        return SimpleNamespace(
+            tools=[
+                SimpleNamespace(name=name, description="", inputSchema={})
+                for name in self.tool_names
+            ]
+        )
+
+    async def call_tool(self, tool_name, arguments):
+        self.calls.append((tool_name, dict(arguments)))
+        data = {"cards": [{"id": self.card_id}]} if tool_name == "agent_board_digest" else {}
+        return gateway_result(data=data)
 
 
 class PerfMcpTests(unittest.TestCase):
@@ -131,6 +180,69 @@ class PerfMcpTests(unittest.TestCase):
         self.assertNotIn(secret, module._json_dumps(result))
         local_runtime.close.assert_called_once_with()
 
+    def test_local_runtime_closes_after_surface_failure(self) -> None:
+        module = load_perf_mcp_module()
+        args = SimpleNamespace(
+            mcp_url="https://crm.autostopcrm.ru/mcp",
+            local_temp_server=True,
+            token_env="TEST_MCP_TOKEN",
+        )
+
+        local_runtime = SimpleNamespace(
+            mcp_url="http://127.0.0.1:42831/mcp",
+            close=Mock(),
+        )
+
+        async def failing_run(*_args):
+            raise module.GatewayV2SurfaceMismatchError(actual_tool_count=23)
+
+        with (
+            patch.object(module, "start_local_mcp_runtime", return_value=local_runtime),
+            patch.object(module, "_run_mcp_perf_payload", side_effect=failing_run),
+            self.assertRaises(module.GatewayV2SurfaceMismatchError),
+        ):
+            asyncio.run(module.run_mcp_perf(args))
+
+        local_runtime.close.assert_called_once_with()
+
+    def test_cancellation_closes_every_owned_local_runtime_resource(self) -> None:
+        module = load_perf_mcp_module()
+        marker = "AUTOSTOP_PERF_MCP_CANCEL_LEASE"
+        original_environment = dict(module.os.environ)
+        lease = module._EnvironmentLease.apply({marker: "isolated"})
+        api_runtime = SimpleNamespace(close=Mock())
+        mcp_runtime = SimpleNamespace(stop=Mock())
+        runtime = module.LocalMcpRuntime(
+            mcp_url="http://127.0.0.1:42831/mcp",
+            card_id="temporary-card-id",
+            api_runtime=api_runtime,
+            mcp_runtime=mcp_runtime,
+            environment_lease=lease,
+        )
+        module._ACTIVE_LOCAL_RUNTIMES[id(runtime)] = runtime
+        args = SimpleNamespace(
+            mcp_url="https://crm.autostopcrm.ru/mcp",
+            local_temp_server=True,
+            token_env="TEST_MCP_TOKEN",
+        )
+
+        async def cancelled_run(*_args):
+            raise asyncio.CancelledError()
+
+        with (
+            patch.object(module, "start_local_mcp_runtime", return_value=runtime),
+            patch.object(module, "_run_mcp_perf_payload", side_effect=cancelled_run),
+            self.assertRaises(asyncio.CancelledError),
+        ):
+            asyncio.run(module.run_mcp_perf(args))
+
+        mcp_runtime.stop.assert_called_once_with()
+        api_runtime.close.assert_called_once_with()
+        self.assertEqual({}, module._ACTIVE_LOCAL_RUNTIMES)
+        self.assertEqual([], module._RETAINED_FAILED_LOCAL_RUNTIMES)
+        self.assertIsNone(module._ACTIVE_ENVIRONMENT_LEASE)
+        self.assertEqual(original_environment, dict(module.os.environ))
+
     def test_removed_sensitive_cli_flags_are_rejected(self) -> None:
         module = load_perf_mcp_module()
         parser = module._build_parser()
@@ -235,6 +347,16 @@ class PerfMcpTests(unittest.TestCase):
         poison = {
             "AUTOSTOP_MANAGER_DB": "production-manager.sqlite3",
             "AUTOSTOP_MANAGER_ENV_FILE": "production-manager.env",
+            "AUTOSTOP_DEPLOYMENT_ENV": "production",
+            "AUTOSTOP_AGENT_GATEWAY_ENABLED": "0",
+            "AUTOSTOP_AGENT_GATEWAY_WRITES_ENABLED": "0",
+            "AUTOSTOP_AGENT_GATEWAY_FINANCE_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_MAIL_ENABLED": "0",
+            "AUTOSTOP_AGENT_GATEWAY_DESTRUCTIVE_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED": "1",
+            "AUTOSTOP_AGENT_SERVICE_IDENTITY": "production-agent",
+            "AUTOSTOP_MCP_OAUTH_ENABLED": "1",
+            "AUTOSTOP_MAINTENANCE_MARKER": "production-maintenance.marker",
             "AUTOSTOP_STORE_API_URL": "http://autostop-app:8000",
             "AUTOSTOP_STORE_READ_TOKEN": "read-secret",
             "AUTOSTOP_STORE_QUOTE_TOKEN": "quote-secret",
@@ -285,15 +407,19 @@ class PerfMcpTests(unittest.TestCase):
                 self.assertEqual(Path(temp_dir), manager_db.parent)
                 self.assertEqual(Path(temp_dir), manager_env.parent)
                 self.assertTrue(manager_env.is_file())
-                for key in poison:
-                    if key not in {"AUTOSTOP_MANAGER_DB", "AUTOSTOP_MANAGER_ENV_FILE"}:
-                        self.assertEqual("", module.os.environ[key])
+                for key, value in module._LOCAL_ISOLATED_ENVIRONMENT.items():
+                    self.assertEqual(value, module.os.environ[key])
+                self.assertEqual(
+                    Path(temp_dir) / "maintenance-disabled",
+                    Path(module.os.environ["AUTOSTOP_MAINTENANCE_MARKER"]),
+                )
                 board_api_factory.assert_called_once_with(
                     api_runtime.base_url,
                     bearer_token=api_runtime.api_token,
                 )
                 self.assertEqual("", server_factory.call_args.kwargs["bearer_token"])
                 self.assertTrue(module._writes_enabled(runtime, runtime.mcp_url))
+                self.assertNotIn(runtime.mcp_url, repr(runtime))
 
                 runtime.close()
                 runtime.close()
@@ -303,6 +429,106 @@ class PerfMcpTests(unittest.TestCase):
                 mcp_runtime.stop.assert_called_once_with()
                 api_runtime.close.assert_called_once_with()
 
+        self.assertEqual(original_environment, dict(module.os.environ))
+
+    def test_fake_manager_fixture_runs_real_local_gateway_transport(self) -> None:
+        module = load_perf_mcp_module()
+        from minimal_kanban.mcp.agent_gateway_support import MANAGER_GATEWAY_DEPENDENCY_NAMES
+        from tests.test_agent_gateway_v2 import register_fake_store_manager_tools
+
+        original_environment = dict(module.os.environ)
+        manager_state: dict = {}
+
+        def compatible_registrar(server, *, include_tools):
+            self.assertEqual(MANAGER_GATEWAY_DEPENDENCY_NAMES, frozenset(include_tools))
+            register_fake_store_manager_tools(server, module._logger(), manager_state)
+
+        start_port = free_loopback_port()
+        mcp_start_port = free_loopback_port()
+        while mcp_start_port == start_port:
+            mcp_start_port = free_loopback_port()
+        args = SimpleNamespace(
+            mcp_url="https://crm.autostopcrm.ru/mcp",
+            iterations=1,
+            token_env="MINIMAL_KANBAN_MCP_BEARER_TOKEN",
+            local_temp_server=True,
+            start_port=start_port,
+            mcp_start_port=mcp_start_port,
+        )
+
+        with patch(
+            "minimal_kanban.mcp.manager_registration._resolve_autostop_manager_registrar",
+            return_value=compatible_registrar,
+        ):
+            result = asyncio.run(module.run_mcp_perf(args))
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(len(module.PERMANENT_AGENT_GATEWAY_TOOL_NAMES), result["tool_count"])
+        self.assertEqual("passed", result["threshold_status"])
+        self.assertEqual([], result["violations"])
+        self.assertEqual("local_temp", result["target_kind"])
+        self.assertEqual("<local-temp>", result["mcp_url"])
+        self.assertEqual(
+            [
+                "mcp.tools_list",
+                "mcp.agent_bootstrap",
+                "mcp.agent_board_digest",
+                "mcp.agent_entity_context",
+                "mcp.agent_board_workflow_dry_run",
+            ],
+            [row["scenario"] for row in result["rows"]],
+        )
+        encoded = module._json_dumps(result)
+        self.assertNotIn("browser-smoke-local-token", encoded)
+        self.assertNotIn("card_id", encoded)
+        self.assertEqual({}, module._ACTIVE_LOCAL_RUNTIMES)
+        self.assertEqual([], module._RETAINED_FAILED_LOCAL_RUNTIMES)
+        self.assertEqual(original_environment, dict(module.os.environ))
+
+    def test_real_transport_unwraps_gateway_surface_preflight_error(self) -> None:
+        module = load_perf_mcp_module()
+        from minimal_kanban.mcp.agent_gateway_support import MANAGER_GATEWAY_DEPENDENCY_NAMES
+        from tests.test_agent_gateway_v2 import register_fake_store_manager_tools
+
+        original_environment = dict(module.os.environ)
+
+        def fake_manager_registrar(server, *, include_tools):
+            self.assertEqual(MANAGER_GATEWAY_DEPENDENCY_NAMES, frozenset(include_tools))
+            register_fake_store_manager_tools(server, module._logger(), {})
+
+        expected_surface = frozenset(module.PERMANENT_AGENT_GATEWAY_TOOL_NAMES)
+        intentionally_incomplete_surface = frozenset(sorted(expected_surface)[:-1])
+        start_port = free_loopback_port()
+        mcp_start_port = free_loopback_port()
+        while mcp_start_port == start_port:
+            mcp_start_port = free_loopback_port()
+        args = SimpleNamespace(
+            mcp_url="https://crm.autostopcrm.ru/mcp",
+            iterations=1,
+            token_env="MINIMAL_KANBAN_MCP_BEARER_TOKEN",
+            local_temp_server=True,
+            start_port=start_port,
+            mcp_start_port=mcp_start_port,
+        )
+
+        with (
+            patch(
+                "minimal_kanban.mcp.manager_registration._resolve_autostop_manager_registrar",
+                return_value=fake_manager_registrar,
+            ),
+            patch.object(
+                module,
+                "PERMANENT_AGENT_GATEWAY_TOOL_NAMES",
+                intentionally_incomplete_surface,
+            ),
+            self.assertRaises(module.GatewayV2SurfaceMismatchError) as raised,
+        ):
+            asyncio.run(module.run_mcp_perf(args))
+
+        self.assertEqual(len(expected_surface), raised.exception.actual_tool_count)
+        self.assertEqual({}, module._ACTIVE_LOCAL_RUNTIMES)
+        self.assertEqual([], module._RETAINED_FAILED_LOCAL_RUNTIMES)
+        self.assertIsNone(module._ACTIVE_ENVIRONMENT_LEASE)
         self.assertEqual(original_environment, dict(module.os.environ))
 
     def test_partial_local_start_restores_environment_and_closes_api(self) -> None:
@@ -478,47 +704,296 @@ class PerfMcpTests(unittest.TestCase):
                     retained.close()
                 module._RETAINED_FAILED_LOCAL_RUNTIMES.clear()
 
-    def test_move_targets_alternate_between_distinct_columns(self) -> None:
+    def test_gateway_surface_requires_exact_permanent_names(self) -> None:
         module = load_perf_mcp_module()
+        expected = sorted(module.PERMANENT_AGENT_GATEWAY_TOOL_NAMES)
 
-        pair = ("column-current", "column-alternative")
+        module._require_gateway_v2_surface(expected)
+        for tool_names in (
+            expected[:-1],
+            [*expected, "legacy_raw_tool"],
+            [*expected, expected[0]],
+        ):
+            with self.subTest(tool_count=len(tool_names)):
+                with self.assertRaises(module.GatewayV2SurfaceMismatchError):
+                    module._require_gateway_v2_surface(tool_names)
+
+    def test_tools_list_metric_counts_schema_without_reporting_it(self) -> None:
+        module = load_perf_mcp_module()
+        sentinel = "SENTINEL-PRIVATE-SCHEMA-DETAIL"
+        tool = SimpleNamespace(
+            name="agent_bootstrap",
+            description=f"description-{sentinel}",
+            inputSchema={"type": "object", "properties": {sentinel: {"type": "string"}}},
+        )
+
+        class SchemaSession:
+            async def list_tools(self):
+                return SimpleNamespace(tools=[tool])
+
+        sample, names = asyncio.run(module._list_tools_sample(SchemaSession()))
+        expected_payload = [
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "inputSchema": tool.inputSchema,
+            }
+        ]
+
+        self.assertEqual([tool.name], names)
+        self.assertEqual(module.payload_size(expected_payload), sample["payload_bytes"])
+        self.assertGreater(sample["payload_bytes"], module.payload_size(names))
+        self.assertNotIn(sentinel, module._json_dumps(sample))
+
+    def test_gateway_contract_requires_complete_mode_aware_rows(self) -> None:
+        module = load_perf_mcp_module()
+        iterations = 2
+        missing = module._contract_violations(
+            [],
+            iterations=iterations,
+            writes_enabled=True,
+        )
+        self.assertEqual(
+            [f"{scenario}:missing_scenario" for scenario in module._GATEWAY_SCENARIOS],
+            missing,
+        )
+
+        rows = [
+            module.summarize(
+                [{"duration_ms": 1, "payload_bytes": 1, "error": None}] * iterations,
+                scenario,
+            )
+            for scenario in module._GATEWAY_SCENARIOS[:-1]
+        ]
+        rows.append(module.skipped_row(module._LOCAL_WORKFLOW_SCENARIO, "read only"))
+        local_violations = module._contract_violations(
+            rows,
+            iterations=iterations,
+            writes_enabled=True,
+        )
+        self.assertIn(
+            f"{module._LOCAL_WORKFLOW_SCENARIO}:required_scenario_skipped",
+            local_violations,
+        )
+        self.assertEqual(
+            [],
+            module._contract_violations(
+                rows,
+                iterations=iterations,
+                writes_enabled=False,
+            ),
+        )
+
+    def test_gateway_surface_mismatch_stops_before_first_tool_call(self) -> None:
+        module = load_perf_mcp_module()
+        sentinel = "SENTINEL-UNTRUSTED-TOOL"
+        tool_names = sorted(module.PERMANENT_AGENT_GATEWAY_TOOL_NAMES)[:-1] + [sentinel]
+        session = RecordingGatewaySession(tool_names)
+
+        with self.assertRaises(module.GatewayV2SurfaceMismatchError) as raised:
+            asyncio.run(
+                module._run_gateway_session(
+                    session,
+                    mcp_url="https://crm.example/mcp",
+                    args=SimpleNamespace(iterations=1),
+                    local_runtime=None,
+                )
+            )
+
+        self.assertEqual([], session.calls)
+        self.assertEqual(len(tool_names), raised.exception.actual_tool_count)
+        self.assertNotIn(sentinel, str(raised.exception))
+
+    def test_unowned_local_runtime_stops_before_transport_calls(self) -> None:
+        module = load_perf_mcp_module()
+        session = RecordingGatewaySession(sorted(module.PERMANENT_AGENT_GATEWAY_TOOL_NAMES))
+        runtime = module.LocalMcpRuntime(
+            mcp_url="http://127.0.0.1:42831/mcp",
+            card_id="temporary-card-id",
+            api_runtime=object(),
+            mcp_runtime=object(),
+            environment_lease=module._EnvironmentLease(snapshot={}),
+        )
+
+        with self.assertRaises(module.LocalMcpOwnershipError):
+            asyncio.run(
+                module._run_gateway_session(
+                    session,
+                    mcp_url=runtime.mcp_url,
+                    args=SimpleNamespace(iterations=1),
+                    local_runtime=runtime,
+                )
+            )
+
+        self.assertEqual(0, session.list_calls)
+        self.assertEqual([], session.calls)
+
+    def test_remote_gateway_sequence_is_read_only_and_report_safe(self) -> None:
+        module = load_perf_mcp_module()
+        card_id = "SENTINEL-REMOTE-CARD-ID"
+        session = RecordingGatewaySession(
+            sorted(module.PERMANENT_AGENT_GATEWAY_TOOL_NAMES),
+            card_id=card_id,
+        )
+
+        result = asyncio.run(
+            module._run_gateway_session(
+                session,
+                mcp_url="https://crm.example/mcp/private-path",
+                args=SimpleNamespace(iterations=2),
+                local_runtime=None,
+            )
+        )
 
         self.assertEqual(
-            ["column-alternative", "column-current", "column-alternative", "column-current"],
-            [module._move_target_for_iteration(pair, index) for index in range(4)],
+            [
+                "agent_bootstrap",
+                "agent_board_digest",
+                "agent_entity_context",
+                "agent_bootstrap",
+                "agent_board_digest",
+                "agent_entity_context",
+            ],
+            [name for name, _arguments in session.calls],
         )
-        self.assertEqual("", module._move_target_for_iteration(("same", "same"), 0))
+        self.assertTrue(result["ok"])
+        self.assertEqual("passed", result["threshold_status"])
+        self.assertEqual([], result["violations"])
+        self.assertEqual("https://crm.example", result["mcp_url"])
+        self.assertTrue(result["safe_mode"]["remote_read_only"])
+        self.assertTrue(result["rows"][-1]["skipped"])
+        self.assertEqual("mcp.agent_board_workflow_dry_run", result["rows"][-1]["scenario"])
+        encoded = module._json_dumps(result)
+        self.assertNotIn(card_id, encoded)
+        self.assertNotIn("private-path", encoded)
+        self.assertFalse(
+            {
+                "bootstrap_context",
+                "get_cards",
+                "get_card",
+                "get_card_log",
+                "list_columns",
+                "update_card",
+                "move_card",
+                "call_raw_capability",
+            }
+            & {name for name, _arguments in session.calls}
+        )
 
-    def test_write_skip_rows_cover_each_unavailable_scenario_once(self) -> None:
+    def test_empty_digest_fails_required_context_without_raw_fallback(self) -> None:
         module = load_perf_mcp_module()
-
-        remote_rows = module._write_skip_rows(
-            card_id="card",
-            writes_enabled=False,
-            move_columns=("current", "alternative"),
-        )
-        local_without_card_rows = module._write_skip_rows(
+        session = RecordingGatewaySession(
+            sorted(module.PERMANENT_AGENT_GATEWAY_TOOL_NAMES),
             card_id="",
-            writes_enabled=True,
-            move_columns=("", ""),
-        )
-        local_without_move_rows = module._write_skip_rows(
-            card_id="card",
-            writes_enabled=True,
-            move_columns=("current", "current"),
         )
 
-        self.assertEqual(
-            ["mcp.update_card", "mcp.move_card"], [row["scenario"] for row in remote_rows]
+        result = asyncio.run(
+            module._run_gateway_session(
+                session,
+                mcp_url="https://crm.example/mcp",
+                args=SimpleNamespace(iterations=1),
+                local_runtime=None,
+            )
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual("failed", result["threshold_status"])
+        self.assertIn(
+            "mcp.agent_entity_context:fixture_unavailable",
+            result["violations"],
         )
         self.assertEqual(
-            ["mcp.update_card", "mcp.move_card"],
-            [row["scenario"] for row in local_without_card_rows],
+            ["agent_bootstrap", "agent_board_digest"],
+            [name for name, _arguments in session.calls],
         )
-        self.assertEqual(["mcp.move_card"], [row["scenario"] for row in local_without_move_rows])
-        self.assertIn("local temp runtime", remote_rows[0]["reason"])
-        self.assertIn("card_id", local_without_card_rows[0]["reason"])
-        self.assertIn("distinct", local_without_move_rows[0]["reason"])
+
+    def test_malformed_gateway_result_fails_session_without_payload_leak(self) -> None:
+        module = load_perf_mcp_module()
+        sentinel = "SENTINEL-MALFORMED-GATEWAY-PAYLOAD"
+
+        class MalformedSession(RecordingGatewaySession):
+            async def call_tool(self, tool_name, arguments):
+                self.calls.append((tool_name, dict(arguments)))
+                if tool_name == "agent_bootstrap":
+                    return SimpleNamespace(
+                        structuredContent={"format": "legacy", "secret": sentinel},
+                        isError=False,
+                    )
+                data = (
+                    {"cards": [{"id": self.card_id}]} if tool_name == "agent_board_digest" else {}
+                )
+                return gateway_result(data=data)
+
+        session = MalformedSession(sorted(module.PERMANENT_AGENT_GATEWAY_TOOL_NAMES))
+        result = asyncio.run(
+            module._run_gateway_session(
+                session,
+                mcp_url="https://crm.example/mcp",
+                args=SimpleNamespace(iterations=1),
+                local_runtime=None,
+            )
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertIn(
+            "mcp.agent_bootstrap:invalid_gateway_envelope",
+            result["violations"],
+        )
+        self.assertNotIn(sentinel, module._json_dumps(result))
+
+    def test_local_gateway_sequence_owns_one_bounded_dry_run_workflow(self) -> None:
+        module = load_perf_mcp_module()
+        marker = "AUTOSTOP_PERF_MCP_GATEWAY_SESSION"
+        lease = module._EnvironmentLease.apply({marker: "isolated"})
+        runtime = module.LocalMcpRuntime(
+            mcp_url="http://127.0.0.1:42831/mcp",
+            card_id="SENTINEL-LOCAL-CARD-ID",
+            api_runtime=object(),
+            mcp_runtime=object(),
+            environment_lease=lease,
+        )
+        session = RecordingGatewaySession(sorted(module.PERMANENT_AGENT_GATEWAY_TOOL_NAMES))
+
+        try:
+            module._ACTIVE_LOCAL_RUNTIMES[id(runtime)] = runtime
+            result = asyncio.run(
+                module._run_gateway_session(
+                    session,
+                    mcp_url=runtime.mcp_url,
+                    args=SimpleNamespace(iterations=2),
+                    local_runtime=runtime,
+                )
+            )
+        finally:
+            module._ACTIVE_LOCAL_RUNTIMES.pop(id(runtime), None)
+            lease.restore()
+
+        workflows = [
+            arguments for name, arguments in session.calls if name == "agent_board_workflow"
+        ]
+        self.assertEqual(
+            [
+                {
+                    "operation": "manager_board_scan",
+                    "payload": {"limit": 5},
+                    "idempotency_key": "perf-mcp-manager-board-scan-0",
+                    "mode": "dry_run",
+                },
+                {
+                    "operation": "manager_board_scan",
+                    "payload": {"limit": 5},
+                    "idempotency_key": "perf-mcp-manager-board-scan-1",
+                    "mode": "dry_run",
+                },
+            ],
+            workflows,
+        )
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["safe_mode"]["local_temp_server"])
+        self.assertFalse(any(row.get("skipped") for row in result["rows"]))
+        encoded = module._json_dumps(result)
+        self.assertNotIn("SENTINEL-LOCAL-CARD-ID", encoded)
+        self.assertNotIn("perf-mcp-manager-board-scan", encoded)
 
     def test_report_summary_drops_untrusted_payload_meta(self) -> None:
         module = load_perf_mcp_module()
@@ -538,7 +1013,7 @@ class PerfMcpTests(unittest.TestCase):
         self.assertNotIn("meta", summary)
         self.assertNotIn(sentinel, module._json_dumps(summary))
 
-    def test_tool_error_report_keeps_code_but_drops_message_and_meta(self) -> None:
+    def test_invalid_tool_error_payload_is_rejected_without_detail_leak(self) -> None:
         module = load_perf_mcp_module()
         sentinel = "private-card-id"
 
@@ -552,25 +1027,47 @@ class PerfMcpTests(unittest.TestCase):
                     isError=True,
                 )
 
-        sample = asyncio.run(module._call_tool_sample(FakeSession(), "get_card", {}))
+        sample, envelope = asyncio.run(
+            module._call_gateway_tool_sample(FakeSession(), "agent_entity_context", {})
+        )
 
-        self.assertEqual("tool_error", sample["error"])
+        self.assertEqual("invalid_gateway_envelope", sample["error"])
+        self.assertIsNone(envelope)
         self.assertNotIn("meta", sample)
         self.assertNotIn(sentinel, module._json_dumps(sample))
 
-    def test_tool_error_report_rejects_dynamic_error_code(self) -> None:
+    def test_gateway_envelope_parser_rejects_untrusted_fallback_shapes(self) -> None:
         module = load_perf_mcp_module()
+        sentinel = "SENTINEL-MODEL-DUMP"
 
-        class FakeSession:
-            async def call_tool(self, _tool_name, _arguments):
-                return SimpleNamespace(
-                    structuredContent={"error": {"code": "card_123456"}},
-                    isError=True,
+        malformed_results = (
+            SimpleNamespace(structuredContent=None, isError=False),
+            SimpleNamespace(structuredContent=[{"ok": True}], isError=False),
+            SimpleNamespace(structuredContent="agent_envelope_v2", isError=False),
+            SimpleNamespace(
+                structuredContent={"ok": True, "format": "legacy_envelope"},
+                isError=False,
+            ),
+            SimpleNamespace(
+                structuredContent={**gateway_result().structuredContent, "ok": 1},
+                isError=False,
+            ),
+            SimpleNamespace(
+                structuredContent=None,
+                isError=False,
+                model_dump=lambda **_kwargs: {"ok": True, "secret": sentinel},
+            ),
+        )
+
+        for result in malformed_results:
+            with self.subTest(result=result):
+                envelope, error = module._strict_gateway_envelope(result)
+                self.assertIsNone(envelope)
+                self.assertIn(
+                    error,
+                    {"invalid_structured_content", "invalid_gateway_envelope"},
                 )
-
-        sample = asyncio.run(module._call_tool_sample(FakeSession(), "get_card", {}))
-
-        self.assertEqual("tool_error", sample["error"])
+                self.assertNotIn(sentinel, module._json_dumps({"error": error}))
 
     def test_application_error_is_counted_without_leaking_its_payload(self) -> None:
         module = load_perf_mcp_module()
@@ -578,20 +1075,32 @@ class PerfMcpTests(unittest.TestCase):
 
         class FakeSession:
             async def call_tool(self, _tool_name, _arguments):
-                return SimpleNamespace(
-                    structuredContent={
-                        "ok": False,
-                        "error": {"code": sentinel, "message": sentinel},
-                    },
-                    isError=False,
-                )
+                result = gateway_result(ok=False, is_error=True, data={"secret": sentinel})
+                result.structuredContent["warnings"] = [sentinel]
+                return result
 
-        sample = asyncio.run(module._call_tool_sample(FakeSession(), "get_card", {}))
-        summary = module.summarize([sample], "mcp.get_card")
+        sample, envelope = asyncio.run(
+            module._call_gateway_tool_sample(FakeSession(), "agent_entity_context", {})
+        )
+        summary = module.summarize([sample], "mcp.agent_entity_context")
 
         self.assertEqual("application_error", sample["error"])
+        self.assertIsNotNone(envelope)
         self.assertEqual(["application_error"], summary["failed_requests"])
         self.assertNotIn(sentinel, module._json_dumps(summary))
+
+    def test_success_envelope_with_tool_error_flag_is_protocol_failure(self) -> None:
+        module = load_perf_mcp_module()
+
+        class InconsistentSession:
+            async def call_tool(self, _tool_name, _arguments):
+                return gateway_result(ok=True, is_error=True)
+
+        sample, envelope = asyncio.run(
+            module._call_gateway_tool_sample(InconsistentSession(), "agent_bootstrap", {})
+        )
+        self.assertEqual("tool_result_inconsistent", sample["error"])
+        self.assertIsNone(envelope)
 
     def test_writes_require_an_actual_local_runtime(self) -> None:
         module = load_perf_mcp_module()
@@ -704,8 +1213,31 @@ class PerfMcpTests(unittest.TestCase):
         payload = json.loads(stdout.getvalue())
         self.assertEqual(exit_code, 2)
         self.assertFalse(payload["ok"])
+        self.assertEqual("remote_read_only", payload["target_kind"])
         self.assertEqual(payload["mcp_url"], "https://example.invalid")
         self.assertEqual(payload["error"], "RuntimeError")
+
+    def test_main_local_setup_failure_does_not_report_default_remote_url(self) -> None:
+        module = load_perf_mcp_module()
+
+        async def failing_run(_args):
+            raise RuntimeError("private-local-detail")
+
+        stdout = io.StringIO()
+        with (
+            patch.object(module, "run_mcp_perf", side_effect=failing_run),
+            patch.object(sys, "argv", ["perf_mcp.py", "--local-temp-server"]),
+            redirect_stdout(stdout),
+        ):
+            exit_code = module.main()
+
+        encoded = stdout.getvalue()
+        payload = json.loads(encoded)
+        self.assertEqual(2, exit_code)
+        self.assertEqual("local_temp", payload["target_kind"])
+        self.assertNotIn("mcp_url", payload)
+        self.assertNotIn("crm.autostopcrm.ru", encoded)
+        self.assertNotIn("private-local-detail", encoded)
 
     def test_main_rejects_and_redacts_credential_bearing_mcp_url(self) -> None:
         module = load_perf_mcp_module()
@@ -760,6 +1292,58 @@ class PerfMcpTests(unittest.TestCase):
                 self.assertNotIn(sentinel, encoded)
                 self.assertNotIn("crm.autostopcrm.ru", encoded)
 
+    def test_main_reports_fixed_gateway_surface_failure(self) -> None:
+        module = load_perf_mcp_module()
+        stdout = io.StringIO()
+
+        async def failing_run(_args):
+            raise module.GatewayV2SurfaceMismatchError(actual_tool_count=98)
+
+        with (
+            patch.object(module, "run_mcp_perf", side_effect=failing_run),
+            patch.object(sys, "argv", ["perf_mcp.py", "--local-temp-server"]),
+            redirect_stdout(stdout),
+        ):
+            exit_code = module.main()
+
+        self.assertEqual(2, exit_code)
+        self.assertEqual(
+            {
+                "ok": False,
+                "error": "gateway_v2_surface_mismatch",
+                "stage": "mcp_preflight",
+                "expected_tool_count": len(module.PERMANENT_AGENT_GATEWAY_TOOL_NAMES),
+                "actual_tool_count": 98,
+            },
+            json.loads(stdout.getvalue()),
+        )
+
+    def test_main_reports_fixed_local_ownership_failure(self) -> None:
+        module = load_perf_mcp_module()
+        stdout = io.StringIO()
+
+        async def failing_run(_args):
+            raise module.LocalMcpOwnershipError("PRIVATE-OWNERSHIP-DETAIL")
+
+        with (
+            patch.object(module, "run_mcp_perf", side_effect=failing_run),
+            patch.object(sys, "argv", ["perf_mcp.py", "--local-temp-server"]),
+            redirect_stdout(stdout),
+        ):
+            exit_code = module.main()
+
+        self.assertEqual(2, exit_code)
+        encoded = stdout.getvalue()
+        self.assertEqual(
+            {
+                "ok": False,
+                "error": "local_runtime_ownership_invalid",
+                "stage": "local_preflight",
+            },
+            json.loads(encoded),
+        )
+        self.assertNotIn("PRIVATE-OWNERSHIP-DETAIL", encoded)
+
     def test_report_url_drops_a_potentially_sensitive_path(self) -> None:
         module = load_perf_mcp_module()
         sentinel = "SENTINEL-PATH-TOKEN"
@@ -773,7 +1357,102 @@ class PerfMcpTests(unittest.TestCase):
         module = load_perf_mcp_module()
 
         async def fake_run(_args):
-            return {"rows": [{"scenario": "demo", "avg_ms": float("nan")}]}
+            rows = [
+                module.summarize(
+                    [{"duration_ms": 1, "payload_bytes": 1, "error": None}],
+                    scenario,
+                )
+                for scenario in module._GATEWAY_SCENARIOS[:-1]
+            ]
+            rows[0]["avg_ms"] = float("nan")
+            rows.append(
+                module.skipped_row(
+                    module._LOCAL_WORKFLOW_SCENARIO,
+                    "Remote MCP targets are read-only.",
+                )
+            )
+            return {
+                "ok": True,
+                "target_kind": "remote_read_only",
+                "rows": rows,
+                "violations": [],
+                "threshold_status": "passed",
+            }
+
+        stdout = io.StringIO()
+        with (
+            patch.object(module, "run_mcp_perf", side_effect=fake_run),
+            patch.object(sys, "argv", ["perf_mcp.py", "--iterations", "1"]),
+            redirect_stdout(stdout),
+        ):
+            exit_code = module.main()
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["rows"][0]["avg_ms"], None)
+
+    def test_main_revalidates_mode_aware_gateway_contract(self) -> None:
+        module = load_perf_mcp_module()
+
+        async def fake_run(_args):
+            return {
+                "ok": True,
+                "target_kind": "remote_read_only",
+                "rows": [
+                    {
+                        "scenario": "demo",
+                        "iterations": 1,
+                        "failed_requests": [],
+                    }
+                ],
+                "violations": [],
+                "threshold_status": "passed",
+            }
+
+        stdout = io.StringIO()
+        with (
+            patch.object(module, "run_mcp_perf", side_effect=fake_run),
+            patch.object(sys, "argv", ["perf_mcp.py", "--iterations", "1"]),
+            redirect_stdout(stdout),
+        ):
+            exit_code = module.main()
+
+        self.assertEqual(1, exit_code)
+        self.assertEqual("passed", json.loads(stdout.getvalue())["threshold_status"])
+
+    def test_main_fails_closed_on_inconsistent_top_level_status(self) -> None:
+        module = load_perf_mcp_module()
+
+        for result in (
+            {"ok": False, "rows": [], "violations": [], "threshold_status": "failed"},
+            {"ok": True, "rows": [], "violations": [], "threshold_status": "failed"},
+            {"ok": True, "rows": [], "violations": [], "threshold_status": "passed"},
+        ):
+            with self.subTest(result=result):
+                stdout = io.StringIO()
+
+                async def fake_run(_args, *, payload=result):
+                    return payload
+
+                with (
+                    patch.object(module, "run_mcp_perf", side_effect=fake_run),
+                    patch.object(sys, "argv", ["perf_mcp.py"]),
+                    redirect_stdout(stdout),
+                ):
+                    exit_code = module.main()
+
+                self.assertEqual(1, exit_code)
+
+    def test_main_fails_when_gateway_contract_has_violations(self) -> None:
+        module = load_perf_mcp_module()
+
+        async def fake_run(_args):
+            return {
+                "ok": False,
+                "rows": [],
+                "violations": ["mcp.agent_entity_context:fixture_unavailable"],
+                "threshold_status": "failed",
+            }
 
         stdout = io.StringIO()
         with (
@@ -783,9 +1462,8 @@ class PerfMcpTests(unittest.TestCase):
         ):
             exit_code = module.main()
 
-        payload = json.loads(stdout.getvalue())
-        self.assertEqual(exit_code, 0)
-        self.assertEqual(payload["rows"][0]["avg_ms"], None)
+        self.assertEqual(1, exit_code)
+        self.assertEqual("failed", json.loads(stdout.getvalue())["threshold_status"])
 
 
 if __name__ == "__main__":

@@ -982,12 +982,14 @@ printf 'status=%s\n' "$status"
                     "-m",
                     "py_compile",
                     "scripts/perf_probe.py",
+                    "scripts/perf_mcp.py",
                     "scripts/perf_workflows.py",
                     "scripts/finance_audit_report.py",
                     "scripts/browser_smoke.py",
                 ),
-                "python -m py_compile scripts/perf_probe.py scripts/perf_workflows.py "
-                "scripts/finance_audit_report.py scripts/browser_smoke.py",
+                "python -m py_compile scripts/perf_probe.py scripts/perf_mcp.py "
+                "scripts/perf_workflows.py scripts/finance_audit_report.py "
+                "scripts/browser_smoke.py",
             ),
             (
                 "Local temp performance probe",

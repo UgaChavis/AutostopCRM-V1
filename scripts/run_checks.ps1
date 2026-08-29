@@ -166,8 +166,9 @@ try {
         "scripts/browser_smoke.py", "--profile", "core", "--attempts", "1"
     )
     Invoke-Python -StepName "Compile release probe scripts" -Arguments @(
-        "-m", "py_compile", "scripts/perf_probe.py", "scripts/perf_workflows.py",
-        "scripts/finance_audit_report.py", "scripts/browser_smoke.py"
+        "-m", "py_compile", "scripts/perf_probe.py", "scripts/perf_mcp.py",
+        "scripts/perf_workflows.py", "scripts/finance_audit_report.py",
+        "scripts/browser_smoke.py"
     )
     Invoke-Python -StepName "Local temp performance probe" -Arguments @(
         "scripts/perf_probe.py", "--local-temp-server", "--iterations", "1",

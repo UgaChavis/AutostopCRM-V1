@@ -1,7 +1,8 @@
 # 015. Восстановить MCP и browser performance smoke
 
 Приоритет: P0
-Статус: выполняется; local-only browser safety принят 2026-08-30
+Статус: выполняется; browser и CRM Gateway v2 контракты приняты 2026-08-30;
+реальный sibling Manager acceptance ожидает отдельной синхронизации checkout
 Риск изменения продукта: низкий; меняется проверочный контур
 
 ## Проблема
@@ -69,6 +70,32 @@ CI выполняет HTTP probe и synthetic Stage-1 с `--skip-browser`, по�
   в общий support helper: browser smoke по-прежнему сначала проверяет негативный
   login regression, а performance workflow выполняет только успешный путь.
   MCP surface/preflight остаётся следующим отдельным подсрезом.
+- Четвёртый MCP-contract подсрез заменяет устаревшие raw-вызовы на exact
+  production Gateway v2: публичный surface обязан содержать ровно 24
+  `PERMANENT_AGENT_GATEWAY_TOOL_NAMES`, иначе probe останавливается до первого
+  tool call. Измеряются только `agent_bootstrap`, `agent_board_digest`,
+  `agent_entity_context` и, исключительно на process-owned временном runtime,
+  bounded `agent_board_workflow(manager_board_scan, mode=dry_run)`.
+- `agent_envelope_v2` теперь разбирается fail-closed без `model_dump`/text
+  fallback; application, protocol, transport и malformed-result ошибки
+  сводятся к фиксированным кодам без payload/record ID. Полнота строк и число
+  итераций проверяются с учётом local/remote режима, поэтому пустой, неполный
+  или ошибочно skipped отчёт не может завершиться green. Размер `tools/list`
+  учитывает имена, описания и input schemas, но сами descriptors в JSON не
+  публикуются.
+- Реальный CRM HTTP/MCP transport проверен совместимым fake-Manager fixture:
+  exact 24-tool surface, пять сценариев, очистка runtime/environment lease и
+  безопасный отчёт проходят. Отдельный mismatch-прогон доказывает, что anyio
+  `ExceptionGroup` разворачивается в фиксированный preflight error только после
+  выхода из transport contexts. Это тест CRM transport/оркестрации, а не
+  доказательство совместимости установленного sibling Manager. Hosted и
+  локальный CI компилируют `perf_mcp.py` одним parity-проверяемым release gate,
+  а полный unittest исполняет оба transport-сценария.
+- Фактический локальный checkout
+  `C:\Users\9860606\Desktop\AutostopManager` по-прежнему возвращает ровно
+  `autostop_manager_incompatible` с process exit `2` до запуска API/MCP и не
+  изменяется автоматически. Синхронизация/проверка реального Manager и отдельный
+  pinned integration gate остаются межрепозиторным follow-up.
 
 ## Приёмка
 
