@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import importlib.util
 import sys
 import tempfile
@@ -31,6 +32,56 @@ _CASE_NAMES = (
     "test_document_delete_executor_proves_conflict_replay_and_absence",
     "test_frozen_manifest_check_stops_on_public_schema_drift",
 )
+
+
+def _module_level_test_names(path: Path) -> tuple[str, ...]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    return tuple(
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name.startswith("test_")
+    )
+
+
+def _assert_collection_bridge_contract() -> None:
+    unexpected: dict[str, tuple[str, ...]] = {}
+    for path in sorted((ROOT / "tests").glob("test_*.py")):
+        names = _module_level_test_names(path)
+        if names and path != PYTEST_STYLE_TESTS:
+            unexpected[path.name] = names
+
+    bridged_names = _module_level_test_names(PYTEST_STYLE_TESTS)
+    missing_from_bridge = sorted(set(bridged_names) - set(_CASE_NAMES))
+    stale_bridge = sorted(set(_CASE_NAMES) - set(bridged_names))
+    duplicate_source_names = sorted(
+        {name for name in bridged_names if bridged_names.count(name) > 1}
+    )
+    duplicate_bridge_names = sorted({name for name in _CASE_NAMES if _CASE_NAMES.count(name) > 1})
+    if (
+        unexpected
+        or missing_from_bridge
+        or stale_bridge
+        or duplicate_source_names
+        or duplicate_bridge_names
+    ):
+        raise AssertionError(
+            "unittest collection bridge drift: "
+            f"unexpected={unexpected}; "
+            f"missing_from_bridge={missing_from_bridge}; "
+            f"stale_bridge={stale_bridge}; "
+            f"duplicate_source_names={duplicate_source_names}; "
+            f"duplicate_bridge_names={duplicate_bridge_names}"
+        )
+
+
+def load_tests(
+    _loader: unittest.TestLoader,
+    suite: unittest.TestSuite,
+    _pattern: str | None,
+) -> unittest.TestSuite:
+    _assert_collection_bridge_contract()
+    return suite
 
 
 def _load_cases_module():

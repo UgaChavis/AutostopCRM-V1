@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -8,11 +9,18 @@ SOURCE = (
 )
 
 
-def test_card_description_save_does_not_trim_editor_payload() -> None:
-    source = SOURCE.read_text(encoding="utf-8")
+class DescriptionWebContractTests(unittest.TestCase):
+    def test_card_description_save_does_not_trim_editor_payload(self) -> None:
+        source = SOURCE.read_text(encoding="utf-8")
 
-    assert "return String(els.cardDescription?.value || '').trim();" not in source
-    assert "return String(els.cardDescription?.value || '');" in source
-    assert ".replace(/[ \\t]+\\n/g, '\\n')" not in source
-    assert "description: String(values.description ?? card.description ?? '').trim()," not in source
-    assert "description: String(values.description ?? card.description ?? '')," in source
+        self.assertNotIn("return String(els.cardDescription?.value || '').trim();", source)
+        self.assertIn("return String(els.cardDescription?.value || '');", source)
+        self.assertNotIn(".replace(/[ \\t]+\\n/g, '\\n')", source)
+        self.assertNotIn(
+            "description: String(values.description ?? card.description ?? '').trim(),",
+            source,
+        )
+        self.assertIn(
+            "description: String(values.description ?? card.description ?? ''),",
+            source,
+        )
