@@ -14,8 +14,8 @@ Board snapshot/revision, search/review и audit-log projection строятся
 
 ## Доказательства
 
-- `snapshot_service.py` — 2 992 строки.
-- `SnapshotService` — 2 696 строк / 103 methods.
+- `snapshot_service.py` — 2 879 строк.
+- `SnapshotService` — 2 574 строки / 91 method.
 - Module и class находятся в unconditional code-health allowlist.
 - Class одновременно строит compact/full snapshots, board revision,
   manager/review text, search results, event pages и card-log descriptions.

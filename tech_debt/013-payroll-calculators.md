@@ -13,12 +13,15 @@ Mutation services сначала строят детерминированный
 
 ## Доказательства
 
-`CardServicePayrollMixin`:
+Current family:
 
-- 4 608 строк / 86 methods;
-- ledger builder complexity 45, 376 строк;
-- reconciliation complexity 37, 362 строки;
-- report builder complexity 33, 450 строк.
+- `CardServicePayrollMixin` — 4 266 строк / 84 methods (module 4 467);
+- `card_service_salary_ledger.py` — 993 строки; вынесенный
+  `_build_employee_salary_ledger` всё ещё 438 строк, complexity 52 и 60 branches;
+- reconciliation complexity 42, report builder complexity 33;
+- предыдущее выделение уменьшило один модуль, но не снизило суммарную сложность
+  payroll family; следующий срез обязан уменьшить builder cap, а не только
+  переместить строки.
 
 ## Scope
 

@@ -16,14 +16,17 @@ backend/transport/runtime выполняется только вместе с н
 ## Доказательства
 
 - `tests/test_service.py` — 13 514 физических строк, один `CardServiceTests`.
-- `tests/test_api.py` — 7 692 строки плюс отдельный auth class.
+- `tests/test_api.py` — 7 684 строки плюс отдельный auth class.
 - `tests/test_web_assets.py` — 5 963 строки, один `WebAssetsTests`.
-- `tests/test_agent_gateway_v2.py` — 4 447 строк, один большой async class.
-- `tests/test_mcp.py` — 3 264 строки до первого среза; сейчас 2 913 строк,
+- `tests/test_agent_gateway_v2.py` — 4 445 строк, один большой async class.
+- `tests/test_mcp.py` — 3 264 строки до первого среза; сейчас 2 940 строк,
   module exemption удалён, а лимит оставшегося end-to-end backend test снижен
   с 1 229 до текущих 1 169 строк без запаса.
 - На исходном baseline полный suite занимал 333 s; health audit бессрочно
   исключал перечисленные files/classes из size budget.
+- Current full suite: 2 035 collected tests / 34 expected skip / 519.734 s под
+  coverage. Ещё три module-level функции не собираются unittest и закрываются
+  отдельной P0-задачей 016 до следующих split-срезов.
 
 ## Выполненный MCP registration/payload/diagnostics/board-read slice (2026-08-26)
 

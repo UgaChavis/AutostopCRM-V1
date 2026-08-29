@@ -85,7 +85,8 @@ exemptions `raw_gateway.py` после extraction.
 
 - Lifecycle kernel ≤ 500 строк; domain strategy module ≤ 800.
 - `_execute_workflow` и `call_raw_capability` exemptions удалены.
-- 24 public tools и 43 named operation contracts exact-equal baseline.
+- 24 public tools и 46 CRM workflow operation contracts exact-equal current
+  attestation baseline.
 - Capability/change-feed parity gaps 0.
 - Exhaustive safe local smoke и attestation unit tests проходят.
 - Нет изменения public envelope/schema/hash/idempotency semantics.
