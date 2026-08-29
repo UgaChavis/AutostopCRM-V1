@@ -62,6 +62,9 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 COPY . .
 
+RUN test -s /app/src/minimal_kanban/static/favicon.png && \
+    test -s /app/src/minimal_kanban/printing/assets/autostop_brand_logo.png
+
 RUN chown -R autostop:autostop /app /home/autostop
 
 USER 10001:10001

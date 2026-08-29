@@ -716,6 +716,62 @@ printf 'status=%s\n' "$status"
         self.assertIn("audit_autostopvpn.ps1", dockerignore)
         self.assertIn("remove_autostopvpn.ps1", dockerignore)
 
+    def test_docker_runtime_png_assets_are_exactly_allowlisted_and_verified(self) -> None:
+        dockerignore = (PROJECT_ROOT / ".dockerignore").read_text(encoding="utf-8")
+        dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
+        rules = [
+            line.strip()
+            for line in dockerignore.splitlines()
+            if line.strip() and not line.startswith("#")
+        ]
+        png_allowlist = [
+            "!src/minimal_kanban/static/favicon.png",
+            "!src/minimal_kanban/printing/assets/autostop_brand_logo.png",
+        ]
+
+        recursive_exclusion = rules.index("**/*.png")
+        self.assertNotIn("*.png", rules)
+        self.assertEqual(
+            png_allowlist,
+            [rule for rule in rules if rule.startswith("!") and rule.endswith(".png")],
+        )
+        for rule in png_allowlist:
+            with self.subTest(rule=rule):
+                self.assertGreater(rules.index(rule), recursive_exclusion)
+
+        copy_index = dockerfile.index("COPY . .")
+        user_index = dockerfile.index("USER 10001:10001")
+        for asset in (
+            "/app/src/minimal_kanban/static/favicon.png",
+            "/app/src/minimal_kanban/printing/assets/autostop_brand_logo.png",
+        ):
+            with self.subTest(asset=asset):
+                assertion_index = dockerfile.index(f"test -s {asset}")
+                self.assertGreater(assertion_index, copy_index)
+                self.assertLess(assertion_index, user_index)
+
+    def test_github_actions_builds_and_checks_unpublishable_runtime_candidate(self) -> None:
+        workflow = (PROJECT_ROOT / ".github" / "workflows" / "quality.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("\n  docker-runtime-assets:\n", workflow)
+        self.assertIn("mkdir -p output/docker-context-probe", workflow)
+        self.assertIn(
+            "printf 'excluded-by-dockerignore\\n' > output/docker-context-probe/ignored.png",
+            workflow,
+        )
+        self.assertIn('docker build --tag "autostopcrm-ci:${GITHUB_SHA}" .', workflow)
+        self.assertIn("docker run --rm", workflow)
+        self.assertIn("test -s /app/src/minimal_kanban/static/favicon.png", workflow)
+        self.assertIn(
+            "test -s /app/src/minimal_kanban/printing/assets/autostop_brand_logo.png",
+            workflow,
+        )
+        self.assertIn("test ! -e /app/output/docker-context-probe/ignored.png", workflow)
+        self.assertNotIn("docker login", workflow)
+        self.assertNotIn("docker push", workflow)
+
     def test_github_actions_quality_workflow_runs_release_gates(self) -> None:
         workflow = (PROJECT_ROOT / ".github" / "workflows" / "quality.yml").read_text(
             encoding="utf-8"

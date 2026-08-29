@@ -37,5 +37,7 @@ start_autostopvpn.ps1
 !MCP_GUIDE.md
 !CHATGPT_CONNECTOR_SETUP.md
 !docs/OPERATIONS_RUNBOOK.md
-*.png
+**/*.png
+!src/minimal_kanban/static/favicon.png
+!src/minimal_kanban/printing/assets/autostop_brand_logo.png
 *.spec

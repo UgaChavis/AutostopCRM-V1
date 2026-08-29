@@ -6,14 +6,18 @@
 
 ## Проблема
 
-`.dockerignore` содержит `*.png`, но runtime использует два tracked PNG:
+`.dockerignore` содержит `*.png`, но по используемой Docker семантике
+`filepath.Match` этот pattern совпадает только с PNG в корне context. Runtime
+использует два вложенных tracked PNG:
 
 - `src/minimal_kanban/static/favicon.png` — HTTP `/favicon.png`;
 - `src/minimal_kanban/printing/assets/autostop_brand_logo.png` — логотип
   печатных документов.
 
-Docker удаляет совпавшие ignore patterns из build context. Текущий CI проверяет
-только `docker compose config`, а не наличие файлов после `COPY . .`.
+Оба runtime asset сейчас обходят корневое правило, но вместе с ними в context
+попадают и вложенные generated PNG. Это не точный allowlist и не защищённый
+контракт. Текущий CI проверяет только `docker compose config`, а не наличие
+файлов после `COPY . .`.
 
 На момент аудита live `/favicon.png` отвечает `200`, `image/png`, 41 012 bytes,
 поэтому favicon текущей production-инстанции не считается сломанным. Наличие
@@ -22,7 +26,8 @@ print-logo в текущем image этим не доказано. Дефект 
 
 ## Итерационный срез
 
-1. Добавить две точные negation rules после `*.png`; не разрешать все PNG.
+1. Заменить `*.png` на рекурсивный `**/*.png` и добавить после него две точные
+   negation rules; не разрешать все PNG.
 2. После `COPY . .` заставить Docker build fail-closed проверять, что оба файла
    существуют и непусты.
 3. Добавить regression в deploy/docs audit tests для ignore rules и Dockerfile
