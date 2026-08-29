@@ -1,7 +1,7 @@
 # 023. Синхронизировать canonical repo docs и их audit
 
 Приоритет: P0
-Статус: готово к выполнению
+Статус: completed locally 2026-08-29; hosted CI финального среза после publish
 Риск изменения продукта: низкий; operational contract
 
 ## Проблема
@@ -34,6 +34,18 @@ docs сокращать механически нельзя: основная б
    finance stop-line, canonical doc routing и compatibility names.
 4. Свернуть завершённые task 000/002/004/006/007 в краткую таблицу README;
    task-файлы удалять только после проверки ratchet owner references.
+
+## Результат
+
+- Exact operation count выводится из attestation source, а scoped skill audit
+  проверяет только явно переданные CRM skills.
+- `AGENTS.md` и connector note сокращены с 266 до 177 строк с сохранением
+  semantic safety contracts; срезы опубликованы как `db78e09`, `8e1edfd` и
+  `88216ea`, hosted CI зелёный.
+- Пять завершённых task-журналов сведены в таблицу README после проверки: все
+  36 активных ratchet mappings имеют других существующих owners, прямых ссылок
+  вне README нет.
+- Tasks 015 и оставшиеся срезы 016 независимы и не блокируют docs-контракт.
 
 ## Приёмка
 

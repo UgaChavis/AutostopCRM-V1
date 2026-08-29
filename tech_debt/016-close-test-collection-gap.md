@@ -1,7 +1,7 @@
 # 016. Закрыть пробел test collection и локального quality gate
 
 Приоритет: P0
-Статус: готово к выполнению
+Статус: slices 1–2 completed 2026-08-29; slices 3–4 pending
 Риск изменения продукта: низкий; меняются tests/tooling
 
 ## Проблема
@@ -39,6 +39,14 @@
 5. Решение о коротком Windows/Python 3.12 hosted job для
    collection/compile/focused contracts оформить отдельным follow-up после
    измерения; не смешивать CI-matrix change с исправлением collection.
+
+## Выполнено
+
+- Три pytest-style функции преобразованы в собираемые `unittest.TestCase`, а
+  guard запрещает новые module-level `test_*` вне точного attestation registry.
+- Commit `2f8b5d7` и hosted workflow `33248712521` зелёные. Срезы 3–4 про F841
+  и единый локальный quality profile остаются отдельными незавершёнными
+  изменениями; этот результат их не закрывает.
 
 ## Приёмка
 

@@ -56,28 +56,20 @@
    ждать hosted CI. Local-skill slice проверять и отчётно фиксировать отдельно;
    production не менять без отдельной команды владельца.
 
-## P0 выполнен и опубликован; hosted CI подтверждён 2026-08-26
+## Завершённая база
 
-- 000: deterministic browser/PDF preflight; после установки Poppler полный
-  smoke прошёл 44/44 с первой попытки.
-- 001: после закрытия 007 и MCP test-slice 003 текущие 34/34 size и 2/2
-  complexity ratchets имеют exact caps, причины и одного owner; browser,
-  `_make_handler` и module-level `test_mcp.py` exemptions закрыты и удалены.
-- 002: branch-inclusive baseline 78.82%, floor 78.50%, текущий integrated
-  результат 79.36%; 13/13 global/critical floors проходят, covered suite
-  заменяет plain unit run в CI.
-- 004: обязательный core smoke покрывает 11 critical temp-data flows и локально
-  проходит примерно за 12 секунд; full остаётся отдельным release gate.
-- 006: handler/auth/maintenance/mutation/response/feed/readback policy сведена
-  в immutable `RouteSpec`, а старые sets оставлены derived compatibility views.
-- Финальная интеграция: covered suite 1 946 тестов / 34 skip / `OK`; coverage
-  audit 13/13; capability parity gaps=0; change-feed parity 100/100; Ruff,
-  docs, code-health, localization, JavaScript и Stage-1 performance gates
-  проходят без violations.
-- Опубликованный commit `6615143a` прошёл hosted Ubuntu workflow
-  `32935776774`: covered suite, coverage/code-health ratchets, core browser
-  smoke и Stage-1 performance gates зелёные. Production этим publish не
-  обновлялся.
+| № | Устойчивый результат | Проверяемое доказательство |
+|---|---|---|
+| 000 | Browser/PDF preflight проверяет Playwright, Chromium, Qt PDF, `pdfinfo` и `pdftotext` до `TempRuntime`; missing dependency детерминированно даёт exit 2, retry разрешён только для browser launch. | `browser_smoke_profiles.py`, `test_browser_smoke.py`, `f75d90f`; full 44/44 при закрытии. |
+| 002 | Branch coverage разделяет runtime и release reports; 13 global/critical floors блокируют регресс, covered suite заменяет plain unit run в CI. | `.coveragerc`, `coverage_baseline.json`, `coverage_audit.py`, `d5eb246`; baseline/floor 78.82/78.50%. |
+| 004 | Core — обязательный strict subset full на push/PR: synthetic temp-data readback и любой browser error fail closed; full остаётся ручным release gate. | `quality.yml`, `browser_smoke_profiles.py`, `f75d90f`, `d5eb246`; current core/full 12/12 и 45/45. |
+| 006 | Immutable `RouteSpec` — единый HTTP policy source; compatibility views derived, unknown/incomplete/duplicate policy fail closed, public contract сохранён. | `route_registry.py`, `test_contracts.py`, `2324c92`; parity зелёные. |
+| 007 | `_make_handler` сокращён с 1 352 до 136 строк на baseline 2026-08-29 и разделён на transport/auth/static/dispatch seams без нового framework/global state; truncated body fail closed, exception logs не раскрывают payload. | `server.py`, `test_api_transport_contracts.py`, `858bd8a`; потолок ≤150 соблюдён, exemption удалён. |
+
+Задача 001 остаётся каноническим контрактом maintainability ratchets: 34/34
+size и 2/2 complexity mappings имеют exact caps, причины и существующих
+владельцев. Общая интеграция `6615143a` прошла hosted workflow `32935776774`;
+production этим publish не обновлялся.
 
 ## Общие правила выполнения
 
@@ -116,21 +108,19 @@
 
 ## Этап 1: минимально достаточные изменения с максимальным ROI
 
+Завершённые prerequisite IDs в столбце «Зависит от» относятся к таблице выше;
+отдельные task-файлы сохранены только для активных задач и ratchet owners.
+
 | № | Приоритет | Задача | Зачем сейчас | Зависит от |
 |---|---|---|---|---|
-| 000 | P0 | [Починить preflight browser/PDF smoke](000-browser-smoke-preflight.md) | **Выполнено 2026-08-23** | — |
 | 001 | P0 | [Зафиксировать числовой maintainability ratchet](001-maintainability-ratchet.md) | **Выполнено 2026-08-23** | — |
-| 002 | P0 | [Добавить измеряемый coverage baseline](002-coverage-baseline.md) | **Выполнено; hosted CI подтверждён 2026-08-26** | 001 |
-| 004 | P0 | [Сделать малый browser smoke обязательным](004-mandatory-core-browser-smoke.md) | **Выполнено; hosted CI подтверждён 2026-08-26** | 000, 001 |
-| 006 | P0 | [Свести HTTP route metadata в один registry](006-unify-api-route-contracts.md) | **Выполнено 2026-08-23** | 001 |
 | 015 | P0 | [Восстановить MCP/browser performance smoke](015-repair-performance-smoke-contracts.md) | Два документированных gate сейчас падают и не входят в CI | 001, 004 |
-| 016 | P0 | [Закрыть test collection/local quality gaps](016-close-test-collection-gap.md) | Три контракта не исполняются `unittest discover` | 001, 002 |
-| 022 | P0 | [Защитить Docker runtime PNG](022-protect-docker-runtime-assets.md) | Build context исключает два активных tracked asset | 001 |
-| 023 | P0 | [Синхронизировать canonical repo docs](023-reconcile-docs-and-crm-skills.md) | Current contract counts и repo-инструкции разошлись | 015, 016 |
+| 016 | P0 | [Закрыть test collection/local quality gaps](016-close-test-collection-gap.md) | **Collection и guard опубликованы (`33248712521`); F841 и единый local profile ещё открыты** | 001, 002 |
+| 022 | P0 | [Защитить Docker runtime PNG](022-protect-docker-runtime-assets.md) | **Выполнено; hosted CI `33255765251` зелёный** | 001 |
+| 023 | P0 | [Синхронизировать canonical repo docs](023-reconcile-docs-and-crm-skills.md) | **Срезы 1–3 опубликованы; финальный consolidation в этом срезе** | — |
 | 024 | P0 | [Актуализировать локальные CRM skills](024-reconcile-local-crm-skills.md) | User-level skills содержат stale и небезопасные инструкции | 023 |
 | 003 | P1 | [Разрезать монолитные test modules и fixtures](003-split-test-suites.md) | **Registrar test slices опубликованы; следующий split только вместе с production seam** | 001 |
 | 005 | P1 | [Разрезать web asset source по доменам](005-split-board-web-assets.md) | Уменьшить 20.6k-строчный god-script без смены frontend stack | 004; свой test-slice из 003 |
-| 007 | P1 | [Разделить HTTP request handler](007-split-api-request-handler.md) | **Выполнено 2026-08-25** | 006 |
 | 008 | P1 | [Разрезать MCP tool registration по доменам](008-split-mcp-tool-registration.md) | **Attachment/shared-file registrars опубликованы; 98 raw / 24 public; server 3 551 / factory 3 104 строк** | 001; свой test-slice из 003 |
 | 009 | P1 | [Разделить Gateway workflow executor](009-split-gateway-workflow-executor.md) | `workflow_guards.py` уже выделен; raw executor/verifier остаются hotspots | 001, 008; coverage 002 параллельно |
 | 010 | P1 | [Вынести attachment/file I/O из CardService](010-extract-card-attachments.md) | Самый безопасный крупный срез god-service | 001; свой test-slice из 003 |
@@ -146,8 +136,8 @@
 
 ## Рекомендуемые волны
 
-- Завершённая база — 000–002, 004, 006–007. Сжать их task-документы только
-  после переноса итогов и проверки ratchet-owner references.
+- Завершённая база 000/002/004/006/007 сведена в таблицу выше; отдельные журналы
+  удалены после проверки всех 36 активных ratchet mappings и прямых ссылок.
 - Волна 0 — 016, 015, 022, 023 и отдельный local-only slice 024. Сначала
   восстановить доверие к gates, Docker context и инструкциям; затем
   зафиксировать новый baseline.

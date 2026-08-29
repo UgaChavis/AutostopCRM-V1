@@ -1,7 +1,7 @@
 # 022. Защитить runtime PNG в Docker build context
 
 Приоритет: P0
-Статус: готово к выполнению
+Статус: completed 2026-08-29; hosted CI confirmed
 Риск изменения продукта: низкий; release-safety fix
 
 ## Проблема
@@ -38,6 +38,14 @@ print-logo в текущем image этим не доказано. Дефект 
 5. Локально повторить build-context check только если Docker доступен. Его
    отсутствие не заменять предположением: обязательным доказательством остаётся
    новый hosted build job.
+
+## Результат
+
+- `.dockerignore` рекурсивно исключает PNG и возвращает только два exact runtime
+  asset; Dockerfile fail closed проверяет оба файла после `COPY`.
+- Hosted CI собирает непубликуемый candidate image и проверяет файлы внутри.
+  Commit `6221c83`, workflow `33255765251` зелёный; image push и production
+  deploy не выполнялись.
 
 ## Приёмка
 

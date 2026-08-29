@@ -18,7 +18,8 @@
   duplicate и некорректные mappings валят audit.
 - Text/JSON отчёты детерминированно показывают current/max/delta/present.
 - Текущие exact complexity caps: Gateway executor 72 и `update_card` 29.
-  `_make_handler` сокращён до 127 строк и больше не требует exemption.
+  `_make_handler` содержит 136 строк, соблюдает потолок ≤150 и больше не
+  требует exemption.
 - Synthetic growth/shrink/config/missing-target tests и полный
   `tests.test_code_health_audit`: 18/18 `OK`; после board-card timer среза 008
   exact caps снижены до 3 740 строк для `mcp/server.py` и 3 299 строк для
@@ -57,12 +58,11 @@ grandfathered module/class/function получает измеряемый пот
 6. Удаление/снижение exemption становится acceptance criterion последующих
    extraction-задач.
 
-## Карта владельцев исходных exemptions
+## Карта активных ratchets
 
 | Exemption | Owner | Ожидаемый исход |
 |---|---:|---|
 | module `scripts/attest_agent_gateway_v2.py` | 207 | conditional split, exemption удалить |
-| module `scripts/browser_smoke.py` | 004 | split, удалить либо оставить малый CLI cap |
 | module `mcp/agent_gateway_v2.py` | 009 | registry 008 — contributor; после executor split удалить |
 | module `mcp/raw_gateway.py` | 009 | readback split, удалить |
 | module `services/card_service.py` | 012 | срезы 010/011 — contributors; остаточный facade закрывает 012 |
@@ -74,7 +74,6 @@ grandfathered module/class/function получает измеряемый пот
 | module `printing/service.py` | 014 | components split, удалить |
 | module `printing/web_module.py` | 021 | embedded asset split, удалить |
 | modules `tests/test_service.py`, `test_api.py`, `test_agent_gateway_v2.py`, `test_web_assets.py` | 003 | четыре независимых test-slices, удалить |
-| module `tests/test_mcp.py` | 003 | **удалено 2026-08-25** после MCP registration/payload slice |
 | classes `PrintModuleService` | 014 | thin facade cap |
 | `CardService` | 012 | снижать cap в 010/011; остаток закрывает 012 |
 | `CardServicePayrollMixin` | 013 | удалить/снизить до facade cap |
@@ -83,8 +82,6 @@ grandfathered module/class/function получает измеряемый пот
 | `AgentRunner` | 206 | только после keep decision 203 |
 | test classes `ApiServerTests`, `AgentGatewayV2Tests`, `CardServiceTests`, `WebAssetsTests` | 003 | соответствующий test-slice, удалить |
 | function `scripts/attest_agent_gateway_v2.py:_finance_apply_audit_safe_fixes_case` | 207 | case split, удалить |
-| functions `browser_smoke:_desktop_scenarios`, `_exercise_completion_act_editor` | 004 | scenario split, удалить |
-| function `api/server:_make_handler` | 007 | **удалено 2026-08-25** |
 | function `demo_seed:_demo_specs` | 001 | оставить bounded data-only cap; запретить рост |
 | function Gateway `register_agent_gateway_v2` | 008 | registry split, удалить |
 | functions Gateway `_execute_workflow`, `call_raw_capability` | 009 | executor split, удалить |
@@ -93,10 +90,11 @@ grandfathered module/class/function получает измеряемый пот
 | function `printing/defaults:builtin_template_records` | 001 | оставить bounded data-only cap; запретить рост |
 | function `test_mcp:test_mcp_tools_reach_backend` | 003 | MCP test-slice, удалить |
 
-Составные строки сохраняют исходную карту владельцев; итоговая машинная
-проверка сейчас считает ровно 36 активных owner mappings. Две
-data-only фабрики не дробятся без доказанной боли: для них результат задачи —
-жёсткий текущий cap, а не новый abstraction layer.
+Составные строки сохраняют карту владельцев; машинная проверка считает ровно
+36 активных mappings. IDs 000/002/004/006/007 среди владельцев отсутствуют;
+их результаты сохранены в таблице завершённой базы `README.md`. Две data-only
+фабрики не дробятся без доказанной боли: для них результат задачи — жёсткий
+текущий cap, а не новый abstraction layer.
 
 ## Не входит
 
