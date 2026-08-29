@@ -159,6 +159,10 @@ class BrowserRuntime:
             self.runtime.close()
 
 
+def browser_write_workflows_enabled(runtime: BrowserRuntime) -> bool:
+    return bool(runtime.local_temp_server and runtime.runtime is not None)
+
+
 def percentile(values: list[float], ratio: float) -> float:
     if not values:
         return 0.0
@@ -425,25 +429,23 @@ def first_card_id_from_base_url(base_url: str) -> str:
 
 
 def start_browser_runtime(args: argparse.Namespace) -> BrowserRuntime:
-    if args.local_temp_server:
-        from browser_smoke import start_temp_runtime
-
-        runtime = start_temp_runtime(start_port=args.start_port)
-        return BrowserRuntime(
-            base_url=runtime.base_url,
-            card_id=args.card_id or runtime.card_id,
-            local_temp_server=True,
-            employee_id=runtime.employee_id,
-            payroll_card_id=runtime.payroll_card_id,
-            salary_override_card_id=runtime.salary_override_card_id,
-            runtime=runtime,
+    if not args.local_temp_server:
+        raise ValueError(
+            "Browser workflows require a process-owned --local-temp-server; "
+            "remote browser workflows are disabled."
         )
-    card_id = args.card_id or first_card_id_from_base_url(args.base_url)
+
+    from browser_smoke import start_temp_runtime
+
+    runtime = start_temp_runtime(start_port=args.start_port)
     return BrowserRuntime(
-        base_url=args.base_url,
-        card_id=card_id,
-        local_temp_server=False,
-        runtime=None,
+        base_url=runtime.base_url,
+        card_id=args.card_id or runtime.card_id,
+        local_temp_server=True,
+        employee_id=runtime.employee_id,
+        payroll_card_id=runtime.payroll_card_id,
+        salary_override_card_id=runtime.salary_override_card_id,
+        runtime=runtime,
     )
 
 
@@ -939,7 +941,7 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                     )
                 )
 
-                can_write = bool(runtime.local_temp_server or args.allow_write_workflows)
+                can_write = browser_write_workflows_enabled(runtime)
                 if can_write:
 
                     async def save_card_action(index: int) -> None:
@@ -999,13 +1001,15 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                     rows.append(
                         skipped_row(
                             "save_card",
-                            "Write workflow skipped. Use --allow-write-workflows or --local-temp-server.",
+                            "Write workflow skipped. Writes require a process-owned "
+                            "--local-temp-server.",
                         )
                     )
                     rows.append(
                         skipped_row(
                             "move_card",
-                            "Write workflow skipped. Use --allow-write-workflows or --local-temp-server.",
+                            "Write workflow skipped. Writes require a process-owned "
+                            "--local-temp-server.",
                         )
                     )
 
@@ -1740,7 +1744,6 @@ def main() -> int:
     )
     parser.add_argument("--local-temp-server", action="store_true")
     parser.add_argument("--stage1-only", action="store_true")
-    parser.add_argument("--allow-write-workflows", action="store_true")
     parser.add_argument("--skip-browser", action="store_true")
     parser.add_argument("--headed", action="store_true")
     parser.add_argument("--start-port", default=42831)
@@ -1816,10 +1819,7 @@ def main() -> int:
         "warmup_iterations": args.warmup_iterations,
         "safe_mode": {
             "local_temp_server": bool(args.local_temp_server),
-            "allow_write_workflows": bool(args.allow_write_workflows),
-            "external_write_workflows_enabled": bool(
-                args.allow_write_workflows and not args.local_temp_server
-            ),
+            "write_workflows_enabled": bool(args.local_temp_server),
             "stage1_only": bool(args.stage1_only),
             "synthetic_state_profile": args.synthetic_state_profile,
         },

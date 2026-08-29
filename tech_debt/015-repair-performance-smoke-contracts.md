@@ -1,7 +1,7 @@
 # 015. Восстановить MCP и browser performance smoke
 
 Приоритет: P0
-Статус: готово к выполнению
+Статус: выполняется; local-only browser safety принят 2026-08-30
 Риск изменения продукта: низкий; меняется проверочный контур
 
 ## Проблема
@@ -43,6 +43,18 @@ CI выполняет HTTP probe и synthetic Stage-1 с `--skip-browser`, по�
    Полные профили остаются release/manual gates.
 
 Каждый срез — отдельный commit с characterization test до изменения.
+
+## Ход выполнения
+
+- Первый safety-подсрез удаляет `--allow-write-workflows`: browser perf теперь
+  целиком требует process-owned `--local-temp-server` и отказывает до первого
+  сетевого запроса для любого remote URL. Это необходимо не только для явных
+  `save_card`/`move_card`: обычное открытие карточки вызывает write-side effects
+  `open_card` и `mark_card_seen`.
+- Characterization фиксирует три границы: remote runtime запрещён, local flag без
+  фактического runtime-владельца недостаточен, а синтетический Stage-1 с
+  `--skip-browser` остаётся рабочим. Redaction отчёта, MCP surface/preflight и
+  success-only browser login остаются отдельными следующими подсрезами.
 
 ## Приёмка
 

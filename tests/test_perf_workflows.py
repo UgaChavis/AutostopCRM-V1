@@ -45,7 +45,7 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.module = load_perf_workflows()
 
-    def test_script_exposes_required_cli_flags_and_safe_write_gate(self) -> None:
+    def test_script_exposes_required_cli_flags_and_local_only_write_gate(self) -> None:
         script = SCRIPT_PATH.read_text(encoding="utf-8")
 
         for flag in (
@@ -57,7 +57,6 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
             "--state-file",
             "--synthetic-state-profile",
             "--stage1-only",
-            "--allow-write-workflows",
             "--max-storage-write-ms",
             "--max-revision-server-ms",
             "--max-get-card-direct-ms",
@@ -69,7 +68,8 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
             with self.subTest(flag=flag):
                 self.assertIn(flag, script)
         self.assertIn("Write workflow skipped.", script)
-        self.assertIn("external_write_workflows_enabled", script)
+        self.assertNotIn("--allow-write-workflows", script)
+        self.assertNotIn("external_write_workflows_enabled", script)
         self.assertIn('reconfigure(encoding="utf-8")', script)
         self.assertIn("autostop-perf", script)
         self.assertIn("open_repair_order_salary_override", script)
@@ -94,6 +94,42 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
         self.assertNotIn("print_page = await context.new_page()", script)
         self.assertIn("salary_override_card_id", self.module.BrowserRuntime.__dataclass_fields__)
         self.assertIn("employee_id", self.module.BrowserRuntime.__dataclass_fields__)
+
+    def test_browser_write_workflows_require_local_temp_runtime(self) -> None:
+        remote_runtime = self.module.BrowserRuntime(
+            base_url="https://crm.example",
+            card_id="remote-card",
+            local_temp_server=False,
+        )
+        local_runtime = self.module.BrowserRuntime(
+            base_url="http://127.0.0.1:42999",
+            card_id="temp-card",
+            local_temp_server=True,
+            runtime=object(),
+        )
+        unowned_runtime = self.module.BrowserRuntime(
+            base_url="http://127.0.0.1:42999",
+            card_id="unowned-card",
+            local_temp_server=True,
+        )
+
+        self.assertFalse(self.module.browser_write_workflows_enabled(remote_runtime))
+        self.assertTrue(self.module.browser_write_workflows_enabled(local_runtime))
+        self.assertFalse(self.module.browser_write_workflows_enabled(unowned_runtime))
+
+    def test_remote_browser_runtime_fails_closed_before_network_access(self) -> None:
+        args = SimpleNamespace(
+            local_temp_server=False,
+            base_url="https://crm.example",
+            card_id="",
+            start_port=42999,
+        )
+
+        with patch.object(self.module, "first_card_id_from_base_url") as first_card:
+            with self.assertRaisesRegex(ValueError, "process-owned --local-temp-server"):
+                self.module.start_browser_runtime(args)
+
+        first_card.assert_not_called()
 
     def test_quality_workflow_enforces_change_feed_performance_budgets(self) -> None:
         workflow = QUALITY_WORKFLOW_PATH.read_text(encoding="utf-8")
