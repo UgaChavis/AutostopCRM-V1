@@ -8,13 +8,12 @@ import contextlib
 import json
 import logging
 import math
+import re
 import statistics
 import sys
 import tempfile
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,9 +23,6 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
-
-from minimal_kanban.json_safety import reject_deeply_nested_json  # noqa: E402
-
 
 TARGETS_MS = {
     "open_card": 700.0,
@@ -41,7 +37,6 @@ TARGETS_MS = {
 DEFAULT_BROWSER_TIMEOUT_SECONDS = 240.0
 PLAYWRIGHT_CLOSE_TIMEOUT_SECONDS = 10.0
 BENIGN_UI_PERF_ERRORS = {"AbortError"}
-PERF_WORKFLOW_RESPONSE_MAX_BYTES = 4 * 1024 * 1024
 PERF_WORKFLOW_STATE_FILE_MAX_BYTES = 100 * 1024 * 1024
 SYNTHETIC_STATE_MIN_BYTES = 10 * 1024 * 1024
 SYNTHETIC_STATE_PROFILE = "current-production"
@@ -53,20 +48,31 @@ SYNTHETIC_STATE_COUNTS = {
 }
 
 
-class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
-        return None
+class RedactingArgumentParser(argparse.ArgumentParser):
+    def error(self, _message: str) -> None:
+        self.print_usage(sys.stderr)
+        self.exit(2, f"{self.prog}: error: invalid command line arguments\n")
 
 
-_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
-
-
-def _urlopen_no_redirect(request: urllib.request.Request, *, timeout: float):
-    return _NO_REDIRECT_OPENER.open(request, timeout=timeout)
-
-
-def _reject_json_constant(value: str) -> None:
-    raise ValueError(f"Unsupported JSON constant: {value}")
+REPORT_OMITTED_KEYS = frozenset(
+    {
+        "base_url",
+        "body",
+        "console_errors",
+        "content",
+        "data",
+        "message",
+        "page_errors",
+        "payload",
+        "state_file",
+        "text",
+        "text_sample",
+        "url",
+    }
+)
+_REPORT_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9:./_-]{0,119}$")
+_SERVER_TIMING_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,63}$")
+_SERVER_TIMING_DURATION_RE = re.compile(r"^dur=(?:\d+(?:\.\d+)?|\.\d+)$")
 
 
 def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
@@ -92,16 +98,42 @@ def _json_dumps(
     *,
     indent: int | None = None,
     separators: tuple[str, str] | None = None,
-    sort_keys: bool = False,
 ) -> str:
     return json.dumps(
         _json_safe_value(payload),
         ensure_ascii=False,
         indent=indent,
         separators=separators,
-        sort_keys=sort_keys,
         allow_nan=False,
     )
+
+
+def _report_key_is_omitted(key: Any) -> bool:
+    normalized = str(key).strip().lower()
+    return (
+        normalized in REPORT_OMITTED_KEYS
+        or normalized == "id"
+        or normalized.endswith(("_id", "_ids", "_token", "_password", "_secret", "_session"))
+        or normalized in {"authorization", "cookie", "password", "secret", "session", "token"}
+    )
+
+
+def sanitize_report(value: Any, *, depth: int = 12) -> Any:
+    if depth <= 0:
+        return "[truncated]"
+    if isinstance(value, dict):
+        return {
+            str(key): sanitize_report(item, depth=depth - 1)
+            for key, item in value.items()
+            if key is not None and not _report_key_is_omitted(key)
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [sanitize_report(item, depth=depth - 1) for item in value]
+    return value
+
+
+def serialize_report(payload: Any) -> str:
+    return _json_dumps(sanitize_report(payload), indent=2)
 
 
 MODAL_WORKFLOWS = (
@@ -232,18 +264,49 @@ def _response_payload_bytes(responses: list[dict[str, Any]]) -> int:
     return sum(_safe_int(item.get("bytes")) for item in responses if isinstance(item, dict))
 
 
+def _sanitize_server_timing(value: Any) -> str:
+    safe_items: list[str] = []
+    for item in str(value or "").split(","):
+        parts = [part.strip() for part in item.split(";")]
+        if not parts or not _SERVER_TIMING_NAME_RE.fullmatch(parts[0]):
+            continue
+        duration = next(
+            (part for part in parts[1:] if _SERVER_TIMING_DURATION_RE.fullmatch(part)),
+            "",
+        )
+        safe_items.append(f"{parts[0]};{duration}" if duration else parts[0])
+    return ", ".join(safe_items)
+
+
+def _sanitize_ui_perf_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    raw_name = str(entry.get("name") or "ui_perf")
+    name = raw_name if _REPORT_NAME_RE.fullmatch(raw_name) else "ui_perf"
+    result: dict[str, Any] = {
+        "name": name,
+        "duration_ms": round(_safe_float(entry.get("duration_ms")), 1),
+    }
+    detail = entry.get("detail")
+    if isinstance(detail, dict):
+        raw_error = str(detail.get("error") or "")
+        if raw_error:
+            result["detail"] = {
+                "error": raw_error if _REPORT_NAME_RE.fullmatch(raw_error) else "ui_error"
+            }
+    return result
+
+
 def summarize_samples(samples: list[dict[str, Any]], *, scenario: str) -> dict[str, Any]:
     durations = [_safe_float(item.get("duration_ms")) for item in samples]
     request_counts = [_safe_int(item.get("request_count")) for item in samples]
     payload_sizes = [_safe_int(item.get("payload_bytes")) for item in samples]
     server_timings = [
-        str(timing)
+        safe_timing
         for item in samples
         for timing in (item.get("server_timing") or [])
-        if str(timing).strip()
+        if (safe_timing := _sanitize_server_timing(timing))
     ]
     ui_entries = [
-        entry
+        _sanitize_ui_perf_entry(entry)
         for item in samples
         for entry in (item.get("ui_perf_entries") or [])
         if isinstance(entry, dict)
@@ -308,8 +371,50 @@ def _request_failure_text(request: Any) -> str:
     return str(failure or "").strip()
 
 
+def _safe_request_route(value: str) -> str:
+    try:
+        path = urllib.parse.urlsplit(value).path
+    except ValueError:
+        return "[redacted-route]"
+    if re.fullmatch(r"/api/[a-z0-9_]+", path, re.IGNORECASE):
+        return path
+    if path == "/employee_salary_reconciliation_print":
+        return path
+    return "[redacted-route]"
+
+
+def _request_failure_code(request: Any) -> str:
+    match = re.search(r"\bnet::[A-Z0-9_]+\b", _request_failure_text(request))
+    return match.group(0) if match else "request_failed"
+
+
 def format_failed_request(request: Any) -> str:
-    return f"{request.method} {request.url} {_request_failure_text(request)}".strip()
+    method = str(getattr(request, "method", "REQUEST")).upper()
+    if not re.fullmatch(r"[A-Z]{3,12}", method):
+        method = "REQUEST"
+    return f"{method} {_safe_request_route(str(request.url))} {_request_failure_code(request)}"
+
+
+def browser_event_report(
+    console_errors: list[str],
+    page_errors: list[str],
+    failed_requests: list[str],
+) -> dict[str, Any]:
+    safe_failed_requests = [
+        item
+        for item in failed_requests[-20:]
+        if re.fullmatch(
+            r"[A-Z]{3,12} (?:/api/[A-Za-z0-9_]+|/employee_salary_reconciliation_print|"
+            r"\[redacted-route\]) (?:net::[A-Z0-9_]+|request_failed)",
+            item,
+        )
+    ]
+    return {
+        "console_error_count": len(console_errors),
+        "page_error_count": len(page_errors),
+        "failed_request_count": len(failed_requests),
+        "failed_requests": safe_failed_requests,
+    }
 
 
 def skipped_row(scenario: str, reason: str) -> dict[str, Any]:
@@ -330,27 +435,6 @@ def skipped_row(scenario: str, reason: str) -> dict[str, Any]:
     }
 
 
-def _read_response_body(response) -> bytes:
-    raw = response.read(PERF_WORKFLOW_RESPONSE_MAX_BYTES + 1)
-    if len(raw) > PERF_WORKFLOW_RESPONSE_MAX_BYTES:
-        raise ValueError("performance workflow response is too large")
-    return raw
-
-
-def _load_json_response(raw: bytes) -> dict[str, Any]:
-    try:
-        payload = json.loads(raw.decode("utf-8"), parse_constant=_reject_json_constant)
-    except RecursionError as exc:
-        raise ValueError("API response JSON is too deeply nested") from exc
-    reject_deeply_nested_json(
-        payload,
-        message="API response JSON is too deeply nested",
-    )
-    if not isinstance(payload, dict):
-        raise ValueError("API response must be a JSON object")
-    return payload
-
-
 def failed_row(
     scenario: str, error: BaseException, *, samples: list[dict[str, Any]]
 ) -> dict[str, Any]:
@@ -359,7 +443,7 @@ def failed_row(
     row.pop("reason", None)
     row["failed"] = True
     row["error_type"] = type(error).__name__
-    row["error"] = str(error)
+    row["error"] = "workflow_failed"
     row["iterations_completed"] = max(0, len(samples) - 1)
     return row
 
@@ -394,38 +478,14 @@ async def run_browser_workflows_with_timeout(args: argparse.Namespace) -> dict[s
 
 def browser_failure_result(args: argparse.Namespace, error: BaseException) -> dict[str, Any]:
     return {
-        "base_url": args.base_url,
         "local_temp_server": bool(args.local_temp_server),
         "rows": [failed_row("browser_workflows", error, samples=[])],
-        "events": {
-            "console_errors": [],
-            "page_errors": [],
-            "failed_requests": [],
-        },
+        "events": browser_event_report([], [], []),
     }
 
 
-def json_request(base_url: str, path: str, *, timeout: float = 15.0) -> dict[str, Any]:
-    request = urllib.request.Request(
-        base_url.rstrip("/") + "/" + path.lstrip("/"),
-        headers={"Accept": "application/json"},
-        method="GET",
-    )
-    try:
-        with _urlopen_no_redirect(request, timeout=timeout) as response:
-            return _load_json_response(_read_response_body(response))
-    except urllib.error.HTTPError as exc:
-        if 300 <= exc.code < 400:
-            raise ValueError(f"API request redirected: {path}") from exc
-        raise
-
-
-def first_card_id_from_base_url(base_url: str) -> str:
-    payload = json_request(base_url, "/api/get_board_snapshot?compact=1&include_archive=0")
-    cards = payload.get("data", {}).get("cards", [])
-    if isinstance(cards, list) and cards:
-        return str(cards[0].get("id") or "").strip()
-    return ""
+def state_benchmark_failure_result(error: BaseException) -> dict[str, Any]:
+    return {"rows": [failed_row("state_file_benchmark", error, samples=[])]}
 
 
 def start_browser_runtime(args: argparse.Namespace) -> BrowserRuntime:
@@ -650,36 +710,6 @@ async def wait_for_modal_ready(page: Any, modal: str, ready_selector: str) -> No
     )
 
 
-async def modal_ready_diagnostics(page: Any, modal: str, ready_selector: str) -> dict[str, Any]:
-    result = await page.evaluate(
-        """({ modalSelector, readySelector }) => {
-          const root = document.querySelector(modalSelector);
-          if (!root) return { missing_root: true };
-          const nodes = Array.from(root.querySelectorAll(readySelector)).map((node) => {
-            const style = window.getComputedStyle(node);
-            return {
-              tag: node.tagName,
-              class_name: String(node.className || ''),
-              text: String(node.textContent || '').slice(0, 240),
-              display: style.display,
-              visibility: style.visibility,
-              rects: node.getClientRects().length,
-            };
-          });
-          return {
-            open: root.classList.contains('is-open'),
-            text_sample: String(root.textContent || '').slice(0, 500),
-            nodes,
-            perf_entries: Array.isArray(window.__AUTOSTOP_PERF__)
-              ? window.__AUTOSTOP_PERF__.slice(-12)
-              : [],
-          };
-        }""",
-        arg={"modalSelector": modal, "readySelector": ready_selector},
-    )
-    return result if isinstance(result, dict) else {"value": result}
-
-
 async def force_close_open_modals(page: Any) -> None:
     await page.evaluate(
         """() => {
@@ -762,38 +792,20 @@ async def measure_browser_action(
     return summarize_samples(samples, scenario=scenario)
 
 
-async def login_browser(page: Any, args: argparse.Namespace, runtime: BrowserRuntime) -> bool:
-    from browser_smoke import _is_modal_open, _login
+async def login_browser(page: Any) -> None:
+    from browser_smoke import _login
 
-    if runtime.local_temp_server:
-        await _login(page)
-        return True
-    if args.operator_username and args.operator_password:
-        await page.wait_for_selector("#identityInput", state="visible", timeout=8000)
-        await page.fill("#identityInput", args.operator_username)
-        await page.fill("#identityPassword", args.operator_password)
-        await page.click("#identitySave")
-        return True
-    if args.operator_token:
-        return True
-    if await _is_modal_open(page, "#identityModal"):
-        return False
-    return True
+    await _login(page)
 
 
 async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
     try:
         from playwright.async_api import async_playwright
-    except ImportError as exc:
+    except ImportError:
         return {
             "rows": [],
-            "events": {
-                "console_errors": [],
-                "page_errors": [],
-                "failed_requests": [],
-            },
+            "events": browser_event_report([], [], []),
             "error": "playwright_missing",
-            "message": str(exc),
         }
 
     from browser_smoke import _launch_chromium, _wait_modal_closed, _wait_modal_open
@@ -807,13 +819,8 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
     try:
         if not runtime.card_id:
             return {
-                "base_url": runtime.base_url,
                 "rows": [skipped_row("browser", "No card_id was found for browser workflows.")],
-                "events": {
-                    "console_errors": console_errors,
-                    "page_errors": page_errors,
-                    "failed_requests": failed_requests,
-                },
+                "events": browser_event_report(console_errors, page_errors, failed_requests),
             }
         async with async_playwright() as playwright:
             browser = await _launch_chromium(playwright, headless=not args.headed)
@@ -821,11 +828,6 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
             await context.add_init_script(
                 "window.localStorage.setItem('autostop-perf', '1');window.__AUTOSTOP_PERF__ = [];"
             )
-            if args.operator_token:
-                token = json.dumps(str(args.operator_token), allow_nan=False)
-                await context.add_init_script(
-                    f"window.localStorage.setItem('kanban-operator-session', {token});"
-                )
             page = await context.new_page()
             page.on(
                 "console",
@@ -846,7 +848,6 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                 byte_count = _safe_int(raw_length)
                 responses.append(
                     {
-                        "url": url,
                         "status": response.status,
                         "bytes": byte_count,
                         "server_timing": headers.get("server-timing") or "",
@@ -856,24 +857,7 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
             page.on("response", record_response)
             try:
                 await goto_with_retry(page, runtime.base_url, wait_until="domcontentloaded")
-                logged_in = await login_browser(page, args, runtime)
-                if not logged_in:
-                    rows.append(
-                        skipped_row(
-                            "browser",
-                            "Operator session is required. Pass --operator-token, "
-                            "--operator-username/--operator-password, or use --local-temp-server.",
-                        )
-                    )
-                    return {
-                        "base_url": runtime.base_url,
-                        "rows": rows,
-                        "events": {
-                            "console_errors": console_errors,
-                            "page_errors": page_errors,
-                            "failed_requests": failed_requests,
-                        },
-                    }
+                await login_browser(page)
                 await page.wait_for_selector("#board", timeout=15000)
                 card_selector = f'[data-card-id="{runtime.card_id}"]'
                 await page.wait_for_selector(card_selector, timeout=15000)
@@ -1022,11 +1006,7 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                     try:
                         await wait_for_modal_ready(page, modal, ready_selector)
                     except Exception as exc:
-                        diagnostics = await modal_ready_diagnostics(page, modal, ready_selector)
-                        encoded = _json_dumps(diagnostics, sort_keys=True)
-                        raise RuntimeError(
-                            f"{scenario} modal did not become ready: {encoded}"
-                        ) from exc
+                        raise RuntimeError(f"{scenario} modal did not become ready") from exc
                     await close_modal_best_effort(modal)
 
                 for scenario, button, modal, ready_selector in MODAL_WORKFLOWS:
@@ -1163,15 +1143,9 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
         runtime.close()
 
     return {
-        "base_url": runtime.base_url,
         "local_temp_server": runtime.local_temp_server,
-        "card_id": runtime.card_id,
         "rows": rows,
-        "events": {
-            "console_errors": console_errors,
-            "page_errors": page_errors,
-            "failed_requests": failed_requests,
-        },
+        "events": browser_event_report(console_errors, page_errors, failed_requests),
     }
 
 
@@ -1343,7 +1317,6 @@ def _cached_write_arguments(bundle: dict[str, Any]) -> dict[str, Any]:
 def _run_stage1_state_file_benchmark(
     *,
     args: argparse.Namespace,
-    source: Path,
     state_file: Path,
     store: Any,
     service: Any,
@@ -1476,9 +1449,7 @@ def _run_stage1_state_file_benchmark(
         summarize_samples(samples, scenario=scenario) for scenario, samples in raw_samples.items()
     ]
     return {
-        "state_file": str(source),
         "state_copy_bytes": state_file.stat().st_size,
-        "card_id": card_id,
         "stage1_only": True,
         "warmup_iterations": args.warmup_iterations,
         "rows": rows,
@@ -1492,7 +1463,7 @@ def run_state_file_benchmark(args: argparse.Namespace) -> dict[str, Any]:
 
     source = Path(args.state_file).expanduser().resolve()
     if not source.exists():
-        return {"rows": [skipped_row("state_file", f"State file not found: {source}")]}
+        return {"rows": [skipped_row("state_file", "State file not found.")]}
     with tempfile.TemporaryDirectory(prefix="autostop-perf-state-") as temp_dir:
         state_file = Path(temp_dir) / "state.json"
         copy_file_limited(
@@ -1532,7 +1503,6 @@ def run_state_file_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         if args.stage1_only:
             return _run_stage1_state_file_benchmark(
                 args=args,
-                source=source,
                 state_file=state_file,
                 store=store,
                 service=service,
@@ -1655,9 +1625,7 @@ def run_state_file_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             for scenario, samples in raw_samples.items()
         ]
         return {
-            "state_file": str(source),
             "state_copy_bytes": state_file.stat().st_size,
-            "card_id": card_id,
             "rows": rows,
         }
 
@@ -1726,16 +1694,12 @@ def evaluate_thresholds(
 
 def main() -> int:
     configure_stdout_utf8()
-    parser = argparse.ArgumentParser(
+    parser = RedactingArgumentParser(
         description="Run AutoStop CRM performance workflows and state-file benchmarks."
     )
-    parser.add_argument("--base-url", default="https://crm.autostopcrm.ru")
     parser.add_argument("--iterations", default=3)
     parser.add_argument("--warmup-iterations", default=0)
     parser.add_argument("--card-id", default="")
-    parser.add_argument("--operator-token", default="")
-    parser.add_argument("--operator-username", default="")
-    parser.add_argument("--operator-password", default="")
     parser.add_argument("--state-file", default="")
     parser.add_argument(
         "--synthetic-state-profile",
@@ -1835,22 +1799,28 @@ def main() -> int:
         output["browser"] = browser_result
         output["rows"].extend(browser_result.get("rows") or [])
     if args.state_file:
-        state_result = run_state_file_benchmark(args)
+        try:
+            state_result = run_state_file_benchmark(args)
+        except Exception as exc:
+            state_result = state_benchmark_failure_result(exc)
         output["state_file_benchmark"] = state_result
         output["rows"].extend(state_result.get("rows") or [])
     elif args.synthetic_state_profile:
-        with tempfile.TemporaryDirectory(prefix="autostop-perf-synthetic-") as temp_dir:
-            synthetic_state_file = Path(temp_dir) / "state.json"
-            synthetic_meta = write_synthetic_current_production_state(synthetic_state_file)
-            args.state_file = str(synthetic_state_file)
-            state_result = run_state_file_benchmark(args)
-            state_result["synthetic"] = synthetic_meta
-            output["state_file_benchmark"] = state_result
-            output["rows"].extend(state_result.get("rows") or [])
+        try:
+            with tempfile.TemporaryDirectory(prefix="autostop-perf-synthetic-") as temp_dir:
+                synthetic_state_file = Path(temp_dir) / "state.json"
+                synthetic_meta = write_synthetic_current_production_state(synthetic_state_file)
+                args.state_file = str(synthetic_state_file)
+                state_result = run_state_file_benchmark(args)
+                state_result["synthetic"] = synthetic_meta
+        except Exception as exc:
+            state_result = state_benchmark_failure_result(exc)
+        output["state_file_benchmark"] = state_result
+        output["rows"].extend(state_result.get("rows") or [])
     output["ranked_findings"] = ranked_findings(output["rows"])
     output["violations"] = evaluate_thresholds(output["rows"], args)
     output["threshold_status"] = "failed" if output["violations"] else "passed"
-    print(_json_dumps(output, indent=2))
+    print(serialize_report(output))
     browser_output = output.get("browser")
     if isinstance(browser_output, dict) and browser_output.get("error") == "playwright_missing":
         return 2

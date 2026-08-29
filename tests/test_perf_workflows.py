@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
 import sys
 import tempfile
@@ -12,22 +14,6 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "perf_workflows.py"
 QUALITY_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "quality.yml"
-
-
-class FakeResponse:
-    def __init__(self, payload: bytes) -> None:
-        self._payload = payload
-
-    def __enter__(self) -> FakeResponse:
-        return self
-
-    def __exit__(self, *_exc_info: object) -> None:
-        return None
-
-    def read(self, size: int = -1) -> bytes:
-        if size is None or size < 0:
-            return self._payload
-        return self._payload[:size]
 
 
 def load_perf_workflows() -> ModuleType:
@@ -49,11 +35,9 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
         script = SCRIPT_PATH.read_text(encoding="utf-8")
 
         for flag in (
-            "--base-url",
             "--iterations",
             "--warmup-iterations",
             "--card-id",
-            "--operator-token",
             "--state-file",
             "--synthetic-state-profile",
             "--stage1-only",
@@ -67,6 +51,14 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
         ):
             with self.subTest(flag=flag):
                 self.assertIn(flag, script)
+        for removed_flag in (
+            "--base-url",
+            "--operator-token",
+            "--operator-username",
+            "--operator-password",
+        ):
+            with self.subTest(removed_flag=removed_flag):
+                self.assertNotIn(removed_flag, script)
         self.assertIn("Write workflow skipped.", script)
         self.assertNotIn("--allow-write-workflows", script)
         self.assertNotIn("external_write_workflows_enabled", script)
@@ -125,11 +117,12 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
             start_port=42999,
         )
 
-        with patch.object(self.module, "first_card_id_from_base_url") as first_card:
-            with self.assertRaisesRegex(ValueError, "process-owned --local-temp-server"):
-                self.module.start_browser_runtime(args)
+        with self.assertRaisesRegex(ValueError, "process-owned --local-temp-server"):
+            self.module.start_browser_runtime(args)
 
-        first_card.assert_not_called()
+        self.assertFalse(hasattr(self.module, "first_card_id_from_base_url"))
+        self.assertFalse(hasattr(self.module, "json_request"))
+        self.assertFalse(hasattr(self.module, "_urlopen_no_redirect"))
 
     def test_quality_workflow_enforces_change_feed_performance_budgets(self) -> None:
         workflow = QUALITY_WORKFLOW_PATH.read_text(encoding="utf-8")
@@ -149,9 +142,19 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
                     "duration_ms": 100,
                     "request_count": 2,
                     "payload_bytes": 1200,
-                    "server_timing": ["app;dur=10.0"],
+                    "server_timing": ["app;dur=10.0;desc=private-customer"],
                     "phase_timings": {"serialize": 60.0, "write": 20.0},
-                    "ui_perf_entries": [{"name": "openCardWorkspace", "duration_ms": 90}],
+                    "ui_perf_entries": [
+                        {
+                            "name": "openCardWorkspace",
+                            "duration_ms": 90,
+                            "detail": {
+                                "card_id": "card-secret",
+                                "payload": "private-customer",
+                                "error": "TypeError",
+                            },
+                        }
+                    ],
                 },
                 {
                     "duration_ms": 300,
@@ -177,6 +180,9 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
         self.assertEqual(len(summary["server_timing"]), 2)
         self.assertEqual(summary["phase_timings"]["serialize"]["p95_ms"], 180.0)
         self.assertEqual(summary["ui_perf_entries"][-1]["name"], "api:/api/get_card")
+        self.assertEqual(summary["ui_perf_entries"][0]["detail"], {"error": "TypeError"})
+        self.assertNotIn("private-customer", json.dumps(summary))
+        self.assertNotIn("card-secret", json.dumps(summary))
 
     def test_summarize_and_thresholds_tolerate_invalid_numeric_values(self) -> None:
         summary = self.module.summarize_samples(
@@ -352,31 +358,187 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
         self.assertNotIn('wait_for_load_state("networkidle"', script)
         self.assertNotIn("modal.textContent", script)
         self.assertIn("root.querySelectorAll(readySelector)", script)
-        self.assertIn("async def modal_ready_diagnostics(", script)
+        self.assertNotIn("async def modal_ready_diagnostics(", script)
         self.assertIn("modal did not become ready", script)
 
     def test_failed_request_formatter_accepts_playwright_string_failure(self) -> None:
         class Request:
             method = "POST"
-            url = "http://127.0.0.1:42731/api/update_card"
-            failure = "net::ERR_CONNECTION_RESET"
+            url = (
+                "http://127.0.0.1:42731/api/update_card"
+                "?access_token=browser-secret&card_id=card-secret#fragment"
+            )
+            failure = "Authorization: Bearer bearer-secret"
 
         self.assertEqual(
             self.module.format_failed_request(Request()),
-            "POST http://127.0.0.1:42731/api/update_card net::ERR_CONNECTION_RESET",
+            "POST /api/update_card request_failed",
         )
 
-    def test_json_request_rejects_oversized_response(self) -> None:
-        with (
-            patch.object(self.module, "PERF_WORKFLOW_RESPONSE_MAX_BYTES", 4),
-            patch.object(
-                self.module,
-                "_urlopen_no_redirect",
-                return_value=FakeResponse(b"12345"),
+    def test_serialized_report_omits_record_ids_payloads_paths_and_secrets(self) -> None:
+        request = SimpleNamespace(
+            method="GET",
+            url="https://private-user:private-password@crm.example/api/get_card"
+            "?card_id=card-secret&access_token=browser-secret",
+            failure="Authorization: Bearer bearer-secret",
+        )
+        report = {
+            "scenario": "open_card",
+            "base_url": (
+                "http://private-user:private-password@127.0.0.1:42731/"
+                "?access_token=browser-secret#fragment"
             ),
+            "card_id": "card-secret",
+            "id": "record-secret",
+            "entity_ids": ["entity-secret"],
+            "operator_token": "plain-token-secret",
+            "authorization": "plain-authorization-secret",
+            "cookie": "plain-cookie-secret",
+            "state_file": "C:/private/customer-state.json",
+            "rows": [
+                {
+                    "scenario": "open_card",
+                    "p95_ms": 125.0,
+                    "ui_perf_entries": [
+                        {
+                            "name": "openCardWorkspace",
+                            "detail": {
+                                "employee_id": "employee-secret",
+                                "payload": {"customer": "private-customer"},
+                            },
+                        }
+                    ],
+                }
+            ],
+            "events": {
+                "console_errors": ["private-console-customer"],
+                "page_errors": ["C:/private/page-error.py"],
+                "failed_requests": [self.module.format_failed_request(request)],
+            },
+        }
+
+        encoded = self.module.serialize_report(report)
+        decoded = json.loads(encoded)
+
+        self.assertNotIn("base_url", decoded)
+        self.assertEqual(decoded["rows"][0]["p95_ms"], 125.0)
+        self.assertNotIn("card_id", encoded)
+        self.assertNotIn("employee_id", encoded)
+        self.assertNotIn("entity_ids", encoded)
+        self.assertNotIn('"id"', encoded)
+        self.assertNotIn("state_file", encoded)
+        self.assertNotIn("payload", encoded)
+        for secret in (
+            "browser-secret",
+            "card-secret",
+            "employee-secret",
+            "entity-secret",
+            "record-secret",
+            "private-customer",
+            "bearer-secret",
+            "customer-state.json",
+            "private-user",
+            "private-password",
+            "plain-token-secret",
+            "plain-authorization-secret",
+            "plain-cookie-secret",
+            "private-console-customer",
+            "page-error.py",
         ):
-            with self.assertRaisesRegex(ValueError, "performance workflow response is too large"):
-                self.module.json_request("https://crm.autostopcrm.ru", "/api/health")
+            with self.subTest(secret=secret):
+                self.assertNotIn(secret, encoded)
+        self.assertIn("GET /api/get_card request_failed", encoded)
+
+    def test_browser_failure_and_events_report_only_safe_categories(self) -> None:
+        args = SimpleNamespace(
+            base_url="https://private:password@crm.example/?access_token=token-secret",
+            local_temp_server=False,
+        )
+        result = self.module.browser_failure_result(
+            args,
+            RuntimeError("C:/private/customer-state.json private-customer card-secret"),
+        )
+        events = self.module.browser_event_report(
+            ["private console customer"],
+            ["C:/private/page-error.js"],
+            ["GET /api/get_card net::ERR_CONNECTION_RESET"],
+        )
+        result["events"] = events
+        encoded = self.module.serialize_report(result)
+
+        self.assertEqual(result["rows"][0]["error"], "workflow_failed")
+        self.assertEqual(events["console_error_count"], 1)
+        self.assertEqual(events["page_error_count"], 1)
+        self.assertEqual(events["failed_request_count"], 1)
+        self.assertEqual(events["failed_requests"], ["GET /api/get_card net::ERR_CONNECTION_RESET"])
+        for secret in (
+            "private console customer",
+            "page-error.js",
+            "customer-state.json",
+            "private-customer",
+            "card-secret",
+            "token-secret",
+            "password@",
+        ):
+            with self.subTest(secret=secret):
+                self.assertNotIn(secret, encoded)
+
+    def test_state_benchmark_exception_becomes_safe_failed_report(self) -> None:
+        private_error = RuntimeError("C:/private/customer-state.json private-customer")
+        with (
+            patch.object(sys, "argv", ["perf_workflows.py", "--skip-browser", "--state-file", "x"]),
+            patch.object(self.module, "run_state_file_benchmark", side_effect=private_error),
+            patch("builtins.print") as print_mock,
+        ):
+            exit_code = self.module.main()
+
+        encoded = str(print_mock.call_args.args[0])
+        decoded = json.loads(encoded)
+        row = decoded["state_file_benchmark"]["rows"][0]
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(row["scenario"], "state_file_benchmark")
+        self.assertEqual(row["error"], "workflow_failed")
+        self.assertNotIn("customer-state.json", encoded)
+        self.assertNotIn("private-customer", encoded)
+
+    def test_removed_secret_flags_fail_without_echoing_values(self) -> None:
+        stderr = io.StringIO()
+        sentinels = (
+            "private-user:private-password@example.invalid",
+            "RECORD-SECRET",
+            "TOKEN-SECRET",
+            "OPERATOR-TOKEN-SECRET",
+            "OPERATOR-USER-SECRET",
+            "OPERATOR-PASSWORD-SECRET",
+        )
+        legacy_url = f"https://{sentinels[0]}/api/card/{sentinels[1]}?access_token={sentinels[2]}"
+        with (
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "perf_workflows.py",
+                    "--base-url",
+                    legacy_url,
+                    "--operator-token",
+                    sentinels[3],
+                    "--operator-username",
+                    sentinels[4],
+                    "--operator-password",
+                    sentinels[5],
+                ],
+            ),
+            contextlib.redirect_stderr(stderr),
+            self.assertRaises(SystemExit) as raised,
+        ):
+            self.module.main()
+
+        error_text = stderr.getvalue()
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("invalid command line arguments", error_text)
+        for sentinel in sentinels:
+            with self.subTest(sentinel=sentinel):
+                self.assertNotIn(sentinel, error_text)
 
     def test_failed_workflow_rows_are_reported_as_findings_and_violations(self) -> None:
         row = self.module.failed_row(
@@ -473,51 +635,6 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
             self.module.browser_timeout_seconds(SimpleNamespace(browser_timeout_seconds=1e308)),
             3600.0,
         )
-
-    def test_json_request_rejects_non_standard_constants(self) -> None:
-        with patch.object(
-            self.module,
-            "_urlopen_no_redirect",
-            return_value=FakeResponse(b'{"ok": true, "duration_ms": NaN}'),
-        ):
-            with self.assertRaisesRegex(ValueError, "Unsupported JSON constant: NaN"):
-                self.module.json_request("http://127.0.0.1:42999", "/api/test")
-
-    def test_json_request_rejects_deeply_nested_response(self) -> None:
-        deep_json = ("[" * 5000 + "0" + "]" * 5000).encode("utf-8")
-
-        with patch.object(
-            self.module,
-            "_urlopen_no_redirect",
-            return_value=FakeResponse(deep_json),
-        ):
-            with self.assertRaisesRegex(ValueError, "API response JSON is too deeply nested"):
-                self.module.json_request("http://127.0.0.1:42999", "/api/test")
-
-    def test_json_request_rejects_non_object_response(self) -> None:
-        with patch.object(
-            self.module,
-            "_urlopen_no_redirect",
-            return_value=FakeResponse(b"[]"),
-        ):
-            with self.assertRaisesRegex(ValueError, "API response must be a JSON object"):
-                self.module.json_request("http://127.0.0.1:42999", "/api/test")
-
-    def test_json_request_rejects_redirect_response(self) -> None:
-        redirect = self.module.urllib.error.HTTPError(
-            url="http://127.0.0.1:42999/api/get_board_snapshot",
-            code=302,
-            msg="Found",
-            hdrs={"Location": "https://example.test/api/get_board_snapshot"},
-            fp=None,
-        )
-
-        with patch.object(self.module, "_urlopen_no_redirect", side_effect=redirect):
-            with self.assertRaisesRegex(ValueError, "API request redirected"):
-                self.module.json_request(
-                    "http://127.0.0.1:42999",
-                    "/api/get_board_snapshot?compact=1&include_archive=0",
-                )
 
     def test_response_size_sanitizes_non_finite_numbers_and_preserves_finite_float(
         self,

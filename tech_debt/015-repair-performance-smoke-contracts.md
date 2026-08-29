@@ -53,8 +53,16 @@ CI выполняет HTTP probe и synthetic Stage-1 с `--skip-browser`, по�
   `open_card` и `mark_card_seen`.
 - Characterization фиксирует три границы: remote runtime запрещён, local flag без
   фактического runtime-владельца недостаточен, а синтетический Stage-1 с
-  `--skip-browser` остаётся рабочим. Redaction отчёта, MCP surface/preflight и
-  success-only browser login остаются отдельными следующими подсрезами.
+  `--skip-browser` остаётся рабочим.
+- Второй safety-подсрез удаляет мёртвый remote card-discovery HTTP-контур и
+  `--base-url`, remote operator credentials и недостижимые ветви логина.
+  Финальный JSON теперь отбрасывает полные target/base URL, credentials, record
+  IDs, state path, payload/DOM text и сырые console/page errors; failed requests
+  сохраняют только method, фиксированный route и нормализованный network code.
+  Redacting parser не повторяет значения устаревших/ошибочных CLI-аргументов в
+  stderr. Ошибки state benchmark превращаются в безопасный failed row без
+  traceback. MCP surface/preflight и success-only browser login остаются
+  следующими отдельными подсрезами.
 
 ## Приёмка
 
