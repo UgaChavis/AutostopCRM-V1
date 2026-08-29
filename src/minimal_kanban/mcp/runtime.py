@@ -107,10 +107,15 @@ class McpServerRuntime:
 
     def stop(self) -> None:
         if self._uvicorn_server is None:
+            if self._thread is not None and self._thread.is_alive():
+                raise RuntimeError("Поток MCP runtime не остановился.")
+            self._thread = None
             return
         self._uvicorn_server.should_exit = True
         if self._thread is not None:
             self._thread.join(timeout=10)
+            if self._thread.is_alive():
+                raise RuntimeError("Поток MCP runtime не остановился.")
         self._thread = None
         self._uvicorn_server = None
         self._log(logging.INFO, "mcp.stop.complete")
@@ -240,8 +245,9 @@ class McpServerRuntime:
             self._uvicorn_server.should_exit = True
         if self._thread is not None and self._thread.is_alive():
             self._thread.join(timeout=2)
-        self._thread = None
-        self._uvicorn_server = None
+        if self._thread is None or not self._thread.is_alive():
+            self._thread = None
+            self._uvicorn_server = None
 
     def _is_port_open(self) -> bool:
         try:

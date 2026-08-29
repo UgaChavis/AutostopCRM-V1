@@ -372,5 +372,53 @@ class AuthenticationPolicyUnitTests(unittest.TestCase):
                     policy.login_operator(handler, {}, request_id)
 
 
+class ApiRuntimeShutdownTests(unittest.TestCase):
+    def test_readiness_failure_retains_handles_when_cleanup_is_uncertain(self) -> None:
+        logger = logging.getLogger(f"test.api.start_cleanup.{self._testMethodName}")
+        server = ApiServer(Mock(), logger, start_port=41731, fallback_limit=1)
+        http_server = Mock()
+        http_server.server_address = ("127.0.0.1", 41731)
+        thread = Mock()
+        thread.is_alive.return_value = True
+
+        with (
+            patch.object(server, "_make_handler", return_value=Mock()),
+            patch.object(
+                server,
+                "_wait_until_accepting",
+                side_effect=RuntimeError("readiness failed"),
+            ),
+            patch(
+                "minimal_kanban.api.server.ReusableThreadingHTTPServer",
+                return_value=http_server,
+            ),
+            patch("minimal_kanban.api.server.threading.Thread", return_value=thread),
+            self.assertRaises(RuntimeError),
+        ):
+            server.start()
+
+        self.assertIs(http_server, server._server)
+        self.assertIs(thread, server._thread)
+        http_server.server_close.assert_not_called()
+
+    def test_stop_retains_handles_when_thread_remains_alive(self) -> None:
+        logger = logging.getLogger(f"test.api.stop.{self._testMethodName}")
+        server = ApiServer(Mock(), logger, start_port=41731, fallback_limit=1)
+        http_server = Mock()
+        thread = Mock()
+        thread.is_alive.return_value = True
+        server._server = http_server
+        server._thread = thread
+
+        with self.assertRaisesRegex(RuntimeError, "не остановился"):
+            server.stop()
+
+        http_server.shutdown.assert_called_once_with()
+        http_server.server_close.assert_not_called()
+        thread.join.assert_called_once_with(timeout=5)
+        self.assertIs(http_server, server._server)
+        self.assertIs(thread, server._thread)
+
+
 if __name__ == "__main__":
     unittest.main()

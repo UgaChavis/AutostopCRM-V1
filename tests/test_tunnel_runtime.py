@@ -259,20 +259,55 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
     def test_stop_logs_when_owned_process_cannot_be_killed(self) -> None:
         process = Mock()
         process.pid = 777
+        process.poll.return_value = None
         process.terminate.side_effect = RuntimeError("terminate failed")
         process.kill.side_effect = RuntimeError("kill failed")
         self.controller._process = process
         self.controller._provider = "cloudflared"
+        state_path = self.controller._state_file_path
+        state_path.write_text('{"pid":777}', encoding="utf-8")
 
-        with self.assertLogs(self.controller._logger, level="WARNING") as captured:
-            state = self.controller.stop()
+        with (
+            self.assertLogs(self.controller._logger, level="WARNING") as captured,
+            self.assertRaisesRegex(RuntimeError, "777"),
+        ):
+            self.controller.stop()
 
         joined_logs = "\n".join(captured.output)
         self.assertIn("tunnel.process_terminate_failed", joined_logs)
         self.assertIn("tunnel.process_kill_failed", joined_logs)
         self.assertIn("pid=777", joined_logs)
-        self.assertFalse(state.running)
-        self.assertEqual(state.public_url, "")
+        self.assertIs(process, self.controller._process)
+        self.assertEqual(self.controller._provider, "cloudflared")
+        self.assertTrue(state_path.exists())
+
+        process.terminate.side_effect = None
+        process.kill.side_effect = None
+        process.wait.return_value = 0
+        self.controller.stop()
+        self.assertFalse(state_path.exists())
+
+    def test_stop_retains_ownership_when_persisted_state_cannot_be_cleared(self) -> None:
+        process = Mock()
+        process.pid = 777
+        process.poll.return_value = None
+        process.wait.return_value = 0
+        self.controller._process = process
+        self.controller._persisted_pid = 777
+        self.controller._provider = "cloudflared"
+
+        with (
+            patch.object(self.controller, "_clear_persisted_state", return_value=False),
+            self.assertRaisesRegex(RuntimeError, "persisted state"),
+        ):
+            self.controller.stop()
+
+        self.assertIs(process, self.controller._process)
+        self.assertEqual(self.controller._persisted_pid, 777)
+        self.assertEqual(self.controller._provider, "cloudflared")
+
+        process.poll.return_value = 0
+        self.controller.stop()
 
     def test_extract_cloudflared_url_uses_latest_non_api_url(self) -> None:
         log_path = Path(self.temp_dir.name) / "cloudflared.log"
@@ -377,6 +412,51 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
         self.assertEqual(payload["pid"], 5151)
         self.assertEqual(payload["target_port"], self.settings.mcp.mcp_port)
 
+    def test_preserve_for_reuse_retains_process_when_state_write_fails(self) -> None:
+        self.controller._provider = "cloudflared"
+        self.controller._target_port = self.settings.mcp.mcp_port
+        process = Mock()
+        process.poll.return_value = None
+        process.pid = 5151
+        self.controller._process = process
+        self.controller._state = self.controller.state.__class__(
+            running=True,
+            public_url="https://stable.trycloudflare.com",
+            message="Tunnel started.",
+            owns_process=True,
+        )
+
+        with (
+            patch.object(self.controller, "_is_pid_alive", return_value=True),
+            patch.object(self.controller, "_write_persisted_state", return_value=False),
+            self.assertRaisesRegex(RuntimeError, "persist"),
+        ):
+            self.controller.preserve_for_reuse()
+
+        self.assertIs(process, self.controller._process)
+        self.assertEqual(self.controller._persisted_pid, 5151)
+
+    def test_stop_retains_persisted_pid_when_termination_is_uncertain(self) -> None:
+        self.controller._provider = "cloudflared"
+        self.controller._persisted_pid = 6262
+
+        with (
+            patch.object(self.controller, "_is_pid_alive", return_value=True),
+            patch.object(
+                self.controller,
+                "_terminate_pid",
+                side_effect=RuntimeError("pid termination failed"),
+            ),
+            self.assertRaisesRegex(RuntimeError, "pid termination failed"),
+        ):
+            self.controller.stop()
+
+        self.assertEqual(self.controller._persisted_pid, 6262)
+        self.assertEqual(self.controller._provider, "cloudflared")
+
+        self.controller._persisted_pid = None
+        self.controller._provider = ""
+
     def test_reuse_persisted_state_rejects_invalid_public_url(self) -> None:
         state_path = Path(self.temp_dir.name) / "tunnel-state.json"
         state_path.write_text(
@@ -425,7 +505,7 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
         state_path = Path(self.temp_dir.name) / "nested" / "tunnel-state.json"
         self.controller._state_file_path = state_path
 
-        self.controller._write_persisted_state(
+        persisted = self.controller._write_persisted_state(
             provider="cloudflared",
             public_url="https://stable.trycloudflare.com",
             pid=5151,
@@ -437,6 +517,7 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
         self.assertEqual(payload["provider"], "cloudflared")
         self.assertEqual(payload["public_url"], "https://stable.trycloudflare.com")
         self.assertEqual(list(state_path.parent.glob("*.tmp")), [])
+        self.assertTrue(persisted)
 
     def test_write_persisted_state_rejects_oversized_payload_without_clobbering(
         self,
@@ -447,7 +528,7 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
         self.controller._state_file_path = state_path
 
         with patch("minimal_kanban.tunnel_runtime.TUNNEL_STATE_MAX_BYTES", 128):
-            self.controller._write_persisted_state(
+            persisted = self.controller._write_persisted_state(
                 provider="cloudflared",
                 public_url="https://" + "x" * 512 + ".trycloudflare.com",
                 pid=5151,
@@ -456,6 +537,7 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
 
         self.assertEqual(json.loads(state_path.read_text(encoding="utf-8")), original_payload)
         self.assertEqual(list(state_path.parent.glob("*.tmp")), [])
+        self.assertFalse(persisted)
 
     def test_write_persisted_state_does_not_overwrite_pid_time_tmp_file(self) -> None:
         state_path = Path(self.temp_dir.name) / "tunnel-state.json"
@@ -498,7 +580,7 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
 
             if os.name == "nt":
                 with (
-                    patch.object(self.controller, "_is_pid_alive", return_value=True),
+                    patch.object(self.controller, "_is_pid_alive", side_effect=[True, False]),
                     patch("minimal_kanban.tunnel_runtime.subprocess.run") as terminate_mock,
                 ):
                     state = self.controller.stop()
@@ -506,7 +588,7 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
                 self.assertEqual(terminate_mock.call_args.kwargs["timeout"], 10)
             else:
                 with (
-                    patch.object(self.controller, "_is_pid_alive", return_value=True),
+                    patch.object(self.controller, "_is_pid_alive", side_effect=[True, False]),
                     patch("minimal_kanban.tunnel_runtime.os.kill") as terminate_mock,
                 ):
                     state = self.controller.stop()

@@ -37,6 +37,15 @@ class McpRuntimeController:
 
     def start(self, settings: IntegrationSettings) -> McpRuntimeState:
         if self._runtime is not None:
+            if not self._state.running:
+                self._state = McpRuntimeState(
+                    running=False,
+                    runtime_url="",
+                    message="Предыдущий MCP runtime ещё не остановлен.",
+                    error=self._state.error,
+                    details=self._state.details,
+                )
+                return self._state
             self._state = McpRuntimeState(
                 running=True,
                 runtime_url=self._runtime.base_url,
@@ -70,10 +79,17 @@ class McpRuntimeController:
             self._logger,
             auth_mode="bearer" if self._mcp_token(settings) else "none",
         )
+        self._runtime = runtime
         try:
             runtime.start()
         except Exception as exc:
             self._logger.exception("mcp.start_failed error=%s", exc)
+            try:
+                runtime.stop()
+            except Exception as stop_exc:
+                self._logger.exception("mcp.start_cleanup_failed error=%s", stop_exc)
+            else:
+                self._runtime = None
             if isinstance(exc, McpRuntimeStartupError):
                 message = exc.user_message
                 details = exc.technical_details
@@ -89,7 +105,6 @@ class McpRuntimeController:
             )
             return self._state
 
-        self._runtime = runtime
         self._state = McpRuntimeState(
             running=True,
             runtime_url=runtime.base_url,
@@ -112,8 +127,8 @@ class McpRuntimeController:
             return self._state
 
         runtime = self._runtime
-        self._runtime = None
         runtime.stop()
+        self._runtime = None
         self._state = McpRuntimeState(
             running=False,
             runtime_url="",

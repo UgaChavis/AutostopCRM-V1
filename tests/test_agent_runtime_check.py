@@ -11,7 +11,7 @@ from contextlib import redirect_stdout
 from datetime import timedelta
 from io import StringIO
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "check_agent_runtime.py"
@@ -218,6 +218,32 @@ class CheckAgentRuntimeScriptTests(unittest.TestCase):
 
 
 class AgentControlServiceTests(unittest.TestCase):
+    def test_close_retains_each_live_thread_until_a_retry_confirms_stop(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage = AgentStorage(base_dir=Path(temp_dir) / "agent")
+
+            for attribute, role in (
+                ("_scheduler_thread", "scheduler"),
+                ("_worker_thread", "worker"),
+            ):
+                with self.subTest(role=role):
+                    control = AgentControlService(storage)
+                    thread = Mock()
+                    thread.is_alive.side_effect = [True, True, True, False]
+                    setattr(control, attribute, thread)
+
+                    with self.assertRaisesRegex(RuntimeError, role):
+                        control.close()
+
+                    self.assertTrue(control._scheduler_stop.is_set())
+                    self.assertTrue(control._worker_stop.is_set())
+                    self.assertIs(thread, getattr(control, attribute))
+
+                    control.close()
+
+                    self.assertIsNone(getattr(control, attribute))
+                    self.assertEqual(thread.join.call_count, 2)
+
     def test_storage_constructor_falls_back_for_invalid_retention_values(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage = AgentStorage(
@@ -805,6 +831,7 @@ class AgentControlServiceTests(unittest.TestCase):
 
                 def join(self, timeout=None) -> None:  # noqa: ANN001
                     _ = timeout
+                    self.started = False
 
             created_threads: list[DummyThread] = []
 

@@ -64,8 +64,52 @@ class TempRuntime:
         return f"{self.base_url}{path}{separator}access_token={self.api_token}"
 
     def close(self) -> None:
-        self.api.stop()
+        try:
+            self.api.stop()
+        except BaseException:  # noqa: BLE001 - retain state while API shutdown is uncertain.
+            _retain_failed_runtime(self.temp_dir, self.api)
+            raise
+        _release_retained_runtime(self.temp_dir, self.api)
         self.temp_dir.cleanup()
+
+
+class _ApiStartupCleanupError(RuntimeError):
+    def __init__(
+        self,
+        *,
+        api: ApiServer,
+        start_error: BaseException,
+        stop_error: BaseException,
+    ) -> None:
+        super().__init__("Temporary API startup failed and shutdown could not be confirmed.")
+        self.api = api
+        self.start_error = start_error
+        self.stop_error = stop_error
+
+
+_RETAINED_FAILED_RUNTIMES: list[tuple[tempfile.TemporaryDirectory[str], ApiServer]] = []
+
+
+def _retain_failed_runtime(
+    temp_dir: tempfile.TemporaryDirectory[str],
+    api: ApiServer,
+) -> None:
+    if not any(
+        retained_temp is temp_dir and retained_api is api
+        for retained_temp, retained_api in _RETAINED_FAILED_RUNTIMES
+    ):
+        _RETAINED_FAILED_RUNTIMES.append((temp_dir, api))
+
+
+def _release_retained_runtime(
+    temp_dir: tempfile.TemporaryDirectory[str],
+    api: ApiServer,
+) -> None:
+    _RETAINED_FAILED_RUNTIMES[:] = [
+        (retained_temp, retained_api)
+        for retained_temp, retained_api in _RETAINED_FAILED_RUNTIMES
+        if retained_temp is not temp_dir or retained_api is not api
+    ]
 
 
 def _logger() -> logging.Logger:
@@ -89,8 +133,26 @@ def _first_free_port(start_port: int, *, host: str = "127.0.0.1", limit: int = 5
     raise RuntimeError("Не удалось найти свободный локальный порт для browser smoke.")
 
 
-def start_temp_runtime(*, start_port: int = 42731) -> TempRuntime:
-    temp_dir = tempfile.TemporaryDirectory(prefix="autostop-browser-smoke-")
+def _start_api_transactionally(api: ApiServer) -> None:
+    try:
+        api.start()
+    except BaseException as start_error:  # noqa: BLE001 - partial startup owns resources.
+        try:
+            api.stop()
+        except BaseException as stop_error:  # noqa: BLE001 - retain state for fail-closed exit.
+            raise _ApiStartupCleanupError(
+                api=api,
+                start_error=start_error,
+                stop_error=stop_error,
+            ) from start_error
+        raise
+
+
+def _build_temp_runtime(
+    temp_dir: tempfile.TemporaryDirectory[str],
+    *,
+    start_port: int,
+) -> TempRuntime:
     base_dir = Path(temp_dir.name)
     logger = _logger()
     start_port = _first_free_port(start_port)
@@ -390,8 +452,7 @@ def start_temp_runtime(*, start_port: int = 42731) -> TempRuntime:
         bearer_token=api_token,
         shared_files_service=shared_files_service,
     )
-    api.start()
-    return TempRuntime(
+    runtime = TempRuntime(
         temp_dir=temp_dir,
         api=api,
         service=service,
@@ -409,3 +470,17 @@ def start_temp_runtime(*, start_port: int = 42731) -> TempRuntime:
         archived_card_id=archived_card["id"],
         api_token=api_token,
     )
+    _start_api_transactionally(api)
+    return runtime
+
+
+def start_temp_runtime(*, start_port: int = 42731) -> TempRuntime:
+    temp_dir = tempfile.TemporaryDirectory(prefix="autostop-browser-smoke-")
+    try:
+        return _build_temp_runtime(temp_dir, start_port=start_port)
+    except _ApiStartupCleanupError as cleanup_error:
+        _retain_failed_runtime(temp_dir, cleanup_error.api)
+        raise cleanup_error.start_error from cleanup_error.stop_error
+    except BaseException:  # noqa: BLE001 - temporary state must not survive failed startup.
+        temp_dir.cleanup()
+        raise

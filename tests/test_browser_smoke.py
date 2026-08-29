@@ -8,7 +8,8 @@ import sys
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "browser_smoke.py"
@@ -226,6 +227,110 @@ class BrowserSmokeScriptTests(unittest.TestCase):
                     with self.assertRaises(AssertionError):
                         asyncio.run(module.run_temp_smoke(profile=module.PROFILE_CORE))
             self.assertTrue(runtime.closed)
+
+    def test_temp_runtime_builder_failure_cleans_temporary_directory(self) -> None:
+        load_browser_smoke_module()
+        runtime_module = sys.modules["browser_smoke_runtime"]
+        temp_directory = SimpleNamespace(name="C:/temp/browser-smoke", cleanup=Mock())
+
+        with (
+            patch.object(
+                runtime_module.tempfile,
+                "TemporaryDirectory",
+                return_value=temp_directory,
+            ),
+            patch.object(
+                runtime_module,
+                "_build_temp_runtime",
+                side_effect=RuntimeError("seed failed"),
+            ),
+            self.assertRaisesRegex(RuntimeError, "seed failed"),
+        ):
+            runtime_module.start_temp_runtime()
+
+        temp_directory.cleanup.assert_called_once_with()
+
+    def test_temp_runtime_is_constructed_before_api_start(self) -> None:
+        load_browser_smoke_module()
+        runtime_module = sys.modules["browser_smoke_runtime"]
+        api = Mock()
+
+        with (
+            patch.object(runtime_module, "ApiServer", return_value=api),
+            patch.object(
+                runtime_module,
+                "TempRuntime",
+                side_effect=RuntimeError("runtime construction failed"),
+            ),
+            self.assertRaisesRegex(RuntimeError, "runtime construction failed"),
+        ):
+            runtime_module.start_temp_runtime(start_port=42731)
+
+        api.start.assert_not_called()
+        api.stop.assert_not_called()
+
+    def test_partial_api_start_attempts_transactional_stop(self) -> None:
+        load_browser_smoke_module()
+        runtime_module = sys.modules["browser_smoke_runtime"]
+        api = Mock()
+        api.start.side_effect = RuntimeError("api start failed")
+
+        with self.assertRaisesRegex(RuntimeError, "api start failed"):
+            runtime_module._start_api_transactionally(api)
+
+        api.stop.assert_called_once_with()
+
+    def test_uncertain_api_shutdown_retains_temp_state_and_reraises_start_error(self) -> None:
+        load_browser_smoke_module()
+        runtime_module = sys.modules["browser_smoke_runtime"]
+        temp_directory = SimpleNamespace(name="C:/temp/browser-smoke", cleanup=Mock())
+        api = Mock()
+        start_error = RuntimeError("api start failed")
+        stop_error = RuntimeError("api stop failed")
+        cleanup_error = runtime_module._ApiStartupCleanupError(
+            api=api,
+            start_error=start_error,
+            stop_error=stop_error,
+        )
+
+        try:
+            with (
+                patch.object(
+                    runtime_module.tempfile,
+                    "TemporaryDirectory",
+                    return_value=temp_directory,
+                ),
+                patch.object(
+                    runtime_module,
+                    "_build_temp_runtime",
+                    side_effect=cleanup_error,
+                ),
+                self.assertRaisesRegex(RuntimeError, "api start failed") as raised,
+            ):
+                runtime_module.start_temp_runtime()
+
+            self.assertIs(start_error, raised.exception)
+            temp_directory.cleanup.assert_not_called()
+            self.assertIn((temp_directory, api), runtime_module._RETAINED_FAILED_RUNTIMES)
+        finally:
+            runtime_module._RETAINED_FAILED_RUNTIMES.clear()
+
+    def test_temp_runtime_close_retains_state_when_api_stop_is_uncertain(self) -> None:
+        load_browser_smoke_module()
+        runtime_module = sys.modules["browser_smoke_runtime"]
+        temp_directory = SimpleNamespace(name="C:/temp/browser-smoke", cleanup=Mock())
+        api = Mock()
+        api.stop.side_effect = RuntimeError("api stop failed")
+        runtime = SimpleNamespace(api=api, temp_dir=temp_directory)
+
+        try:
+            with self.assertRaisesRegex(RuntimeError, "api stop failed"):
+                runtime_module.TempRuntime.close(runtime)
+
+            temp_directory.cleanup.assert_not_called()
+            self.assertIn((temp_directory, api), runtime_module._RETAINED_FAILED_RUNTIMES)
+        finally:
+            runtime_module._RETAINED_FAILED_RUNTIMES.clear()
 
     def test_missing_or_failed_core_scenario_cannot_pass(self) -> None:
         module = load_browser_smoke_module()

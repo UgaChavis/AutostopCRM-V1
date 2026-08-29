@@ -65,6 +65,7 @@ class TunnelRuntimeController:
         self._inspect_api_url = inspect_api_url
         self._process: subprocess.Popen[str] | None = None
         self._persisted_pid: int | None = None
+        self._confirmed_stopped_pid: int | None = None
         self._target_port: int | None = None
         self._provider = ""
         self._log_file_path: Path | None = None
@@ -126,33 +127,34 @@ class TunnelRuntimeController:
         process = self._process
         persisted_pid = self._persisted_pid or self._read_persisted_pid()
         provider = self._provider
+        try:
+            if process is not None:
+                self._stop_owned_process(process, provider=provider)
+            elif (
+                persisted_pid is not None
+                and persisted_pid != self._confirmed_stopped_pid
+                and self._is_pid_alive(persisted_pid)
+            ):
+                self._terminate_pid(persisted_pid)
+                self._confirmed_stopped_pid = persisted_pid
+        except BaseException:  # noqa: BLE001 - retain every handle while stop is uncertain.
+            self._process = process
+            self._persisted_pid = persisted_pid
+            self._provider = provider
+            raise
+
+        if not self._clear_persisted_state():
+            self._process = process
+            self._persisted_pid = persisted_pid
+            self._provider = provider
+            if persisted_pid is not None:
+                self._confirmed_stopped_pid = persisted_pid
+            raise RuntimeError("Tunnel persisted state could not be cleared after shutdown.")
+
         self._process = None
         self._persisted_pid = None
+        self._confirmed_stopped_pid = None
         self._provider = ""
-        if process is not None:
-            try:
-                process.terminate()
-                process.wait(timeout=8)
-            except Exception as terminate_exc:
-                self._logger.warning(
-                    "tunnel.process_terminate_failed provider=%s pid=%s error=%s",
-                    provider or "unknown",
-                    getattr(process, "pid", None),
-                    terminate_exc,
-                )
-                try:
-                    process.kill()
-                    process.wait(timeout=5)
-                except Exception as kill_exc:
-                    self._logger.warning(
-                        "tunnel.process_kill_failed provider=%s pid=%s error=%s",
-                        provider or "unknown",
-                        getattr(process, "pid", None),
-                        kill_exc,
-                    )
-        elif persisted_pid is not None and self._is_pid_alive(persisted_pid):
-            self._terminate_pid(persisted_pid)
-        self._clear_persisted_state()
         self._cleanup_log_file()
         self._state = TunnelRuntimeState(
             running=False,
@@ -166,6 +168,35 @@ class TunnelRuntimeController:
             self._logger.info("tunnel.stop_ok provider=%s", provider)
         return self._state
 
+    def _stop_owned_process(self, process: subprocess.Popen[str], *, provider: str) -> None:
+        if process.poll() is not None:
+            return
+        pid = getattr(process, "pid", None)
+        try:
+            process.terminate()
+            process.wait(timeout=8)
+            return
+        except Exception as terminate_exc:
+            self._logger.warning(
+                "tunnel.process_terminate_failed provider=%s pid=%s error=%s",
+                provider or "unknown",
+                pid,
+                terminate_exc,
+            )
+        if process.poll() is not None:
+            return
+        try:
+            process.kill()
+            process.wait(timeout=5)
+        except Exception as kill_exc:
+            self._logger.warning(
+                "tunnel.process_kill_failed provider=%s pid=%s error=%s",
+                provider or "unknown",
+                pid,
+                kill_exc,
+            )
+            raise RuntimeError(f"Tunnel process {pid or 'unknown'} did not stop.") from kill_exc
+
     def preserve_for_reuse(self) -> TunnelRuntimeState:
         pid = self._current_pid()
         if (
@@ -176,12 +207,15 @@ class TunnelRuntimeController:
         ):
             return self._state
         self._persisted_pid = pid
-        self._write_persisted_state(
+        persisted = self._write_persisted_state(
             provider=self._provider or "unknown",
             public_url=self._state.public_url,
             pid=pid,
             target_port=self._target_port,
         )
+        if not persisted:
+            raise RuntimeError("Failed to persist tunnel state before releasing process ownership.")
+        self._confirmed_stopped_pid = None
         self._logger.info(
             "tunnel.preserve_for_reuse provider=%s pid=%s url=%s",
             self._provider or "unknown",
@@ -240,6 +274,7 @@ class TunnelRuntimeController:
         public_url = self._wait_for_public_url("cloudflared", settings)
         if public_url:
             self._persisted_pid = process.pid
+            self._confirmed_stopped_pid = None
             self._write_persisted_state(
                 provider="cloudflared",
                 public_url=public_url,
@@ -299,6 +334,7 @@ class TunnelRuntimeController:
         public_url = self._wait_for_public_url("ngrok", settings)
         if public_url:
             self._persisted_pid = process.pid
+            self._confirmed_stopped_pid = None
             self._write_persisted_state(
                 provider="ngrok",
                 public_url=public_url,
@@ -531,6 +567,11 @@ class TunnelRuntimeController:
         if not self._is_pid_alive(pid):
             self._clear_persisted_state()
             return None
+        if pid == self._confirmed_stopped_pid:
+            if not self._clear_persisted_state():
+                raise RuntimeError("Stopped tunnel state could not be cleared before restart.")
+            self._confirmed_stopped_pid = None
+            return None
 
         if provider == "ngrok":
             probed_url = self._probe_existing_ngrok_tunnel(settings)
@@ -541,6 +582,7 @@ class TunnelRuntimeController:
 
         self._provider = provider
         self._persisted_pid = pid
+        self._confirmed_stopped_pid = None
         self._write_persisted_state(
             provider=provider,
             public_url=public_url,
@@ -580,11 +622,11 @@ class TunnelRuntimeController:
 
     def _write_persisted_state(
         self, *, provider: str, public_url: str, pid: int, target_port: int | None
-    ) -> None:
+    ) -> bool:
         normalized_pid = self._normalize_pid(pid)
         normalized_target_port = self._normalize_pid(target_port)
         if normalized_pid is None:
-            return
+            return False
         payload = {
             "provider": provider,
             "public_url": public_url.rstrip("/"),
@@ -605,8 +647,10 @@ class TunnelRuntimeController:
                     tmp_path.unlink(missing_ok=True)
                 except OSError:
                     pass
+            return True
         except (OSError, ValueError):
             self._logger.warning("tunnel.persist_state_failed path=%s", self._state_file_path)
+            return False
 
     def _persisted_state_payload_text(self, payload: dict[str, object]) -> str:
         text = json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False)
@@ -614,12 +658,14 @@ class TunnelRuntimeController:
             raise ValueError("tunnel state file is too large")
         return text
 
-    def _clear_persisted_state(self) -> None:
+    def _clear_persisted_state(self) -> bool:
         try:
             if self._state_file_path.exists():
                 self._state_file_path.unlink()
+            return True
         except OSError:
             self._logger.warning("tunnel.clear_state_failed path=%s", self._state_file_path)
+            return False
 
     def _read_persisted_pid(self) -> int | None:
         payload = self._read_persisted_state()
@@ -657,20 +703,31 @@ class TunnelRuntimeController:
     def _terminate_pid(self, pid: int) -> None:
         if os.name == "nt":
             creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            subprocess.run(
-                ["taskkill", "/PID", str(pid), "/T", "/F"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                stdin=subprocess.DEVNULL,
-                check=False,
-                creationflags=creationflags,
-                timeout=10,
-            )
-            return
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except OSError:
-            return
+            try:
+                subprocess.run(
+                    ["taskkill", "/PID", str(pid), "/T", "/F"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL,
+                    check=False,
+                    creationflags=creationflags,
+                    timeout=10,
+                )
+            except (OSError, subprocess.SubprocessError) as exc:
+                raise RuntimeError(f"Tunnel process {pid} could not be terminated.") from exc
+        else:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                return
+            except OSError as exc:
+                raise RuntimeError(f"Tunnel process {pid} could not be terminated.") from exc
+
+        deadline = time.monotonic() + 5.0
+        while self._is_pid_alive(pid):
+            if time.monotonic() >= deadline:
+                raise RuntimeError(f"Tunnel process {pid} did not stop.")
+            time.sleep(0.1)
 
     def _read_log_file(self) -> str:
         if self._log_file_path is None or not self._log_file_path.exists():

@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import signal
 import time
+from collections.abc import Callable
+from typing import Any
 
 from ..agent.bootstrap import start_embedded_agent_runtime
 from ..api.server import ApiServer
@@ -77,6 +79,38 @@ def _runtime_bind_host(configured_host: str | None, *, env_explicit: bool) -> st
     return host
 
 
+def _cleanup_mcp_main_resources(
+    *,
+    mcp_runtime: McpServerRuntime | None,
+    embedded_agent_control: Any | None,
+    embedded_api_server: ApiServer | None,
+    logger: Any,
+) -> None:
+    callbacks: list[tuple[str, Callable[[], Any]]] = []
+    if mcp_runtime is not None:
+        callbacks.append(("mcp_runtime", mcp_runtime.stop))
+    if embedded_agent_control is not None:
+        callbacks.append(("embedded_agent", embedded_agent_control.close))
+    if embedded_api_server is not None:
+        callbacks.append(("embedded_api", embedded_api_server.stop))
+    callbacks.append(("logger", lambda: close_logger(logger)))
+
+    first_error: BaseException | None = None
+    for resource_name, callback in callbacks:
+        try:
+            callback()
+        except BaseException as exc:  # noqa: BLE001 - every owned resource gets a cleanup attempt.
+            if first_error is None:
+                first_error = exc
+            if resource_name != "logger":
+                try:
+                    logger.exception("mcp.main.cleanup_failed resource=%s", resource_name)
+                except Exception:  # pragma: no cover - logging must not block later cleanup.
+                    pass
+    if first_error is not None:
+        raise first_error
+
+
 def _resolve_api_bearer_token(settings) -> str | None:
     if os.environ.get("MINIMAL_KANBAN_API_BEARER_TOKEN") is not None:
         return get_api_bearer_token()
@@ -115,6 +149,8 @@ def _start_embedded_api_runtime(
     logger,
     api_bearer_token: str | None,
     api_base_url: str | None,
+    *,
+    ownership: dict[str, Any | None],
 ):
     if api_base_url:
         logger.info("using_existing_board_api url=%s", api_base_url)
@@ -145,12 +181,14 @@ def _start_embedded_api_runtime(
         else settings.local_api.local_api_port,
         bearer_token=api_bearer_token,
     )
+    ownership["api_server"] = embedded_api_server
     embedded_api_server.start()
     embedded_agent_control = start_embedded_agent_runtime(
         service=service,
         logger=logger,
         board_api_url=embedded_api_server.base_url,
     )
+    ownership["agent_control"] = embedded_agent_control
     logger.info("embedded_api_started_for_mcp url=%s", embedded_api_server.base_url)
     return embedded_api_server, embedded_agent_control, embedded_api_server.base_url
 
@@ -232,6 +270,10 @@ def run() -> int:
     embedded_api_server: ApiServer | None = None
     embedded_agent_control = None
     mcp_runtime: McpServerRuntime | None = None
+    embedded_ownership: dict[str, Any | None] = {
+        "api_server": None,
+        "agent_control": None,
+    }
     try:
         settings_store = SettingsStore(logger=logger)
         settings_service = SettingsService(settings_store, logger)
@@ -243,6 +285,7 @@ def run() -> int:
             logger,
             api_bearer_token,
             api_base_url,
+            ownership=embedded_ownership,
         )
 
         (
@@ -311,13 +354,12 @@ def run() -> int:
 
         return 0
     finally:
-        if mcp_runtime is not None:
-            mcp_runtime.stop()
-        if embedded_agent_control is not None:
-            embedded_agent_control.close()
-        if embedded_api_server is not None:
-            embedded_api_server.stop()
-        close_logger(logger)
+        _cleanup_mcp_main_resources(
+            mcp_runtime=mcp_runtime,
+            embedded_agent_control=embedded_ownership["agent_control"],
+            embedded_api_server=embedded_ownership["api_server"],
+            logger=logger,
+        )
 
 
 if __name__ == "__main__":

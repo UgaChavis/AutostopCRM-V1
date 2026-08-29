@@ -79,13 +79,28 @@ class AgentControlService:
 
     def close(self) -> None:
         self._scheduler_stop.set()
-        if self._scheduler_thread is not None:
-            self._scheduler_thread.join(timeout=2)
-            self._scheduler_thread = None
         self._worker_stop.set()
-        if self._worker_thread is not None:
-            self._worker_thread.join(timeout=2)
-            self._worker_thread = None
+
+        live_roles: list[str] = []
+        for attribute, role in (
+            ("_scheduler_thread", "scheduler"),
+            ("_worker_thread", "worker"),
+        ):
+            thread = getattr(self, attribute)
+            if thread is None:
+                continue
+            if not thread.is_alive():
+                setattr(self, attribute, None)
+                continue
+            thread.join(timeout=2)
+            if thread.is_alive():
+                live_roles.append(role)
+                continue
+            setattr(self, attribute, None)
+
+        if live_roles:
+            roles = ", ".join(live_roles)
+            raise RuntimeError(f"Embedded agent runtime threads did not stop: {roles}.")
 
     def bind_board_service(self, board_service: Any | None) -> None:
         self._board_service = board_service

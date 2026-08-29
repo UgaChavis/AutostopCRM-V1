@@ -220,6 +220,8 @@ def _start_api_server(
     ApiServer,
     STARTUP_ERROR_TITLE,
     STARTUP_ERROR_MESSAGE,
+    *,
+    ownership,
 ):
     api_server = ApiServer(
         service,
@@ -229,10 +231,13 @@ def _start_api_server(
         start_port=api_port,
         bearer_token=api_bearer_token,
     )
+    ownership["api_server"] = api_server
     try:
         api_server.start()
     except Exception as exc:
         logger.exception("failed_to_start_api error=%s", exc)
+        api_server.stop()
+        ownership["api_server"] = None
         _close_splash(app, splash)
         from PySide6.QtWidgets import QMessageBox
 
@@ -328,6 +333,7 @@ def _launch_desktop_runtime(
     api_host,
     api_port,
     api_bearer_token,
+    ownership,
 ):
     _show_splash(app, splash, "Запускаю локальный API...")
     api_server = _start_api_server(
@@ -342,15 +348,18 @@ def _launch_desktop_runtime(
         modules["ApiServer"],
         modules["STARTUP_ERROR_TITLE"],
         modules["STARTUP_ERROR_MESSAGE"],
+        ownership=ownership,
     )
     if api_server is None:
         return 1, None, None, None, None
+    ownership["api_server"] = api_server
 
     agent_control = modules["start_embedded_agent_runtime"](
         service=service,
         logger=logger,
         board_api_url=api_server.base_url,
     )
+    ownership["agent_control"] = agent_control
     _install_unhandled_exception_handler(
         logger,
         modules["UNEXPECTED_ERROR_TITLE"],
@@ -361,7 +370,9 @@ def _launch_desktop_runtime(
     mcp_controller = modules["McpRuntimeController"](
         board_api_url=api_server.base_url, logger=logger
     )
+    ownership["mcp_controller"] = mcp_controller
     tunnel_controller = modules["TunnelRuntimeController"](logger=logger)
+    ownership["tunnel_controller"] = tunnel_controller
     window = _build_main_window(
         modules["MainWindow"],
         settings_service,
@@ -389,23 +400,46 @@ def _shutdown_desktop_runtime(
     logger,
     modules,
 ) -> None:
-    if instance_guard is not None and instance_guard_entered:
-        instance_guard.__exit__(None, None, None)
-    if splash is not None and splash.isVisible():
-        splash.close()
+    first_error: BaseException | None = None
+
+    def cleanup(callback) -> None:
+        nonlocal first_error
+        try:
+            callback()
+        except BaseException as exc:  # noqa: BLE001 - every owned resource gets a cleanup attempt.
+            if first_error is None:
+                first_error = exc
+
+    if splash is not None:
+        cleanup(lambda: splash.close() if splash.isVisible() else None)
     if tunnel_controller is not None:
         if _stop_tunnel_on_exit():
-            tunnel_controller.stop()
+            cleanup(tunnel_controller.stop)
         else:
-            tunnel_controller.preserve_for_reuse()
+            cleanup(lambda: _preserve_or_stop_tunnel(tunnel_controller))
     if agent_control is not None:
-        agent_control.close()
+        cleanup(agent_control.close)
     if mcp_controller is not None:
-        mcp_controller.stop()
+        cleanup(mcp_controller.stop)
     if api_server is not None:
-        api_server.stop()
+        cleanup(api_server.stop)
     if logger is not None:
-        modules["close_logger"](logger)
+        cleanup(lambda: modules["close_logger"](logger))
+    if instance_guard is not None and instance_guard_entered:
+        cleanup(lambda: instance_guard.__exit__(None, None, None))
+    if first_error is not None:
+        raise first_error
+
+
+def _preserve_or_stop_tunnel(tunnel_controller) -> None:
+    try:
+        tunnel_controller.preserve_for_reuse()
+    except BaseException as preserve_error:  # noqa: BLE001 - failed persistence owns a process.
+        try:
+            tunnel_controller.stop()
+        except BaseException as stop_error:  # noqa: BLE001 - preserve the primary contract error.
+            raise preserve_error from stop_error
+        raise
 
 
 def run() -> int:
@@ -425,6 +459,12 @@ def run() -> int:
     mcp_controller = None
     tunnel_controller = None
     splash = None
+    runtime_ownership = {
+        "api_server": None,
+        "agent_control": None,
+        "mcp_controller": None,
+        "tunnel_controller": None,
+    }
     try:
         app, _, splash = _create_qt_runtime()
         if splash is not None:
@@ -459,6 +499,7 @@ def run() -> int:
             api_host=api_host,
             api_port=api_port,
             api_bearer_token=api_bearer_token,
+            ownership=runtime_ownership,
         )
         return exit_code
     finally:
@@ -466,10 +507,10 @@ def run() -> int:
             instance_guard=instance_guard,
             instance_guard_entered=instance_guard_entered,
             splash=splash,
-            tunnel_controller=tunnel_controller,
-            agent_control=agent_control,
-            mcp_controller=mcp_controller,
-            api_server=api_server,
+            tunnel_controller=runtime_ownership["tunnel_controller"],
+            agent_control=runtime_ownership["agent_control"],
+            mcp_controller=runtime_ownership["mcp_controller"],
+            api_server=runtime_ownership["api_server"],
             logger=logger,
             modules=modules or {"close_logger": lambda _logger: None},
         )

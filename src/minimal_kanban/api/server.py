@@ -2123,11 +2123,7 @@ class ApiServer:
                 self._wait_until_accepting()
             except RuntimeError as exc:
                 last_error = exc
-                self._server = None
-                self._thread = None
-                server.shutdown()
-                thread.join(timeout=1)
-                server.server_close()
+                self.stop()
                 continue
             self._logger.info(
                 "api_server_started bind_host=%s url=%s auth=%s",
@@ -2140,14 +2136,20 @@ class ApiServer:
 
     def stop(self) -> None:
         if self._server is None:
+            if self._thread is not None and self._thread.is_alive():
+                raise RuntimeError("Поток локального API не остановился.")
+            self._thread = None
             return
         server = self._server
-        self._server = None
-        server.shutdown()
-        if self._thread is not None:
-            self._thread.join(timeout=5)
-            self._thread = None
+        thread = self._thread
+        if thread is not None and thread.is_alive():
+            server.shutdown()
+            thread.join(timeout=5)
+            if thread.is_alive():
+                raise RuntimeError("Поток локального API не остановился.")
         server.server_close()
+        self._server = None
+        self._thread = None
         self._logger.info("api_server_stopped")
 
     def _wait_until_accepting(self, *, timeout_seconds: float = 5.0) -> None:

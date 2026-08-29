@@ -84,6 +84,22 @@ class McpServerRuntimeUnitTests(unittest.TestCase):
         self.assertEqual(detail, "xxxx")
         self.assertEqual(response.chunk_size, 5)
 
+    def test_stop_fails_closed_when_server_thread_remains_alive(self) -> None:
+        runtime = self._runtime("127.0.0.1")
+        uvicorn_server = SimpleNamespace(should_exit=False)
+        thread = unittest.mock.Mock()
+        thread.is_alive.return_value = True
+        runtime._uvicorn_server = uvicorn_server
+        runtime._thread = thread
+
+        with self.assertRaisesRegex(RuntimeError, "не остановился"):
+            runtime.stop()
+
+        self.assertTrue(uvicorn_server.should_exit)
+        thread.join.assert_called_once_with(timeout=10)
+        self.assertIs(uvicorn_server, runtime._uvicorn_server)
+        self.assertIs(thread, runtime._thread)
+
 
 if __name__ == "__main__":
     unittest.main()
