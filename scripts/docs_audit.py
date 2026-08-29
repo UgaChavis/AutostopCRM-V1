@@ -6,6 +6,7 @@ import fnmatch
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
@@ -147,6 +148,9 @@ SKIP_DIRS = {
 
 SECRET_BUNDLE_DOC_SUFFIXES = {".md", ".txt"}
 
+USER_SKILL_DOC_SUFFIXES = {".md", ".yaml", ".yml"}
+USER_SKILL_DIRECTORY_PATTERN = re.compile(r"autostopcrm-[a-z0-9][a-z0-9-]*\Z")
+
 FORBIDDEN_TEXT_PATTERNS = (
     (
         "missing_doc_reference",
@@ -237,6 +241,83 @@ CRM_ONLY_FORBIDDEN_TEXT_PATTERNS = (
             r"C:[\\/]+Users[\\/]+User[\\/]+(?:Мой диск|Desktop)[\\/]+Obsidian CRM[\\/]+AutostopCRM"
         ),
         "old user-specific manager knowledge vault path in CRM docs",
+    ),
+)
+
+USER_SKILL_FORBIDDEN_TEXT_PATTERNS = (
+    (
+        "stale_crm_skill_deploy_env",
+        re.compile(r"\bAUTOSTOP_DEPLOY_BRANCH\b"),
+        "removed deploy variable is copied into a CRM skill; route to the canonical runbook",
+    ),
+    (
+        "stale_crm_skill_path",
+        re.compile(r"\bsrc[/\\]minimal_kanban[/\\](?:telegram_ai[/\\]|ui[/\\]dialogs\.py\b)"),
+        "removed repository path is copied into a CRM skill",
+    ),
+    (
+        "unsafe_crm_skill_git_reset",
+        re.compile(r"\bgit\s+reset\s+--hard\b", re.IGNORECASE),
+        "destructive Git recovery is copied into a CRM skill",
+    ),
+    (
+        "stale_crm_skill_version_snapshot",
+        re.compile(
+            r"(?m)^\s*-\s*(?:"
+            r"(?:Python|pip in project[^:]*|Git|GitHub CLI|JSON/archive helpers|"
+            r"PowerShell|Playwright|Base image):\s*`?[^`\r\n]*\d+\.\d+|"
+            r"`?(?:PySide6|pyinstaller|mcp|httpx|faster-whisper)==\d+\.\d+"
+            r")"
+        ),
+        "version snapshot is copied into a CRM skill; use current project manifests and tooling",
+    ),
+    (
+        "stale_crm_skill_deploy_procedure",
+        re.compile(r"\bdeploy\.sh\b"),
+        "deployment procedure is copied into a CRM skill; route to the canonical runbook",
+    ),
+    (
+        "stale_crm_skill_server_access",
+        re.compile(
+            r"(?:"
+            r"\broot@crm\.autostopcrm\.ru\b|"
+            r"/opt/autostopcrm\b|"
+            r"\bAUTOSTOPCRM_SSH_KEY\b|"
+            r"\bautostopcrm_server_ed25519\b|"
+            r"local key bundle path used in this workspace|"
+            r"secret documents live in|"
+            r"first lookup file for access and recovery details|"
+            r"always pass the identity explicitly"
+            r")",
+            re.IGNORECASE,
+        ),
+        "server access procedure is copied into a CRM skill; route to the canonical runbook",
+    ),
+    (
+        "unsafe_crm_skill_server_sync",
+        re.compile(
+            r"(?:"
+            r"keep local,? GitHub,? and server(?: content)? in sync|"
+            r"verify both the local tests and the live server check|"
+            r"confirm GitHub, local, and server revisions match|"
+            r"keep the current working branch and deploy branch aligned|"
+            r"treat the server mirror as disposable runtime state|"
+            r"recheck `?git status`? locally and on the server mirror|"
+            r"recheck both GitHub and server state after any deploy or force-reset|"
+            r"^\s*4\.\s*Server sync\s*$"
+            r")",
+            re.IGNORECASE | re.MULTILINE,
+        ),
+        "CRM skill implies server synchronization without a separate owner command",
+    ),
+    (
+        "unsafe_crm_skill_memory_write",
+        re.compile(
+            r"record the (?:improvement|result) in project memory if "
+            r"(?:it|the finding) is reusable",
+            re.IGNORECASE,
+        ),
+        "CRM skill implies a project-memory write without a separate owner command",
     ),
 )
 
@@ -473,6 +554,15 @@ def _display_path(path: Path, root: Path) -> str:
         return str(path)
 
 
+def _display_lexical_path(path: Path, root: Path) -> str:
+    try:
+        absolute_path = Path(os.path.abspath(path))
+        absolute_root = Path(os.path.abspath(root))
+        return absolute_path.relative_to(absolute_root).as_posix()
+    except ValueError:
+        return "<outside-scope>"
+
+
 def _read_text(path: Path) -> str:
     with path.open("rb") as handle:
         raw = handle.read(DOCS_AUDIT_TEXT_MAX_BYTES + 1)
@@ -661,6 +751,19 @@ def scan_crm_only_forbidden_text(path: Path, text: str, *, root: Path = ROOT) ->
     return issues
 
 
+def scan_user_skill_forbidden_text(
+    path: Path,
+    text: str,
+    *,
+    root: Path,
+) -> list[Issue]:
+    issues: list[Issue] = []
+    for code, pattern, detail in USER_SKILL_FORBIDDEN_TEXT_PATTERNS:
+        if pattern.search(text):
+            issues.append(Issue(code, _display_path(path, root), detail))
+    return issues
+
+
 def _contains_route_text(text: str, route: str) -> bool:
     return (
         re.search(
@@ -740,10 +843,28 @@ def _scan_retired_candidate_issues(root: Path) -> list[Issue]:
     ]
 
 
-def _scan_user_skill_doc_issues(root: Path) -> list[Issue]:
-    issues: list[Issue] = []
-    for path in _iter_user_skill_docs():
-        issues.extend(scan_forbidden_text(path, _read_text(path), root=root))
+def _scan_user_skill_doc_issues(_root: Path, skill_paths: tuple[Path, ...]) -> list[Issue]:
+    skills_root = _user_skills_root()
+    selected_paths, issues = _resolve_user_skill_paths(skill_paths, skills_root=skills_root)
+    docs, discovery_issues = _iter_user_skill_docs(
+        selected_paths,
+        skills_root=skills_root,
+    )
+    issues.extend(discovery_issues)
+    for path in docs:
+        try:
+            text = _read_text(path)
+        except (OSError, ValueError):
+            issues.append(
+                Issue(
+                    "skill_doc_audit_error",
+                    _display_path(path, skills_root),
+                    "selected CRM skill document could not be audited",
+                )
+            )
+            continue
+        issues.extend(scan_forbidden_text(path, text, root=skills_root))
+        issues.extend(scan_user_skill_forbidden_text(path, text, root=skills_root))
     return issues
 
 
@@ -959,21 +1080,282 @@ def _iter_retired_candidates(root: Path) -> list[Path]:
     return sorted(candidates)
 
 
-def _iter_user_skill_docs() -> list[Path]:
-    skills_root = Path.home() / ".codex" / "skills"
-    if not skills_root.exists():
-        return []
+def _user_skills_root() -> Path:
+    return Path.home() / ".codex" / "skills"
 
-    docs: list[Path] = []
-    for path in skills_root.rglob("*.md"):
+
+def _is_link_like(path: Path) -> bool:
+    try:
+        return path.is_symlink() or path.is_junction()
+    except (OSError, RuntimeError):
+        return True
+
+
+def _resolve_strict(path: Path) -> Path:
+    return path.resolve(strict=True)
+
+
+def _resolve_user_skill_paths(
+    skill_paths: tuple[Path, ...],
+    *,
+    skills_root: Path,
+) -> tuple[list[Path], list[Issue]]:
+    if not skill_paths:
+        return [], [
+            Issue(
+                "skill_paths_required",
+                str(skills_root),
+                "--include-skills requires at least one explicit --skill-path",
+            )
+        ]
+
+    absolute_root = Path(os.path.abspath(skills_root))
+    if _is_link_like(absolute_root):
+        return [], [
+            Issue(
+                "skills_root_symlink_forbidden",
+                str(skills_root),
+                "local user skill root must not be a symbolic link or junction",
+            )
+        ]
+    try:
+        resolved_root = _resolve_strict(absolute_root)
+    except RuntimeError:
+        return [], [
+            Issue(
+                "skills_root_resolution_error",
+                str(skills_root),
+                "local user skill root could not be resolved safely",
+            )
+        ]
+    except OSError:
+        return [], [
+            Issue(
+                "skills_root_missing",
+                str(skills_root),
+                "local user skill root does not exist",
+            )
+        ]
+    if not resolved_root.is_dir():
+        return [], [
+            Issue(
+                "skills_root_not_directory",
+                str(skills_root),
+                "local user skill root is not a directory",
+            )
+        ]
+
+    selected: list[Path] = []
+    issues: list[Issue] = []
+    seen: set[Path] = set()
+    seen_candidates: set[Path] = set()
+    for index, raw_path in enumerate(skill_paths, start=1):
+        candidate = raw_path if raw_path.is_absolute() else absolute_root / raw_path
+        absolute_candidate = Path(os.path.abspath(candidate))
+        if absolute_candidate in seen_candidates:
+            continue
+        seen_candidates.add(absolute_candidate)
         try:
-            relative_parts = path.relative_to(skills_root).parts
+            lexical_relative = absolute_candidate.relative_to(absolute_root)
         except ValueError:
+            issues.append(
+                Issue(
+                    "skill_path_outside_skills_root",
+                    f"--skill-path[{index}]",
+                    "explicit CRM skill path must stay under the local user skill root",
+                )
+            )
             continue
-        if not relative_parts or relative_parts[0] == ".system":
+        display_path = lexical_relative.as_posix()
+        if len(lexical_relative.parts) != 1:
+            issues.append(
+                Issue(
+                    "skill_path_not_direct_child",
+                    display_path,
+                    "explicit CRM skill path must be a direct child of the local user skill root",
+                )
+            )
             continue
-        docs.append(path)
-    return sorted(docs)
+        if USER_SKILL_DIRECTORY_PATTERN.fullmatch(lexical_relative.name) is None:
+            issues.append(
+                Issue(
+                    "skill_path_name_not_allowed",
+                    display_path,
+                    "explicit skill directory name must match autostopcrm-*",
+                )
+            )
+            continue
+        if _is_link_like(absolute_candidate):
+            issues.append(
+                Issue(
+                    "skill_path_symlink_forbidden",
+                    display_path,
+                    "explicit CRM skill directory must not be a symbolic link or junction",
+                )
+            )
+            continue
+        try:
+            resolved = _resolve_strict(absolute_candidate)
+        except RuntimeError:
+            issues.append(
+                Issue(
+                    "skill_path_resolution_error",
+                    display_path,
+                    "explicit CRM skill path could not be resolved safely",
+                )
+            )
+            continue
+        except OSError:
+            issues.append(
+                Issue(
+                    "skill_path_missing",
+                    display_path,
+                    "explicit CRM skill path does not exist",
+                )
+            )
+            continue
+        try:
+            relative = resolved.relative_to(resolved_root)
+        except ValueError:
+            issues.append(
+                Issue(
+                    "skill_path_outside_skills_root",
+                    f"--skill-path[{index}]",
+                    "explicit CRM skill path must stay under the local user skill root",
+                )
+            )
+            continue
+        if relative != lexical_relative:
+            issues.append(
+                Issue(
+                    "skill_path_retargeted",
+                    display_path,
+                    "explicit CRM skill path resolves to a different direct child",
+                )
+            )
+            continue
+        if not resolved.is_dir():
+            issues.append(
+                Issue(
+                    "skill_path_not_directory",
+                    relative.as_posix(),
+                    "explicit CRM skill path is not a directory",
+                )
+            )
+            continue
+        entrypoint = resolved / "SKILL.md"
+        if _is_link_like(entrypoint):
+            issues.append(
+                Issue(
+                    "skill_entry_symlink_forbidden",
+                    f"{relative.as_posix()}/SKILL.md",
+                    "CRM skill entrypoint must not be a symbolic link or junction",
+                )
+            )
+            continue
+        try:
+            entrypoint_mode = entrypoint.stat(follow_symlinks=False).st_mode
+        except (OSError, RuntimeError):
+            entrypoint_mode = 0
+        if not stat.S_ISREG(entrypoint_mode):
+            issues.append(
+                Issue(
+                    "skill_entrypoint_missing",
+                    f"{relative.as_posix()}/SKILL.md",
+                    "explicit CRM skill directory must contain a regular SKILL.md",
+                )
+            )
+            continue
+        if resolved not in seen:
+            selected.append(resolved)
+            seen.add(resolved)
+    return selected, issues
+
+
+def _iter_user_skill_docs(
+    skill_paths: list[Path],
+    *,
+    skills_root: Path,
+) -> tuple[list[Path], list[Issue]]:
+    docs: list[Path] = []
+    issues: list[Issue] = []
+    seen: set[Path] = set()
+    for skill_path in skill_paths:
+        pending = [skill_path]
+        while pending:
+            directory = pending.pop()
+            try:
+                candidates = sorted(directory.iterdir())
+            except (OSError, RuntimeError):
+                issues.append(
+                    Issue(
+                        "skill_doc_audit_error",
+                        _display_path(directory, skills_root),
+                        "selected CRM skill directory could not be enumerated",
+                    )
+                )
+                continue
+            for candidate in candidates:
+                if _is_link_like(candidate):
+                    issues.append(
+                        Issue(
+                            "skill_entry_symlink_forbidden",
+                            _display_lexical_path(candidate, skills_root),
+                            "CRM skill entries must not be symbolic links or junctions",
+                        )
+                    )
+                    continue
+                try:
+                    resolved = _resolve_strict(candidate)
+                    lexical_relative = Path(os.path.abspath(candidate)).relative_to(skill_path)
+                    canonical_relative = resolved.relative_to(skill_path)
+                except (OSError, RuntimeError, ValueError):
+                    issues.append(
+                        Issue(
+                            "skill_doc_outside_scope",
+                            _display_lexical_path(candidate, skills_root),
+                            "selected CRM skill entry could not be resolved inside its directory",
+                        )
+                    )
+                    continue
+                if canonical_relative != lexical_relative:
+                    issues.append(
+                        Issue(
+                            "skill_doc_outside_scope",
+                            _display_lexical_path(candidate, skills_root),
+                            "selected CRM skill entry resolves outside its lexical path",
+                        )
+                    )
+                    continue
+                try:
+                    candidate_mode = resolved.stat(follow_symlinks=False).st_mode
+                except (OSError, RuntimeError):
+                    issues.append(
+                        Issue(
+                            "skill_doc_audit_error",
+                            _display_lexical_path(candidate, skills_root),
+                            "selected CRM skill entry could not be inspected",
+                        )
+                    )
+                    continue
+                if stat.S_ISDIR(candidate_mode):
+                    pending.append(resolved)
+                    continue
+                if not stat.S_ISREG(candidate_mode):
+                    issues.append(
+                        Issue(
+                            "skill_doc_audit_error",
+                            _display_lexical_path(candidate, skills_root),
+                            "selected CRM skill entry is not a regular file or directory",
+                        )
+                    )
+                    continue
+                if candidate.suffix.lower() not in USER_SKILL_DOC_SUFFIXES:
+                    continue
+                if resolved not in seen:
+                    docs.append(resolved)
+                    seen.add(resolved)
+    return sorted(docs), issues
 
 
 def _iter_secret_bundle_docs(secret_bundle: Path) -> list[Path]:
@@ -1353,6 +1735,7 @@ def audit(
     *,
     manager_root: Path | None = None,
     include_skills: bool = False,
+    skill_paths: tuple[Path, ...] = (),
     secret_bundle: Path | None = None,
 ) -> list[Issue]:
     root = root.resolve()
@@ -1395,7 +1778,15 @@ def audit(
             )
 
     if include_skills:
-        issues.extend(_scan_user_skill_doc_issues(root))
+        issues.extend(_scan_user_skill_doc_issues(root, skill_paths))
+    elif skill_paths:
+        issues.append(
+            Issue(
+                "skill_paths_require_include_skills",
+                str(root),
+                "--skill-path requires --include-skills",
+            )
+        )
 
     if secret_bundle is not None:
         secret_bundle = secret_bundle.resolve()
@@ -1436,7 +1827,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--include-skills",
         action="store_true",
-        help="Also scan local user skill documentation for stale instructions.",
+        help="Scan only explicitly selected local CRM skill directories.",
+    )
+    parser.add_argument(
+        "--skill-path",
+        type=Path,
+        action="append",
+        default=[],
+        help="Repeatable autostopcrm-* directory under the local user skill root.",
     )
     parser.add_argument(
         "--secret-bundle",
@@ -1450,6 +1848,7 @@ def main(argv: list[str] | None = None) -> int:
         ROOT,
         manager_root=args.manager_root,
         include_skills=args.include_skills,
+        skill_paths=tuple(args.skill_path),
         secret_bundle=args.secret_bundle,
     )
     if args.format == "json":

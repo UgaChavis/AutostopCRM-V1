@@ -121,10 +121,16 @@ local-environment scans are opt-in:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\docs_audit.py --format text --manager-root C:\path\to\AutostopManager
-.\.venv\Scripts\python.exe scripts\docs_audit.py --format text --include-skills
+.\.venv\Scripts\python.exe scripts\docs_audit.py --format text --include-skills `
+  --skill-path autostopcrm-maintain `
+  --skill-path autostopcrm-code-maintain `
+  --skill-path autostopcrm-optimize `
+  --skill-path autostopcrm-ui-optimize
 .\.venv\Scripts\python.exe scripts\docs_audit.py --format text --secret-bundle C:\path\to\private-access-bundle
 ```
 
+Each `--skill-path` must name a direct, non-linked `autostopcrm-*` directory
+under `~/.codex/skills` with a regular `SKILL.md`; unselected skills are ignored.
 The secret-bundle scan reports stale instruction classes, never secret values.
 
 For shared Python/service/API/MCP behavior:

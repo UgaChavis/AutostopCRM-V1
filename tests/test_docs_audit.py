@@ -725,13 +725,418 @@ class DocsAuditTests(unittest.TestCase):
 
     def test_user_skills_are_scanned_only_when_explicit(self) -> None:
         module = load_docs_audit_module()
+        skill_paths = (Path("autostopcrm-maintain"),)
 
         with patch.object(module, "_scan_user_skill_doc_issues", return_value=[]) as skill_audit:
             module.audit(ROOT)
             skill_audit.assert_not_called()
-            module.audit(ROOT, include_skills=True)
+            module.audit(ROOT, include_skills=True, skill_paths=skill_paths)
 
-        skill_audit.assert_called_once()
+        skill_audit.assert_called_once_with(ROOT.resolve(), skill_paths)
+
+    def test_skill_paths_fail_closed_without_complete_opt_in(self) -> None:
+        module = load_docs_audit_module()
+
+        missing_paths = module.audit(ROOT, include_skills=True)
+        missing_flag = module.audit(
+            ROOT,
+            skill_paths=(Path("autostopcrm-maintain"),),
+        )
+
+        self.assertIn("skill_paths_required", {issue.code for issue in missing_paths})
+        self.assertIn(
+            "skill_paths_require_include_skills",
+            {issue.code for issue in missing_flag},
+        )
+
+    def test_selected_crm_skill_scan_is_scoped_deduplicated_and_reads_yaml(self) -> None:
+        module = load_docs_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            skills_root = Path(temp_dir) / "skills"
+            selected = skills_root / "autostopcrm-maintain"
+            foreign = skills_root / "foreign-skill"
+            unselected_crm = skills_root / "autostopcrm-optimize"
+            (selected / "agents").mkdir(parents=True)
+            foreign.mkdir(parents=True)
+            unselected_crm.mkdir(parents=True)
+            (selected / "SKILL.md").write_text(
+                "AUTOSTOP_DEPLOY_BRANCH=autostopcrm-v1 SECRET_FIXTURE_VALUE\n",
+                encoding="utf-8",
+            )
+            (selected / "agents" / "openai.yaml").write_text(
+                'default_prompt: "keep local GitHub and server in sync"\n',
+                encoding="utf-8",
+            )
+            (selected / "checklist.yml").write_text(
+                "note: Record the result in project memory if the finding is reusable.\n",
+                encoding="utf-8",
+            )
+            (selected / "ignored.txt").write_text(
+                "git reset --hard origin/autostopcrm-v1\n",
+                encoding="utf-8",
+            )
+            (foreign / "SKILL.md").write_text(
+                "Use MASTER-PLAN.md and AUTOSTOP_DEPLOY_BRANCH.\n",
+                encoding="utf-8",
+            )
+            (unselected_crm / "SKILL.md").write_text(
+                "Use MASTER-PLAN.md and AUTOSTOP_DEPLOY_BRANCH.\n",
+                encoding="utf-8",
+            )
+
+            with patch.object(module, "_user_skills_root", return_value=skills_root):
+                issues = module._scan_user_skill_doc_issues(
+                    ROOT,
+                    (
+                        Path("autostopcrm-maintain"),
+                        Path("autostopcrm-maintain"),
+                    ),
+                )
+
+        codes = [issue.code for issue in issues]
+        self.assertEqual(1, codes.count("stale_crm_skill_deploy_env"))
+        self.assertEqual(1, codes.count("unsafe_crm_skill_server_sync"))
+        self.assertEqual(1, codes.count("unsafe_crm_skill_memory_write"))
+        self.assertNotIn("unsafe_crm_skill_git_reset", codes)
+        self.assertNotIn("missing_doc_reference", codes)
+        self.assertNotIn("SECRET_FIXTURE_VALUE", repr(issues))
+        self.assertTrue(all(not Path(issue.path).is_absolute() for issue in issues))
+
+    def test_crm_skill_scan_detects_known_unsafe_instruction_classes(self) -> None:
+        module = load_docs_audit_module()
+
+        issues = module.scan_user_skill_forbidden_text(
+            ROOT / "sample.md",
+            "\n".join(
+                (
+                    "AUTOSTOP_DEPLOY_BRANCH=autostopcrm-v1 ./deploy.sh",
+                    "src/minimal_kanban/telegram_ai/",
+                    "git reset --hard origin/autostopcrm-v1",
+                    "- `PySide6==6.11.0`",
+                    "ssh root@crm.autostopcrm.ru from /opt/autostopcrm",
+                    "Keep local, GitHub, and server content in sync before declaring success.",
+                    "Record the result in project memory if the finding is reusable.",
+                )
+            ),
+            root=ROOT,
+        )
+
+        self.assertEqual(
+            {
+                "stale_crm_skill_deploy_env",
+                "stale_crm_skill_path",
+                "unsafe_crm_skill_git_reset",
+                "stale_crm_skill_version_snapshot",
+                "stale_crm_skill_deploy_procedure",
+                "stale_crm_skill_server_access",
+                "unsafe_crm_skill_server_sync",
+                "unsafe_crm_skill_memory_write",
+            },
+            {issue.code for issue in issues},
+        )
+
+    def test_crm_skill_scan_rejects_disposable_server_mirror_instruction(self) -> None:
+        module = load_docs_audit_module()
+
+        issues = module.scan_user_skill_forbidden_text(
+            ROOT / "sample.md",
+            "Treat the server mirror as disposable runtime state unless the file is tracked.",
+            root=ROOT,
+        )
+
+        self.assertEqual(
+            ["unsafe_crm_skill_server_sync"],
+            [issue.code for issue in issues],
+        )
+
+    def test_crm_skill_scan_rejects_known_access_sync_and_removed_path_variants(self) -> None:
+        module = load_docs_audit_module()
+
+        cases = (
+            (
+                "Use src/minimal_kanban/ui/dialogs.py.",
+                "stale_crm_skill_path",
+            ),
+            (
+                "Local key bundle path used in this workspace: PRIVATE_FIXTURE_PATH.",
+                "stale_crm_skill_server_access",
+            ),
+            (
+                "Recheck `git status` locally and on the server mirror.",
+                "unsafe_crm_skill_server_sync",
+            ),
+            (
+                "Recheck both GitHub and server state after any deploy or force-reset.",
+                "unsafe_crm_skill_server_sync",
+            ),
+        )
+        for text, expected_code in cases:
+            with self.subTest(text=text):
+                issues = module.scan_user_skill_forbidden_text(
+                    ROOT / "sample.md",
+                    text,
+                    root=ROOT,
+                )
+                self.assertIn(expected_code, {issue.code for issue in issues})
+
+    def test_crm_skill_scan_allows_generic_production_guardrail(self) -> None:
+        module = load_docs_audit_module()
+
+        issues = module.scan_user_skill_forbidden_text(
+            ROOT / "sample.md",
+            "Do not deploy, access production, synchronize a server, or write memory "
+            "without a separate explicit owner command.",
+            root=ROOT,
+        )
+
+        self.assertEqual([], issues)
+
+    def test_crm_skill_path_validation_rejects_invalid_scope(self) -> None:
+        module = load_docs_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            skills_root = temp_root / "skills"
+            valid = skills_root / "autostopcrm-maintain"
+            foreign = skills_root / "foreign-skill"
+            nested = skills_root / "group" / "autostopcrm-nested"
+            not_directory = skills_root / "autostopcrm-file"
+            missing_entrypoint = skills_root / "autostopcrm-empty"
+            loop = skills_root / "autostopcrm-loop"
+            alias = skills_root / "autostopcrm-alias"
+            target = skills_root / "autostopcrm-target"
+            outside = temp_root / "outside" / "autostopcrm-outside"
+            for directory in (
+                valid,
+                foreign,
+                nested,
+                missing_entrypoint,
+                loop,
+                alias,
+                target,
+                outside,
+            ):
+                directory.mkdir(parents=True)
+            (valid / "SKILL.md").write_text("valid\n", encoding="utf-8")
+            for directory in (loop, alias, target):
+                (directory / "SKILL.md").write_text("valid\n", encoding="utf-8")
+            not_directory.write_text("not a directory\n", encoding="utf-8")
+
+            duplicate_paths, duplicate_issues = module._resolve_user_skill_paths(
+                (Path(valid.name), Path(valid.name)),
+                skills_root=skills_root,
+            )
+            self.assertEqual([valid.resolve()], duplicate_paths)
+            self.assertEqual([], duplicate_issues)
+
+            cases = (
+                (Path("autostopcrm-missing"), "skill_path_missing"),
+                (Path(foreign.name), "skill_path_name_not_allowed"),
+                (
+                    Path("group") / "autostopcrm-nested",
+                    "skill_path_not_direct_child",
+                ),
+                (Path(not_directory.name), "skill_path_not_directory"),
+                (Path(missing_entrypoint.name), "skill_entrypoint_missing"),
+                (outside, "skill_path_outside_skills_root"),
+            )
+            for skill_path, expected_code in cases:
+                with self.subTest(skill_path=skill_path):
+                    selected, issues = module._resolve_user_skill_paths(
+                        (skill_path,),
+                        skills_root=skills_root,
+                    )
+                    self.assertEqual([], selected)
+                    self.assertEqual([expected_code], [issue.code for issue in issues])
+
+            outside_issue = module._resolve_user_skill_paths(
+                (outside,),
+                skills_root=skills_root,
+            )[1][0]
+            self.assertEqual("--skill-path[1]", outside_issue.path)
+            self.assertNotIn(str(outside), repr(outside_issue))
+
+            real_resolve = module._resolve_strict
+
+            def loop_resolver(path):
+                if path in {skills_root, loop}:
+                    raise RuntimeError("fixture loop")
+                return real_resolve(path)
+
+            with patch.object(module, "_resolve_strict", side_effect=loop_resolver):
+                _, root_loop_issues = module._resolve_user_skill_paths(
+                    (Path(valid.name),),
+                    skills_root=skills_root,
+                )
+            self.assertEqual(
+                ["skills_root_resolution_error"],
+                [issue.code for issue in root_loop_issues],
+            )
+
+            def candidate_loop_resolver(path):
+                if path == loop:
+                    raise RuntimeError("fixture loop")
+                return real_resolve(path)
+
+            with patch.object(
+                module,
+                "_resolve_strict",
+                side_effect=candidate_loop_resolver,
+            ):
+                _, candidate_loop_issues = module._resolve_user_skill_paths(
+                    (Path(loop.name),),
+                    skills_root=skills_root,
+                )
+            self.assertEqual(
+                ["skill_path_resolution_error"],
+                [issue.code for issue in candidate_loop_issues],
+            )
+
+            def retarget_resolver(path):
+                if path == alias:
+                    return real_resolve(target)
+                return real_resolve(path)
+
+            with patch.object(module, "_resolve_strict", side_effect=retarget_resolver):
+                _, retarget_issues = module._resolve_user_skill_paths(
+                    (Path(alias.name),),
+                    skills_root=skills_root,
+                )
+            self.assertEqual(
+                ["skill_path_retargeted"],
+                [issue.code for issue in retarget_issues],
+            )
+
+    def test_crm_skill_scope_rejects_link_like_roots_and_descendants(self) -> None:
+        module = load_docs_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            skills_root = Path(temp_dir) / "skills"
+            selected = skills_root / "autostopcrm-maintain"
+            linked = selected / "references"
+            linked.mkdir(parents=True)
+            (selected / "SKILL.md").write_text("valid\n", encoding="utf-8")
+
+            with patch.object(
+                module,
+                "_is_link_like",
+                side_effect=lambda path: path == skills_root,
+            ):
+                _, root_issues = module._resolve_user_skill_paths(
+                    (Path(selected.name),),
+                    skills_root=skills_root,
+                )
+
+            with patch.object(
+                module,
+                "_is_link_like",
+                side_effect=lambda path: path == selected,
+            ):
+                _, selected_issues = module._resolve_user_skill_paths(
+                    (Path(selected.name),),
+                    skills_root=skills_root,
+                )
+
+            with patch.object(
+                module,
+                "_is_link_like",
+                side_effect=lambda path: path == selected / "SKILL.md",
+            ):
+                _, entrypoint_issues = module._resolve_user_skill_paths(
+                    (Path(selected.name),),
+                    skills_root=skills_root,
+                )
+
+            with patch.object(
+                module,
+                "_is_link_like",
+                side_effect=lambda path: path == linked,
+            ) as link_probe:
+                with patch.object(
+                    module,
+                    "_display_path",
+                    side_effect=AssertionError("rejected links must not be resolved"),
+                ):
+                    docs, descendant_issues = module._iter_user_skill_docs(
+                        [selected],
+                        skills_root=skills_root,
+                    )
+
+        self.assertEqual(
+            ["skills_root_symlink_forbidden"],
+            [issue.code for issue in root_issues],
+        )
+        self.assertEqual(
+            ["skill_path_symlink_forbidden"],
+            [issue.code for issue in selected_issues],
+        )
+        self.assertEqual(
+            ["skill_entry_symlink_forbidden"],
+            [issue.code for issue in entrypoint_issues],
+        )
+        self.assertEqual([selected / "SKILL.md"], docs)
+        self.assertEqual(
+            ["skill_entry_symlink_forbidden"],
+            [issue.code for issue in descendant_issues],
+        )
+        self.assertEqual("autostopcrm-maintain/references", descendant_issues[0].path)
+        self.assertTrue(link_probe.called)
+
+    def test_crm_skill_read_failure_is_reported_without_content(self) -> None:
+        module = load_docs_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            skills_root = Path(temp_dir) / "skills"
+            selected = skills_root / "autostopcrm-maintain"
+            selected.mkdir(parents=True)
+            (selected / "SKILL.md").write_text(
+                "SECRET_OVERSIZED_FIXTURE\n",
+                encoding="utf-8",
+            )
+
+            with (
+                patch.object(module, "_user_skills_root", return_value=skills_root),
+                patch.object(module, "DOCS_AUDIT_TEXT_MAX_BYTES", 8),
+            ):
+                issues = module._scan_user_skill_doc_issues(
+                    ROOT,
+                    (Path(selected.name),),
+                )
+
+        self.assertEqual(["skill_doc_audit_error"], [issue.code for issue in issues])
+        self.assertNotIn("SECRET_OVERSIZED_FIXTURE", repr(issues))
+
+    def test_cli_accepts_repeatable_skill_paths(self) -> None:
+        module = load_docs_audit_module()
+        skill_paths = (
+            Path("autostopcrm-maintain"),
+            Path("autostopcrm-optimize"),
+        )
+
+        with (
+            patch.object(module, "audit", return_value=[]) as audit_mock,
+            patch.object(module, "_print_text") as print_mock,
+        ):
+            exit_code = module.main(
+                [
+                    "--include-skills",
+                    "--skill-path",
+                    str(skill_paths[0]),
+                    "--skill-path",
+                    str(skill_paths[1]),
+                ]
+            )
+
+        self.assertEqual(0, exit_code)
+        audit_mock.assert_called_once_with(
+            module.ROOT,
+            manager_root=None,
+            include_skills=True,
+            skill_paths=skill_paths,
+            secret_bundle=None,
+        )
+        print_mock.assert_called_once_with([])
 
     def test_manager_instruction_scan_rejects_v1_and_direct_legacy_commands(self) -> None:
         module = load_docs_audit_module()
