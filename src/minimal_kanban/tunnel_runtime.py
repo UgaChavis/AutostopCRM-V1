@@ -31,6 +31,11 @@ MAX_TUNNEL_PROCESS_ID = 2_147_483_647
 LOCAL_TUNNEL_TARGET_HOSTS = {"127.0.0.1", "localhost", "0.0.0.0", "::1", "::"}
 WILDCARD_TUNNEL_TARGET_HOSTS = {"0.0.0.0", "::"}
 LOOPBACK_TUNNEL_TARGET_HOSTS = {"127.0.0.1", "localhost", "::1"}
+_PROCESS_START_TOKEN_PATTERN = re.compile(r"^(?:linux-proc|windows-filetime):[1-9][0-9]{0,31}$")
+_PROVIDER_PROCESS_NAMES = {
+    "cloudflared": frozenset({"cloudflared", "cloudflared.exe"}),
+    "ngrok": frozenset({"ngrok", "ngrok.exe"}),
+}
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -125,18 +130,23 @@ class TunnelRuntimeController:
 
     def stop(self) -> TunnelRuntimeState:
         process = self._process
-        persisted_pid = self._persisted_pid or self._read_persisted_pid()
-        provider = self._provider
+        state_provider, state_pid, state_identity = self._read_persisted_owner()
+        persisted_pid = self._persisted_pid or state_pid
+        provider = self._provider or state_provider
+        persisted_identity = (
+            state_identity if state_pid == persisted_pid and state_provider == provider else None
+        )
         try:
             if process is not None:
                 self._stop_owned_process(process, provider=provider)
-            elif (
-                persisted_pid is not None
-                and persisted_pid != self._confirmed_stopped_pid
-                and self._is_pid_alive(persisted_pid)
-            ):
-                self._terminate_pid(persisted_pid)
-                self._confirmed_stopped_pid = persisted_pid
+            elif persisted_pid is not None and persisted_pid != self._confirmed_stopped_pid:
+                terminated = self._terminate_pid(
+                    persisted_pid,
+                    provider=provider,
+                    expected_identity=persisted_identity,
+                )
+                if terminated:
+                    self._confirmed_stopped_pid = persisted_pid
         except BaseException:  # noqa: BLE001 - retain every handle while stop is uncertain.
             self._process = process
             self._persisted_pid = persisted_pid
@@ -206,12 +216,18 @@ class TunnelRuntimeController:
             or not self._is_pid_alive(pid)
         ):
             return self._state
+        identity = self._capture_process_identity(pid, provider=self._provider)
+        if identity is None:
+            raise RuntimeError(
+                "Tunnel process identity could not be confirmed before preserving it."
+            )
         self._persisted_pid = pid
         persisted = self._write_persisted_state(
             provider=self._provider or "unknown",
             public_url=self._state.public_url,
             pid=pid,
             target_port=self._target_port,
+            process_identity=identity,
         )
         if not persisted:
             raise RuntimeError("Failed to persist tunnel state before releasing process ownership.")
@@ -273,12 +289,9 @@ class TunnelRuntimeController:
         self._provider = "cloudflared"
         public_url = self._wait_for_public_url("cloudflared", settings)
         if public_url:
-            self._persisted_pid = process.pid
-            self._confirmed_stopped_pid = None
-            self._write_persisted_state(
+            self._persist_running_process(
                 provider="cloudflared",
                 public_url=public_url,
-                pid=process.pid,
                 target_port=settings.mcp.mcp_port,
             )
             self._logger.info("tunnel.start_ok provider=cloudflared url=%s", public_url)
@@ -333,12 +346,9 @@ class TunnelRuntimeController:
         self._provider = "ngrok"
         public_url = self._wait_for_public_url("ngrok", settings)
         if public_url:
-            self._persisted_pid = process.pid
-            self._confirmed_stopped_pid = None
-            self._write_persisted_state(
+            self._persist_running_process(
                 provider="ngrok",
                 public_url=public_url,
-                pid=process.pid,
                 target_port=settings.mcp.mcp_port,
             )
             self._logger.info("tunnel.start_ok provider=ngrok url=%s", public_url)
@@ -388,6 +398,33 @@ class TunnelRuntimeController:
             "tunnel.spawn_ok provider=%s command=%s", self._provider or "pending", " ".join(command)
         )
         return process
+
+    def _persist_running_process(
+        self,
+        *,
+        provider: str,
+        public_url: str,
+        target_port: int,
+    ) -> None:
+        pid = self._normalize_pid(getattr(self._process, "pid", None))
+        if pid is None:
+            return
+        self._persisted_pid = pid
+        self._confirmed_stopped_pid = None
+        identity = self._capture_process_identity(pid, provider=provider)
+        if identity is not None and self._write_persisted_state(
+            provider=provider,
+            public_url=public_url,
+            pid=pid,
+            target_port=target_port,
+            process_identity=identity,
+        ):
+            return
+        self._logger.warning(
+            "tunnel.persist_identity_failed provider=%s pid=%s",
+            provider,
+            pid,
+        )
 
     def _target_base_url(self, settings: IntegrationSettings) -> str:
         return build_http_url(settings.mcp.mcp_host, settings.mcp.mcp_port)
@@ -554,6 +591,10 @@ class TunnelRuntimeController:
         public_url = str(payload.get("public_url") or "").strip().rstrip("/")
         pid = self._normalize_pid(payload.get("pid"))
         target_port = self._normalize_pid(payload.get("target_port"))
+        expected_identity = self._normalize_process_identity(
+            payload.get("process_identity"),
+            provider=provider,
+        )
         if (
             provider not in {"cloudflared", "ngrok"}
             or not self._is_valid_public_tunnel_url(provider, public_url)
@@ -564,13 +605,34 @@ class TunnelRuntimeController:
         if target_port is not None and target_port != settings.mcp.mcp_port:
             self._clear_persisted_state()
             return None
-        if not self._is_pid_alive(pid):
-            self._clear_persisted_state()
-            return None
         if pid == self._confirmed_stopped_pid:
             if not self._clear_persisted_state():
                 raise RuntimeError("Stopped tunnel state could not be cleared before restart.")
             self._confirmed_stopped_pid = None
+            return None
+        if expected_identity is None:
+            if self._is_pid_alive(pid):
+                raise RuntimeError(
+                    f"Tunnel process {pid} is still alive, but its persisted identity "
+                    "is unavailable."
+                )
+            self._clear_persisted_state()
+            return None
+        actual_identity = self._capture_process_identity(pid, provider=provider)
+        if actual_identity is None:
+            if self._is_pid_alive(pid):
+                raise RuntimeError(
+                    f"Tunnel process {pid} is still alive, but its identity could not be verified."
+                )
+            self._clear_persisted_state()
+            return None
+        if actual_identity != expected_identity:
+            self._logger.warning(
+                "tunnel.persisted_identity_rejected provider=%s pid=%s",
+                provider,
+                pid,
+            )
+            self._clear_persisted_state()
             return None
 
         if provider == "ngrok":
@@ -588,6 +650,7 @@ class TunnelRuntimeController:
             public_url=public_url,
             pid=pid,
             target_port=settings.mcp.mcp_port,
+            process_identity=expected_identity,
         )
         self._logger.info(
             "tunnel.reuse_persisted provider=%s pid=%s url=%s", provider, pid, public_url
@@ -621,17 +684,28 @@ class TunnelRuntimeController:
         )
 
     def _write_persisted_state(
-        self, *, provider: str, public_url: str, pid: int, target_port: int | None
+        self,
+        *,
+        provider: str,
+        public_url: str,
+        pid: int,
+        target_port: int | None,
+        process_identity: dict[str, str] | None,
     ) -> bool:
         normalized_pid = self._normalize_pid(pid)
         normalized_target_port = self._normalize_pid(target_port)
-        if normalized_pid is None:
+        normalized_identity = self._normalize_process_identity(
+            process_identity,
+            provider=provider,
+        )
+        if normalized_pid is None or normalized_identity is None:
             return False
         payload = {
             "provider": provider,
             "public_url": public_url.rstrip("/"),
             "pid": normalized_pid,
             "target_port": normalized_target_port,
+            "process_identity": normalized_identity,
             "saved_at": time.time(),
         }
         try:
@@ -667,9 +741,156 @@ class TunnelRuntimeController:
             self._logger.warning("tunnel.clear_state_failed path=%s", self._state_file_path)
             return False
 
-    def _read_persisted_pid(self) -> int | None:
+    def _read_persisted_owner(
+        self,
+    ) -> tuple[str, int | None, dict[str, str] | None]:
         payload = self._read_persisted_state()
-        return self._normalize_pid(payload.get("pid"))
+        provider = str(payload.get("provider") or "").strip().lower()
+        pid = self._normalize_pid(payload.get("pid"))
+        identity = self._normalize_process_identity(
+            payload.get("process_identity"),
+            provider=provider,
+        )
+        return provider, pid, identity
+
+    def _normalize_process_identity(
+        self,
+        value,
+        *,
+        provider: str,
+    ) -> dict[str, str] | None:
+        if not isinstance(value, dict):
+            return None
+        normalized_provider = str(provider or "").strip().lower()
+        if normalized_provider not in _PROVIDER_PROCESS_NAMES:
+            return None
+        if set(value) != {"executable", "started"}:
+            return None
+        executable = value.get("executable")
+        started = value.get("started")
+        if not isinstance(executable, str) or not isinstance(started, str):
+            return None
+        normalized_executable = os.path.normcase(os.path.realpath(executable.strip()))
+        if (
+            not executable.strip()
+            or len(normalized_executable) > 32768
+            or any(ord(character) < 32 or ord(character) == 127 for character in executable)
+            or Path(normalized_executable).name.casefold()
+            not in _PROVIDER_PROCESS_NAMES[normalized_provider]
+            or not _PROCESS_START_TOKEN_PATTERN.fullmatch(started)
+        ):
+            return None
+        return {
+            "executable": normalized_executable,
+            "started": started,
+        }
+
+    def _capture_process_identity(
+        self,
+        pid: int,
+        *,
+        provider: str,
+    ) -> dict[str, str] | None:
+        normalized_pid = self._normalize_pid(pid)
+        normalized_provider = str(provider or "").strip().lower()
+        if normalized_pid is None or normalized_provider not in _PROVIDER_PROCESS_NAMES:
+            return None
+        raw_identity = (
+            self._query_windows_process_identity(normalized_pid)
+            if os.name == "nt"
+            else self._query_linux_process_identity(normalized_pid)
+        )
+        if raw_identity is None:
+            return None
+        return self._normalize_process_identity(raw_identity, provider=normalized_provider)
+
+    def _query_linux_process_identity(self, pid: int) -> dict[str, str] | None:
+        process_dir = Path("/proc") / str(pid)
+        try:
+            with (process_dir / "stat").open("rb") as handle:
+                stat_payload = handle.read(8193)
+            if not stat_payload or len(stat_payload) > 8192:
+                return None
+            comm_end = stat_payload.rfind(b")")
+            if comm_end < 0:
+                return None
+            fields = stat_payload[comm_end + 2 :].split()
+            if len(fields) <= 19:
+                return None
+            start_ticks = fields[19].decode("ascii")
+            if not start_ticks.isdigit() or int(start_ticks) <= 0:
+                return None
+            executable = os.readlink(process_dir / "exe")
+        except (OSError, UnicodeError, ValueError):
+            return None
+        return {
+            "executable": executable,
+            "started": f"linux-proc:{start_ticks}",
+        }
+
+    def _query_windows_process_identity(self, pid: int) -> dict[str, str] | None:
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            kernel32.OpenProcess.restype = wintypes.HANDLE
+            kernel32.GetProcessTimes.argtypes = [
+                wintypes.HANDLE,
+                ctypes.POINTER(wintypes.FILETIME),
+                ctypes.POINTER(wintypes.FILETIME),
+                ctypes.POINTER(wintypes.FILETIME),
+                ctypes.POINTER(wintypes.FILETIME),
+            ]
+            kernel32.GetProcessTimes.restype = wintypes.BOOL
+            kernel32.QueryFullProcessImageNameW.argtypes = [
+                wintypes.HANDLE,
+                wintypes.DWORD,
+                wintypes.LPWSTR,
+                ctypes.POINTER(wintypes.DWORD),
+            ]
+            kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
+            kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+            kernel32.CloseHandle.restype = wintypes.BOOL
+
+            handle = kernel32.OpenProcess(0x1000, False, pid)
+            if not handle:
+                return None
+            try:
+                created = wintypes.FILETIME()
+                exited = wintypes.FILETIME()
+                kernel = wintypes.FILETIME()
+                user = wintypes.FILETIME()
+                if not kernel32.GetProcessTimes(
+                    handle,
+                    ctypes.byref(created),
+                    ctypes.byref(exited),
+                    ctypes.byref(kernel),
+                    ctypes.byref(user),
+                ):
+                    return None
+                buffer = ctypes.create_unicode_buffer(32768)
+                size = wintypes.DWORD(len(buffer))
+                if not kernel32.QueryFullProcessImageNameW(
+                    handle,
+                    0,
+                    buffer,
+                    ctypes.byref(size),
+                ):
+                    return None
+                created_value = (created.dwHighDateTime << 32) | created.dwLowDateTime
+                if created_value <= 0:
+                    return None
+                executable = buffer.value[: size.value]
+            finally:
+                kernel32.CloseHandle(handle)
+        except (AttributeError, OSError, TypeError, ValueError):
+            return None
+        return {
+            "executable": executable,
+            "started": f"windows-filetime:{created_value}",
+        }
 
     def _normalize_pid(self, value) -> int | None:
         if isinstance(value, bool):
@@ -700,7 +921,37 @@ class TunnelRuntimeController:
             return False
         return True
 
-    def _terminate_pid(self, pid: int) -> None:
+    def _terminate_pid(
+        self,
+        pid: int,
+        *,
+        provider: str,
+        expected_identity: dict[str, str] | None,
+    ) -> bool:
+        if not self._is_pid_alive(pid):
+            return True
+        normalized_identity = self._normalize_process_identity(
+            expected_identity,
+            provider=provider,
+        )
+        if normalized_identity is None:
+            raise RuntimeError(
+                f"Tunnel process {pid} is still alive, but its persisted identity is unavailable."
+            )
+        actual_identity = self._capture_process_identity(pid, provider=provider)
+        if actual_identity is None:
+            if not self._is_pid_alive(pid):
+                return True
+            raise RuntimeError(
+                f"Tunnel process {pid} is still alive, but its identity could not be verified."
+            )
+        if actual_identity != normalized_identity:
+            self._logger.warning(
+                "tunnel.terminate_identity_rejected provider=%s pid=%s",
+                provider or "unknown",
+                pid,
+            )
+            return False
         if os.name == "nt":
             creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             try:
@@ -719,7 +970,7 @@ class TunnelRuntimeController:
             try:
                 os.kill(pid, signal.SIGTERM)
             except ProcessLookupError:
-                return
+                return True
             except OSError as exc:
                 raise RuntimeError(f"Tunnel process {pid} could not be terminated.") from exc
 
@@ -728,6 +979,7 @@ class TunnelRuntimeController:
             if time.monotonic() >= deadline:
                 raise RuntimeError(f"Tunnel process {pid} did not stop.")
             time.sleep(0.1)
+        return True
 
     def _read_log_file(self) -> str:
         if self._log_file_path is None or not self._log_file_path.exists():

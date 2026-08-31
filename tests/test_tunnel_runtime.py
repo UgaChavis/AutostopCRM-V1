@@ -51,6 +51,22 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
         self.controller.stop()
         self.temp_dir.cleanup()
 
+    def _process_identity(
+        self,
+        *,
+        provider: str = "cloudflared",
+        started: str = "linux-proc:100",
+    ) -> dict[str, str]:
+        identity = self.controller._normalize_process_identity(
+            {
+                "executable": str(Path(self.temp_dir.name) / f"{provider}.exe"),
+                "started": started,
+            },
+            provider=provider,
+        )
+        self.assertIsNotNone(identity)
+        return identity or {}
+
     def test_start_prefers_cloudflared_and_parses_log_url(self) -> None:
         process = Mock()
         process.poll.side_effect = [None, None, None]
@@ -256,6 +272,24 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
         self.assertFalse(state.running)
         self.assertEqual(state.public_url, "")
 
+    def test_stop_keeps_normal_owned_process_handle_behavior_without_persisted_identity(
+        self,
+    ) -> None:
+        process = Mock()
+        process.poll.return_value = None
+        process.wait.return_value = 0
+        process.pid = 5151
+        self.controller._process = process
+        self.controller._provider = "cloudflared"
+
+        with patch.object(self.controller, "_terminate_pid") as terminate_pid:
+            state = self.controller.stop()
+
+        process.terminate.assert_called_once_with()
+        process.wait.assert_called_once_with(timeout=8)
+        terminate_pid.assert_not_called()
+        self.assertFalse(state.running)
+
     def test_stop_logs_when_owned_process_cannot_be_killed(self) -> None:
         process = Mock()
         process.pid = 777
@@ -358,6 +392,7 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
         )
 
     def test_start_reuses_persisted_cloudflared_state(self) -> None:
+        expected_identity = self._process_identity()
         with tempfile.TemporaryDirectory() as temp_dir:
             state_path = Path(temp_dir) / "tunnel-state.json"
             state_path.write_text(
@@ -367,6 +402,7 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
                         "public_url": "https://stable.trycloudflare.com",
                         "pid": 4242,
                         "target_port": self.settings.mcp.mcp_port,
+                        "process_identity": expected_identity,
                     }
                 ),
                 encoding="utf-8",
@@ -374,7 +410,11 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
             self.controller._state_file_path = state_path
 
             with (
-                patch.object(self.controller, "_is_pid_alive", return_value=True),
+                patch.object(
+                    self.controller,
+                    "_capture_process_identity",
+                    return_value=expected_identity,
+                ),
                 patch("minimal_kanban.tunnel_runtime.subprocess.Popen") as popen_mock,
             ):
                 state = self.controller.start(self.settings)
@@ -383,6 +423,161 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
         self.assertEqual(state.public_url, "https://stable.trycloudflare.com")
         self.assertIn("reused", state.message)
         popen_mock.assert_not_called()
+
+    def test_reuse_rejects_live_pid_when_process_identity_changed(self) -> None:
+        state_path = Path(self.temp_dir.name) / "tunnel-state.json"
+        expected_identity = self._process_identity()
+        state_path.write_text(
+            json.dumps(
+                {
+                    "provider": "cloudflared",
+                    "public_url": "https://stable.trycloudflare.com",
+                    "pid": 4242,
+                    "target_port": self.settings.mcp.mcp_port,
+                    "process_identity": expected_identity,
+                }
+            ),
+            encoding="utf-8",
+        )
+        self.controller._state_file_path = state_path
+
+        with patch.object(
+            self.controller,
+            "_capture_process_identity",
+            return_value={
+                **expected_identity,
+                "started": "linux-proc:200",
+            },
+        ):
+            state = self.controller._reuse_persisted_tunnel(self.settings)
+
+        self.assertIsNone(state)
+        self.assertIsNone(self.controller._persisted_pid)
+        self.assertFalse(state_path.exists())
+
+    def test_reuse_retains_live_legacy_state_without_process_identity(self) -> None:
+        state_path = self.controller._state_file_path
+        state_path.write_text(
+            json.dumps(
+                {
+                    "provider": "cloudflared",
+                    "public_url": "https://stable.trycloudflare.com",
+                    "pid": 4242,
+                    "target_port": self.settings.mcp.mcp_port,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with (
+            patch.object(self.controller, "_is_pid_alive", return_value=True),
+            self.assertRaisesRegex(RuntimeError, "persisted identity"),
+        ):
+            self.controller._reuse_persisted_tunnel(self.settings)
+
+        self.assertTrue(state_path.exists())
+
+    def test_reuse_clears_dead_legacy_state_without_process_identity(self) -> None:
+        state_path = self.controller._state_file_path
+        state_path.write_text(
+            json.dumps(
+                {
+                    "provider": "cloudflared",
+                    "public_url": "https://stable.trycloudflare.com",
+                    "pid": 4242,
+                    "target_port": self.settings.mcp.mcp_port,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with patch.object(self.controller, "_is_pid_alive", return_value=False):
+            state = self.controller._reuse_persisted_tunnel(self.settings)
+
+        self.assertIsNone(state)
+        self.assertFalse(state_path.exists())
+
+    def test_stop_never_terminates_reused_pid_after_identity_changes(self) -> None:
+        state_path = Path(self.temp_dir.name) / "tunnel-state.json"
+        expected_identity = self._process_identity()
+        state_path.write_text(
+            json.dumps(
+                {
+                    "provider": "cloudflared",
+                    "public_url": "https://stable.trycloudflare.com",
+                    "pid": 6262,
+                    "target_port": self.settings.mcp.mcp_port,
+                    "process_identity": expected_identity,
+                }
+            ),
+            encoding="utf-8",
+        )
+        self.controller._state_file_path = state_path
+        self.controller._provider = "cloudflared"
+        self.controller._persisted_pid = 6262
+
+        with (
+            patch.object(self.controller, "_is_pid_alive", return_value=True),
+            patch.object(
+                self.controller,
+                "_capture_process_identity",
+                return_value={
+                    **expected_identity,
+                    "started": "linux-proc:200",
+                },
+            ),
+            patch("minimal_kanban.tunnel_runtime.os.kill") as kill_mock,
+            patch("minimal_kanban.tunnel_runtime.subprocess.run") as taskkill_mock,
+        ):
+            state = self.controller.stop()
+
+        kill_mock.assert_not_called()
+        taskkill_mock.assert_not_called()
+        self.assertFalse(state.running)
+        self.assertIsNone(self.controller._persisted_pid)
+        self.assertFalse(state_path.exists())
+
+    def test_stop_retains_live_pid_when_identity_query_is_unavailable(self) -> None:
+        state_path = self.controller._state_file_path
+        expected_identity = self._process_identity()
+        state_path.write_text(
+            json.dumps(
+                {
+                    "provider": "cloudflared",
+                    "pid": 6262,
+                    "process_identity": expected_identity,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with (
+            patch.object(self.controller, "_is_pid_alive", return_value=True),
+            patch.object(self.controller, "_capture_process_identity", return_value=None),
+            self.assertRaisesRegex(RuntimeError, "could not be verified"),
+        ):
+            self.controller.stop()
+
+        self.assertEqual(self.controller._provider, "cloudflared")
+        self.assertEqual(self.controller._persisted_pid, 6262)
+        self.assertTrue(state_path.exists())
+
+    def test_stop_retains_live_legacy_pid_without_process_identity(self) -> None:
+        state_path = self.controller._state_file_path
+        state_path.write_text(
+            json.dumps({"provider": "cloudflared", "pid": 6262}),
+            encoding="utf-8",
+        )
+
+        with (
+            patch.object(self.controller, "_is_pid_alive", return_value=True),
+            self.assertRaisesRegex(RuntimeError, "persisted identity"),
+        ):
+            self.controller.stop()
+
+        self.assertEqual(self.controller._provider, "cloudflared")
+        self.assertEqual(self.controller._persisted_pid, 6262)
+        self.assertTrue(state_path.exists())
 
     def test_preserve_for_reuse_writes_state_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -401,7 +596,15 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
                 owns_process=True,
             )
 
-            with patch.object(self.controller, "_is_pid_alive", return_value=True):
+            expected_identity = self._process_identity()
+            with (
+                patch.object(self.controller, "_is_pid_alive", return_value=True),
+                patch.object(
+                    self.controller,
+                    "_capture_process_identity",
+                    return_value=expected_identity,
+                ),
+            ):
                 state = self.controller.preserve_for_reuse()
 
             payload = json.loads(state_path.read_text(encoding="utf-8"))
@@ -411,6 +614,7 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
         self.assertEqual(payload["public_url"], "https://stable.trycloudflare.com")
         self.assertEqual(payload["pid"], 5151)
         self.assertEqual(payload["target_port"], self.settings.mcp.mcp_port)
+        self.assertEqual(payload["process_identity"], expected_identity)
 
     def test_preserve_for_reuse_retains_process_when_state_write_fails(self) -> None:
         self.controller._provider = "cloudflared"
@@ -428,6 +632,11 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
 
         with (
             patch.object(self.controller, "_is_pid_alive", return_value=True),
+            patch.object(
+                self.controller,
+                "_capture_process_identity",
+                return_value=self._process_identity(),
+            ),
             patch.object(self.controller, "_write_persisted_state", return_value=False),
             self.assertRaisesRegex(RuntimeError, "persist"),
         ):
@@ -439,6 +648,17 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
     def test_stop_retains_persisted_pid_when_termination_is_uncertain(self) -> None:
         self.controller._provider = "cloudflared"
         self.controller._persisted_pid = 6262
+        expected_identity = self._process_identity()
+        self.controller._state_file_path.write_text(
+            json.dumps(
+                {
+                    "provider": "cloudflared",
+                    "pid": 6262,
+                    "process_identity": expected_identity,
+                }
+            ),
+            encoding="utf-8",
+        )
 
         with (
             patch.object(self.controller, "_is_pid_alive", return_value=True),
@@ -510,6 +730,7 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
             public_url="https://stable.trycloudflare.com",
             pid=5151,
             target_port=self.settings.mcp.mcp_port,
+            process_identity=self._process_identity(),
         )
 
         payload = json.loads(state_path.read_text(encoding="utf-8"))
@@ -533,6 +754,7 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
                 public_url="https://" + "x" * 512 + ".trycloudflare.com",
                 pid=5151,
                 target_port=self.settings.mcp.mcp_port,
+                process_identity=self._process_identity(),
             )
 
         self.assertEqual(json.loads(state_path.read_text(encoding="utf-8")), original_payload)
@@ -554,6 +776,7 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
                 public_url="https://stable.trycloudflare.com",
                 pid=5151,
                 target_port=self.settings.mcp.mcp_port,
+                process_identity=self._process_identity(),
             )
 
         self.assertEqual(old_style_tmp.read_text(encoding="utf-8"), "sentinel")
@@ -561,6 +784,7 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
         self.assertEqual(list(state_path.parent.glob("*.tmp")), [])
 
     def test_stop_terminates_persisted_pid_when_handle_missing(self) -> None:
+        expected_identity = self._process_identity()
         with tempfile.TemporaryDirectory() as temp_dir:
             state_path = Path(temp_dir) / "tunnel-state.json"
             state_path.write_text(
@@ -570,6 +794,7 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
                         "public_url": "https://stable.trycloudflare.com",
                         "pid": 6262,
                         "target_port": self.settings.mcp.mcp_port,
+                        "process_identity": expected_identity,
                     }
                 ),
                 encoding="utf-8",
@@ -581,6 +806,11 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
             if os.name == "nt":
                 with (
                     patch.object(self.controller, "_is_pid_alive", side_effect=[True, False]),
+                    patch.object(
+                        self.controller,
+                        "_capture_process_identity",
+                        return_value=expected_identity,
+                    ),
                     patch("minimal_kanban.tunnel_runtime.subprocess.run") as terminate_mock,
                 ):
                     state = self.controller.stop()
@@ -589,6 +819,11 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
             else:
                 with (
                     patch.object(self.controller, "_is_pid_alive", side_effect=[True, False]),
+                    patch.object(
+                        self.controller,
+                        "_capture_process_identity",
+                        return_value=expected_identity,
+                    ),
                     patch("minimal_kanban.tunnel_runtime.os.kill") as terminate_mock,
                 ):
                     state = self.controller.stop()
