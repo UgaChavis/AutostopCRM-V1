@@ -46,10 +46,7 @@ class CrmParityInventoryQualityTests(unittest.TestCase):
 
         self.assertEqual([], issues)
         self.assertEqual(set(), assembled_routes - set(source_routes))
-        self.assertEqual(
-            {"/api/pause_agent_scheduled_task", "/api/resume_agent_scheduled_task"},
-            set(source_routes) - assembled_routes,
-        )
+        self.assertEqual(set(), set(source_routes) - assembled_routes)
 
     def test_server_only_health_text_and_print_alias_have_exact_gateway_coverage(self) -> None:
         rows = {row["route"]: row for row in self.inventory["matrix"]}

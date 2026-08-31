@@ -9,16 +9,6 @@
     "src/minimal_kanban/api/server.py",
     "src/minimal_kanban/api/change_feed.py"
   ],
-  "dynamic_ui_routes": {
-    "/api/pause_agent_scheduled_task": {
-      "source": "src/minimal_kanban/web_app_assets/source/app_main_before_printing.js",
-      "evidence_pattern": "(action === 'pause' ? 'pause' : 'resume')"
-    },
-    "/api/resume_agent_scheduled_task": {
-      "source": "src/minimal_kanban/web_app_assets/source/app_main_before_printing.js",
-      "evidence_pattern": "(action === 'pause' ? 'pause' : 'resume')"
-    }
-  },
   "presentation_http_routes": {
     "/": {
       "kind": "static_board_shell"

@@ -311,13 +311,6 @@
       agentRefreshTimer: null,
       agentAutofillCountdownTimer: null,
       agentAutofillPromptOpen: false,
-      agentTasksUiBound: false,
-      agentTasksRefreshTimer: null,
-      agentScheduledTasks: [],
-      agentScheduledColumns: [],
-      agentScheduledActiveId: '',
-      agentTaskScopeCardId: '',
-      agentTaskScopeCardLabel: '',
       agentTaskId: '',
       agentTaskStatus: '',
       agentSyncedTaskId: '',
@@ -474,57 +467,6 @@
             + '</div>'
         );
       }
-    }
-    function ensureAgentTasksUi() {
-      if (document.getElementById('agentTasksModal')) return;
-      document.body.insertAdjacentHTML(
-        'beforeend',
-        '<div class="modal" id="agentTasksModal">'
-          + '<div class="dialog dialog--agent-tasks">'
-            + '<div class="dialog__head">'
-              + '<div class="dialog__title">ЗАДАЧИ</div>'
-              + '<button class="btn" data-close="agent-tasks">ЗАКРЫТЬ</button>'
-            + '</div>'
-            + '<div class="agent-tasks-shell">'
-              + '<div class="subpanel agent-tasks-rail">'
-                + '<div class="agent-tasks-toolbar">'
-                  + '<div class="agent-tasks-toolbar__copy">'
-                    + '<div class="panel-title">СПИСОК ЗАДАЧ</div>'
-                    + '<div class="agent-tasks-meta" id="agentTasksMeta">ЗАГРУЗКА ЗАДАЧ...</div>'
-                  + '</div>'
-                  + '<button class="btn btn--accent" id="agentTasksNewButton" type="button">НОВАЯ ЗАДАЧА</button>'
-                + '</div>'
-                + '<div class="agent-tasks-list" id="agentTasksList"></div>'
-              + '</div>'
-              + '<div class="subpanel agent-tasks-editor">'
-                + '<div class="agent-tasks-editor__head">'
-                  + '<div class="panel-title" id="agentTasksEditorTitle">НОВАЯ ЗАДАЧА</div>'
-                  + '<div class="agent-tasks-meta" id="agentTaskFormMeta">Текущая карточка, одна колонка или вся доска. Запуск вручную, по интервалу или при создании.</div>'
-                + '</div>'
-                + '<div class="field field--compact"><label for="agentTaskNameInput">НАЗВАНИЕ</label><input id="agentTaskNameInput" type="text" maxlength="80" placeholder="Проверка оплат"></div>'
-                + '<div class="field field--compact"><label for="agentTaskPromptInput">ЗАДАЧА</label><textarea id="agentTaskPromptInput" maxlength="8000" placeholder="Например: проверь неоплаченные заказ-наряды и кратко запиши результат в карточки"></textarea></div>'
-                + '<div class="agent-tasks-editor__row">'
-                + '<div class="field field--compact"><label for="agentTaskScopeTypeInput">ОХВАТ</label><select id="agentTaskScopeTypeInput"><option value="all_cards">ВСЕ КАРТОЧКИ</option><option value="column">ОДНА КОЛОНКА</option><option value="current_card">ТЕКУЩАЯ КАРТОЧКА</option></select></div>'
-                  + '<div class="field field--compact"><label for="agentTaskScopeColumnInput">КОЛОНКА</label><select id="agentTaskScopeColumnInput"></select></div>'
-                + '</div>'
-                + '<div class="agent-tasks-editor__row agent-tasks-editor__row--schedule">'
-                  + '<div class="field field--compact"><label for="agentTaskScheduleTypeInput">РЕЖИМ</label><select id="agentTaskScheduleTypeInput"><option value="once">ОДИН РАЗ</option><option value="interval">ИНТЕРВАЛ</option><option value="on_create">ПРИ СОЗДАНИИ</option></select></div>'
-                  + '<div class="field field--compact"><label for="agentTaskIntervalValueInput">ЧИСЛО</label><input id="agentTaskIntervalValueInput" type="number" min="1" max="999" step="1" value="1"></div>'
-                  + '<div class="field field--compact"><label for="agentTaskIntervalUnitInput">ЕДИНИЦА</label><select id="agentTaskIntervalUnitInput"><option value="minute">МИН</option><option value="hour">ЧАС</option></select></div>'
-                + '</div>'
-                + '<label class="agent-tasks-toggle"><input id="agentTaskActiveInput" type="checkbox" checked> ЗАДАЧА АКТИВНА</label>'
-                + '<div class="agent-tasks-editor__foot">'
-                  + '<div class="agent-tasks-editor__actions">'
-                    + '<button class="btn btn--accent" id="agentTaskSaveButton" type="button">СОХРАНИТЬ</button>'
-                    + '<button class="btn btn--ghost" id="agentTaskRunButton" type="button">ЗАПУСТИТЬ</button>'
-                  + '</div>'
-                  + '<button class="btn btn--ghost" id="agentTaskResetButton" type="button">НОВАЯ</button>'
-                + '</div>'
-              + '</div>'
-            + '</div>'
-          + '</div>'
-        + '</div>'
-      );
     }
     function ensureCashboxesUi() {
       return;
@@ -1111,23 +1053,6 @@
       agentRunsList: document.getElementById('agentRunsList'),
       agentActionsList: document.getElementById('agentActionsList'),
       agentDetails: document.getElementById('agentDetails'),
-      agentTasksModal: document.getElementById('agentTasksModal'),
-      agentTasksMeta: document.getElementById('agentTasksMeta'),
-      agentTasksList: document.getElementById('agentTasksList'),
-      agentTasksNewButton: document.getElementById('agentTasksNewButton'),
-      agentTasksEditorTitle: document.getElementById('agentTasksEditorTitle'),
-      agentTaskNameInput: document.getElementById('agentTaskNameInput'),
-      agentTaskPromptInput: document.getElementById('agentTaskPromptInput'),
-      agentTaskScopeTypeInput: document.getElementById('agentTaskScopeTypeInput'),
-      agentTaskScopeColumnInput: document.getElementById('agentTaskScopeColumnInput'),
-      agentTaskScheduleTypeInput: document.getElementById('agentTaskScheduleTypeInput'),
-      agentTaskIntervalValueInput: document.getElementById('agentTaskIntervalValueInput'),
-      agentTaskIntervalUnitInput: document.getElementById('agentTaskIntervalUnitInput'),
-      agentTaskActiveInput: document.getElementById('agentTaskActiveInput'),
-      agentTaskFormMeta: document.getElementById('agentTaskFormMeta'),
-      agentTaskSaveButton: document.getElementById('agentTaskSaveButton'),
-      agentTaskRunButton: document.getElementById('agentTaskRunButton'),
-      agentTaskResetButton: document.getElementById('agentTaskResetButton'),
       cardModal: document.getElementById('cardModal'),
       cardModalTitle: document.getElementById('cardModalTitle'),
       cardModalCloseButtonTop: document.getElementById('cardModalCloseButtonTop'),
@@ -1664,7 +1589,6 @@
       els.agentContextLabel = document.getElementById('agentContextLabel');
       els.agentStatusLabel = document.getElementById('agentStatusLabel');
       els.agentQuickActions = document.getElementById('agentQuickActions');
-      els.agentTasksOpenButton = document.getElementById('agentTasksOpenButton');
       els.agentTaskInput = document.getElementById('agentTaskInput');
       els.agentAutofillButton = document.getElementById('agentAutofillButton');
       els.agentAutofillPromptToggle = document.getElementById('agentAutofillPromptToggle');
@@ -2280,31 +2204,10 @@
       return packetDraft;
     }
 
-    function hydrateAgentTasksUiRefs() {
-      els.agentTasksModal = document.getElementById('agentTasksModal');
-      els.agentTasksMeta = document.getElementById('agentTasksMeta');
-      els.agentTasksList = document.getElementById('agentTasksList');
-      els.agentTasksNewButton = document.getElementById('agentTasksNewButton');
-      els.agentTasksEditorTitle = document.getElementById('agentTasksEditorTitle');
-      els.agentTaskNameInput = document.getElementById('agentTaskNameInput');
-      els.agentTaskPromptInput = document.getElementById('agentTaskPromptInput');
-      els.agentTaskScopeTypeInput = document.getElementById('agentTaskScopeTypeInput');
-      els.agentTaskScopeColumnInput = document.getElementById('agentTaskScopeColumnInput');
-      els.agentTaskScheduleTypeInput = document.getElementById('agentTaskScheduleTypeInput');
-      els.agentTaskIntervalValueInput = document.getElementById('agentTaskIntervalValueInput');
-      els.agentTaskIntervalUnitInput = document.getElementById('agentTaskIntervalUnitInput');
-      els.agentTaskActiveInput = document.getElementById('agentTaskActiveInput');
-      els.agentTaskFormMeta = document.getElementById('agentTaskFormMeta');
-      els.agentTaskSaveButton = document.getElementById('agentTaskSaveButton');
-      els.agentTaskRunButton = document.getElementById('agentTaskRunButton');
-      els.agentTaskResetButton = document.getElementById('agentTaskResetButton');
-    }
-
     function bindAgentUiEvents() {
       if (state.agentUiBound) return;
       hydrateAgentUiRefs();
       els.agentQuickActions?.addEventListener('click', handleAgentQuickActionClick);
-      els.agentTasksOpenButton?.addEventListener('click', openAgentTasksModal);
       els.agentAutofillButton?.addEventListener('click', toggleAgentCardAutofill);
       els.agentAutofillPromptToggle?.addEventListener('click', toggleAgentAutofillPromptPanel);
       els.agentAutofillPromptSaveButton?.addEventListener('click', saveAgentAutofillPrompt);
@@ -2321,19 +2224,6 @@
       els.agentModal?.addEventListener('click', handleAgentModalOverlayClick);
       els.agentResultPanel?.addEventListener('click', handleAgentResultActionClick);
       state.agentUiBound = true;
-    }
-
-    function bindAgentTasksUiEvents() {
-      if (state.agentTasksUiBound) return;
-      hydrateAgentTasksUiRefs();
-      els.agentTasksNewButton?.addEventListener('click', resetAgentScheduledTaskForm);
-      els.agentTasksList?.addEventListener('click', handleAgentScheduledTasksListClick);
-      els.agentTaskScopeTypeInput?.addEventListener('change', syncAgentScheduledTaskFormUi);
-      els.agentTaskScheduleTypeInput?.addEventListener('change', syncAgentScheduledTaskFormUi);
-      els.agentTaskSaveButton?.addEventListener('click', saveAgentScheduledTask);
-      els.agentTaskRunButton?.addEventListener('click', runActiveAgentScheduledTask);
-      els.agentTaskResetButton?.addEventListener('click', resetAgentScheduledTaskForm);
-      state.agentTasksUiBound = true;
     }
 
     function bindEmployeesUiEvents() {
@@ -3610,7 +3500,6 @@
       employeeSalaryReconciliationPeriodModal: 'employee-salary-reconciliation-period',
       employeeSalaryReportModal: 'employee-salary-report',
       agentModal: 'agent',
-      agentTasksModal: 'agent-tasks',
       gptWallModal: 'wall',
       boardSettingsModal: 'settings',
       displayDashboardMessageModal: 'display-dashboard-message',
@@ -3644,7 +3533,6 @@
         'employee-salary-reconciliation-period': els.employeeSalaryReconciliationPeriodModal,
         'employee-salary-report': els.employeeSalaryReportModal,
         agent: els.agentModal,
-        'agent-tasks': els.agentTasksModal,
         wall: els.gptWallModal,
         settings: els.boardSettingsModal,
         'display-dashboard-message': els.displayDashboardMessageModal,
@@ -3810,10 +3698,8 @@
         'employee-salary-reconciliation-period': () => closeEmployeeSalaryReconciliationPeriodDialog(),
         'employee-salary-report': () => closeEmployeeSalaryReportModal(),
         agent: () => {
-          closeAgentTasksModal();
           closeAgentModal();
         },
-        'agent-tasks': () => closeAgentTasksModal(),
         wall: () => popModal('wall'),
         settings: () => {
           if (isModalOpen('display-dashboard-message')) closeDisplayDashboardMessageEditor();
@@ -7647,26 +7533,10 @@
       const actions = quickAgentPrompts(context);
       els.agentQuickActions.innerHTML = actions.map((item) =>
         '<button class="agent-shortcut" type="button"'
-          + (item.action ? ' data-agent-open="' + escapeHtml(item.action) + '"' : '')
           + (item.template ? ' data-agent-template="' + escapeHtml(item.template) + '"' : '')
           + (item.prompt ? ' data-agent-prompt="' + escapeHtml(item.prompt) + '"' : '')
           + '>' + escapeHtml(item.label) + '</button>'
       ).join('');
-    }
-
-    function scheduleAgentTasksRefresh(delay = 8000) {
-      if (state.agentTasksRefreshTimer) window.clearTimeout(state.agentTasksRefreshTimer);
-      if (!els.agentTasksModal?.classList.contains('is-open')) return;
-      state.agentTasksRefreshTimer = window.setTimeout(refreshAgentTasksModalState, delay);
-    }
-
-    function renderAgentScheduledColumns(columns) {
-      const items = Array.isArray(columns) ? columns : [];
-      const selected = String(els.agentTaskScopeColumnInput?.value || '').trim();
-      if (!els.agentTaskScopeColumnInput) return;
-      els.agentTaskScopeColumnInput.innerHTML = items.length
-        ? items.map((item) => '<option value="' + escapeHtml(item.id) + '"' + (item.id === selected ? ' selected' : '') + '>' + escapeHtml(item.label || item.id) + '</option>').join('')
-        : '<option value="">Колонок нет</option>';
     }
 
     function currentAgentContextCard() {
@@ -7679,297 +7549,6 @@
         heading: String(context.card_heading || '').trim(),
         title: String(context.card_title || '').trim(),
       };
-    }
-
-    function defaultAgentScheduledScope() {
-      const card = currentAgentContextCard();
-      if (!card || !String(card.id || '').trim()) {
-        return {
-          scopeType: 'all_cards',
-          scopeCardId: '',
-          scopeCardLabel: '',
-          prompt: '',
-        };
-      }
-      return {
-        scopeType: 'current_card',
-        scopeCardId: String(card.id || '').trim(),
-        scopeCardLabel: String(card.heading || card.title || card.id || '').trim(),
-        prompt: String(els.agentTaskInput?.value || '').trim(),
-      };
-    }
-
-    function syncAgentScheduledTaskFormUi() {
-      const scopeType = String(els.agentTaskScopeTypeInput?.value || 'all_cards').trim().toLowerCase();
-      const scheduleType = String(els.agentTaskScheduleTypeInput?.value || 'once').trim().toLowerCase();
-      if (els.agentTaskScopeColumnInput) els.agentTaskScopeColumnInput.disabled = scopeType !== 'column';
-      if (els.agentTaskIntervalValueInput) els.agentTaskIntervalValueInput.disabled = scheduleType !== 'interval';
-      if (els.agentTaskIntervalUnitInput) els.agentTaskIntervalUnitInput.disabled = scheduleType !== 'interval';
-      if (scopeType === 'current_card') {
-        const defaults = defaultAgentScheduledScope();
-        state.agentTaskScopeCardId = defaults.scopeCardId;
-        state.agentTaskScopeCardLabel = defaults.scopeCardLabel;
-      }
-      if (els.agentTaskRunButton) els.agentTaskRunButton.disabled = !String(state.agentScheduledActiveId || '').trim();
-    }
-
-    function activeAgentScheduledTask() {
-      return (state.agentScheduledTasks || []).find((item) => String(item?.id || '') === String(state.agentScheduledActiveId || '')) || null;
-    }
-
-    function agentScheduledTaskStatusLabel(task) {
-      return Boolean(task?.active) ? 'ACTIVE' : 'PAUSED';
-    }
-
-    function agentScheduledTaskPeriodLabel(task) {
-      const scheduleType = String(task?.schedule_type || 'once').trim().toLowerCase();
-      if (scheduleType === 'on_create') return 'ON CREATE';
-      if (scheduleType !== 'interval') return 'ОДИН РАЗ';
-      const value = Math.max(1, finiteNumber(task?.interval_value, 1));
-      return value + ' ' + (String(task?.interval_unit || 'minute').trim().toLowerCase() === 'hour' ? 'Ч' : 'МИН');
-    }
-
-    function agentScheduledTaskScopeLabel(task) {
-      return String(
-        task?.scope_type === 'current_card'
-          ? (task?.scope_card_label || task?.scope_card_id || 'Текущая карточка')
-          : task?.scope_type === 'column'
-          ? (task?.scope_label || task?.scope_column || 'Колонка')
-          : 'Все карточки'
-      ).trim();
-    }
-
-    function agentScheduledTaskTimingLabel(task) {
-      const parts = [];
-      if (Boolean(task?.busy)) parts.push('В РАБОТЕ');
-      if (task?.next_run_at) parts.push('СЛЕДУЮЩИЙ: ' + formatDate(task.next_run_at));
-      else if (task?.last_enqueued_at) parts.push('ПОСЛЕДНИЙ: ' + formatDate(task.last_enqueued_at));
-      else parts.push('ЕЩЁ НЕ ЗАПУСКАЛАСЬ');
-      return parts.join(' · ');
-    }
-
-    function agentScheduledTaskFormMetaText(task) {
-      if (!task) return 'Один запрос, текущая карточка, одна колонка или вся доска. Запуск вручную, по интервалу или при создании.';
-      const parts = [
-        agentScheduledTaskStatusLabel(task),
-        agentScheduledTaskPeriodLabel(task),
-        'ОХВАТ: ' + agentScheduledTaskScopeLabel(task).toUpperCase(),
-      ];
-      if (Boolean(task?.busy)) parts.push('В РАБОТЕ');
-      if (task?.next_run_at) parts.push('СЛЕДУЮЩИЙ: ' + formatDate(task.next_run_at));
-      else if (task?.last_enqueued_at) parts.push('ПОСЛЕДНИЙ: ' + formatDate(task.last_enqueued_at));
-      return parts.join(' · ');
-    }
-
-    function resetAgentScheduledTaskForm() {
-      const defaults = defaultAgentScheduledScope();
-      state.agentScheduledActiveId = '';
-      state.agentTaskScopeCardId = defaults.scopeCardId;
-      state.agentTaskScopeCardLabel = defaults.scopeCardLabel;
-      if (els.agentTasksEditorTitle) els.agentTasksEditorTitle.textContent = 'НОВАЯ ЗАДАЧА';
-      if (els.agentTaskNameInput) els.agentTaskNameInput.value = '';
-      if (els.agentTaskPromptInput) els.agentTaskPromptInput.value = defaults.prompt || '';
-      if (els.agentTaskScopeTypeInput) els.agentTaskScopeTypeInput.value = defaults.scopeType;
-      renderAgentScheduledColumns(state.agentScheduledColumns || []);
-      if (els.agentTaskScheduleTypeInput) els.agentTaskScheduleTypeInput.value = 'once';
-      if (els.agentTaskIntervalValueInput) els.agentTaskIntervalValueInput.value = '1';
-      if (els.agentTaskIntervalUnitInput) els.agentTaskIntervalUnitInput.value = 'minute';
-      if (els.agentTaskActiveInput) els.agentTaskActiveInput.checked = true;
-      if (els.agentTaskFormMeta) els.agentTaskFormMeta.textContent = agentScheduledTaskFormMetaText(null);
-      syncAgentScheduledTaskFormUi();
-      renderAgentScheduledTasks(state.agentScheduledTasks || []);
-    }
-
-    function applyAgentScheduledTaskToForm(task) {
-      if (!task) {
-        resetAgentScheduledTaskForm();
-        return;
-      }
-      state.agentScheduledActiveId = String(task.id || '');
-      state.agentTaskScopeCardId = String(task.scope_card_id || '').trim();
-      state.agentTaskScopeCardLabel = String(task.scope_card_label || '').trim();
-      if (els.agentTasksEditorTitle) els.agentTasksEditorTitle.textContent = 'РЕДАКТИРОВАНИЕ';
-      if (els.agentTaskNameInput) els.agentTaskNameInput.value = String(task.name || '');
-      if (els.agentTaskPromptInput) els.agentTaskPromptInput.value = String(task.prompt || '');
-      if (els.agentTaskScopeTypeInput) els.agentTaskScopeTypeInput.value = String(task.scope_type || 'all_cards');
-      renderAgentScheduledColumns(state.agentScheduledColumns || []);
-      if (els.agentTaskScopeColumnInput) els.agentTaskScopeColumnInput.value = String(task.scope_column || '');
-      if (els.agentTaskScheduleTypeInput) els.agentTaskScheduleTypeInput.value = String(task.schedule_type || 'once');
-      if (els.agentTaskIntervalValueInput) {
-        const intervalValue = finiteNumber(task.interval_value, 1);
-        els.agentTaskIntervalValueInput.value = String(intervalValue > 0 ? intervalValue : 1);
-      }
-      if (els.agentTaskIntervalUnitInput) els.agentTaskIntervalUnitInput.value = String(task.interval_unit || 'minute');
-      if (els.agentTaskActiveInput) els.agentTaskActiveInput.checked = Boolean(task.active);
-      if (els.agentTaskFormMeta) els.agentTaskFormMeta.textContent = agentScheduledTaskFormMetaText(task);
-      syncAgentScheduledTaskFormUi();
-      renderAgentScheduledTasks(state.agentScheduledTasks || []);
-    }
-
-    function renderAgentScheduledTasks(tasks) {
-      if (!els.agentTasksList) return;
-      const items = Array.isArray(tasks) ? tasks : [];
-      if (!items.length) {
-        els.agentTasksList.innerHTML = ''
-          + '<div class="agent-tasks-empty">'
-          + '<div class="agent-tasks-empty__title">Задач пока нет</div>'
-          + '<div class="agent-tasks-empty__text">Создай первую задачу справа: опиши цель, выбери всю доску или одну колонку и сохрани расписание.</div>'
-          + '</div>';
-        return;
-      }
-      els.agentTasksList.innerHTML = items.slice(0, 50).map((task) => {
-        const status = String(task.status || 'paused').trim().toLowerCase();
-        const scopeLabel = agentScheduledTaskScopeLabel(task);
-        const promptPreview = summarizeAgentText(String(task.prompt || ''), 148) || 'Без описания.';
-        const warning = summarizeAgentText(String(task.last_error || ''), 160);
-        return '<div class="agent-task-row" data-agent-scheduled-task-id="' + escapeHtml(task.id) + '" data-active="' + String(String(task.id) === String(state.agentScheduledActiveId || '')) + '" data-busy="' + String(Boolean(task.busy)) + '">'
-          + '<div class="agent-task-row__top">'
-            + '<div class="agent-task-row__main">'
-              + '<div class="agent-task-row__title">' + escapeHtml(task.name || 'Задача') + '</div>'
-              + '<div class="agent-task-row__meta">' + escapeHtml(scopeLabel.toUpperCase()) + '</div>'
-            + '</div>'
-            + '<div class="agent-task-actions">'
-              + '<button class="btn btn--ghost" type="button" data-agent-scheduled-action="run" data-task-id="' + escapeHtml(task.id) + '">?</button>'
-              + '<button class="btn btn--ghost" type="button" data-agent-scheduled-action="' + escapeHtml(task.active ? 'pause' : 'resume') + '" data-task-id="' + escapeHtml(task.id) + '">' + escapeHtml(task.active ? '?' : '?') + '</button>'
-              + '<button class="btn btn--ghost" type="button" data-agent-scheduled-action="delete" data-task-id="' + escapeHtml(task.id) + '">?</button>'
-            + '</div>'
-          + '</div>'
-          + '<div class="agent-task-row__prompt">' + escapeHtml(promptPreview) + '</div>'
-          + '<div class="agent-task-row__footer">'
-            + '<div class="agent-task-row__chips">'
-              + '<div class="agent-task-chip" data-status="' + escapeHtml(status) + '">' + escapeHtml(agentScheduledTaskStatusLabel(task)) + '</div>'
-              + '<div class="agent-task-chip">' + escapeHtml(agentScheduledTaskPeriodLabel(task)) + '</div>'
-            + '</div>'
-            + '<div class="agent-task-row__timing">' + escapeHtml(agentScheduledTaskTimingLabel(task)) + '</div>'
-          + '</div>'
-          + (warning ? '<div class="agent-task-row__warning">' + escapeHtml(warning) + '</div>' : '')
-        + '</div>';
-      }).join('');
-    }
-
-    function readAgentScheduledTaskPayload() {
-      const scopeType = String(els.agentTaskScopeTypeInput?.value || 'all_cards').trim();
-      return {
-        task_id: String(state.agentScheduledActiveId || '').trim(),
-        name: String(els.agentTaskNameInput?.value || '').trim(),
-        prompt: String(els.agentTaskPromptInput?.value || '').trim(),
-        scope_type: scopeType,
-        scope_column: String(els.agentTaskScopeColumnInput?.value || '').trim(),
-        scope_column_label: String(els.agentTaskScopeColumnInput?.selectedOptions?.[0]?.textContent || '').trim(),
-        scope_card_id: scopeType === 'current_card' ? String(state.agentTaskScopeCardId || '').trim() : '',
-        scope_card_label: scopeType === 'current_card' ? String(state.agentTaskScopeCardLabel || '').trim() : '',
-        schedule_type: String(els.agentTaskScheduleTypeInput?.value || 'once').trim(),
-        interval_value: Math.max(1, finiteNumber(els.agentTaskIntervalValueInput?.value, 1)),
-        interval_unit: String(els.agentTaskIntervalUnitInput?.value || 'minute').trim(),
-        active: Boolean(els.agentTaskActiveInput?.checked),
-      };
-    }
-
-    async function refreshAgentTasksModalState() {
-      if (!els.agentTasksModal?.classList.contains('is-open')) return;
-      try {
-        const [tasksData, columnsData, statusData] = await Promise.all([
-          api('/api/agent_scheduled_tasks', { method: 'GET' }),
-          api('/api/list_columns', { method: 'GET' }),
-          api('/api/agent_status', { method: 'GET' }),
-        ]);
-        state.agentScheduledTasks = Array.isArray(tasksData?.tasks) ? tasksData.tasks : [];
-        state.agentScheduledColumns = Array.isArray(columnsData?.columns) ? columnsData.columns : (state.snapshot?.columns || []);
-        renderAgentScheduledColumns(state.agentScheduledColumns);
-        renderAgentScheduledTasks(state.agentScheduledTasks);
-        const activeTotal = finiteNonNegativeNumber(statusData?.scheduled?.active_total);
-        const pausedTotal = finiteNonNegativeNumber(statusData?.scheduled?.paused_total);
-        const total = state.agentScheduledTasks.length;
-        const busyTotal = state.agentScheduledTasks.filter((item) => Boolean(item?.busy)).length;
-        if (els.agentTasksMeta) {
-          els.agentTasksMeta.textContent = 'ВСЕГО ' + total + ' · АКТИВНЫХ ' + activeTotal + ' · ПАУЗА ' + pausedTotal + (busyTotal ? ' · В РАБОТЕ ' + busyTotal : '');
-        }
-        const activeTask = activeAgentScheduledTask();
-        if (activeTask) applyAgentScheduledTaskToForm(activeTask);
-        else resetAgentScheduledTaskForm();
-        scheduleAgentTasksRefresh(state.agentScheduledTasks.some((item) => item?.busy) ? 1800 : 8000);
-      } catch (error) {
-        if (els.agentTasksMeta) els.agentTasksMeta.textContent = String(error.message || 'Ошибка загрузки.').toUpperCase();
-        scheduleAgentTasksRefresh(5000);
-      }
-    }
-
-    function openAgentTasksModal() {
-      if (!requireOperatorSession()) return;
-      ensureAgentTasksUi();
-      bindAgentTasksUiEvents();
-      hydrateAgentTasksUiRefs();
-      pushModal('agent-tasks', els.agentTasksModal, { parentKey: 'agent' });
-      refreshAgentTasksModalState();
-    }
-
-    function closeAgentTasksModal() {
-      popModal('agent-tasks');
-      if (state.agentTasksRefreshTimer) {
-        window.clearTimeout(state.agentTasksRefreshTimer);
-        state.agentTasksRefreshTimer = null;
-      }
-    }
-
-    async function saveAgentScheduledTask() {
-      const payload = readAgentScheduledTaskPayload();
-      if (!payload.name) return setStatus('УКАЖИ НАЗВАНИЕ ЗАДАЧИ.', true);
-      if (!payload.prompt) return setStatus('ОПИШИ ЗАДАЧУ ДЛЯ АГЕНТА.', true);
-      if (payload.scope_type === 'column' && !payload.scope_column) return setStatus('ВЫБЕРИ КОЛОНКУ.', true);
-      if (payload.scope_type === 'current_card' && !payload.scope_card_id) return setStatus('ОТКРОЙ КАРТОЧКУ ИЛИ ВЫБЕРИ ДРУГОЙ ОХВАТ.', true);
-      try {
-        const data = await api('/api/save_agent_scheduled_task', { method: 'POST', body: payload });
-        state.agentScheduledActiveId = String(data?.task?.id || payload.task_id || '');
-        setStatus('ЗАДАЧА СОХРАНЕНА.', false);
-        await refreshAgentTasksModalState();
-      } catch (error) {
-        setStatus(error.message, true);
-      }
-    }
-
-    async function runActiveAgentScheduledTask() {
-      const taskId = String(state.agentScheduledActiveId || '').trim();
-      if (!taskId) return setStatus('СНАЧАЛА ВЫБЕРИ ЗАДАЧУ.', true);
-      try {
-        const data = await api('/api/run_agent_scheduled_task', { method: 'POST', body: { task_id: taskId } });
-        setStatus(data?.meta?.already_running ? 'ЗАДАЧА УЖЕ ВЫПОЛНЯЕТСЯ.' : 'ЗАДАЧА ЗАПУЩЕНА.', Boolean(data?.meta?.already_running));
-        await refreshAgentTasksModalState();
-      } catch (error) {
-        setStatus(error.message, true);
-      }
-    }
-
-    async function handleAgentScheduledTasksListClick(event) {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      const actionButton = target.closest('[data-agent-scheduled-action]');
-      if (actionButton instanceof HTMLElement) {
-        const taskId = String(actionButton.dataset.taskId || '').trim();
-        const action = String(actionButton.dataset.agentScheduledAction || '').trim();
-        if (!taskId || !action) return;
-        try {
-          if (action === 'delete') {
-            await api('/api/delete_agent_scheduled_task', { method: 'POST', body: { task_id: taskId } });
-            if (state.agentScheduledActiveId === taskId) resetAgentScheduledTaskForm();
-            setStatus('ЗАДАЧА УДАЛЕНА.', false);
-          } else if (action === 'run') {
-            const data = await api('/api/run_agent_scheduled_task', { method: 'POST', body: { task_id: taskId } });
-            setStatus(data?.meta?.already_running ? 'ЗАДАЧА УЖЕ ВЫПОЛНЯЕТСЯ.' : 'ЗАДАЧА ЗАПУЩЕНА.', Boolean(data?.meta?.already_running));
-          } else {
-            await api('/api/' + (action === 'pause' ? 'pause' : 'resume') + '_agent_scheduled_task', { method: 'POST', body: { task_id: taskId } });
-            setStatus(action === 'pause' ? 'ЗАДАЧА НА ПАУЗЕ.' : 'ЗАДАЧА АКТИВНА.', false);
-          }
-          await refreshAgentTasksModalState();
-        } catch (error) {
-          setStatus(error.message, true);
-        }
-        return;
-      }
-      const row = target.closest('[data-agent-scheduled-task-id]');
-      if (!(row instanceof HTMLElement)) return;
-      const taskId = String(row.dataset.agentScheduledTaskId || '').trim();
-      const task = (state.agentScheduledTasks || []).find((item) => String(item?.id || '') === taskId);
-      if (task) applyAgentScheduledTaskToForm(task);
     }
 
     function renderAgentRuns(runs) {
@@ -8322,7 +7901,6 @@
       if (!(els.agentModal instanceof HTMLElement)) {
         hydrateAgentUiRefs();
       }
-      closeAgentTasksModal();
       popModal('agent');
       state.agentAutofillPromptOpen = false;
       if (!isAnyAgentSurfaceOpen() && state.agentRefreshTimer) {
@@ -17204,7 +16782,6 @@
         'employeeSalary',
         'employee-salary-report',
         'agent',
-        'agent-tasks',
         'wall',
         'settings',
         'sticky',
@@ -19709,11 +19286,6 @@
     function handleAgentQuickActionClick(event) {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
-      const openButton = target.closest('[data-agent-open]');
-      if (openButton instanceof HTMLElement) {
-        if (String(openButton.dataset.agentOpen || '').trim() === 'tasks') openAgentTasksModal();
-        return;
-      }
       const button = target.closest('[data-agent-prompt]');
       if (!(button instanceof HTMLElement)) return;
       const prompt = String(button.dataset.agentPrompt || '').trim();

@@ -2081,7 +2081,7 @@ class WebAssetsTests(unittest.TestCase):
         ]
         self.assertIn("closeModalAndChildren(normalizedKey);", close_fragment)
         self.assertIn("closeEmployeeSalaryReportModal();", close_fragment)
-        self.assertIn("closeAgentTasksModal();", close_fragment)
+        self.assertNotIn("agentTasksModal", BOARD_WEB_APP_HTML)
         self.assertIn("closeRepairOrderPaymentsModal();", close_fragment)
         self.assertIn("closeCashboxTransferModal();", close_fragment)
         self.assertIn("closeCashJournalModal();", close_fragment)

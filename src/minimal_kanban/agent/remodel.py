@@ -768,8 +768,8 @@ RETIRED_AI_ENTRY_TOMBSTONES: tuple[AiEntrySurfaceDefinition, ...] = (
     ),
     AiEntrySurfaceDefinition(
         entry_id="agent_tasks_modal",
-        location="web_assets.agentTasksModal task and scheduler shell",
-        current_behavior="modal JavaScript remains shipped without a rendered opener",
+        location="retired browser scheduled-task modal",
+        current_behavior="retired browser modal removed; scheduler APIs remain active backend compatibility seams",
         scenario_semantics_today="retired mixed scheduler shell",
         surface_kind=AiEntrySurfaceKind.UI,
         legacy_status="retired_unreachable",
