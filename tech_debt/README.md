@@ -27,22 +27,9 @@
 preflight, branch coverage, core browser smoke, immutable `RouteSpec` и
 компактный `_make_handler`.
 
-Сюда перенесены результаты удалённых журналов 015, 016, 022, 023 и 024:
-
-- 015: на CRM `3765148b49f6ecdf46a1bc9f80aa32229760dbce` изолированный Manager
-  `642fd89b00574b47087af8daef9d548d2cd86a45` прошёл
-  `perf_mcp.py --local-temp-server --iterations 3`: 24 инструмента, пять
-  сценариев, bounded dry-run, `violations=[]`. Устаревший sibling checkout
-  корректно завершился `autostop_manager_incompatible`; `perf_workflows.py`
-  прошёл без violations. Browser console/page/request errors также завершают
-  workflow performance gate ошибкой.
-- 016: collection guard закрывает module-level tests; `run_checks.ps1 -Profile
-  ci` — локальное зеркало обязательных non-container gates.
-- 022: Docker runtime assets защищены отдельным hosted contract.
-- 023: canonical repo docs и docs audit синхронизированы.
-- 024: четыре локальных `autostopcrm-*` skill прошли scoped audit; это не часть
-  Git-репозитория или hosted CI. Они сокращены с 561 до 416 строк с
-  recoverable backup вне репозитория.
+Результаты удалённых журналов 015, 016, 022, 023 и 024 закреплены текущими
+gates: Manager/browser/perf probes, collection guard и local CI mirror,
+hosted Docker contract, docs audit и scoped audit локальных skills.
 
 Задача 001 функционально завершена, но остаётся owner-документом двух data-only
 caps. Задачи 003 и 008 остаются активными до исчерпания своих source caps.
@@ -67,9 +54,9 @@ caps. Задачи 003 и 008 остаются активными до исче�
 Ratchet owners, которые должны существовать ровно по одному: 001, 003, 008,
 009, 012, 013, 014, 018, 019, 021, 206 и 207.
 
-Этап 2 начинается только после обсуждения: 201 typed commands, 202 transaction
-boundaries, 203 runtime decision, 204 frontend tooling, 205 deploy
-orchestration; 206 — после 203, 207 — только при доказанной боли после 009.
+Этап 2 не входит в текущую очередь: новая архитектурная инициатива требует
+отдельного owner-approved ADR; 206 — только после такого решения о runtime,
+207 — только при доказанной боли после 009.
 
 ## Последовательность и правила
 
