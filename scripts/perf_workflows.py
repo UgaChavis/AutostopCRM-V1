@@ -429,6 +429,28 @@ def browser_event_report(
     }
 
 
+def browser_event_violations(events: Any) -> list[dict[str, Any]]:
+    if not isinstance(events, dict):
+        return []
+    violations: list[dict[str, Any]] = []
+    for metric in (
+        "console_error_count",
+        "page_error_count",
+        "failed_request_count",
+    ):
+        actual = _safe_int(events.get(metric))
+        if actual:
+            violations.append(
+                {
+                    "scenario": "browser",
+                    "metric": metric,
+                    "actual": actual,
+                    "max": 0,
+                }
+            )
+    return violations
+
+
 def skipped_row(scenario: str, reason: str) -> dict[str, Any]:
     return {
         "scenario": scenario,
@@ -1833,10 +1855,13 @@ def main() -> int:
         output["state_file_benchmark"] = state_result
         output["rows"].extend(state_result.get("rows") or [])
     output["ranked_findings"] = ranked_findings(output["rows"])
-    output["violations"] = evaluate_thresholds(output["rows"], args)
+    browser_output = output.get("browser")
+    browser_events = browser_output.get("events") if isinstance(browser_output, dict) else None
+    output["violations"] = evaluate_thresholds(output["rows"], args) + browser_event_violations(
+        browser_events
+    )
     output["threshold_status"] = "failed" if output["violations"] else "passed"
     print(serialize_report(output))
-    browser_output = output.get("browser")
     if isinstance(browser_output, dict) and browser_output.get("error") == "playwright_missing":
         return 2
     return 1 if output["violations"] else 0

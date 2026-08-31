@@ -549,6 +549,55 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
             with self.subTest(secret=secret):
                 self.assertNotIn(secret, encoded)
 
+    def test_browser_event_errors_fail_the_gate_without_leaking_details(self) -> None:
+        sentinels = (
+            "private console customer",
+            "C:/private/page-error.js",
+            "GET /private?access_token=token-secret request_failed",
+        )
+        browser_result = {
+            "rows": [],
+            "events": self.module.browser_event_report(
+                [sentinels[0]],
+                [sentinels[1]],
+                [sentinels[2]],
+            ),
+        }
+        with (
+            patch.object(sys, "argv", ["perf_workflows.py"]),
+            patch.object(
+                self.module,
+                "run_browser_workflows_with_timeout",
+                new=AsyncMock(return_value=browser_result),
+            ),
+            patch("builtins.print") as print_mock,
+        ):
+            exit_code = self.module.main()
+
+        encoded = str(print_mock.call_args.args[0])
+        decoded = json.loads(encoded)
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(decoded["threshold_status"], "failed")
+        self.assertEqual(
+            decoded["violations"],
+            [
+                {
+                    "scenario": "browser",
+                    "metric": metric,
+                    "actual": 1,
+                    "max": 0,
+                }
+                for metric in (
+                    "console_error_count",
+                    "page_error_count",
+                    "failed_request_count",
+                )
+            ],
+        )
+        for sentinel in sentinels:
+            with self.subTest(sentinel=sentinel):
+                self.assertNotIn(sentinel, encoded)
+
     def test_state_benchmark_exception_becomes_safe_failed_report(self) -> None:
         private_error = RuntimeError("C:/private/customer-state.json private-customer")
         with (
