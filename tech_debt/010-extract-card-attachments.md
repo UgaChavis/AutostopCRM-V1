@@ -4,7 +4,7 @@
 Этап: 1
 Оценка: 4–6 дней
 Риск реализации: средний
-Статус: ready после 001; coverage 002 и focused test-slice 003 параллельно
+Статус: ready после 001; focused test-slice 003 идёт параллельно
 
 ## Результат
 
@@ -70,4 +70,4 @@ Attachment CRUD, path safety, type detection и text extraction находятс
 ## Stop condition
 
 Если extraction требует изменить storage transaction model, сохранить delegate
-и вынести transaction redesign в задачу 202.
+и вынести transaction redesign в отдельную задачу.

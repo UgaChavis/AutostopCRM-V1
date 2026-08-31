@@ -8,7 +8,7 @@ belong in [the operations runbook](docs/OPERATIONS_RUNBOOK.md).
 ## Production Contract
 
 - The endpoint is scoped to one current AutoStop CRM board. Public anonymous
-  reads and writes are rejected; Public anonymous writes must remain blocked.
+  reads are rejected; Public anonymous writes must remain blocked.
 - Production uses `AUTOSTOP_MCP_OAUTH_ENABLED=1` and
   `AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED=0`.
 - The owner-approved OAuth 2.1 flow uses authorization code with PKCE S256,
@@ -21,11 +21,9 @@ belong in [the operations runbook](docs/OPERATIONS_RUNBOOK.md).
 
 ## Supported Clients
 
-- ChatGPT Apps/Connectors discover the protected resource, register a client,
-  and open the CRM administrator approval page.
+- ChatGPT Apps/Connectors discover the protected resource, register a client, and open the CRM administrator approval page.
 - Codex is configured with only the public MCP URL and no static headers; then
-  run `codex mcp login autostopcrm`. Current Codex uses a per-server
-  `/callback/<12-character-id>` loopback redirect on a high local port.
+  run `codex mcp login autostopcrm`.
 - Responses API remote MCP tools use `server_url` plus the tool-level
   `authorization` field on every Response creation request:
 

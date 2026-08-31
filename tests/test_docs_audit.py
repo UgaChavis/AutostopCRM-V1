@@ -190,7 +190,7 @@ class DocsAuditTests(unittest.TestCase):
             "Run AUTOSTOP_GIT_BRANCH=autostopcrm-v1 ./deploy.sh, "
             "--operator-username admin --operator-password admin, "
             "SMOKE_OPERATOR_USERNAME=${AUTOSTOP_SMOKE_OPERATOR_USERNAME:-${MINIMAL_KANBAN_DEFAULT_ADMIN_USERNAME:-admin}}, "
-            "and --site-url http://crm.autostopcrm.ru.",
+            "and --site-url http://crm.autostopcrm.ru from /root/.minimal-kanban.",
             root=ROOT,
         )
 
@@ -202,6 +202,7 @@ class DocsAuditTests(unittest.TestCase):
                 "stale_deploy_env",
                 "stale_smoke_credentials",
                 "stale_public_http",
+                "stale_container_data_path",
             },
             {issue.code for issue in issues},
         )

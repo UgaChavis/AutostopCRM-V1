@@ -1,7 +1,8 @@
 AUTOSTOP CRM
 Short server operator note
 
-Canonical runbook: docs/OPERATIONS_RUNBOOK.md
+Canonical runbook: /opt/autostopcrm/docs/OPERATIONS_RUNBOOK.md
+Run every command from /opt/autostopcrm.
 
 Runtime:
 - checkout: /opt/autostopcrm
@@ -10,11 +11,11 @@ Runtime:
 - public MCP: https://crm.autostopcrm.ru/mcp
 - compose services: autostopcrm, searxng, crawl4ai
 - host data: /opt/autostopcrm/data
-- container data: /root/.minimal-kanban
+- container data: /home/autostop/.minimal-kanban
 - host upstreams: 127.0.0.1:8000 -> API 41731; 127.0.0.1:8001 -> MCP 41831
 
-Deploy only after the intended commit is on origin/autostopcrm-v1:
-cd /opt/autostopcrm
+Deploy only with explicit owner intent and after the intended commit is on
+origin/autostopcrm-v1:
 ./deploy.sh
 
 The target branch is fixed by `CRM_DEPLOY_BRANCH=autostopcrm-v1` inside the
@@ -45,5 +46,5 @@ Safety:
 - repair-order numbers are immutable; the compatibility correction route is blocked
 - use dry-run and a verified backup before any approved maintenance write
 - public anonymous API/MCP reads and all writes must stay blocked
-- keep production OAuth enabled, development OAuth disabled, and the encrypted OAuth state key stable
+- keep production OAuth enabled, AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED=0, and the encrypted OAuth state key stable
 - public clients must see exactly 24 Gateway v2 tools; use agent_bootstrap -> digest -> focused read -> action contract -> named dry_run/apply -> reread

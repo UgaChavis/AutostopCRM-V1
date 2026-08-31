@@ -4,24 +4,24 @@
 Этап: 1
 Оценка: 6–10 дней, 8–12 механических commits
 Риск реализации: средний
-Статус: ready после 004; извлечь только свой web test-slice из 003
+Статус: ready; извлечь только свой web test-slice из 003
 
 ## Результат
 
-Основной browser UI больше не редактируется в одном 20.6k-строчном script.
+Основной browser UI больше не редактируется в одном 19k-строчном script.
 Assembler по-прежнему выдаёт один fingerprinted JS asset и не требует нового
 frontend framework или Node runtime в production.
 
 ## Доказательства
 
-- `app_main_before_printing.js` — 20 639 физических строк, около 1 236 function
-  declarations и один общий mutable `state`.
+- `app_main_before_printing.js` — 19 045 физических строк и один общий
+  mutable `state`.
 - В одном lexical scope находятся operator/admin, clients, cards, repair
   orders, payroll, cashboxes, inventory, files, mobile UI, polling и modal
   stack.
 - `assembler.py` уже последовательно склеивает source chunks и fingerprint'ит
   итог; cashbox chunks показывают рабочий pattern без bundler.
-- `test_web_assets.py` — 5 963 строки; core browser smoke уже обязательный,
+- `test_web_assets.py` — 5 954 строки; core browser smoke уже обязательный,
   full smoke остаётся release gate.
 
 ## Минимальная архитектура
@@ -93,7 +93,7 @@ frontend framework или Node runtime в production.
 ## Acceptance criteria
 
 - Нет source JS chunk > 2 500 строк; временные исключения имеют ratchet.
-- До первого extraction текущие 20 639 строк являются exact cap; после каждого
+- До первого extraction текущие 19 045 строк являются exact cap; после каждого
   среза cap только снижается.
 - Общий assembled UI behavior и публичные asset paths сохранены.
 - `app_main_before_printing.js` удалён либо ≤ 1 000 строк bootstrap/core.

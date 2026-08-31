@@ -4,7 +4,7 @@
 Этап: 2
 Оценка: 6–10 дней
 Риск реализации: средний/высокий
-Статус: blocked by go/no-go 203
+Статус: blocked до отдельного owner-approved keep/retire решения
 
 ## Результат
 
@@ -20,7 +20,7 @@ Network/provider errors имеют явную classification.
 - В runner найдено 11 broad `except Exception` — часть оправдана runtime
   isolation, но classification размазана.
 - Код подключён через desktop и MCP startup, но это ещё не доказывает живое
-  использование. До решения 203 дорогой refactor запрещён.
+  использование. До решения дорогой refactor запрещён.
 
 ## Seams
 
@@ -76,5 +76,5 @@ Network/provider errors имеют явную classification.
 
 ## Stop condition
 
-Если решение 203 — retire, эту задачу закрыть как `not planned` и выполнять
+Если решение — retire, эту задачу закрыть как `not planned` и выполнять
 малый compatibility-aware retirement plan вместо декомпозиции.

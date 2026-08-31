@@ -4,7 +4,7 @@
 Этап: 1
 Оценка: 5–8 дней, независимыми commits
 Риск реализации: высокий
-Статус: ready; coverage 002 может идти параллельно
+Статус: ready; coverage обеспечивается текущими gates
 
 ## Результат
 
@@ -63,7 +63,7 @@ revision и применяет ровно этот plan одним контро�
 
 `python -m unittest tests.test_finance_audit_report tests.test_repair_order_reopen tests.test_change_feed_gateway -v`
 `python scripts/finance_audit_report.py --help`
-`python scripts/perf_workflows.py --synthetic-state-profile current-production --stage1-only --skip-browser --warmup-iterations 2 --iterations 20 --max-backend-write-ms 600 --max-storage-write-ms 550 --max-revision-server-ms 20 --max-get-card-direct-ms 20 --max-list-cashboxes-ms 50 --max-feed-read-ms 50 --max-feed-replay-ms 20`
+[канонический Stage-1 performance gate](../docs/OPERATIONS_RUNBOOK.md#performance-smoke)
 
 ## Stop condition
 

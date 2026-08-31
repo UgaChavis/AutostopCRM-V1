@@ -4,7 +4,7 @@
 Этап: 1
 Оценка: 3–5 дней, механическими commits
 Риск реализации: средний
-Статус: ready после 000 и 004; может идти параллельно с 014
+Статус: ready; может идти параллельно с 014
 
 ## Результат
 
@@ -47,7 +47,7 @@ toolchain; assembled resource и поведение остаются эквив�
 - Не проверять duplicates regex по телам всех функций; только top-level
   declarations/registry.
 - Не дублировать VAT/calculation logic из backend 014.
-- Physical PDF checks требуют preflight 000; missing Poppler не является UI
+- Physical PDF checks требуют текущего toolchain preflight; missing Poppler не является UI
   regression.
 - Не вводить bundler, ES modules или UI redesign.
 

@@ -15,7 +15,7 @@ maintenance safety.
 | SSH host | `root@crm.autostopcrm.ru` |
 | Default SSH key | `~/.ssh/autostopcrm_server_ed25519` |
 | Host data | `/opt/autostopcrm/data` |
-| Container data | `/root/.minimal-kanban` |
+| Container data | `/home/autostop/.minimal-kanban` |
 
 `docker-compose.yml` defines three CRM-project services:
 

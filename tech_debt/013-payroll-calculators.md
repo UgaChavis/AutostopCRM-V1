@@ -4,7 +4,7 @@
 Этап: 1
 Оценка: 8–12 дней
 Риск реализации: высокий
-Статус: ready после 001 и 012; coverage 002 параллельно
+Статус: ready после 001 и 012; coverage обеспечивается текущими gates
 
 ## Результат
 
@@ -69,7 +69,7 @@ Golden fixtures без персональных production данных:
 
 `python -m unittest tests.test_payroll_audit_report tests.test_payroll_policy_2026_07_13 tests.test_payroll_snapshot_preservation tests.test_payroll_unaccrued_work_rows tests.test_repair_order_payroll_accruals tests.test_repair_order_reopen -v`
 `python scripts/payroll_audit_report.py --help`
-`python scripts/perf_workflows.py --synthetic-state-profile current-production --stage1-only --skip-browser --warmup-iterations 2 --iterations 20 --max-backend-write-ms 600 --max-storage-write-ms 550 --max-revision-server-ms 20 --max-get-card-direct-ms 20 --max-list-cashboxes-ms 50 --max-feed-read-ms 50 --max-feed-replay-ms 20`
+[канонический Stage-1 performance gate](../docs/OPERATIONS_RUNBOOK.md#performance-smoke)
 
 ## Stop condition
 

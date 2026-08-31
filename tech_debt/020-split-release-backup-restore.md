@@ -18,7 +18,7 @@ backup, verification и restore boundaries. Полная preflight-валида�
   parameter lists.
 - `_load_manifest` имеет complexity 25; restore path — complexity 20.
 - Этот код участвует в release rollback, поэтому ошибка опаснее обычного
-  maintenance script и не должна ждать архитектурной задачи 205.
+  maintenance script и не должна ждать отдельной архитектурной инициативы.
 
 ## Scope
 
@@ -49,7 +49,7 @@ backup, verification и restore boundaries. Полная preflight-валида�
 - Не ослаблять manifest validation ради старого повреждённого backup.
 - TOCTOU между verify/apply минимизировать, но не обещать cross-artifact
   transaction: state, feed, drafts и Manager восстанавливаются разными sinks.
-- Cross-artifact rollback/transaction относится только к discovery 202.
+- Cross-artifact rollback/transaction требует отдельного discovery.
 - Не менять deploy orchestration и retention policy в этой задаче.
 
 ## Acceptance criteria
@@ -71,4 +71,4 @@ backup, verification и restore boundaries. Полная preflight-валида�
 ## Stop condition
 
 Если для atomic restore требуется менять deploy.sh или backup schema,
-остановиться и вынести совместимый migration/rollback plan в 205.
+остановиться и вынести совместимый migration/rollback plan отдельно.

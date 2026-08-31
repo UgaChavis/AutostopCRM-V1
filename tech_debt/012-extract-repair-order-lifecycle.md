@@ -4,7 +4,7 @@
 Этап: 1
 Оценка: 8–12 дней
 Риск реализации: высокий
-Статус: ready после 001 и 006; coverage 002 параллельно
+Статус: ready после 001; coverage обеспечивается текущими gates
 
 ## Результат
 
@@ -96,7 +96,7 @@ Query и serialization не должны зависеть от mutation coordina
 `python -m unittest tests.test_repair_order_reopen tests.test_service tests.test_api tests.test_mcp tests.test_printing_service -v`
 `python scripts/crm_capability_parity.py --require-complete`
 `python scripts/crm_change_feed_producer_parity.py --require-complete`
-`python scripts/perf_workflows.py --synthetic-state-profile current-production --stage1-only --skip-browser --warmup-iterations 2 --iterations 20 --max-backend-write-ms 600 --max-storage-write-ms 550 --max-revision-server-ms 20 --max-get-card-direct-ms 20 --max-list-cashboxes-ms 50 --max-feed-read-ms 50 --max-feed-replay-ms 20`
+[канонический Stage-1 performance gate](../docs/OPERATIONS_RUNBOOK.md#performance-smoke)
 
 ## Stop condition
 

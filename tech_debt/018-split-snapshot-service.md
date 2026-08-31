@@ -4,7 +4,7 @@
 Этап: 1
 Оценка: 4–7 дней
 Риск реализации: средний
-Статус: ready после 001; coverage 002 и focused test-slice 003 параллельно
+Статус: ready после 001; focused test-slice 003 идёт параллельно
 
 ## Результат
 
@@ -76,7 +76,7 @@ Board snapshot/revision, search/review и audit-log projection строятся
 
 `python -m unittest tests.test_snapshot_service tests.test_service tests.test_api tests.test_mcp -v`
 `python scripts/perf_probe.py --local-temp-server --warmup-iterations 2 --iterations 5 --max-snapshot-gzip-ms 1200 --max-snapshot-gzip-bytes 120000 --max-revision-ms 800 --max-revision-server-ms 20 --max-get-card-ms 800`
-`python scripts/perf_workflows.py --synthetic-state-profile current-production --stage1-only --skip-browser --warmup-iterations 2 --iterations 20 --max-backend-write-ms 600 --max-storage-write-ms 550 --max-revision-server-ms 20 --max-get-card-direct-ms 20 --max-list-cashboxes-ms 50 --max-feed-read-ms 50 --max-feed-replay-ms 20`
+[канонический Stage-1 performance gate](../docs/OPERATIONS_RUNBOOK.md#performance-smoke)
 `python scripts/crm_capability_parity.py --require-complete`
 
 ## Stop condition

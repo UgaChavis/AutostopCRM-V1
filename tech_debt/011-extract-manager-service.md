@@ -4,7 +4,7 @@
 Этап: 1
 Оценка: 5–8 дней
 Риск реализации: средний
-Статус: ready; coverage 002 и общий split 003 могут идти параллельно
+Статус: ready; общий split 003 может идти параллельно
 
 ## Результат
 
@@ -42,7 +42,7 @@ Standalone AI chat UI retired, но embedded agent runtime активен чер
 
 ## Подводные камни
 
-- Не смешивать с product decision 203 и условной декомпозицией 206.
+- Не смешивать с отдельным решением о сохранении embedded runtime.
 - AI enrichment/autofill оставить на месте до подтверждения retention runtime.
 - Manager operations могут использовать private helpers CardService; заменить
   на маленький explicit port, не передавать весь service как Any.
@@ -65,5 +65,5 @@ Standalone AI chat UI retired, но embedded agent runtime активен чер
 
 ## Stop condition
 
-Не переносить embedded enrichment «заодно». Его судьба определяется задачами
-203 и 206 по usage evidence.
+Не переносить embedded enrichment «заодно». Его судьбу определяет read-only
+usage evidence и отдельное owner-approved runtime decision.

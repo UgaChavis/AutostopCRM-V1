@@ -310,8 +310,7 @@ Codex registers the URL without bearer/static headers and links once with
 `codex mcp login autostopcrm`; its protected credential store retains the
 refresh session and renews short-lived access automatically. ChatGPT Apps use
 the same public OAuth discovery and owner approval flow. Dynamic registration
-accepts only ChatGPT connector callbacks and protected loopback Codex callbacks
-(`/callback` or current `/callback/<12-character-id>` on a high local port).
+accepts only ChatGPT connector callbacks and protected loopback Codex callbacks.
 
 Responses API remote MCP tools may continue to use the production URL as
 `server_url` and send the current internal bearer in the tool's `authorization`
