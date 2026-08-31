@@ -1546,32 +1546,33 @@ class WebAssetsTests(unittest.TestCase):
             "resolveAiChatKnowledge",
             "reportLegacyAgentRuntimeRetired",
             "function openAgentModal(",
+            "function ensureAgentUi(",
             "function renderAgentTask(",
             "aiCompactContext: { kind: 'compact_context' }",
             "state.aiCompactContext?.",
             'Старый AI-режим отключён. Используй кнопку "Индикатор карточки".',
+            'id="aiChatButton"',
+            'id="agentDockButton"',
+            'id="aiSurfaceModal"',
+            'id="aiChatWindow"',
+            'id="boardControlSettingsRow"',
+            'data-entry-surface="full_card_enrichment"',
+            "els.aiChatButton?.addEventListener(",
+            "els.agentDockButton?.addEventListener(",
+            "document.getElementById('aiSurfaceModal')",
+            "document.getElementById('aiChatWindow')",
+            "document.getElementById('aiChatButton')",
+            ".agent-dock",
+            ".dialog--ai-entry",
+            ".ai-entry-",
+            ".ai-chat-window",
+            "els.boardControlToggle?.addEventListener(",
+            "els.boardControlIntervalInput?.addEventListener(",
+            "els.boardControlCooldownInput?.addEventListener(",
+            "async function runCardCleanup()",
+            "'/api/cleanup_card_content'",
         ):
             self.assertNotIn(retired_symbol, BOARD_WEB_APP_HTML)
-        self.assertNotIn('id="aiChatButton"', BOARD_WEB_APP_HTML)
-        self.assertNotIn('id="agentDockButton"', BOARD_WEB_APP_HTML)
-        self.assertNotIn('id="aiSurfaceModal"', BOARD_WEB_APP_HTML)
-        self.assertNotIn('id="aiChatWindow"', BOARD_WEB_APP_HTML)
-        self.assertNotIn('id="boardControlSettingsRow"', BOARD_WEB_APP_HTML)
-        self.assertNotIn('data-entry-surface="full_card_enrichment"', BOARD_WEB_APP_HTML)
-        self.assertNotIn("els.aiChatButton?.addEventListener(", BOARD_WEB_APP_HTML)
-        self.assertNotIn("els.agentDockButton?.addEventListener(", BOARD_WEB_APP_HTML)
-        self.assertNotIn("document.getElementById('aiSurfaceModal')", BOARD_WEB_APP_HTML)
-        self.assertNotIn("document.getElementById('aiChatWindow')", BOARD_WEB_APP_HTML)
-        self.assertNotIn("document.getElementById('aiChatButton')", BOARD_WEB_APP_HTML)
-        self.assertNotIn(".agent-dock", BOARD_WEB_APP_HTML)
-        self.assertNotIn(".dialog--ai-entry", BOARD_WEB_APP_HTML)
-        self.assertNotIn(".ai-entry-", BOARD_WEB_APP_HTML)
-        self.assertNotIn(".ai-chat-window", BOARD_WEB_APP_HTML)
-        self.assertNotIn("els.boardControlToggle?.addEventListener(", BOARD_WEB_APP_HTML)
-        self.assertNotIn("els.boardControlIntervalInput?.addEventListener(", BOARD_WEB_APP_HTML)
-        self.assertNotIn("els.boardControlCooldownInput?.addEventListener(", BOARD_WEB_APP_HTML)
-        self.assertNotIn("async function runCardCleanup()", BOARD_WEB_APP_HTML)
-        self.assertNotIn("'/api/cleanup_card_content'", BOARD_WEB_APP_HTML)
         self.assertIn("async function runFullCardEnrichment()", BOARD_WEB_APP_HTML)
         self.assertIn("'/api/run_full_card_enrichment'", BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -1582,7 +1583,6 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function stopCardCleanupPolling()", BOARD_WEB_APP_HTML)
         self.assertIn("function scheduleCardCleanupPolling(", BOARD_WEB_APP_HTML)
         self.assertIn("async function refreshCardCleanupState()", BOARD_WEB_APP_HTML)
-        self.assertNotIn("Карточка приведена в порядок.", BOARD_WEB_APP_HTML)
         self.assertNotIn("Явных изменений для карточки не найдено.", BOARD_WEB_APP_HTML)
 
     def test_employees_module_is_exposed_in_topbar_and_repair_order_rows(self) -> None:

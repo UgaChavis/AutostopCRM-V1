@@ -475,65 +475,6 @@
         );
       }
     }
-    function ensureAgentUi() {
-      if (!document.getElementById('agentModal')) {
-        document.body.insertAdjacentHTML(
-          'beforeend',
-          '<div class="modal" id="agentModal">'
-            + '<div class="dialog dialog--agent">'
-              + '<div class="dialog__head">'
-                + '<div class="dialog__title">АГЕНТ</div>'
-                + '<button class="btn" data-close="agent">ЗАКРЫТЬ</button>'
-              + '</div>'
-              + '<div class="agent-shell">'
-                + '<div class="agent-headline">'
-                  + '<div class="agent-context" id="agentContextLabel">КОНТЕКСТ: ДОСКА</div>'
-                  + '<div class="agent-status" id="agentStatusLabel" data-state="idle">OFFLINE</div>'
-                + '</div>'
-                + '<div class="agent-shortcuts" id="agentQuickActions"></div>'
-                + '<div class="field field--compact agent-field">'
-                  + '<label for="agentTaskInput">ЗАПРОС</label>'
-                  + '<textarea id="agentTaskInput" maxlength="1600" placeholder="Сделай обзор доски"></textarea>'
-                + '</div>'
-                + '<div class="agent-actions-row">'
-                  + '<button class="btn agent-tasks-launch" id="agentTasksOpenButton" type="button">'
-                    + '<span class="agent-tasks-launch__title">ЗАДАЧИ</span>'
-                    + '<span class="agent-tasks-launch__meta">РАСПИСАНИЕ, ЗАПУСКИ И КОНТРОЛЬ</span>'
-                  + '</button>'
-                  + '<div class="agent-autofill-panel">'
-                    + '<div class="agent-autofill-panel__top">'
-                      + '<button class="btn btn--ghost agent-autofill-button" id="agentAutofillButton" type="button">ПОЛНОЕ ЗАПОЛНЕНИЕ</button>'
-                      + '<button class="agent-autofill-gear" id="agentAutofillPromptToggle" type="button" title="Mini-prompt" aria-label="Mini-prompt">?</button>'
-                    + '</div>'
-                    + '<div class="agent-autofill-status" id="agentAutofillStatus" data-state="offline">SERVER AI OFFLINE</div>'
-                    + '<div class="agent-autofill-prompt" id="agentAutofillPromptPanel" hidden>'
-                      + '<div class="field field--compact">'
-                        + '<label for="agentAutofillPromptInput">MINI-PROMPT</label>'
-                        + '<textarea id="agentAutofillPromptInput" maxlength="800" placeholder="Например: не переписывай цены и артикулы, добавляй только ИИ-комментарии для следующего мастера"></textarea>'
-                      + '</div>'
-                      + '<div class="agent-autofill-prompt-actions">'
-                        + '<button class="btn btn--ghost" id="agentAutofillPromptResetButton" type="button">СБРОС</button>'
-                        + '<button class="btn btn--accent" id="agentAutofillPromptSaveButton" type="button">СОХРАНИТЬ</button>'
-                      + '</div>'
-                    + '</div>'
-                  + '</div>'
-                  + '<button class="btn btn--accent" id="agentRunButton" type="button">ВЫПОЛНИТЬ</button>'
-                + '</div>'
-                + '<div class="agent-result" id="agentResultPanel" data-state="empty">Введите запрос.</div>'
-                + '<details class="agent-details agent-details--secondary" id="agentRunsDetails">'
-                  + '<summary>ПОСЛЕДНИЕ ЗАПУСКИ</summary>'
-                  + '<div class="agent-runs__list" id="agentRunsList"><div class="cashboxes-empty">Запусков пока нет.</div></div>'
-                + '</details>'
-                + '<details class="agent-details" id="agentDetails">'
-                  + '<summary>ДЕЙСТВИЯ</summary>'
-                  + '<div class="agent-actions-list" id="agentActionsList"><div class="cashboxes-empty">Действий пока нет.</div></div>'
-                + '</details>'
-              + '</div>'
-            + '</div>'
-          + '</div>'
-        );
-      }
-    }
     function ensureAgentTasksUi() {
       if (document.getElementById('agentTasksModal')) return;
       document.body.insertAdjacentHTML(
