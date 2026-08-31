@@ -16,8 +16,8 @@ Named workflows, raw capability execution, Store actions и verification
 
 - `agent_gateway_v2.py` менялся в 41 из последних 150 commits — главный
   hotspot.
-- `register_agent_gateway_v2` — 3 288 строк, complexity 280.
-- Nested `_execute_workflow` — 868 строк, complexity 72.
+- `register_agent_gateway_v2` — 3 086 строк, complexity 280.
+- Nested `_execute_workflow` — 610 строк, complexity 56.
 - `call_raw_capability` — 707 строк, complexity 58.
 - File имеет 30 strict-complexity signals.
 

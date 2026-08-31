@@ -14,8 +14,8 @@ source of truth для invoice, invoice-factura, UPD и completion act.
 
 ## Доказательства
 
-- `printing/service.py` — 4 229 строк.
-- `PrintModuleService` — 2 839 строк / 87 methods.
+- `printing/service.py` — 4 223 строк.
+- `PrintModuleService` — 2 831 строк / 87 methods.
 - `_build_document_context` — 344 строки.
 - В том же class legacy draft migration, secure filesystem, templates,
   calculations и export.

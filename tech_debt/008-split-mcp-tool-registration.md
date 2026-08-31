@@ -11,8 +11,8 @@ move не меняет payloads, schemas, auth, relay, idempotency или backen
 - characterization hash:
   `c7c68b2b73880c7a8d958b6596b7e2d61e37ebd11570ec782ee684355de2fa5d`;
 - Gateway v2: ровно 24 public tools; hidden Store tools не попадают в raw escape;
-- source caps принадлежат 001: `mcp/server.py` 3551, `create_mcp_server` 3104,
-  `register_agent_gateway_v2` 3288.
+- source caps принадлежат 001: `mcp/server.py` 3514, `create_mcp_server` 3104,
+  `register_agent_gateway_v2` 3086.
 
 ## Выполнено и следующее
 
