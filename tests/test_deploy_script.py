@@ -727,7 +727,6 @@ printf 'status=%s\n' "$status"
         ]
         png_allowlist = [
             "!src/minimal_kanban/static/favicon.png",
-            "!src/minimal_kanban/printing/assets/autostop_brand_logo.png",
         ]
 
         recursive_exclusion = rules.index("**/*.png")
@@ -742,10 +741,7 @@ printf 'status=%s\n' "$status"
 
         copy_index = dockerfile.index("COPY . .")
         user_index = dockerfile.index("USER 10001:10001")
-        for asset in (
-            "/app/src/minimal_kanban/static/favicon.png",
-            "/app/src/minimal_kanban/printing/assets/autostop_brand_logo.png",
-        ):
+        for asset in ("/app/src/minimal_kanban/static/favicon.png",):
             with self.subTest(asset=asset):
                 assertion_index = dockerfile.index(f"test -s {asset}")
                 self.assertGreater(assertion_index, copy_index)
@@ -765,10 +761,6 @@ printf 'status=%s\n' "$status"
         self.assertIn('docker build --tag "autostopcrm-ci:${GITHUB_SHA}" .', workflow)
         self.assertIn("docker run --rm", workflow)
         self.assertIn("test -s /app/src/minimal_kanban/static/favicon.png", workflow)
-        self.assertIn(
-            "test -s /app/src/minimal_kanban/printing/assets/autostop_brand_logo.png",
-            workflow,
-        )
         self.assertIn("test ! -e /app/output/docker-context-probe/ignored.png", workflow)
         self.assertNotIn("docker login", workflow)
         self.assertNotIn("docker push", workflow)

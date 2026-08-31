@@ -76,10 +76,6 @@ def get_agent_data_dir() -> Path:
     return get_app_data_dir() / "agent"
 
 
-def get_agent_log_file() -> Path:
-    return get_agent_data_dir() / "agent.log"
-
-
 def get_agent_prompt_file() -> Path:
     return get_agent_data_dir() / "system_prompt.md"
 

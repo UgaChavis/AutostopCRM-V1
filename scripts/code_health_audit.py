@@ -762,12 +762,6 @@ def audit(root: Path = ROOT, *, include_untracked: bool = False) -> list[CodeHea
     return _run_audit(root, include_untracked=include_untracked).issues
 
 
-def ratchet_measurements(
-    root: Path = ROOT, *, include_untracked: bool = False
-) -> list[RatchetMeasurement]:
-    return _run_audit(root, include_untracked=include_untracked).ratchets
-
-
 def _budget_payload(registry: dict[str, RatchetBudget]) -> dict[str, dict[str, Any]]:
     return {target: asdict(registry[target]) for target in sorted(registry)}
 

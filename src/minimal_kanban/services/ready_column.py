@@ -62,7 +62,3 @@ def ensure_ready_column(columns: list[Column], settings: dict[str, Any]) -> tupl
             changed = True
 
     return ready_column.id, changed
-
-
-def configured_ready_column_id(settings: dict[str, Any]) -> str:
-    return normalize_text(settings.get(READY_COLUMN_SETTINGS_KEY), default="", limit=128)

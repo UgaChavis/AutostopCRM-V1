@@ -90,7 +90,7 @@ _SENTENCE_SPLIT_RE = re.compile(r"[\n\r]+|(?<=[.!?])\s+")
 _UNSAFE_FILE_NAME_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
 _COMPLETION_ACT_RECORD_FILE_RE = re.compile(r"\A[0-9a-f]{64}\.json\Z")
 _COMPLETION_ACT_TEMP_FILE_RE = re.compile(r"\A\.[0-9a-f]{64}\.[0-9a-f]{32}\.tmp\Z")
-_BRAND_LOGO_PATH = Path(__file__).resolve().parent / "assets" / "autostop_brand_logo.png"
+_BRAND_LOGO_PATH = Path(__file__).resolve().parents[1] / "static" / "favicon.png"
 _JSON_SAFE_MAX_DEPTH = 8
 _COMPLETION_ACT_VAT_RATE = Decimal("0.05")
 _COMPLETION_ACT_MONEY_ABS_MAX = Decimal("999999999.99")

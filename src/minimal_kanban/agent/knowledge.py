@@ -135,10 +135,6 @@ CURATED_DOCUMENTS: tuple[CuratedDocumentDefinition, ...] = (
 )
 
 
-def get_curated_documents() -> list[dict[str, Any]]:
-    return [definition_to_payload(item) for item in CURATED_DOCUMENTS]
-
-
 def definition_to_payload(item: CuratedDocumentDefinition, *, excerpt: str = "") -> dict[str, Any]:
     payload = {
         "document_id": item.document_id,

@@ -41,7 +41,6 @@ jobs:
             "autostopcrm-ci:${GITHUB_SHA}" \
             -eu -c '
               test -s /app/src/minimal_kanban/static/favicon.png
-              test -s /app/src/minimal_kanban/printing/assets/autostop_brand_logo.png
               test ! -e /app/output/docker-context-probe/ignored.png
             '
 
