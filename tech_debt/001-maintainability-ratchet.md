@@ -1,144 +1,37 @@
-# 001. Зафиксировать числовой maintainability ratchet
+# 001. Maintainability ratchets
 
-Приоритет: P0
-Этап: 1
-Оценка: 1–2 дня
-Риск реализации: низкий
-Статус: completed; hosted CI confirmed 2026-08-26
+Приоритет: P0 owner. Статус: реализовано; файл остаётся владельцем двух
+data-only caps.
 
-## Реализация и доказательства (2026-08-23)
+`code_health_audit.py` — единственный источник значений. Общие пределы:
+production module 2500, test module 3000, class 2500, function 450 строк.
+Все 34 size и 2 complexity exemptions имеют reason, baseline, `max_allowed`
+без headroom и ровно один существующий `owner_task`.
 
-- Все исходные 39 size-exemptions преобразованы в `RatchetBudget` с reason,
-  baseline, `max_allowed` без headroom и одним `owner_task`.
-- После закрытия 004 три browser exemptions удалены; gate содержал 36/36
-  size-ratchets и 3/3 complexity-ratchets. После закрытия 007 удалены size и
-  complexity ratchets `_make_handler`, а после MCP-среза 003 — module ratchet
-  `tests/test_mcp.py`; текущий gate содержит 34/34 и 2/2 соответственно.
-- Owner IDs проверяются против единственного `tech_debt/<id>-*.md`; missing,
-  duplicate и некорректные mappings валят audit.
-- Text/JSON отчёты детерминированно показывают current/max/delta/present.
-- Текущие exact complexity caps: Gateway executor 72 и `update_card` 29.
-  `_make_handler` содержит 136 строк, соблюдает потолок ≤150 и больше не
-  требует exemption.
-- Synthetic growth/shrink/config/missing-target tests и полный
-  `tests.test_code_health_audit`: 18/18 `OK`; после board-card timer среза 008
-  exact caps снижены до 3 740 строк для `mcp/server.py` и 3 299 строк для
-  `create_mcp_server`; include-untracked audit: 374 файла, 0 issues.
+## Exact owner map и caps
 
-## Результат
+- 001: `_demo_specs` 957; `builtin_template_records` 1164.
+- 003: modules `test_service.py` 13514, `test_api.py` 7692,
+  `test_agent_gateway_v2.py` 4447, `test_web_assets.py` 5963; classes
+  `CardServiceTests` 13296, `ApiServerTests` 7268, `AgentGatewayV2Tests` 3031,
+  `WebAssetsTests` 5905; `test_mcp_tools_reach_backend` 1169.
+- 008: `mcp/server.py` 3551; `create_mcp_server` 3104;
+  `register_agent_gateway_v2` 3288.
+- 009: modules `mcp/agent_gateway_v2.py` 3547, `mcp/raw_gateway.py` 1465;
+  `_execute_workflow` 868 and complexity 72, `call_raw_capability` 707,
+  `verify_virtual_api_write_readback` 966.
+- 012: `card_service.py` 11627, `CardService` 11122,
+  `CardService.update_card` complexity 29.
+- 013: `card_service_payroll.py` 4805, `CardServicePayrollMixin` 4608.
+- 014: `printing/service.py` 4229, `PrintModuleService` 2839.
+- 018: `snapshot_service.py` 2879, `SnapshotService` 2574.
+- 019: `card_service_finance.py` 3048, `CardServiceFinanceMixin` 3002.
+- 021: `printing/web_module.py` 3367.
+- 206: `agent/runner.py` 5093, `AgentRunner` 4865.
+- 207: `scripts/attest_agent_gateway_v2.py` 9498,
+  `_finance_apply_audit_safe_fixes_case` 457.
 
-Известные oversized hotspots больше не могут незаметно расти. Каждый
-grandfathered module/class/function получает измеряемый потолок и понятный
-путь удаления исключения.
-
-## Доказательства
-
-`scripts/code_health_audit.py` сейчас содержит:
-
-- 15 `ALLOWED_LARGE_MODULES`;
-- 10 `ALLOWED_LARGE_CLASSES`;
-- 9 `ALLOWED_LARGE_FUNCTIONS`.
-
-Значение словаря — только текстовая причина. После попадания в allowlist файл
-может расти без лимита. Строгий Ruff-профиль на текущем HEAD показывает 433
-сигнала, поэтому включить его целиком как blocking gate нельзя.
-
-## Scope
-
-1. Заменить безусловные exemptions на записи с:
-   `reason`, `baseline`, `max_allowed` и `owner_task`.
-2. Для line-based limits использовать текущий HEAD как baseline и нулевой либо
-   минимальный документированный headroom.
-3. Для трёх самых опасных функций добавить точечный complexity ratchet:
-   `ApiServer._make_handler`, Gateway `_execute_workflow` и
-   `CardService.update_card`.
-4. JSON output должен показывать текущую величину, потолок и delta.
-5. Текстовый output при успехе должен кратко сообщать количество активных
-   exemptions; при росте — имя hotspot и превышение.
-6. Удаление/снижение exemption становится acceptance criterion последующих
-   extraction-задач.
-
-## Карта активных ratchets
-
-| Exemption | Owner | Ожидаемый исход |
-|---|---:|---|
-| module `scripts/attest_agent_gateway_v2.py` | 207 | conditional split, exemption удалить |
-| module `mcp/agent_gateway_v2.py` | 009 | registry 008 — contributor; после executor split удалить |
-| module `mcp/raw_gateway.py` | 009 | readback split, удалить |
-| module `services/card_service.py` | 012 | срезы 010/011 — contributors; остаточный facade закрывает 012 |
-| module `services/card_service_finance.py` | 019 | planner split, удалить/снизить до facade cap |
-| module `services/card_service_payroll.py` | 013 | calculators split, удалить/снизить до facade cap |
-| module `services/snapshot_service.py` | 018 | read models split, удалить |
-| module `agent/runner.py` | 206 | 203 — обязательный go/no-go; затем удалить либо снизить |
-| module `mcp/server.py` | 008 | registry split, удалить |
-| module `printing/service.py` | 014 | components split, удалить |
-| module `printing/web_module.py` | 021 | embedded asset split, удалить |
-| modules `tests/test_service.py`, `test_api.py`, `test_agent_gateway_v2.py`, `test_web_assets.py` | 003 | четыре независимых test-slices, удалить |
-| classes `PrintModuleService` | 014 | thin facade cap |
-| `CardService` | 012 | снижать cap в 010/011; остаток закрывает 012 |
-| `CardServicePayrollMixin` | 013 | удалить/снизить до facade cap |
-| `CardServiceFinanceMixin` | 019 | удалить/снизить до facade cap |
-| `SnapshotService` | 018 | удалить |
-| `AgentRunner` | 206 | только после keep decision 203 |
-| test classes `ApiServerTests`, `AgentGatewayV2Tests`, `CardServiceTests`, `WebAssetsTests` | 003 | соответствующий test-slice, удалить |
-| function `scripts/attest_agent_gateway_v2.py:_finance_apply_audit_safe_fixes_case` | 207 | case split, удалить |
-| function `demo_seed:_demo_specs` | 001 | оставить bounded data-only cap; запретить рост |
-| function Gateway `register_agent_gateway_v2` | 008 | registry split, удалить |
-| functions Gateway `_execute_workflow`, `call_raw_capability` | 009 | executor split, удалить |
-| function `raw_gateway:verify_virtual_api_write_readback` | 009 | verifier split, удалить |
-| function `mcp/server:create_mcp_server` | 008 | registration split, удалить |
-| function `printing/defaults:builtin_template_records` | 001 | оставить bounded data-only cap; запретить рост |
-| function `test_mcp:test_mcp_tools_reach_backend` | 003 | MCP test-slice, удалить |
-
-Составные строки сохраняют карту владельцев; машинная проверка считает ровно
-36 активных mappings. IDs 000/002/004/006/007 среди владельцев отсутствуют;
-их результаты сохранены в таблице завершённой базы `README.md`. Две data-only
-фабрики не дробятся без доказанной боли: для них результат задачи — жёсткий
-текущий cap, а не новый abstraction layer.
-
-## Не входит
-
-- Массовое исправление 433 диагностических сигналов.
-- Снижение текущих baseline без предварительного refactor.
-- Новый внешний quality SaaS.
-
-## TDD-план
-
-1. Добавить tests для grandfathered file ровно на потолке.
-2. Добавить failing test для роста на одну строку.
-3. Проверить class/function bounds отдельно от module bounds.
-4. Проверить, что сокращение проходит и отражается отрицательной delta.
-5. Проверить invalid/duplicate owner task и missing reason.
-6. Проверить JSON schema и стабильный deterministic ordering.
-
-## Подводные камни
-
-- Не считать blank/comment-only diff бизнес-улучшением; line metric остаётся
-  простым guard, а не оценкой качества.
-- Не давать «+10% на всякий случай»: это легализует дальнейший рост.
-- Не привязывать gate к абсолютным line numbers функций — после вставки выше
-  они меняются. Ключ: `relative_path:symbol_name`.
-- Nested functions Gateway должны находиться по qualified name, иначе
-  `_execute_workflow` внутри registration-функции потеряется.
-- Если AST не может разобрать файл, audit должен fail closed.
-
-## Acceptance criteria
-
-- Рост любого текущего allowed hotspot сверх потолка валит audit.
-- Сокращение не требует обновлять baseline вверх.
-- Все 36 текущих exemption имеют owner task из `tech_debt/`.
-- `code_health_audit.py --format text/json` проходит.
-- Docs audit и focused tests проходят.
-
-## Проверки
-
-`python -m unittest tests.test_code_health_audit -v`
-`python scripts/code_health_audit.py --format text`
-`python scripts/code_health_audit.py --format json`
-`python -m ruff check scripts/code_health_audit.py tests/test_code_health_audit.py`
-
-## Stop condition
-
-Если qualified nested functions нельзя стабильно измерить штатным AST без
-сложного анализатора, ограничить первый commit module/class/function length
-ratchet и завести отдельный маленький follow-up только для complexity.
+Срез сразу уменьшает cap или удаляет exemption; cap не повышается ради нового
+кода. Фабрики 001 остаются bounded data-only функциями без искусственной
+абстракции. Приёмка: text/json audit зелёный, owners точны, ambiguous target,
+AST error, duplicate/missing owner и рост выше cap fail closed.
