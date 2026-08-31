@@ -37,6 +37,7 @@ TARGETS_MS = {
 DEFAULT_BROWSER_TIMEOUT_SECONDS = 240.0
 PLAYWRIGHT_CLOSE_TIMEOUT_SECONDS = 10.0
 BENIGN_UI_PERF_ERRORS = {"AbortError"}
+BENIGN_FAILED_REQUEST_CODES = frozenset({"net::ERR_ABORTED"})
 PERF_WORKFLOW_STATE_FILE_MAX_BYTES = 100 * 1024 * 1024
 SYNTHETIC_STATE_MIN_BYTES = 10 * 1024 * 1024
 SYNTHETIC_STATE_PROFILE = "current-production"
@@ -407,14 +408,29 @@ def format_failed_request(request: Any) -> str:
     return f"{method} {_safe_request_route(str(request.url))} {_request_failure_code(request)}"
 
 
+def is_benign_failed_request(value: Any) -> bool:
+    text = str(value or "").strip()
+    return bool(
+        re.fullmatch(
+            r"GET (?:/api/[A-Za-z0-9_]+|/employee_salary_reconciliation_print|"
+            r"\[redacted-route\]) (net::[A-Z0-9_]+)",
+            text,
+        )
+        and text.rsplit(" ", 1)[-1] in BENIGN_FAILED_REQUEST_CODES
+    )
+
+
 def browser_event_report(
     console_errors: list[str],
     page_errors: list[str],
     failed_requests: list[str],
 ) -> dict[str, Any]:
+    actionable_failed_requests = [
+        item for item in failed_requests if not is_benign_failed_request(item)
+    ]
     safe_failed_requests = [
         item
-        for item in failed_requests[-20:]
+        for item in actionable_failed_requests[-20:]
         if re.fullmatch(
             r"[A-Z]{3,12} (?:/api/[A-Za-z0-9_]+|/employee_salary_reconciliation_print|"
             r"\[redacted-route\]) (?:net::[A-Z0-9_]+|request_failed)",
@@ -424,7 +440,7 @@ def browser_event_report(
     return {
         "console_error_count": len(console_errors),
         "page_error_count": len(page_errors),
-        "failed_request_count": len(failed_requests),
+        "failed_request_count": len(actionable_failed_requests),
         "failed_requests": safe_failed_requests,
     }
 

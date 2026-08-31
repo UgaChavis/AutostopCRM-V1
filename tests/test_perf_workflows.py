@@ -598,6 +598,19 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
             with self.subTest(sentinel=sentinel):
                 self.assertNotIn(sentinel, encoded)
 
+    def test_browser_event_report_ignores_benign_get_abort(self) -> None:
+        events = self.module.browser_event_report(
+            [],
+            [],
+            [
+                "GET /api/get_cashbox net::ERR_ABORTED",
+                "POST /api/update_card net::ERR_ABORTED",
+            ],
+        )
+
+        self.assertEqual(events["failed_request_count"], 1)
+        self.assertEqual(events["failed_requests"], ["POST /api/update_card net::ERR_ABORTED"])
+
     def test_state_benchmark_exception_becomes_safe_failed_report(self) -> None:
         private_error = RuntimeError("C:/private/customer-state.json private-customer")
         with (
