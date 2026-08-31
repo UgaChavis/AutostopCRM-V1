@@ -1158,6 +1158,36 @@ printf 'status=%s\n' "$status"
         self.assertIn("accesses production", runbook)
         self.assertIn("docs/OPERATIONS_RUNBOOK.md", readme)
 
+    def test_runbook_production_preflight_mirrors_deploy_environment(self) -> None:
+        runbook = (PROJECT_ROOT / "docs" / "OPERATIONS_RUNBOOK.md").read_text(encoding="utf-8")
+        deploy_script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+        match = re.search(
+            r"Validate before restart:\s+```bash\n(?P<preflight>.*?)\n```",
+            runbook,
+            re.DOTALL,
+        )
+
+        self.assertIsNotNone(match)
+        preflight = match.group("preflight")
+        validator = (
+            "python3 scripts/validate_production_env.py --require-production --require-store"
+        )
+        expected_exports = (
+            'export AUTOSTOP_MAINTENANCE_MARKER="/home/autostop/.minimal-kanban/.agent-gateway-maintenance"',
+            'export MINIMAL_KANBAN_MCP_PUBLIC_BASE_URL="${AUTOSTOP_PUBLIC_SITE_URL:-https://crm.autostopcrm.ru}"',
+            'export MINIMAL_KANBAN_MCP_PUBLIC_ENDPOINT_URL="${AUTOSTOP_PUBLIC_MCP_URL:-https://crm.autostopcrm.ru/mcp}"',
+        )
+        for exported_value in expected_exports:
+            with self.subTest(exported_value=exported_value):
+                self.assertIn(exported_value, preflight)
+                self.assertLess(preflight.index(exported_value), preflight.index(validator))
+
+        self.assertIn('export MINIMAL_KANBAN_MCP_PUBLIC_BASE_URL="$PUBLIC_SITE_URL"', deploy_script)
+        self.assertIn(
+            'export MINIMAL_KANBAN_MCP_PUBLIC_ENDPOINT_URL="$PUBLIC_MCP_URL"',
+            deploy_script,
+        )
+
     def test_prepare_release_generates_current_start_guide(self) -> None:
         script = (PROJECT_ROOT / "scripts" / "prepare_release.ps1").read_text(encoding="utf-8")
 

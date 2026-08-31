@@ -361,6 +361,9 @@ cd /opt/autostopcrm
 set -a
 . ./.env
 set +a
+export AUTOSTOP_MAINTENANCE_MARKER="/home/autostop/.minimal-kanban/.agent-gateway-maintenance"
+export MINIMAL_KANBAN_MCP_PUBLIC_BASE_URL="${AUTOSTOP_PUBLIC_SITE_URL:-https://crm.autostopcrm.ru}"
+export MINIMAL_KANBAN_MCP_PUBLIC_ENDPOINT_URL="${AUTOSTOP_PUBLIC_MCP_URL:-https://crm.autostopcrm.ru/mcp}"
 python3 scripts/validate_production_env.py --require-production --require-store
 ```
 
