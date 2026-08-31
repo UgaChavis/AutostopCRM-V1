@@ -257,7 +257,7 @@
     "/api/set_card_ai_autofill": {
       "kind": "ui_without_registered_backend",
       "expected_coverage": "registered backend write plus typed or guarded virtual reachability",
-      "reason": "The browser exposes the AI autofill toggle, but the route is absent from the registered HTTP table."
+      "reason": "The retired browser AI autofill toggle formerly exposed this route; it remains a historical baseline ledger entry."
     }
   },
   "intentional_exemptions": {

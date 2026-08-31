@@ -712,8 +712,8 @@ RETIRED_LEGACY_AI_ENTRY_POINTS: dict[str, dict[str, Any]] = {
 RETIRED_AI_ENTRY_TOMBSTONES: tuple[AiEntrySurfaceDefinition, ...] = (
     AiEntrySurfaceDefinition(
         entry_id="board_dock_button",
-        location="web_assets.agentDockButton -> openAgentModal('board')",
-        current_behavior="legacy modal JavaScript remains shipped without a rendered trigger",
+        location="retired browser board-agent modal path",
+        current_behavior="retired browser surface removed",
         scenario_semantics_today="retired board-oriented manual AI entry",
         surface_kind=AiEntrySurfaceKind.UI,
         legacy_status="retired_unreachable",
@@ -726,8 +726,8 @@ RETIRED_AI_ENTRY_TOMBSTONES: tuple[AiEntrySurfaceDefinition, ...] = (
     ),
     AiEntrySurfaceDefinition(
         entry_id="card_agent_button",
-        location="retired web_assets.cardAgentButton -> openAgentModal('card') path",
-        current_behavior="legacy modal branch remains shipped but the button runs card enrichment",
+        location="retired modal branch formerly reached from web_assets.cardAgentButton",
+        current_behavior="retired modal branch removed; cardAgentButton runs full-card enrichment",
         scenario_semantics_today="retired card-scoped modal entry",
         surface_kind=AiEntrySurfaceKind.UI,
         legacy_status="retired_unreachable",
@@ -740,8 +740,8 @@ RETIRED_AI_ENTRY_TOMBSTONES: tuple[AiEntrySurfaceDefinition, ...] = (
     ),
     AiEntrySurfaceDefinition(
         entry_id="agent_manual_prompt",
-        location="web_assets.agentTaskInput + agentRunButton",
-        current_behavior="freeform prompt handlers remain in an unreachable compatibility body",
+        location="retired browser manual-prompt controls",
+        current_behavior="retired browser surface removed",
         scenario_semantics_today="retired manual conversational surface",
         surface_kind=AiEntrySurfaceKind.UI,
         legacy_status="retired_unreachable",
@@ -754,8 +754,8 @@ RETIRED_AI_ENTRY_TOMBSTONES: tuple[AiEntrySurfaceDefinition, ...] = (
     ),
     AiEntrySurfaceDefinition(
         entry_id="quick_prompts",
-        location="web_assets.quickAgentPrompts + data-agent-prompt handlers",
-        current_behavior="canned prompt JavaScript remains shipped without an entry surface",
+        location="retired browser quick-prompt controls",
+        current_behavior="retired browser surface removed",
         scenario_semantics_today="retired mixed-task shortcut surface",
         surface_kind=AiEntrySurfaceKind.UI,
         legacy_status="retired_unreachable",
@@ -782,8 +782,8 @@ RETIRED_AI_ENTRY_TOMBSTONES: tuple[AiEntrySurfaceDefinition, ...] = (
     ),
     AiEntrySurfaceDefinition(
         entry_id="card_autofill_toggle",
-        location="web_assets.agentAutofillButton + mini-prompt panel",
-        current_behavior="legacy toggle JavaScript remains shipped without a rendered control",
+        location="retired browser card-autofill controls",
+        current_behavior="retired browser surface removed",
         scenario_semantics_today="retired card autofill UI surface",
         surface_kind=AiEntrySurfaceKind.UI,
         legacy_status="retired_unreachable",
@@ -796,8 +796,8 @@ RETIRED_AI_ENTRY_TOMBSTONES: tuple[AiEntrySurfaceDefinition, ...] = (
     ),
     AiEntrySurfaceDefinition(
         entry_id="agent_status_surface",
-        location="web_assets.agentStatusLabel + agentAutofillStatus",
-        current_behavior="status rendering body remains shipped with the retired modal shell",
+        location="retired browser agent-status controls",
+        current_behavior="retired browser surface removed",
         scenario_semantics_today="retired legacy status surface",
         surface_kind=AiEntrySurfaceKind.STATUS,
         legacy_status="retired_unreachable",

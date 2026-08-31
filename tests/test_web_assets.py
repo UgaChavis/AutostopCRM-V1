@@ -1136,10 +1136,7 @@ class WebAssetsTests(unittest.TestCase):
 
     def test_active_ai_controls_use_only_registered_service_routes(self) -> None:
         self.assertNotIn("api('/api/get_ai_chat_knowledge'", BOARD_WEB_APP_HTML)
-        self.assertGreaterEqual(
-            BOARD_WEB_APP_HTML.count("api('/api/set_card_ai_autofill'"),
-            2,
-        )
+        self.assertNotIn("api('/api/set_card_ai_autofill'", BOARD_WEB_APP_HTML)
 
     def test_card_tag_editor_uses_compact_tag_controls(self) -> None:
         self.assertIn(".tags-panel {", BOARD_WEB_APP_HTML)
@@ -1516,7 +1513,6 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(
             "function handleRepairOrderPaymentsModalOverlayClick(event)", BOARD_WEB_APP_HTML
         )
-        self.assertIn("function handleAgentModalOverlayClick(event)", BOARD_WEB_APP_HTML)
         self.assertIn("function handleOperatorProfileModalOverlayClick(event)", BOARD_WEB_APP_HTML)
         self.assertIn("function handleOperatorAdminModalOverlayClick(event)", BOARD_WEB_APP_HTML)
         self.assertNotIn(
@@ -2046,7 +2042,7 @@ class WebAssetsTests(unittest.TestCase):
         detail_fragment = BOARD_WEB_APP_HTML[
             BOARD_WEB_APP_HTML.index(
                 "async function handleEmployeesDetailClick(event)"
-            ) : BOARD_WEB_APP_HTML.index("function boardAgentContext()")
+            ) : BOARD_WEB_APP_HTML.index("async function runFullCardEnrichment()")
         ]
 
         self.assertIn("const shouldOpenRepairOrder", detail_fragment)
@@ -5894,13 +5890,8 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("await api('/api/update_board_settings'", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            "if (!els.boardControlToggle && !els.boardControlIntervalInput && !els.boardControlCooldownInput) return null;",
-            BOARD_WEB_APP_HTML,
-        )
-        self.assertIn(
-            "if (aiBoardControl) body.ai_board_control = aiBoardControl;", BOARD_WEB_APP_HTML
-        )
+        self.assertNotIn("readBoardControlSettingsForm", BOARD_WEB_APP_HTML)
+        self.assertNotIn("body.ai_board_control = aiBoardControl", BOARD_WEB_APP_HTML)
         self.assertNotIn("ai_board_control: aiBoardControl", BOARD_WEB_APP_HTML)
         self.assertNotIn('id="boardControlSettingsRow"', BOARD_WEB_APP_HTML)
         self.assertNotIn('id="boardControlToggle"', BOARD_WEB_APP_HTML)

@@ -305,19 +305,10 @@
       repairOrderTags: [],
       repairOrderPayments: [],
       repairOrderTagColor: 'green',
-      agentUiBound: false,
-      agentContext: { kind: 'board' },
       aiCompactContextCache: { signature: '', packet: null },
-      agentRefreshTimer: null,
-      agentAutofillCountdownTimer: null,
-      agentAutofillPromptOpen: false,
       agentTaskId: '',
-      agentTaskStatus: '',
       agentSyncedTaskId: '',
       cardCleanupPollTimer: null,
-      agentStatusPayload: null,
-      agentLatestTasks: [],
-      agentLatestActions: [],
       cardCleanupState: 'idle',
       cardCleanupError: '',
       pendingCardClientId: '',
@@ -1035,24 +1026,6 @@
       gptWallBoardTab: document.getElementById('gptWallBoardTab'),
       gptWallEventsTab: document.getElementById('gptWallEventsTab'),
       gptWallRefresh: document.getElementById('gptWallRefresh'),
-      agentModal: document.getElementById('agentModal'),
-      agentContextLabel: document.getElementById('agentContextLabel'),
-      agentStatusLabel: document.getElementById('agentStatusLabel'),
-      agentQuickActions: document.getElementById('agentQuickActions'),
-      agentTaskInput: document.getElementById('agentTaskInput'),
-      agentAutofillButton: document.getElementById('agentAutofillButton'),
-      agentAutofillPromptToggle: document.getElementById('agentAutofillPromptToggle'),
-      agentAutofillPromptPanel: document.getElementById('agentAutofillPromptPanel'),
-      agentAutofillPromptInput: document.getElementById('agentAutofillPromptInput'),
-      agentAutofillPromptSaveButton: document.getElementById('agentAutofillPromptSaveButton'),
-      agentAutofillPromptResetButton: document.getElementById('agentAutofillPromptResetButton'),
-      agentAutofillStatus: document.getElementById('agentAutofillStatus'),
-      agentRunButton: document.getElementById('agentRunButton'),
-      agentResultPanel: document.getElementById('agentResultPanel'),
-      agentRunsDetails: document.getElementById('agentRunsDetails'),
-      agentRunsList: document.getElementById('agentRunsList'),
-      agentActionsList: document.getElementById('agentActionsList'),
-      agentDetails: document.getElementById('agentDetails'),
       cardModal: document.getElementById('cardModal'),
       cardModalTitle: document.getElementById('cardModalTitle'),
       cardModalCloseButtonTop: document.getElementById('cardModalCloseButtonTop'),
@@ -1582,27 +1555,6 @@
       });
       els.repairOrderPaymentsModal?.addEventListener('click', handleRepairOrderPaymentsModalOverlayClick);
       state.repairOrderPaymentsUiBound = true;
-    }
-
-    function hydrateAgentUiRefs() {
-      els.agentModal = document.getElementById('agentModal');
-      els.agentContextLabel = document.getElementById('agentContextLabel');
-      els.agentStatusLabel = document.getElementById('agentStatusLabel');
-      els.agentQuickActions = document.getElementById('agentQuickActions');
-      els.agentTaskInput = document.getElementById('agentTaskInput');
-      els.agentAutofillButton = document.getElementById('agentAutofillButton');
-      els.agentAutofillPromptToggle = document.getElementById('agentAutofillPromptToggle');
-      els.agentAutofillPromptPanel = document.getElementById('agentAutofillPromptPanel');
-      els.agentAutofillPromptInput = document.getElementById('agentAutofillPromptInput');
-      els.agentAutofillPromptSaveButton = document.getElementById('agentAutofillPromptSaveButton');
-      els.agentAutofillPromptResetButton = document.getElementById('agentAutofillPromptResetButton');
-      els.agentAutofillStatus = document.getElementById('agentAutofillStatus');
-      els.agentRunButton = document.getElementById('agentRunButton');
-      els.agentResultPanel = document.getElementById('agentResultPanel');
-      els.agentRunsDetails = document.getElementById('agentRunsDetails');
-      els.agentRunsList = document.getElementById('agentRunsList');
-      els.agentActionsList = document.getElementById('agentActionsList');
-      els.agentDetails = document.getElementById('agentDetails');
     }
 
     function aiChatContextCardLabel(card = state.activeCard) {
@@ -2202,28 +2154,6 @@
       }
       state.aiCompactContextCache = { signature, packet: packetDraft };
       return packetDraft;
-    }
-
-    function bindAgentUiEvents() {
-      if (state.agentUiBound) return;
-      hydrateAgentUiRefs();
-      els.agentQuickActions?.addEventListener('click', handleAgentQuickActionClick);
-      els.agentAutofillButton?.addEventListener('click', toggleAgentCardAutofill);
-      els.agentAutofillPromptToggle?.addEventListener('click', toggleAgentAutofillPromptPanel);
-      els.agentAutofillPromptSaveButton?.addEventListener('click', saveAgentAutofillPrompt);
-      els.agentAutofillPromptResetButton?.addEventListener('click', resetAgentAutofillPrompt);
-      els.agentRunsList?.addEventListener('click', handleAgentRunSelection);
-      els.agentRunButton?.addEventListener('click', enqueueAgentTask);
-      els.agentTaskInput?.addEventListener('input', syncAgentTaskInputHeight);
-      els.agentTaskInput?.addEventListener('keydown', (event) => {
-        if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-          event.preventDefault();
-          enqueueAgentTask();
-        }
-      });
-      els.agentModal?.addEventListener('click', handleAgentModalOverlayClick);
-      els.agentResultPanel?.addEventListener('click', handleAgentResultActionClick);
-      state.agentUiBound = true;
     }
 
     function bindEmployeesUiEvents() {
@@ -3499,7 +3429,6 @@
       employeeSalaryModal: 'employeeSalary',
       employeeSalaryReconciliationPeriodModal: 'employee-salary-reconciliation-period',
       employeeSalaryReportModal: 'employee-salary-report',
-      agentModal: 'agent',
       gptWallModal: 'wall',
       boardSettingsModal: 'settings',
       displayDashboardMessageModal: 'display-dashboard-message',
@@ -3532,7 +3461,6 @@
         employeeSalary: els.employeeSalaryModal,
         'employee-salary-reconciliation-period': els.employeeSalaryReconciliationPeriodModal,
         'employee-salary-report': els.employeeSalaryReportModal,
-        agent: els.agentModal,
         wall: els.gptWallModal,
         settings: els.boardSettingsModal,
         'display-dashboard-message': els.displayDashboardMessageModal,
@@ -3697,9 +3625,6 @@
         employeeSalary: () => closeEmployeeSalaryModal(),
         'employee-salary-reconciliation-period': () => closeEmployeeSalaryReconciliationPeriodDialog(),
         'employee-salary-report': () => closeEmployeeSalaryReportModal(),
-        agent: () => {
-          closeAgentModal();
-        },
         wall: () => popModal('wall'),
         settings: () => {
           if (isModalOpen('display-dashboard-message')) closeDisplayDashboardMessageEditor();
@@ -6985,141 +6910,11 @@
       }
     }
 
-    function boardAgentContext() {
-      const columns = Array.isArray(state.snapshot?.columns) ? state.snapshot.columns : [];
-      const cards = Array.isArray(state.snapshot?.cards) ? state.snapshot.cards : [];
-      return {
-        kind: 'board',
-        revision: String(state.snapshot?.meta?.revision || ''),
-        active_cards: cards.length,
-        archived_cards: archivedCardsTotal(),
-        columns: columns.map((column) => ({ id: column.id, label: column.label })),
-      };
-    }
-
-    function cardAgentContext() {
-      const payload = currentCardPayload();
-      const vehicleProfile = readVehicleProfileForm();
-      const cardId = String(state.editingId || state.activeCard?.id || '').trim();
-      const repairOrder = els.repairOrderModal?.classList.contains('is-open')
-        ? readRepairOrderFromForm()
-        : repairOrderCardDraft(state.activeCard, state.activeCard?.repair_order || {});
-      return {
-        kind: 'card',
-        card_id: cardId,
-        title: payload.title,
-        vehicle: payload.vehicle,
-        description: payload.description,
-        column: payload.column,
-        tags: payload.tags,
-        vin: String(vehicleProfile?.vin || repairOrder?.vin || '').trim(),
-        vehicle_profile: vehicleProfile,
-        repair_order: repairOrder,
-      };
-    }
-
-    function buildAgentContext(kind) {
-      return String(kind || '').trim().toLowerCase() === 'card' ? cardAgentContext() : boardAgentContext();
-    }
-
-    function activeAiTaskContext() {
-      if (els.agentModal?.classList.contains('is-open') && state.agentContext && typeof state.agentContext === 'object') {
-        return state.agentContext;
-      }
-      if (state.agentContext && typeof state.agentContext === 'object') {
-        return state.agentContext;
-      }
-      return { kind: 'board' };
-    }
-
-    function currentCardEnrichmentTask(tasks, options = {}) {
-      const items = Array.isArray(tasks) ? tasks : [];
-      const includeTerminal = Boolean(options.includeTerminal);
-      const card = currentAgentContextCard();
-      const cardId = String(card?.id || '').trim();
-      if (!cardId) return null;
-      return items.find((item) => {
-        const metadata = item?.metadata && typeof item.metadata === 'object' ? item.metadata : {};
-        const context = metadata.context && typeof metadata.context === 'object' ? metadata.context : {};
-        const status = String(item?.status || '').trim().toLowerCase();
-        const purpose = String(metadata.purpose || '').trim().toLowerCase();
-        if (purpose !== 'card_autofill' && purpose !== 'full_card_enrichment') return false;
-        if (String(context.card_id || '').trim() !== cardId) return false;
-        if (includeTerminal) return true;
-        return status === 'pending' || status === 'running';
-      }) || null;
-    }
-
-    function renderFullCardEnrichmentEntryState(statusPayload) {
-      if (!(els.cardAgentButton instanceof HTMLElement)) return;
-      const payload = statusPayload && typeof statusPayload === 'object' ? statusPayload : {};
-      const effectiveMode = payload.ai_remodel?.effective_mode && typeof payload.ai_remodel.effective_mode === 'object'
-        ? payload.ai_remodel.effective_mode
-        : {};
-      const entryExposure = effectiveMode.entry_exposure?.future_card_enrichment_trigger && typeof effectiveMode.entry_exposure.future_card_enrichment_trigger === 'object'
-        ? effectiveMode.entry_exposure.future_card_enrichment_trigger
-        : {};
-      const exposureState = String(entryExposure.exposure_state || '').trim().toLowerCase();
-      const latestTask = currentCardEnrichmentTask(state.agentLatestTasks, { includeTerminal: true });
-      const latestStatus = String(latestTask?.status || '').trim().toLowerCase();
-      const agentReady = Boolean(payload.agent?.ready ?? payload.agent?.available ?? payload.agent?.enabled);
-      let uiState = 'idle';
-      let title = 'AI карточки';
-      if (latestStatus === 'pending' || latestStatus === 'running') {
-        uiState = 'busy';
-        title = 'AI карточки · идёт обогащение';
-      } else if (latestStatus === 'failed') {
-        uiState = 'error';
-        title = 'AI карточки · ошибка обогащения';
-      } else if (agentReady && exposureState !== 'hidden' && exposureState !== 'replaced' && currentAgentContextCard()?.id) {
-        uiState = 'online';
-        title = 'AI карточки · готово к обогащению';
-      }
-      els.cardAgentButton.dataset.state = uiState;
-      els.cardAgentButton.title = title;
-      els.cardAgentButton.setAttribute('aria-label', title);
-      els.cardAgentButton.disabled = uiState === 'busy' || !currentAgentContextCard()?.id;
-    }
-
-    function formatAgentContextLabel(context) {
-      const normalized = context && typeof context === 'object' ? context : { kind: 'board' };
-      if (String(normalized.kind || '').trim().toLowerCase() === 'card') {
-        const heading = String(normalized.title || normalized.vehicle || normalized.card_id || 'карточка').trim();
-        return 'КОНТЕКСТ: КАРТОЧКА · ' + heading;
-      }
-      return 'КОНТЕКСТ: ДОСКА';
-    }
-
-    function agentPlaceholder(context) {
-      if (String(context?.kind || '').trim().toLowerCase() === 'card') {
-        return 'Расшифруй VIN этой карточки';
-      }
-      return 'Сделай обзор доски';
-    }
-
-    function quickAgentPrompts(context) {
-      if (String(context?.kind || '').trim().toLowerCase() === 'card') {
-        return [
-          { label: 'VIN', template: 'vin', prompt: 'Расшифруй VIN этой карточки, используй внешний VIN-декодер и сразу примени в карточку только подтверждённое заполнение паспорта автомобиля.' },
-          { label: 'ЗАПЧАСТИ', template: 'parts', prompt: 'Процени запчасти на этот автомобиль и подбери каталожные номера.' },
-          { label: 'ТО', template: 'maintenance', prompt: 'Процени ТО на этот автомобиль.' },
-          { label: 'ПОРЯДОК', template: 'cleanup', prompt: 'Наведи порядок в этой карточке: структурируй описание без потери информации, автоматически заполни недостающие поля по возможности и сразу примени уверенные изменения в карточку для краткой сути, тегов и паспорта автомобиля. Ничего не выдумывай, а в ответе кратко перечисли, что изменено.' },
-          { label: 'КАРТОЧКА', template: 'card_fill', prompt: 'Заполни карточку по описанию и предложи структуру данных.' },
-        ];
-      }
-      return [
-        { label: 'ОБЗОР', prompt: 'Сделай обзор доски и покажи приоритетные проблемы.' },
-        { label: 'ПРОСРОЧКИ', prompt: 'Найди просроченные карточки и коротко перечисли их.' },
-        { label: 'ОПЛАТЫ', prompt: 'Проверь неоплаченные заказ-наряды и покажи краткую сводку.' },
-        { label: 'КАССЫ', prompt: 'Покажи краткую сводку по кассам и последним движениям.' },
-      ];
-    }
-
     async function runFullCardEnrichment() {
       if (!requireOperatorSession()) return;
       const card = state.activeCard && typeof state.activeCard === 'object'
         ? state.activeCard
-        : currentAgentContextCard();
+        : null;
       const cardId = String(card?.id || state.editingId || '').trim();
       if (!cardId) {
         setStatus('ОТКРОЙ КАРТОЧКУ ДЛЯ AI-ОБОГАЩЕНИЯ.', true);
@@ -7136,7 +6931,7 @@
           body: {
             card_id: cardId,
             actor_name: state.actor,
-            prompt: String(els.agentAutofillPromptInput?.value || card?.ai_autofill_prompt || '').trim(),
+            prompt: String(card?.ai_autofill_prompt || '').trim(),
             context_packet: buildAiFullCardEnrichmentContextPacket(),
           },
         });
@@ -7159,7 +6954,6 @@
         renderCardCleanupIndicator();
         if (taskId) {
           state.agentTaskId = taskId;
-          state.agentTaskStatus = 'pending';
           scheduleCardCleanupPolling(1200);
         }
       } catch (error) {
@@ -7168,657 +6962,6 @@
         renderCardCleanupIndicator();
         setStatus(error.message, true);
       }
-    }
-
-    function summarizeAgentText(value, maxLength = 140) {
-      const text = String(value || '').replace(/\s+/g, ' ').trim();
-      if (!text) return '';
-      if (text.length <= maxLength) return text;
-      return text.slice(0, Math.max(0, maxLength - 1)).trimEnd() + '…';
-    }
-
-    function formatAgentErrorMessage(rawValue) {
-      const raw = String(rawValue || '').trim();
-      if (!raw) return 'Агент завершил задачу с ошибкой.';
-      const normalized = raw.toLowerCase();
-      if (normalized.includes('unsupported_country_region_territory')) {
-        return 'OpenAI API недоступен из текущего региона сервера.';
-      }
-      if (normalized.includes('http 403')) {
-        return 'Внешний сервис отклонил запрос агента (403).';
-      }
-      if (normalized.includes('timed out') || normalized.includes('timeout')) {
-        return 'Агент не дождался ответа внешнего сервиса.';
-      }
-      if (normalized.includes('network') || normalized.includes('connection')) {
-        return 'Ошибка сетевого доступа у агента.';
-      }
-      return summarizeAgentText(raw, 220);
-    }
-
-    function normalizeAgentDisplay(task) {
-      const rawDisplay = task?.display && typeof task.display === 'object' ? task.display : {};
-      const title = String(rawDisplay.title || task?.summary || '').trim();
-      const summary = String(rawDisplay.summary || '').trim();
-      const emoji = String(rawDisplay.emoji || '').trim().slice(0, 6);
-      const tone = String(rawDisplay.tone || '').trim().toLowerCase();
-      const sections = Array.isArray(rawDisplay.sections) ? rawDisplay.sections : [];
-      const actions = Array.isArray(rawDisplay.actions) ? rawDisplay.actions : [];
-      if (title || summary || sections.length || actions.length) {
-        return {
-          emoji,
-          title,
-          summary,
-          tone: ['info', 'success', 'warning', 'error'].includes(tone) ? tone : 'success',
-          sections: sections
-            .filter((item) => item && typeof item === 'object')
-            .map((item) => ({
-              title: String(item.title || '').trim(),
-              body: String(item.body || '').trim(),
-              items: Array.isArray(item.items)
-                ? item.items.map((entry) => String(entry || '').trim()).filter(Boolean)
-                : [],
-            }))
-            .filter((item) => item.title || item.body || item.items.length),
-          actions: actions.map((item) => String(item || '').trim()).filter(Boolean),
-        };
-      }
-      const summaryText = String(task?.summary || '').trim();
-      const resultText = String(task?.result || '').trim();
-      const blocks = resultText ? resultText.split(/\n\s*\n/).map((item) => item.trim()).filter(Boolean) : [];
-      const lead = blocks.length ? blocks.shift() : resultText;
-      const parsedSections = blocks.map((block) => {
-        const lines = block.split('\n').map((item) => item.trim()).filter(Boolean);
-        if (!lines.length) return null;
-        const titleLine = lines[0].endsWith(':') ? lines[0].slice(0, -1).trim() : '';
-        const bulletLines = lines
-          .filter((line) => /^[-•]/.test(line))
-          .map((line) => line.replace(/^[-•]\s*/, '').trim())
-          .filter(Boolean);
-        const bodyLines = titleLine
-          ? lines.slice(1).filter((line) => !/^[-•]/.test(line))
-          : lines.filter((line) => !/^[-•]/.test(line));
-        if (!titleLine && !bulletLines.length) return { title: '', body: lines.join(' '), items: [] };
-        return {
-          title: titleLine,
-          body: bodyLines.join(' ').trim(),
-          items: bulletLines,
-        };
-      }).filter(Boolean);
-      return {
-        emoji: '',
-        title: summaryText,
-        summary: lead,
-        tone: 'success',
-        sections: parsedSections,
-        actions: [],
-      };
-    }
-
-    function renderAgentDisplay(display) {
-      const payload = display && typeof display === 'object' ? display : {};
-      const title = String(payload.title || '').trim();
-      const summary = String(payload.summary || '').trim();
-      const emoji = String(payload.emoji || '').trim();
-      const sections = Array.isArray(payload.sections) ? payload.sections : [];
-      const actions = Array.isArray(payload.actions) ? payload.actions : [];
-      const hero = (emoji || title || summary)
-        ? '<div class="agent-result__hero">'
-          + ((emoji || title)
-            ? '<div class="agent-result__hero-line">'
-              + (emoji ? '<div class="agent-result__emoji">' + escapeHtml(emoji) + '</div>' : '')
-              + (title ? '<div class="agent-result__title">' + escapeHtml(title) + '</div>' : '')
-              + '</div>'
-            : '')
-          + (summary ? '<div class="agent-result__summary">' + escapeHtml(summary) + '</div>' : '')
-          + '</div>'
-        : '';
-      const sectionsHtml = sections.length
-        ? '<div class="agent-result__sections">' + sections.map((section) =>
-            '<section class="agent-result__section">'
-              + (section.title ? '<div class="agent-result__section-title">' + escapeHtml(section.title) + '</div>' : '')
-              + (section.body ? '<div class="agent-result__section-body">' + escapeHtml(section.body) + '</div>' : '')
-              + (Array.isArray(section.items) && section.items.length
-                ? '<ul class="agent-result__list">' + section.items.map((item) => '<li>' + escapeHtml(item) + '</li>').join('') + '</ul>'
-                : '')
-              + '</section>'
-          ).join('') + '</div>'
-        : '';
-      const actionsHtml = actions.length
-        ? '<div class="agent-result__actions">' + actions.map((item) =>
-            '<button class="agent-result__action" type="button" data-agent-follow-up="' + escapeHtml(item) + '">' + escapeHtml(item) + '</button>'
-          ).join('') + '</div>'
-        : '';
-      return hero + sectionsHtml + actionsHtml;
-    }
-
-    function renderAgentStatus(statusPayload) {
-      const payload = statusPayload && typeof statusPayload === 'object' ? statusPayload : {};
-      const status = payload.status && typeof payload.status === 'object' ? payload.status : {};
-      const queue = payload.queue && typeof payload.queue === 'object' ? payload.queue : {};
-      const recentRuns = Array.isArray(payload.recent_runs) ? payload.recent_runs : [];
-      const latestRun = recentRuns.length ? recentRuns[0] : null;
-      const latestRunStatus = String(latestRun?.status || '').trim().toLowerCase();
-      const agentReady = Boolean(payload.agent?.ready ?? payload.agent?.available ?? payload.agent?.enabled);
-      const availabilityReason = String(payload.agent?.availability_reason || '').trim().toLowerCase();
-      let stateLabel = 'ОФЛАЙН';
-      let stateValue = 'idle';
-      if (agentReady) {
-        stateLabel = 'ГОТОВ';
-        stateValue = 'online';
-      } else if (availabilityReason === 'configured_but_worker_idle') {
-        stateLabel = 'ЗАПУСК';
-        stateValue = 'waiting';
-      }
-      if (status.running) {
-        stateLabel = 'В РАБОТЕ';
-        stateValue = 'busy';
-      } else if (latestRunStatus === 'completed') {
-        stateLabel = 'ГОТОВ';
-        stateValue = 'online';
-      } else if (latestRunStatus === 'failed') {
-        stateLabel = 'СБОЙ';
-        stateValue = 'error';
-      } else if (status.last_error) {
-        stateLabel = 'СБОЙ';
-        stateValue = 'error';
-      }
-      if (els.agentStatusLabel) {
-        const pendingTotal = finiteNonNegativeNumber(queue.pending_total);
-        els.agentStatusLabel.textContent = pendingTotal > 0 ? (stateLabel + ' · ' + pendingTotal) : stateLabel;
-        els.agentStatusLabel.dataset.state = stateValue;
-      }
-      if (els.agentRunButton) {
-        const busy = Boolean(status.running);
-        els.agentRunButton.disabled = busy;
-        els.agentRunButton.textContent = busy ? 'ВЫПОЛНЯЕТСЯ' : 'ВЫПОЛНИТЬ';
-      }
-      renderAgentAutofillControls(payload);
-      renderFullCardEnrichmentEntryState(payload);
-    }
-
-    function renderAgentAutofillControls(statusPayload) {
-      const payload = statusPayload && typeof statusPayload === 'object' ? statusPayload : {};
-      const agentReady = Boolean(payload.agent?.ready ?? payload.agent?.available ?? payload.agent?.enabled);
-      const availabilityReason = String(payload.agent?.availability_reason || '').trim().toLowerCase();
-      const card = currentAgentContextCard();
-      const activeTask = currentCardAutofillTask(state.agentLatestTasks);
-      const active = Boolean(card?.ai_autofill_active);
-      const displayActive = Boolean(active || activeTask);
-      const untilText = String(card?.ai_autofill_until || '').trim();
-      const countdown = displayActive ? formatAgentCountdown(untilText) : '';
-      let buttonLabel = 'ПОЛНОЕ ЗАПОЛНЕНИЕ';
-      let statusText = 'ОТКРОЙ КАРТОЧКУ';
-      let stateValue = 'offline';
-      let disabled = !String(card?.id || '').trim();
-      if (String(card?.id || '').trim()) {
-        if (activeTask) {
-          const trigger = String(activeTask?.metadata?.trigger || '').trim().toLowerCase();
-          statusText = (trigger === 'adaptive_followup' || trigger === 'retry_after_error') ? 'ПОВТОРНЫЙ ПРОХОД' : 'ПЕРВЫЙ ПРОХОД';
-          stateValue = 'active';
-          disabled = false;
-        } else if (active) {
-          const nextRunText = formatAgentClock(card?.ai_next_run_at || '');
-          statusText = nextRunText ? ('ОЖИДАНИЕ · ' + nextRunText) : 'ПОЛНОЕ ЗАПОЛНЕНИЕ АКТИВНО';
-          stateValue = 'waiting';
-          disabled = false;
-        } else if (!agentReady && availabilityReason === 'configured_but_worker_idle') {
-          statusText = 'SERVER AI STARTING';
-          stateValue = 'waiting';
-          disabled = true;
-        } else if (!agentReady) {
-          statusText = 'SERVER AI OFFLINE';
-          stateValue = 'offline';
-          disabled = true;
-        } else {
-          statusText = 'SERVER AI READY';
-          stateValue = 'online';
-          disabled = false;
-        }
-      }
-      if (els.agentAutofillButton) {
-        els.agentAutofillButton.innerHTML = displayActive
-          ? '<span class="agent-autofill-button__label">' + escapeHtml(buttonLabel) + '</span><span class="agent-autofill-button__timer">' + escapeHtml(countdown || '00:00') + '</span>'
-          : '<span class="agent-autofill-button__label">' + escapeHtml(buttonLabel) + '</span>';
-        els.agentAutofillButton.disabled = disabled;
-        els.agentAutofillButton.dataset.state = displayActive ? 'active' : 'inactive';
-      }
-      if (els.agentAutofillStatus) {
-        els.agentAutofillStatus.textContent = statusText;
-        els.agentAutofillStatus.dataset.state = stateValue;
-      }
-      syncAgentAutofillPromptPanel(card);
-    }
-
-    function syncAgentAutofillPromptPanel(card) {
-      const promptValue = String(card?.ai_autofill_prompt || '').trim();
-      if (els.agentAutofillPromptInput && document.activeElement !== els.agentAutofillPromptInput) {
-        els.agentAutofillPromptInput.value = promptValue;
-      }
-      if (els.agentAutofillPromptPanel) {
-        els.agentAutofillPromptPanel.hidden = !state.agentAutofillPromptOpen;
-      }
-      if (els.agentAutofillPromptToggle) {
-        els.agentAutofillPromptToggle.dataset.open = state.agentAutofillPromptOpen ? 'true' : 'false';
-      }
-    }
-
-    function toggleAgentAutofillPromptPanel() {
-      state.agentAutofillPromptOpen = !state.agentAutofillPromptOpen;
-      syncAgentAutofillPromptPanel(currentAgentContextCard());
-      if (state.agentAutofillPromptOpen) {
-        window.setTimeout(() => els.agentAutofillPromptInput?.focus(), 0);
-      }
-    }
-
-    async function saveAgentAutofillPrompt() {
-      const card = currentAgentContextCard();
-      const cardId = String(card?.id || '').trim();
-      if (!cardId) return setStatus('ОТКРОЙ КАРТОЧКУ ДЛЯ MINI-PROMPT.', true);
-      try {
-        const data = await api('/api/set_card_ai_autofill', {
-          method: 'POST',
-          body: {
-            card_id: cardId,
-            prompt: String(els.agentAutofillPromptInput?.value || '').trim(),
-            actor_name: state.actor,
-          },
-        });
-        if (data?.card) {
-          state.activeCard = data.card;
-          if (els.cardModal?.classList.contains('is-open')) applyCardModalState(data.card);
-        }
-        setStatus('MINI-PROMPT СОХРАНЁН.', false);
-        await refreshAgentModalState();
-      } catch (error) {
-        setStatus(error.message, true);
-      }
-    }
-
-    async function resetAgentAutofillPrompt() {
-      if (els.agentAutofillPromptInput) els.agentAutofillPromptInput.value = '';
-      await saveAgentAutofillPrompt();
-    }
-
-    async function toggleAgentCardAutofill() {
-      const card = currentAgentContextCard();
-      const cardId = String(card?.id || '').trim();
-      if (!cardId) return setStatus('ОТКРОЙ КАРТОЧКУ ДЛЯ ПОЛНОГО ЗАПОЛНЕНИЯ.', true);
-      const nextEnabled = !(Boolean(card?.ai_autofill_active) || Boolean(currentCardAutofillTask(state.agentLatestTasks)));
-      try {
-        if (els.agentAutofillButton) els.agentAutofillButton.disabled = true;
-        const data = await api('/api/set_card_ai_autofill', {
-          method: 'POST',
-          body: {
-            card_id: cardId,
-            enabled: nextEnabled,
-            prompt: String(els.agentAutofillPromptInput?.value || card?.ai_autofill_prompt || '').trim(),
-            actor_name: state.actor,
-          },
-        });
-        if (data?.card) {
-          state.activeCard = data.card;
-          if (els.cardModal?.classList.contains('is-open')) applyCardModalState(data.card);
-        }
-        if (data?.meta?.task_id) {
-          state.agentTaskId = String(data.meta.task_id || '').trim();
-          state.agentLatestTasks = [
-            {
-              id: state.agentTaskId,
-              status: 'running',
-              metadata: {
-                purpose: 'full_card_enrichment',
-                trigger: 'manual_activate',
-                context: { kind: 'card', card_id: cardId },
-              },
-            },
-            ...((Array.isArray(state.agentLatestTasks) ? state.agentLatestTasks : []).filter((item) => String(item?.id || '').trim() !== state.agentTaskId)),
-          ];
-        } else if (!nextEnabled) {
-          state.agentLatestTasks = (Array.isArray(state.agentLatestTasks) ? state.agentLatestTasks : []).filter((item) => {
-            const metadata = item?.metadata && typeof item.metadata === 'object' ? item.metadata : {};
-            const context = metadata.context && typeof metadata.context === 'object' ? metadata.context : {};
-            const purpose = String(metadata.purpose || '').trim().toLowerCase();
-            return !((purpose === 'card_autofill' || purpose === 'full_card_enrichment')
-              && String(context.card_id || '').trim() === cardId);
-          });
-        }
-        if (data?.meta && Object.prototype.hasOwnProperty.call(data.meta, 'server_available')) {
-          const payload = state.agentStatusPayload && typeof state.agentStatusPayload === 'object' ? state.agentStatusPayload : {};
-          const agent = payload.agent && typeof payload.agent === 'object' ? payload.agent : {};
-          const serverAvailable = Boolean(data.meta.server_available);
-          state.agentStatusPayload = {
-            ...payload,
-            agent: {
-              ...agent,
-              available: serverAvailable,
-              ready: serverAvailable ? Boolean(agent.ready ?? true) : Boolean(agent.ready ?? false),
-              availability_reason: serverAvailable
-                ? String(agent.availability_reason || 'worker_running')
-                : String(agent.availability_reason || 'configured_but_worker_idle'),
-            },
-          };
-        }
-        renderAgentAutofillControls(state.agentStatusPayload || {});
-        setStatus(nextEnabled ? 'ПОЛНОЕ ЗАПОЛНЕНИЕ ВКЛЮЧЕНО НА 4 ЧАСА.' : 'ПОЛНОЕ ЗАПОЛНЕНИЕ ОТКЛЮЧЕНО.', false);
-        await refreshAgentModalState();
-      } catch (error) {
-        setStatus(error.message, true);
-      } finally {
-        renderAgentAutofillControls(state.agentStatusPayload || {});
-      }
-    }
-
-    function renderAgentActions(actions) {
-      const items = Array.isArray(actions) ? actions : [];
-      if (!els.agentActionsList) return;
-      if (!items.length) {
-        els.agentActionsList.innerHTML = '<div class="cashboxes-empty">Действий пока нет.</div>';
-        return;
-      }
-      els.agentActionsList.innerHTML = items.map((item) => {
-        const tool = String(item?.tool || '').trim() || 'tool';
-        const reason = String(item?.reason || '').trim() || 'Без пояснения';
-        const finishedAt = String(item?.finished_at || '').trim() || 'нет времени';
-        return '<div class="agent-action-row">'
-          + '<div class="agent-action-row__tool">' + escapeHtml(tool) + '</div>'
-          + '<div class="agent-action-row__reason">' + escapeHtml(reason) + '</div>'
-          + '<div class="agent-action-row__meta">' + escapeHtml(finishedAt) + '</div>'
-          + '</div>';
-      }).join('');
-    }
-
-    function renderAgentQuickActions(context) {
-      if (!els.agentQuickActions) return;
-      const actions = quickAgentPrompts(context);
-      els.agentQuickActions.innerHTML = actions.map((item) =>
-        '<button class="agent-shortcut" type="button"'
-          + (item.template ? ' data-agent-template="' + escapeHtml(item.template) + '"' : '')
-          + (item.prompt ? ' data-agent-prompt="' + escapeHtml(item.prompt) + '"' : '')
-          + '>' + escapeHtml(item.label) + '</button>'
-      ).join('');
-    }
-
-    function currentAgentContextCard() {
-      const context = activeAiTaskContext();
-      if (String(context.kind || '').trim().toLowerCase() !== 'card') return null;
-      const activeCard = state.activeCard && typeof state.activeCard === 'object' ? state.activeCard : null;
-      if (activeCard && String(activeCard.id || '').trim()) return activeCard;
-      return {
-        id: String(context.card_id || state.editingId || '').trim(),
-        heading: String(context.card_heading || '').trim(),
-        title: String(context.card_title || '').trim(),
-      };
-    }
-
-    function renderAgentRuns(runs) {
-      if (!els.agentRunsList) return;
-      const items = Array.isArray(runs) ? runs : [];
-      const context = activeAiTaskContext();
-      const cardId = String(context?.card_id || '').trim();
-      const filtered = cardId
-        ? items.filter((item) => String(item?.metadata?.context?.card_id || '').trim() === cardId)
-        : items;
-      const visible = (filtered.length ? filtered : items).slice(0, 2);
-      if (!visible.length) {
-        els.agentRunsList.innerHTML = '<div class="cashboxes-empty">Запусков пока нет.</div>';
-        if (els.agentRunsDetails) els.agentRunsDetails.open = false;
-        return;
-      }
-      if (els.agentRunsDetails) els.agentRunsDetails.open = false;
-      els.agentRunsList.innerHTML = visible.map((item) => {
-        const taskId = String(item?.task_id || '').trim();
-        const status = String(item?.status || '').trim().toLowerCase();
-        const statusLabel = status === 'completed' ? 'ГОТОВО' : (status === 'failed' ? 'ОШИБКА' : (status === 'running' ? 'В РАБОТЕ' : 'ОЖИДАЕТ'));
-        const summarySource = status === 'failed'
-          ? String(item?.error || item?.summary || item?.task_text || 'Запуск агента').trim()
-          : String(item?.summary || item?.task_text || 'Запуск агента').trim();
-        const summary = status === 'failed'
-          ? formatAgentErrorMessage(summarySource)
-          : summarizeAgentText(summarySource, 96);
-        const meta = [formatDate(item?.finished_at || item?.started_at || ''), String(item?.model || '').trim()].filter(Boolean).join(' · ');
-        return '<button class="agent-run-row" type="button" data-agent-task-id="' + escapeHtml(taskId) + '" data-active="' + String(taskId && taskId === state.agentTaskId) + '">'
-          + '<div class="agent-run-row__top"><span class="agent-run-row__status">' + escapeHtml(statusLabel) + '</span><span>' + escapeHtml(taskId || 'RUN') + '</span></div>'
-          + '<div class="agent-run-row__summary">' + escapeHtml(summary) + '</div>'
-          + '<div class="agent-run-row__meta">' + escapeHtml(meta || 'Без времени') + '</div>'
-          + '</button>';
-      }).join('');
-    }
-
-    function currentCardAutofillTask(tasks) {
-      const items = Array.isArray(tasks) ? tasks : [];
-      const card = currentAgentContextCard();
-      const cardId = String(card?.id || '').trim();
-      if (!cardId) return null;
-      return items.find((item) => {
-        const metadata = item?.metadata && typeof item.metadata === 'object' ? item.metadata : {};
-        const context = metadata.context && typeof metadata.context === 'object' ? metadata.context : {};
-        const status = String(item?.status || '').trim().toLowerCase();
-        const purpose = String(metadata.purpose || '').trim().toLowerCase();
-        return (purpose === 'card_autofill' || purpose === 'full_card_enrichment')
-          && String(context.card_id || '').trim() === cardId
-          && (status === 'pending' || status === 'running');
-      }) || null;
-    }
-
-    function relevantAgentConsoleTasks(tasks) {
-      const items = Array.isArray(tasks) ? tasks : [];
-      const context = activeAiTaskContext();
-      const kind = String(context.kind || 'board').trim().toLowerCase();
-      const cardId = String(context.card_id || '').trim();
-      return items.filter((item) => {
-        const metadata = item?.metadata && typeof item.metadata === 'object' ? item.metadata : {};
-        const taskContext = metadata.context && typeof metadata.context === 'object' ? metadata.context : {};
-        if (kind === 'card') return String(taskContext.card_id || '').trim() === cardId;
-        return String(taskContext.kind || 'board').trim().toLowerCase() === 'board';
-      }).slice(0, 12);
-    }
-
-    function summarizeAgentConsoleText(value, limit = 220) {
-      const text = String(value || '').replace(/\s+/g, ' ').trim();
-      if (!text) return '';
-      return text.length > limit ? (text.slice(0, limit - 1).trim() + '…') : text;
-    }
-
-    function mapAgentActionToConsoleEntry(action) {
-      if (!action || typeof action !== 'object') return null;
-      const kind = String(action.kind || '').trim().toLowerCase();
-      const timestamp = String(action.finished_at || action.started_at || '').trim();
-      if (kind === 'log') {
-        return {
-          timestamp,
-          level: String(action.level || 'INFO').trim().toUpperCase(),
-          message: summarizeAgentConsoleText(action.message || action.result_preview || 'Событие агента'),
-          detail: '',
-          taskId: String(action.task_id || '').trim(),
-          actions: [],
-        };
-      }
-      const tool = String(action.tool || '').trim().toLowerCase();
-      const messageMap = {
-        get_card: 'Начат анализ карточки.',
-        get_card_context: 'Начат анализ карточки.',
-        decode_vin: 'Обнаружен VIN. Идёт расшифровка.',
-        find_part_numbers: 'Идёт поиск каталожных номеров.',
-        search_part_numbers: 'Идёт поиск каталожных номеров.',
-        estimate_price_ru: 'Идёт оценка цен по РФ.',
-        lookup_part_prices: 'Идёт оценка цен по РФ.',
-        estimate_maintenance: 'Найден контекст по ТО.',
-        decode_dtc: 'Идёт расшифровка кодов ошибок.',
-        search_fault_info: 'Идёт поиск во внешних источниках.',
-        search_web: 'Идёт поиск во внешних источниках.',
-        fetch_page_excerpt: 'Идёт поиск во внешних источниках.',
-        update_card: 'Карточка обновлена.',
-        update_repair_order: 'Заказ-наряд обновлён.',
-        replace_repair_order_works: 'Заказ-наряд обновлён.',
-        replace_repair_order_materials: 'Заказ-наряд обновлён.',
-      };
-      return {
-        timestamp,
-        level: tool === 'update_card' ? 'DONE' : 'INFO',
-        message: messageMap[tool] || ('Выполнен tool: ' + String(action.tool || 'tool').trim()),
-        detail: summarizeAgentConsoleText(action.reason || action.result_preview || '', 260),
-        taskId: String(action.task_id || '').trim(),
-        actions: [],
-      };
-    }
-
-    function buildAgentTaskFallbackEntry(task) {
-      if (!task || typeof task !== 'object') return null;
-      const status = String(task.status || '').trim().toLowerCase();
-      let level = 'INFO';
-      let message = '';
-      if (status === 'running') {
-        level = 'RUN';
-        message = 'Агент обрабатывает задачу.';
-      } else if (status === 'pending') {
-        level = 'WAIT';
-        message = 'Задача ожидает выполнения.';
-      } else if (status === 'failed') {
-        level = 'WARN';
-        message = 'Ошибка выполнения задачи.';
-      } else if (status === 'completed') {
-        level = 'DONE';
-        message = summarizeAgentConsoleText(task.summary || task.result || 'Задача завершена.');
-      } else {
-        return null;
-      }
-      return {
-        timestamp: String(task.finished_at || task.started_at || task.created_at || '').trim(),
-        level,
-        message,
-        detail: summarizeAgentConsoleText(task.result || task.error || '', 260),
-        taskId: String(task.id || '').trim(),
-        actions: [],
-      };
-    }
-
-    function buildAgentConsoleEntries(tasks, actions, selectedTask) {
-      const entries = [];
-      const card = currentAgentContextCard();
-      const cardLog = Array.isArray(card?.ai_autofill_log) ? card.ai_autofill_log : [];
-      cardLog.forEach((entry) => {
-        entries.push({
-          timestamp: String(entry?.timestamp || '').trim(),
-          level: String(entry?.level || 'INFO').trim().toUpperCase(),
-          message: summarizeAgentConsoleText(entry?.message || ''),
-          detail: '',
-          taskId: String(entry?.task_id || '').trim(),
-          actions: [],
-        });
-      });
-      const relevantTasks = relevantAgentConsoleTasks(tasks);
-      const relevantTaskIds = new Set(relevantTasks.map((item) => String(item?.id || '').trim()).filter(Boolean));
-      if (selectedTask?.id) relevantTaskIds.add(String(selectedTask.id || '').trim());
-      (Array.isArray(actions) ? actions : []).forEach((action) => {
-        const taskId = String(action?.task_id || '').trim();
-        if (taskId && relevantTaskIds.size && !relevantTaskIds.has(taskId)) return;
-        const mapped = mapAgentActionToConsoleEntry(action);
-        if (mapped) entries.push(mapped);
-      });
-      relevantTasks.forEach((task) => {
-        const fallback = buildAgentTaskFallbackEntry(task);
-        if (fallback) entries.push(fallback);
-      });
-      if (selectedTask && typeof selectedTask === 'object') {
-        const display = normalizeAgentDisplay(selectedTask);
-        const actionItems = Array.isArray(display.actions) ? display.actions.filter(Boolean).slice(0, 4) : [];
-        if (display.title || display.summary || actionItems.length) {
-          entries.push({
-            timestamp: String(selectedTask.finished_at || selectedTask.started_at || selectedTask.created_at || '').trim(),
-            level: String(selectedTask.status || '').trim().toLowerCase() === 'failed' ? 'WARN' : 'DONE',
-            message: summarizeAgentConsoleText(display.title || selectedTask.summary || selectedTask.result || 'Ответ агента.'),
-            detail: summarizeAgentConsoleText(display.summary || selectedTask.result || '', 260),
-            taskId: String(selectedTask.id || '').trim(),
-            actions: actionItems,
-          });
-        }
-      }
-      const seen = new Set();
-      return entries
-        .filter((item) => item && item.message)
-        .sort((left, right) => {
-          const leftRaw = new Date(left.timestamp || 0).getTime();
-          const rightRaw = new Date(right.timestamp || 0).getTime();
-          const leftTime = Number.isFinite(leftRaw) ? leftRaw : 0;
-          const rightTime = Number.isFinite(rightRaw) ? rightRaw : 0;
-          return leftTime - rightTime;
-        })
-        .filter((item) => {
-          const key = [item.timestamp, item.level, item.message, item.taskId].join('|');
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        })
-        .slice(-40);
-    }
-
-    function renderAgentConsole(entries) {
-      if (!els.agentResultPanel) return;
-      const items = Array.isArray(entries) ? entries : [];
-      if (!items.length) {
-        els.agentResultPanel.dataset.state = 'empty';
-        delete els.agentResultPanel.dataset.tone;
-        els.agentResultPanel.innerHTML = '<div class="agent-result__fallback">Лента агента пуста. Запусти задачу или включи автосопровождение.</div>';
-        return;
-      }
-      const panel = els.agentResultPanel;
-      const distanceToBottom = panel.scrollHeight - panel.scrollTop - panel.clientHeight;
-      const shouldStickBottom = distanceToBottom < 48;
-      panel.dataset.state = 'filled';
-      delete panel.dataset.tone;
-      panel.innerHTML = '<div class="agent-console">' + items.map((item) => {
-        const timestamp = formatAgentClock(item.timestamp, { withSeconds: true }) || '---';
-        const detailHtml = item.detail ? '<div class="agent-console__detail">' + escapeHtml(item.detail) + '</div>' : '';
-        const actionsHtml = Array.isArray(item.actions) && item.actions.length
-          ? '<div class="agent-console__actions">' + item.actions.map((action) =>
-              '<button class="agent-console__action" type="button" data-agent-follow-up="' + escapeHtml(action) + '">' + escapeHtml(action) + '</button>'
-            ).join('') + '</div>'
-          : '';
-        return '<div class="agent-console__entry">'
-          + '<div class="agent-console__top"><div class="agent-console__meta"><span class="agent-console__level" data-level="' + escapeHtml(item.level || 'INFO') + '">' + escapeHtml(item.level || 'INFO') + '</span></div><span class="agent-console__timestamp">' + escapeHtml(timestamp) + '</span></div>'
-          + '<div class="agent-console__message">' + escapeHtml(item.message || '') + '</div>'
-          + detailHtml
-          + actionsHtml
-          + '</div>';
-      }).join('') + '</div>';
-      if (shouldStickBottom) panel.scrollTop = panel.scrollHeight;
-    }
-
-    function handleAgentResultActionClick(event) {
-      const button = event.target.closest('[data-agent-follow-up]');
-      if (!button || !els.agentTaskInput) return;
-      const followUp = String(button.dataset.agentFollowUp || '').trim();
-      if (!followUp) return;
-      els.agentTaskInput.value = followUp;
-      syncAgentTaskInputHeight();
-      els.agentTaskInput.focus();
-    }
-
-    function selectAgentTask(tasks) {
-      const items = Array.isArray(tasks) ? tasks : [];
-      if (!items.length) return null;
-      if (state.agentTaskId) {
-        const exact = items.find((item) => item?.id === state.agentTaskId);
-        if (exact) return exact;
-      }
-      const context = activeAiTaskContext();
-      const contextKind = String(context.kind || 'board').trim().toLowerCase();
-      const contextCardId = String(context.card_id || '').trim();
-      const matchesContext = (item) => {
-        const metadataContext = item?.metadata?.context && typeof item.metadata.context === 'object'
-          ? item.metadata.context
-          : {};
-        const itemKind = String(metadataContext.kind || 'board').trim().toLowerCase();
-        if (contextKind === 'card') return String(metadataContext.card_id || '').trim() === contextCardId;
-        return itemKind === 'board';
-      };
-      const active = items.find((item) => {
-        if (!matchesContext(item)) return false;
-        const itemStatus = String(item?.status || '').trim().toLowerCase();
-        return itemStatus === 'pending' || itemStatus === 'running';
-      });
-      return active || null;
     }
 
     async function syncAgentTaskEffects(task) {
@@ -7834,135 +6977,6 @@
           const data = await api('/api/get_card?card_id=' + encodeURIComponent(cardId));
           if (data?.card) applyCardModalState(data.card);
         } catch (_) {}
-      }
-    }
-
-    function isAnyAgentSurfaceOpen() {
-      return Boolean(els.agentModal?.classList.contains('is-open'));
-    }
-
-    function scheduleAgentRefresh(delay = 3000) {
-      if (state.agentRefreshTimer) window.clearTimeout(state.agentRefreshTimer);
-      if (!isAnyAgentSurfaceOpen()) return;
-      state.agentRefreshTimer = window.setTimeout(refreshAgentModalState, delay);
-    }
-
-    async function refreshAgentModalState() {
-      if (!isAnyAgentSurfaceOpen()) return;
-      try {
-        const card = currentAgentContextCard();
-        const cardId = String(card?.id || '').trim();
-        const requests = [
-          api('/api/agent_status'),
-          api('/api/agent_tasks?limit=20'),
-          api('/api/agent_actions?limit=80'),
-        ];
-        if (cardId) requests.push(api('/api/get_card?card_id=' + encodeURIComponent(cardId)));
-        const [statusData, tasksData, actionsData, cardData] = await Promise.all(requests);
-        state.agentStatusPayload = statusData || null;
-        state.agentLatestTasks = Array.isArray(tasksData?.tasks) ? tasksData.tasks : [];
-        state.agentLatestActions = Array.isArray(actionsData?.actions) ? actionsData.actions : [];
-        if (cardData?.card) {
-          state.activeCard = cardData.card;
-          if (els.cardModal?.classList.contains('is-open')) applyCardModalState(cardData.card);
-        }
-        renderAgentStatus(statusData);
-        renderAgentRuns(statusData?.recent_runs || []);
-        const task = selectAgentTask(state.agentLatestTasks);
-        if (task) {
-          state.agentTaskId = String(task.id || state.agentTaskId || '');
-          state.agentTaskStatus = String(task.status || '');
-        }
-        renderAgentConsole(buildAgentConsoleEntries(state.agentLatestTasks, state.agentLatestActions, task));
-        if (task?.id) {
-          const taskActionsData = await api('/api/agent_actions?limit=25&task_id=' + encodeURIComponent(task.id));
-          renderAgentActions(taskActionsData?.actions || []);
-          await syncAgentTaskEffects(task);
-        } else {
-          renderAgentActions([]);
-        }
-        const hasRunningAutofill = Boolean(currentCardAutofillTask(state.agentLatestTasks));
-        const activeAutofill = Boolean(currentAgentContextCard()?.ai_autofill_active);
-        scheduleAgentRefresh(task && (task.status === 'pending' || task.status === 'running')
-          ? 1200
-          : ((hasRunningAutofill || activeAutofill) ? 1800 : 6000));
-      } catch (error) {
-        renderAgentStatus({ agent: { enabled: false }, status: { running: false, last_error: error.message }, queue: { pending_total: 0 } });
-        if (els.agentResultPanel) {
-          els.agentResultPanel.dataset.state = 'error';
-          els.agentResultPanel.dataset.tone = 'error';
-          els.agentResultPanel.innerHTML = '<div class="agent-result__fallback">' + escapeHtml(formatAgentErrorMessage(error.message)) + '</div>';
-        }
-        scheduleAgentRefresh(5000);
-      }
-    }
-
-    function closeAgentModal() {
-      if (!(els.agentModal instanceof HTMLElement)) {
-        hydrateAgentUiRefs();
-      }
-      popModal('agent');
-      state.agentAutofillPromptOpen = false;
-      if (!isAnyAgentSurfaceOpen() && state.agentRefreshTimer) {
-        window.clearTimeout(state.agentRefreshTimer);
-        state.agentRefreshTimer = null;
-      }
-      if (state.agentAutofillCountdownTimer) {
-        window.clearInterval(state.agentAutofillCountdownTimer);
-        state.agentAutofillCountdownTimer = null;
-      }
-    }
-
-    async function enqueueAgentTask() {
-      if (!requireOperatorSession()) return;
-      const taskText = String(els.agentTaskInput?.value || '').trim();
-      if (!taskText) {
-        setStatus('Введите задачу для агента.', true);
-        els.agentTaskInput?.focus();
-        return;
-      }
-      const context = buildAgentContext(state.agentContext?.kind || 'board');
-      state.agentContext = context;
-      if (els.agentContextLabel) els.agentContextLabel.textContent = formatAgentContextLabel(context);
-      try {
-        const quickTemplate = String(els.agentTaskInput?.dataset.agentPromptTemplate || '').trim();
-        const data = await api('/api/agent_enqueue_task', {
-          method: 'POST',
-          body: {
-            source: 'ui_agent',
-            mode: 'manual',
-            task_text: taskText,
-            metadata: {
-              context,
-              quick_template: quickTemplate,
-            },
-          },
-        });
-        state.agentTaskId = String(data?.task?.id || '');
-        state.agentTaskStatus = String(data?.task?.status || '');
-        if (els.agentResultPanel) {
-          els.agentResultPanel.dataset.state = 'active';
-          delete els.agentResultPanel.dataset.tone;
-          renderAgentConsole([
-            {
-              timestamp: new Date().toISOString(),
-              level: 'RUN',
-              message: 'Задача принята и выполняется.',
-              detail: summarizeAgentConsoleText(taskText, 220),
-              taskId: state.agentTaskId,
-              actions: [],
-            },
-          ]);
-        }
-        if (els.agentDetails) els.agentDetails.open = false;
-        refreshAgentModalState();
-      } catch (error) {
-        if (els.agentResultPanel) {
-          els.agentResultPanel.dataset.state = 'error';
-          els.agentResultPanel.dataset.tone = 'error';
-          els.agentResultPanel.innerHTML = '<div class="agent-result__fallback">' + escapeHtml(formatAgentErrorMessage(error.message)) + '</div>';
-        }
-        setStatus(error.message, true);
       }
     }
 
@@ -10899,34 +9913,6 @@
       setBoardSearchOpen(false);
     }
 
-    function formatAgentClock(value, { withSeconds = false } = {}) {
-      if (!value) return '';
-      try {
-        const date = value instanceof Date ? value : new Date(value);
-        if (Number.isNaN(date.getTime())) return '';
-        return date.toLocaleTimeString('ru-RU', withSeconds
-          ? { hour: '2-digit', minute: '2-digit', second: '2-digit' }
-          : { hour: '2-digit', minute: '2-digit' });
-      } catch {
-        return '';
-      }
-    }
-
-    function formatAgentCountdown(untilText) {
-      if (!untilText) return '';
-      try {
-        const untilAt = new Date(untilText);
-        const diffMs = untilAt.getTime() - Date.now();
-        if (!Number.isFinite(diffMs) || diffMs <= 0) return '00:00';
-        const totalMinutes = Math.ceil(diffMs / 60000);
-        const hours = Math.max(0, Math.floor(totalMinutes / 60));
-        const minutes = Math.max(0, totalMinutes % 60);
-        return String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0');
-      } catch {
-        return '';
-      }
-    }
-
     function boardScaleStorageKey(actor = state.actor) {
       const normalizedActor = String(actor || '').trim().toUpperCase();
       return BOARD_SCALE_STORAGE_KEY_PREFIX + (normalizedActor || 'GUEST');
@@ -11514,25 +10500,6 @@
       if (!text) return 'Рабочая карточка';
       if (text.length <= maxLength) return text;
       return text.slice(0, Math.max(0, maxLength - 1)).trimEnd() + '…';
-    }
-
-    function syncAgentTaskInputHeight() {
-      const textarea = els.agentTaskInput;
-      if (!textarea) return;
-      const style = window.getComputedStyle(textarea);
-      const lineHeight = Math.max(20, finiteNumber(style.lineHeight, 22));
-      const paddingTop = finiteNonNegativeNumber(style.paddingTop);
-      const paddingBottom = finiteNonNegativeNumber(style.paddingBottom);
-      const borderTop = finiteNonNegativeNumber(style.borderTopWidth);
-      const borderBottom = finiteNonNegativeNumber(style.borderBottomWidth);
-      const chromeHeight = paddingTop + paddingBottom + borderTop + borderBottom;
-      const text = String(textarea.value || '').trim();
-      const lineCount = text ? text.split(/\r?\n/).length : 0;
-      const minRows = text ? Math.max(3, Math.min(6, lineCount + 1)) : 3;
-      const minHeight = Math.round(minRows * lineHeight + chromeHeight);
-      const maxHeight = Math.max(minHeight, Math.min(window.innerHeight * 0.24, 180));
-      textarea.style.height = 'auto';
-      textarea.style.height = Math.max(minHeight, Math.min(textarea.scrollHeight, maxHeight)) + 'px';
     }
 
     function syncCardDescriptionHeight() {
@@ -14555,7 +13522,7 @@
       stopCardCleanupPolling();
       const card = state.activeCard && typeof state.activeCard === 'object'
         ? state.activeCard
-        : currentAgentContextCard();
+        : null;
       const cardId = String(card?.id || '').trim();
       const taskId = String(state.agentTaskId || '').trim();
       if (!cardId || !taskId) {
@@ -14581,7 +13548,6 @@
           return;
         }
         const status = String(task.status || '').trim().toLowerCase();
-        state.agentTaskStatus = status;
         if (status === 'pending' || status === 'running') {
           state.cardCleanupState = 'running';
           renderCardCleanupIndicator();
@@ -16781,7 +15747,6 @@
         'employees',
         'employeeSalary',
         'employee-salary-report',
-        'agent',
         'wall',
         'settings',
         'sticky',
@@ -17198,7 +16163,6 @@
 
     function openBoardSettings() {
       applyBoardScale(normalizeBoardScale(state.boardScale), { syncInput: true });
-      syncBoardControlSettingsForm();
       syncExtraBoardColumnSettingsForm();
       pushModal('settings', els.boardSettingsModal);
     }
@@ -17517,42 +16481,6 @@
         state.displayDashboardMessageSaving = false;
         if (els.displayDashboardMessageSaveButton) els.displayDashboardMessageSaveButton.disabled = false;
       }
-    }
-
-    function currentBoardControlSettings() {
-      const snapshotSettings = state.snapshot?.settings?.ai_board_control && typeof state.snapshot.settings.ai_board_control === 'object'
-        ? state.snapshot.settings.ai_board_control
-        : {};
-      return {
-        enabled: Boolean(snapshotSettings.enabled),
-        interval_minutes: Math.max(5, Math.min(240, finiteNumber(snapshotSettings.interval_minutes, 20))),
-        cooldown_minutes: Math.max(5, Math.min(1440, finiteNumber(snapshotSettings.cooldown_minutes, 60))),
-      };
-    }
-
-    function boardControlEntryExposure() {
-      const payload = state.agentStatusPayload && typeof state.agentStatusPayload === 'object' ? state.agentStatusPayload : {};
-      const exposure = payload?.ai_remodel?.effective_mode?.entry_exposure?.future_board_control_toggle;
-      return exposure && typeof exposure === 'object' ? exposure : {};
-    }
-
-    function syncBoardControlSettingsForm() {
-      const settings = currentBoardControlSettings();
-      const exposure = boardControlEntryExposure();
-      const visible = String(exposure.exposure_state || '').trim().toLowerCase() !== 'hidden';
-      if (els.boardControlSettingsRow) els.boardControlSettingsRow.classList.toggle('hidden', !visible);
-      if (els.boardControlToggle) els.boardControlToggle.checked = Boolean(settings.enabled);
-      if (els.boardControlIntervalInput) els.boardControlIntervalInput.value = String(settings.interval_minutes);
-      if (els.boardControlCooldownInput) els.boardControlCooldownInput.value = String(settings.cooldown_minutes);
-    }
-
-    function readBoardControlSettingsForm() {
-      if (!els.boardControlToggle && !els.boardControlIntervalInput && !els.boardControlCooldownInput) return null;
-      return {
-        enabled: Boolean(els.boardControlToggle?.checked),
-        interval_minutes: Math.max(5, Math.min(240, finiteNumber(els.boardControlIntervalInput?.value, 20))),
-        cooldown_minutes: Math.max(5, Math.min(1440, finiteNumber(els.boardControlCooldownInput?.value, 60))),
-      };
     }
 
     function handleBoardScaleInput() {
@@ -19250,10 +18178,6 @@
       return;
     }
 
-    function handleAgentModalOverlayClick(event) {
-      return;
-    }
-
     function handleEmployeesModalOverlayClick(event) {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
@@ -19281,35 +18205,6 @@
         const kind = String(removeButton.dataset.employeeIncentiveRemove || '').trim();
         setEmployeeIncentiveActive(kind, false);
       }
-    }
-
-    function handleAgentQuickActionClick(event) {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      const button = target.closest('[data-agent-prompt]');
-      if (!(button instanceof HTMLElement)) return;
-      const prompt = String(button.dataset.agentPrompt || '').trim();
-      const template = String(button.dataset.agentTemplate || '').trim();
-      if (!prompt || !els.agentTaskInput) return;
-      els.agentTaskInput.value = prompt;
-      if (template) {
-        els.agentTaskInput.dataset.agentPromptTemplate = template;
-      } else {
-        delete els.agentTaskInput.dataset.agentPromptTemplate;
-      }
-      syncAgentTaskInputHeight();
-      els.agentTaskInput.focus();
-    }
-
-    function handleAgentRunSelection(event) {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      const row = target.closest('[data-agent-task-id]');
-      if (!(row instanceof HTMLElement)) return;
-      const taskId = String(row.dataset.agentTaskId || '').trim();
-      if (!taskId) return;
-      state.agentTaskId = taskId;
-      refreshAgentModalState();
     }
 
     function handleOperatorProfileModalOverlayClick(event) {
@@ -19371,13 +18266,11 @@
       const scale = normalizeBoardScale(finiteNumber(els.boardScaleInput.value, 100) / 100);
       applyBoardScale(scale, { syncInput: true });
       persistStoredBoardScale(scale);
-      const aiBoardControl = readBoardControlSettingsForm();
       const body = {
         board_scale: scale,
         actor_name: state.actor,
         source: 'ui',
       };
-      if (aiBoardControl) body.ai_board_control = aiBoardControl;
       const data = await api('/api/update_board_settings', {
         method: 'POST',
         body,

@@ -160,10 +160,10 @@ remain registered service routes, not client-only aliases:
   structured `context` and `prompt_profile`, while GET is suitable for a
   simple `prompt` query. The current browser bundle does not call this route.
 - `POST /api/set_card_ai_autofill` updates the exact card's compatibility
-  state and remains part of the active card-enrichment controls. It is a write
-  route, accepts optional `expected_updated_at`, and returns the current card
-  plus launch/retirement metadata. Service-principal callers must supply the
-  current revision through the guarded Gateway route.
+  state and remains a registered backend/Gateway compatibility write. It
+  accepts optional `expected_updated_at` and returns the current card plus
+  launch/retirement metadata. Service-principal callers must supply the current
+  revision through the guarded Gateway route.
 
 The compatibility write remains subject to maintenance, operator-proxy,
 idempotency, audit, and exact-card readback controls. A deployment without the
