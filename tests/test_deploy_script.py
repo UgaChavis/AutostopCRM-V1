@@ -238,7 +238,7 @@ class DeployScriptTests(unittest.TestCase):
         source_validator_end = script.index("\n}\n\n", source_validator_start) + 2
         source_validator = script[source_validator_start:source_validator_end]
         snapshot_start = script.index("snapshot_manager_commit() {")
-        snapshot_end = script.index("\n}\n\nactivate_manager_snapshot", snapshot_start) + 2
+        snapshot_end = script.index("\n}\n", snapshot_start) + 2
         snapshot = script[snapshot_start:snapshot_end]
 
         with tempfile.TemporaryDirectory() as temp_dir:
