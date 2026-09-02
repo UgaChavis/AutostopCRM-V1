@@ -1,6 +1,8 @@
 import os
 import re
+import shlex
 import shutil
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -176,7 +178,18 @@ class DeployScriptTests(unittest.TestCase):
         self.assertIn("run_release docker compose stop", script)
         self.assertIn("run_maintenance env AUTOSTOP_RELEASE_IMAGE", script)
         self.assertEqual(script.count('mkdir -p "$staging_dir/data"'), 1)
-        self.assertEqual(script.count('chmod -R a+rX "$staging_dir"'), 1)
+        self.assertEqual(script.count('chmod -R u=rwX,go=rX "$staging_dir"'), 1)
+        self.assertNotIn('chmod -R a+rX "$staging_dir"', script)
+        self.assertIn("verify_manager_snapshot_artifact()", script)
+        self.assertIn('printf \'%s\\n\' "$expected_revision" > "$staging_dir/REVISION"', script)
+        self.assertIn("MANIFEST.files0", script)
+        self.assertIn("MANIFEST.sha256", script)
+        self.assertIn(
+            'verify_manager_snapshot_artifact "$staging_dir" "$expected_revision"', script
+        )
+        self.assertIn(
+            'verify_manager_snapshot_artifact "$manager_release_dir" "$manager_revision"', script
+        )
         self.assertIn('chmod 0755 "$MANAGER_RELEASE_ROOT"', script)
         self.assertIn('mkdir -p "$MANAGER_RELEASE_ROOT" "$BACKUP_ROOT"', script)
         self.assertIn(
@@ -189,6 +202,11 @@ class DeployScriptTests(unittest.TestCase):
         )
         self.assertIn('disk_available_bytes "$target_path"', script)
         self.assertIn('git -C "$source_dir" archive HEAD | tar -x -C "$staging_dir"', script)
+        self.assertIn('validate_manager_snapshot_source_tree "$staging_dir"', script)
+        self.assertLess(
+            script.index('validate_manager_snapshot_source_tree "$staging_dir"'),
+            script.index('mkdir -p "$staging_dir/data"'),
+        )
         self.assertEqual(
             script.count('snapshot_manager_commit "$MANAGER_SOURCE_DIR"'),
             1,
@@ -209,6 +227,154 @@ class DeployScriptTests(unittest.TestCase):
             script.index('snapshot --backup-dir "$auth_backup_dir"'),
         )
         self.assertNotIn("docker compose up -d --build --remove-orphans", script)
+
+    @unittest.skipUnless(_posix_bash_available(), "a working POSIX bash is required")
+    def test_manager_snapshot_artifact_is_sealed_and_detects_tree_tampering(self) -> None:
+        script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+        verifier_start = script.index("verify_manager_snapshot_artifact() {")
+        verifier_end = script.index("\n}\n\n", verifier_start) + 2
+        verifier = script[verifier_start:verifier_end]
+        source_validator_start = script.index("validate_manager_snapshot_source_tree() {")
+        source_validator_end = script.index("\n}\n\n", source_validator_start) + 2
+        source_validator = script[source_validator_start:source_validator_end]
+        snapshot_start = script.index("snapshot_manager_commit() {")
+        snapshot_end = script.index("\n}\n\nactivate_manager_snapshot", snapshot_start) + 2
+        snapshot = script[snapshot_start:snapshot_end]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "manager-source"
+            source.mkdir()
+            package = source / "autostop_manager"
+            package.mkdir()
+            (package / "module.py").write_text("VALUE = 1\n", encoding="utf-8")
+            (source / "README.md").write_text("manager\n", encoding="utf-8")
+            subprocess.run(["git", "init", "--quiet", str(source)], check=True)
+            subprocess.run(["git", "-C", str(source), "add", "."], check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(source),
+                    "-c",
+                    "user.name=AutoStop Test",
+                    "-c",
+                    "user.email=test@example.invalid",
+                    "commit",
+                    "--quiet",
+                    "-m",
+                    "snapshot fixture",
+                ],
+                check=True,
+            )
+            revision = subprocess.run(
+                ["git", "-C", str(source), "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+
+            def snapshot_from_source(
+                target: Path, staging: Path, expected_revision: str, *, check: bool = True
+            ) -> subprocess.CompletedProcess[str]:
+                harness = f"""
+set -euo pipefail
+manager_release_dir={shlex.quote(str(target))}
+manager_release_staging_dir={shlex.quote(str(staging))}
+manager_attempt_cleanup_authorized=0
+MANAGER_DEPLOY_BRANCH=AutostopManager
+release_git_assert_exact_state() {{
+  local _label="$1"
+  local source_dir="$2"
+  local _branch="$3"
+  local expected_revision="$4"
+  [[ "$(git -C "$source_dir" rev-parse HEAD)" == "$expected_revision" ]]
+}}
+{verifier}
+{source_validator}
+{snapshot}
+snapshot_manager_commit {shlex.quote(str(source))} {shlex.quote(str(target))} {shlex.quote(expected_revision)}
+"""
+                return subprocess.run(
+                    ["bash", "-c", harness],
+                    check=check,
+                    capture_output=True,
+                    text=True,
+                )
+
+            target = root / "manager-release"
+            staging = root / "manager-release.partial-test"
+            snapshot_from_source(target, staging, revision)
+
+            self.assertEqual((target / "REVISION").read_text(encoding="utf-8").strip(), revision)
+            self.assertTrue((target / "MANIFEST.files0").is_file())
+            self.assertTrue((target / "MANIFEST.sha256").is_file())
+            self.assertIn(b"./REVISION\0", (target / "MANIFEST.files0").read_bytes())
+            self.assertNotIn(b"./MANIFEST.files0\0", (target / "MANIFEST.files0").read_bytes())
+            self.assertNotIn(b"./MANIFEST.sha256\0", (target / "MANIFEST.files0").read_bytes())
+            for path in (target, *target.rglob("*")):
+                self.assertEqual(stat.S_IMODE(path.stat().st_mode) & 0o022, 0)
+
+            def verify_snapshot() -> subprocess.CompletedProcess[str]:
+                return subprocess.run(
+                    [
+                        "bash",
+                        "-c",
+                        f"set -euo pipefail\n{verifier}\n"
+                        f"verify_manager_snapshot_artifact {shlex.quote(str(target))} {shlex.quote(revision)}",
+                    ],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+
+            self.assertEqual(verify_snapshot().returncode, 0)
+            extra = target / "unexpected.py"
+            extra.write_text("unexpected = True\n", encoding="utf-8")
+            self.assertNotEqual(verify_snapshot().returncode, 0)
+            extra.unlink()
+            symlink = target / "unexpected-link"
+            symlink.symlink_to("README.md")
+            self.assertNotEqual(verify_snapshot().returncode, 0)
+            symlink.unlink()
+            with (target / "autostop_manager" / "module.py").open("a", encoding="utf-8") as handle:
+                handle.write("TAMPERED = True\n")
+            self.assertNotEqual(verify_snapshot().returncode, 0)
+
+            victim = root / "victim"
+            victim.write_text("unchanged\n", encoding="utf-8")
+            (source / "REVISION").symlink_to("../victim")
+            subprocess.run(["git", "-C", str(source), "add", "REVISION"], check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(source),
+                    "-c",
+                    "user.name=AutoStop Test",
+                    "-c",
+                    "user.email=test@example.invalid",
+                    "commit",
+                    "--quiet",
+                    "-m",
+                    "unsafe snapshot fixture",
+                ],
+                check=True,
+            )
+            unsafe_revision = subprocess.run(
+                ["git", "-C", str(source), "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            unsafe_target = root / "unsafe-manager-release"
+            unsafe_staging = root / "unsafe-manager-release.partial-test"
+            unsafe_result = snapshot_from_source(
+                unsafe_target, unsafe_staging, unsafe_revision, check=False
+            )
+            self.assertNotEqual(unsafe_result.returncode, 0)
+            self.assertEqual(victim.read_text(encoding="utf-8"), "unchanged\n")
+            self.assertFalse(unsafe_target.exists())
 
     def test_deploy_verifies_both_checkouts_before_snapshot_build_or_rotation(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")

@@ -398,6 +398,71 @@ premaintenance_on_exit() {
   exit "$status"
 }
 
+verify_manager_snapshot_artifact() {
+  local snapshot_dir="$1"
+  local expected_revision="$2"
+  local revision_path="$snapshot_dir/REVISION"
+  local tree_path="$snapshot_dir/MANIFEST.files0"
+  local manifest_path="$snapshot_dir/MANIFEST.sha256"
+  if [[ ! -d "$snapshot_dir" ]]; then
+    echo "ERROR: Manager snapshot artifact metadata is incomplete." >&2
+    return 2
+  fi
+  if find "$snapshot_dir" -xdev -type l -print -quit | grep -q .; then
+    echo "ERROR: Manager snapshot contains unsupported symbolic links." >&2
+    return 2
+  fi
+  if [[ ! -f "$revision_path" ]] \
+    || [[ ! -f "$tree_path" ]] \
+    || [[ ! -f "$manifest_path" ]]; then
+    echo "ERROR: Manager snapshot artifact metadata is incomplete." >&2
+    return 2
+  fi
+  if [[ "$(cat "$revision_path")" != "$expected_revision" ]]; then
+    echo "ERROR: Manager snapshot revision does not match the verified commit." >&2
+    return 2
+  fi
+  if ! (
+    cd "$snapshot_dir"
+    cmp --silent MANIFEST.files0 <(
+      find . -xdev -type f \
+        ! -path "./MANIFEST.sha256" \
+        ! -path "./MANIFEST.files0" \
+        -print0 | LC_ALL=C sort -z
+    ) && sha256sum --strict --check --status MANIFEST.sha256
+  ); then
+    echo "ERROR: Manager snapshot tree or checksum manifest does not verify." >&2
+    return 2
+  fi
+  if find "$snapshot_dir" -xdev -perm /022 -print -quit | grep -q .; then
+    echo "ERROR: Manager snapshot remains group- or other-writable." >&2
+    return 2
+  fi
+}
+
+validate_manager_snapshot_source_tree() {
+  local snapshot_dir="$1"
+  local reserved_path
+  if [[ ! -d "$snapshot_dir" ]]; then
+    echo "ERROR: Manager snapshot source directory is unavailable." >&2
+    return 2
+  fi
+  if find "$snapshot_dir" -xdev -type l -print -quit | grep -q .; then
+    echo "ERROR: Manager snapshot source contains unsupported symbolic links." >&2
+    return 2
+  fi
+  if find "$snapshot_dir" -xdev ! -type d ! -type f -print -quit | grep -q .; then
+    echo "ERROR: Manager snapshot source contains unsupported special files." >&2
+    return 2
+  fi
+  for reserved_path in REVISION MANIFEST.files0 MANIFEST.sha256; do
+    if [[ -e "$snapshot_dir/$reserved_path" || -L "$snapshot_dir/$reserved_path" ]]; then
+      echo "ERROR: Manager snapshot source reserves $reserved_path for release metadata." >&2
+      return 2
+    fi
+  done
+}
+
 snapshot_manager_commit() {
   local source_dir="$1"
   local target_dir="$2"
@@ -418,17 +483,25 @@ snapshot_manager_commit() {
   release_git_assert_exact_state \
     "AutoStopManager" "$source_dir" "$MANAGER_DEPLOY_BRANCH" \
     "$expected_revision" >/dev/null
+  validate_manager_snapshot_source_tree "$staging_dir"
   # Docker can overlay the live manager SQLite data only when the nested
   # mountpoint already exists inside the immutable read-only source snapshot.
   mkdir -p "$staging_dir/data"
-  # Production may keep the Manager checkout private (0600/0700).  The
-  # sanitized snapshot is mounted read-only into the unprivileged CRM
-  # container, so normalize only read/traverse access without inventing
-  # executable bits on regular files.
-  chmod -R a+rX "$staging_dir"
+  printf '%s\n' "$expected_revision" > "$staging_dir/REVISION"
+  (
+    cd "$staging_dir"
+    find . -xdev -type f \
+      ! -path "./MANIFEST.sha256" \
+      ! -path "./MANIFEST.files0" \
+      -print0 | LC_ALL=C sort -z > MANIFEST.files0
+    xargs -0 -r sha256sum < MANIFEST.files0 > MANIFEST.sha256
+  )
+  # The mounted source must stay readable/traversable to the non-root CRM
+  # process, while the release artifact itself remains root-owned and sealed.
+  chmod -R u=rwX,go=rX "$staging_dir"
+  verify_manager_snapshot_artifact "$staging_dir" "$expected_revision"
   mv "$staging_dir" "$target_dir"
 }
-
 activate_manager_snapshot() {
   local target_dir="$1"
   local next_link="${MANAGER_CURRENT_LINK}.next-$$"
@@ -880,6 +953,7 @@ run_release docker compose stop --timeout 20 "$SERVICE_NAME"
 assert_release_budget
 
 activate_manager_snapshot "$manager_release_dir"
+verify_manager_snapshot_artifact "$manager_release_dir" "$manager_revision"
 
 run_release "$PYTHON_BIN" scripts/agent_release_backup.py create \
   --output-root "$BACKUP_ROOT" \
