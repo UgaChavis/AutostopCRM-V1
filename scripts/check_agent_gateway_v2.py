@@ -196,6 +196,7 @@ RELEASE_ATTEMPT_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{7,159}")
 SAFE_RUNTIME_FAILURE_PREFIXES = (
     "MCP tool call failed: ",
     "workflow response ",
+    "store owner ",
     "change feed ",
     "change-feed ",
     "empty change-feed ",
@@ -360,6 +361,17 @@ def _required_mapping(value: Any, *, label: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise RuntimeError(f"{label} is missing")
     return value
+
+
+def _resolved_contract_schema(schema: dict[str, Any], *, label: str) -> dict[str, Any]:
+    reference = schema.get("$ref")
+    if reference is None:
+        return schema
+    match = re.fullmatch(r"#/\$defs/([A-Za-z0-9_.:-]{1,200})", str(reference))
+    definitions = schema.get("$defs")
+    if match is None or not isinstance(definitions, dict):
+        raise RuntimeError(f"{label} reference is invalid")
+    return _required_mapping(definitions.get(match.group(1)), label=f"{label} definition")
 
 
 def _required_raw_executor(result: Any, *, name: str) -> dict[str, Any]:
@@ -585,8 +597,12 @@ async def _store_owner_signed_safe_create_checks(
         request_content[0],
         label="store owner safe create request content",
     )
-    body_schema = _required_mapping(
+    declared_body_schema = _required_mapping(
         content_item.get("schema"),
+        label="store owner safe create body schema",
+    )
+    body_schema = _resolved_contract_schema(
+        declared_body_schema,
         label="store owner safe create body schema",
     )
     body_properties = _required_mapping(

@@ -165,6 +165,16 @@ class AgentGatewayV2SmokeScriptTests(unittest.TestCase):
         )
         self.assertNotIn("failure_detail", unsafe)
 
+        owner_contract = module._failure_diagnostics(
+            ExceptionGroup(
+                "outer secret", [RuntimeError("store owner safe create contract is invalid")]
+            )
+        )
+        self.assertEqual(
+            "store owner safe create contract is invalid",
+            owner_contract["failure_detail"],
+        )
+
     def test_state_version_requires_integer_summary_value(self) -> None:
         module = load_script_module()
 
@@ -449,15 +459,20 @@ class AgentGatewayV2SmokeProbeTests(unittest.IsolatedAsyncioTestCase):
                                 {
                                     "content_type": "application/json",
                                     "schema": {
-                                        "type": "object",
-                                        "properties": {
-                                            "name": {
-                                                "type": "string",
-                                                "minLength": 1,
-                                                "maxLength": 200,
+                                        "$ref": "#/$defs/schema_live_store_create",
+                                        "$defs": {
+                                            "schema_live_store_create": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "name": {
+                                                        "type": "string",
+                                                        "minLength": 1,
+                                                        "maxLength": 200,
+                                                    }
+                                                },
+                                                "required": ["name"],
                                             }
                                         },
-                                        "required": ["name"],
                                     },
                                 }
                             ],
