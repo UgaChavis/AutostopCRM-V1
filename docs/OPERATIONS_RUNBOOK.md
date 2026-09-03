@@ -593,15 +593,7 @@ journalctl -u autostopcrm-watchdog.service -n 100 --no-pager
 
 ## Documentation Policy
 
-Canonical active documents:
-
-- `AGENTS.md`
-- `README.md`
-- `docs/OPERATIONS_RUNBOOK.md`
-- `API_GUIDE.md`
-- `MCP_GUIDE.md`
-- `CHATGPT_CONNECTOR_SETUP.md`
-- `AUTOSTOPCRM_FULL_INSTRUCTION.txt`
+The current canonical document list is maintained in [README](../README.md).
 
 `requirements.txt`, `requirements-dev.txt`, and
 `requirements-runtime.txt` are dependency manifests. Do not add one-off plans,
@@ -610,8 +602,7 @@ documentation. Delete obsolete material instead of maintaining parallel
 sources of truth.
 
 When an active document is added, deleted, or renamed, update
-`scripts/docs_audit.py`, `README.md`, this section, and `.dockerignore`
-together, then run:
+`scripts/docs_audit.py`, `README.md`, and `.dockerignore` together, then run:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\docs_audit.py --format text

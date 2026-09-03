@@ -53,31 +53,9 @@ Owner MCP client -> 24-tool Gateway v2 -> mounted AutostopManager adapter
   Responses API clients, AutoStop App store context, and automotive/web
   research helpers.
 
-Production MCP exposes exactly 24 Gateway v2 tools. Codex and ChatGPT Apps use
-owner-approved OAuth 2.1 with PKCE S256, rotating refresh tokens, exact
-audience/scope checks, and encrypted persistent authorization state. The
-deployment-rotated bearer remains only for internal release checks and
-Responses API calls that explicitly supply it; it is not Codex/App state.
-
-The only supported agent sequence is `agent_bootstrap` ->
-`agent_board_digest` -> `agent_search`/`agent_entity_context` ->
-`prepare_action_contract` -> named workflow `dry_run`/`apply` -> exact-target
-reread and verification. Guarded raw capability discovery is an escape hatch
-only when no named workflow exists; hidden low-level tools are never called
-directly. It exposes the read-only `search_web_multi`, `fetch_page_excerpt`,
-`fetch_page_browser`, and `research_drive2_cases` capabilities without adding a
-25th public tool. Drive2 research is bounded, public-only, does not use an
-account or retain raw journal pages, and returns forum case evidence rather
-than procedure authority. Their schemas are hash-bound, arguments are bounded,
-and page fetches retain the public-HTTP(S)/SSRF guard.
-
-AutoStop CRM owns workshop and financial state; AutoStop App owns Store state;
-AutostopManager owns routing, compact refs, contracts, and checkpoints. Gateway
-never reads the App database. Bootstrap is CRM-only and reports Store as
-`not_loaded`; explicit Store digests use opaque cursor/ACK delivery. Store
-writes require dry-run/apply with distinct keys and stable correlation, exact
-DTO readback, terminal notification state, and same-key receipt reconciliation
-after an uncertain result.
+Production MCP exposes exactly 24 Gateway v2 tools. OAuth, call order, Store
+boundaries, raw-capability escape, and exact write/readback rules are in the
+[MCP guide](MCP_GUIDE.md); never invoke hidden low-level tools directly.
 
 Business rules belong in `src/minimal_kanban/services/`. API, MCP, UI, smoke
 scripts, and compatibility routes must call the same services instead of
@@ -93,15 +71,8 @@ reimplementing those rules.
 - `src/minimal_kanban/services/` — business services.
 - `src/minimal_kanban/storage/json_store.py` — state normalization and
   persistence.
-- `src/minimal_kanban/mcp/server.py`, `mcp/payloads.py`,
-  `mcp/connector_diagnostics.py`, `mcp/board_reads.py`,
-  `mcp/board_column_writes.py`, `mcp/board_sticky_writes.py`,
-  `mcp/board_card_timer_writes.py`, `mcp/card_attachment_reads.py`,
-  `mcp/shared_file_reads.py`, `mcp/shared_file_writes.py`,
-  `mcp/tool_registry.py`, and
-  `mcp/agent_gateway_v2.py` — raw MCP orchestration, payload contracts,
-  permanent diagnostics, core board reads, focused board writes, attachment
-  and shared-file operations, registry, and the production Gateway v2 surface.
+- `src/minimal_kanban/mcp/` — raw orchestration, focused registrars, contracts,
+  and Gateway v2; see the [MCP guide](MCP_GUIDE.md) for its source map.
 - [`scripts/crm_capability_parity.py`](scripts/crm_capability_parity.py) and its
   JSON manifest — machine-verifiable UI/backend/Gateway capability matrix,
   readback classes, test evidence, reviewed gaps, and human-session exemptions.
@@ -154,28 +125,12 @@ Default local endpoints:
   settings so it reuses the current operator session)
 - MCP: `http://127.0.0.1:41831/mcp`
 
-Production endpoints:
-
-- CRM: `https://crm.autostopcrm.ru`
-- MCP: `https://crm.autostopcrm.ru/mcp`
-
-The production Compose project contains `autostopcrm`, `searxng`, and
-`crawl4ai`. The CRM container also joins the precreated internal-only
-`autostop-store-agent` network with `autostop-app`; the PostgreSQL container is
-never attached. Only the CRM service is replaced during a normal deploy.
+Production endpoint, Compose topology, and deploy/rollback procedure are in
+the [operations runbook](docs/OPERATIONS_RUNBOOK.md).
 
 ## Safety
 
-- Never commit `.env`, credentials, runtime state, production snapshots,
-  attachments, shared files, logs, audit archives, or financial ledgers.
-- Never edit production `state.json`, `audit-archive`, `operator-activity`, or
-  cashbox data manually.
-- Repair-order numbers are immutable. The compatibility route
-  `/api/correct_repair_order_number` is deliberately blocked.
-- Closed repair orders are immutable. Corrections use the audited
-  preview/reopen/reclose flow; payroll is reversed and reposted, while payment,
-  cashbox, and inventory histories remain unchanged.
-- Finance safe fixes and destructive historical cleanup are explicit
-  owner-approved maintenance procedures, never routine UI/MCP work.
-- Public anonymous API/MCP reads and all writes must remain blocked in
-  production.
+Never commit secrets or runtime/production data, or edit production state and
+financial/order history manually. Use the relevant guides and
+[operations runbook](docs/OPERATIONS_RUNBOOK.md); public anonymous API/MCP
+reads and writes remain blocked in production.

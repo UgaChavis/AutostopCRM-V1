@@ -363,17 +363,6 @@ def _required_mapping(value: Any, *, label: str) -> dict[str, Any]:
     return value
 
 
-def _resolved_contract_schema(schema: dict[str, Any], *, label: str) -> dict[str, Any]:
-    reference = schema.get("$ref")
-    if reference is None:
-        return schema
-    match = re.fullmatch(r"#/\$defs/([A-Za-z0-9_.:-]{1,200})", str(reference))
-    definitions = schema.get("$defs")
-    if match is None or not isinstance(definitions, dict):
-        raise RuntimeError(f"{label} reference is invalid")
-    return _required_mapping(definitions.get(match.group(1)), label=f"{label} definition")
-
-
 def _required_raw_executor(result: Any, *, name: str) -> dict[str, Any]:
     outer = _structured(result)
     if not _tool_ok(result):
@@ -601,10 +590,16 @@ async def _store_owner_signed_safe_create_checks(
         content_item.get("schema"),
         label="store owner safe create body schema",
     )
-    body_schema = _resolved_contract_schema(
-        declared_body_schema,
-        label="store owner safe create body schema",
-    )
+    body_schema = declared_body_schema
+    if (reference := body_schema.get("$ref")) is not None:
+        match = re.fullmatch(r"#/\$defs/([A-Za-z0-9_.:-]{1,200})", str(reference))
+        definitions = body_schema.get("$defs")
+        if match is None or not isinstance(definitions, dict):
+            raise RuntimeError("store owner safe create body schema reference is invalid")
+        body_schema = _required_mapping(
+            definitions.get(match.group(1)),
+            label="store owner safe create body schema definition",
+        )
     body_properties = _required_mapping(
         body_schema.get("properties"),
         label="store owner safe create body properties",

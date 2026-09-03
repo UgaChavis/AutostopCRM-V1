@@ -237,18 +237,11 @@ Gateway responses use `agent_envelope_v2` and compact verification evidence.
   only Store context. CRM startup, board reads, and CRM workflows remain
   independent.
 
-Production kill switches are:
-
-- `AUTOSTOP_AGENT_GATEWAY_ENABLED`
-- `AUTOSTOP_AGENT_GATEWAY_WRITES_ENABLED`
-- `AUTOSTOP_AGENT_GATEWAY_FINANCE_ENABLED`
-- `AUTOSTOP_AGENT_GATEWAY_MAIL_ENABLED`
-- `AUTOSTOP_AGENT_GATEWAY_DESTRUCTIVE_ENABLED`
-- `AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED`
-
-All six must be explicitly `0` or `1`. Disabling the master switch leaves only
-diagnostics; it never reveals the legacy surface. A change takes effect after
-recreating the CRM container.
+Production Gateway switches are listed in the
+[operations runbook](docs/OPERATIONS_RUNBOOK.md). All six must be explicitly
+`0` or `1`. Disabling the master switch leaves only diagnostics; it never
+reveals the legacy surface. A change takes effect after recreating the CRM
+container.
 
 ## Call Order
 
@@ -329,19 +322,10 @@ short board summary, and reread. It does not imply move, archive, or delete.
 
 ## Client Notes
 
-Codex registers the URL without bearer/static headers and links once with
-`codex mcp login autostopcrm`; its protected credential store retains the
-refresh session and renews short-lived access automatically. ChatGPT Apps use
-the same public OAuth discovery and owner approval flow. Dynamic registration
-accepts only ChatGPT connector callbacks and protected loopback Codex callbacks.
-
-Responses API remote MCP tools may continue to use the production URL as
-`server_url` and send the current internal bearer in the tool's `authorization`
-field on every response creation request. The Responses API does not store that
-value. Never paste a token into source, docs, logs, or ordinary chat.
-
-Public anonymous writes must remain blocked. Public anonymous reads are also
-blocked in production.
+[Client setup](CHATGPT_CONNECTOR_SETUP.md) is authoritative for Codex, ChatGPT
+Apps, and Responses API authentication. Never put a token in source,
+documentation, logs, or ordinary chat. Public anonymous writes must remain
+blocked; public anonymous reads are also blocked in production.
 
 ## Checks
 
