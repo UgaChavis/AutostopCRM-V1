@@ -62,6 +62,7 @@ MANAGER_GATEWAY_DEPENDENCY_NAMES = frozenset(
         "store_entity_context",
         "store_management_action",
         "download_store_quote_vin_photo",
+        "store_owner_capabilities",
         "store_owner_api",
     }
 )
@@ -112,6 +113,53 @@ FINANCE_SENSITIVE_KEYS = frozenset(
         "prepayment",
         "salary",
         "shift_accrual",
+    }
+)
+STORE_OWNER_FINANCE_KEY_MARKERS = frozenset(
+    {
+        "amount",
+        "cashbox",
+        "cost",
+        "discount",
+        "invoice",
+        "markup",
+        "payment",
+        "payroll",
+        "price",
+        "refund",
+        "salary",
+        "tax",
+        "total",
+        "wholesale",
+    }
+)
+STORE_OWNER_FINANCE_OPERATION_MARKERS = STORE_OWNER_FINANCE_KEY_MARKERS | {
+    "cash",
+    "finance",
+    "procurement",
+    "rossko",
+}
+STORE_OWNER_FINANCE_OPERATION_IDS = frozenset(
+    {
+        "publish_admin_quote_request_response_api_v1_admin_quote_requests__quote_request_id__publish_response_post",
+    }
+)
+STORE_OWNER_FEED_DIRTY_OPERATION_IDS = frozenset(
+    {
+        "activate_category_api_v1_categories__id__activate_post",
+        "activate_part_api_v1_parts__id__activate_post",
+        "create_avito_fitment_api_v1_parts__part_id__avito_fitments_post",
+        "create_category_api_v1_categories_post",
+        "deactivate_category_api_v1_categories__id__deactivate_post",
+        "deactivate_part_api_v1_parts__id__deactivate_post",
+        "delete_avito_fitment_api_v1_parts__part_id__avito_fitments__fitment_id__delete",
+        "delete_category_api_v1_categories__id__delete",
+        "delete_part_api_v1_parts__id__delete",
+        "update_avito_fitment_api_v1_parts__part_id__avito_fitments__fitment_id__patch",
+        "update_category_api_v1_categories__id__patch",
+        "update_manufacturer_api_v1_manufacturers__id__patch",
+        "update_part_api_v1_parts__id__patch",
+        "update_system_settings_api_v1_settings_patch",
     }
 )
 MAIL_CAPABILITY_NAMES = frozenset(
@@ -585,7 +633,90 @@ def _is_finance_capability(name: str, arguments: Mapping[str, Any] | None = None
         )
     ):
         return True
-    return _contains_sensitive_key(arguments or {}, FINANCE_SENSITIVE_KEYS)
+    if _contains_sensitive_key(arguments or {}, FINANCE_SENSITIVE_KEYS):
+        return True
+    if normalized == "replace_quote_offer_drafts":
+        return True
+    if normalized == "mark_order_ready":
+        return True
+    if normalized == "set_quote_request_status":
+        status = _find_value(dict(arguments or {}), frozenset({"status"}))
+        return str(status or "").strip().upper() == "WAITING_FOR_APPROVAL"
+    if name != "store_owner_api":
+        return False
+    owner_arguments = arguments or {}
+    if str(owner_arguments.get("mode") or "dry_run").strip().casefold() not in {
+        "dry_run",
+        "apply",
+    }:
+        return False
+
+    def contains_finance_key(value: Any, *, depth: int = 0) -> bool:
+        if depth > 7:
+            return False
+        if isinstance(value, BaseModel):
+            value = value.model_dump(mode="json", by_alias=True)
+        if isinstance(value, Mapping):
+            for raw_key, nested in value.items():
+                key = str(raw_key).strip().casefold().replace("-", "_")
+                if any(marker in key for marker in STORE_OWNER_FINANCE_KEY_MARKERS):
+                    return True
+                if contains_finance_key(nested, depth=depth + 1):
+                    return True
+            return False
+        if isinstance(value, list):
+            return any(contains_finance_key(item, depth=depth + 1) for item in value[:200])
+        return False
+
+    operation_id = str(owner_arguments.get("operation_id") or "").strip().casefold()
+    operation_tokens = {token for token in re.split(r"[^a-z0-9]+", operation_id) if token}
+    if operation_id in STORE_OWNER_FINANCE_OPERATION_IDS:
+        return True
+    if operation_id in STORE_OWNER_FEED_DIRTY_OPERATION_IDS:
+        return True
+    if any(marker in operation_id for marker in STORE_OWNER_FINANCE_OPERATION_MARKERS):
+        return True
+    if operation_tokens & {"order", "orders", "purchase", "purchases"}:
+        return True
+    if operation_tokens & {"batch", "batches", "receipt", "receipts", "shipment", "shipments"}:
+        return True
+    if "stock" in operation_tokens and operation_tokens & {"history", "movement", "movements"}:
+        return True
+    if "warehouse" in operation_tokens and operation_tokens & {"operation", "operations"}:
+        return True
+    if operation_tokens & {"quote", "quotes"} and operation_tokens & {"offer", "offers"}:
+        return True
+    if (
+        operation_tokens & {"quote", "quotes"}
+        and operation_tokens & {"request", "requests"}
+        and operation_tokens & {"item", "items"}
+    ):
+        return True
+    if operation_id.startswith(("archive_admin_quote_request_", "delete_admin_quote_request_")):
+        return True
+    if "marketplace" in operation_tokens and operation_tokens & {"export", "exports"}:
+        return True
+    if {"marketplace", "feed", "refresh"}.issubset(operation_tokens):
+        return True
+    request_body = owner_arguments.get("body")
+    if isinstance(request_body, BaseModel):
+        request_body = request_body.model_dump(mode="json", by_alias=True)
+    if (
+        operation_id.startswith("update_admin_quote_request_")
+        and isinstance(request_body, Mapping)
+        and str(request_body.get("status") or "").strip().upper() == "WAITING_FOR_APPROVAL"
+    ):
+        return True
+    if (
+        operation_id.startswith("create_marketplace_account_")
+        and isinstance(request_body, Mapping)
+        and str(request_body.get("transport") or "").strip().casefold() == "feed"
+    ):
+        return True
+    return any(
+        contains_finance_key(owner_arguments.get(field))
+        for field in ("path_parameters", "query", "body", "form")
+    )
 
 
 def _is_mail_capability(name: str) -> bool:

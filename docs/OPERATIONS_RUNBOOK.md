@@ -392,9 +392,13 @@ Deploy only with explicit owner intent. Normal sequence:
 1. Verify and commit only intended changes.
 2. Push the commit to `origin/autostopcrm-v1`.
 3. Confirm `/opt/autostopcrm` is clean and fast-forward it to that commit.
-4. Run `deploy.sh`.
-5. Compare workstation, remote, and server revisions.
-6. Run live, UI-if-relevant, and performance smoke.
+4. Run the canonical isolated Manager release gates from
+   `/opt/AutostopManager/docs/agent/deployment_runbook.md`; its temporary
+   `AUTOSTOP_MANAGER_DB` is mandatory for preflight. Never run a bare
+   `knowledge-sync` against the persistent Manager DB before release.
+5. Run `deploy.sh`.
+6. Compare workstation, remote, and server revisions.
+7. Run live, UI-if-relevant, and performance smoke.
 
 On the server, before `deploy.sh`:
 
@@ -406,6 +410,8 @@ git merge --ff-only origin/autostopcrm-v1
 git -C /opt/AutostopManager status --short --branch
 git -C /opt/AutostopManager fetch origin AutostopManager
 git -C /opt/AutostopManager merge --ff-only origin/AutostopManager
+# Run the `run_manager_release_gates` subshell from the canonical Manager
+# deployment runbook. It exports AUTOSTOP_MANAGER_DB to a disposable tmp DB.
 docker network inspect --format '{{.Internal}}' autostop-store-agent
 docker network inspect --format '{{range .Containers}}{{println .Name}}{{end}}' autostop-store-agent
 ```
@@ -439,30 +445,42 @@ The bounded release flow:
    the CRM and Manager root checkouts before any snapshot, image build, or auth
    rotation, then checks free space, Compose configuration, production auth,
    scoped Store identity, and the isolated Store network;
-2. creates both the active Manager release and any rollback fallback strictly
-   from the verified Manager commit via `git archive HEAD`, then prebuilds an
-   immutable CRM image before maintenance; an early EXIT guard owns only this
-   attempt's exact Manager paths and Docker refs, so a pre-maintenance failure
-   removes or restores them without touching the live/previous release;
+2. creates the candidate Manager release strictly from the verified Manager
+   commit via `git archive HEAD`, then reruns only `knowledge-sync` and
+   `knowledge-audit` from that sealed candidate snapshot in a disposable
+   `mktemp` DB; this narrow gate does not replace the canonical full Manager
+   release gates. It then prebuilds an immutable CRM image before maintenance;
+   an early EXIT guard owns only this attempt's exact Manager paths and Docker
+   refs, so a pre-maintenance failure removes or restores them without touching
+   the live/previous release;
 3. provisions stable encrypted OAuth and rotates the internal compatibility
    bearer with a private rollback copy, without editing Codex configuration;
 4. creates the maintenance marker and stops only `autostopcrm`;
 5. creates and verifies an atomic backup of CRM state/audit data and Manager
    SQLite;
-6. starts the prebuilt image, proves only CRM and App share the Store network,
+6. atomically activates the sealed candidate Manager snapshot, confirms the
+   active identity under the release deadline, then runs `knowledge-sync` and
+   `knowledge-audit` from it against the
+   persistent Manager DB; this happens only after the verified backup and
+   before CRM start, so any failure uses the existing rollback for both the DB
+   and `current` symlink;
+7. starts the prebuilt image, proves only CRM and App share the Store network,
    and runs internal authenticated CRM plus Store-read smoke; Store Gateway
    readiness and every candidate-side Docker probe remain inside the bounded
    release budget, so a short cold-start initialization is tolerated but an
    unavailable Store still fails the release and triggers rollback;
-7. while maintenance protection remains active, runs the signed technical
-   owner/feed dry-run probes with a revision-bound proof and unique release
-   attempt id, mandatory public API and OAuth checks, and the exhaustive
-   maintenance-safe 24-tool Gateway smoke;
-8. installs the watchdog only through a separately authorized opt-in;
+8. while maintenance protection remains active, discovers the exact safe
+   manufacturer-create contract, reads its revision-exempt current revision,
+   then runs one signed synthetic owner `dry_run` (never `apply`) plus the
+   feed probes with a revision-bound proof and unique release attempt id;
+   mandatory public API and OAuth checks and the exhaustive maintenance-safe
+   24-tool Gateway smoke must verify the server receipt/proof, contract
+   version, revision, and no business handler execution;
+9. installs the watchdog only through a separately authorized opt-in;
    otherwise leaves it disabled or absent, then tags the healthy release as
    stable and removes the maintenance marker as the final fallible release
    action;
-9. after success is marked and the rollback trap is removed, best-effort
+10. after success is marked and the rollback trap is removed, best-effort
    retention prunes only validated old backup directories, Manager release
    snapshots, and exact CRM release/rollback image tags. Current and rollback
    references are always protected; retention failure cannot roll back or stop
@@ -527,6 +545,12 @@ and never record raw orders or customer data. Verify `agent_bootstrap`
 separately as a CRM-only call: it must report Store as `not_loaded`, return no
 Store snapshot/cursor/ACK, issue no Store request, and leave the owner
 `store_digest` checkpoint unchanged.
+
+The post-release command above intentionally does not repeat the signed Store
+owner preflight after the maintenance marker is removed. That `dry_run` occurs
+only inside `deploy.sh` with `--exhaustive --maintenance-safe --require-store`,
+its revision-bound proof, and a unique attempt id; it uses one synthetic
+manufacturer name, never `apply`, and records no request body or Store data.
 
 After UI changes, run
 `.\.venv\Scripts\python.exe scripts\browser_smoke.py` and manually verify

@@ -24,7 +24,6 @@ STORE_SEARCH_ENTITIES = frozenset(
         "store_part",
         "store_order",
         "store_quote_request",
-        "store_supplier",
         "store_batch",
         "store_warehouse_operation",
         "store_marketplace_listing",

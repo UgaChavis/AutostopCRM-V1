@@ -386,6 +386,8 @@ class McpRegistrationContractTests(unittest.TestCase):
             )
 
         tools = {tool.name: tool for tool in server._tool_manager.list_tools()}
+        self.assertIn("store_owner_capabilities", MANAGER_GATEWAY_DEPENDENCY_NAMES)
+        self.assertIn("store_owner_capabilities", tools)
         self.assertEqual(
             MANAGER_GATEWAY_DEPENDENCY_NAMES,
             _EXPECTED_MANAGER_READ_TOOL_NAMES | _EXPECTED_MANAGER_WRITE_TOOL_NAMES,

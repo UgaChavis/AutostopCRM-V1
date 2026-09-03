@@ -39,6 +39,7 @@ MANAGER_DEPLOY_BRANCH="AutostopManager"
 MANAGER_RELEASE_ROOT="${AUTOSTOP_MANAGER_RELEASE_ROOT:-/opt/autostop-manager-releases}"
 MANAGER_CURRENT_LINK="${AUTOSTOP_MANAGER_CURRENT_LINK:-$MANAGER_RELEASE_ROOT/current}"
 MANAGER_CONTAINER_DIR="${AUTOSTOP_MANAGER_CONTAINER_DIR:-/opt/AutostopManager}"
+MANAGER_RELEASE_PYTHON="$MANAGER_SOURCE_DIR/.venv/bin/python"
 MAINTENANCE_MARKER_HOST="${AUTOSTOP_MAINTENANCE_MARKER_HOST:-$CRM_DATA_DIR/.agent-gateway-maintenance}"
 PUBLIC_SITE_URL="${AUTOSTOP_PUBLIC_SITE_URL:-https://crm.autostopcrm.ru}"
 PUBLIC_MCP_URL="${AUTOSTOP_PUBLIC_MCP_URL:-https://crm.autostopcrm.ru/mcp}"
@@ -519,8 +520,80 @@ activate_manager_snapshot() {
   fi
 }
 
+run_isolated_manager_knowledge_preflight() (
+  set -Eeuo pipefail
+  local manager_knowledge_gate_dir=""
+  cleanup_isolated_manager_knowledge_preflight() {
+    if [[ "$manager_knowledge_gate_dir" != /tmp/autostopcrm-manager-knowledge.* ]] \
+      || [[ ! -d "$manager_knowledge_gate_dir" ]]; then
+      echo "ERROR: refusing an unsafe Manager knowledge preflight cleanup target." >&2
+      return 2
+    fi
+    rm -rf -- "$manager_knowledge_gate_dir"
+  }
+  on_isolated_manager_knowledge_preflight_exit() {
+    local original_status="$?"
+    local cleanup_status=0
+    trap - EXIT
+    cleanup_isolated_manager_knowledge_preflight || cleanup_status="$?"
+    if (( original_status == 0 && cleanup_status != 0 )); then
+      exit "$cleanup_status"
+    fi
+    exit "$original_status"
+  }
+
+  # The snapshot was sealed from the verified Manager commit. Recheck it before
+  # importing, then keep all pre-maintenance index writes in a disposable DB.
+  verify_manager_snapshot_artifact "$manager_release_dir" "$manager_revision"
+  manager_knowledge_gate_dir="$(mktemp -d /tmp/autostopcrm-manager-knowledge.XXXXXX)"
+  trap on_isolated_manager_knowledge_preflight_exit EXIT
+  # The host venv supplies only dependencies. The exact candidate snapshot,
+  # not the mutable source checkout, supplies the Manager code and knowledge map.
+  env \
+    PYTHONPATH="$manager_release_dir" \
+    PYTHONSAFEPATH=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    AUTOSTOP_MANAGER_DB="$manager_knowledge_gate_dir/preflight.sqlite3" \
+    "$MANAGER_RELEASE_PYTHON" -m autostop_manager.cli knowledge-sync
+  env \
+    PYTHONPATH="$manager_release_dir" \
+    PYTHONSAFEPATH=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    AUTOSTOP_MANAGER_DB="$manager_knowledge_gate_dir/preflight.sqlite3" \
+    "$MANAGER_RELEASE_PYTHON" -m autostop_manager.cli knowledge-audit
+)
+
+sync_current_manager_knowledge() {
+  local active_manager_dir expected_manager_dir
+  active_manager_dir="$(run_release readlink -f "$MANAGER_CURRENT_LINK")"
+  expected_manager_dir="$(run_release readlink -f "$manager_release_dir")"
+  if [[ "$active_manager_dir" != "$expected_manager_dir" ]]; then
+    echo "ERROR: current Manager release does not match the candidate knowledge index source." >&2
+    return 2
+  fi
+  # The venv supplies only dependencies. PYTHONPATH pins the code and local
+  # knowledge map to the immutable current snapshot, while the explicit DB
+  # target is the protected persistent Manager SQLite captured for rollback.
+  run_release env \
+    PYTHONPATH="$MANAGER_CURRENT_LINK" \
+    PYTHONSAFEPATH=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    AUTOSTOP_MANAGER_DB="$MANAGER_DB" \
+    "$MANAGER_RELEASE_PYTHON" -m autostop_manager.cli knowledge-sync
+  run_release env \
+    PYTHONPATH="$MANAGER_CURRENT_LINK" \
+    PYTHONSAFEPATH=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    AUTOSTOP_MANAGER_DB="$MANAGER_DB" \
+    "$MANAGER_RELEASE_PYTHON" -m autostop_manager.cli knowledge-audit
+}
+
 if [[ ! -d "$MANAGER_SOURCE_DIR/autostop_manager" ]]; then
   echo "ERROR: AutoStopManager source is unavailable: $MANAGER_SOURCE_DIR" >&2
+  exit 2
+fi
+if [[ ! -x "$MANAGER_RELEASE_PYTHON" ]]; then
+  echo "ERROR: AutoStopManager release venv is unavailable: $MANAGER_RELEASE_PYTHON" >&2
   exit 2
 fi
 container_id="$(docker compose ps -q "$SERVICE_NAME" 2>/dev/null || true)"
@@ -583,6 +656,7 @@ require_disk_headroom \
   --protected-manager-path "$previous_manager_dir" \
   --protected-image-tag "$STABLE_IMAGE" >/dev/null
 snapshot_manager_commit "$MANAGER_SOURCE_DIR" "$manager_release_dir" "$manager_revision"
+run_isolated_manager_knowledge_preflight
 
 release_git_assert_exact_state \
   "AutoStop CRM" "$ROOT_DIR" "$CRM_DEPLOY_BRANCH" "$crm_revision" >/dev/null
@@ -952,9 +1026,6 @@ echo "Maintenance window started; stopping only $SERVICE_NAME."
 run_release docker compose stop --timeout 20 "$SERVICE_NAME"
 assert_release_budget
 
-activate_manager_snapshot "$manager_release_dir"
-verify_manager_snapshot_artifact "$manager_release_dir" "$manager_revision"
-
 run_release "$PYTHON_BIN" scripts/agent_release_backup.py create \
   --output-root "$BACKUP_ROOT" \
   --crm-data-dir "$CRM_DATA_DIR" \
@@ -962,6 +1033,14 @@ run_release "$PYTHON_BIN" scripts/agent_release_backup.py create \
   --backup-id "$release_id"
 backup_dir="$BACKUP_ROOT/$release_id"
 run_release "$PYTHON_BIN" scripts/agent_release_backup.py verify --backup-dir "$backup_dir"
+assert_release_budget
+
+activate_manager_snapshot "$manager_release_dir"
+# Knowledge sync intentionally changes the persistent Manager index only after
+# its verified rollback backup exists and the immutable candidate is current.
+# Any failure exits under the armed maintenance trap, which restores both the
+# Manager SQLite and the previous current symlink before CRM is restarted.
+sync_current_manager_knowledge
 assert_release_budget
 
 # The hardened image runs without root. Migrate only the two persisted data

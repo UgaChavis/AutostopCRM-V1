@@ -148,17 +148,40 @@ positive deadline starts it. Restarting without a deadline reuses the saved
 duration. Timer-only actions are audited but do not flag the card as unseen
 content for other operators.
 
-The mounted Manager contributes 6 `INTERNAL_ONLY` Store adapter tools:
-`store_runtime_status`, `store_digest`, `store_search`, `store_entity_context`,
-`download_store_quote_vin_photo`, and `store_management_action`. They stay out
-of raw discovery; public access remains through named Gateway tools.
+The mounted Manager's Store adapter remains internal; public access stays
+through the named Gateway tools. Its hidden read-only
+`store_owner_capabilities` inventory and guarded `store_owner_api` transport
+are available only through `discover_raw_capabilities` ->
+`get_raw_capability_schema` -> `call_raw_capability`, so they do not expand the
+public 24-tool surface. Use that route only when a named Store read or named
+write cannot satisfy the exact request. Discover one exact `operation_id` with
+`allow_large_output=true`, then use only the current bounded live input
+contract; never infer parameters from an admin screen or older release.
+
+`store_owner_api(mode="read")` needs a safe correlation ID. For a generic
+non-GET, `dry_run` requires ordinary write authority plus exact
+target/correlation/idempotency and a closed preflight ledger; `apply` also
+requires destructive authority. The Gateway applies finance authority whenever
+its conservative Store classifier marks the exact operation or request as
+financial; a dry-run never grants either authority for a later apply. The exact
+`publish_admin_quote_request_response_api_v1_admin_quote_requests__quote_request_id__publish_response_post`
+operation is finance-classified for both modes. Its apply is destructive and
+customer-visible (selected offers become `WAITING_FOR_APPROVAL`); it is an
+explicit Store raw operation, not a Mail send.
+
+The canonical Store operation semantics, finance classifier coverage, exact
+customer-publication boundary, and order pagination are in
+`/opt/AutostopManager/docs/agent/store_management_playbook.md`; live Store
+OpenAPI and the discovered input contract remain authoritative.
 
 `agent_bootstrap` is CRM-only and reports Store as `not_loaded` without a read.
 Explicit Store context uses `agent_board_digest(scope="store")`,
 `agent_entity_context`, and `agent_search` for `store_part`, `store_order`,
-`store_quote_request`, `store_supplier`, `store_batch`,
+`store_quote_request`, `store_batch`,
 `store_warehouse_operation`, `store_marketplace_listing`, `store_state`, and
-`store_sourcing_offer`. Store search and `agent_entity_context` are PII-redacted
+`store_sourcing_offer`. The current Store has no supplier-directory entity;
+supplier labels remain available through exact offers/orders and sourcing.
+Store search and `agent_entity_context` are PII-redacted
 by the Manager adapter. `get_runtime_status` is the explicit health probe;
 `agent_document_workflow(operation="download_store_quote_vin_photo")` returns
 the bounded image only when `expected_photo_sha256` matches the current photo
@@ -378,7 +401,13 @@ the public surface beyond 24 tools.
 
 The Store probe performs a live
 adapter health probe and one bounded `store_state` search without advancing the
-owner's `store_digest` cursor, while retaining the exact 24-tool assertion.
+owner’s `store_digest` cursor, while retaining the exact 24-tool assertion.
+Only `--exhaustive --maintenance-safe --require-store` additionally performs
+the signed owner preflight: discover the exact one-field manufacturer-create
+contract, read its revision-exempt current revision, then perform one unique
+synthetic `dry_run` with no `apply`. It verifies the server receipt/proof,
+preflight contract version, revision, and `domain_handler_executed=false`; its
+report contains checks only, never the synthetic request body or Store data.
 
 The script verifies anonymous rejection, the exact tool set, payload budgets,
 all 24 calls with read-only/dry-run/synthetic inputs, and does not print board

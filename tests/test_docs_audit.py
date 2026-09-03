@@ -418,12 +418,11 @@ class DocsAuditTests(unittest.TestCase):
 
         self.assertEqual(
             {
-                "mcp_guide_store_internal_capabilities_stale",
+                "mcp_guide_store_internal_boundary_stale",
                 "mcp_guide_store_search_entities_stale",
                 "store_management_operations_stale",
                 "store_vin_photo_workflow_missing",
                 "mcp_guide_store_safety_contract_stale",
-                "mcp_guide_store_internal_count_stale",
                 "mcp_guide_store_operation_count_stale",
                 "chatgpt_bootstrap_cursor_stale",
             },

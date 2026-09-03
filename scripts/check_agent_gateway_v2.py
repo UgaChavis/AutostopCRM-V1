@@ -68,6 +68,102 @@ CHANGE_FEED_READ_NAME = "api:/api/change_feed/read"
 CHANGE_FEED_ACK_NAME = "api:/api/change_feed/ack"
 CHANGE_FEED_SMOKE_CONSUMER_ID = "gateway-release-smoke"
 CHANGE_FEED_SMOKE_PAGE_LIMIT = 25
+STORE_OWNER_CAPABILITIES_NAME = "store_owner_capabilities"
+STORE_OWNER_API_NAME = "store_owner_api"
+STORE_OWNER_READ_PROBE_OPERATION = "list_manufacturers_api_v1_manufacturers_get"
+STORE_OWNER_READ_PROBE_CORRELATION = "gateway-store-owner-read-probe"
+STORE_OWNER_SAFE_CREATE_OPERATION = "create_manufacturer_api_v1_manufacturers_post"
+STORE_OWNER_SAFE_CREATE_TARGET = "collection:/api/v1/manufacturers"
+STORE_OWNER_PREFLIGHT_CONTRACT_VERSION = "store-owner-preflight-v2"
+STORE_OWNER_SAFE_CREATE_CORRELATION_PREFIX = "gateway-store-owner-manufacturer"
+STORE_OWNER_DRY_RUN_PROOF_PATTERN = re.compile(r"[0-9a-f]{64}")
+STORE_OWNER_REQUIRED_READ_CONTRACTS = (
+    (
+        STORE_OWNER_READ_PROBE_OPERATION,
+        frozenset(),
+        frozenset({"isActive", "page", "pageSize"}),
+    ),
+    (
+        "list_customer_orders_page_api_v1_customers_orders_page_get",
+        frozenset(),
+        frozenset({"page", "pageSize", "status", "q", "archived"}),
+    ),
+    (
+        "get_customer_order_api_v1_customers_orders__order_id__get",
+        frozenset({"order_id"}),
+        frozenset({"itemLimit", "cursor"}),
+    ),
+    (
+        "list_stock_batches_page_api_v1_warehouse_batches_page_get",
+        frozenset(),
+        frozenset({"page", "q", "status"}),
+    ),
+    (
+        "get_stock_batch_api_v1_warehouse_batches__batch_id__get",
+        frozenset({"batch_id"}),
+        frozenset(),
+    ),
+    (
+        "list_warehouse_stock_movements_page_api_v1_warehouse_stock_movements_page_get",
+        frozenset(),
+        frozenset({"page", "q", "movementType"}),
+    ),
+    (
+        "get_warehouse_stock_movement_api_v1_warehouse_stock_movements__movement_id__get",
+        frozenset({"movement_id"}),
+        frozenset(),
+    ),
+)
+STORE_OWNER_REQUIRED_READ_PATH_SCHEMAS = {
+    STORE_OWNER_READ_PROBE_OPERATION: {},
+    "list_customer_orders_page_api_v1_customers_orders_page_get": {},
+    "get_customer_order_api_v1_customers_orders__order_id__get": {
+        "order_id": {"type": "string"},
+    },
+    "list_stock_batches_page_api_v1_warehouse_batches_page_get": {},
+    "get_stock_batch_api_v1_warehouse_batches__batch_id__get": {
+        "batch_id": {"type": "string"},
+    },
+    "list_warehouse_stock_movements_page_api_v1_warehouse_stock_movements_page_get": {},
+    "get_warehouse_stock_movement_api_v1_warehouse_stock_movements__movement_id__get": {
+        "movement_id": {"type": "string"},
+    },
+}
+STORE_OWNER_REQUIRED_READ_QUERY_SCHEMAS = {
+    STORE_OWNER_READ_PROBE_OPERATION: {
+        "isActive": {"anyOf": [{"type": "boolean"}, {"type": "null"}]},
+        "page": {"maximum": 100000, "minimum": 1, "type": "integer"},
+        "pageSize": {"maximum": 100, "minimum": 1, "type": "integer"},
+    },
+    "list_customer_orders_page_api_v1_customers_orders_page_get": {
+        "archived": {"type": "boolean"},
+        "page": {"maximum": 100000, "minimum": 1, "type": "integer"},
+        "pageSize": {"maximum": 50, "minimum": 1, "type": "integer"},
+        "q": {"maxLength": 200, "type": "string"},
+        "status": {"maxLength": 40, "minLength": 1, "type": "string"},
+    },
+    "get_customer_order_api_v1_customers_orders__order_id__get": {
+        "cursor": {
+            "anyOf": [
+                {"maxLength": 2048, "minLength": 1, "type": "string"},
+                {"type": "null"},
+            ]
+        },
+        "itemLimit": {"maximum": 100, "minimum": 1, "type": "integer"},
+    },
+    "list_stock_batches_page_api_v1_warehouse_batches_page_get": {
+        "page": {"maximum": 100000, "minimum": 1, "type": "integer"},
+        "q": {"maxLength": 200, "type": "string"},
+        "status": {"enum": ["all", "IN_PROGRESS", "COMPLETED"], "type": "string"},
+    },
+    "get_stock_batch_api_v1_warehouse_batches__batch_id__get": {},
+    "list_warehouse_stock_movements_page_api_v1_warehouse_stock_movements_page_get": {
+        "movementType": {"enum": ["all", "RECEIPT", "SHIPMENT"], "type": "string"},
+        "page": {"maximum": 100000, "minimum": 1, "type": "integer"},
+        "q": {"maxLength": 200, "type": "string"},
+    },
+    "get_warehouse_stock_movement_api_v1_warehouse_stock_movements__movement_id__get": {},
+}
 CHANGE_FEED_EVENT_KEYS = frozenset(
     {
         "sequence",
@@ -409,6 +505,375 @@ async def _discover_raw_schema(
     ):
         raise RuntimeError(f"{name} schema contract is invalid")
     return schema_hash
+
+
+def _store_owner_safe_create_arguments(smoke_id: str, *, mode: str) -> dict[str, Any]:
+    correlation_id = f"{STORE_OWNER_SAFE_CREATE_CORRELATION_PREFIX}-{smoke_id}"
+    arguments: dict[str, Any] = {
+        "operation_id": STORE_OWNER_SAFE_CREATE_OPERATION,
+        "mode": mode,
+        "target_id": STORE_OWNER_SAFE_CREATE_TARGET,
+        # This is a synthetic release-scoped dictionary value, not customer or
+        # supplier data. The server dry-run must reject any body that drifts
+        # from the exact discovered one-field manufacturer contract.
+        "body": {"name": f"Gateway release smoke {smoke_id}"},
+        "correlation_id": correlation_id,
+    }
+    if mode == "dry_run":
+        idempotency_key = f"gateway-store-owner-manufacturer-{smoke_id}"
+        arguments.update(
+            {
+                "owner_intent": "signed Gateway release preflight only; never apply",
+                "idempotency_key": idempotency_key,
+            }
+        )
+    return arguments
+
+
+async def _store_owner_signed_safe_create_checks(
+    session: ClientSession,
+    calls: dict[str, bool],
+    *,
+    capability_schema_hash: str,
+    owner_api_schema_hash: str,
+    smoke_id: str,
+    release_revision: str,
+    release_smoke_proof: str,
+) -> dict[str, bool]:
+    if not smoke_id or not release_revision or not release_smoke_proof:
+        raise RuntimeError("store owner signed dry-run release identity is missing")
+
+    contract_result = await _call(
+        session,
+        calls,
+        "call_raw_capability",
+        {
+            "name": STORE_OWNER_CAPABILITIES_NAME,
+            "arguments": {"operation_id": STORE_OWNER_SAFE_CREATE_OPERATION},
+            "schema_hash": capability_schema_hash,
+            "allow_large_output": True,
+        },
+    )
+    contract_executor = _required_raw_executor(
+        contract_result,
+        name="store owner safe create contract",
+    )
+    contract_summary = _required_mapping(
+        contract_executor.get("summary"),
+        label="store owner safe create summary",
+    )
+    input_contract = _required_mapping(
+        contract_executor.get("input_contract"),
+        label="store owner safe create input contract",
+    )
+    path_contract = _required_mapping(
+        input_contract.get("path_parameters"),
+        label="store owner safe create path contract",
+    )
+    query_contract = _required_mapping(
+        input_contract.get("query_parameters"),
+        label="store owner safe create query contract",
+    )
+    request_body_contract = _required_mapping(
+        input_contract.get("request_body"),
+        label="store owner safe create request body contract",
+    )
+    request_content = request_body_contract.get("content")
+    if not isinstance(request_content, list) or len(request_content) != 1:
+        raise RuntimeError("store owner safe create request body contract is invalid")
+    content_item = _required_mapping(
+        request_content[0],
+        label="store owner safe create request content",
+    )
+    body_schema = _required_mapping(
+        content_item.get("schema"),
+        label="store owner safe create body schema",
+    )
+    body_properties = _required_mapping(
+        body_schema.get("properties"),
+        label="store owner safe create body properties",
+    )
+    safe_create_contract_ready = bool(
+        _tool_ok(contract_result)
+        and contract_executor.get("data_included") is False
+        and contract_summary.get("operation_id") == STORE_OWNER_SAFE_CREATE_OPERATION
+        and contract_summary.get("method") == "POST"
+        and contract_summary.get("risk") == "high_risk_write"
+        and "201" in (contract_summary.get("response_statuses") or [])
+        and "application/json" in (contract_summary.get("response_content_types") or [])
+        and input_contract.get("contract_version") == "store-owner-input-contract-v1"
+        and path_contract
+        == {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": False,
+        }
+        and query_contract
+        == {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": False,
+        }
+        and request_body_contract.get("required") is True
+        and content_item.get("content_type") == "application/json"
+        and body_schema.get("type") == "object"
+        and set(body_properties) == {"name"}
+        and body_properties.get("name") == {"type": "string", "minLength": 1, "maxLength": 200}
+        and body_schema.get("required") == ["name"]
+    )
+    if not safe_create_contract_ready:
+        raise RuntimeError("store owner safe create contract is invalid")
+
+    revision_result = await _call(
+        session,
+        calls,
+        "call_raw_capability",
+        {
+            "name": STORE_OWNER_API_NAME,
+            "arguments": _store_owner_safe_create_arguments(smoke_id, mode="revision"),
+            "schema_hash": owner_api_schema_hash,
+            "allow_large_output": False,
+        },
+    )
+    revision_executor = _required_raw_executor(
+        revision_result,
+        name="store owner safe create revision",
+    )
+    revision_summary = _required_mapping(
+        revision_executor.get("summary"),
+        label="store owner safe create revision summary",
+    )
+    revision_meta = _required_mapping(
+        revision_executor.get("meta"),
+        label="store owner safe create revision metadata",
+    )
+    revision_ready = bool(
+        revision_executor.get("status") == "completed"
+        and revision_executor.get("data_included") is False
+        and revision_summary.get("operation_id") == STORE_OWNER_SAFE_CREATE_OPERATION
+        and revision_summary.get("current_revision") is None
+        and revision_summary.get("revision_kind") == "revision_exempt"
+        and revision_summary.get("expected_revision_required") is False
+        and revision_summary.get("contract_version") == STORE_OWNER_PREFLIGHT_CONTRACT_VERSION
+        and revision_meta.get("request_dispatched") is True
+        and revision_meta.get("domain_handler_executed") is False
+    )
+    if not revision_ready:
+        raise RuntimeError("store owner safe create revision is invalid")
+
+    dry_run_arguments = _store_owner_safe_create_arguments(smoke_id, mode="dry_run")
+    dry_run_result = await _call(
+        session,
+        calls,
+        "call_raw_capability",
+        {
+            "name": STORE_OWNER_API_NAME,
+            "arguments": dry_run_arguments,
+            "schema_hash": owner_api_schema_hash,
+            "idempotency_key": dry_run_arguments["idempotency_key"],
+            "allow_large_output": False,
+            **_maintenance_raw_fields(release_revision, release_smoke_proof),
+        },
+    )
+    _require_raw_write_ledger(
+        dry_run_result,
+        name="store owner signed dry-run",
+        check="store_owner_server_dry_run_receipt",
+    )
+    dry_run_executor = _required_raw_executor(
+        dry_run_result,
+        name="store owner signed dry-run",
+    )
+    dry_run_summary = _required_mapping(
+        dry_run_executor.get("summary"),
+        label="store owner signed dry-run summary",
+    )
+    dry_run_meta = _required_mapping(
+        dry_run_executor.get("meta"),
+        label="store owner signed dry-run metadata",
+    )
+    dry_run_ready = bool(
+        dry_run_executor.get("status") == "planned"
+        and dry_run_executor.get("data_included") is False
+        and dry_run_summary.get("operation_id") == STORE_OWNER_SAFE_CREATE_OPERATION
+        and STORE_OWNER_DRY_RUN_PROOF_PATTERN.fullmatch(
+            str(dry_run_summary.get("dry_run_proof") or "")
+        )
+        is not None
+        and isinstance(dry_run_summary.get("server_receipt_id"), str)
+        and bool(dry_run_summary.get("server_receipt_id"))
+        and isinstance(dry_run_summary.get("expires_at"), str)
+        and bool(dry_run_summary.get("expires_at"))
+        and dry_run_summary.get("current_revision") is None
+        and dry_run_summary.get("revision_kind") == "revision_exempt"
+        and dry_run_summary.get("contract_version") == STORE_OWNER_PREFLIGHT_CONTRACT_VERSION
+    )
+    no_business_dml = bool(
+        dry_run_meta.get("request_dispatched") is True
+        and dry_run_meta.get("outcome_uncertain") is False
+        and dry_run_meta.get("domain_handler_executed") is False
+    )
+    if not dry_run_ready or not no_business_dml:
+        raise RuntimeError("store owner signed dry-run result is invalid")
+    return {
+        "store_owner_safe_create_contract_ready": safe_create_contract_ready,
+        "store_owner_safe_create_revision_ready": revision_ready,
+        "store_owner_signed_dry_run_ready": dry_run_ready,
+        "store_owner_signed_dry_run_no_business_dml": no_business_dml,
+    }
+
+
+async def _store_owner_read_checks(
+    session: ClientSession,
+    calls: dict[str, bool],
+    *,
+    smoke_id: str = "",
+    release_revision: str = "",
+    release_smoke_proof: str = "",
+    include_signed_dry_run: bool = False,
+) -> dict[str, bool]:
+    capability_schema_hash = await _discover_raw_schema(
+        session,
+        calls,
+        name=STORE_OWNER_CAPABILITIES_NAME,
+        allowed_risks=frozenset({"read"}),
+    )
+    capability_ready = True
+    for (
+        operation_id,
+        expected_path_fields,
+        expected_query_fields,
+    ) in STORE_OWNER_REQUIRED_READ_CONTRACTS:
+        contract_result = await _call(
+            session,
+            calls,
+            "call_raw_capability",
+            {
+                "name": STORE_OWNER_CAPABILITIES_NAME,
+                "arguments": {"operation_id": operation_id},
+                "schema_hash": capability_schema_hash,
+                "allow_large_output": True,
+            },
+        )
+        contract_executor = _required_mapping(
+            _structured(contract_result).get("data"),
+            label="store owner capability contract",
+        )
+        contract_summary = _required_mapping(
+            contract_executor.get("summary"),
+            label="store owner capability summary",
+        )
+        input_contract = _required_mapping(
+            contract_executor.get("input_contract"),
+            label="store owner input contract",
+        )
+        path_contract = _required_mapping(
+            input_contract.get("path_parameters"),
+            label="store owner path contract",
+        )
+        query_contract = _required_mapping(
+            input_contract.get("query_parameters"),
+            label="store owner query contract",
+        )
+        request_body_contract = _required_mapping(
+            input_contract.get("request_body"),
+            label="store owner request body contract",
+        )
+        path_properties = _required_mapping(
+            path_contract.get("properties"),
+            label="store owner path properties",
+        )
+        query_properties = _required_mapping(
+            query_contract.get("properties"),
+            label="store owner query properties",
+        )
+        path_required = path_contract.get("required")
+        query_required = query_contract.get("required")
+        expected_path_schema = STORE_OWNER_REQUIRED_READ_PATH_SCHEMAS.get(operation_id)
+        expected_query_schema = STORE_OWNER_REQUIRED_READ_QUERY_SCHEMAS.get(operation_id)
+        contract_ready = bool(
+            _tool_ok(contract_result)
+            and contract_executor.get("ok") is True
+            and contract_executor.get("data_included") is False
+            and contract_summary.get("operation_id") == operation_id
+            and contract_summary.get("method") == "GET"
+            and contract_summary.get("risk") == "read"
+            and "200" in (contract_summary.get("response_statuses") or [])
+            and "application/json" in (contract_summary.get("response_content_types") or [])
+            and input_contract.get("contract_version") == "store-owner-input-contract-v1"
+            and path_contract.get("type") == "object"
+            and expected_path_fields == set(path_properties)
+            and isinstance(expected_path_schema, dict)
+            and expected_path_schema == path_properties
+            and isinstance(path_required, list)
+            and expected_path_fields == set(path_required)
+            and path_contract.get("additionalProperties") is False
+            and query_contract.get("type") == "object"
+            and expected_query_fields == set(query_properties)
+            and isinstance(expected_query_schema, dict)
+            and expected_query_schema == query_properties
+            and isinstance(query_required, list)
+            and query_required == []
+            and query_contract.get("additionalProperties") is False
+            and request_body_contract.get("required") is False
+            and request_body_contract.get("content") == []
+        )
+        capability_ready = capability_ready and contract_ready
+        if not contract_ready:
+            raise RuntimeError("store owner capability contract is invalid")
+
+    owner_api_schema_hash = await _discover_raw_schema(
+        session,
+        calls,
+        name=STORE_OWNER_API_NAME,
+        allowed_risks=frozenset({"write"}),
+    )
+    read_result = await _call(
+        session,
+        calls,
+        "call_raw_capability",
+        {
+            "name": STORE_OWNER_API_NAME,
+            "arguments": {
+                "operation_id": STORE_OWNER_READ_PROBE_OPERATION,
+                "mode": "read",
+                "correlation_id": STORE_OWNER_READ_PROBE_CORRELATION,
+                "query": {"page": 1, "pageSize": 1},
+            },
+            "schema_hash": owner_api_schema_hash,
+            "allow_large_output": False,
+        },
+    )
+    read_executor = _required_mapping(
+        _structured(read_result).get("data"),
+        label="store owner read result",
+    )
+    read_ready = bool(
+        _tool_ok(read_result)
+        and read_executor.get("ok") is True
+        and read_executor.get("status") == "completed"
+    )
+    if not read_ready:
+        raise RuntimeError("store owner safe GET probe failed")
+    checks = {
+        "store_owner_capability_contract_ready": capability_ready,
+        "store_owner_safe_get_ready": read_ready,
+    }
+    if include_signed_dry_run:
+        checks.update(
+            await _store_owner_signed_safe_create_checks(
+                session,
+                calls,
+                capability_schema_hash=capability_schema_hash,
+                owner_api_schema_hash=owner_api_schema_hash,
+                smoke_id=smoke_id,
+                release_revision=release_revision,
+                release_smoke_proof=release_smoke_proof,
+            )
+        )
+    return checks
 
 
 def _validated_change_feed_page(data: dict[str, Any], *, consumer_id: str) -> list[dict[str, Any]]:
@@ -1140,6 +1605,7 @@ async def check_gateway(args: argparse.Namespace) -> dict[str, Any]:
                     store_runtime = None
                     store_probe = None
                     store_sourcing_probe = None
+                    store_owner_checks: dict[str, bool] = {}
                     web_checks: dict[str, bool] = {}
                     workflows = None
                     calls: dict[str, bool] = {}
@@ -1217,6 +1683,14 @@ async def check_gateway(args: argparse.Namespace) -> dict[str, Any]:
                                     "limit": 1,
                                 },
                             )
+                            store_owner_checks = await _store_owner_read_checks(
+                                session,
+                                calls,
+                                smoke_id=smoke_id,
+                                release_revision=release_revision,
+                                release_smoke_proof=release_smoke_proof,
+                                include_signed_dry_run=args.exhaustive and maintenance_safe,
+                            )
                         if args.require_web:
                             web_checks = await _run_web_checks(session, calls)
                         if args.exhaustive:
@@ -1289,6 +1763,7 @@ async def check_gateway(args: argparse.Namespace) -> dict[str, Any]:
                 ),
                 "store_sourcing_read_ok": store_sourcing_probe is not None
                 and _tool_ok(store_sourcing_probe),
+                **store_owner_checks,
             }
         )
     if args.require_web:
@@ -1379,8 +1854,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Require live AutoStop App health and a non-cursor-consuming store state read. "
-            "With --exhaustive, also require owner capability/revision/server-dry-run and "
-            "PII-free CRM change-feed bootstrap/replay/ACK probes."
+            "With --exhaustive --maintenance-safe, also require an exact non-PII owner "
+            "contract/revision/signed server dry-run (never apply) and PII-free CRM "
+            "change-feed bootstrap/replay/ACK probes."
         ),
     )
     parser.add_argument(

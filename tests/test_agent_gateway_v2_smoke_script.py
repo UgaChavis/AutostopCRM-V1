@@ -124,6 +124,11 @@ class AgentGatewayV2SmokeScriptTests(unittest.TestCase):
 
         self.assertIn('"entity": "store_state"', source)
         self.assertIn('"entity": "store_sourcing_offer"', source)
+        self.assertIn("STORE_OWNER_CAPABILITIES_NAME", source)
+        self.assertIn("STORE_OWNER_READ_PROBE_OPERATION", source)
+        self.assertIn("STORE_OWNER_REQUIRED_READ_CONTRACTS", source)
+        self.assertIn('"store_owner_capability_contract_ready"', source)
+        self.assertIn('"store_owner_safe_get_ready"', source)
         self.assertIn('"store_quote_adapter_configured"', source)
         self.assertIn('"store_quote_full_read_enabled"', source)
         self.assertIn('"store_quote_draft_write_enabled"', source)
@@ -186,6 +191,446 @@ class AgentGatewayV2SmokeScriptTests(unittest.TestCase):
 
 
 class AgentGatewayV2SmokeProbeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_store_owner_probe_reads_one_bounded_page_from_exact_contract(self) -> None:
+        module = load_script_module()
+        expected_contracts = (
+            (
+                "list_manufacturers_api_v1_manufacturers_get",
+                frozenset(),
+                frozenset({"isActive", "page", "pageSize"}),
+            ),
+            (
+                "list_customer_orders_page_api_v1_customers_orders_page_get",
+                frozenset(),
+                frozenset({"page", "pageSize", "status", "q", "archived"}),
+            ),
+            (
+                "get_customer_order_api_v1_customers_orders__order_id__get",
+                frozenset({"order_id"}),
+                frozenset({"itemLimit", "cursor"}),
+            ),
+            (
+                "list_stock_batches_page_api_v1_warehouse_batches_page_get",
+                frozenset(),
+                frozenset({"page", "q", "status"}),
+            ),
+            (
+                "get_stock_batch_api_v1_warehouse_batches__batch_id__get",
+                frozenset({"batch_id"}),
+                frozenset(),
+            ),
+            (
+                "list_warehouse_stock_movements_page_api_v1_warehouse_stock_movements_page_get",
+                frozenset(),
+                frozenset({"page", "q", "movementType"}),
+            ),
+            (
+                "get_warehouse_stock_movement_api_v1_warehouse_stock_movements__movement_id__get",
+                frozenset({"movement_id"}),
+                frozenset(),
+            ),
+        )
+        expected_query_schemas = {
+            "list_manufacturers_api_v1_manufacturers_get": {
+                "isActive": {"anyOf": [{"type": "boolean"}, {"type": "null"}]},
+                "page": {"maximum": 100000, "minimum": 1, "type": "integer"},
+                "pageSize": {"maximum": 100, "minimum": 1, "type": "integer"},
+            },
+            "list_customer_orders_page_api_v1_customers_orders_page_get": {
+                "archived": {"type": "boolean"},
+                "page": {"maximum": 100000, "minimum": 1, "type": "integer"},
+                "pageSize": {"maximum": 50, "minimum": 1, "type": "integer"},
+                "q": {"maxLength": 200, "type": "string"},
+                "status": {"maxLength": 40, "minLength": 1, "type": "string"},
+            },
+            "get_customer_order_api_v1_customers_orders__order_id__get": {
+                "cursor": {
+                    "anyOf": [
+                        {"maxLength": 2048, "minLength": 1, "type": "string"},
+                        {"type": "null"},
+                    ]
+                },
+                "itemLimit": {"maximum": 100, "minimum": 1, "type": "integer"},
+            },
+            "list_stock_batches_page_api_v1_warehouse_batches_page_get": {
+                "page": {"maximum": 100000, "minimum": 1, "type": "integer"},
+                "q": {"maxLength": 200, "type": "string"},
+                "status": {
+                    "enum": ["all", "IN_PROGRESS", "COMPLETED"],
+                    "type": "string",
+                },
+            },
+            "get_stock_batch_api_v1_warehouse_batches__batch_id__get": {},
+            "list_warehouse_stock_movements_page_api_v1_warehouse_stock_movements_page_get": {
+                "movementType": {
+                    "enum": ["all", "RECEIPT", "SHIPMENT"],
+                    "type": "string",
+                },
+                "page": {"maximum": 100000, "minimum": 1, "type": "integer"},
+                "q": {"maxLength": 200, "type": "string"},
+            },
+            "get_warehouse_stock_movement_api_v1_warehouse_stock_movements__movement_id__get": {},
+        }
+        expected_path_schemas = {
+            "list_manufacturers_api_v1_manufacturers_get": {},
+            "list_customer_orders_page_api_v1_customers_orders_page_get": {},
+            "get_customer_order_api_v1_customers_orders__order_id__get": {
+                "order_id": {"type": "string"},
+            },
+            "list_stock_batches_page_api_v1_warehouse_batches_page_get": {},
+            "get_stock_batch_api_v1_warehouse_batches__batch_id__get": {
+                "batch_id": {"type": "string"},
+            },
+            "list_warehouse_stock_movements_page_api_v1_warehouse_stock_movements_page_get": {},
+            "get_warehouse_stock_movement_api_v1_warehouse_stock_movements__movement_id__get": {
+                "movement_id": {"type": "string"},
+            },
+        }
+        self.assertEqual(expected_contracts, module.STORE_OWNER_REQUIRED_READ_CONTRACTS)
+        self.assertEqual(
+            expected_path_schemas,
+            module.STORE_OWNER_REQUIRED_READ_PATH_SCHEMAS,
+        )
+        self.assertEqual(
+            expected_query_schemas,
+            module.STORE_OWNER_REQUIRED_READ_QUERY_SCHEMAS,
+        )
+        risks = {
+            module.STORE_OWNER_CAPABILITIES_NAME: "read",
+            module.STORE_OWNER_API_NAME: "write",
+        }
+
+        def handler(name: str, arguments: dict):
+            if name == "discover_raw_capabilities":
+                capability_name = arguments["query"]
+                return tool_result(
+                    {
+                        "ok": True,
+                        "data": {
+                            "capabilities": [
+                                {"name": capability_name, "risk": risks[capability_name]}
+                            ]
+                        },
+                    }
+                )
+            if name == "get_raw_capability_schema":
+                capability_name = arguments["name"]
+                return tool_result(
+                    {
+                        "ok": True,
+                        "summary": {
+                            "schema_hash": f"hash-{capability_name}",
+                            "risk": risks[capability_name],
+                        },
+                        "data": {"input_schema": {"type": "object"}},
+                    }
+                )
+            self.assertEqual("call_raw_capability", name)
+            if arguments["name"] == module.STORE_OWNER_CAPABILITIES_NAME:
+                operation_id = arguments["arguments"]["operation_id"]
+                expected = {item[0]: (item[1], item[2]) for item in expected_contracts}
+                path_fields, query_fields = expected[operation_id]
+                self.assertEqual(query_fields, frozenset(expected_query_schemas[operation_id]))
+                return tool_result(
+                    {
+                        "ok": True,
+                        "data": {
+                            "ok": True,
+                            "data_included": False,
+                            "summary": {
+                                "operation_id": operation_id,
+                                "method": "GET",
+                                "risk": "read",
+                                "response_statuses": ["200"],
+                                "response_content_types": ["application/json"],
+                            },
+                            "input_contract": {
+                                "contract_version": "store-owner-input-contract-v1",
+                                "path_parameters": {
+                                    "type": "object",
+                                    "properties": expected_path_schemas[operation_id],
+                                    "required": sorted(path_fields),
+                                    "additionalProperties": False,
+                                },
+                                "query_parameters": {
+                                    "type": "object",
+                                    "properties": expected_query_schemas[operation_id],
+                                    "required": [],
+                                    "additionalProperties": False,
+                                },
+                                "request_body": {"required": False, "content": []},
+                            },
+                        },
+                    }
+                )
+            self.assertEqual(module.STORE_OWNER_API_NAME, arguments["name"])
+            return tool_result({"ok": True, "data": {"ok": True, "status": "completed"}})
+
+        session = ScriptSession(handler)
+        checks = await module._store_owner_read_checks(session, {})
+
+        self.assertTrue(all(checks.values()))
+        raw_calls = [
+            arguments for name, arguments in session.calls if name == "call_raw_capability"
+        ]
+        self.assertEqual(len(module.STORE_OWNER_REQUIRED_READ_CONTRACTS) + 1, len(raw_calls))
+        self.assertTrue(all(call["allow_large_output"] for call in raw_calls[:-1]))
+        self.assertEqual(
+            {
+                "operation_id": module.STORE_OWNER_READ_PROBE_OPERATION,
+                "mode": "read",
+                "correlation_id": module.STORE_OWNER_READ_PROBE_CORRELATION,
+                "query": {"page": 1, "pageSize": 1},
+            },
+            raw_calls[-1]["arguments"],
+        )
+        self.assertFalse(raw_calls[-1]["allow_large_output"])
+
+        def path_drift_handler(name: str, arguments: dict):
+            result = handler(name, arguments)
+            if (
+                name == "call_raw_capability"
+                and arguments["name"] == module.STORE_OWNER_CAPABILITIES_NAME
+                and arguments["arguments"]["operation_id"]
+                == "get_customer_order_api_v1_customers_orders__order_id__get"
+            ):
+                result.structuredContent["data"]["input_contract"]["path_parameters"]["properties"][
+                    "order_id"
+                ] = {"type": "integer"}
+            return result
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "store owner capability contract is invalid",
+        ):
+            await module._store_owner_read_checks(ScriptSession(path_drift_handler), {})
+
+    async def test_maintenance_store_probe_uses_nonfinancial_safe_create_revision_and_signed_dry_run(
+        self,
+    ) -> None:
+        module = load_script_module()
+        risks = {
+            module.STORE_OWNER_CAPABILITIES_NAME: "read",
+            module.STORE_OWNER_API_NAME: "write",
+        }
+        smoke_id = "0123456789abcdef0123456789abcdef"
+        release_revision = "a" * 40
+        release_proof = "b" * 64
+
+        def capability_contract(operation_id: str) -> dict:
+            if operation_id == module.STORE_OWNER_SAFE_CREATE_OPERATION:
+                return {
+                    "ok": True,
+                    "data_included": False,
+                    "summary": {
+                        "operation_id": operation_id,
+                        "method": "POST",
+                        "risk": "high_risk_write",
+                        "response_statuses": ["201"],
+                        "response_content_types": ["application/json"],
+                    },
+                    "input_contract": {
+                        "contract_version": "store-owner-input-contract-v1",
+                        "path_parameters": {
+                            "type": "object",
+                            "properties": {},
+                            "required": [],
+                            "additionalProperties": False,
+                        },
+                        "query_parameters": {
+                            "type": "object",
+                            "properties": {},
+                            "required": [],
+                            "additionalProperties": False,
+                        },
+                        "request_body": {
+                            "required": True,
+                            "content": [
+                                {
+                                    "content_type": "application/json",
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "name": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 200,
+                                            }
+                                        },
+                                        "required": ["name"],
+                                    },
+                                }
+                            ],
+                        },
+                    },
+                }
+            path_fields = module.STORE_OWNER_REQUIRED_READ_PATH_SCHEMAS[operation_id]
+            query_fields = module.STORE_OWNER_REQUIRED_READ_QUERY_SCHEMAS[operation_id]
+            return {
+                "ok": True,
+                "data_included": False,
+                "summary": {
+                    "operation_id": operation_id,
+                    "method": "GET",
+                    "risk": "read",
+                    "response_statuses": ["200"],
+                    "response_content_types": ["application/json"],
+                },
+                "input_contract": {
+                    "contract_version": "store-owner-input-contract-v1",
+                    "path_parameters": {
+                        "type": "object",
+                        "properties": path_fields,
+                        "required": sorted(path_fields),
+                        "additionalProperties": False,
+                    },
+                    "query_parameters": {
+                        "type": "object",
+                        "properties": query_fields,
+                        "required": [],
+                        "additionalProperties": False,
+                    },
+                    "request_body": {"required": False, "content": []},
+                },
+            }
+
+        def handler(name: str, arguments: dict):
+            if name == "discover_raw_capabilities":
+                capability_name = arguments["query"]
+                return tool_result(
+                    {
+                        "ok": True,
+                        "data": {
+                            "capabilities": [
+                                {"name": capability_name, "risk": risks[capability_name]}
+                            ]
+                        },
+                    }
+                )
+            if name == "get_raw_capability_schema":
+                capability_name = arguments["name"]
+                return tool_result(
+                    {
+                        "ok": True,
+                        "summary": {
+                            "schema_hash": f"hash-{capability_name}",
+                            "risk": risks[capability_name],
+                        },
+                        "data": {"input_schema": {"type": "object"}},
+                    }
+                )
+            self.assertEqual("call_raw_capability", name)
+            if arguments["name"] == module.STORE_OWNER_CAPABILITIES_NAME:
+                return tool_result(
+                    {
+                        "ok": True,
+                        "data": capability_contract(arguments["arguments"]["operation_id"]),
+                    }
+                )
+
+            self.assertEqual(module.STORE_OWNER_API_NAME, arguments["name"])
+            owner_arguments = arguments["arguments"]
+            mode = owner_arguments["mode"]
+            if mode == "read":
+                return tool_result({"ok": True, "data": {"ok": True, "status": "completed"}})
+            self.assertEqual(
+                module.STORE_OWNER_SAFE_CREATE_OPERATION, owner_arguments["operation_id"]
+            )
+            self.assertEqual(module.STORE_OWNER_SAFE_CREATE_TARGET, owner_arguments["target_id"])
+            self.assertEqual({"name"}, set(owner_arguments["body"]))
+            if mode == "revision":
+                return tool_result(
+                    {
+                        "ok": True,
+                        "data": {
+                            "ok": True,
+                            "status": "completed",
+                            "data_included": False,
+                            "summary": {
+                                "operation_id": module.STORE_OWNER_SAFE_CREATE_OPERATION,
+                                "current_revision": None,
+                                "revision_kind": "revision_exempt",
+                                "expected_revision_required": False,
+                                "contract_version": module.STORE_OWNER_PREFLIGHT_CONTRACT_VERSION,
+                            },
+                            "meta": {
+                                "request_dispatched": True,
+                                "domain_handler_executed": False,
+                            },
+                        },
+                    }
+                )
+            self.assertEqual("dry_run", mode)
+            self.assertEqual(owner_arguments["idempotency_key"], arguments["idempotency_key"])
+            self.assertEqual(release_revision, arguments["release_smoke_revision"])
+            self.assertEqual(release_proof, arguments["release_smoke_proof"])
+            return raw_write_result(
+                {
+                    "ok": True,
+                    "status": "planned",
+                    "data_included": False,
+                    "summary": {
+                        "operation_id": module.STORE_OWNER_SAFE_CREATE_OPERATION,
+                        "dry_run_proof": "c" * 64,
+                        "server_receipt_id": "synthetic-receipt",
+                        "expires_at": "2099-01-01T00:00:00+00:00",
+                        "current_revision": None,
+                        "revision_kind": "revision_exempt",
+                        "contract_version": module.STORE_OWNER_PREFLIGHT_CONTRACT_VERSION,
+                    },
+                    "meta": {
+                        "request_dispatched": True,
+                        "outcome_uncertain": False,
+                        "domain_handler_executed": False,
+                    },
+                },
+                check="store_owner_server_dry_run_receipt",
+            )
+
+        session = ScriptSession(handler)
+        checks = await module._store_owner_read_checks(
+            session,
+            {},
+            smoke_id=smoke_id,
+            release_revision=release_revision,
+            release_smoke_proof=release_proof,
+            include_signed_dry_run=True,
+        )
+
+        self.assertTrue(all(checks.values()))
+        self.assertTrue(checks["store_owner_safe_create_contract_ready"])
+        self.assertTrue(checks["store_owner_safe_create_revision_ready"])
+        self.assertTrue(checks["store_owner_signed_dry_run_ready"])
+        self.assertTrue(checks["store_owner_signed_dry_run_no_business_dml"])
+        raw_calls = [
+            arguments for name, arguments in session.calls if name == "call_raw_capability"
+        ]
+        owner_calls = [call for call in raw_calls if call["name"] == module.STORE_OWNER_API_NAME]
+        self.assertEqual(
+            ["read", "revision", "dry_run"], [call["arguments"]["mode"] for call in owner_calls]
+        )
+        self.assertNotIn("apply", [call["arguments"]["mode"] for call in owner_calls])
+
+        def dml_handler(name: str, arguments: dict):
+            result = handler(name, arguments)
+            if (
+                name == "call_raw_capability"
+                and arguments["name"] == module.STORE_OWNER_API_NAME
+                and arguments["arguments"].get("mode") == "dry_run"
+            ):
+                result.structuredContent["data"]["meta"]["domain_handler_executed"] = True
+            return result
+
+        with self.assertRaisesRegex(RuntimeError, "signed dry-run result is invalid"):
+            await module._store_owner_read_checks(
+                ScriptSession(dml_handler),
+                {},
+                smoke_id=smoke_id,
+                release_revision=release_revision,
+                release_smoke_proof=release_proof,
+                include_signed_dry_run=True,
+            )
+
     async def test_transport_failure_reports_only_fixed_capability_context(self) -> None:
         module = load_script_module()
 

@@ -405,6 +405,195 @@ snapshot_manager_commit {shlex.quote(str(source))} {shlex.quote(str(target))} {s
         ):
             self.assertLess(manager_preflight, release_action)
 
+    def test_deploy_syncs_current_manager_knowledge_only_after_verified_backup_and_activation(
+        self,
+    ) -> None:
+        script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+        runbook = (PROJECT_ROOT / "docs" / "OPERATIONS_RUNBOOK.md").read_text(encoding="utf-8")
+        sync_start = script.index("sync_current_manager_knowledge() {")
+        sync_end = script.index("\n}\n\nif [[ ! -d", sync_start) + 2
+        sync = script[sync_start:sync_end]
+        cutover_start = script.index("maintenance_started=1")
+        backup_create = script.index(
+            'run_release "$PYTHON_BIN" scripts/agent_release_backup.py create',
+            cutover_start,
+        )
+        backup_verify = script.index(
+            'run_release "$PYTHON_BIN" scripts/agent_release_backup.py verify --backup-dir "$backup_dir"',
+            backup_create,
+        )
+        activation = script.index('activate_manager_snapshot "$manager_release_dir"', backup_verify)
+        knowledge_sync = script.index("sync_current_manager_knowledge", activation + 1)
+        crm_start = script.index(
+            'run_release env AUTOSTOP_RELEASE_IMAGE="$release_image" docker compose up',
+            knowledge_sync,
+        )
+
+        self.assertIn('MANAGER_RELEASE_PYTHON="$MANAGER_SOURCE_DIR/.venv/bin/python"', script)
+        self.assertIn('if [[ ! -x "$MANAGER_RELEASE_PYTHON" ]]', script)
+        self.assertIn('PYTHONPATH="$MANAGER_CURRENT_LINK"', sync)
+        self.assertIn("PYTHONSAFEPATH=1", sync)
+        self.assertIn("PYTHONDONTWRITEBYTECODE=1", sync)
+        self.assertIn('AUTOSTOP_MANAGER_DB="$MANAGER_DB"', sync)
+        self.assertIn('"$MANAGER_RELEASE_PYTHON" -m autostop_manager.cli knowledge-sync', sync)
+        self.assertIn('"$MANAGER_RELEASE_PYTHON" -m autostop_manager.cli knowledge-audit', sync)
+        self.assertIn(
+            'active_manager_dir="$(run_release readlink -f "$MANAGER_CURRENT_LINK")"', sync
+        )
+        self.assertIn(
+            'expected_manager_dir="$(run_release readlink -f "$manager_release_dir")"', sync
+        )
+        self.assertNotIn(
+            'verify_manager_snapshot_artifact "$manager_release_dir" "$manager_revision"',
+            script[activation:knowledge_sync],
+        )
+        self.assertLess(backup_create, backup_verify)
+        self.assertLess(backup_verify, activation)
+        self.assertLess(activation, knowledge_sync)
+        self.assertLess(knowledge_sync, crm_start)
+        self.assertIn("AUTOSTOP_MANAGER_DB` is mandatory for preflight", runbook)
+        self.assertIn("Never run a bare", runbook)
+        self.assertIn("`knowledge-sync` against the persistent Manager DB", runbook)
+
+    def test_deploy_runs_isolated_candidate_manager_knowledge_preflight_before_maintenance(
+        self,
+    ) -> None:
+        script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+        runbook = (PROJECT_ROOT / "docs" / "OPERATIONS_RUNBOOK.md").read_text(encoding="utf-8")
+        preflight_start = script.index("run_isolated_manager_knowledge_preflight() (")
+        preflight_end = script.index("\n)\n\nsync_current_manager_knowledge()", preflight_start) + 2
+        preflight = script[preflight_start:preflight_end]
+        snapshot = script.index(
+            'snapshot_manager_commit "$MANAGER_SOURCE_DIR" "$manager_release_dir"'
+        )
+        preflight_call = script.index("run_isolated_manager_knowledge_preflight", preflight_end)
+        image_build = script.index('--tag "$release_image_tag" -')
+        maintenance = script.index("maintenance_started=1")
+
+        self.assertIn(
+            'verify_manager_snapshot_artifact "$manager_release_dir" "$manager_revision"', preflight
+        )
+        self.assertIn(
+            "mktemp -d /tmp/autostopcrm-manager-knowledge.XXXXXX",
+            preflight,
+        )
+        self.assertIn('PYTHONPATH="$manager_release_dir"', preflight)
+        self.assertIn("PYTHONSAFEPATH=1", preflight)
+        self.assertIn("PYTHONDONTWRITEBYTECODE=1", preflight)
+        self.assertIn(
+            'AUTOSTOP_MANAGER_DB="$manager_knowledge_gate_dir/preflight.sqlite3"', preflight
+        )
+        self.assertIn('"$MANAGER_RELEASE_PYTHON" -m autostop_manager.cli knowledge-sync', preflight)
+        self.assertIn(
+            '"$MANAGER_RELEASE_PYTHON" -m autostop_manager.cli knowledge-audit', preflight
+        )
+        self.assertIn('rm -rf -- "$manager_knowledge_gate_dir"', preflight)
+        self.assertIn("refusing an unsafe Manager knowledge preflight cleanup target", preflight)
+        self.assertLess(snapshot, preflight_call)
+        self.assertLess(preflight_call, image_build)
+        self.assertLess(preflight_call, maintenance)
+        self.assertIn("sealed candidate Manager snapshot", runbook)
+        self.assertIn("does not replace the canonical full Manager", runbook)
+
+    @unittest.skipUnless(_posix_bash_available(), "a working POSIX bash is required")
+    def test_isolated_manager_knowledge_preflight_uses_and_removes_only_a_temp_db(self) -> None:
+        script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+        preflight_start = script.index("run_isolated_manager_knowledge_preflight() (")
+        preflight_end = script.index("\n)\n\nsync_current_manager_knowledge()", preflight_start) + 2
+        preflight = script[preflight_start:preflight_end]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            candidate = root / "candidate"
+            candidate.mkdir()
+            revision = "a" * 40
+            observed_path = root / "observed.txt"
+            fake_python = root / "fake-python"
+            fake_python.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                'printf \'%s|%s|%s|%s\\n\' "$PYTHONPATH" "$PYTHONSAFEPATH" "$PYTHONDONTWRITEBYTECODE" "$AUTOSTOP_MANAGER_DB" >> "$OBSERVED_PATH"\n',
+                encoding="utf-8",
+            )
+            fake_python.chmod(0o755)
+            harness = f"""
+set -euo pipefail
+manager_release_dir={shlex.quote(str(candidate))}
+manager_revision={shlex.quote(revision)}
+MANAGER_RELEASE_PYTHON={shlex.quote(str(fake_python))}
+OBSERVED_PATH={shlex.quote(str(observed_path))}
+export OBSERVED_PATH
+verify_manager_snapshot_artifact() {{
+  [[ "$1" == "$manager_release_dir" && "$2" == "$manager_revision" ]]
+}}
+{preflight}
+run_isolated_manager_knowledge_preflight
+"""
+            completed = subprocess.run(
+                ["bash", "-c", harness],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            observations = observed_path.read_text(encoding="utf-8").splitlines()
+
+        self.assertEqual("", completed.stdout)
+        self.assertEqual(2, len(observations))
+        for observation in observations:
+            code_root, safe_path, no_bytecode, database = observation.split("|")
+            self.assertEqual(str(candidate), code_root)
+            self.assertEqual("1", safe_path)
+            self.assertEqual("1", no_bytecode)
+            self.assertRegex(
+                database, r"^/tmp/autostopcrm-manager-knowledge\.[A-Za-z0-9]+/preflight\.sqlite3$"
+            )
+            self.assertFalse(Path(database).parent.exists())
+
+    @unittest.skipUnless(_posix_bash_available(), "a working POSIX bash is required")
+    def test_manager_knowledge_sync_refuses_a_non_candidate_current_link(self) -> None:
+        script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+        sync_start = script.index("sync_current_manager_knowledge() {")
+        sync_end = script.index("\n}\n\nif [[ ! -d", sync_start) + 2
+        sync = script[sync_start:sync_end]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            candidate = root / "candidate"
+            previous = root / "previous"
+            current = root / "current"
+            candidate.mkdir()
+            previous.mkdir()
+            current.symlink_to(previous)
+            calls_path = root / "calls.log"
+            harness = f"""
+set -uo pipefail
+MANAGER_CURRENT_LINK={shlex.quote(str(current))}
+manager_release_dir={shlex.quote(str(candidate))}
+MANAGER_RELEASE_PYTHON=/bin/true
+MANAGER_DB={shlex.quote(str(root / "manager.sqlite3"))}
+run_release() {{ printf '%s\\n' "$*" >> {shlex.quote(str(calls_path))}; "$@"; }}
+{sync}
+if sync_current_manager_knowledge; then
+  exit 1
+fi
+"""
+            completed = subprocess.run(
+                ["bash", "-c", harness],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            calls = calls_path.read_text(encoding="utf-8").splitlines()
+
+        self.assertEqual("", completed.stdout)
+        self.assertEqual(
+            [
+                f"readlink -f {current}",
+                f"readlink -f {candidate}",
+            ],
+            calls,
+        )
+
     def test_deploy_requires_scoped_store_identity_and_safe_network_membership(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
 

@@ -17,6 +17,8 @@ if str(SRC) not in sys.path:
 
 from minimal_kanban.mcp.agent_gateway_support import (
     RELEASE_SMOKE_CHANGE_FEED_CONSUMER_ID,
+    _is_finance_capability,
+    _policy_error,
     _store_owner_request_error,
 )
 from minimal_kanban.mcp.agent_gateway_v2 import (
@@ -89,15 +91,190 @@ class StoreOwnerGatewayTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
+    def test_owner_semantic_finance_classification_covers_derived_value_operations(self) -> None:
+        financial_operation_ids = (
+            "create_manual_order_api_v1_customers__customer_id__orders_post",
+            "delete_sales_order_api_v1_customers_orders__order_id__delete",
+            "complete_operation_api_v1_warehouse_operations__operation_id__complete_post",
+            "reverse_stock_movement_api_v1_stock_movements__movement_id__reverse_post",
+            "update_batch_api_v1_warehouse_batches__batch_id__patch",
+            "shipment_part_api_v1_parts__id__shipment_post",
+            "publish_quote_offer_drafts_api_v1_admin_quote_requests__quote_request_id__offers_publish_post",
+            "publish_admin_quote_request_response_api_v1_admin_quote_requests__quote_request_id__publish_response_post",
+            "update_quote_request_item_api_v1_admin_quote_requests__quote_request_id__items__item_id__patch",
+            "delete_quote_request_item_api_v1_admin_quote_requests__quote_request_id__items__item_id__delete",
+            "delete_admin_quote_request_api_v1_admin_quote_requests__quote_request_id__delete",
+            "archive_admin_quote_request_api_v1_admin_quote_requests__quote_request_id__archive_post",
+            "export_marketplace_items_api_v1_marketplaces_exports_post",
+            "refresh_marketplace_feed_api_v1_marketplaces_accounts__account_id__feed_refresh_post",
+            "export_all_marketplace_api_items_api_v1_marketplaces_accounts__account_id__exports_all_post",
+            "create_category_api_v1_categories_post",
+            "update_category_api_v1_categories__id__patch",
+            "deactivate_category_api_v1_categories__id__deactivate_post",
+            "activate_category_api_v1_categories__id__activate_post",
+            "delete_category_api_v1_categories__id__delete",
+            "update_manufacturer_api_v1_manufacturers__id__patch",
+            "update_part_api_v1_parts__id__patch",
+            "delete_part_api_v1_parts__id__delete",
+            "deactivate_part_api_v1_parts__id__deactivate_post",
+            "activate_part_api_v1_parts__id__activate_post",
+            "create_avito_fitment_api_v1_parts__part_id__avito_fitments_post",
+            "update_avito_fitment_api_v1_parts__part_id__avito_fitments__fitment_id__patch",
+            "delete_avito_fitment_api_v1_parts__part_id__avito_fitments__fitment_id__delete",
+            "update_system_settings_api_v1_settings_patch",
+        )
+        for operation_id in financial_operation_ids:
+            with self.subTest(operation_id=operation_id):
+                self.assertTrue(
+                    _is_finance_capability(
+                        "store_owner_api",
+                        {"mode": "dry_run", "operation_id": operation_id},
+                    )
+                )
+        self.assertFalse(
+            _is_finance_capability(
+                "store_owner_api",
+                {"mode": "dry_run", "operation_id": "reorder_part_photos"},
+            )
+        )
+        self.assertFalse(
+            _is_finance_capability(
+                "store_owner_api",
+                {"mode": "dry_run", "operation_id": "append_customer_note"},
+            )
+        )
+        self.assertFalse(
+            _is_finance_capability(
+                "store_owner_api",
+                {
+                    "mode": "dry_run",
+                    "operation_id": "create_manufacturer_api_v1_manufacturers_post",
+                    "body": {"name": "Gateway release smoke"},
+                },
+            )
+        )
+        self.assertFalse(
+            _is_finance_capability(
+                "store_owner_api",
+                {"mode": "read", "operation_id": financial_operation_ids[0]},
+            )
+        )
+        self.assertTrue(
+            _is_finance_capability(
+                "store_owner_api",
+                {
+                    "mode": "dry_run",
+                    "operation_id": "update_part_api_v1_parts__id__patch",
+                    "body": {"deriveRetailFromWholesale": True},
+                },
+            )
+        )
+
+        self.assertTrue(_is_finance_capability("replace_quote_offer_drafts", {}))
+        self.assertTrue(_is_finance_capability("mark_order_ready", {}))
+        self.assertTrue(
+            _is_finance_capability(
+                "set_quote_request_status",
+                {"status": "WAITING_FOR_APPROVAL"},
+            )
+        )
+        self.assertTrue(
+            _is_finance_capability(
+                "set_quote_request_status",
+                {"planned_changes": {"status": "WAITING_FOR_APPROVAL"}},
+            )
+        )
+        self.assertFalse(
+            _is_finance_capability(
+                "set_quote_request_status",
+                {"planned_changes": {"status": "WAITING_FOR_QUOTE"}},
+            )
+        )
+        marketplace_account_operation = (
+            "create_marketplace_account_api_v1_marketplaces_accounts_post"
+        )
+        self.assertTrue(
+            _is_finance_capability(
+                "store_owner_api",
+                {
+                    "mode": "dry_run",
+                    "operation_id": marketplace_account_operation,
+                    "body": {"transport": "FEED"},
+                },
+            )
+        )
+        self.assertFalse(
+            _is_finance_capability(
+                "store_owner_api",
+                {
+                    "mode": "dry_run",
+                    "operation_id": marketplace_account_operation,
+                    "body": {"transport": "API"},
+                },
+            )
+        )
+        self.assertTrue(
+            _is_finance_capability(
+                "store_owner_api",
+                {
+                    "mode": "dry_run",
+                    "operation_id": (
+                        "update_admin_quote_request_api_v1_admin_quote_requests__"
+                        "quote_request_id__patch"
+                    ),
+                    "body": {"status": "WAITING_FOR_APPROVAL"},
+                },
+            )
+        )
+
+    def test_named_store_finance_policy_blocks_derived_value_actions(self) -> None:
+        cases = (
+            ("set_quote_request_status", {"status": "WAITING_FOR_APPROVAL"}),
+            ("replace_quote_offer_drafts", {"items": []}),
+            ("mark_order_ready", {"status": "READY"}),
+        )
+        with patch.dict(
+            "os.environ",
+            {**GATEWAY_ENV, "AUTOSTOP_AGENT_GATEWAY_FINANCE_ENABLED": "0"},
+            clear=False,
+        ):
+            for operation, arguments in cases:
+                with self.subTest(operation=operation):
+                    self.assertEqual(
+                        "agent_gateway_finance_disabled",
+                        _policy_error(tool_name=operation, risk="write", arguments=arguments),
+                    )
+
     def _register_store_owner_tools(self, server, _logger) -> None:
         @server.tool(
             name="store_owner_capabilities",
             description="READ_ONLY RAW_CAPABILITY Store owner operation inventory",
             annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False),
         )
-        def store_owner_capabilities(query: str = "", limit: int = 50) -> dict:
+        def store_owner_capabilities(
+            query: str = "",
+            limit: int = 50,
+            operation_id: str = "",
+        ) -> dict:
             arguments = {"query": query, "limit": limit}
+            if operation_id:
+                arguments["operation_id"] = operation_id
             self.calls.append(("store_owner_capabilities", arguments))
+            if operation_id:
+                return {
+                    "ok": True,
+                    "summary": {
+                        "operation_id": operation_id,
+                        "method": "GET",
+                        "risk": "read",
+                    },
+                    "input_contract": {
+                        "query_parameters": {
+                            "type": "object",
+                            "properties": {"page": {}, "pageSize": {}},
+                        }
+                    },
+                }
             return {"ok": True, "items": [{"operation_id": "get_part"}]}
 
         @server.tool(
@@ -322,6 +499,36 @@ class StoreOwnerGatewayTests(unittest.IsolatedAsyncioTestCase):
             self.calls,
         )
 
+        exact_contract = await raw_call.run(
+            {
+                "name": "store_owner_capabilities",
+                "arguments": {"operation_id": "get_part"},
+                "schema_hash": read_schema.structuredContent["summary"]["schema_hash"],
+                "allow_large_output": True,
+            },
+            convert_result=False,
+        )
+        self.assertTrue(exact_contract.structuredContent["ok"])
+        self.assertEqual(
+            "get_part",
+            exact_contract.structuredContent["data"]["summary"]["operation_id"],
+        )
+
+        safe_get = await raw_call.run(
+            {
+                "name": "store_owner_api",
+                "arguments": {
+                    "operation_id": "get_part",
+                    "mode": "read",
+                    "correlation_id": "owner-read-correlation-0001",
+                },
+                "schema_hash": write_schema.structuredContent["summary"]["schema_hash"],
+            },
+            convert_result=False,
+        )
+        self.assertTrue(safe_get.structuredContent["ok"])
+        dispatched_count = len(self.calls)
+
         blocked_write = await raw_call.run(
             {
                 "name": "store_owner_api",
@@ -335,7 +542,173 @@ class StoreOwnerGatewayTests(unittest.IsolatedAsyncioTestCase):
             "store_owner_correlation_id_required_or_invalid",
             blocked_write.structuredContent["warnings"],
         )
-        self.assertFalse(any(name == "store_owner_api" for name, _ in self.calls))
+        self.assertEqual(dispatched_count, len(self.calls))
+
+    async def test_owner_apply_requires_destructive_gateway_policy(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {**GATEWAY_ENV, "AUTOSTOP_AGENT_GATEWAY_DESTRUCTIVE_ENABLED": "0"},
+            clear=False,
+        ):
+            server = self._server()
+            schema = await server._tool_manager.get_tool("get_raw_capability_schema").run(
+                {"name": "store_owner_api"}, convert_result=False
+            )
+            result = await server._tool_manager.get_tool("call_raw_capability").run(
+                {
+                    "name": "store_owner_api",
+                    "arguments": {
+                        "operation_id": "delete_part_api_v1_parts__part_id__delete",
+                        "mode": "apply",
+                        "target_id": "part-1",
+                        "path_parameters": {"part_id": "part-1"},
+                        "correlation_id": "owner-delete-correlation-0001",
+                    },
+                    "schema_hash": schema.structuredContent["summary"]["schema_hash"],
+                    "idempotency_key": "owner-delete-policy-0001",
+                },
+                convert_result=False,
+            )
+
+        self.assertFalse(result.structuredContent["ok"])
+        self.assertIn(
+            "agent_gateway_destructive_disabled",
+            result.structuredContent["warnings"],
+        )
+        self.assertEqual([], self.calls)
+
+    async def test_owner_financial_apply_requires_finance_gateway_policy(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {**GATEWAY_ENV, "AUTOSTOP_AGENT_GATEWAY_FINANCE_ENABLED": "0"},
+            clear=False,
+        ):
+            server = self._server()
+            schema = await server._tool_manager.get_tool("get_raw_capability_schema").run(
+                {"name": "store_owner_api"}, convert_result=False
+            )
+            result = await server._tool_manager.get_tool("call_raw_capability").run(
+                {
+                    "name": "store_owner_api",
+                    "arguments": {
+                        "operation_id": "update_part_api_v1_parts__part_id__patch",
+                        "mode": "apply",
+                        "target_id": "part-1",
+                        "path_parameters": {"part_id": "part-1"},
+                        "body": {"priceRetail": "1250.00"},
+                        "correlation_id": "owner-price-correlation-0001",
+                    },
+                    "schema_hash": schema.structuredContent["summary"]["schema_hash"],
+                    "idempotency_key": "owner-price-policy-0001",
+                },
+                convert_result=False,
+            )
+
+        self.assertFalse(result.structuredContent["ok"])
+        self.assertIn("agent_gateway_finance_disabled", result.structuredContent["warnings"])
+        self.assertEqual([], self.calls)
+
+    async def test_owner_financial_operation_id_requires_finance_gateway_policy(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {**GATEWAY_ENV, "AUTOSTOP_AGENT_GATEWAY_FINANCE_ENABLED": "0"},
+            clear=False,
+        ):
+            server = self._server()
+            schema = await server._tool_manager.get_tool("get_raw_capability_schema").run(
+                {"name": "store_owner_api"}, convert_result=False
+            )
+            result = await server._tool_manager.get_tool("call_raw_capability").run(
+                {
+                    "name": "store_owner_api",
+                    "arguments": {
+                        "operation_id": "recalculate_total_api_v1_orders__order_id__post",
+                        "mode": "dry_run",
+                        "target_id": "order-1",
+                        "path_parameters": {"order_id": "order-1"},
+                        "correlation_id": "owner-total-correlation-0001",
+                    },
+                    "schema_hash": schema.structuredContent["summary"]["schema_hash"],
+                    "idempotency_key": "owner-total-policy-0001",
+                },
+                convert_result=False,
+            )
+
+        self.assertFalse(result.structuredContent["ok"])
+        self.assertIn("agent_gateway_finance_disabled", result.structuredContent["warnings"])
+        self.assertEqual([], self.calls)
+
+    async def test_owner_customer_response_publish_requires_finance_gateway_policy(self) -> None:
+        operation_id = (
+            "publish_admin_quote_request_response_api_v1_admin_quote_requests__"
+            "quote_request_id__publish_response_post"
+        )
+        for mode in ("dry_run", "apply"):
+            with (
+                self.subTest(mode=mode),
+                patch.dict(
+                    "os.environ",
+                    {**GATEWAY_ENV, "AUTOSTOP_AGENT_GATEWAY_FINANCE_ENABLED": "0"},
+                    clear=False,
+                ),
+            ):
+                server = self._server()
+                schema = await server._tool_manager.get_tool("get_raw_capability_schema").run(
+                    {"name": "store_owner_api"}, convert_result=False
+                )
+                result = await server._tool_manager.get_tool("call_raw_capability").run(
+                    {
+                        "name": "store_owner_api",
+                        "arguments": {
+                            "operation_id": operation_id,
+                            "mode": mode,
+                            "target_id": "quote-1",
+                            "path_parameters": {"quote_request_id": "quote-1"},
+                            "body": {"customerResponse": "Prepared customer response"},
+                            "correlation_id": f"owner-publish-{mode}-0001",
+                        },
+                        "schema_hash": schema.structuredContent["summary"]["schema_hash"],
+                        "idempotency_key": f"owner-publish-{mode}-policy-0001",
+                    },
+                    convert_result=False,
+                )
+
+            self.assertFalse(result.structuredContent["ok"])
+            self.assertIn("agent_gateway_finance_disabled", result.structuredContent["warnings"])
+            self.assertEqual([], self.calls)
+
+    async def test_owner_supplier_order_requires_finance_gateway_policy(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {**GATEWAY_ENV, "AUTOSTOP_AGENT_GATEWAY_FINANCE_ENABLED": "0"},
+            clear=False,
+        ):
+            server = self._server()
+            schema = await server._tool_manager.get_tool("get_raw_capability_schema").run(
+                {"name": "store_owner_api"}, convert_result=False
+            )
+            result = await server._tool_manager.get_tool("call_raw_capability").run(
+                {
+                    "name": "store_owner_api",
+                    "arguments": {
+                        "operation_id": (
+                            "confirm_rossko_sales_order_api_v1_customers_orders__"
+                            "order_id__confirm_rossko_post"
+                        ),
+                        "mode": "dry_run",
+                        "target_id": "order-1",
+                        "path_parameters": {"order_id": "order-1"},
+                        "correlation_id": "owner-rossko-correlation-0001",
+                    },
+                    "schema_hash": schema.structuredContent["summary"]["schema_hash"],
+                    "idempotency_key": "owner-rossko-policy-0001",
+                },
+                convert_result=False,
+            )
+
+        self.assertFalse(result.structuredContent["ok"])
+        self.assertIn("agent_gateway_finance_disabled", result.structuredContent["warnings"])
+        self.assertEqual([], self.calls)
 
     async def test_owner_apply_remains_compensating_until_operation_specific_reread(self) -> None:
         server = self._server()
@@ -398,6 +771,51 @@ class StoreOwnerGatewayTests(unittest.IsolatedAsyncioTestCase):
             result.structuredContent["verification"]["check"],
         )
         self.assertEqual(["executing", "verifying", "completed"], self.ledger_transitions)
+
+    async def test_nonfinancial_owner_dry_run_requires_neither_finance_nor_destructive_policy(
+        self,
+    ) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                **GATEWAY_ENV,
+                "AUTOSTOP_AGENT_GATEWAY_FINANCE_ENABLED": "0",
+                "AUTOSTOP_AGENT_GATEWAY_DESTRUCTIVE_ENABLED": "0",
+            },
+            clear=False,
+        ):
+            server = self._server()
+            schema = await server._tool_manager.get_tool("get_raw_capability_schema").run(
+                {"name": "store_owner_api"}, convert_result=False
+            )
+            result = await server._tool_manager.get_tool("call_raw_capability").run(
+                {
+                    "name": "store_owner_api",
+                    "arguments": {
+                        "operation_id": "create_manufacturer_api_v1_manufacturers_post",
+                        "mode": "dry_run",
+                        "target_id": "collection:/api/v1/manufacturers",
+                        "body": {"name": "Gateway release smoke"},
+                        "correlation_id": "owner-manufacturer-dry-run-0001",
+                        "idempotency_key": "owner-manufacturer-inner-dry-run-0001",
+                    },
+                    "schema_hash": schema.structuredContent["summary"]["schema_hash"],
+                    "idempotency_key": "owner-manufacturer-outer-dry-run-0001",
+                },
+                convert_result=False,
+            )
+
+        self.assertTrue(result.structuredContent["ok"])
+        self.assertEqual("completed", result.structuredContent["status"])
+        self.assertEqual(
+            "store_owner_server_dry_run_receipt",
+            result.structuredContent["verification"]["check"],
+        )
+        self.assertEqual(["executing", "verifying", "completed"], self.ledger_transitions)
+        self.assertEqual(
+            ["prepare", "dry_run"],
+            [arguments["mode"] for name, arguments in self.calls if name == "store_owner_api"],
+        )
 
     async def test_owner_uncertain_transport_remains_compensating(self) -> None:
         server = self._server()
@@ -531,6 +949,9 @@ class StoreOwnerGatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertLessEqual(set(server._tool_manager._tools), PERMANENT_AGENT_GATEWAY_TOOL_NAMES)
         self.assertNotIn("store_owner_capabilities", server._tool_manager._tools)
         self.assertNotIn("store_owner_api", server._tool_manager._tools)
+        for tool_name in ("agent_search", "agent_entity_context"):
+            schema = server._tool_manager.get_tool(tool_name).parameters
+            self.assertNotIn("store_supplier", schema["properties"]["entity"]["enum"])
 
     def test_maintenance_proof_allows_only_exact_release_smoke_writes(self) -> None:
         token = "technical-smoke-token"

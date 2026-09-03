@@ -1473,10 +1473,6 @@ def load_store_gateway_contract(root: Path) -> dict[str, set[str] | str]:
     path = root / "src" / "minimal_kanban" / "mcp" / "store_gateway.py"
     tree = ast.parse(_read_text(path), filename=str(path))
     return {
-        "read_capabilities": _literal_string_collection_assignment(
-            tree, "STORE_READ_CAPABILITY_NAMES"
-        ),
-        "management_capability": str(_literal_assignment(tree, "STORE_MANAGEMENT_CAPABILITY_NAME")),
         "search_entities": _literal_string_collection_assignment(tree, "STORE_SEARCH_ENTITIES"),
         "management_operations": _literal_string_collection_assignment(
             tree, "STORE_MANAGEMENT_OPERATIONS"
@@ -1493,9 +1489,6 @@ def _check_store_gateway_docs_contract(root: Path) -> list[Issue]:
     mcp_text = _read_text(mcp_path)
     chatgpt_text = _read_text(chatgpt_path)
     compact_mcp = " ".join(mcp_text.split())
-    reads = set(contract["read_capabilities"])
-    management = str(contract["management_capability"])
-    internal_capabilities = reads | {management}
     search_entities = set(contract["search_entities"])
     operations = set(contract["management_operations"])
     issues: list[Issue] = []
@@ -1505,13 +1498,24 @@ def _check_store_gateway_docs_contract(root: Path) -> list[Issue]:
         if missing:
             issues.append(Issue(code, _display_path(path, root), f"missing {label}: {missing}"))
 
-    missing_items(
-        path=mcp_path,
-        text=mcp_text,
-        items=internal_capabilities,
-        code="mcp_guide_store_internal_capabilities_stale",
-        label="Store internal capabilities",
-    )
+    missing_internal_boundary = [
+        text
+        for text in (
+            "Store adapter remains internal",
+            "`store_owner_capabilities`",
+            "`store_owner_api`",
+            "public 24-tool surface",
+        )
+        if text not in mcp_text
+    ]
+    if missing_internal_boundary:
+        issues.append(
+            Issue(
+                "mcp_guide_store_internal_boundary_stale",
+                _display_path(mcp_path, root),
+                f"missing compact Store internal-boundary text: {missing_internal_boundary}",
+            )
+        )
     missing_items(
         path=mcp_path,
         text=mcp_text,
@@ -1548,15 +1552,6 @@ def _check_store_gateway_docs_contract(root: Path) -> list[Issue]:
             )
         )
 
-    expected_internal_mcp = f"{len(internal_capabilities)} `INTERNAL_ONLY`"
-    if expected_internal_mcp not in compact_mcp:
-        issues.append(
-            Issue(
-                "mcp_guide_store_internal_count_stale",
-                _display_path(mcp_path, root),
-                f"expected current internal Store count text: {expected_internal_mcp}",
-            )
-        )
     if f"exactly {len(operations)} operations" not in compact_mcp:
         issues.append(
             Issue(

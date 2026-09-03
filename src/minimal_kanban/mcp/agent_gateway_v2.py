@@ -2117,7 +2117,6 @@ def register_agent_gateway_v2(
             "store_part",
             "store_order",
             "store_quote_request",
-            "store_supplier",
             "store_batch",
             "store_warehouse_operation",
             "store_marketplace_listing",
@@ -2281,7 +2280,6 @@ def register_agent_gateway_v2(
             "store_part",
             "store_order",
             "store_quote_request",
-            "store_supplier",
             "store_batch",
             "store_warehouse_operation",
             "store_marketplace_listing",
@@ -2743,19 +2741,14 @@ def register_agent_gateway_v2(
                 _envelope(ok=False, status="blocked", warnings=[owner_request_error]),
                 label="call_raw_capability",
             )
-        risk = (
-            "read"
-            if virtual_web
-            or (
-                normalized_name == "store_owner_api"
-                and owner_mode in {"read", "revision", "prepare"}
-            )
-            else (
-                _virtual_api_risk(virtual_route, normalized_name)
-                if virtual_route is not None
-                else _tool_risk(tool)
-            )
-        )
+        if normalized_name == "store_owner_api":
+            risk = {"apply": "destructive", "dry_run": "write"}.get(owner_mode, "read")
+        elif virtual_web:
+            risk = "read"
+        elif virtual_route is not None:
+            risk = _virtual_api_risk(virtual_route, normalized_name)
+        else:
+            risk = _tool_risk(tool)
         policy_error = _policy_error(
             tool_name=normalized_name,
             risk=risk,
