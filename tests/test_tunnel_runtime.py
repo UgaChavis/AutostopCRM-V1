@@ -48,8 +48,11 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
         self.settings = IntegrationSettings.defaults()
 
     def tearDown(self) -> None:
-        self.controller.stop()
-        self.temp_dir.cleanup()
+        try:
+            with patch.object(self.controller, "_is_pid_alive", return_value=False):
+                self.controller.stop()
+        finally:
+            self.temp_dir.cleanup()
 
     def _process_identity(
         self,
