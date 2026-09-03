@@ -44,7 +44,7 @@ SKIP_DIRS = {
 
 ALLOWED_LARGE_MODULES = {
     "scripts/attest_agent_gateway_v2.py": RatchetBudget(
-        "Gateway attestation scenario suite split target", 9498, 9498, "207"
+        "Gateway attestation scenario suite split target", 9498, 9498, "206"
     ),
     "src/minimal_kanban/mcp/agent_gateway_v2.py": RatchetBudget(
         "Gateway workflow executor split target", 3376, 3376, "009"
@@ -125,7 +125,7 @@ ALLOWED_LARGE_CLASSES = {
 
 ALLOWED_LARGE_FUNCTIONS = {
     "scripts/attest_agent_gateway_v2.py:_finance_apply_audit_safe_fixes_case": RatchetBudget(
-        "finance attestation scenario split target", 457, 457, "207"
+        "finance attestation scenario split target", 457, 457, "206"
     ),
     "src/minimal_kanban/demo_seed.py:_demo_specs": RatchetBudget(
         "bounded data-only demo seed factory", 957, 957, "001"

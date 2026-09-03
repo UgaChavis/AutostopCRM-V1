@@ -27,8 +27,8 @@ production module 2500, test module 3000, class 2500, function 450 строк.
 - 018: `snapshot_service.py` 2879, `SnapshotService` 2574.
 - 019: `card_service_finance.py` 3048, `CardServiceFinanceMixin` 3002.
 - 021: `printing/web_module.py` 3367.
-- 206: `agent/runner.py` 5093, `AgentRunner` 4865.
-- 207: `scripts/attest_agent_gateway_v2.py` 9498,
+- 206: `agent/runner.py` 5093, `AgentRunner` 4865;
+  `scripts/attest_agent_gateway_v2.py` 9498,
   `_finance_apply_audit_safe_fixes_case` 457.
 
 Срез сразу уменьшает cap или удаляет exemption; cap не повышается ради нового
