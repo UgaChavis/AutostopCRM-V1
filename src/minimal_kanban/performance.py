@@ -13,9 +13,14 @@ SERVER_TIMING_ORDER = (
     "service_lock",
     "store_lock",
     "file_lock",
+    "audit_archive",
+    "repair_order_text",
+    "runtime_cleanup",
     "normalize",
     "serialize",
+    "change_feed_prepare",
     "write",
+    "change_feed_commit",
     "storage",
 )
 LOCK_TIMING_NAMES = ("service_lock", "store_lock", "file_lock")
@@ -87,6 +92,15 @@ def record_timing(name: str, duration_ms: float) -> None:
     trace = _CURRENT_TRACE.get()
     if trace is not None:
         trace.add(name, duration_ms)
+
+
+@contextmanager
+def measure_timing(name: str) -> Iterator[None]:
+    started_at = perf_counter()
+    try:
+        yield
+    finally:
+        record_timing(name, (perf_counter() - started_at) * 1000)
 
 
 class MeasuredRLock:

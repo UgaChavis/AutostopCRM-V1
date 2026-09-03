@@ -51,6 +51,7 @@ from minimal_kanban.mcp.oauth_provider import (
     create_oauth_audit_assertion,
 )
 from minimal_kanban.models import AuditEvent, utc_now
+from minimal_kanban.performance import SERVER_TIMING_ORDER
 from minimal_kanban.services import snapshot_service as snapshot_service_module
 from minimal_kanban.operator_activity import OperatorActivityService
 from minimal_kanban.operator_auth import (
@@ -4352,18 +4353,7 @@ class ApiServerTests(unittest.TestCase):
         }
         self.assertEqual(
             timing_names,
-            {
-                "app",
-                "total",
-                "lock",
-                "service_lock",
-                "store_lock",
-                "file_lock",
-                "normalize",
-                "serialize",
-                "write",
-                "storage",
-            },
+            {"app", "total", "lock", *SERVER_TIMING_ORDER},
         )
         payload = json.loads(gzip.decompress(body).decode("utf-8"))
         self.assertTrue(payload["ok"])

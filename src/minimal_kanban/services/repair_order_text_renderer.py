@@ -4,6 +4,7 @@ from collections.abc import Callable
 from typing import Any
 
 from ..models import Card, business_timezone, normalize_text, parse_datetime
+from ..performance import measure_timing
 from ..repair_order import (
     REPAIR_ORDER_STATUS_CLOSED,
     REPAIR_ORDER_STATUS_READY,
@@ -106,19 +107,20 @@ def render_bounded_repair_order_text(
     max_bytes: int,
     operator_payload: dict[str, Any] | None = None,
 ) -> str:
-    text = render_repair_order_text(
-        card,
-        json_dumps=json_dumps,
-        operator_payload=operator_payload,
-    )
-    if len(text.encode("utf-8")) > max_bytes:
-        raise ServiceError(
-            "repair_order_text_too_large",
-            "Текстовый файл заказ-наряда слишком большой.",
-            status_code=413,
-            details={"file_name": file_name, "max_size_bytes": max_bytes},
+    with measure_timing("repair_order_text"):
+        text = render_repair_order_text(
+            card,
+            json_dumps=json_dumps,
+            operator_payload=operator_payload,
         )
-    return text
+        if len(text.encode("utf-8")) > max_bytes:
+            raise ServiceError(
+                "repair_order_text_too_large",
+                "Текстовый файл заказ-наряда слишком большой.",
+                status_code=413,
+                details={"file_name": file_name, "max_size_bytes": max_bytes},
+            )
+        return text
 
 
 def _repair_order_status_label(status: str) -> str:

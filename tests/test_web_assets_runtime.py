@@ -11,6 +11,9 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_PATH = (
     ROOT / "src" / "minimal_kanban" / "web_app_assets" / "source" / "app_main_before_printing.js"
 )
+AFTER_SOURCE_PATH = (
+    ROOT / "src" / "minimal_kanban" / "web_app_assets" / "source" / "app_main_after_printing.js"
+)
 NODE = shutil.which("node")
 
 
@@ -32,6 +35,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.source = SOURCE_PATH.read_text(encoding="utf-8")
+        cls.after_source = AFTER_SOURCE_PATH.read_text(encoding="utf-8")
 
     def _run_node(self, body: str) -> None:
         script = textwrap.dedent(body)
@@ -47,6 +51,82 @@ class WebAssetsRuntimeTests(unittest.TestCase):
                 timeout=10,
             )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_save_cancels_pending_seen_write_and_requeues_only_when_needed(self) -> None:
+        seen_timer_helpers = _source_section(
+            self.source,
+            "function cancelDeferredCardSeen(cardId)",
+            "async function markCardSeen(cardId, { force = false } = {})",
+        )
+        save_card = _source_section(
+            self.after_source,
+            "async function saveCard()",
+            "configureCardFieldSemantics();",
+        )
+        self._run_node(
+            f"""
+            const assert = require('node:assert/strict');
+
+            const clearedTimers = [];
+            const scheduledTimers = [];
+            let nextTimerId = 100;
+            global.window = {{
+              clearTimeout(timerId) {{ clearedTimers.push(timerId); }},
+              setTimeout(callback, delayMs) {{
+                scheduledTimers.push({{ callback, delayMs }});
+                return nextTimerId++;
+              }},
+            }};
+            const state = {{
+              activeCardIsFull: true,
+              editingId: 'card-1',
+              cardSaveInFlight: false,
+              cardSavePromise: null,
+              cardCloseAfterSave: false,
+              unreadSeenDeferredTimers: new Map([['card-1', 9]]),
+            }};
+            const els = {{
+              saveCardButton: {{ disabled: false }},
+              cardModal: {{ classList: {{ contains() {{ return true; }} }} }},
+            }};
+            let failSave = false;
+            let changed = true;
+            function currentCardPayload() {{ return {{ title: 'Card' }}; }}
+            const CARD_TITLE_REQUIRED_MESSAGE = 'TITLE REQUIRED';
+            function setStatus() {{}}
+            function clearCardOpenSideEffectTimer() {{}}
+            function syncCardSaveDirtyState() {{}}
+            function perfMeasureAsync(_name, callback) {{ return callback(); }}
+            async function persistCardPayload() {{
+              if (failSave) throw new Error('SAVE FAILED');
+              return {{ card: {{ id: 'card-1' }}, meta: {{ changed }} }};
+            }}
+            function applySavedCardLocalPatch() {{}}
+            function rememberCardModalCleanState() {{}}
+            function closeCardModal() {{}}
+            {seen_timer_helpers}
+            async function markCardSeen() {{}}
+            {save_card}
+
+            (async () => {{
+              assert.equal(await saveCard(), true);
+              assert.deepEqual(clearedTimers, [9]);
+              assert.equal(scheduledTimers.length, 0);
+              assert.equal(state.unreadSeenDeferredTimers.has('card-1'), false);
+
+              state.unreadSeenDeferredTimers.set('card-1', 10);
+              failSave = true;
+              assert.equal(await saveCard(), false);
+              assert.deepEqual(clearedTimers, [9, 10]);
+              assert.equal(scheduledTimers.length, 1);
+              assert.equal(scheduledTimers[0].delayMs, 500);
+              assert.equal(state.unreadSeenDeferredTimers.has('card-1'), true);
+            }})().catch((error) => {{
+              console.error(error);
+              process.exitCode = 1;
+            }});
+            """
+        )
 
     def test_repair_order_mutation_updates_archive_action_without_reopening_card(self) -> None:
         archive_helpers = _source_section(

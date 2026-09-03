@@ -874,17 +874,19 @@
       const payload = currentCardPayload();
       if (!payload.title) return setStatus(CARD_TITLE_REQUIRED_MESSAGE, true);
       clearCardOpenSideEffectTimer();
+      const deferredSeenCardId = cancelDeferredCardSeen(state.editingId) ? state.editingId : '';
       state.cardSaveInFlight = true;
       if (els.saveCardButton) els.saveCardButton.disabled = true;
       syncCardSaveDirtyState();
       let saveSucceeded = false;
+      let saveChanged = false;
       const savePromise = perfMeasureAsync('saveCard', async () => {
         try {
           const data = await persistCardPayload(payload);
           const savedCard = data?.card || null;
+          saveChanged = data?.meta?.changed === true;
           if (savedCard) {
             applySavedCardLocalPatch(savedCard);
-            applyCardModalState(savedCard, { preserveLazyPanels: true });
           } else {
             rememberCardModalCleanState(payload);
           }
@@ -902,6 +904,9 @@
           if (els.saveCardButton) els.saveCardButton.disabled = false;
           syncCardSaveDirtyState();
           if (shouldCloseAfterSave) closeCardModal({ force: true });
+          if (deferredSeenCardId && (!saveSucceeded || !saveChanged)) {
+            deferCardSeen(deferredSeenCardId, { force: true });
+          }
         }
       });
       state.cardSavePromise = savePromise;

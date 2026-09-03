@@ -9,6 +9,7 @@ from logging import Logger
 from pathlib import Path
 from typing import Any, BinaryIO
 
+from ..performance import measure_timing
 from .file_lock import ProcessFileLock
 
 AUDIT_ARCHIVE_SCHEMA_VERSION = 1
@@ -77,10 +78,11 @@ class AuditArchiveStore:
         payload = line.encode("utf-8")
         if len(payload.rstrip(b"\n")) > AUDIT_ARCHIVE_LINE_MAX_BYTES:
             raise ValueError("audit archive record exceeds line size limit")
-        with self._lock.acquire():
-            self._archive_dir.mkdir(parents=True, exist_ok=True)
-            with archive_file.open("ab") as handle:
-                handle.write(payload)
+        with measure_timing("audit_archive"):
+            with self._lock.acquire():
+                self._archive_dir.mkdir(parents=True, exist_ok=True)
+                with archive_file.open("ab") as handle:
+                    handle.write(payload)
         return AuditArchiveWrite(ref=f"{archive_file.name}#{event_id}", bytes_written=len(payload))
 
     def load_details(self, ref: str, *, event_id: str | None = None) -> dict[str, Any] | None:

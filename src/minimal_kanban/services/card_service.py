@@ -69,7 +69,7 @@ from ..models import (
     utc_now,
     utc_now_iso,
 )
-from ..performance import MeasuredRLock
+from ..performance import MeasuredRLock, measure_timing
 from ..printing.service import PrintModuleError, PrintModuleService
 from ..repair_order import (
     REPAIR_ORDER_COMMENT_LIMIT,
@@ -4448,9 +4448,7 @@ class CardService(
                 rows.append({"name": name, "quantity": quantity})
                 if len(rows) >= 50:
                     break
-        if rows:
-            return rows
-        return [
+        return rows or [
             {"name": line, "quantity": ""} for line in self._inspection_sheet_lines(fallback_text)
         ]
 
@@ -6466,8 +6464,9 @@ class CardService(
         ):
             return
         self._last_runtime_cleanup_at = now
-        self._cleanup_repair_orders_directory(cards)
-        self._cleanup_attachment_directories(cards)
+        with measure_timing("runtime_cleanup"):
+            self._cleanup_repair_orders_directory(cards)
+            self._cleanup_attachment_directories(cards)
 
     def _ensure_card_expected_updated_at(self, card: Card, payload: dict) -> None:
         expected_updated_at = normalize_text(
