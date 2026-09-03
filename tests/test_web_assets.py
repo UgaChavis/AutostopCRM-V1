@@ -2477,10 +2477,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("const data = await persistCardPayload(payload);", BOARD_WEB_APP_HTML)
         self.assertIn("const savedCard = data?.card || null;", save_fragment)
         self.assertIn("applySavedCardLocalPatch(savedCard);", save_fragment)
-        self.assertIn(
-            "applyCardModalState(savedCard, { preserveLazyPanels: true });",
-            save_fragment,
-        )
+        self.assertNotIn("applyCardModalState(savedCard", save_fragment)
         self.assertIn("rememberCardModalCleanState(payload);", save_fragment)
         self.assertIn(
             "const shouldCloseAfterSave = saveSucceeded && els.cardModal?.classList.contains('is-open');",

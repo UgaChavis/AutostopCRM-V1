@@ -24,10 +24,15 @@ class RequestPerformanceTraceTests(unittest.TestCase):
         trace.add("service_lock", 1.25)
         trace.add("store_lock", 2.5)
         trace.add("file_lock", 3.75)
-        trace.add("normalize", 4.0)
-        trace.add("serialize", 5.0)
-        trace.add("write", 6.0)
-        trace.add("storage", 7.0)
+        trace.add("audit_archive", 4.0)
+        trace.add("repair_order_text", 5.0)
+        trace.add("runtime_cleanup", 6.0)
+        trace.add("normalize", 7.0)
+        trace.add("serialize", 8.0)
+        trace.add("change_feed_prepare", 9.0)
+        trace.add("write", 10.0)
+        trace.add("change_feed_commit", 11.0)
+        trace.add("storage", 12.0)
         trace.add("serialize", math.nan)
         trace.add("write", math.inf)
 
@@ -40,9 +45,14 @@ class RequestPerformanceTraceTests(unittest.TestCase):
             "service_lock",
             "store_lock",
             "file_lock",
+            "audit_archive",
+            "repair_order_text",
+            "runtime_cleanup",
             "normalize",
             "serialize",
+            "change_feed_prepare",
             "write",
+            "change_feed_commit",
             "storage",
         }
         parsed = {

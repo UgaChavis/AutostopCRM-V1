@@ -14501,10 +14501,10 @@
       const shouldMarkSeen = Boolean(currentCard?.is_unread || currentCard?.has_unseen_update);
       if (shouldMarkSeen) {
         markCardSeenOptimistically(normalizedCardId);
-        window.setTimeout(() => {
-          if (viewerStateGeneration !== state.viewerStateGeneration) return;
-          markCardSeen(normalizedCardId, { force: true });
-        }, CARD_OPEN_SIDE_EFFECT_DELAY_MS);
+        deferCardSeen(normalizedCardId, {
+          force: true,
+          delayMs: CARD_OPEN_SIDE_EFFECT_DELAY_MS,
+        });
       }
       state.cardOpenSideEffectCardId = normalizedCardId;
       state.cardOpenSideEffectTimer = window.setTimeout(() => {
@@ -15676,15 +15676,25 @@
       return hadMarker;
     }
 
-    function deferCardSeen(cardId, { force = false } = {}) {
+    function cancelDeferredCardSeen(cardId) {
+      const normalizedCardId = String(cardId || '').trim();
+      if (!normalizedCardId) return false;
+      const timerId = state.unreadSeenDeferredTimers.get(normalizedCardId);
+      if (!timerId) return false;
+      window.clearTimeout(timerId);
+      state.unreadSeenDeferredTimers.delete(normalizedCardId);
+      return true;
+    }
+
+    function deferCardSeen(cardId, { force = false, delayMs = 500 } = {}) {
       const normalizedCardId = String(cardId || '').trim();
       if (!normalizedCardId) return;
-      const existingTimer = state.unreadSeenDeferredTimers.get(normalizedCardId);
-      if (existingTimer) window.clearTimeout(existingTimer);
+      cancelDeferredCardSeen(normalizedCardId);
+      const safeDelayMs = Number.isFinite(delayMs) ? Math.max(0, Math.round(delayMs)) : 500;
       const timerId = window.setTimeout(() => {
         state.unreadSeenDeferredTimers.delete(normalizedCardId);
         markCardSeen(normalizedCardId, { force });
-      }, 500);
+      }, safeDelayMs);
       state.unreadSeenDeferredTimers.set(normalizedCardId, timerId);
     }
 

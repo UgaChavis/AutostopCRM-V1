@@ -65,6 +65,7 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
         self.assertNotIn("external_write_workflows_enabled", script)
         self.assertIn('reconfigure(encoding="utf-8")', script)
         self.assertIn("autostop-perf", script)
+        self.assertIn('"#cardDescriptionEditor", f"Perf workflow description save {index}"', script)
         self.assertIn("open_repair_order_salary_override", script)
         self.assertIn("open_employee_salary_ledger", script)
         self.assertIn("open_employee_salary_reconciliation_print", script)

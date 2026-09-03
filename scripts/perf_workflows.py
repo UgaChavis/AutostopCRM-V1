@@ -983,7 +983,13 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                         await close_card_if_open()
                         await page.click(card_selector)
                         await _wait_modal_open(page, "#cardModal")
-                        await page.fill("#cardTitle", f"Perf workflow save {index}")
+                        await page.wait_for_function(
+                            "() => !document.querySelector('#cardDescriptionEditor')?.classList.contains('is-loading')",
+                            timeout=8000,
+                        )
+                        await page.fill(
+                            "#cardDescriptionEditor", f"Perf workflow description save {index}"
+                        )
                         await page.click("#saveCardButton")
                         await _wait_modal_closed(page, "#cardModal")
 
