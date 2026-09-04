@@ -82,6 +82,8 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    group_add:
+      - "${AUTOSTOP_WORK_TELEGRAM_GID:-982}"
     pids_limit: 256
     mem_limit: 1g
     cpus: "2.00"
@@ -133,6 +135,7 @@ services:
       AUTOSTOP_STORE_QUOTE_TOKEN: "${AUTOSTOP_STORE_QUOTE_TOKEN:-}"
       AUTOSTOP_STORE_MANAGE_TOKEN: "${AUTOSTOP_STORE_MANAGE_TOKEN:-}"
       AUTOSTOP_STORE_OWNER_TOKEN: "${AUTOSTOP_STORE_OWNER_TOKEN:-}"
+      AUTOSTOP_STORE_QUOTE_TELEGRAM_SOCKET: "/run/autostop-work-telegram/store-quote.sock"
       AUTOSTOP_SEARCH_DISABLED_PROVIDERS: "${AUTOSTOP_SEARCH_DISABLED_PROVIDERS:-brave,tavily,google_cse}"
       AUTOSTOP_SEARCH_PROVIDER_ORDER: "${AUTOSTOP_SEARCH_PROVIDER_ORDER:-searxng,marginalia,duckduckgo}"
       AUTOSTOP_SEARXNG_BASE_URL: "${AUTOSTOP_SEARXNG_CONTAINER_URL:-http://searxng:8080}"
@@ -146,6 +149,7 @@ services:
       - "${AUTOSTOP_DATA_DIR:-./data}:/home/autostop/.minimal-kanban"
       - "${AUTOSTOP_MANAGER_HOST_DIR:-/opt/autostop-manager-releases/current}:${AUTOSTOP_MANAGER_CONTAINER_DIR:-/opt/AutostopManager}:ro"
       - "${AUTOSTOP_MANAGER_DATA_HOST_DIR:-../AutostopManager/data}:${AUTOSTOP_MANAGER_CONTAINER_DIR:-/opt/AutostopManager}/data"
+      - "/run/autostop-work-telegram:/run/autostop-work-telegram:ro"
     networks:
       - default
       - autostop-store-agent
