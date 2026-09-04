@@ -288,6 +288,10 @@ positions.
 
 ## Finance And Payroll
 
+- `employees_read_access` opens the Employees workspace as a roster-only,
+  read-only view. It shows active employees' names and positions, but
+  does not open Cashboxes, payroll/balance details, reports, or any employee
+  mutation route.
 - Human sessions need the `employees_cashboxes_access` permission to open the
   Employees and Cashboxes workspaces or call their detailed reports and
   mutation routes. The administrator role alone does not grant this access.

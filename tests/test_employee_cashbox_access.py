@@ -23,6 +23,7 @@ from minimal_kanban.api.route_registry import (  # noqa: E402
 from minimal_kanban.models import AuditEvent  # noqa: E402
 from minimal_kanban.operator_permissions import (  # noqa: E402
     EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
+    EMPLOYEES_READ_ACCESS_PERMISSION,
 )
 from minimal_kanban.services.operator_visibility import (  # noqa: E402
     REPAIR_ORDER_PRIVATE_ROW_FIELDS,
@@ -99,6 +100,9 @@ class EmployeeCashboxAccessApiTests(unittest.TestCase):
         self.restricted_headers = self._create_and_login("restricted-user", [])
         self.allowed_headers = self._create_and_login(
             "allowed-user", [EMPLOYEES_CASHBOXES_ACCESS_PERMISSION]
+        )
+        self.read_only_headers = self._create_and_login(
+            "employees-read-only", [EMPLOYEES_READ_ACCESS_PERMISSION]
         )
 
     def tearDown(self) -> None:
@@ -367,6 +371,53 @@ class EmployeeCashboxAccessApiTests(unittest.TestCase):
         )
         self.assertNotIn("transactions_total", cashboxes["data"]["meta"])
         self.assertIsNone(cashboxes["data"]["notification"])
+
+    def test_employees_read_only_operator_can_view_roster_without_finance_or_mutations(
+        self,
+    ) -> None:
+        status, profile = self.api.request(
+            "/api/get_operator_profile", method="GET", headers=self.read_only_headers
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            profile["data"]["user"]["permissions"],
+            [EMPLOYEES_READ_ACCESS_PERMISSION],
+        )
+
+        status, employees = self.api.request(
+            "/api/list_employees", method="GET", headers=self.read_only_headers
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(employees["data"]["meta"]["references_only"])
+        employee = next(
+            item for item in employees["data"]["employees"] if item["id"] == self.employee["id"]
+        )
+        self.assertEqual(set(employee), {"id", "name", "position", "is_active"})
+
+        cases = (
+            ("GET", "/api/get_payroll_report", None),
+            ("GET", f"/api/get_cashbox?cashbox_id={self.cashbox['id']}", None),
+            ("POST", "/api/save_employee", {"name": "Не должен сохраниться"}),
+            (
+                "POST",
+                "/api/create_cash_transaction",
+                {
+                    "cashbox_id": self.cashbox["id"],
+                    "direction": "expense",
+                    "amount": "1",
+                },
+            ),
+        )
+        for method, path, payload in cases:
+            with self.subTest(method=method, path=path):
+                status, response = self.api.request(
+                    path,
+                    payload,
+                    method=method,
+                    headers=self.read_only_headers,
+                )
+                self.assertEqual(status, 403)
+                self.assertEqual(response["error"]["code"], "forbidden")
 
     def test_restricted_operator_cannot_read_or_mutate_protected_sections(self) -> None:
         cases = (

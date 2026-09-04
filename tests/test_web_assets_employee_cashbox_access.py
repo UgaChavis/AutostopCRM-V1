@@ -42,6 +42,10 @@ class EmployeeCashboxAccessWebAssetTests(unittest.TestCase):
             "const EMPLOYEES_CASHBOXES_ACCESS_PERMISSION = 'employees_cashboxes_access';",
             BOARD_WEB_APP_HTML,
         )
+        self.assertIn(
+            "const EMPLOYEES_READ_ACCESS_PERMISSION = 'employees_read_access';",
+            BOARD_WEB_APP_HTML,
+        )
 
     def test_permission_sync_guards_all_desktop_and_mobile_entry_paths(self) -> None:
         permission_helpers = _asset_section(
@@ -49,19 +53,27 @@ class EmployeeCashboxAccessWebAssetTests(unittest.TestCase):
             "function operatorStatHtml(",
         )
         self.assertIn("function operatorCanAccessEmployeesCashboxes()", permission_helpers)
+        self.assertIn("function operatorCanViewEmployees()", permission_helpers)
+        self.assertIn("function operatorHasEmployeesReadOnlyAccess()", permission_helpers)
+        self.assertIn("function requireEmployeesViewAccess()", permission_helpers)
         self.assertIn("function requireEmployeesCashboxesAccess()", permission_helpers)
         self.assertIn("function syncEmployeesCashboxesAccessUi(", permission_helpers)
         self.assertIn("closeModalAndChildren('cashboxes');", permission_helpers)
         self.assertIn("closeModalAndChildren('employees');", permission_helpers)
         self.assertIn("clearEmployeesCashboxesModuleState();", permission_helpers)
 
-        for start, end in (
-            ("function openEmployeesModal()", "async function saveEmployee()"),
-            ("function openCashboxesModal()", "async function handleCashboxesListClick("),
-            ("function openMobileEmployeesPanel()", "function handleMobileEmployeesClick("),
-        ):
-            section = _asset_section(start, end)
-            self.assertIn("if (!requireEmployeesCashboxesAccess()) return;", section)
+        employees_desktop = _asset_section(
+            "function openEmployeesModal()", "async function saveEmployee()"
+        )
+        self.assertIn("if (!requireEmployeesViewAccess()) return;", employees_desktop)
+        cashboxes_desktop = _asset_section(
+            "function openCashboxesModal()", "async function handleCashboxesListClick("
+        )
+        self.assertIn("if (!requireEmployeesCashboxesAccess()) return;", cashboxes_desktop)
+        employees_mobile = _asset_section(
+            "function openMobileEmployeesPanel()", "function handleMobileEmployeesClick("
+        )
+        self.assertIn("if (!requireEmployeesViewAccess()) return;", employees_mobile)
 
         mobile_navigation = _asset_section(
             "function mobileViewOrder()",
@@ -87,12 +99,12 @@ class EmployeeCashboxAccessWebAssetTests(unittest.TestCase):
         rows = _asset_section(
             "function mobileMoreModuleRows()", "function renderMobileMoreModules("
         )
-        self.assertIn("if (operatorCanAccessEmployeesCashboxes())", rows)
+        self.assertIn("if (operatorCanViewEmployees())", rows)
         loader = _asset_section(
             "async function loadMobileMoreModules(", "function renderMobileShell("
         )
         self.assertIn(
-            "if (operatorCanAccessEmployeesCashboxes()) tasks.push(loadEmployeesReference());",
+            "if (operatorCanViewEmployees()) tasks.push(loadEmployeesReference());",
             loader,
         )
 
@@ -113,11 +125,16 @@ class EmployeeCashboxAccessWebAssetTests(unittest.TestCase):
         self.assertIn("state.operatorPermissionRefreshPromise", refresh_helper)
         self.assertIn("loadOperatorProfile(false)", refresh_helper)
 
-    def test_admin_editor_preserves_both_registered_permissions(self) -> None:
+    def test_admin_editor_preserves_all_registered_permissions(self) -> None:
         self.assertIn(
             'id="adminUserEmployeesCashboxesAccess" type="checkbox"',
             BOARD_WEB_APP_HTML,
         )
+        self.assertIn(
+            'id="adminUserEmployeesReadAccess" type="checkbox"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("СОТРУДНИКИ: ПРОСМОТР: ", BOARD_WEB_APP_HTML)
         self.assertIn("СОТРУДНИКИ И КАССЫ: ", BOARD_WEB_APP_HTML)
         save = _asset_section(
             "async function saveOperatorUser()", "async function deleteOperatorUser("
@@ -127,6 +144,7 @@ class EmployeeCashboxAccessWebAssetTests(unittest.TestCase):
             "payload.permissions.push(EMPLOYEES_CASHBOXES_ACCESS_PERMISSION);",
             save,
         )
+        self.assertIn("payload.permissions.push(EMPLOYEES_READ_ACCESS_PERMISSION);", save)
         self.assertIn("payload.permissions.push(SALARY_BALANCE_RESET_PERMISSION);", save)
 
     def test_admin_editor_enforces_salary_reset_permission_dependency(self) -> None:
@@ -148,6 +166,10 @@ class EmployeeCashboxAccessWebAssetTests(unittest.TestCase):
             dependency,
         )
         self.assertIn(
+            "els.adminUserEmployeesReadAccess.disabled = canAccessEmployeesCashboxes;",
+            dependency,
+        )
+        self.assertIn(
             "els.adminUserEmployeesCashboxesAccess?.addEventListener(",
             dependency,
         )
@@ -165,6 +187,40 @@ class EmployeeCashboxAccessWebAssetTests(unittest.TestCase):
             "if (canAccessEmployeesCashboxes && els.adminUserSalaryBalanceReset?.checked)",
             save,
         )
+        self.assertIn(
+            "if (!canAccessEmployeesCashboxes && canReadEmployees)",
+            save,
+        )
+
+    def test_read_only_workspace_renders_a_roster_without_finance_controls(self) -> None:
+        workspace = _asset_section(
+            "function syncEmployeesReadOnlyWorkspaceUi()", "function payrollSummaryMap()"
+        )
+        self.assertIn(
+            "const canManageEmployees = operatorCanAccessEmployeesCashboxes();", workspace
+        )
+        self.assertIn("els.employeesProfilePanel.hidden = !canManageEmployees;", workspace)
+        self.assertIn("els.employeesReportPanel.hidden = !canManageEmployees;", workspace)
+        self.assertIn("els.employeesReadOnlyNotice.hidden = !readOnly;", workspace)
+
+        rows = _asset_section("function renderEmployeesList()", "function renderEmployeesDetails()")
+        self.assertIn("const readOnly = operatorHasEmployeesReadOnlyAccess();", rows)
+        self.assertIn("ТОЛЬКО ПРОСМОТР", rows)
+        self.assertIn("const actions = readOnly", rows)
+
+        loader = _asset_section(
+            "async function loadEmployeesWorkspaceData(month)",
+            "function refreshRepairOrderEmployeeSelects()",
+        )
+        self.assertIn("if (!operatorCanAccessEmployeesCashboxes())", loader)
+        self.assertIn("loadEmployeesReference({ month: requestedMonth, apply: false })", loader)
+        self.assertIn("state.payrollReport = null;", loader)
+
+        mobile = _asset_section(
+            "function renderMobileEmployeesList()", "function renderMobileArchiveRows("
+        )
+        self.assertIn("if (readOnly)", mobile)
+        self.assertIn("Зарплаты, начисления, отчёты и изменение данных недоступны.", mobile)
 
     def test_salary_reset_render_and_handler_require_both_permissions(self) -> None:
         permission_helpers = _asset_section(
