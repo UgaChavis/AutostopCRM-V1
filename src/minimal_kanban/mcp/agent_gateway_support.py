@@ -61,6 +61,7 @@ MANAGER_GATEWAY_DEPENDENCY_NAMES = frozenset(
         "store_search",
         "store_entity_context",
         "store_management_action",
+        "store_quote_conductor",
         "download_store_quote_vin_photo",
         "store_owner_capabilities",
         "store_owner_api",
@@ -95,7 +96,6 @@ MAINTENANCE_TECHNICAL_RAW_CAPABILITIES = frozenset(
     {
         "api:/api/change_feed/bootstrap",
         "api:/api/change_feed/ack",
-        "store_owner_api",
     }
 )
 FINANCE_SENSITIVE_KEYS = frozenset(
@@ -188,8 +188,6 @@ def _maintenance_technical_write_allowed(
         or RELEASE_SMOKE_REVISION_PATTERN.fullmatch(normalized_revision) is None
         or not agent_bearer_token
     ):
-        return False
-    if capability == "store_owner_api" and str(arguments.get("mode") or "").casefold() != "dry_run":
         return False
     if (
         capability
@@ -637,6 +635,9 @@ def _is_finance_capability(name: str, arguments: Mapping[str, Any] | None = None
         return True
     if normalized == "replace_quote_offer_drafts":
         return True
+    if normalized == "store_quote_conductor":
+        conductor_operation = str((arguments or {}).get("operation") or "").strip().casefold()
+        return conductor_operation in {"draft", "publish", "order"}
     if normalized == "mark_order_ready":
         return True
     if normalized == "set_quote_request_status":

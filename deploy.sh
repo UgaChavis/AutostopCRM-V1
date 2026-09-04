@@ -1074,7 +1074,7 @@ run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_live_con
 
 wait_for_internal_store_gateway
 
-# Run the long owner/feed/web smoke while public CRM writes remain blocked.
+# Run the long Store-read/feed/web smoke while public CRM writes remain blocked.
 # The public MCP URL still verifies OAuth and the anonymous 401/403 boundary.
 run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_agent_gateway_v2.py \
   --mcp-url "$PUBLIC_MCP_URL" \

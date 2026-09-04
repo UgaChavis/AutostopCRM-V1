@@ -96,6 +96,7 @@ _AUTOSTOP_MANAGER_WRITE_TOOLS = frozenset(
         "complete_external_step",
         "start_workflow",
         "store_management_action",
+        "store_quote_conductor",
         "store_owner_api",
         "workflow_cancel",
         "workflow_checkpoint",
@@ -105,7 +106,6 @@ _AUTOSTOP_MANAGER_WRITE_TOOLS = frozenset(
     }
 )
 _AUTOSTOP_MANAGER_READ_ONLY_TOOLS = MANAGER_GATEWAY_DEPENDENCY_NAMES - _AUTOSTOP_MANAGER_WRITE_TOOLS
-
 
 CONNECTOR_SCHEMA_VERSION = "2026-04-13"
 CONNECTOR_VERSION = "autostopcrm-mcp-2026-04-13"

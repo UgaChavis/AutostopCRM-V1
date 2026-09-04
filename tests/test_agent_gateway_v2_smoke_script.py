@@ -128,11 +128,12 @@ class AgentGatewayV2SmokeScriptTests(unittest.TestCase):
         self.assertIn("STORE_OWNER_READ_PROBE_OPERATION", source)
         self.assertIn("STORE_OWNER_REQUIRED_READ_CONTRACTS", source)
         self.assertIn('"store_owner_capability_contract_ready"', source)
-        self.assertIn('"store_owner_safe_get_ready"', source)
         self.assertIn('"store_quote_adapter_configured"', source)
         self.assertIn('"store_quote_full_read_enabled"', source)
         self.assertIn('"store_quote_draft_write_enabled"', source)
         self.assertIn('"store_supplier_lookup_enabled"', source)
+        self.assertNotIn("STORE_OWNER_API_NAME", source)
+        self.assertNotIn("_store_owner_signed_safe_create_checks", source)
         self.assertNotIn('{"scope": "store"', source)
 
     def test_exception_group_diagnostics_expose_only_wrapped_safe_context(self) -> None:
@@ -167,11 +168,11 @@ class AgentGatewayV2SmokeScriptTests(unittest.TestCase):
 
         owner_contract = module._failure_diagnostics(
             ExceptionGroup(
-                "outer secret", [RuntimeError("store owner safe create contract is invalid")]
+                "outer secret", [RuntimeError("store owner capability contract is invalid")]
             )
         )
         self.assertEqual(
-            "store owner safe create contract is invalid",
+            "store owner capability contract is invalid",
             owner_contract["failure_detail"],
         )
 
@@ -305,10 +306,7 @@ class AgentGatewayV2SmokeProbeTests(unittest.IsolatedAsyncioTestCase):
             expected_query_schemas,
             module.STORE_OWNER_REQUIRED_READ_QUERY_SCHEMAS,
         )
-        risks = {
-            module.STORE_OWNER_CAPABILITIES_NAME: "read",
-            module.STORE_OWNER_API_NAME: "write",
-        }
+        risks = {module.STORE_OWNER_CAPABILITIES_NAME: "read"}
 
         def handler(name: str, arguments: dict):
             if name == "discover_raw_capabilities":
@@ -373,8 +371,7 @@ class AgentGatewayV2SmokeProbeTests(unittest.IsolatedAsyncioTestCase):
                         },
                     }
                 )
-            self.assertEqual(module.STORE_OWNER_API_NAME, arguments["name"])
-            return tool_result({"ok": True, "data": {"ok": True, "status": "completed"}})
+            self.fail(f"unexpected raw capability call: {arguments['name']}")
 
         session = ScriptSession(handler)
         checks = await module._store_owner_read_checks(session, {})
@@ -383,18 +380,11 @@ class AgentGatewayV2SmokeProbeTests(unittest.IsolatedAsyncioTestCase):
         raw_calls = [
             arguments for name, arguments in session.calls if name == "call_raw_capability"
         ]
-        self.assertEqual(len(module.STORE_OWNER_REQUIRED_READ_CONTRACTS) + 1, len(raw_calls))
-        self.assertTrue(all(call["allow_large_output"] for call in raw_calls[:-1]))
-        self.assertEqual(
-            {
-                "operation_id": module.STORE_OWNER_READ_PROBE_OPERATION,
-                "mode": "read",
-                "correlation_id": module.STORE_OWNER_READ_PROBE_CORRELATION,
-                "query": {"page": 1, "pageSize": 1},
-            },
-            raw_calls[-1]["arguments"],
+        self.assertEqual(len(module.STORE_OWNER_REQUIRED_READ_CONTRACTS), len(raw_calls))
+        self.assertTrue(all(call["allow_large_output"] for call in raw_calls))
+        self.assertTrue(
+            all(call["name"] == module.STORE_OWNER_CAPABILITIES_NAME for call in raw_calls)
         )
-        self.assertFalse(raw_calls[-1]["allow_large_output"])
 
         def path_drift_handler(name: str, arguments: dict):
             result = handler(name, arguments)
@@ -414,237 +404,6 @@ class AgentGatewayV2SmokeProbeTests(unittest.IsolatedAsyncioTestCase):
             "store owner capability contract is invalid",
         ):
             await module._store_owner_read_checks(ScriptSession(path_drift_handler), {})
-
-    async def test_maintenance_store_probe_uses_nonfinancial_safe_create_revision_and_signed_dry_run(
-        self,
-    ) -> None:
-        module = load_script_module()
-        risks = {
-            module.STORE_OWNER_CAPABILITIES_NAME: "read",
-            module.STORE_OWNER_API_NAME: "write",
-        }
-        smoke_id = "0123456789abcdef0123456789abcdef"
-        release_revision = "a" * 40
-        release_proof = "b" * 64
-
-        def capability_contract(operation_id: str) -> dict:
-            if operation_id == module.STORE_OWNER_SAFE_CREATE_OPERATION:
-                return {
-                    "ok": True,
-                    "data_included": False,
-                    "summary": {
-                        "operation_id": operation_id,
-                        "method": "POST",
-                        "risk": "high_risk_write",
-                        "response_statuses": ["201"],
-                        "response_content_types": ["application/json"],
-                    },
-                    "input_contract": {
-                        "contract_version": "store-owner-input-contract-v1",
-                        "path_parameters": {
-                            "type": "object",
-                            "properties": {},
-                            "required": [],
-                            "additionalProperties": False,
-                        },
-                        "query_parameters": {
-                            "type": "object",
-                            "properties": {},
-                            "required": [],
-                            "additionalProperties": False,
-                        },
-                        "request_body": {
-                            "required": True,
-                            "content": [
-                                {
-                                    "content_type": "application/json",
-                                    "schema": {
-                                        "$ref": "#/$defs/schema_live_store_create",
-                                        "$defs": {
-                                            "schema_live_store_create": {
-                                                "type": "object",
-                                                "properties": {
-                                                    "name": {
-                                                        "type": "string",
-                                                        "minLength": 1,
-                                                        "maxLength": 200,
-                                                    }
-                                                },
-                                                "required": ["name"],
-                                            }
-                                        },
-                                    },
-                                }
-                            ],
-                        },
-                    },
-                }
-            path_fields = module.STORE_OWNER_REQUIRED_READ_PATH_SCHEMAS[operation_id]
-            query_fields = module.STORE_OWNER_REQUIRED_READ_QUERY_SCHEMAS[operation_id]
-            return {
-                "ok": True,
-                "data_included": False,
-                "summary": {
-                    "operation_id": operation_id,
-                    "method": "GET",
-                    "risk": "read",
-                    "response_statuses": ["200"],
-                    "response_content_types": ["application/json"],
-                },
-                "input_contract": {
-                    "contract_version": "store-owner-input-contract-v1",
-                    "path_parameters": {
-                        "type": "object",
-                        "properties": path_fields,
-                        "required": sorted(path_fields),
-                        "additionalProperties": False,
-                    },
-                    "query_parameters": {
-                        "type": "object",
-                        "properties": query_fields,
-                        "required": [],
-                        "additionalProperties": False,
-                    },
-                    "request_body": {"required": False, "content": []},
-                },
-            }
-
-        def handler(name: str, arguments: dict):
-            if name == "discover_raw_capabilities":
-                capability_name = arguments["query"]
-                return tool_result(
-                    {
-                        "ok": True,
-                        "data": {
-                            "capabilities": [
-                                {"name": capability_name, "risk": risks[capability_name]}
-                            ]
-                        },
-                    }
-                )
-            if name == "get_raw_capability_schema":
-                capability_name = arguments["name"]
-                return tool_result(
-                    {
-                        "ok": True,
-                        "summary": {
-                            "schema_hash": f"hash-{capability_name}",
-                            "risk": risks[capability_name],
-                        },
-                        "data": {"input_schema": {"type": "object"}},
-                    }
-                )
-            self.assertEqual("call_raw_capability", name)
-            if arguments["name"] == module.STORE_OWNER_CAPABILITIES_NAME:
-                return tool_result(
-                    {
-                        "ok": True,
-                        "data": capability_contract(arguments["arguments"]["operation_id"]),
-                    }
-                )
-
-            self.assertEqual(module.STORE_OWNER_API_NAME, arguments["name"])
-            owner_arguments = arguments["arguments"]
-            mode = owner_arguments["mode"]
-            if mode == "read":
-                return tool_result({"ok": True, "data": {"ok": True, "status": "completed"}})
-            self.assertEqual(
-                module.STORE_OWNER_SAFE_CREATE_OPERATION, owner_arguments["operation_id"]
-            )
-            self.assertEqual(module.STORE_OWNER_SAFE_CREATE_TARGET, owner_arguments["target_id"])
-            self.assertEqual({"name"}, set(owner_arguments["body"]))
-            if mode == "revision":
-                return tool_result(
-                    {
-                        "ok": True,
-                        "data": {
-                            "ok": True,
-                            "status": "completed",
-                            "data_included": False,
-                            "summary": {
-                                "operation_id": module.STORE_OWNER_SAFE_CREATE_OPERATION,
-                                "current_revision": None,
-                                "revision_kind": "revision_exempt",
-                                "expected_revision_required": False,
-                                "contract_version": module.STORE_OWNER_PREFLIGHT_CONTRACT_VERSION,
-                            },
-                            "meta": {
-                                "request_dispatched": True,
-                                "domain_handler_executed": False,
-                            },
-                        },
-                    }
-                )
-            self.assertEqual("dry_run", mode)
-            self.assertEqual(owner_arguments["idempotency_key"], arguments["idempotency_key"])
-            self.assertEqual(release_revision, arguments["release_smoke_revision"])
-            self.assertEqual(release_proof, arguments["release_smoke_proof"])
-            return raw_write_result(
-                {
-                    "ok": True,
-                    "status": "planned",
-                    "data_included": False,
-                    "summary": {
-                        "operation_id": module.STORE_OWNER_SAFE_CREATE_OPERATION,
-                        "dry_run_proof": "c" * 64,
-                        "server_receipt_id": "synthetic-receipt",
-                        "expires_at": "2099-01-01T00:00:00+00:00",
-                        "current_revision": None,
-                        "revision_kind": "revision_exempt",
-                        "contract_version": module.STORE_OWNER_PREFLIGHT_CONTRACT_VERSION,
-                    },
-                    "meta": {
-                        "request_dispatched": True,
-                        "outcome_uncertain": False,
-                        "domain_handler_executed": False,
-                    },
-                },
-                check="store_owner_server_dry_run_receipt",
-            )
-
-        session = ScriptSession(handler)
-        checks = await module._store_owner_read_checks(
-            session,
-            {},
-            smoke_id=smoke_id,
-            release_revision=release_revision,
-            release_smoke_proof=release_proof,
-            include_signed_dry_run=True,
-        )
-
-        self.assertTrue(all(checks.values()))
-        self.assertTrue(checks["store_owner_safe_create_contract_ready"])
-        self.assertTrue(checks["store_owner_safe_create_revision_ready"])
-        self.assertTrue(checks["store_owner_signed_dry_run_ready"])
-        self.assertTrue(checks["store_owner_signed_dry_run_no_business_dml"])
-        raw_calls = [
-            arguments for name, arguments in session.calls if name == "call_raw_capability"
-        ]
-        owner_calls = [call for call in raw_calls if call["name"] == module.STORE_OWNER_API_NAME]
-        self.assertEqual(
-            ["read", "revision", "dry_run"], [call["arguments"]["mode"] for call in owner_calls]
-        )
-        self.assertNotIn("apply", [call["arguments"]["mode"] for call in owner_calls])
-
-        def dml_handler(name: str, arguments: dict):
-            result = handler(name, arguments)
-            if (
-                name == "call_raw_capability"
-                and arguments["name"] == module.STORE_OWNER_API_NAME
-                and arguments["arguments"].get("mode") == "dry_run"
-            ):
-                result.structuredContent["data"]["meta"]["domain_handler_executed"] = True
-            return result
-
-        with self.assertRaisesRegex(RuntimeError, "signed dry-run result is invalid"):
-            await module._store_owner_read_checks(
-                ScriptSession(dml_handler),
-                {},
-                smoke_id=smoke_id,
-                release_revision=release_revision,
-                release_smoke_proof=release_proof,
-                include_signed_dry_run=True,
-            )
 
     async def test_transport_failure_reports_only_fixed_capability_context(self) -> None:
         module = load_script_module()

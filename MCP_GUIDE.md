@@ -149,25 +149,18 @@ duration. Timer-only actions are audited but do not flag the card as unseen
 content for other operators.
 
 The mounted Manager's Store adapter remains internal; public access stays
-through the named Gateway tools. Its hidden read-only
-`store_owner_capabilities` inventory and guarded `store_owner_api` transport
-are available only through `discover_raw_capabilities` ->
-`get_raw_capability_schema` -> `call_raw_capability`, so they do not expand the
-public 24-tool surface. Use that route only when a named Store read or named
-write cannot satisfy the exact request. Discover one exact `operation_id` with
-`allow_large_output=true`, then use only the current bounded live input
-contract; never infer parameters from an admin screen or older release.
+through the named Gateway tools. Its read-only `store_owner_capabilities`
+inventory is available through `discover_raw_capabilities` ->
+`get_raw_capability_schema` -> `call_raw_capability`, so it does not expand the
+public 24-tool surface. It exposes only the current bounded input contract;
+never infer parameters from an admin screen or older release.
 
-`store_owner_api(mode="read")` needs a safe correlation ID. For a generic
-non-GET, `dry_run` requires ordinary write authority plus exact
-target/correlation/idempotency and a closed preflight ledger; `apply` also
-requires destructive authority. The Gateway applies finance authority whenever
-its conservative Store classifier marks the exact operation or request as
-financial; a dry-run never grants either authority for a later apply. The exact
-`publish_admin_quote_request_response_api_v1_admin_quote_requests__quote_request_id__publish_response_post`
-operation is finance-classified for both modes. Its apply is destructive and
-customer-visible (selected offers become `WAITING_FOR_APPROVAL`); it is an
-explicit Store raw operation, not a Mail send.
+The generic `store_owner_api` transport is internal-only: it cannot be
+discovered, schema-read, or invoked through the public raw-capability tools.
+Admin V2 customer estimates use the typed
+`agent_inventory_workflow(operation="store_quote_conductor")` route, never a
+generic Store owner transport or raw discovery. The Manager keeps the owner
+transport only as an implementation dependency of reviewed internal workflows.
 
 The canonical Store operation semantics, finance classifier coverage, exact
 customer-publication boundary, and order pagination are in
@@ -383,15 +376,13 @@ public logbooks, returns compact case evidence with access status, never uses a
 Drive2 account, and does not persist raw pages. These checks do not increase
 the public surface beyond 24 tools.
 
-The Store probe performs a live
-adapter health probe and one bounded `store_state` search without advancing the
-owner’s `store_digest` cursor, while retaining the exact 24-tool assertion.
+The Store probe performs a live adapter health probe, bounded `store_state` and
+sourcing searches without advancing the owner’s `store_digest` cursor, and a
+read-only owner-contract inventory check, while retaining the exact 24-tool
+assertion. It never discovers or calls the generic `store_owner_api` transport.
 Only `--exhaustive --maintenance-safe --require-store` additionally performs
-the signed owner preflight: discover the exact one-field manufacturer-create
-contract, read its revision-exempt current revision, then perform one unique
-synthetic `dry_run` with no `apply`. It verifies the server receipt/proof,
-preflight contract version, revision, and `domain_handler_executed=false`; its
-report contains checks only, never the synthetic request body or Store data.
+the PII-free CRM change-feed bootstrap/replay/ACK probes. Its report contains
+checks only, never Store request bodies or Store data.
 
 The script verifies anonymous rejection, the exact tool set, payload budgets,
 all 24 calls with read-only/dry-run/synthetic inputs, and does not print board

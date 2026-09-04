@@ -110,9 +110,11 @@ from .store_gateway import (
     INTERNAL_ONLY_CAPABILITY_NAMES,
     STORE_MANAGEMENT_CAPABILITY_NAME,
     STORE_MANAGEMENT_OPERATIONS,
+    STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME,
     STORE_SEARCH_ENTITIES,
     compatible_arguments,
     internal_only_capability_warning,
+    inventory_gateway_operations,
     normalized_store_data,
     preflight_store_write,
     reconcile_store_receipt,
@@ -126,6 +128,7 @@ from .store_gateway import (
 from .store_gateway import (
     workflow_state_version as _workflow_state_version,
 )
+from .store_quote_conductor_bridge import execute_store_quote_conductor
 from .web_gateway import (
     WEB_RESEARCH_CAPABILITY_DESCRIPTIONS,
     WEB_RESEARCH_CAPABILITY_NAMES,
@@ -159,7 +162,7 @@ InventoryWorkflowOperation = Annotated[
     WithJsonSchema(
         {
             "type": "string",
-            "enum": sorted(INVENTORY_WORKFLOW_OPERATIONS | STORE_MANAGEMENT_OPERATIONS),
+            "enum": sorted(inventory_gateway_operations(INVENTORY_WORKFLOW_OPERATIONS)),
         }
     ),
 ]
@@ -2453,6 +2456,10 @@ def register_agent_gateway_v2(
         idempotency_key: str,
         mode: Literal["dry_run", "apply"] | None = None,
     ) -> CallToolResult:
+        if operation == STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME:
+            return await execute_store_quote_conductor(
+                raw_tools, _invoke_store, dict(payload or {}), idempotency_key, mode
+            )
         return await _execute_workflow(
             workflow_id="inventory",
             operation=operation,

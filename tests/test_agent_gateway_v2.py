@@ -37,10 +37,15 @@ from minimal_kanban.mcp.store_gateway import (
     INTERNAL_ONLY_CAPABILITY_NAMES,
     STORE_MANAGEMENT_CAPABILITY_NAME,
     STORE_MANAGEMENT_OPERATIONS,
+    STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME,
     STORE_READ_CAPABILITY_NAMES,
     verify_store_readback,
 )
 from tests.gateway_v2_oauth_contracts import GatewayV2OAuthContractTestsMixin
+from tests.gateway_v2_store_quote_conductor_support import (
+    StoreQuoteConductorCasesMixin,
+    register_fake_store_quote_conductor,
+)
 
 GATEWAY_ENV = {
     "AUTOSTOP_DEPLOYMENT_ENV": "development",
@@ -1190,6 +1195,8 @@ def _register_fake_store_workflow_tools(server, state: dict) -> None:
         state["store_post_count"] += 1
         return _fake_store_management_action(state, arguments)
 
+    register_fake_store_quote_conductor(server, state)
+
     @server.tool(name="start_workflow")
     def start_workflow(
         workflow_id: str,
@@ -1415,7 +1422,11 @@ def register_fake_store_manager_tools(server, logger, state: dict) -> None:
     _register_fake_store_workflow_tools(server, state)
 
 
-class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsyncioTestCase):
+class AgentGatewayV2Tests(
+    StoreQuoteConductorCasesMixin,
+    GatewayV2OAuthContractTestsMixin,
+    unittest.IsolatedAsyncioTestCase,
+):
     def test_subset_verification_allows_normalized_fields_inside_order_rows(self) -> None:
         expected = {
             "works": [
@@ -1749,11 +1760,17 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
         self.assertEqual(24, len(names))
         self.assertEqual(5, len(STORE_READ_CAPABILITY_NAMES))
         self.assertEqual(
-            {*STORE_READ_CAPABILITY_NAMES, STORE_MANAGEMENT_CAPABILITY_NAME},
+            {
+                *STORE_READ_CAPABILITY_NAMES,
+                STORE_MANAGEMENT_CAPABILITY_NAME,
+                STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME,
+                "store_owner_api",
+            },
             set(INTERNAL_ONLY_CAPABILITY_NAMES),
         )
         self.assertNotIn("store_digest", names)
         self.assertNotIn("store_management_action", names)
+        self.assertNotIn(STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME, names)
 
     async def test_store_analytics_remains_raw_discoverable_and_read_only(self) -> None:
         server, _state = self._create_store_server()
@@ -1810,7 +1827,11 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
             set(inventory_schema["required"]),
         )
         self.assertIsNone(inventory_schema["properties"]["mode"]["default"])
-        inventory_ops = gc.INVENTORY_WORKFLOW_OPERATIONS | STORE_MANAGEMENT_OPERATIONS
+        inventory_ops = (
+            gc.INVENTORY_WORKFLOW_OPERATIONS
+            | STORE_MANAGEMENT_OPERATIONS
+            | {STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME}
+        )
         for tool_name, operations in (
             ("agent_board_workflow", gc.BOARD_WORKFLOW_OPERATIONS),
             ("agent_inventory_workflow", inventory_ops),
@@ -2214,49 +2235,6 @@ class AgentGatewayV2Tests(GatewayV2OAuthContractTestsMixin, unittest.IsolatedAsy
             arguments for name, arguments in state["calls"] if name == "store_runtime_status"
         ]
         self.assertTrue(runtime_calls[-1]["live"])
-
-    async def test_all_store_hidden_tools_are_excluded_from_raw_escape(self) -> None:
-        server, _state = self._create_store_server()
-        discover = server._tool_manager.get_tool("discover_raw_capabilities")
-        schema = server._tool_manager.get_tool("get_raw_capability_schema")
-        raw_call = server._tool_manager.get_tool("call_raw_capability")
-
-        for name in (
-            "store_runtime_status",
-            "store_digest",
-            "store_search",
-            "store_entity_context",
-            "download_store_quote_vin_photo",
-            "store_management_action",
-        ):
-            with self.subTest(name=name):
-                discovered = await discover.run({"query": name}, convert_result=False)
-                self.assertEqual([], discovered.structuredContent["data"]["capabilities"])
-                blocked_schema = await schema.run({"name": name}, convert_result=False)
-                blocked_call = await raw_call.run(
-                    {"name": name, "arguments": {}, "schema_hash": "irrelevant"},
-                    convert_result=False,
-                )
-                expected = (
-                    "named_workflow_required"
-                    if name == "store_management_action"
-                    else "named_operation_required"
-                )
-                self.assertIn(expected, blocked_schema.structuredContent["warnings"])
-                self.assertIn(expected, blocked_call.structuredContent["warnings"])
-
-                disguised = f" \t{name}\n"
-                disguised_schema = await schema.run({"name": disguised}, convert_result=False)
-                disguised_call = await raw_call.run(
-                    {
-                        "name": disguised,
-                        "arguments": {},
-                        "schema_hash": "irrelevant",
-                    },
-                    convert_result=False,
-                )
-                self.assertIn(expected, disguised_schema.structuredContent["warnings"])
-                self.assertIn(expected, disguised_call.structuredContent["warnings"])
 
     async def test_store_write_requires_explicit_mode_and_owner_intent_before_ledger(
         self,

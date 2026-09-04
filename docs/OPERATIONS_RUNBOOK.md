@@ -469,13 +469,13 @@ The bounded release flow:
    readiness and every candidate-side Docker probe remain inside the bounded
    release budget, so a short cold-start initialization is tolerated but an
    unavailable Store still fails the release and triggers rollback;
-8. while maintenance protection remains active, discovers the exact safe
-   manufacturer-create contract, reads its revision-exempt current revision,
-   then runs one signed synthetic owner `dry_run` (never `apply`) plus the
-   feed probes with a revision-bound proof and unique release attempt id;
-   mandatory public API and OAuth checks and the exhaustive maintenance-safe
-   24-tool Gateway smoke must verify the server receipt/proof, contract
-   version, revision, and no business handler execution;
+8. while maintenance protection remains active, runs bounded Store runtime,
+   search, and read-only owner-contract inventory checks plus the feed probes
+   with a revision-bound proof and unique release attempt id; the generic
+   `store_owner_api` transport remains internal and is never discovered or
+   called by the public smoke; mandatory public API and OAuth checks and the
+   exhaustive maintenance-safe 24-tool Gateway smoke must verify the
+   change-feed checkpoints and exact public surface;
 9. installs the watchdog only through a separately authorized opt-in;
    otherwise leaves it disabled or absent, then tags the healthy release as
    stable and removes the maintenance marker as the final fallible release
@@ -546,11 +546,12 @@ separately as a CRM-only call: it must report Store as `not_loaded`, return no
 Store snapshot/cursor/ACK, issue no Store request, and leave the owner
 `store_digest` checkpoint unchanged.
 
-The post-release command above intentionally does not repeat the signed Store
-owner preflight after the maintenance marker is removed. That `dry_run` occurs
-only inside `deploy.sh` with `--exhaustive --maintenance-safe --require-store`,
-its revision-bound proof, and a unique attempt id; it uses one synthetic
-manufacturer name, never `apply`, and records no request body or Store data.
+The post-release command above intentionally does not repeat the
+maintenance-only CRM change-feed probes after the marker is removed. Those
+probes occur only inside `deploy.sh` with
+`--exhaustive --maintenance-safe --require-store`, a revision-bound proof, and
+a unique attempt id. The public smoke never invokes the generic Store owner
+transport and records no Store request body or Store data.
 
 After UI changes, run
 `.\.venv\Scripts\python.exe scripts\browser_smoke.py` and manually verify

@@ -54,6 +54,7 @@ _EXPECTED_MANAGER_WRITE_TOOL_NAMES = frozenset(
         "complete_external_step",
         "start_workflow",
         "store_management_action",
+        "store_quote_conductor",
         "store_owner_api",
         "workflow_cancel",
         "workflow_checkpoint",

@@ -16,8 +16,19 @@ STORE_READ_CAPABILITY_NAMES = frozenset(
     }
 )
 STORE_MANAGEMENT_CAPABILITY_NAME = "store_management_action"
+STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME = "store_quote_conductor"
+# The generic owner transport remains an implementation dependency for
+# explicitly reviewed internal workflows, but it must never become a public
+# raw escape hatch.  Admin V2 customer estimates are reachable only through
+# the typed conductor below.
+STORE_OWNER_API_CAPABILITY_NAME = "store_owner_api"
 INTERNAL_ONLY_CAPABILITY_NAMES = frozenset(
-    {*STORE_READ_CAPABILITY_NAMES, STORE_MANAGEMENT_CAPABILITY_NAME}
+    {
+        *STORE_READ_CAPABILITY_NAMES,
+        STORE_MANAGEMENT_CAPABILITY_NAME,
+        STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME,
+        STORE_OWNER_API_CAPABILITY_NAME,
+    }
 )
 STORE_SEARCH_ENTITIES = frozenset(
     {
@@ -42,6 +53,44 @@ STORE_MANAGEMENT_OPERATIONS = frozenset(
         "replace_quote_offer_drafts",
     }
 )
+
+
+def inventory_gateway_operations(base_operations: frozenset[str]) -> frozenset[str]:
+    """Extend the public inventory workflow enum with Store-owned operations."""
+
+    return base_operations | STORE_MANAGEMENT_OPERATIONS | {STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME}
+
+
+STORE_QUOTE_CONDUCTOR_OPERATIONS = frozenset(
+    {
+        "start",
+        "status",
+        "clarification",
+        "evidence",
+        "draft",
+        "publish",
+        "wait",
+        "reply",
+        "reopen",
+        "order",
+        "handoff",
+        "decline",
+    }
+)
+STORE_QUOTE_CONDUCTOR_STORE_WRITE_OPERATIONS = frozenset({"draft", "publish", "reopen", "order"})
+STORE_QUOTE_CONDUCTOR_REPLY_CLASSIFICATIONS = frozenset(
+    {"clarification", "addition", "selection", "consent", "decline", "ambiguous"}
+)
+STORE_QUOTE_CONDUCTOR_TELEGRAM_MESSAGE_KINDS = frozenset(
+    {
+        "identity_prompt",
+        "clarification",
+        "offer",
+        "selection_confirmation",
+        "addition_clarification",
+        "payment_instruction",
+    }
+)
 STORE_OPERATION_ENTITIES = {
     "assign_quote_request": "store_quote_request",
     "set_quote_request_status": "store_quote_request",
@@ -52,6 +101,10 @@ STORE_OPERATION_ENTITIES = {
     "mark_order_ready": "store_order",
 }
 _STORE_CORRELATION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$")
+_STORE_QUOTE_CONDUCTOR_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$")
+_STORE_QUOTE_CONDUCTOR_HASH = re.compile(r"^[0-9a-f]{64}$")
+_STORE_QUOTE_CONDUCTOR_SAFE_CODE = re.compile(r"^[A-Za-z0-9_.:-]{1,160}$")
+_STORE_QUOTE_CONDUCTOR_INBOUND_RECEIPT = re.compile(r"^[A-Za-z0-9._~-]{16,1024}$")
 _STORE_CHANGE_FIELDS = {
     "assign_quote_request": ("assigned_user_id",),
     "set_quote_request_status": ("status",),
@@ -69,7 +122,12 @@ _STORE_CHANGE_FIELDS = {
 def internal_only_capability_warning(name: str) -> str:
     return (
         "named_workflow_required"
-        if name == STORE_MANAGEMENT_CAPABILITY_NAME
+        if name
+        in {
+            STORE_MANAGEMENT_CAPABILITY_NAME,
+            STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME,
+            STORE_OWNER_API_CAPABILITY_NAME,
+        }
         else "named_operation_required"
     )
 
@@ -308,6 +366,361 @@ def validate_store_workflow_request(
     except ValueError:
         return {"passed": False, "warning": "store_correlation_id_invalid"}
     return {"passed": True, "correlation_id": correlation_id}
+
+
+def validate_store_quote_conductor_request(
+    payload: Mapping[str, Any],
+    *,
+    idempotency_key: str,
+    mode: str | None,
+) -> dict[str, Any]:
+    """Validate the narrow public bridge to Manager's quote conductor.
+
+    The conductor owns its own durable Store workflow.  This gateway must not
+    turn a phase call into the generic ``store_management_action`` path or put
+    the transient estimate / Telegram content into a second ledger.
+    """
+
+    operation = _normalized_text(payload.get("operation")).casefold()
+    if operation not in STORE_QUOTE_CONDUCTOR_OPERATIONS:
+        return {
+            "passed": False,
+            "warning": "store_quote_conductor_operation_not_allowed",
+        }
+
+    is_store_write = operation in STORE_QUOTE_CONDUCTOR_STORE_WRITE_OPERATIONS
+    if is_store_write:
+        if mode not in {"dry_run", "apply"}:
+            return {
+                "passed": False,
+                "warning": "store_quote_conductor_write_mode_required_explicit_dry_run_or_apply",
+            }
+        effective_mode = str(mode)
+    else:
+        if mode not in {None, "apply"}:
+            return {
+                "passed": False,
+                "warning": "store_quote_conductor_refs_only_apply_required",
+            }
+        effective_mode = "apply"
+
+    nested_mode = payload.get("mode")
+    if nested_mode not in (None, "") and str(nested_mode).strip() != effective_mode:
+        return {"passed": False, "warning": "store_quote_conductor_mode_conflict"}
+    nested_key = payload.get("idempotency_key")
+    if nested_key not in (None, "") and str(nested_key).strip() != str(idempotency_key).strip():
+        return {"passed": False, "warning": "store_quote_conductor_idempotency_key_conflict"}
+
+    quote_request_id = _normalized_text(payload.get("quote_request_id"))
+    run_id = _positive_int(payload.get("run_id"))
+    expected_state_version = _positive_int(payload.get("expected_state_version"))
+    missing: list[str] = []
+    if _STORE_QUOTE_CONDUCTOR_ID.fullmatch(quote_request_id) is None:
+        missing.append("quote_request_id")
+    if operation != "start":
+        if run_id is None:
+            missing.append("run_id")
+        if operation != "status" and expected_state_version is None:
+            missing.append("expected_state_version")
+    if is_store_write or operation == "wait":
+        if not _normalized_text(payload.get("expected_revision")):
+            missing.append("expected_revision")
+    if operation == "start" or is_store_write or operation == "wait":
+        correlation_id = _normalized_text(payload.get("correlation_id"))
+        if _STORE_CORRELATION_ID.fullmatch(correlation_id) is None:
+            missing.append("correlation_id")
+    if not _normalized_text(idempotency_key):
+        missing.append("idempotency_key")
+    if missing:
+        return {
+            "passed": False,
+            "warning": "store_quote_conductor_required_fields_missing_or_invalid",
+            "missing_fields": list(dict.fromkeys(missing)),
+        }
+
+    entries = payload.get("entries")
+    if operation == "draft":
+        if (
+            not isinstance(entries, list)
+            or not 1 <= len(entries) <= 50
+            or not all(isinstance(item, Mapping) for item in entries)
+        ):
+            return {"passed": False, "warning": "store_quote_conductor_entries_invalid"}
+    elif entries is not None:
+        return {"passed": False, "warning": "store_quote_conductor_entries_not_allowed"}
+
+    coverage = payload.get("coverage")
+    if operation == "draft" and (
+        not isinstance(coverage, list)
+        or not 1 <= len(coverage) <= 50
+        or not all(isinstance(item, Mapping) for item in coverage)
+    ):
+        return {"passed": False, "warning": "store_quote_conductor_coverage_invalid"}
+    if operation != "draft" and coverage is not None:
+        return {"passed": False, "warning": "store_quote_conductor_coverage_not_allowed"}
+    customer_response = payload.get("customer_response")
+    if operation == "publish" and (
+        not isinstance(customer_response, str) or not 1 <= len(customer_response.strip()) <= 2_000
+    ):
+        return {"passed": False, "warning": "store_quote_conductor_customer_response_invalid"}
+    if operation != "publish" and customer_response not in (None, ""):
+        return {"passed": False, "warning": "store_quote_conductor_customer_response_not_allowed"}
+    evidence = payload.get("evidence")
+    if operation == "evidence" and not isinstance(evidence, Mapping):
+        return {"passed": False, "warning": "store_quote_conductor_evidence_required"}
+    if evidence is not None and not isinstance(evidence, Mapping):
+        return {"passed": False, "warning": "store_quote_conductor_evidence_invalid"}
+
+    step_id = _normalized_text(payload.get("step_id"))
+    if operation == "reply" and _STORE_QUOTE_CONDUCTOR_ID.fullmatch(step_id) is None:
+        return {"passed": False, "warning": "store_quote_conductor_step_id_required"}
+    reply_classification = _normalized_text(payload.get("reply_classification")).casefold()
+    if (
+        operation == "reply"
+        and reply_classification not in STORE_QUOTE_CONDUCTOR_REPLY_CLASSIFICATIONS
+    ):
+        return {"passed": False, "warning": "store_quote_conductor_reply_classification_invalid"}
+    if operation != "reply" and reply_classification:
+        return {
+            "passed": False,
+            "warning": "store_quote_conductor_reply_classification_not_allowed",
+        }
+    if operation == "reply":
+        # The incoming Telegram bridge, not a Gateway caller, proves the
+        # current quote/version/context.  These hashes used to be caller
+        # assertions and are deliberately rejected on replies now.
+        asserted_fields = (
+            "consent_context_hash",
+            "published_snapshot_hash",
+            "telegram_context_hash",
+        )
+        if any(_normalized_text(payload.get(field)) for field in asserted_fields):
+            return {
+                "passed": False,
+                "warning": "store_quote_conductor_reply_binding_must_be_transport_verified",
+            }
+        receipt = payload.get("telegram_inbound_receipt")
+        if (
+            not isinstance(receipt, str)
+            or _STORE_QUOTE_CONDUCTOR_INBOUND_RECEIPT.fullmatch(receipt.strip()) is None
+        ):
+            return {
+                "passed": False,
+                "warning": "store_quote_conductor_telegram_inbound_receipt_required",
+            }
+    elif _normalized_text(payload.get("telegram_inbound_receipt")):
+        return {
+            "passed": False,
+            "warning": "store_quote_conductor_telegram_inbound_receipt_not_allowed",
+        }
+    if operation == "reply":
+        # Hash-shaped receipts are opaque transient capabilities.  Do not
+        # normalize, retain, or return them from this Gateway.
+        if len(str(payload.get("telegram_inbound_receipt") or "")) > 1024:
+            return {
+                "passed": False,
+                "warning": "store_quote_conductor_telegram_inbound_receipt_required",
+            }
+    telegram_context_hash = _normalized_text(payload.get("telegram_context_hash")).casefold()
+    telegram_message = payload.get("telegram_message")
+    telegram_message_kind = _normalized_text(payload.get("telegram_message_kind")).casefold()
+    if operation == "wait":
+        if (
+            _STORE_QUOTE_CONDUCTOR_HASH.fullmatch(
+                _normalized_text(payload.get("published_snapshot_hash")).casefold()
+            )
+            is None
+        ):
+            return {
+                "passed": False,
+                "warning": "store_quote_conductor_wait_published_snapshot_hash_required",
+            }
+        if _STORE_QUOTE_CONDUCTOR_HASH.fullmatch(telegram_context_hash) is None:
+            return {
+                "passed": False,
+                "warning": "store_quote_conductor_telegram_context_hash_required",
+            }
+        if telegram_message_kind not in STORE_QUOTE_CONDUCTOR_TELEGRAM_MESSAGE_KINDS:
+            return {
+                "passed": False,
+                "warning": "store_quote_conductor_telegram_message_kind_invalid",
+            }
+        if not _valid_store_quote_telegram_text(telegram_message):
+            return {
+                "passed": False,
+                "warning": "store_quote_conductor_telegram_message_invalid",
+            }
+    elif telegram_context_hash:
+        if operation != "reply":
+            return {
+                "passed": False,
+                "warning": "store_quote_conductor_telegram_context_hash_not_allowed",
+            }
+    if operation != "wait" and telegram_message not in (None, ""):
+        return {
+            "passed": False,
+            "warning": "store_quote_conductor_telegram_message_not_allowed",
+        }
+    if operation != "wait" and telegram_message_kind:
+        return {
+            "passed": False,
+            "warning": "store_quote_conductor_telegram_message_kind_not_allowed",
+        }
+    if operation == "order":
+        for field in ("consent_context_hash", "published_snapshot_hash"):
+            value = _normalized_text(payload.get(field)).casefold()
+            if _STORE_QUOTE_CONDUCTOR_HASH.fullmatch(value) is None:
+                return {
+                    "passed": False,
+                    "warning": "store_quote_conductor_order_context_hash_required",
+                    "missing_fields": [field],
+                }
+
+    return {
+        "passed": True,
+        "operation": operation,
+        "mode": effective_mode,
+        "is_store_write": is_store_write,
+        "run_id": run_id,
+        "expected_state_version": expected_state_version,
+    }
+
+
+def store_quote_conductor_arguments(
+    raw_tools: Mapping[str, Any],
+    payload: Mapping[str, Any],
+    *,
+    idempotency_key: str,
+    mode: str,
+) -> dict[str, Any]:
+    """Project a Gateway payload onto the exact Manager conductor signature."""
+
+    arguments: dict[str, Any] = {
+        "operation": _normalized_text(payload.get("operation")).casefold(),
+        "quote_request_id": _normalized_text(payload.get("quote_request_id")),
+        "run_id": _positive_int(payload.get("run_id")),
+        "expected_state_version": _positive_int(payload.get("expected_state_version")),
+        "expected_revision": _normalized_text(payload.get("expected_revision")),
+        "idempotency_key": str(idempotency_key).strip(),
+        "correlation_id": _normalized_text(payload.get("correlation_id")),
+        "entries": list(payload["entries"]) if isinstance(payload.get("entries"), list) else None,
+        "evidence": dict(payload["evidence"])
+        if isinstance(payload.get("evidence"), Mapping)
+        else None,
+        "step_id": _normalized_text(payload.get("step_id")),
+        "reply_classification": _normalized_text(payload.get("reply_classification")).casefold(),
+        "consent_context_hash": _normalized_text(payload.get("consent_context_hash")).casefold(),
+        "published_snapshot_hash": _normalized_text(
+            payload.get("published_snapshot_hash")
+        ).casefold(),
+        "telegram_context_hash": _normalized_text(payload.get("telegram_context_hash")).casefold(),
+        # This opaque one-time receipt is intentionally transient: it is
+        # passed only to the typed Manager transport readback and is excluded
+        # from all Gateway projections and ledger-like output.
+        "telegram_inbound_receipt": payload.get("telegram_inbound_receipt")
+        if isinstance(payload.get("telegram_inbound_receipt"), str)
+        else "",
+        # Telegram wording is deliberately passed through only to the named
+        # Manager capability.  This bridge never puts it in a Gateway ledger
+        # or projects it back into the public result.
+        "telegram_message": payload.get("telegram_message")
+        if isinstance(payload.get("telegram_message"), str)
+        else "",
+        "telegram_message_kind": _normalized_text(payload.get("telegram_message_kind")).casefold(),
+        "mode": mode,
+    }
+    # The implementation additionally accepts these optional Store-side fields.
+    # They remain transient and are filtered out if an older Manager does not
+    # advertise them in its hidden capability schema.
+    if isinstance(payload.get("coverage"), list):
+        arguments["coverage"] = list(payload["coverage"])
+    if isinstance(payload.get("customer_response"), str):
+        arguments["customer_response"] = payload["customer_response"]
+    return compatible_arguments(raw_tools, STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME, arguments)
+
+
+def store_quote_conductor_safe_projection(result: Mapping[str, Any]) -> dict[str, Any]:
+    """Return only refs-only conductor evidence for the public Gateway reply."""
+
+    safe: dict[str, Any] = {}
+    safe_hash_fields = {
+        "consent_context_hash",
+        "entries_hash",
+        "evidence_hash",
+        "published_snapshot_hash",
+        "target_ref_sha256",
+        "coverage_hash",
+        "delivery_binding_sha256",
+        "delivery_ref_sha256",
+        "message_sha256",
+        "reply_text_sha256",
+        "incoming_ref_sha256",
+        "inbound_binding_sha256",
+        "quote_snapshot_hash",
+        "telegram_context_hash",
+    }
+    safe_int_fields = {"state_version", "entries_count", "coverage_count", "evidence_count"}
+    safe_code_fields = {
+        "phase",
+        "operation",
+        "reply_classification",
+        "error_code",
+        "external_effect_state",
+        "telegram_message_kind",
+    }
+
+    def collect(value: Any, *, depth: int = 0) -> None:
+        if depth > 5:
+            return
+        if isinstance(value, Mapping):
+            for raw_key, item in value.items():
+                key = str(raw_key).strip().casefold()
+                if key in safe_hash_fields:
+                    normalized = _normalized_text(item).casefold()
+                    if _STORE_QUOTE_CONDUCTOR_HASH.fullmatch(normalized):
+                        safe[key] = normalized
+                elif (
+                    key in safe_int_fields and isinstance(item, int) and not isinstance(item, bool)
+                ):
+                    safe[key] = max(0, min(item, 1_000_000))
+                elif key in safe_code_fields:
+                    normalized = _normalized_text(item).casefold()
+                    if _STORE_QUOTE_CONDUCTOR_SAFE_CODE.fullmatch(normalized):
+                        safe[key] = normalized
+                elif key in {"deduplicated", "idempotency_replay", "revision_verified"}:
+                    safe[key] = bool(item)
+                elif isinstance(item, Mapping):
+                    collect(item, depth=depth + 1)
+
+    collect(result.get("summary"))
+    collect(result.get("data"))
+    collect(result.get("meta"))
+    collect(result.get("error"))
+    return safe
+
+
+def store_quote_conductor_safe_verification(result: Mapping[str, Any]) -> dict[str, bool]:
+    """Keep verification scalar and code-only; raw Store or Telegram data never escapes."""
+
+    source = result.get("verification")
+    if not isinstance(source, Mapping):
+        return {}
+    return {
+        str(key): bool(value)
+        for key, value in source.items()
+        if _STORE_QUOTE_CONDUCTOR_SAFE_CODE.fullmatch(str(key).strip()) and isinstance(value, bool)
+    }
+
+
+def store_quote_conductor_safe_warnings(result: Mapping[str, Any]) -> list[str]:
+    warnings = result.get("warnings")
+    if not isinstance(warnings, list):
+        return []
+    return [
+        str(item).strip()
+        for item in warnings[:20]
+        if _STORE_QUOTE_CONDUCTOR_SAFE_CODE.fullmatch(str(item).strip())
+    ]
 
 
 def store_action_arguments(
@@ -749,6 +1162,17 @@ def _normalized_text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _valid_store_quote_telegram_text(value: Any) -> bool:
+    """Mirror Manager's bounded, human-style outbound Telegram contract."""
+
+    if not isinstance(value, str) or not value or len(value) > 4_096:
+        return False
+    if any(marker in value for marker in ("\r", "\n", "\x00")):
+        return False
+    sentence_count = len(re.findall(r"[.!?]+", value))
+    return 1 <= sentence_count <= 3 and value.count("?") == 1 and value.endswith("?")
+
+
 def _normalized_optional_text(value: Any) -> str | None:
     normalized = _normalized_text(value)
     return normalized or None
@@ -756,6 +1180,12 @@ def _normalized_optional_text(value: Any) -> str | None:
 
 def _normalized_status(value: Any) -> str:
     return _normalized_text(value).upper()
+
+
+def _positive_int(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if value > 0 else None
 
 
 def _bounded_text(value: Any, limit: int) -> str:
@@ -804,7 +1234,12 @@ __all__ = [
     "INTERNAL_ONLY_CAPABILITY_NAMES",
     "STORE_MANAGEMENT_CAPABILITY_NAME",
     "STORE_MANAGEMENT_OPERATIONS",
+    "STORE_OWNER_API_CAPABILITY_NAME",
     "STORE_OPERATION_ENTITIES",
+    "STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME",
+    "STORE_QUOTE_CONDUCTOR_OPERATIONS",
+    "STORE_QUOTE_CONDUCTOR_REPLY_CLASSIFICATIONS",
+    "STORE_QUOTE_CONDUCTOR_STORE_WRITE_OPERATIONS",
     "STORE_READ_CAPABILITY_NAMES",
     "STORE_SEARCH_ENTITIES",
     "compatible_arguments",
@@ -818,10 +1253,15 @@ __all__ = [
     "store_internal_comment_sha256",
     "store_ledger_verification",
     "store_planned_changes",
+    "store_quote_conductor_arguments",
+    "store_quote_conductor_safe_projection",
+    "store_quote_conductor_safe_verification",
+    "store_quote_conductor_safe_warnings",
     "store_reconciliation_envelope",
     "store_revision",
     "store_target",
     "validate_store_workflow_request",
+    "validate_store_quote_conductor_request",
     "verify_store_operation",
     "verify_store_readback",
     "workflow_state_version",
