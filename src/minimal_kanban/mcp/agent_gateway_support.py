@@ -633,8 +633,6 @@ def _is_finance_capability(name: str, arguments: Mapping[str, Any] | None = None
         return True
     if _contains_sensitive_key(arguments or {}, FINANCE_SENSITIVE_KEYS):
         return True
-    if normalized == "replace_quote_offer_drafts":
-        return True
     if normalized == "store_quote_conductor":
         conductor_operation = str((arguments or {}).get("operation") or "").strip().casefold()
         return conductor_operation in {"draft", "publish", "order"}

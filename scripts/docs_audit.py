@@ -1488,7 +1488,6 @@ def _check_store_gateway_docs_contract(root: Path) -> list[Issue]:
         return []
     mcp_text = _read_text(mcp_path)
     chatgpt_text = _read_text(chatgpt_path)
-    compact_mcp = " ".join(mcp_text.split())
     search_entities = set(contract["search_entities"])
     operations = set(contract["management_operations"])
     issues: list[Issue] = []
@@ -1552,14 +1551,6 @@ def _check_store_gateway_docs_contract(root: Path) -> list[Issue]:
             )
         )
 
-    if f"exactly {len(operations)} operations" not in compact_mcp:
-        issues.append(
-            Issue(
-                "mcp_guide_store_operation_count_stale",
-                _display_path(mcp_path, root),
-                f"expected current Store operation count: {len(operations)}",
-            )
-        )
     for stale_argument in ("store_cursor", "store_ack_token"):
         if stale_argument in chatgpt_text:
             issues.append(

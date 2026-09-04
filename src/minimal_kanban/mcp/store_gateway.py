@@ -50,7 +50,6 @@ STORE_MANAGEMENT_OPERATIONS = frozenset(
         "set_batch_storage_location",
         "mark_order_ready",
         "add_quote_request_note",
-        "replace_quote_offer_drafts",
     }
 )
 
@@ -96,7 +95,6 @@ STORE_OPERATION_ENTITIES = {
     "set_quote_request_status": "store_quote_request",
     "update_quote_request_comment": "store_quote_request",
     "add_quote_request_note": "store_quote_request",
-    "replace_quote_offer_drafts": "store_quote_request",
     "set_batch_storage_location": "store_batch",
     "mark_order_ready": "store_order",
 }
@@ -113,7 +111,6 @@ _STORE_CHANGE_FIELDS = {
         "internal_comment_sha256",
     ),
     "add_quote_request_note": ("notes_count",),
-    "replace_quote_offer_drafts": ("agent_draft_count",),
     "set_batch_storage_location": ("storage_location",),
     "mark_order_ready": ("status", "ready_at"),
 }
@@ -774,8 +771,6 @@ def store_planned_changes(operation: str, payload: Mapping[str, Any]) -> dict[st
         return {"internal_comment": _normalized_optional_text(changes.get("internal_comment"))}
     if operation == "add_quote_request_note":
         return {"text": _normalized_text(changes.get("text"))}
-    if operation == "replace_quote_offer_drafts":
-        return {"items": list(changes.get("items") or [])}
     if operation == "set_batch_storage_location":
         return {"storage_location": _normalized_text(changes.get("storage_location"))}
     if operation == "mark_order_ready":
@@ -893,10 +888,6 @@ def verify_store_readback(
             and _normalized_text(note.get("text")) == expected_text
             for note in notes
         )
-    elif mode != "dry_run" and operation == "replace_quote_offer_drafts":
-        expected_items = changes.get("items")
-        observed_items = _find_value(target or readback, frozenset({"items"}))
-        checks["draft_candidates_exact"] = _draft_candidates_exact(expected_items, observed_items)
     elif mode != "dry_run" and operation == "set_batch_storage_location":
         location = changes.get("storage_location")
         checks["storage_location_exact"] = bool(location) and _contains_any_value(
@@ -941,33 +932,6 @@ def verify_store_readback(
             "external_effect_state": _find_value(result, frozenset({"external_effect_state"})),
         },
     }
-
-
-def _draft_candidates_exact(expected_items: Any, observed_items: Any) -> bool:
-    if not isinstance(expected_items, list) or not isinstance(observed_items, list):
-        return False
-    observed: dict[str, set[str]] = {}
-    for item in observed_items:
-        if not isinstance(item, Mapping):
-            continue
-        observed[str(item.get("item_id") or "")] = {
-            str(offer.get("candidate_key") or "")
-            for offer in item.get("offers", [])
-            if isinstance(offer, Mapping)
-            and offer.get("origin") == "AUTOSTOP_MANAGER"
-            and offer.get("publication_status") == "DRAFT"
-        }
-    for item in expected_items:
-        if not isinstance(item, Mapping):
-            return False
-        expected = {
-            str(draft.get("candidate_key") or "")
-            for draft in item.get("drafts", [])
-            if isinstance(draft, Mapping)
-        }
-        if observed.get(str(item.get("item_id") or ""), set()) != expected:
-            return False
-    return True
 
 
 async def verify_store_operation(

@@ -251,11 +251,12 @@ For a Store digest, finish the cursor/ACK loop before treating “what is new”
 consumed. Only `agent_board_digest(scope="store")` participates in that
 ACK/replay/CAS protocol; `agent_bootstrap` makes no Store request.
 
-For Store writes, `agent_inventory_workflow` permits exactly 7 operations:
+The generic Store management path in `agent_inventory_workflow` permits:
 `assign_quote_request`, `set_quote_request_status`,
 `update_quote_request_comment`, `add_quote_request_note`,
-`replace_quote_offer_drafts`, `set_batch_storage_location`, and
-`mark_order_ready`. It requires the exact target/revision, owner intent,
+`set_batch_storage_location`, and `mark_order_ready`. Customer quote drafts use
+the Admin V2 quote conductor; legacy offers are read-only conflict evidence and
+go to handoff. Store writes require the exact target/revision, owner intent,
 planned changes, distinct mode keys, and one stable correlation. Gateway keeps
 only compact refs/hashes, verifies exact readback, leaves unresolved notifier
 states compensating, and reconciles an uncertain POST only by replaying the

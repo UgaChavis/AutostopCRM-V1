@@ -19,8 +19,6 @@ _RAW_CAPABILITY_DISCOVERY_ALIASES: dict[str, tuple[str, ...]] = {
         "электросхема",
         "tsb",
         "отзыв",
-    ),
-    "recommend_fluid_maintenance_sources": (
         "масло",
         "жидкость",
         "допуск",

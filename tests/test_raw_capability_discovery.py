@@ -11,6 +11,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from minimal_kanban.mcp.raw_capability_discovery import raw_capability_discovery_score
 from minimal_kanban.mcp.server import create_mcp_server
 
 GATEWAY_ENV = {
@@ -71,3 +72,16 @@ class RawCapabilityDiscoveryTests(unittest.IsolatedAsyncioTestCase):
             if item["name"] == "create_sticky"
         )
         self.assertEqual("write", selected["risk"])
+
+    def test_automotive_source_aliases_cover_repairs_and_fluids(self) -> None:
+        for query in ("метки грм", "какое масло и допуск акпп"):
+            with self.subTest(query=query):
+                score, matched_terms, exact = raw_capability_discovery_score(
+                    query,
+                    name="recommend_automotive_sources",
+                    description="",
+                    schema={},
+                )
+                self.assertGreater(score, 0)
+                self.assertTrue(matched_terms)
+                self.assertFalse(exact)

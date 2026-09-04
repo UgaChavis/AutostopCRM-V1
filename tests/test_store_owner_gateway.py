@@ -164,7 +164,6 @@ class StoreOwnerGatewayTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-        self.assertTrue(_is_finance_capability("replace_quote_offer_drafts", {}))
         self.assertTrue(_is_finance_capability("mark_order_ready", {}))
         self.assertTrue(
             _is_finance_capability(
@@ -224,7 +223,6 @@ class StoreOwnerGatewayTests(unittest.IsolatedAsyncioTestCase):
     def test_named_store_finance_policy_blocks_derived_value_actions(self) -> None:
         cases = (
             ("set_quote_request_status", {"status": "WAITING_FOR_APPROVAL"}),
-            ("replace_quote_offer_drafts", {"items": []}),
             ("mark_order_ready", {"status": "READY"}),
         )
         with patch.dict(

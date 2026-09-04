@@ -423,7 +423,6 @@ class DocsAuditTests(unittest.TestCase):
                 "store_management_operations_stale",
                 "store_vin_photo_workflow_missing",
                 "mcp_guide_store_safety_contract_stale",
-                "mcp_guide_store_operation_count_stale",
                 "chatgpt_bootstrap_cursor_stale",
             },
             {issue.code for issue in issues},
