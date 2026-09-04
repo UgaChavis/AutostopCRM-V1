@@ -772,6 +772,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             const requests = [];
             function clearCardOpenSideEffectTimer() {{}}
             function currentPayrollMonthValue() {{ return '2026-01'; }}
+            function operatorCanAccessEmployeesCashboxes() {{ return true; }}
             function api(url) {{
               let resolve;
               let reject;
@@ -906,6 +907,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             const requests = [];
             const renders = [];
             function currentPayrollMonthValue() {{ return '2026-01'; }}
+            function operatorCanAccessEmployeesCashboxes() {{ return true; }}
             function renderEmployeesWorkspace() {{
               renders.push({{
                 month: state.payrollMonth,
@@ -1008,6 +1010,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             const assert = require('node:assert/strict');
 
             const EMPLOYEES_CASHBOXES_ACCESS_PERMISSION = 'employees_cashboxes_access';
+            const EMPLOYEES_READ_ACCESS_PERMISSION = 'employees_read_access';
             const SALARY_BALANCE_RESET_PERMISSION = 'salary_balance_reset';
             function entry() {{
               const classes = new Set(['hidden']);
@@ -1037,6 +1040,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
               operatorSessionToken: 'session-token',
               operatorProfile: {{ user: {{ permissions: [] }} }},
               employeesCashboxesAccess: false,
+              employeesReadAccess: false,
               employeesCashboxesAccessRevision: 0,
               mobileView: 'cashboxes',
               mobileMorePanel: 'employees',
@@ -1050,7 +1054,9 @@ class WebAssetsRuntimeTests(unittest.TestCase):
               cashboxesButton,
               employeesButton,
               mobileAppShell: {{
-                querySelectorAll() {{ return [mobileCashboxes, mobileEmployees]; }},
+                querySelectorAll(selector) {{
+                  return selector.includes('cashboxes') ? [mobileCashboxes] : [mobileEmployees];
+                }},
               }},
               mobileEmployeesPanel: {{ hidden: false }},
             }};
@@ -1084,10 +1090,34 @@ class WebAssetsRuntimeTests(unittest.TestCase):
 
             state.mobileView = 'cashboxes';
             state.mobileMorePanel = 'employees';
+            closed.length = 0;
+            state.operatorProfile.user.permissions = [EMPLOYEES_READ_ACCESS_PERMISSION];
+            syncEmployeesCashboxesAccessUi();
+            assert.equal(state.employeesCashboxesAccess, false);
+            assert.equal(state.employeesReadAccess, true);
+            assert.equal(state.employeesCashboxesAccessRevision, 2);
+            for (const element of [cashboxesButton, mobileCashboxes]) {{
+              assert.equal(element.classList.contains('hidden'), true);
+              assert.equal(element.disabled, true);
+              assert.equal(element.hasAttribute('aria-hidden'), true);
+            }}
+            for (const element of [employeesButton, mobileEmployees]) {{
+              assert.equal(element.classList.contains('hidden'), false);
+              assert.equal(element.disabled, false);
+              assert.equal(element.hasAttribute('aria-hidden'), false);
+            }}
+            assert.equal(state.mobileView, 'board');
+            assert.equal(state.mobileMorePanel, 'employees');
+            assert.deepEqual(closed, ['cashboxes', 'employees']);
+
+            state.mobileView = 'cashboxes';
+            state.mobileMorePanel = 'employees';
+            closed.length = 0;
             state.operatorProfile.user.permissions = [];
             syncEmployeesCashboxesAccessUi();
             assert.equal(state.employeesCashboxesAccess, false);
-            assert.equal(state.employeesCashboxesAccessRevision, 2);
+            assert.equal(state.employeesReadAccess, false);
+            assert.equal(state.employeesCashboxesAccessRevision, 3);
             assert.equal(state.mobileView, 'board');
             assert.equal(state.mobileMorePanel, '');
             assert.deepEqual(state.cashboxes, []);
