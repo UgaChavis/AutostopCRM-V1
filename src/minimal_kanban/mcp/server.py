@@ -466,7 +466,7 @@ def create_mcp_server(
         "host": resolved_host,
         "port": resolved_port,
     }
-    preferred_bootstrap_tools = [
+    available_context_tools = [
         "bootstrap_context",
         "get_connector_identity",
         "get_board_context",
@@ -526,11 +526,13 @@ def create_mcp_server(
             )
             + " "
             f"{_single_board_rule_text()} "
-            "Use one protocol: agent_bootstrap, then agent_board_digest, then agent_search or "
-            "agent_entity_context, then prepare_action_contract, then a named workflow in dry_run "
-            "and apply modes, followed by an exact target reread. Use raw discovery only when no "
-            "named workflow covers the request. If auth or runtime state is unclear, call "
-            "get_runtime_status. "
+            "Use relevant connected CRM, Store, and conversation context in whatever order helps the "
+            "customer goal; bootstrap, digest, search, and workflows are optional aids, not a protocol. "
+            "A VIN, part number, photo, part name, or short customer reply can indicate a quote request: "
+            "collect exposed facts first and ask only for a real blocker. Native guarded actions remain "
+            "mandatory for money, a published customer price, an order, deletion, a new external recipient, "
+            "deployment, or secrets. Use raw discovery only when a focused supported tool is insufficient. "
+            "If auth or runtime state is unclear, call get_runtime_status. "
             "If the user asks about some other kanban product or board, do not use this connector."
         ),
         host=resolved_host,
@@ -1030,7 +1032,7 @@ def create_mcp_server(
             f"board_api_base_url: {connector_identity['board_api_base_url']}\n"
             f"auth_mode: {connector_identity['auth_mode']}\n"
             f"scope_rule: {connector_identity['scope_rule']}\n"
-            "operation_rule: before any write, call bootstrap_context first; if needed, then get_runtime_status\n"
+            "operation_rule: choose only relevant context; native confirmation applies at real-impact actions\n"
         )
 
     def _transport_error_response(error_code: str, exc: BoardApiTransportError) -> dict[str, Any]:
@@ -1096,7 +1098,7 @@ def create_mcp_server(
         )
         runtime_status = {
             "connector_identity": dict(connector_identity),
-            "preferred_bootstrap_tools": list(preferred_bootstrap_tools),
+            "available_context_tools": list(available_context_tools),
             "api_health": health_response.get("data") if health_response.get("ok") else None,
             "api_health_error": health_response.get("error")
             if not health_response.get("ok")
@@ -1158,7 +1160,9 @@ def create_mcp_server(
             error = runtime_status.get("board_context_error") or {}
             lines.append(f"board_context_error: {error.get('message', 'unknown')}")
         lines.append("full_board_context_tool: get_board_context")
-        lines.append("recommended_bootstrap: bootstrap_context -> get_runtime_status -> writes")
+        lines.append(
+            "context_choice: use bootstrap, board, card, or runtime context only when it helps the current request"
+        )
         return "\n".join(lines) + "\n"
 
     def _enrich_gpt_wall_response(response: Any) -> dict[str, Any]:
@@ -1313,7 +1317,7 @@ def create_mcp_server(
                     f"- {event.get('timestamp') or '-'} | {event.get('actor_name') or '-'} | {event.get('card_short_id') or '-'} | {event.get('message') or '-'}"
                 )
         lines.append(
-            "next_step: call review_board or get_cards(compact=true) for fast triage, get_board_content(view_mode=agent) for board context, get_board_events(event_limit=100) for the latest Markdown journal, or get_gpt_wall(view_mode=full) only when a heavy full wall export is needed"
+            "context_options: choose review_board or get_cards(compact=true) for triage, get_board_content(view_mode=agent) for board state, get_board_events(event_limit=100) for recent history, or get_gpt_wall(view_mode=full) only for a needed full export"
         )
         return "\n".join(lines) + "\n"
 
@@ -1337,7 +1341,7 @@ def create_mcp_server(
     @server.tool(
         name="bootstrap_context",
         description=_scoped_description(
-            "Return the lightweight startup bundle for GPT: connector identity, board context, a compact wall preview, and the write flow for this board."
+            "Return an optional compact starting bundle: connector identity, board context, and wall preview. Use it when it helps orient the request."
         ),
         annotations=_read_tool_annotations("Bootstrap Context"),
         structured_output=True,
@@ -1368,7 +1372,7 @@ def create_mcp_server(
                 error,
                 data={
                     "identity": dict(connector_identity),
-                    "preferred_bootstrap_tools": list(preferred_bootstrap_tools),
+                    "available_context_tools": list(available_context_tools),
                 },
                 meta=_timed_meta(
                     "bootstrap_context",
@@ -1411,7 +1415,7 @@ def create_mcp_server(
                 "identity": dict(connector_identity),
                 "board_context": board_context_payload,
                 "gpt_wall_preview": wall_preview,
-                "preferred_bootstrap_tools": list(preferred_bootstrap_tools),
+                "available_context_tools": list(available_context_tools),
                 "canonical_tool_paths": {
                     tool_name: _canonical_tool_path(tool_name)
                     for tool_name in ("ping_connector", "bootstrap_context", "get_runtime_status")
@@ -1421,15 +1425,10 @@ def create_mcp_server(
                     "normalize_link_alias_to_canonical": True,
                     "alias_example": f"/AutoStopCRM/link_alias/bootstrap_context -> {_canonical_tool_path('bootstrap_context')}",
                 },
-                "recommended_write_flow": [
-                    "bootstrap_context",
-                    "confirm board_name and scope_rule",
-                    "call review_board or get_cards(compact=true) for fast operational triage",
-                    "call get_board_content(view_mode=agent) for compact Markdown board state; pass view_mode=full only for heavy exports",
-                    "call get_board_events(event_limit=100) for the newest-first Markdown journal of the latest board changes",
-                    "call get_gpt_wall(view_mode=full) only when both hidden machine wall sections are needed in a heavy full response",
-                    "for mass column migrations prefer bulk_move_cards over many sequential move_card calls",
-                    "perform write tools by card_id, sticky_id, and column id only",
+                "context_options": [
+                    "Use this compact bundle only when it improves orientation.",
+                    "Choose card, board, content, events, or wall context according to the request.",
+                    "Use exact identifiers for a targeted update; native guards decide real-impact actions.",
                 ],
                 "text": bootstrap_text,
             },
@@ -1553,7 +1552,7 @@ def create_mcp_server(
     @server.tool(
         name="get_board_context",
         description=_scoped_description(
-            "Return the board context for this connector only: board name, scope, allowed columns, counts, scope rule, and the compact 1.1 vehicle profile schema with the card_content_first UI flow. Call this before write operations."
+            "Return board scope, columns, counts, and compact vehicle-profile schema for this connector. Use it when board context is relevant."
         ),
         annotations=_read_tool_annotations("Board Context"),
         structured_output=True,
@@ -2952,7 +2951,7 @@ def create_mcp_server(
     @server.tool(
         name="bulk_set_deadline_if_below",
         description=_scoped_description(
-            "Set card timers in bulk only when remaining time is below a threshold. Defaults to dry_run; apply requires actor_name and returns compact verification."
+            "Set card timers in bulk when remaining time is below a threshold. Use dry_run for a preview when useful; apply is a scoped operational update with audit identity and verification."
         ),
         annotations=_write_tool_annotations("Bulk Set Deadline If Below", idempotent=True),
         structured_output=True,
@@ -3010,7 +3009,7 @@ def create_mcp_server(
     @server.tool(
         name="bulk_refresh_board_summaries",
         description=_scoped_description(
-            "Refresh missing or stale hidden board summaries with deterministic compact summaries. Defaults to dry_run; apply requires actor_name."
+            "Refresh missing or stale hidden board summaries with deterministic compact summaries. Use dry_run for a preview when useful; apply records its audit identity."
         ),
         annotations=_write_tool_annotations("Bulk Refresh Board Summaries", idempotent=True),
         structured_output=True,
@@ -3054,7 +3053,7 @@ def create_mcp_server(
     @server.tool(
         name="cleanup_card",
         description=_scoped_description(
-            "Apply or preview a compact card cleanup patch: title, vehicle, description, tags, deadline, vehicle_profile, and optional board summary refresh. Defaults to dry_run; apply requires actor_name."
+            "Apply or preview a compact card cleanup patch: title, vehicle, description, tags, deadline, vehicle_profile, and optional board summary refresh. Use dry_run only when a preview adds value; apply records its audit identity."
         ),
         annotations=_write_tool_annotations("Cleanup Card", idempotent=True),
         structured_output=True,
@@ -3107,7 +3106,7 @@ def create_mcp_server(
     @server.tool(
         name="apply_ready_unpaid_followups",
         description=_scoped_description(
-            "Preview or apply safe follow-ups for ready unpaid cards: waiting-payment tag, deadline floor, and compact board summary refresh. Defaults to dry_run; apply requires actor_name."
+            "Preview or apply scoped follow-ups for ready unpaid cards: waiting-payment tag, deadline floor, and compact board summary refresh. Use dry_run when a preview is useful; apply records its audit identity."
         ),
         annotations=_write_tool_annotations("Apply Ready Unpaid Followups", idempotent=True),
         structured_output=True,
@@ -3156,7 +3155,7 @@ def create_mcp_server(
     @server.tool(
         name="run_manager_operation",
         description=_scoped_description(
-            "Dispatch one high-level manager operation by name with a nested payload. Defaults nested write operations to dry_run unless payload/mode asks for apply."
+            "Dispatch one high-level manager operation by name with a nested payload. Select preview or apply according to the operation and current evidence; high-impact actions still use their native guard."
         ),
         annotations=_write_tool_annotations("Run Manager Operation", idempotent=True),
         structured_output=True,

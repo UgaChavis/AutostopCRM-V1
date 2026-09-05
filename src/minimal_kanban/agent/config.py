@@ -66,6 +66,10 @@ def get_agent_enabled() -> bool:
     return _env_flag("MINIMAL_KANBAN_AGENT_ENABLED", default=False)
 
 
+def get_agent_board_control_enabled() -> bool:
+    return _env_flag("MINIMAL_KANBAN_BOARD_CONTROL_ENABLED", default=False)
+
+
 def get_agent_name() -> str:
     return (
         os.environ.get("MINIMAL_KANBAN_AGENT_NAME") or "AUTOSTOP SERVER AGENT"

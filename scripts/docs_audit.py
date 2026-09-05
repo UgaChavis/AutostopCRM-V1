@@ -27,7 +27,6 @@ AGENT_CONNECTOR_DOC_MAX_TOTAL_LINES = 175
 CRM_CANONICAL_DOCS = (
     "AGENTS.md",
     "API_GUIDE.md",
-    "AUTOSTOPCRM_FULL_INSTRUCTION.txt",
     "CHATGPT_CONNECTOR_SETUP.md",
     "MCP_GUIDE.md",
     "README.md",
@@ -1563,28 +1562,6 @@ def _check_store_gateway_docs_contract(root: Path) -> list[Issue]:
     return issues
 
 
-def _check_short_server_instruction_commands(root: Path) -> list[Issue]:
-    path = root / "AUTOSTOPCRM_FULL_INSTRUCTION.txt"
-    if not path.exists():
-        return []
-    text = " ".join(_read_text(path).split())
-    required = (
-        (
-            "scripts/validate_production_env.py --require-production --require-store",
-            "short server instruction omits the mandatory Store environment gate",
-        ),
-        (
-            "scripts/check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --exhaustive --require-store --require-web",
-            "short server instruction omits mandatory Store/Web Gateway gates",
-        ),
-    )
-    return [
-        Issue("server_instruction_release_gate_stale", _display_path(path, root), detail)
-        for command, detail in required
-        if command not in text
-    ]
-
-
 def load_crm_registry_tools(root: Path) -> set[str]:
     registry_path = root / "src" / "minimal_kanban" / "mcp" / "tool_registry.py"
     tree = ast.parse(_read_text(registry_path), filename=str(registry_path))
@@ -1792,7 +1769,6 @@ def audit(
     issues.extend(_check_script_instruction_text(root))
     issues.extend(_check_api_guide_required_routes(root))
     issues.extend(_check_agent_connector_doc_contract(root))
-    issues.extend(_check_short_server_instruction_commands(root))
     issues.extend(_check_quality_workflow_required_gates(root))
     issues.extend(_scan_retired_candidate_issues(root))
 

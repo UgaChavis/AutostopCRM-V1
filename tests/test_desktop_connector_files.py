@@ -55,6 +55,31 @@ class DesktopConnectorFilesTests(unittest.TestCase):
         self.assertEqual(payload["auth_mode"], "none")
         self.assertEqual(contents[URL_FILENAME], "https://kanban.example/mcp")
 
+    def test_connector_guidance_uses_optional_context_instead_of_fixed_call_order(self) -> None:
+        ready = build_connector_file_contents(
+            "https://kanban.example/mcp", "http://127.0.0.1:41731"
+        )
+        for pending, contents in ((False, ready), (True, build_pending_connector_file_contents())):
+            with self.subTest(pending=pending):
+                guidance = "\n".join(
+                    (
+                        contents[CONNECTION_CARD_FILENAME],
+                        contents[CONNECTOR_JSON_FILENAME],
+                        contents[AUTH_NOTE_FILENAME],
+                    )
+                )
+                payload = json.loads(contents[CONNECTOR_JSON_FILENAME])
+                self.assertNotIn("ping_connector, затем bootstrap_context", guidance)
+                self.assertNotIn("First call should be", guidance)
+                self.assertNotIn("Second call should be", guidance)
+                self.assertNotIn("First checks:\\n1. ping_connector", guidance)
+                self.assertIn(
+                    "Start from the user's goal; tools have no required call order.",
+                    payload["notes"],
+                )
+                self.assertIn("Tool order is not prescribed.", guidance)
+                self.assertIn("когда нужен контекст доски", guidance)
+
     def test_build_connector_file_contents_strips_host_trailing_dot_from_name(self) -> None:
         contents = build_connector_file_contents(
             "https://Example.COM.:443/mcp",

@@ -22,11 +22,7 @@ class AutostopManagerCompatibilityError(RuntimeError):
     pass
 
 
-def _resolve_autostop_manager_registrar(
-    logger: Logger,
-    *,
-    required: bool,
-) -> Callable[..., Any] | None:
+def _add_autostop_manager_path() -> None:
     configured_path = os.environ.get("AUTOSTOP_MANAGER_PATH", "").strip()
     repo_root = Path(__file__).resolve().parents[3]
     candidates = []
@@ -39,13 +35,41 @@ def _resolve_autostop_manager_registrar(
             Path("/opt/AutostopManager"),
         ]
     )
-
     for candidate in candidates:
         if candidate.exists():
             candidate_text = str(candidate)
             if candidate_text not in sys.path:
                 sys.path.insert(0, candidate_text)
             break
+
+
+def build_autostop_manager_store_read_client() -> Any | None:
+    """Create the sibling Manager's read-token-only Store client, if configured."""
+
+    _add_autostop_manager_path()
+    try:
+        from autostop_manager.config import get_store_api_url, get_store_read_token
+        from autostop_manager.store_api import StoreApiClient
+    except Exception:
+        return None
+    api_url = get_store_api_url()
+    read_token = get_store_read_token()
+    if not api_url or not read_token:
+        return None
+    return StoreApiClient(
+        api_url=api_url,
+        read_token=read_token,
+        manage_token="",
+        quote_token="",
+    )
+
+
+def _resolve_autostop_manager_registrar(
+    logger: Logger,
+    *,
+    required: bool,
+) -> Callable[..., Any] | None:
+    _add_autostop_manager_path()
 
     try:
         from autostop_manager.mcp_tools import register_manager_memory_tools

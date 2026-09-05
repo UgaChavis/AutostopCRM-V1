@@ -719,7 +719,7 @@ class AgentControlServiceTests(unittest.TestCase):
                 task["metadata"]["board_control"]["trigger_reasons"],
                 ["new_card"],
             )
-            self.assertIn("Trigger rules: new_card.", task["task_text"])
+            self.assertIn("Сигналы: new_card.", task["task_text"])
 
     def test_agent_float_config_rejects_non_finite_environment_values(self) -> None:
         with patch.dict(

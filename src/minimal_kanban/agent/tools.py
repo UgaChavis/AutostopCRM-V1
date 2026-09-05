@@ -10,156 +10,71 @@ from ..mcp.client import BoardApiClient
 from ..models import normalize_bool
 from ..services.snapshot_service import GPT_WALL_AGENT_EVENT_LIMIT
 from .automotive_tools import AutomotiveLookupService
+from .store_context import StoreQuotePartContext
 
 _AGENT_TOOL_INT_ABS_MAX = 1_000_000_000
 
-CORE_BOARD_TOOL_NAMES = frozenset(
-    {
-        "ping_connector",
-        "review_board",
-        "list_columns",
-        "get_board_snapshot",
-        "get_board_content",
-        "get_board_events",
-        "get_gpt_wall",
-        "search_cards",
-        "get_card",
-        "get_card_context",
-        "list_repair_orders",
-        "get_repair_order",
-        "list_cashboxes",
-        "get_cash_journal",
-        "get_cashbox",
-    }
+HARD_ACTION_TOOL_NAMES = frozenset(
+    {"archive_card", "create_cashbox", "delete_cashbox", "create_cash_transaction"}
 )
-CARD_UPDATE_TOOL_NAMES = frozenset(
+_CONTEXTUAL_HARD_ACTION_TOOL_NAMES = frozenset(
     {
-        "get_card",
-        "get_card_context",
-        "update_card",
-        "move_card",
-        "mark_card_ready",
-        "archive_card",
-        "restore_card",
-    }
-)
-REPAIR_ORDER_TOOL_NAMES = frozenset(
-    {
-        "get_repair_order",
-        "download_repair_order_print_pdf",
         "update_repair_order",
         "replace_repair_order_works",
         "replace_repair_order_materials",
         "set_repair_order_status",
     }
 )
-CASHBOX_TOOL_NAMES = frozenset(
+_REPAIR_ORDER_MONEY_FIELDS = frozenset(
     {
-        "list_cashboxes",
-        "get_cash_journal",
-        "get_cashbox",
-        "create_cashbox",
-        "delete_cashbox",
-        "create_cash_transaction",
+        "amount",
+        "cost_price",
+        "discount",
+        "payment_method",
+        "paymentmethod",
+        "payments",
+        "payroll_postings",
+        "prepayment",
+        "price",
+        "published_price",
+        "customer_price",
+        "client_price",
+        "salary_amount",
+        "total",
+        "tax_label",
+        "work_salary_guarantee",
+        "work_salary_cost_price",
     }
 )
-AUTOMOTIVE_TOOL_NAMES = frozenset(
-    {
-        "decode_vin",
-        "find_part_numbers",
-        "search_part_numbers",
-        "estimate_price_ru",
-        "lookup_part_prices",
-        "decode_dtc",
-        "search_fault_info",
-        "estimate_maintenance",
-        "search_web_multi",
-        "search_web",
-        "fetch_page_excerpt",
-        "fetch_page_browser",
-        "research_drive2_cases",
-    }
-)
-CARD_CONTEXT_EXTRA_TOOL_NAMES = frozenset(
-    {
-        "get_card_context",
-        "update_card",
-        "get_repair_order",
-        "download_repair_order_print_pdf",
-        "get_board_content",
-        "get_board_events",
-        "get_gpt_wall",
-    }
-)
-TASK_TYPE_ALLOWED_TOOL_NAMES = {
-    "board_review": CORE_BOARD_TOOL_NAMES,
-    "card_cleanup": CORE_BOARD_TOOL_NAMES
-    | CARD_UPDATE_TOOL_NAMES
-    | REPAIR_ORDER_TOOL_NAMES
-    | AUTOMOTIVE_TOOL_NAMES,
-    "vin_decode": CARD_UPDATE_TOOL_NAMES
-    | frozenset(
-        {
-            "get_repair_order",
-            "decode_vin",
-            "search_web_multi",
-            "search_web",
-            "fetch_page_excerpt",
-            "fetch_page_browser",
-        }
-    ),
-    "parts_lookup": CARD_UPDATE_TOOL_NAMES
-    | frozenset(
-        {
-            "get_repair_order",
-            "decode_vin",
-            "find_part_numbers",
-            "search_part_numbers",
-            "estimate_price_ru",
-            "lookup_part_prices",
-            "decode_dtc",
-            "search_fault_info",
-            "search_web_multi",
-            "search_web",
-            "fetch_page_excerpt",
-            "fetch_page_browser",
-        }
-    ),
-    "maintenance_estimate": CARD_UPDATE_TOOL_NAMES
-    | frozenset(
-        {
-            "get_repair_order",
-            "estimate_maintenance",
-            "search_part_numbers",
-            "lookup_part_prices",
-            "decode_vin",
-        }
-    ),
-    "dtc_lookup": CARD_UPDATE_TOOL_NAMES
-    | frozenset(
-        {
-            "get_repair_order",
-            "decode_dtc",
-            "search_fault_info",
-            "search_web_multi",
-            "search_web",
-            "fetch_page_excerpt",
-            "fetch_page_browser",
-        }
-    ),
-    "full_card_enrichment": CORE_BOARD_TOOL_NAMES
-    | frozenset(
-        {
-            "update_card",
-            "update_repair_order",
-            "replace_repair_order_works",
-            "replace_repair_order_materials",
-        }
-    )
-    | AUTOMOTIVE_TOOL_NAMES,
-    "repair_order_assist": CARD_UPDATE_TOOL_NAMES | REPAIR_ORDER_TOOL_NAMES | AUTOMOTIVE_TOOL_NAMES,
-    "cash_review": CORE_BOARD_TOOL_NAMES | CASHBOX_TOOL_NAMES,
-}
+_CLOSING_REPAIR_ORDER_STATUSES = frozenset({"closed", "archived", "archive", "закрыт", "закрыта"})
+
+
+def _contains_repair_order_money(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(
+            str(key).strip().casefold() in _REPAIR_ORDER_MONEY_FIELDS
+            or _contains_repair_order_money(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, (list, tuple)):
+        return any(_contains_repair_order_money(item) for item in value)
+    return False
+
+
+def _requires_explicit_user_authority(tool_name: str, args: dict[str, Any]) -> bool:
+    if tool_name in HARD_ACTION_TOOL_NAMES:
+        return True
+    if tool_name == "set_repair_order_status":
+        return str(args.get("status") or "").strip().casefold() in _CLOSING_REPAIR_ORDER_STATUSES
+    if tool_name == "update_repair_order":
+        repair_order = args.get("repair_order")
+        status = repair_order.get("status") if isinstance(repair_order, dict) else ""
+        return _contains_repair_order_money(repair_order) or (
+            str(status or "").strip().casefold() in _CLOSING_REPAIR_ORDER_STATUSES
+        )
+    if tool_name in {"replace_repair_order_works", "replace_repair_order_materials"}:
+        return _contains_repair_order_money(args.get("rows"))
+    return False
 
 
 def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
@@ -196,10 +111,19 @@ class ExternalToolBudgetExceeded(ValueError):
 
 
 class AgentToolExecutor:
-    def __init__(self, board_api: BoardApiClient, *, actor_name: str = "SERVER_AGENT") -> None:
+    def __init__(
+        self,
+        board_api: BoardApiClient,
+        *,
+        actor_name: str = "SERVER_AGENT",
+        store_context: StoreQuotePartContext | None = None,
+    ) -> None:
         self._board_api = board_api
         self._actor_name = actor_name
         self._automotive = AutomotiveLookupService()
+        self._store_context = (
+            store_context if store_context is not None else StoreQuotePartContext()
+        )
         self._external_request_budget_default = 5
         self._external_request_budget = self._external_request_budget_default
         self._tools: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
@@ -213,6 +137,7 @@ class AgentToolExecutor:
             "search_cards": self._search_cards,
             "get_card": self._get_card,
             "get_card_context": self._get_card_context,
+            "get_store_quote_part_context": self._get_store_quote_part_context,
             "create_card": self._create_card,
             "update_card": self._update_card,
             "move_card": self._move_card,
@@ -310,6 +235,15 @@ class AgentToolExecutor:
                     "card_id": "required string",
                     "event_limit": "optional int",
                     "include_repair_order_text": "optional bool",
+                },
+            ),
+            AgentToolDefinition(
+                "get_store_quote_part_context",
+                "Read bounded redacted Store quote-request and part context for a relevant query or intent. Read-only: it never updates Store or sends Telegram.",
+                {
+                    "query": "optional string",
+                    "intent": "optional string",
+                    "limit": "optional int, maximum 8",
                 },
             ),
             AgentToolDefinition(
@@ -539,21 +473,33 @@ class AgentToolExecutor:
         task_type: str | None = None,
         context_kind: str | None = None,
     ) -> str:
-        lines: list[str] = []
+        del task_type, context_kind
+        lines = []
         for item in self.definitions:
-            if not self._definition_allowed(
-                item.name, task_type=task_type, context_kind=context_kind
-            ):
-                continue
             lines.append(f"- {item.name}: {item.description}")
+            if item.name in HARD_ACTION_TOOL_NAMES:
+                lines.append(
+                    "  requires explicit user authority and confirmation=explicit_user_authority"
+                )
+            elif item.name in _CONTEXTUAL_HARD_ACTION_TOOL_NAMES:
+                lines.append(
+                    "  requires explicit user authority only for money, customer-visible price, or closing an order"
+                )
             lines.append(f"  args: {_json_dumps(item.args_schema)}")
         return "\n".join(lines)
 
     def execute(self, tool_name: str, args: dict[str, Any] | None) -> dict[str, Any]:
-        handler = self._tools.get(str(tool_name or "").strip().lower())
+        normalized_tool_name = str(tool_name or "").strip().lower()
+        normalized_args = args if isinstance(args, dict) else {}
+        if (
+            _requires_explicit_user_authority(normalized_tool_name, normalized_args)
+            and normalized_args.get("confirmation") != "explicit_user_authority"
+        ):
+            raise PermissionError(f"{normalized_tool_name} requires explicit user authority")
+        handler = self._tools.get(normalized_tool_name)
         if handler is None:
             raise KeyError(f"Unknown agent tool: {tool_name}")
-        return handler(args or {})
+        return handler(normalized_args)
 
     def reset_task_budget(self) -> None:
         self._external_request_budget = self._external_request_budget_default
@@ -626,6 +572,13 @@ class AgentToolExecutor:
             include_repair_order_text=self._maybe_bool(
                 args.get("include_repair_order_text"), default=True
             ),
+        )
+
+    def _get_store_quote_part_context(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._store_context.lookup(
+            query=self._maybe_text(args.get("query")) or "",
+            intent=self._maybe_text(args.get("intent")) or "",
+            limit=self._maybe_int(args.get("limit")),
         )
 
     def _create_card(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -936,14 +889,3 @@ class AgentToolExecutor:
         if self._external_request_budget <= 0:
             raise ExternalToolBudgetExceeded("External web tool budget exceeded for this task.")
         self._external_request_budget -= 1
-
-    def _definition_allowed(
-        self, tool_name: str, *, task_type: str | None, context_kind: str | None
-    ) -> bool:
-        normalized_type = str(task_type or "").strip().lower()
-        normalized_context = str(context_kind or "").strip().lower()
-        all_tools = {item.name for item in self.definitions}
-        allowed = set(TASK_TYPE_ALLOWED_TOOL_NAMES.get(normalized_type, all_tools))
-        if normalized_context == "card":
-            allowed |= CARD_CONTEXT_EXTRA_TOOL_NAMES
-        return tool_name in allowed

@@ -139,20 +139,14 @@ def build_chatgpt_connect_payload(
         f"- openai_apps_guide = {OPENAI_APPS_CONNECT_GUIDE_URL}",
         "",
         "Connection flow:",
-        "1. Start the local API and the MCP server.",
-        "2. Open a new clean chat in ChatGPT and, when possible, enable only this connector for the session.",
-        "3. В ChatGPT откройте настройки, раздел Apps & Connectors, и создайте connector.",
-        "4. Add an MCP Server and paste effective_mcp_url.",
-        "5. Complete the CRM administrator approval page; credentials are checked by CRM and are not stored by the connector.",
-        "6. First call agent_bootstrap, then agent_board_digest.",
-        "7. Use agent_search and agent_entity_context to confirm the exact target.",
-        "8. Before writes, call prepare_action_contract, then a named workflow in dry_run and apply modes.",
-        "9. Reread the exact target and verify the applied result before reporting success.",
-        "10. Use discover_raw_capabilities -> get_raw_capability_schema -> call_raw_capability only when no named workflow covers the task.",
-        "11. Never invoke or expect a hidden low-level CRM/Manager tool directly; the public manifest must contain exactly 24 Gateway v2 tools.",
-        "12. Use get_runtime_status only for auth/runtime diagnostics.",
-        "13. Do not move, archive, delete, or change finance/order/file state without exact owner intent.",
+        "1. Start the local API and MCP server, then add effective_mcp_url in ChatGPT Apps & Connectors.",
+        "2. Complete CRM administrator approval; credentials stay with CRM rather than the connector.",
+        "3. Work from the relevant CRM, Store, and conversation context. Choose useful reads and tools in any order; no bootstrap sequence is required.",
+        "4. A VIN, article, photo, part name, or short client reply can mean a quote request. Collect exposed facts first and ask only for a real blocker.",
+        "5. Use native confirmation and exact reread only for money, published client prices, orders, deletion, new external recipients, deployment, or secrets.",
+        "6. The public manifest contains exactly 24 Gateway v2 tools; hidden low-level capabilities remain unavailable.",
     ]
+
     if connector_auth_mode == "oauth_2_1_pkce":
         lines.extend(
             [
@@ -189,10 +183,10 @@ def build_chatgpt_connect_payload(
         [
             "",
             "[RECOMMENDED FIRST PROMPT]",
-            "Call agent_bootstrap, then agent_board_digest. Use agent_search and "
-            "agent_entity_context for the exact target. Before writes call "
-            "prepare_action_contract, then the named workflow in dry_run and apply "
-            "modes, and finally reread the exact target. Never call hidden legacy tools.",
+            "Understand the customer goal from the available CRM, Store, and conversation context. "
+            "Choose the smallest useful tool or question yourself; routes are hints, not a call order. "
+            "For money, published price, order, deletion, a new recipient, deployment, or secrets, use "
+            "the native guard and exact verification. Never call hidden legacy tools.",
             "",
             "[MCP TOOLS]",
         ]
@@ -219,17 +213,14 @@ def build_chatgpt_connector_payload(settings: IntegrationSettings) -> str:
         "connector_url": settings.mcp.effective_mcp_url,
         "auth_mode": resolve_connector_auth_mode(settings),
         "notes": [
-            "Use the public HTTPS /mcp URL.",
-            "Complete the owner-approved OAuth 2.1 authorization flow with PKCE S256.",
+            "Use the public HTTPS /mcp URL and owner-approved OAuth 2.1 PKCE when enabled.",
+            "Use relevant CRM, Store, and conversation context; choose tools and reads by the customer goal rather than a fixed sequence.",
+            "VINs, part numbers, photos, part names, and short client replies may need quote context. Reuse facts already exposed and ask only a real blocker.",
             "The public manifest contains exactly 24 Gateway v2 tools and no low-level legacy tools.",
-            "Call agent_bootstrap, then agent_board_digest.",
-            "Use agent_search and agent_entity_context for the exact live target.",
-            "Before a write, call prepare_action_contract and the applicable named workflow in dry_run mode, then apply.",
-            "Reread the exact target and verify the result after apply.",
-            "Use guarded raw discovery only when no named workflow covers the operation.",
+            "Native action confirmation and reread apply to money, published price, order, deletion, a new external recipient, deployment, and secrets.",
+            "Use guarded raw discovery only when a focused supported tool is insufficient.",
             "Use get_runtime_status only when authentication or runtime state is unclear.",
-            "oauth_2_1_pkce uses owner approval and rotating refresh tokens; it is not the old development OAuth mode.",
-            "After a schema/manifest change, reconnect the app only if the client does not refresh its cached tool surface.",
+            "After a schema/manifest change, reconnect only if the client does not refresh its cached tool surface.",
         ],
     }
     return _json_dumps(payload) + "\n"
@@ -455,21 +446,12 @@ def build_connection_card(
         [
             "",
             "[CHECKLIST]",
-            "1. Запустить приложение.",
-            "2. Открыть раздел Интеграция / GPT / MCP в настройках приложения.",
-            "3. Проверить локальный API.",
-            "4. При интернет-доступе указать public/tunnel URL доски в override локального API.",
-            "5. Скопировать public_board_url или public_board_share_url.",
-            "6. Проверить локальный MCP.",
-            "7. Проверить внешний endpoint MCP.",
-            "8. Скопировать effective_mcp_url.",
-            "9. Открыть новый чистый чат в ChatGPT и подключить только этот коннектор, если это возможно.",
-            "10. Вызвать agent_bootstrap, затем agent_board_digest.",
-            "11. Найти и перечитать точную цель через agent_search/agent_entity_context.",
-            "12. Перед записью: prepare_action_contract и named workflow dry_run/apply.",
-            "13. После apply обязательно перечитать цель и проверить результат.",
-            "14. ChatGPT/Codex используют OAuth 2.1 PKCE; внутренний bearer в connector payload не передаётся.",
-            "15. Внешняя поверхность должна содержать ровно 24 Gateway v2 tools без legacy names.",
+            "1. Запустить приложение и проверить локальный/внешний endpoint MCP.",
+            "2. Подключить effective_mcp_url в ChatGPT и пройти owner-approved OAuth 2.1 PKCE, если он включен.",
+            "3. Дать агенту цель клиента и доступный CRM/Store/Telegram-derived контекст; он сам выбирает полезный путь.",
+            "4. Для VIN, артикула, фото, детали или короткого ответа сначала собрать известные данные и спросить только блокирующий факт.",
+            "5. Для денег, публикации цены, заказа, удаления, нового получателя, деплоя и секретов использовать нативный guard и точную проверку.",
+            "6. Внешняя поверхность содержит ровно 24 Gateway v2 tools без legacy names.",
             "",
             "[WARNINGS]",
         ]

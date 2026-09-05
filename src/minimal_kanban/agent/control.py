@@ -11,13 +11,13 @@ from ..models import parse_datetime, utc_now, utc_now_iso
 from .compact_context import build_ai_compact_context_packet
 from .config import (
     get_agent_board_api_url,
+    get_agent_board_control_enabled,
     get_agent_enabled,
     get_agent_name,
     get_agent_openai_api_key,
     get_agent_openai_model,
     get_agent_poll_interval_seconds,
 )
-from .remodel import get_ai_feature_flags, get_ai_remodel_status_payload
 from .storage import AgentStorage
 
 DEFAULT_BOARD_CONTROL_SETTINGS = {
@@ -184,7 +184,6 @@ class AgentControlService:
                 "model": get_agent_openai_model(),
                 "board_api_url": get_agent_board_api_url() or "",
             },
-            "ai_remodel": get_ai_remodel_status_payload(),
             "board_control": self._board_control_status_payload(status),
             "worker": {
                 "embedded": True,
@@ -686,10 +685,10 @@ class AgentControlService:
         resolved_status = status or self._storage.read_status()
         runtime = self._board_control_runtime(resolved_status)
         settings = self._board_control_settings()
-        flags = get_ai_feature_flags()
+        feature_enabled = get_agent_board_control_enabled()
         return {
-            "enabled": bool(flags.board_control_enabled and settings["enabled"]),
-            "feature_enabled": bool(flags.board_control_enabled),
+            "enabled": bool(feature_enabled and settings["enabled"]),
+            "feature_enabled": feature_enabled,
             "settings_enabled": bool(settings["enabled"]),
             "interval_minutes": int(settings["interval_minutes"]),
             "cooldown_minutes": int(settings["cooldown_minutes"]),
@@ -880,27 +879,24 @@ class AgentControlService:
         heading = str(payload.get("card_heading", "") or payload.get("title", "") or "").strip()
         trigger_reasons = self._bounded_text_list(payload.get("trigger_reasons"), limit=8)
         lines = [
-            "Выполни тихий bounded сценарий board_control для одной карточки автосервиса.",
-            "Следуй контракту: read -> evidence -> plan -> tools -> patch -> write -> verify.",
-            "Это background mode, а не чат и не свободный агент.",
-            "Работай только с текущей карточкой.",
-            "Разрешены только безопасные card-only изменения: аккуратная нормализация описания, заполнение пустых полей vehicle/vehicle_profile, безопасное VIN enrichment, короткая AI-пометка.",
-            "Нельзя трогать заказ-наряд, нельзя переносить карточку по колонкам, нельзя удалять полезный ручной текст.",
-            "Если уверенности не хватает, не записывай изменения.",
+            "Проверь текущую карточку как самостоятельный операционный помощник.",
+            "Контекст, route и trigger — подсказки, а не обязательный сценарий. Выбери только полезную проверку или небольшую подтверждаемую правку.",
+            "Не делай запись ради самого board_control; при недостатке фактов оставь карточку без изменений и кратко объясни причину.",
+            "Не меняй деньги, клиентскую цену, заказ-наряд, колонку, получателя и не удаляй данные без отдельного нативного подтверждения.",
         ]
         if heading:
             lines.append(f"Карточка: {heading}.")
         if trigger_reasons:
-            lines.append("Trigger rules: " + ", ".join(trigger_reasons) + ".")
-        return "\n".join(lines)
+            lines.append("Сигналы: " + ", ".join(trigger_reasons) + ".")
+        return chr(10).join(lines)
 
     def _board_control_preflight(self, *, force: bool) -> dict[str, Any] | None:
         if self._board_service is None:
             return None
         settings = self._board_control_settings()
-        flags = get_ai_feature_flags()
+        feature_enabled = get_agent_board_control_enabled()
         runtime = self._board_control_runtime()
-        if not flags.board_control_enabled or not settings["enabled"]:
+        if not feature_enabled or not settings["enabled"]:
             runtime["running"] = False
             self._persist_board_control_runtime(runtime)
             return None
@@ -1476,87 +1472,45 @@ class AgentControlService:
         return True
 
     def _build_card_autofill_prompt(self, payload: dict[str, Any]) -> str:
-        scenario_id = str(payload.get("scenario_id", "") or "").strip().lower()
+        return self._build_card_task_prompt(payload, mode="autofill")
+
+    def _build_full_card_completion_prompt(self, payload: dict[str, Any]) -> str:
+        return self._build_card_task_prompt(payload, mode="completion")
+
+    def _build_card_task_prompt(self, payload: dict[str, Any], *, mode: str) -> str:
         heading = str(payload.get("card_heading", "") or payload.get("title", "") or "").strip()
         vehicle = str(payload.get("vehicle", "") or "").strip()
         mini_prompt = str(
-            payload.get("prompt", "") or payload.get("ai_autofill_prompt", "") or ""
+            payload.get("prompt")
+            or payload.get("ai_autofill_prompt")
+            or payload.get("task_text")
+            or ""
         ).strip()
-        ai_log_tail = (
-            payload.get("ai_log_tail") if isinstance(payload.get("ai_log_tail"), list) else []
-        )
         lines = [
-            "Выполни VIN-only обогащение карточки автосервиса.",
-            "Работай только с этой карточкой и не добавляй ничего, кроме поиска и расшифровки VIN.",
-            "Сначала прочитай get_card_context.",
-            "Найди VIN в описании или карточке, затем используй decode_vin.",
-            "Если decode_vin вернул мало данных, используй search_web_multi, fetch_page_excerpt и при необходимости fetch_page_browser только для того же VIN и только чтобы подтвердить VIN-derived vehicle facts.",
-            "Не используй никакие другие сценарии или инструменты вне VIN-проверки.",
-            "Обновляй карточку только подтвержденными данными из VIN-расшифровки и без перезаписи полезного существующего текста.",
+            "Разберись в цели клиента и текущей карточке как самостоятельный директор CRM и магазина.",
+            "Сценарий и mode — лишь подсказки. Начни с уже переданного контекста; выбери сам нужные CRM, Store или Telegram-derived источники и инструменты.",
+            "VIN, артикул, фото, название детали или короткий ответ клиента могут означать запрос на проценку. Сначала собери известные данные о машине, детали, клиенте и Store-контексте; не повторяй уже известное.",
+            "Спроси только о конкретном факте, который реально мешает следующему полезному действию. Не делай запись только потому, что это autofill.",
+            "Сохраняй подтвержденные ручные данные и явно отделяй факт, оценку и неопределенность.",
+            "Деньги, публикация цены клиенту, заказ, удаление, новый внешний получатель, деплой и секреты требуют отдельного нативного подтверждения и проверки, нужной именно этому действию; не навязывай перечитывание для обычной правки.",
         ]
-        if heading:
-            lines.append(f"Карточка: {heading}.")
-        if vehicle:
-            lines.append(f"Автомобиль: {vehicle}.")
-        lines.extend(
-            [
-                "Preserve all existing facts, numbers, prices, part numbers, notes, and customer statements.",
-                "Do not delete useful content just to make the text shorter.",
-                "Only supplement, structure, or carefully rephrase the card.",
-                "Do not repeat the current description verbatim. Return only the net-new AI note or one clean deduplicated rewrite.",
-                "Write the card update in Russian unless the whole card is clearly in another language.",
-                "Label AI-added notes, comments, or next questions with 'ИИ:' or 'AI:'.",
-                "Treat current vehicle_profile and repair_order fields as known facts. Do not say model, year, engine, gearbox, or drivetrain are missing if they are already filled in the card.",
-                "If VIN decoding gives only generic facts, append only the new confirmed facts and avoid repeating what the card already shows.",
-                "When you update the card, use update_card or apply.update_card.",
-            ]
-        )
-        if scenario_id in {"full_card_enrichment", "vin_decode", "vin_enrichment"}:
-            lines[0] = "Выполни bounded сценарий VIN-обогащения карточки автосервиса."
-            lines.extend(
-                [
-                    "Follow the bounded contract: read -> evidence -> plan -> tools -> patch -> write -> verify.",
-                    "Do not behave like a free agent, a chat, or a menu of actions.",
-                    "If data is weak or conflicting, keep it out of the main write targets.",
-                ]
+        if mode == "completion":
+            lines.append(
+                "Если задача — дополнить карточку, делай только обоснованные, полезные и обратимые CRM-правки."
             )
-        if mini_prompt:
-            lines.append(f"User mini-prompt: {mini_prompt}")
-        if ai_log_tail:
-            lines.append("Use the recent autofill feed as continuation context:")
-            for entry in ai_log_tail[-8:]:
-                if not isinstance(entry, dict):
-                    continue
-                level = str(entry.get("level", "INFO") or "INFO").strip().upper()[:8]
-                message = str(entry.get("message", "") or "").strip()
-                if message:
-                    lines.append(f"- {level}: {message}")
-        return "\n".join(lines)
-
-    def _build_full_card_completion_prompt(self, payload: dict[str, Any]) -> str:
-        scenario_id = str(payload.get("scenario_id", "") or "").strip().lower()
-        heading = str(payload.get("card_heading", "") or payload.get("title", "") or "").strip()
-        vehicle = str(payload.get("vehicle", "") or "").strip()
-        mini_prompt = str(payload.get("prompt", "") or payload.get("task_text", "") or "").strip()
-        lines = [
-            "Выполни полное заполнение карточки автосервиса.",
-            "Работай только с этой карточкой и заполни все возможные поля самостоятельно.",
-            "Сначала прочитай get_card_context(card_id).",
-            "Если get_card_context неполный или заблокирован, используй get_board_snapshot(compact=true), затем get_board_content(view_mode=agent) и get_board_events(event_limit=100) как fallback по всей доске.",
-            "Используй update_card для карточки и update_repair_order только как короткий структурный patch для шапки заказ-наряда.",
-            "Если update_repair_order нужен, передавай только минимальные поля без длинной прозы и без лишних объяснений.",
-            "Для строк заказ-наряда используй replace_repair_order_works и replace_repair_order_materials.",
-            "Не используй autofill helpers как источник заполнения, а данные бери из текущего контекста и разумных выводов.",
-            "Если поле можно разумно вывести из контекста, запиши его.",
-            "После записи обязательно проверь результат через read-after-write.",
-            "Заполняй также engine, gearbox, drivetrain и паспортные поля автомобиля, если их можно вывести из текущего контекста.",
-        ]
         if heading:
             lines.append(f"Карточка: {heading}.")
         if vehicle:
             lines.append(f"Автомобиль: {vehicle}.")
-        if scenario_id in {"full_card_enrichment", "card_enrichment"}:
-            lines.append("Сценарий: full_card_enrichment.")
         if mini_prompt:
-            lines.append(f"User mini-prompt: {mini_prompt}")
-        return "\n".join(lines)
+            lines.append(f"Запрос или заметка: {mini_prompt}")
+        recent_log = payload.get("ai_log_tail")
+        if isinstance(recent_log, list):
+            useful = [
+                str(item.get("message", "") or "").strip()
+                for item in recent_log[-4:]
+                if isinstance(item, dict) and str(item.get("message", "") or "").strip()
+            ]
+            if useful:
+                lines.append("Недавний контекст: " + " | ".join(useful))
+        return chr(10).join(lines)

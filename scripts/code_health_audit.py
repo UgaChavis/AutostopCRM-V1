@@ -44,7 +44,7 @@ SKIP_DIRS = {
 
 ALLOWED_LARGE_MODULES = {
     "scripts/attest_agent_gateway_v2.py": RatchetBudget(
-        "Gateway attestation scenario suite split target", 9498, 9498, "206"
+        "Gateway attestation suite split target", 9498, 9498, "206"
     ),
     "src/minimal_kanban/mcp/agent_gateway_v2.py": RatchetBudget(
         "Gateway workflow executor split target", 3376, 3376, "009"
@@ -65,7 +65,7 @@ ALLOWED_LARGE_MODULES = {
         "snapshot serialization split target", 2879, 2879, "018"
     ),
     "src/minimal_kanban/agent/runner.py": RatchetBudget(
-        "agent orchestration split target after the runtime keep decision", 5093, 5093, "206"
+        "autonomous agent orchestration boundary", 3682, 3682, "206"
     ),
     "src/minimal_kanban/mcp/server.py": RatchetBudget(
         "MCP registry split target", 3514, 3514, "008"
@@ -107,7 +107,7 @@ ALLOWED_LARGE_CLASSES = {
         "snapshot serialization split target", 2574, 2574, "018"
     ),
     "src/minimal_kanban/agent/runner.py:AgentRunner": RatchetBudget(
-        "agent orchestration split target after the runtime keep decision", 4865, 4865, "206"
+        "autonomous agent orchestration boundary", 3462, 3462, "206"
     ),
     "tests/test_api.py:ApiServerTests": RatchetBudget(
         "legacy broad API coverage pending route split", 7259, 7259, "003"
@@ -166,7 +166,6 @@ CANONICAL_DOCS = frozenset(
     {
         "AGENTS.md",
         "API_GUIDE.md",
-        "AUTOSTOPCRM_FULL_INSTRUCTION.txt",
         "CHATGPT_CONNECTOR_SETUP.md",
         "MCP_GUIDE.md",
         "README.md",

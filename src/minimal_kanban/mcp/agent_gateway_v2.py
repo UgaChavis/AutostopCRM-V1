@@ -74,6 +74,11 @@ from .gateway_media import (
 from .gateway_media import (
     without_binary_content as _without_binary_content,
 )
+from .gateway_store_context import (
+    bootstrap_store_context_requests,
+    bootstrap_store_context_summary,
+)
+from .gateway_store_workflow import handle_store_workflow
 from .oauth_provider import (
     OAUTH_AUDIT_ACTOR_HEADER,
     OAUTH_AUDIT_ASSERTION_HEADER,
@@ -122,7 +127,6 @@ from .store_gateway import (
     store_gateway_envelope,
     store_ledger_verification,
     store_reconciliation_envelope,
-    validate_store_workflow_request,
     verify_store_operation,
 )
 from .store_gateway import (
@@ -1226,8 +1230,6 @@ def register_agent_gateway_v2(
                 status="failed",
                 summary={"workflow_id": workflow_id, "operation": operation},
             )
-        if not idempotency_key:
-            return workflow_error_result(workflow_id, "idempotency_key_required", status="failed")
         completion_act_operation = (
             workflow_id == "document" and operation in COMPLETION_ACT_WORKFLOW_OPERATIONS
         )
@@ -1331,34 +1333,25 @@ def register_agent_gateway_v2(
                 "allow_large_output_required_for_store_vin_photo",
                 summary={"workflow_id": workflow_id, "operation": operation},
             )
-        store_operation = workflow_id == "inventory" and operation in STORE_MANAGEMENT_OPERATIONS
+        store_handling = await handle_store_workflow(
+            workflow_id=workflow_id,
+            operation=operation,
+            payload=payload,
+            idempotency_key=idempotency_key,
+            mode=mode,
+            raw_tools=raw_tools,
+            invoke=_invoke,
+            policy_error=_policy_error,
+            workflow_error=workflow_error_result,
+            envelope_factory=_envelope,
+            compact=_compact_object,
+            tool_result=_tool_result,
+        )
+        if store_handling.immediate_result is not None:
+            return store_handling.immediate_result
+        store_operation = store_handling.is_store_operation
         store_preflight: dict[str, Any] = {}
-        store_correlation = ""
-        if store_operation:
-            request_validation = validate_store_workflow_request(
-                operation,
-                payload,
-                idempotency_key=idempotency_key,
-                mode=mode,
-            )
-            if not request_validation["passed"]:
-                return _tool_result(
-                    _envelope(
-                        ok=False,
-                        status="blocked",
-                        summary={
-                            "workflow_id": workflow_id,
-                            "operation": operation,
-                            "missing_fields": request_validation.get("missing_fields", []),
-                        },
-                        warnings=[str(request_validation["warning"])],
-                        next_actions=["agent_entity_context for the exact store target"]
-                        if request_validation.get("missing_fields")
-                        else [],
-                    ),
-                    label=workflow_id,
-                )
-            store_correlation = str(request_validation["correlation_id"])
+        store_correlation = store_handling.correlation_id
         finance_error = (
             finance_contract_error(operation, payload) if workflow_id == "finance" else None
         )
@@ -1960,13 +1953,14 @@ def register_agent_gateway_v2(
 
     @server.tool(
         name="agent_bootstrap",
-        description="Return one compact Codex startup package: manager route, CRM board digest, security policy, and unfinished workflows.",
+        description="Optional compact CRM context plus bounded Store matches for a query or intent.",
         annotations=_read_annotations("Agent Bootstrap v2"),
     )
     async def agent_bootstrap(
         query: str = "",
         intent: str | None = None,
         sample_limit: int = 8,
+        include_store_context: bool | None = None,
     ) -> CallToolResult:
         manager_payload: dict[str, Any] = {}
         if manager_bootstrap_tool is not None:
@@ -1978,10 +1972,18 @@ def register_agent_gateway_v2(
                 )
             except Exception as exc:  # pragma: no cover
                 manager_payload = {"ok": False, "error": str(exc)}
-        context_response, cards_response = await asyncio.gather(
-            _board_call(board_api.get_board_context),
-            _board_call(board_api.get_cards, include_archived=False, compact=True),
+
+        context_task = _board_call(board_api.get_board_context)
+        cards_task = _board_call(board_api.get_cards, include_archived=False, compact=True)
+        store_requested, store_tasks = bootstrap_store_context_requests(
+            query=query,
+            intent=intent,
+            include_store_context=include_store_context,
+            invoke=_invoke_store,
         )
+        responses = await asyncio.gather(context_task, cards_task, *store_tasks)
+        context_response, cards_response = responses[:2]
+        store_results = responses[2:]
         context_ok, context_data, _context_meta, context_error = _response_data(context_response)
         cards_ok, cards_data, _cards_meta, cards_error = _response_data(cards_response)
         cards = _items_from_data(cards_data, "cards")
@@ -1993,22 +1995,19 @@ def register_agent_gateway_v2(
             context_data.get("context", context_data) if isinstance(context_data, dict) else {}
         )
         manager_ok = bool(manager_payload.get("ok"))
-        ok = context_ok and cards_ok and manager_ok
-        warnings = (
-            []
-            if ok
-            else [
-                str(
-                    context_error
-                    or cards_error
-                    or manager_payload.get("error")
-                    or "bootstrap_degraded"
-                )
-            ]
+        crm_ok = context_ok and cards_ok and manager_ok
+        store_summary, store_warnings = bootstrap_store_context_summary(
+            requested=store_requested,
+            results=store_results,
+            compact=_compact_object,
         )
+        bootstrap_error = (
+            context_error or cards_error or manager_payload.get("error") or "bootstrap_degraded"
+        )
+        warnings = ([] if crm_ok else [str(bootstrap_error)]) + store_warnings
         payload = _envelope(
-            ok=ok,
-            status="ready" if ok else "degraded",
+            ok=crm_ok,
+            status="ready" if crm_ok else "degraded",
             summary={
                 "connector": dict(connector_identity),
                 "board": {
@@ -2018,12 +2017,12 @@ def register_agent_gateway_v2(
                     "stickies": context.get("stickies_total"),
                 },
                 "manager": manager_payload.get("summary", manager_payload),
-                "store": {"ok": None, "status": "not_loaded"},
+                "store": store_summary,
                 "security_policy": load_agent_gateway_security_policy().public_dict(),
                 "card_sample": sample,
             },
-            warnings=warnings,
-            next_actions=["agent_board_digest or agent_search", "use named workflow before raw"],
+            warnings=list(dict.fromkeys(warnings)),
+            next_actions=["choose the relevant CRM, Store, or workflow context"],
             meta={"tool_count": len(getattr(tool_manager, "_tools", {}))},
         )
         return _tool_result(payload, label="agent_bootstrap")
@@ -2453,7 +2452,7 @@ def register_agent_gateway_v2(
     async def agent_inventory_workflow(
         operation: InventoryWorkflowOperation,
         payload: dict[str, Any] | None,
-        idempotency_key: str,
+        idempotency_key: str = "",
         mode: Literal["dry_run", "apply"] | None = None,
     ) -> CallToolResult:
         if operation == STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME:

@@ -55,7 +55,6 @@ _DOC_CONTEXT_KEYWORDS = (
     "cashbox",
     "clients",
     "repair-orders",
-    "remodel",
     "reference",
 )
 _INTERNET_CONTEXT_KEYWORDS = (

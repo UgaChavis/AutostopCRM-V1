@@ -54,18 +54,20 @@ async def execute_store_quote_conductor(
             label="inventory",
         )
     conductor_operation = str(validation["operation"])
+    risk = "write" if bool(validation["is_store_write"]) else "read"
     policy_error = _policy_error(
         tool_name=STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME,
-        risk="write",
+        risk=risk,
         arguments={"operation": conductor_operation},
     )
     if policy_error:
         return workflow_error_result("inventory", policy_error)
     effective_mode = str(validation["mode"])
+    effective_idempotency_key = str(validation["idempotency_key"])
     arguments = store_quote_conductor_arguments(
         raw_tools,
         payload,
-        idempotency_key=idempotency_key,
+        idempotency_key=effective_idempotency_key,
         mode=effective_mode,
     )
     if conductor_operation == "reply" and "telegram_inbound_receipt" not in arguments:
@@ -107,7 +109,7 @@ async def execute_store_quote_conductor(
         "conductor_operation": conductor_operation,
         "mode": effective_mode,
         "executor": STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME,
-        "risk": "write",
+        "risk": risk,
     }
     for key in ("phase", "state_version", "deduplicated", "idempotency_replay"):
         if key in safe_data:
@@ -129,7 +131,6 @@ async def execute_store_quote_conductor(
             meta={
                 "mode": effective_mode,
                 "dry_run": effective_mode == "dry_run",
-                "ledger_owned_by_named_workflow": True,
                 "refs_only": True,
                 "external_store_write": bool(validation["is_store_write"]),
             },

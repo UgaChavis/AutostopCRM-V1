@@ -83,7 +83,6 @@ class _FakeAgentControl:
                 "model": "gpt-test",
                 "board_api_url": "http://127.0.0.1:41731",
             },
-            "ai_remodel": {},
             "board_control": {},
             "worker": {
                 "embedded": True,

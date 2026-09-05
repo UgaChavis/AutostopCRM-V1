@@ -66,7 +66,7 @@ class ConnectionCardTests(unittest.TestCase):
 
         self.assertIn("effective_mcp_url = https://public.example/mcp", text)
         self.assertIn("openai_api_key = [скрыто]", text)
-        self.assertIn("Интеграция / GPT / MCP", text)
+        self.assertIn("КАРТОЧКА ПОДКЛЮЧЕНИЯ GPT / MCP", text)
         self.assertNotIn("Settings ->", text)
         self.assertNotIn("sk-secret", text)
         self.assertNotIn("local-secret", text)
@@ -123,7 +123,7 @@ class ConnectionCardTests(unittest.TestCase):
         )
         self.assertIn("connector_scope_rule = current AutoStop CRM board only", text)
         self.assertIn("chatgpt_home = https://chatgpt.com/", text)
-        self.assertIn("В ChatGPT откройте настройки", text)
+        self.assertIn("Connection flow:", text)
         self.assertNotIn("Settings ->", text)
         self.assertIn("[GPT-CRITICAL TOOLS]", text)
         self.assertIn("- ping_connector", text)
@@ -136,8 +136,12 @@ class ConnectionCardTests(unittest.TestCase):
         self.assertNotIn("- manager_board_scan", text)
         self.assertNotIn("- update_card", text)
         self.assertIn("[RECOMMENDED FIRST PROMPT]", text)
-        self.assertIn("Call agent_bootstrap, then agent_board_digest", text)
-        self.assertIn("named workflow in dry_run and apply", text)
+        self.assertIn(
+            "Understand the customer goal from the available CRM, Store, and conversation context.",
+            text,
+        )
+        self.assertIn("routes are hints, not a call order", text)
+        self.assertIn("native guard and exact verification", text)
         self.assertIn("Never call hidden legacy tools", text)
         self.assertIn("[HIDDEN CAPABILITIES]", text)
         mcp_section = text.split("[MCP TOOLS]\n", 1)[1].split("\n\n[HIDDEN", 1)[0]
@@ -272,10 +276,9 @@ class ConnectionCardTests(unittest.TestCase):
         self.assertEqual(connector_data["auth_mode"], "oauth_2_1_pkce")
         self.assertIn("Single-board connector", connector_data["description"])
         notes = "\n".join(connector_data["notes"])
-        self.assertIn("agent_bootstrap", notes)
-        self.assertIn("agent_board_digest", notes)
-        self.assertIn("prepare_action_contract", notes)
-        self.assertIn("dry_run", notes)
+        self.assertIn("relevant CRM, Store, and conversation context", notes)
+        self.assertIn("ask only a real blocker", notes)
+        self.assertIn("Native action confirmation", notes)
         self.assertIn("24 Gateway v2 tools", notes)
         self.assertNotIn("bootstrap_context", notes)
         self.assertEqual(len(MCP_TOOL_NAMES), 24)

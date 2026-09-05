@@ -409,7 +409,7 @@ class McpServerBackendTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTest
                 self.assertNotIn(
                     "minimal-kanban", json.dumps(bootstrap.structuredContent, ensure_ascii=False)
                 )
-                self.assertIn("recommended_write_flow", bootstrap.structuredContent["data"])
+                self.assertIn("context_options", bootstrap.structuredContent["data"])
                 self.assertIn("[BOOTSTRAP CONTEXT]", bootstrap.structuredContent["data"]["text"])
                 self.assertIn("get_board_content", bootstrap.structuredContent["data"]["text"])
                 self.assertIn(

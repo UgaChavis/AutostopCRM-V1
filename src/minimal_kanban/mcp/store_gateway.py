@@ -52,6 +52,17 @@ STORE_MANAGEMENT_OPERATIONS = frozenset(
         "add_quote_request_note",
     }
 )
+# Only this generic operation advances a real order and may trigger an external
+# customer notification. The remaining management actions are reversible
+# internal coordination, so their Gateway path must not be a workflow ritual.
+STORE_HIGH_IMPACT_MANAGEMENT_OPERATIONS = frozenset({"mark_order_ready"})
+STORE_LOW_RISK_MANAGEMENT_OPERATIONS = (
+    STORE_MANAGEMENT_OPERATIONS - STORE_HIGH_IMPACT_MANAGEMENT_OPERATIONS
+)
+
+
+def store_management_requires_native_guard(operation: str) -> bool:
+    return operation in STORE_HIGH_IMPACT_MANAGEMENT_OPERATIONS
 
 
 def inventory_gateway_operations(base_operations: frozenset[str]) -> frozenset[str]:
@@ -76,20 +87,11 @@ STORE_QUOTE_CONDUCTOR_OPERATIONS = frozenset(
         "decline",
     }
 )
-STORE_QUOTE_CONDUCTOR_STORE_WRITE_OPERATIONS = frozenset({"draft", "publish", "reopen", "order"})
-STORE_QUOTE_CONDUCTOR_REPLY_CLASSIFICATIONS = frozenset(
-    {"clarification", "addition", "selection", "consent", "decline", "ambiguous"}
-)
-STORE_QUOTE_CONDUCTOR_TELEGRAM_MESSAGE_KINDS = frozenset(
-    {
-        "identity_prompt",
-        "clarification",
-        "offer",
-        "selection_confirmation",
-        "addition_clarification",
-        "payment_instruction",
-    }
-)
+STORE_QUOTE_CONDUCTOR_STORE_WRITE_OPERATIONS = frozenset({"publish", "order"})
+STORE_QUOTE_CONDUCTOR_LOW_RISK_OPERATIONS = frozenset({"draft", "reply"})
+# Drafts, reopenings, and ordinary dialogue are operational context, not an
+# externally published price or order. Their Manager contract still binds the
+# target, but they do not impose a conversation template.
 STORE_OPERATION_ENTITIES = {
     "assign_quote_request": "store_quote_request",
     "set_quote_request_status": "store_quote_request",
@@ -264,6 +266,20 @@ def store_correlation_id(operation: str, payload: Mapping[str, Any]) -> str:
     return f"store-action-{digest[:40]}"
 
 
+def store_implicit_idempotency_key(operation: str, payload: Mapping[str, Any]) -> str:
+    """Give low-risk adapter calls a stable internal key when callers omit one."""
+
+    canonical = json.dumps(
+        {"operation": operation, "payload": dict(payload)},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return f"store-implicit-{digest[:40]}"
+
+
 def workflow_state_version(value: Mapping[str, Any] | None) -> int | None:
     """Read the Manager CAS version from a direct or enveloped workflow result."""
 
@@ -337,32 +353,44 @@ def validate_store_workflow_request(
     idempotency_key: str,
     mode: str | None,
 ) -> dict[str, Any]:
-    if mode not in {"dry_run", "apply"}:
+    if operation not in STORE_MANAGEMENT_OPERATIONS:
+        return {"passed": False, "warning": "store_operation_not_allowed"}
+    native_guard = store_management_requires_native_guard(operation)
+    if native_guard and mode not in {"dry_run", "apply"}:
         return {"passed": False, "warning": "store_mode_required_explicit_dry_run_or_apply"}
-    missing = [
-        name
-        for name, value in (
-            ("target_id", str(payload.get("target_id") or "").strip()),
+    effective_mode = str(mode or "apply")
+    if effective_mode not in {"dry_run", "apply"}:
+        return {"passed": False, "warning": "store_mode_invalid"}
+    required = [("target_id", str(payload.get("target_id") or "").strip())]
+    if native_guard:
+        required.extend(
             (
-                "expected_updated_at",
-                str(payload.get("expected_updated_at") or "").strip(),
-            ),
-            ("idempotency_key", str(idempotency_key or "").strip()),
-            ("owner_intent", str(payload.get("owner_intent") or "").strip()),
+                ("expected_updated_at", str(payload.get("expected_updated_at") or "").strip()),
+                ("idempotency_key", str(idempotency_key or "").strip()),
+                ("owner_intent", str(payload.get("owner_intent") or "").strip()),
+            )
         )
-        if not value
-    ]
+    missing = [name for name, value in required if not value]
     if missing:
         return {
             "passed": False,
-            "warning": "store_write_exact_target_revision_owner_intent_and_idempotency_required",
+            "warning": (
+                "store_write_exact_target_revision_owner_intent_and_idempotency_required"
+                if native_guard
+                else "store_target_id_required"
+            ),
             "missing_fields": missing,
         }
     try:
         correlation_id = store_correlation_id(operation, payload)
     except ValueError:
         return {"passed": False, "warning": "store_correlation_id_invalid"}
-    return {"passed": True, "correlation_id": correlation_id}
+    return {
+        "passed": True,
+        "correlation_id": correlation_id,
+        "mode": effective_mode,
+        "requires_native_guard": native_guard,
+    }
 
 
 def validate_store_quote_conductor_request(
@@ -386,6 +414,9 @@ def validate_store_quote_conductor_request(
         }
 
     is_store_write = operation in STORE_QUOTE_CONDUCTOR_STORE_WRITE_OPERATIONS
+    is_low_risk = operation in STORE_QUOTE_CONDUCTOR_LOW_RISK_OPERATIONS
+    nested_mode = _normalized_text(payload.get("mode"))
+    nested_key = _normalized_text(payload.get("idempotency_key"))
     if is_store_write:
         if mode not in {"dry_run", "apply"}:
             return {
@@ -393,6 +424,19 @@ def validate_store_quote_conductor_request(
                 "warning": "store_quote_conductor_write_mode_required_explicit_dry_run_or_apply",
             }
         effective_mode = str(mode)
+        effective_key = _normalized_text(idempotency_key)
+    elif is_low_risk:
+        effective_mode = _normalized_text(mode) or nested_mode or "apply"
+        if effective_mode not in {"dry_run", "apply"}:
+            return {
+                "passed": False,
+                "warning": "store_quote_conductor_mode_invalid",
+            }
+        effective_key = (
+            _normalized_text(idempotency_key)
+            or nested_key
+            or store_implicit_idempotency_key(operation, payload)
+        )
     else:
         if mode not in {None, "apply"}:
             return {
@@ -400,13 +444,12 @@ def validate_store_quote_conductor_request(
                 "warning": "store_quote_conductor_refs_only_apply_required",
             }
         effective_mode = "apply"
-
-    nested_mode = payload.get("mode")
-    if nested_mode not in (None, "") and str(nested_mode).strip() != effective_mode:
-        return {"passed": False, "warning": "store_quote_conductor_mode_conflict"}
-    nested_key = payload.get("idempotency_key")
-    if nested_key not in (None, "") and str(nested_key).strip() != str(idempotency_key).strip():
-        return {"passed": False, "warning": "store_quote_conductor_idempotency_key_conflict"}
+        effective_key = _normalized_text(idempotency_key)
+    if not is_low_risk:
+        if nested_mode and nested_mode != effective_mode:
+            return {"passed": False, "warning": "store_quote_conductor_mode_conflict"}
+        if nested_key and nested_key != effective_key:
+            return {"passed": False, "warning": "store_quote_conductor_idempotency_key_conflict"}
 
     quote_request_id = _normalized_text(payload.get("quote_request_id"))
     run_id = _positive_int(payload.get("run_id"))
@@ -414,7 +457,7 @@ def validate_store_quote_conductor_request(
     missing: list[str] = []
     if _STORE_QUOTE_CONDUCTOR_ID.fullmatch(quote_request_id) is None:
         missing.append("quote_request_id")
-    if operation != "start":
+    if operation != "start" and not is_low_risk:
         if run_id is None:
             missing.append("run_id")
         if operation != "status" and expected_state_version is None:
@@ -426,7 +469,7 @@ def validate_store_quote_conductor_request(
         correlation_id = _normalized_text(payload.get("correlation_id"))
         if _STORE_CORRELATION_ID.fullmatch(correlation_id) is None:
             missing.append("correlation_id")
-    if not _normalized_text(idempotency_key):
+    if not effective_key:
         missing.append("idempotency_key")
     if missing:
         return {
@@ -474,7 +517,8 @@ def validate_store_quote_conductor_request(
     reply_classification = _normalized_text(payload.get("reply_classification")).casefold()
     if (
         operation == "reply"
-        and reply_classification not in STORE_QUOTE_CONDUCTOR_REPLY_CLASSIFICATIONS
+        and reply_classification
+        and (_STORE_QUOTE_CONDUCTOR_SAFE_CODE.fullmatch(reply_classification) is None)
     ):
         return {"passed": False, "warning": "store_quote_conductor_reply_classification_invalid"}
     if operation != "reply" and reply_classification:
@@ -537,7 +581,7 @@ def validate_store_quote_conductor_request(
                 "passed": False,
                 "warning": "store_quote_conductor_telegram_context_hash_required",
             }
-        if telegram_message_kind not in STORE_QUOTE_CONDUCTOR_TELEGRAM_MESSAGE_KINDS:
+        if _STORE_QUOTE_CONDUCTOR_SAFE_CODE.fullmatch(telegram_message_kind) is None:
             return {
                 "passed": False,
                 "warning": "store_quote_conductor_telegram_message_kind_invalid",
@@ -578,8 +622,10 @@ def validate_store_quote_conductor_request(
         "operation": operation,
         "mode": effective_mode,
         "is_store_write": is_store_write,
+        "is_low_risk": is_low_risk,
         "run_id": run_id,
         "expected_state_version": expected_state_version,
+        "idempotency_key": effective_key,
     }
 
 
@@ -736,9 +782,10 @@ def store_action_arguments(
             "domain": STORE_OPERATION_ENTITIES[operation],
             "action": operation,
             "target_id": str(payload.get("target_id") or "").strip(),
-            "planned_changes": store_planned_changes(operation, payload),
-            "owner_intent": str(payload.get("owner_intent") or "").strip(),
             "expected_updated_at": str(payload.get("expected_updated_at") or "").strip(),
+            "planned_changes": store_planned_changes(operation, payload),
+            "owner_intent": str(payload.get("owner_intent") or "").strip()
+            or "autonomous_low_risk_store_update",
             "idempotency_key": idempotency_key,
             "mode": mode,
             "correlation_id": correlation_id,
@@ -1127,14 +1174,14 @@ def _normalized_text(value: Any) -> str:
 
 
 def _valid_store_quote_telegram_text(value: Any) -> bool:
-    """Mirror Manager's bounded, human-style outbound Telegram contract."""
+    """Accept natural bounded text while keeping transport-safe content."""
 
-    if not isinstance(value, str) or not value or len(value) > 4_096:
-        return False
-    if any(marker in value for marker in ("\r", "\n", "\x00")):
-        return False
-    sentence_count = len(re.findall(r"[.!?]+", value))
-    return 1 <= sentence_count <= 3 and value.count("?") == 1 and value.endswith("?")
+    return (
+        isinstance(value, str)
+        and bool(value)
+        and len(value) <= 4_096
+        and not any(marker in value for marker in ("\r", "\n", "\x00"))
+    )
 
 
 def _normalized_optional_text(value: Any) -> str | None:
@@ -1202,7 +1249,6 @@ __all__ = [
     "STORE_OPERATION_ENTITIES",
     "STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME",
     "STORE_QUOTE_CONDUCTOR_OPERATIONS",
-    "STORE_QUOTE_CONDUCTOR_REPLY_CLASSIFICATIONS",
     "STORE_QUOTE_CONDUCTOR_STORE_WRITE_OPERATIONS",
     "STORE_READ_CAPABILITY_NAMES",
     "STORE_SEARCH_ENTITIES",

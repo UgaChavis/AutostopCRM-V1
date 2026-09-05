@@ -8,79 +8,46 @@ from .contracts import PatchResult, PlanResult, ToolResult
 
 @dataclass(frozen=True)
 class ScenarioPolicy:
-    required_tools: tuple[str, ...] = ()
-    optional_tools: tuple[str, ...] = ()
-    allowed_write_targets: tuple[str, ...] = ()
-    forbidden_write_targets: tuple[str, ...] = ()
+    """Lightweight source hints for an intent; never a compulsory workflow."""
+
+    suggested_tools: tuple[str, ...] = ()
     source_type: str = "crm"
 
 
 _SCENARIO_POLICIES: dict[str, ScenarioPolicy] = {
     "vin_enrichment": ScenarioPolicy(
-        required_tools=("decode_vin",),
-        optional_tools=(
+        suggested_tools=(
+            "decode_vin",
             "search_web_multi",
-            "search_web",
             "fetch_page_excerpt",
             "fetch_page_browser",
-            "research_drive2_cases",
         ),
-        allowed_write_targets=("description", "vehicle", "vehicle_profile"),
         source_type="external_vin",
     ),
     "full_card_enrichment": ScenarioPolicy(
-        optional_tools=("decode_vin",),
-        allowed_write_targets=(
-            "title",
-            "description",
-            "tags",
-            "vehicle",
-            "vehicle_profile",
-            "repair_order",
-            "repair_order_works",
-            "repair_order_materials",
-        ),
-        source_type="crm",
+        suggested_tools=("decode_vin", "find_part_numbers", "lookup_part_prices"),
     ),
     "parts_lookup": ScenarioPolicy(
-        required_tools=("find_part_numbers",),
-        optional_tools=("estimate_price_ru", "lookup_part_prices"),
-        allowed_write_targets=("description",),
+        suggested_tools=("find_part_numbers", "estimate_price_ru", "lookup_part_prices"),
         source_type="external_parts",
     ),
     "maintenance_lookup": ScenarioPolicy(
-        required_tools=("estimate_maintenance",),
-        optional_tools=("lookup_part_prices",),
-        allowed_write_targets=("description",),
+        suggested_tools=("estimate_maintenance", "lookup_part_prices"),
         source_type="external_maintenance",
     ),
     "dtc_lookup": ScenarioPolicy(
-        required_tools=("decode_dtc",),
-        optional_tools=("search_fault_info",),
-        allowed_write_targets=("description",),
+        suggested_tools=("decode_dtc", "search_fault_info"),
         source_type="external_diagnostic",
     ),
     "fault_research": ScenarioPolicy(
-        required_tools=("search_fault_info",),
-        allowed_write_targets=("description",),
+        suggested_tools=("search_fault_info",),
         source_type="external_fault",
     ),
-    "normalization": ScenarioPolicy(
-        allowed_write_targets=("title", "description", "tags", "vehicle"),
-        source_type="crm",
-    ),
-    "repair_order_assistance": ScenarioPolicy(
-        allowed_write_targets=(
-            "description",
-            "repair_order",
-            "repair_order_works",
-            "repair_order_materials",
-        ),
-        source_type="crm",
-    ),
-    "board_review": ScenarioPolicy(source_type="crm"),
-    "cash_review": ScenarioPolicy(source_type="crm"),
-    "freeform_manual": ScenarioPolicy(source_type="crm"),
+    "normalization": ScenarioPolicy(),
+    "repair_order_assistance": ScenarioPolicy(),
+    "board_review": ScenarioPolicy(),
+    "cash_review": ScenarioPolicy(),
+    "freeform_manual": ScenarioPolicy(),
 }
 
 
@@ -98,6 +65,7 @@ _TOOL_SOURCE_TYPES = {
     "fetch_page_excerpt": "external_page",
     "fetch_page_browser": "external_page_browser",
     "research_drive2_cases": "external_drive2_case_research",
+    "get_store_quote_part_context": "store_context",
     "update_card": "crm_write",
     "update_repair_order": "crm_write",
     "replace_repair_order_works": "crm_write",
@@ -115,6 +83,8 @@ _TOOL_SOURCE_TYPES = {
 
 
 class ToolPolicyEngine:
+    """Expose useful capabilities without deciding the agent's route or answer."""
+
     def build_plan(
         self,
         *,
@@ -127,118 +97,50 @@ class ToolPolicyEngine:
             str(execution_mode or "model_loop").strip().lower() or "model_loop"
         )
         normalized_chain = self._normalize_chain(scenario_chain)
-        if not normalized_chain:
-            normalized_chain = ["freeform_manual"]
-        recognized_chain = [item for item in normalized_chain if item in _SCENARIO_POLICIES]
-        if recognized_chain:
-            normalized_chain = recognized_chain
-        else:
-            normalized_chain = ["freeform_manual"]
+        recognized_chain = [item for item in normalized_chain if item in _SCENARIO_POLICIES] or [
+            "freeform_manual"
+        ]
         primary = next(
-            (item for item in normalized_chain if item not in {"normalization", "freeform_manual"}),
-            normalized_chain[0],
+            (item for item in recognized_chain if item not in {"normalization", "freeform_manual"}),
+            recognized_chain[0],
         )
-        required_tools: list[str] = []
-        optional_tools: list[str] = []
-        allowed_write_targets: list[str] = []
-        forbidden_write_targets: list[str] = []
-        for scenario_name in normalized_chain:
-            policy = self._policy_for(scenario_name)
-            required_tools.extend(policy.required_tools)
-            optional_tools.extend(policy.optional_tools)
-            allowed_write_targets.extend(policy.allowed_write_targets)
-            forbidden_write_targets.extend(policy.forbidden_write_targets)
-        required_unique = self._unique(required_tools)
-        optional_unique = [
-            item for item in self._unique(optional_tools) if item not in required_unique
-        ]
-        forbidden_unique = self._unique(forbidden_write_targets)
-        forbidden_set = set(forbidden_unique)
-        allowed_unique = [
-            item for item in self._unique(allowed_write_targets) if item not in forbidden_set
-        ]
-        stop_conditions = [f"missing_required_tool:{tool_name}" for tool_name in required_unique]
-        if normalized_execution_mode == "model_loop" and allowed_unique:
-            stop_conditions.append("forbid_unplanned_writes")
-        followup_policy = {
-            "enabled": bool(followup_enabled),
-            "owner": "card_service" if followup_enabled else "",
-            "mode": "adaptive_followup" if followup_enabled else "none",
-        }
-        confidence_mode = "standard"
-        write_mode = "patch_only"
-        if normalized_execution_mode == "structured_card":
-            write_mode = "patch_only_additive"
-        if any(item in {"vin_enrichment", "dtc_lookup"} for item in normalized_chain):
-            confidence_mode = "confirmed_only"
-        elif any(
-            item in {"parts_lookup", "fault_research", "maintenance_lookup"}
-            for item in normalized_chain
-        ):
-            confidence_mode = "evidence_guided"
+        suggested_tools = self._unique(
+            [
+                tool_name
+                for scenario_name in recognized_chain
+                for tool_name in self._policy_for(scenario_name).suggested_tools
+            ]
+        )
         return PlanResult(
             scenario_id=primary,
-            scenario_chain=normalized_chain,
+            scenario_chain=recognized_chain,
             execution_mode=normalized_execution_mode,
-            needs_external_tools=bool(required_unique or optional_unique),
-            required_tools=required_unique,
-            optional_tools=optional_unique,
-            tool_order=required_unique
-            + [item for item in optional_unique if item not in required_unique],
-            allowed_write_targets=allowed_unique,
-            forbidden_write_targets=forbidden_unique,
-            stop_conditions=stop_conditions,
-            followup_policy=followup_policy,
-            confidence_mode=confidence_mode,
-            write_mode=write_mode,
+            needs_external_tools=bool(suggested_tools),
+            required_tools=[],
+            optional_tools=suggested_tools,
+            tool_order=[],
+            allowed_write_targets=[],
+            forbidden_write_targets=[],
+            stop_conditions=[],
+            followup_policy={
+                "enabled": bool(followup_enabled),
+                "owner": "card_service" if followup_enabled else "",
+                "mode": "adaptive_followup" if followup_enabled else "none",
+            },
+            confidence_mode="evidence_guided" if suggested_tools else "standard",
+            write_mode="patch_only",
             notes=list(notes or []),
         )
 
     def missing_required_tools(self, plan: PlanResult, tool_results: list[ToolResult]) -> list[str]:
-        executed = {
-            str(item.tool_name or "").strip().lower()
-            for item in tool_results
-            if isinstance(item, ToolResult)
-            if str(item.status or "").strip().lower() == "success"
-        }
-        return [tool_name for tool_name in plan.required_tools if tool_name not in executed]
+        """Compatibility hook: intent hints never block a useful final answer."""
+
+        return []
 
     def filter_patch(self, plan: PlanResult, patch: PatchResult) -> PatchResult:
-        if plan.scenario_id == "vin_enrichment":
-            return PatchResult(**patch.to_dict())
-        allowed = set(self._unique(plan.allowed_write_targets))
-        forbidden = set(self._unique(plan.forbidden_write_targets))
-        allowed.difference_update(forbidden)
-        patch_payload = patch.to_dict()
-        filtered_card_patch = {
-            key: value
-            for key, value in patch_payload["card_patch"].items()
-            if key in allowed and key not in forbidden
-        }
-        repair_order_patch = (
-            patch_payload["repair_order_patch"]
-            if "repair_order" in allowed and "repair_order" not in forbidden
-            else {}
-        )
-        repair_order_works = (
-            patch_payload["repair_order_works"]
-            if "repair_order_works" in allowed and "repair_order_works" not in forbidden
-            else []
-        )
-        repair_order_materials = (
-            patch_payload["repair_order_materials"]
-            if "repair_order_materials" in allowed and "repair_order_materials" not in forbidden
-            else []
-        )
-        return PatchResult(
-            card_patch=filtered_card_patch,
-            repair_order_patch=repair_order_patch,
-            repair_order_works=repair_order_works,
-            repair_order_materials=repair_order_materials,
-            append_only_notes=patch_payload["append_only_notes"],
-            warnings=patch_payload["warnings"],
-            human_review_needed=bool(patch.human_review_needed),
-        )
+        """Normalize an untrusted patch without limiting it to a scenario label."""
+
+        return PatchResult(**patch.to_dict())
 
     def tool_source_type(self, tool_name: str, *, scenario_id: str | None = None) -> str:
         normalized_tool = str(tool_name or "").strip().lower()
@@ -251,10 +153,10 @@ class ToolPolicyEngine:
     def policy_for_scenario(self, scenario_name: str) -> dict[str, Any]:
         policy = self._policy_for(scenario_name)
         return {
-            "required_tools": list(policy.required_tools),
-            "optional_tools": list(policy.optional_tools),
-            "allowed_write_targets": list(policy.allowed_write_targets),
-            "forbidden_write_targets": list(policy.forbidden_write_targets),
+            "required_tools": [],
+            "optional_tools": list(policy.suggested_tools),
+            "allowed_write_targets": [],
+            "forbidden_write_targets": [],
             "source_type": policy.source_type,
         }
 
@@ -262,24 +164,17 @@ class ToolPolicyEngine:
         normalized_name = str(scenario_name or "").strip().lower()
         return _SCENARIO_POLICIES.get(normalized_name, _SCENARIO_POLICIES["freeform_manual"])
 
-    def _normalize_chain(self, scenario_chain: list[str]) -> list[str]:
-        result: list[str] = []
-        seen: set[str] = set()
-        for item in scenario_chain:
-            value = str(item or "").strip().lower()
-            if not value or value in seen:
-                continue
-            seen.add(value)
-            result.append(value)
-        return result
+    @staticmethod
+    def _normalize_chain(scenario_chain: list[str]) -> list[str]:
+        return ToolPolicyEngine._unique(scenario_chain)
 
-    def _unique(self, items: list[str]) -> list[str]:
+    @staticmethod
+    def _unique(items: list[str] | tuple[str, ...]) -> list[str]:
         result: list[str] = []
         seen: set[str] = set()
         for item in items:
             value = str(item or "").strip().lower()
-            if not value or value in seen:
-                continue
-            seen.add(value)
-            result.append(value)
+            if value and value not in seen:
+                seen.add(value)
+                result.append(value)
         return result

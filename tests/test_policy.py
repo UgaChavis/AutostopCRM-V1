@@ -18,33 +18,35 @@ from minimal_kanban.agent.tools import AgentToolExecutor
 
 
 class ToolPolicyEngineTests(unittest.TestCase):
-    def test_build_plan_deduplicates_chain_and_normalizes_execution_mode(self) -> None:
+    def test_build_plan_deduplicates_advisory_sources_and_normalizes_execution_mode(self) -> None:
         engine = ToolPolicyEngine()
         plan = engine.build_plan(
             scenario_chain=["VIN_ENRICHMENT", "vin_enrichment", "normalization", "normalization"],
-            execution_mode="STRUCTURED_CARD",
+            execution_mode="MODEL_LOOP",
             followup_enabled=True,
             notes=["first note"],
         )
 
         self.assertEqual(plan.scenario_chain, ["vin_enrichment", "normalization"])
         self.assertEqual(plan.scenario_id, "vin_enrichment")
-        self.assertEqual(plan.execution_mode, "structured_card")
-        self.assertEqual(plan.required_tools, ["decode_vin"])
+        self.assertEqual(plan.execution_mode, "model_loop")
+        self.assertEqual(plan.required_tools, [])
         self.assertEqual(
             plan.optional_tools,
             [
+                "decode_vin",
                 "search_web_multi",
-                "search_web",
                 "fetch_page_excerpt",
                 "fetch_page_browser",
-                "research_drive2_cases",
             ],
         )
-        self.assertEqual(plan.write_mode, "patch_only_additive")
+        self.assertEqual(plan.tool_order, [])
+        self.assertEqual(plan.stop_conditions, [])
+        self.assertEqual(plan.confidence_mode, "evidence_guided")
+        self.assertEqual(plan.write_mode, "patch_only")
         self.assertTrue(plan.followup_policy["enabled"])
 
-    def test_filter_patch_honors_forbidden_targets(self) -> None:
+    def test_filter_patch_preserves_evidence_backed_fields_despite_scenario_labels(self) -> None:
         engine = ToolPolicyEngine()
         plan = PlanResult(
             scenario_id="custom",
@@ -74,13 +76,13 @@ class ToolPolicyEngineTests(unittest.TestCase):
 
         filtered = engine.filter_patch(plan, patch)
 
-        self.assertEqual(filtered.card_patch, {"title": "Updated title"})
-        self.assertEqual(filtered.repair_order_patch, {"status": "open"})
-        self.assertEqual(filtered.repair_order_works, [])
-        self.assertEqual(filtered.repair_order_materials, [{"name": "kept"}])
+        self.assertEqual(filtered.card_patch, patch.card_patch)
+        self.assertEqual(filtered.repair_order_patch, patch.repair_order_patch)
+        self.assertEqual(filtered.repair_order_works, patch.repair_order_works)
+        self.assertEqual(filtered.repair_order_materials, patch.repair_order_materials)
         self.assertEqual(filtered.append_only_notes, ["note"])
 
-    def test_filter_patch_bypasses_vin_enrichment(self) -> None:
+    def test_filter_patch_is_scenario_agnostic(self) -> None:
         engine = ToolPolicyEngine()
         plan = PlanResult(
             scenario_id="vin_enrichment",
@@ -128,7 +130,7 @@ class ToolPolicyEngineTests(unittest.TestCase):
         self.assertEqual(plan.forbidden_write_targets, [])
         self.assertEqual(plan.followup_policy["mode"], "none")
 
-    def test_build_plan_supports_full_card_enrichment_with_completion_writes(self) -> None:
+    def test_build_plan_supports_full_card_enrichment_with_advisory_sources(self) -> None:
         engine = ToolPolicyEngine()
         plan = engine.build_plan(
             scenario_chain=["FULL_CARD_ENRICHMENT"],
@@ -139,20 +141,13 @@ class ToolPolicyEngineTests(unittest.TestCase):
         self.assertEqual(plan.scenario_id, "full_card_enrichment")
         self.assertEqual(plan.scenario_chain, ["full_card_enrichment"])
         self.assertEqual(plan.execution_mode, "model_loop")
-        self.assertIn("decode_vin", plan.optional_tools)
         self.assertEqual(
-            plan.allowed_write_targets,
-            [
-                "title",
-                "description",
-                "tags",
-                "vehicle",
-                "vehicle_profile",
-                "repair_order",
-                "repair_order_works",
-                "repair_order_materials",
-            ],
+            plan.optional_tools,
+            ["decode_vin", "find_part_numbers", "lookup_part_prices"],
         )
+        self.assertEqual(plan.tool_order, [])
+        self.assertEqual(plan.allowed_write_targets, [])
+        self.assertEqual(plan.forbidden_write_targets, [])
 
     def test_agent_tool_executor_accepts_mixed_case_tool_names(self) -> None:
         class _FakeBoardApi:
@@ -236,6 +231,45 @@ class ToolPolicyEngineTests(unittest.TestCase):
             payload = executor.execute("DECODE_VIN", {"vin": "WBAPF71060A798127"})
         decode_vin.assert_called_once_with("WBAPF71060A798127")
         self.assertEqual(payload["vin"], "WBAPF71060A798127")
+        with self.assertRaisesRegex(
+            PermissionError, "archive_card requires explicit user authority"
+        ):
+            executor.execute("archive_card", {"card_id": "card-1"})
+        self.assertEqual(
+            {"ok": True},
+            executor.execute(
+                "archive_card",
+                {"card_id": "card-1", "confirmation": "explicit_user_authority"},
+            ),
+        )
+        self.assertEqual(
+            {"ok": True},
+            executor.execute(
+                "update_repair_order",
+                {"card_id": "card-1", "repair_order": {"comment": "Техническая правка"}},
+            ),
+        )
+        self.assertEqual(
+            {"ok": True},
+            executor.execute(
+                "replace_repair_order_works",
+                {"card_id": "card-1", "rows": [{"name": "Диагностика"}]},
+            ),
+        )
+        self.assertEqual(
+            {"ok": True},
+            executor.execute("set_repair_order_status", {"card_id": "card-1", "status": "ready"}),
+        )
+        for tool_name, tool_args in (
+            ("update_repair_order", {"card_id": "card-1", "repair_order": {"payments": []}}),
+            (
+                "replace_repair_order_works",
+                {"card_id": "card-1", "rows": [{"name": "Диагностика", "price": "1000"}]},
+            ),
+            ("set_repair_order_status", {"card_id": "card-1", "status": "closed"}),
+        ):
+            with self.assertRaisesRegex(PermissionError, "requires explicit user authority"):
+                executor.execute(tool_name, tool_args)
 
     def test_agent_tool_executor_exports_repair_order_pdf(self) -> None:
         class _FakeBoardApi:
@@ -350,7 +384,7 @@ class ToolPolicyEngineTests(unittest.TestCase):
             ],
         )
 
-    def test_full_card_enrichment_prompt_exposes_only_completion_tools(self) -> None:
+    def test_prompt_exposes_full_tool_surface_and_marks_hard_actions(self) -> None:
         class _FakeBoardApi:
             def health(self) -> dict[str, object]:
                 return {"ok": True}
@@ -432,12 +466,16 @@ class ToolPolicyEngineTests(unittest.TestCase):
         self.assertIn("get_board_content", prompt)
         self.assertIn("get_board_events", prompt)
         self.assertIn("get_gpt_wall", prompt)
-        self.assertNotIn("create_cashbox", prompt)
+        self.assertIn("create_cashbox", prompt)
+        self.assertIn("archive_card", prompt)
+        self.assertIn("requires explicit user authority", prompt)
         self.assertNotIn("delete_column", prompt)
 
         system_prompt = build_default_system_prompt()
-        self.assertIn("short structured patch", system_prompt)
-        self.assertIn("repair-order header", system_prompt)
+        self.assertIn("independent, practical director", system_prompt)
+        self.assertIn("quote request", system_prompt)
+        self.assertIn("Routes, scenarios, and source groups are hints", system_prompt)
+        self.assertIn("native guard", system_prompt)
 
 
 if __name__ == "__main__":

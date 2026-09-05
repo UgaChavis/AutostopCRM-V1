@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import logging
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -22,12 +20,6 @@ from minimal_kanban.agent.contracts import (  # noqa: E402
 )
 from minimal_kanban.agent.policy import ToolPolicyEngine  # noqa: E402
 from minimal_kanban.agent.runner import AgentRunner  # noqa: E402
-from minimal_kanban.agent.scenarios.base import ScenarioExecutionResult  # noqa: E402
-from minimal_kanban.agent.scenarios.vin_enrichment import (  # noqa: E402
-    VinEnrichmentScenarioExecutor,
-    _merge_web_enrichment,
-)
-from minimal_kanban.agent.storage import AgentStorage  # noqa: E402
 
 
 class _BoardRuntimeStorage:
@@ -262,100 +254,6 @@ class AgentPayloadHardeningTests(unittest.TestCase):
             storage.updated_board_control["recent_traces"][0]["status"],  # type: ignore[index]
             "failed",
         )
-
-    def test_runner_scenario_loop_normalizes_bad_scenario_result_fields(self) -> None:
-        class _BadPayloadExecutor:
-            scenario_id = "bad_payload"
-
-            def execute(self, context):  # noqa: ANN001
-                return ScenarioExecutionResult(
-                    scenario_id=context.scenario_id,
-                    status="ok",
-                    tool_calls_used=float("inf"),  # type: ignore[arg-type]
-                    notes="single note",  # type: ignore[arg-type]
-                    warnings="single warning",  # type: ignore[arg-type]
-                    orchestration_updates=["bad"],  # type: ignore[arg-type]
-                    facts_updates=["bad"],  # type: ignore[arg-type]
-                    tool_results=["bad"],  # type: ignore[list-item]
-                )
-
-        class _FakeBoardApi:
-            pass
-
-        class _NullModel:
-            model = "offline-null"
-
-        with tempfile.TemporaryDirectory(prefix="autostopcrm-test-") as temp_dir:
-            storage = AgentStorage(base_dir=Path(temp_dir))
-            runner = AgentRunner(
-                storage=storage,
-                board_api=_FakeBoardApi(),  # type: ignore[arg-type]
-                model_client=_NullModel(),  # type: ignore[arg-type]
-                logger=logging.getLogger("autostopcrm.test"),
-            )
-            runner._scenario_registry.register(_BadPayloadExecutor())
-
-            facts = {
-                "card": {"id": "card-1", "title": "Test", "description": ""},
-                "vehicle_profile": {},
-                "vin": "",
-                "autofill_plan": {
-                    "scenarios": [{"name": "bad_payload", "label": "BAD", "cost": 1}]
-                },
-            }
-            result = runner._execute_card_autofill_task(
-                {"id": "task-1", "task_text": "Проверь карточку"},
-                run_id="run-1",
-                metadata={
-                    "purpose": "card_enrichment",
-                    "context": {"kind": "card", "card_id": "card-1"},
-                },
-                facts=facts,
-                plan=PlanResult(
-                    scenario_id="bad_payload",
-                    scenario_chain=["bad_payload"],
-                    execution_mode="structured_card",
-                    needs_external_tools=False,
-                ),
-            )
-
-            actions = storage.list_actions(limit=20)
-
-        feedback = facts["_scenario_feedback"][0]
-        self.assertEqual(feedback["tool_calls_used"], 0)
-        self.assertEqual(result[3], 0)
-        self.assertEqual(feedback["notes"], ["single note"])
-        self.assertEqual(feedback["warnings"], ["single warning"])
-        self.assertTrue(any(action.get("message") == "single note" for action in actions))
-        self.assertTrue(any(action.get("message") == "single warning" for action in actions))
-
-    def test_vin_scenario_patch_normalizes_year_confidence_and_links(self) -> None:
-        executor = VinEnrichmentScenarioExecutor()
-        patch = executor._build_card_patch(
-            facts={"vin": "JSAZC72S001234567"},
-            orchestration_payload={
-                "make": "Suzuki",
-                "model": "Swift",
-                "model_year": "9" * 20,
-                "source_confidence": "nan",
-                "source_links_or_refs": "https://one.example\nhttps://two.example",
-            },
-            vin_status="success",
-        )
-
-        profile = patch["vehicle_profile"]
-        self.assertNotIn("production_year", profile)
-        self.assertEqual(profile["source_confidence"], 0.0)
-        self.assertEqual(
-            profile["source_links_or_refs"],
-            ["https://one.example", "https://two.example"],
-        )
-
-    def test_merge_web_enrichment_accepts_non_dict_decode_payload(self) -> None:
-        merged, fields = _merge_web_enrichment(["bad"], {"engine_model": "K12B"})  # type: ignore[arg-type]
-
-        self.assertEqual(merged["engine_model"], "K12B")
-        self.assertEqual(fields, ["engine_model"])
 
 
 if __name__ == "__main__":

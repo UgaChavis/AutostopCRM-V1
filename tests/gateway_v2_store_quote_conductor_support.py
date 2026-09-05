@@ -251,7 +251,7 @@ class StoreQuoteConductorCasesMixin:
         self.assertEqual("apply", applied.structuredContent["summary"]["mode"])
         self.assertTrue(replay.structuredContent["summary"]["deduplicated"])
         self.assertTrue(applied.structuredContent["meta"]["refs_only"])
-        self.assertTrue(applied.structuredContent["meta"]["external_store_write"])
+        self.assertFalse(applied.structuredContent["meta"]["external_store_write"])
         public_payload = json.dumps(
             [dry_run.structuredContent, applied.structuredContent, replay.structuredContent],
             ensure_ascii=False,
@@ -276,6 +276,56 @@ class StoreQuoteConductorCasesMixin:
         self.assertFalse(any(name == "store_management_action" for name, _ in state["calls"]))
         self.assertFalse(any(name == "start_workflow" for name, _ in state["calls"]))
 
+    async def test_low_risk_conductor_draft_and_reply_need_only_current_target_context(
+        self,
+    ) -> None:
+        server, state = self._create_store_server()
+        inventory = server._tool_manager.get_tool("agent_inventory_workflow")
+        draft = await inventory.run(
+            {
+                "operation": STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME,
+                "payload": {
+                    "operation": "draft",
+                    "quote_request_id": "quote-1",
+                    "entries": [{"name": "PART"}],
+                    "coverage": [{"request_item": "PART"}],
+                },
+            },
+            convert_result=False,
+        )
+        reply = await inventory.run(
+            {
+                "operation": STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME,
+                "payload": {
+                    "operation": "reply",
+                    "quote_request_id": "quote-1",
+                    "step_id": "telegram-wait-0001",
+                    "telegram_inbound_receipt": "telegram-receipt-0003",
+                },
+            },
+            convert_result=False,
+        )
+
+        self.assertTrue(draft.structuredContent["ok"])
+        self.assertTrue(reply.structuredContent["ok"])
+        self.assertEqual("apply", draft.structuredContent["summary"]["mode"])
+        self.assertEqual("apply", reply.structuredContent["summary"]["mode"])
+        self.assertNotIn("ledger_owned_by_named_workflow", draft.structuredContent["meta"])
+        calls = [
+            arguments
+            for name, arguments in state["calls"]
+            if name == STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME
+        ][-2:]
+        self.assertEqual(["draft", "reply"], [call["operation"] for call in calls])
+        self.assertTrue(
+            all(call["idempotency_key"].startswith("store-implicit-") for call in calls)
+        )
+        self.assertEqual([None, None], [call["run_id"] for call in calls])
+        self.assertEqual([None, None], [call["expected_state_version"] for call in calls])
+        self.assertEqual(["", ""], [call["expected_revision"] for call in calls])
+        self.assertEqual(["", ""], [call["correlation_id"] for call in calls])
+        self.assertFalse(any(name == "start_workflow" for name, _ in state["calls"]))
+
     async def test_store_quote_conductor_refs_only_phase_rejects_preview_and_order_needs_hashes(
         self,
     ) -> None:
@@ -290,7 +340,7 @@ class StoreQuoteConductorCasesMixin:
             "correlation_id": "quote-conductor-wait-0001",
             "published_snapshot_hash": "b" * 64,
             "telegram_context_hash": "c" * 64,
-            "telegram_message": "PRIVATE_TELEGRAM_TEXT. Оформляем?",
+            "telegram_message": "PRIVATE_TELEGRAM_TEXT. Детали подберем сегодня. Сообщите удобный способ связи.",
             "telegram_message_kind": "offer",
             "step_id": "telegram-wait-0001",
         }
@@ -330,7 +380,6 @@ class StoreQuoteConductorCasesMixin:
                     "run_id": 901,
                     "expected_state_version": 6,
                     "step_id": "telegram-wait-0001",
-                    "reply_classification": "addition",
                     "telegram_inbound_receipt": "telegram-receipt-0001",
                 },
                 "idempotency_key": "quote-conductor-reply-addition-0001",
@@ -441,9 +490,10 @@ class StoreQuoteConductorCasesMixin:
         self.assertEqual("quote-conductor-wait-0001", conductor_calls[0]["correlation_id"])
         self.assertEqual("c" * 64, conductor_calls[0]["telegram_context_hash"])
         self.assertEqual(
-            "PRIVATE_TELEGRAM_TEXT. Оформляем?", conductor_calls[0]["telegram_message"]
+            "PRIVATE_TELEGRAM_TEXT. Детали подберем сегодня. Сообщите удобный способ связи.",
+            conductor_calls[0]["telegram_message"],
         )
         self.assertEqual("offer", conductor_calls[0]["telegram_message_kind"])
         self.assertEqual("reply", conductor_calls[1]["operation"])
-        self.assertEqual("addition", conductor_calls[1]["reply_classification"])
+        self.assertEqual("", conductor_calls[1]["reply_classification"])
         self.assertEqual("telegram-receipt-0001", conductor_calls[1]["telegram_inbound_receipt"])

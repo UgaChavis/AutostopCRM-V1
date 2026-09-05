@@ -43,7 +43,6 @@ MANAGER_RELEASE_PYTHON="$MANAGER_SOURCE_DIR/.venv/bin/python"
 MAINTENANCE_MARKER_HOST="${AUTOSTOP_MAINTENANCE_MARKER_HOST:-$CRM_DATA_DIR/.agent-gateway-maintenance}"
 PUBLIC_SITE_URL="${AUTOSTOP_PUBLIC_SITE_URL:-https://crm.autostopcrm.ru}"
 PUBLIC_MCP_URL="${AUTOSTOP_PUBLIC_MCP_URL:-https://crm.autostopcrm.ru/mcp}"
-DESKTOP_INSTRUCTION_PATH="${AUTOSTOP_DESKTOP_INSTRUCTION_PATH:-/root/Desktop/AUTOSTOPCRM_FULL_INSTRUCTION.txt}"
 INSTALL_WATCHDOG="${AUTOSTOP_INSTALL_WATCHDOG:-0}"
 RELEASE_BACKUP_RETENTION_COUNT="${AUTOSTOP_RELEASE_BACKUP_RETENTION_COUNT:-8}"
 MANAGER_RELEASE_RETENTION_COUNT="${AUTOSTOP_MANAGER_RELEASE_RETENTION_COUNT:-6}"
@@ -1139,10 +1138,6 @@ if ! timeout --signal=TERM --kill-after=5 120s \
     --keep-release-images "$RELEASE_IMAGE_RETENTION_COUNT" \
     --keep-rollback-images "$ROLLBACK_IMAGE_RETENTION_COUNT"; then
   echo "WARN: post-success release retention failed; healthy release remains active." >&2
-fi
-
-if [[ -n "$DESKTOP_INSTRUCTION_PATH" ]]; then
-  install -D -m 644 "$ROOT_DIR/AUTOSTOPCRM_FULL_INSTRUCTION.txt" "$DESKTOP_INSTRUCTION_PATH" 2>/dev/null || true
 fi
 
 echo "Deploy complete: $release_image_tag ($release_image) passed Gateway v2 smoke in ${maintenance_elapsed}s."

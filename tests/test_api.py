@@ -881,7 +881,6 @@ class ApiServerTests(unittest.TestCase):
                 "model": "gpt-test",
                 "board_api_url": self.base_url,
             },
-            "ai_remodel": {},
             "board_control": {},
             "worker": {
                 "embedded": True,

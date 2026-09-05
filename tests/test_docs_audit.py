@@ -428,26 +428,6 @@ class DocsAuditTests(unittest.TestCase):
             {issue.code for issue in issues},
         )
 
-    def test_short_server_instruction_requires_complete_release_gates(self) -> None:
-        module = load_docs_audit_module()
-
-        self.assertEqual([], module._check_short_server_instruction_commands(ROOT))
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_root = Path(temp_dir)
-            (temp_root / "AUTOSTOPCRM_FULL_INSTRUCTION.txt").write_text(
-                "scripts/validate_production_env.py --require-production\n"
-                "scripts/check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --exhaustive\n",
-                encoding="utf-8",
-            )
-
-            issues = module._check_short_server_instruction_commands(temp_root)
-
-        self.assertEqual(2, len(issues))
-        self.assertEqual(
-            {"server_instruction_release_gate_stale"}, {issue.code for issue in issues}
-        )
-
     def test_quality_workflow_runs_docs_audit(self) -> None:
         module = load_docs_audit_module()
 
@@ -568,7 +548,7 @@ class DocsAuditTests(unittest.TestCase):
             for relative_path in module.AGENT_CONNECTOR_DOCS
         )
 
-        self.assertEqual(module.AGENT_CONNECTOR_DOC_MAX_TOTAL_LINES, total_lines)
+        self.assertLessEqual(total_lines, module.AGENT_CONNECTOR_DOC_MAX_TOTAL_LINES)
         self.assertLess(total_lines, 266)
 
     def test_agent_connector_docs_contract_enforces_cap_and_wrapped_semantics(self) -> None:

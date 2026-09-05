@@ -691,7 +691,7 @@ def _fake_store_management_action(state: dict, arguments: dict) -> dict:
             "planned_changes": planned_changes,
         }
     )
-    if mode == "apply":
+    if mode == "apply" and action == "mark_order_ready":
         proof = next(
             (
                 candidate
@@ -705,7 +705,7 @@ def _fake_store_management_action(state: dict, arguments: dict) -> dict:
         )
         if proof is None:
             return _fake_store_error("AGENT_DRY_RUN_REQUIRED", correlation_id=correlation_id)
-    if str(item.get("updated_at") or "") != expected_updated_at:
+    if action == "mark_order_ready" and str(item.get("updated_at") or "") != expected_updated_at:
         return _fake_store_error("AGENT_REVISION_CONFLICT", correlation_id=correlation_id)
 
     before = dict(item)
@@ -1807,6 +1807,7 @@ class AgentGatewayV2Tests(
             {"include_archived", "cursor", "limit", "fields"} <= set(board_schema["properties"])
         )
         self.assertIn("ack_token", board_schema["properties"])
+        self.assertIn("include_store_context", bootstrap_schema["properties"])
         self.assertNotIn("store_cursor", bootstrap_schema["properties"])
         self.assertNotIn("store_ack_token", bootstrap_schema["properties"])
         self.assertNotIn("ack_token", board_schema.get("required", []))
@@ -1823,7 +1824,7 @@ class AgentGatewayV2Tests(
             set(context_schema["properties"]["detail"]["enum"]),
         )
         self.assertEqual(
-            {"operation", "payload", "idempotency_key"},
+            {"operation", "payload"},
             set(inventory_schema["required"]),
         )
         self.assertIsNone(inventory_schema["properties"]["mode"]["default"])
@@ -1841,7 +1842,7 @@ class AgentGatewayV2Tests(
             schema = self.server._tool_manager.get_tool(tool_name).parameters
             self.assertEqual(set(operations), set(schema["properties"]["operation"]["enum"]))
 
-    async def test_bootstrap_skips_store_and_explicit_digest_keeps_owner_stream(
+    async def test_bootstrap_without_signal_leaves_store_unrequested_and_explicit_digest_keeps_owner_stream(
         self,
     ) -> None:
         server, state = self._create_store_server()
@@ -1856,7 +1857,7 @@ class AgentGatewayV2Tests(
 
         self.assertTrue(bootstrap.structuredContent["ok"])
         self.assertIsNone(bootstrap.structuredContent["summary"]["store"]["ok"])
-        self.assertEqual("not_loaded", bootstrap.structuredContent["summary"]["store"]["status"])
+        self.assertEqual("not_requested", bootstrap.structuredContent["summary"]["store"]["status"])
         self.assertNotIn("snapshot", bootstrap.structuredContent["summary"]["store"])
         self.assertEqual("order-1", digest.structuredContent["data"]["items"][0]["id"])
         self.assertEqual("opaque-2", digest.structuredContent["page"]["next_cursor"])
@@ -1864,6 +1865,28 @@ class AgentGatewayV2Tests(
         self.assertFalse(any(name == "store_runtime_status" for name, _ in state["calls"]))
         self.assertEqual(1, len(digest_calls))
         self.assertEqual("store_digest", digest_calls[0]["stream"])
+
+    async def test_bootstrap_loads_bounded_store_context_for_quote_signal(self) -> None:
+        server, state = self._create_store_server()
+
+        bootstrap = await server._tool_manager.get_tool("agent_bootstrap").run(
+            {"query": "article-123"}, convert_result=False
+        )
+
+        self.assertTrue(bootstrap.structuredContent["ok"])
+        store = bootstrap.structuredContent["summary"]["store"]
+        self.assertTrue(store["requested"])
+        self.assertTrue(store["ok"])
+        self.assertEqual("ready", store["status"])
+        search_calls = [arguments for name, arguments in state["calls"] if name == "store_search"]
+        self.assertEqual(2, len(search_calls))
+        self.assertEqual(
+            {"store_quote_request", "store_part"},
+            {str(call["entity"]) for call in search_calls},
+        )
+        self.assertTrue(
+            all(call["query"] == "article-123" and call["limit"] == 4 for call in search_calls)
+        )
 
     async def test_store_digest_ack_traverses_first_next_and_final_without_new_tool(self) -> None:
         server, state = self._create_store_server({"store_digest_ack_mode": True})
@@ -1899,14 +1922,14 @@ class AgentGatewayV2Tests(
         self.assertEqual("digest-ack-1", calls[1]["ack_token"])
         self.assertEqual("digest-ack-2", calls[2]["ack_token"])
 
-    async def test_bootstrap_never_uses_store_ack_or_runtime_status(self) -> None:
+    async def test_unrequested_bootstrap_never_uses_store_ack_or_runtime_status(self) -> None:
         server, state = self._create_store_server({"store_digest_ack_mode": True})
         tool = server._tool_manager.get_tool("agent_bootstrap")
 
         result = await tool.run({}, convert_result=False)
 
         self.assertTrue(result.structuredContent["ok"])
-        self.assertEqual("not_loaded", result.structuredContent["summary"]["store"]["status"])
+        self.assertEqual("not_requested", result.structuredContent["summary"]["store"]["status"])
         self.assertFalse(any(name.startswith("store_") for name, _ in state["calls"]))
 
     async def test_store_search_and_exact_context_use_existing_public_tools(self) -> None:
@@ -2210,7 +2233,7 @@ class AgentGatewayV2Tests(
         )
         self.assertFalse(any(name == "start_workflow" for name, _ in state["calls"]))
 
-    async def test_store_outage_degrades_store_without_breaking_crm(self) -> None:
+    async def test_store_outage_keeps_unrequested_bootstrap_and_crm_available(self) -> None:
         server, state = self._create_store_server({"store_available": False})
 
         bootstrap = await server._tool_manager.get_tool("agent_bootstrap").run(
@@ -2225,7 +2248,7 @@ class AgentGatewayV2Tests(
 
         self.assertTrue(bootstrap.structuredContent["ok"])
         self.assertEqual("ready", bootstrap.structuredContent["status"])
-        self.assertEqual("not_loaded", bootstrap.structuredContent["summary"]["store"]["status"])
+        self.assertEqual("not_requested", bootstrap.structuredContent["summary"]["store"]["status"])
         self.assertNotIn("store_adapter_degraded", bootstrap.structuredContent["warnings"])
         self.assertTrue(runtime.structuredContent["ok"])
         self.assertEqual("degraded", runtime.structuredContent["status"])
@@ -2275,6 +2298,39 @@ class AgentGatewayV2Tests(
             missing_owner_intent.structuredContent["warnings"],
         )
         self.assertFalse(any(name == "start_workflow" for name, _ in state["calls"]))
+
+    async def test_low_risk_store_update_defaults_to_direct_apply_without_legacy_contract(
+        self,
+    ) -> None:
+        server, state = self._create_store_server()
+        result = await server._tool_manager.get_tool("agent_inventory_workflow").run(
+            {
+                "operation": "update_quote_request_comment",
+                "payload": {
+                    "target_id": "quote-1",
+                    "planned_changes": {"internal_comment": "Рабочая заметка"},
+                },
+            },
+            convert_result=False,
+        )
+
+        self.assertTrue(result.structuredContent["ok"])
+        self.assertEqual("apply", result.structuredContent["summary"]["mode"])
+        self.assertTrue(result.structuredContent["summary"]["direct_low_risk_update"])
+        self.assertNotIn("ledger_owned_by_named_workflow", result.structuredContent["meta"])
+        self.assertFalse(
+            any(
+                name in {"start_workflow", "workflow_transition", "store_entity_context"}
+                for name, _ in state["calls"]
+            )
+        )
+        calls = [
+            arguments for name, arguments in state["calls"] if name == "store_management_action"
+        ]
+        self.assertEqual(1, len(calls))
+        self.assertEqual("", calls[0]["expected_updated_at"])
+        self.assertEqual("autonomous_low_risk_store_update", calls[0]["owner_intent"])
+        self.assertRegex(calls[0]["idempotency_key"], r"^store-implicit-")
 
     async def test_store_write_revision_conflict_closes_ledger_before_executor(self) -> None:
         server, state = self._create_store_server()
@@ -2384,7 +2440,11 @@ class AgentGatewayV2Tests(
 
                 self.assertTrue(dry_run.structuredContent["ok"])
                 self.assertTrue(apply.structuredContent["ok"])
-                self.assertEqual("completed", apply.structuredContent["status"])
+                high_impact = operation == "mark_order_ready"
+                self.assertEqual(
+                    "completed" if high_impact else "applied",
+                    apply.structuredContent["status"],
+                )
                 self.assertEqual(
                     change_fields,
                     [item["field"] for item in apply.structuredContent["data"]["changes"]],
@@ -2408,40 +2468,27 @@ class AgentGatewayV2Tests(
                     management_calls[1]["correlation_id"],
                 )
                 self.assertTrue(management_calls[0]["correlation_id"].startswith("store-action-"))
-                ledger_scopes = [
-                    arguments["scope"]
-                    for name, arguments in state["calls"]
-                    if name == "start_workflow"
-                ]
-                self.assertEqual(["store", "store"], [scope["domain"] for scope in ledger_scopes])
-                self.assertEqual(["store", "store"], [scope["source"] for scope in ledger_scopes])
                 ledger_starts = [
                     arguments for name, arguments in state["calls"] if name == "start_workflow"
                 ]
-                for start in ledger_starts:
-                    self.assertEqual("", start["query"])
-                    self.assertIsNone(start["metadata"])
-                    self.assertEqual(
-                        {"operation", "mode", "request_fingerprint", "domain", "source"},
-                        set(start["scope"]),
-                    )
                 ledger_transitions = [
                     arguments for name, arguments in state["calls"] if name == "workflow_transition"
                 ]
-                self.assertEqual(
-                    ["executing", "verifying", "completed"] * 2,
-                    [transition["status"] for transition in ledger_transitions],
-                )
-                for transition in ledger_transitions:
-                    verification = transition["verification"]
-                    if verification is not None:
-                        self.assertTrue(verification)
-                        self.assertTrue(
-                            all(isinstance(value, bool) for value in verification.values())
-                        )
-                        self.assertFalse(
-                            any(isinstance(value, (dict, list)) for value in verification.values())
-                        )
+                if high_impact:
+                    self.assertEqual(
+                        ["store", "store"], [start["scope"]["domain"] for start in ledger_starts]
+                    )
+                    self.assertEqual(
+                        ["executing", "verifying", "completed"] * 2,
+                        [transition["status"] for transition in ledger_transitions],
+                    )
+                else:
+                    self.assertTrue(apply.structuredContent["summary"]["direct_low_risk_update"])
+                    self.assertNotIn(
+                        "ledger_owned_by_named_workflow", apply.structuredContent["meta"]
+                    )
+                    self.assertEqual([], ledger_starts)
+                    self.assertEqual([], ledger_transitions)
                 if operation == "update_quote_request_comment":
                     public_payload = json.dumps(
                         apply.structuredContent, ensure_ascii=False, sort_keys=True
@@ -2559,53 +2606,23 @@ class AgentGatewayV2Tests(
         self.assertEqual(1, state["store_post_count"])
         self.assertEqual("IN_PROGRESS", state["entities"][("store_order", "order-1")]["status"])
 
-    async def test_store_proof_requires_same_principal_plan_distinct_key_and_ttl(self) -> None:
-        base_payload = {
-            "target_id": "batch-1",
-            "expected_updated_at": "2026-07-16T10:00:00+00:00",
-            "planned_changes": {"storage_location": "B-22"},
-            "correlation_id": "store-proof-correlation",
-        }
+    async def test_low_risk_store_apply_does_not_require_dry_run_proof(self) -> None:
+        server, state = self._create_store_server()
+        result = await server._tool_manager.get_tool("agent_inventory_workflow").run(
+            {
+                "operation": "set_batch_storage_location",
+                "payload": {
+                    "target_id": "batch-1",
+                    "planned_changes": {"storage_location": "B-22"},
+                },
+            },
+            convert_result=False,
+        )
 
-        for mismatch in ("principal", "plan", "same_key", "expired"):
-            with self.subTest(mismatch=mismatch):
-                server, state = self._create_store_server()
-                dry_key = f"store-proof-{mismatch}-dry"
-                dry_run = await self._store_write(
-                    server,
-                    operation="set_batch_storage_location",
-                    payload={**base_payload, "owner_intent": "Preview exact plan"},
-                    idempotency_key=dry_key,
-                    mode="dry_run",
-                )
-                self.assertTrue(dry_run.structuredContent["ok"])
-                apply_payload = {**base_payload, "owner_intent": "Apply exact plan"}
-                apply_key = f"store-proof-{mismatch}-apply"
-                if mismatch == "principal":
-                    state["store_principal"] = "different-principal"
-                elif mismatch == "plan":
-                    apply_payload["planned_changes"] = {"storage_location": "C-33"}
-                elif mismatch == "same_key":
-                    apply_key = dry_key
-                    apply_payload["owner_intent"] = "Preview exact plan"
-                elif mismatch == "expired":
-                    state["store_clock"] = 1801
-
-                apply = await self._store_write(
-                    server,
-                    operation="set_batch_storage_location",
-                    payload=apply_payload,
-                    idempotency_key=apply_key,
-                    mode="apply",
-                )
-
-                self.assertFalse(apply.structuredContent["ok"])
-                expected = (
-                    "idempotency_key_conflict"
-                    if mismatch == "same_key"
-                    else "AGENT_DRY_RUN_REQUIRED"
-                )
-                self.assertIn(expected, apply.structuredContent["warnings"])
+        self.assertTrue(result.structuredContent["ok"])
+        self.assertEqual("applied", result.structuredContent["status"])
+        self.assertEqual("B-22", state["entities"][("store_batch", "batch-1")]["storage_location"])
+        self.assertFalse(any(name == "start_workflow" for name, _ in state["calls"]))
 
     async def test_store_explicit_correlation_is_preserved_and_invalid_value_blocked(self) -> None:
         server, state = self._create_store_server()

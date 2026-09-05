@@ -1,38 +1,29 @@
-# 206. Conditional split of AgentRunner and attestation runner
+# 206. Autonomous agent runtime boundary
 
-Приоритет: P2. Этап: 2. Статус: blocked до owner-approved ADR.
+Приоритет: P2 owner. Отдельный split нужен только при измеренной проблеме.
 
-## Владелец рачетов
+## Ratchets
 
-- `agent/runner.py` — 5 093 строк; `AgentRunner` — 4 865.
+- `agent/runner.py` — 3 682 строки; `AgentRunner` — 3 462.
 - `scripts/attest_agent_gateway_v2.py` — 9 498;
   `_finance_apply_audit_safe_fixes_case` — 457.
-- Caps запрещают рост, но не доказывают необходимость рефакторинга.
+- Caps запрещают рост, но не заменяют доказательство необходимости refactor.
 
-## Gate
+## Boundary
 
-- ADR подтверждает сохранить или retire embedded runtime.
-- Для attestation нужны churn, defect history или измеренная стоимость изменения
-  после 009. Без этого scope закрывается `not planned`.
+- Runtime uses one autonomous execution path; it does not retain a second executor.
+- Preserve task/log DTO, report schema/hashes, redaction, cancellation/retry,
+  and Linux/Docker imports when extracting a real boundary.
+- Do not run attestation `--apply-synthetic` against production.
 
-## Правила одобренной работы
+## When to change it
 
-1. Зафиксировать task/log DTO, CLI/case IDs и порядок, report schema/hashes и
-   mode-0600 artifacts.
-2. Выносить один чистый boundary за раз, оставляя runner/CLI thin.
-3. Characterize timeout, invalid JSON, cancellation/retry/restart, exact
-   readback, redaction, target-bounded fixture cleanup и Linux/Docker imports.
-4. Не запускать attestation `--apply-synthetic` против production.
-
-## Приёмка
-
-- Нет drift DTO/schema/log-level, case IDs, порядка или report hashes.
-- Каждый commit уменьшает или удаляет свой cap.
-- Проходят unit/local-temp и Linux CI.
+- Require measured churn, a defect history, or a concrete latency/maintenance
+  cost. One change removes or lowers its own cap and keeps the public contract.
 
 ## Проверки
 
-`python -m unittest tests.test_agent_scenarios tests.test_agent_payload_hardening tests.test_agent_runner_output tests.test_agent_runner_serialization tests.test_agent_runtime_check tests.test_agent_gateway_v2_attestation_script tests.test_agent_gateway_v2_attestation_unittest -v`
+`python -m unittest tests.test_agent_payload_hardening tests.test_agent_runner_output tests.test_agent_runner_serialization tests.test_agent_runtime_check tests.test_agent_gateway_v2_attestation_script tests.test_agent_gateway_v2_attestation_unittest -v`
 `python scripts/check_agent_runtime.py --help`
 `python scripts/attest_agent_gateway_v2.py --help`
 `python scripts/check_agent_gateway_v2.py --help`
