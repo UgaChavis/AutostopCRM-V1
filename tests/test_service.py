@@ -2430,9 +2430,7 @@ class CardServiceTests(unittest.TestCase):
         self.assertEqual(payload["card_id"], card_id)
         self.assertEqual(payload["title"], "Agent enrichment")
         self.assertEqual(payload["requested_by"], "AI")
-        self.assertNotIn("task_text", payload)
-        self.assertNotIn("prompt", payload)
-        self.assertNotIn("ai_autofill_prompt", payload)
+        self.assertFalse({"task_text", "prompt", "ai_autofill_prompt"} & payload.keys())
         self.assertEqual(agent_control.autofill_calls[-1]["source"], "ui_full_card_enrichment")
 
     def test_set_card_ai_autofill_enqueues_agent_task_when_agent_is_attached(self) -> None:
