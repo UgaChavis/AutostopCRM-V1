@@ -52,6 +52,182 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_cached_card_opens_once_and_uncached_card_still_hydrates(self) -> None:
+        opener = _source_section(
+            self.source, "async function openCardWorkspace(", "async function openRepairOrderCard("
+        )
+        self._run_node(f"""
+            const assert = require('node:assert/strict');
+            const card = {{ id: 'card', updated_at: 'revision', description: 'full description' }};
+            const state = {{ viewerStateGeneration: 1, cardHydrationSeq: 0, fullCardCache: new Map() }};
+            const els = {{ cardModal: {{ classList: {{ contains() {{ return true; }} }} }} }};
+            let useCache = true;
+            let fetches = 0;
+            const rendered = [];
+            const sideEffects = [];
+            function perfMeasureAsync(_name, callback) {{ return callback(); }}
+            function snapshotCardById() {{ return card; }}
+            function cachedFullCardForSnapshot() {{ return useCache ? card : null; }}
+            function openCardModal(value, options) {{ state.editingId = value.id; rendered.push(options); }}
+            async function fetchFullCard() {{ fetches++; return card; }}
+            function recordCardOpenSideEffects(id) {{ sideEffects.push(id); }}
+            {opener}
+            (async () => {{
+              assert.equal(await openCardWorkspace('card'), card);
+              assert.equal(rendered.length, 1);
+              assert.equal(fetches, 0);
+              assert.equal(state.cardHydratingId, '');
+              useCache = false;
+              rendered.length = 0;
+              assert.equal(await openCardWorkspace('card'), card);
+              assert.equal(rendered.length, 2);
+              assert.equal(rendered[0].descriptionLoading, true);
+              assert.equal(rendered[1].cardIsFull, true);
+              assert.equal(fetches, 1);
+              assert.deepEqual(sideEffects, ['card', 'card']);
+            }})().catch(error => {{ console.error(error); process.exitCode = 1; }});
+        """)
+
+    def test_repair_order_open_applies_server_form_once_after_loading(self) -> None:
+        opener = _source_section(
+            self.source, "async function openRepairOrderModal(", "function closeRepairOrderModal()"
+        )
+        self._run_node(f"""
+            const assert = require('node:assert/strict');
+            const initial = {{ number: 'initial' }};
+            const latest = {{ number: 'server' }};
+            const state = {{ activeCard: {{ id: 'card', repair_order: initial }}, editingId: 'card' }};
+            const els = {{ cardModal: {{ classList: {{ contains() {{ return false; }} }} }}, repairOrderModal: {{}} }};
+            const forms = [];
+            function repairOrderCardDraft(_card, order) {{ return order; }}
+            function pushModal() {{}}
+            function applyRepairOrderToForm(order) {{ forms.push(order.number); }}
+            async function loadEmployeesReference() {{ return {{ employees: [] }}; }}
+            async function api() {{ return {{ repair_order: latest }}; }}
+            function repairOrderResponseCard(data) {{ return {{ id: 'card', repair_order: data.repair_order }}; }}
+            function applyRepairOrderCardUpdate(card) {{
+              state.activeCard = card;
+              applyRepairOrderToForm(card.repair_order);
+              return card.repair_order;
+            }}
+            {opener}
+            (async () => {{
+              await openRepairOrderModal();
+              assert.deepEqual(forms, ['initial', 'server']);
+              assert.equal(state.activeCard.repair_order, latest);
+              forms.length = 0;
+              state.activeCard = null;
+              state.editingId = '';
+              await openRepairOrderModal();
+              assert.equal(forms.length, 2, 'new-order employee options still need their loaded render');
+            }})().catch(error => {{ console.error(error); process.exitCode = 1; }});
+        """)
+
+    def test_hidden_mobile_shell_defers_render_until_mobile_mode(self) -> None:
+        renderer = _source_section(
+            self.source, "function renderMobileShell()", "function setMobileView(view)"
+        )
+
+        self._run_node(f"""
+            const assert = require('node:assert/strict');
+            const state = {{ mobileLite: false, mobileView: 'board' }};
+            const els = {{ mobileAppShell: {{ dataset: {{}}, contains() {{ return true; }} }} }};
+            global.document = {{ querySelectorAll() {{ return []; }} }};
+            const renders = [];
+            function normalizeMobileView(view) {{ return view; }}
+            function renderMobileStatus() {{}}
+            function renderMobileBoard() {{ renders.push('board'); }}
+            function renderMobileInventory() {{ renders.push('inventory'); }}
+            {renderer}
+            renderMobileShell();
+            assert.deepEqual(renders, []);
+            state.mobileLite = true;
+            renderMobileShell();
+            assert.deepEqual(renders, ['board']);
+            state.mobileLite = false;
+            state.mobileView = 'inventory';
+            renderMobileShell();
+            state.mobileLite = true;
+            renderMobileShell();
+            assert.deepEqual(renders, ['board', 'inventory']);
+        """)
+
+    def test_timer_tick_scans_board_once_and_updates_virtual_copies(self) -> None:
+        ticker = _source_section(
+            self.source,
+            "function refreshBoardTimerVisuals()",
+            "function startCardTimerVisualTicker()",
+        )
+        self._run_node(f"""
+            const assert = require('node:assert/strict');
+            global.document = {{ hidden: false }};
+            let scans = 0;
+            const makeArticle = (id) => {{
+              const lamp = {{ dataset: {{}}, setAttribute(name, value) {{ this[name] = value; }} }};
+              return {{ dataset: {{ cardId: id }}, style: {{ setProperty() {{}} }}, querySelector() {{ return lamp; }}, lamp }};
+            }};
+            const articles = Array.from({{ length: 620 }}, (_, index) => makeArticle(String(index)));
+            const virtual = makeArticle('0');
+            articles.push(virtual);
+            const els = {{ board: {{ querySelectorAll(selector) {{
+              scans++;
+              assert.equal(selector, '.card[data-card-id]');
+              return articles;
+            }} }} }};
+            const state = {{ snapshot: {{ cards: Array.from({{ length: 620 }}, (_, index) => ({{ id: String(index) }})) }} }};
+            function cardTimerIsRunning() {{ return true; }}
+            function timerVisualState() {{ return {{ remaining: 120, remainingRatio: 0.5, progressRatio: 0.5, bucket: 10, step: 50, status: 'warning', indicator: 'yellow', blinking: false, border: 'border', ring: 'ring', glow: 'glow' }}; }}
+            function timerRemainingText(value) {{ return String(value); }}
+            {ticker}
+            refreshBoardTimerVisuals();
+            assert.equal(scans, 1);
+            assert.ok(articles.every(article => article.dataset.status === 'warning'));
+            assert.equal(virtual.lamp.title, 'Таймер: 120');
+            assert.equal(virtual.lamp['aria-label'], virtual.lamp.title);
+            assert.ok(state.snapshot.cards.every(card => card.remaining_seconds === 120));
+            document.hidden = true;
+            refreshBoardTimerVisuals();
+            assert.equal(scans, 1, 'hidden documents must still skip timer work');
+        """)
+
+    def test_cashbox_detail_yields_a_frame_and_ignores_closed_or_changed_selection(self) -> None:
+        scheduler = _source_section(
+            self.source, "function scheduleCashboxDetailLoad(", "async function loadCashboxes("
+        )
+        self._run_node(f"""
+            const assert = require('node:assert/strict');
+            let open = true;
+            const frames = [];
+            const loads = [];
+            const state = {{ activeCashboxId: 'cashbox-1', cashboxesRequestSeq: 0 }};
+            const els = {{ cashboxesModal: {{ classList: {{ contains() {{ return open; }} }} }} }};
+            global.window = {{ requestAnimationFrame(callback) {{ frames.push(callback); }} }};
+            function loadCashboxDetail(id) {{ state.cashboxesRequestSeq += 1; loads.push(id); }}
+            {scheduler}
+            scheduleCashboxDetailLoad('cashbox-1');
+            assert.deepEqual(loads, [], 'list rendering must yield before detail starts');
+            frames.shift()();
+            assert.deepEqual(loads, ['cashbox-1']);
+            scheduleCashboxDetailLoad('cashbox-1');
+            open = false;
+            frames.shift()();
+            open = true;
+            scheduleCashboxDetailLoad('cashbox-1');
+            state.activeCashboxId = 'cashbox-2';
+            frames.shift()();
+            assert.deepEqual(loads, ['cashbox-1'], 'stale deferred work must not fetch another selection');
+            state.activeCashboxId = 'cashbox-1';
+            scheduleCashboxDetailLoad('cashbox-1');
+            state.cashboxesRequestSeq += 1;
+            frames.shift()();
+            assert.deepEqual(loads, ['cashbox-1'], 'abort or a newer load must invalidate pending detail');
+            scheduleCashboxDetailLoad('cashbox-1');
+            scheduleCashboxDetailLoad('cashbox-1');
+            frames.shift()();
+            frames.shift()();
+            assert.deepEqual(loads, ['cashbox-1', 'cashbox-1'], 'same-frame callbacks must not start duplicate requests');
+        """)
+
     def test_save_cancels_pending_seen_write_and_requeues_only_when_needed(self) -> None:
         seen_timer_helpers = _source_section(
             self.source,
@@ -1823,7 +1999,8 @@ class WebAssetsRuntimeTests(unittest.TestCase):
                 function updateOperatorButton() {{}}
                 function syncEmployeesCashboxesAccessUi() {{}}
                 function syncExtraBoardColumnSettingsForm() {{}}
-                function renderBoard() {{}}
+                let boardRenders = 0;
+                function renderBoard() {{ boardRenders++; }}
                 function operatorStatHtml() {{ return ''; }}
                 function formatDate() {{ return ''; }}
                 function renderOperatorActivity() {{}}
@@ -1833,6 +2010,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
 
                 {profile_renderer}
 
+                state.snapshot = {{ cards: [] }};
                 renderOperatorProfile({{
                   session: {{ token: 'second-session' }},
                   user: {{ username: 'SECOND', is_admin: false, updated_at: '' }},
@@ -1851,6 +2029,12 @@ class WebAssetsRuntimeTests(unittest.TestCase):
                   state.operatorProfile.board_preferences.extra_column.filter.tag_label,
                   'НОВЫЙ ФИЛЬТР',
                 );
+                assert.equal(boardRenders, 0, 'unchanged preferences rebuilt the board');
+                renderOperatorProfile({{
+                  ...state.operatorProfile,
+                  board_preferences: {{ extra_column: {{ is_open: false }} }},
+                }});
+                assert.equal(boardRenders, 1, 'changed board preferences must still render');
               }}
 
               {{

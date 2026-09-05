@@ -13,7 +13,6 @@
     const CASH_JOURNAL_FILTER_DEBOUNCE_MS = 80;
     const CASH_JOURNAL_RENDER_BATCH_SIZE = 250;
     const CASHBOX_TRANSACTION_PAGE_SIZE = 100;
-    const CASHBOX_DETAIL_DEFER_DELAY_MS = 120;
     const CASHBOX_EXPENSE_NOTE_MIN_LENGTH = 10;
     const CASHBOX_CANCEL_REASON_MIN_LENGTH = 10;
     const BOARD_SEARCH_CACHE_TTL_MS = 20000;
@@ -2786,6 +2785,7 @@
     }
 
     function renderOperatorProfile(data, { openModal = false, preservePersonalBoardPreferences = false } = {}) {
+      const previousBoardPreferences = JSON.stringify(personalBoardPreferences());
       const preservedPreferences = preservePersonalBoardPreferences
         ? personalBoardPreferences()
         : null;
@@ -2800,7 +2800,7 @@
       updateOperatorButton();
       syncEmployeesCashboxesAccessUi();
       syncExtraBoardColumnSettingsForm();
-      if (state.snapshot) renderBoard();
+      if (state.snapshot && previousBoardPreferences !== JSON.stringify(personalBoardPreferences())) renderBoard();
       const stats = profile?.stats || {};
       els.operatorProfileMeta.textContent =
         'ПОЛЬЗОВАТЕЛЬ: ' + (profile?.user?.username || '-') +
@@ -5572,10 +5572,6 @@
         .sort((left, right) => String(left?.name || '').localeCompare(String(right?.name || ''), 'ru'));
     }
 
-    function renderEmployeesListPanel() {
-      renderEmployeesList();
-    }
-
     function syncEmployeesReadOnlyWorkspaceUi() {
       const canManageEmployees = operatorCanAccessEmployeesCashboxes();
       const readOnly = operatorHasEmployeesReadOnlyAccess();
@@ -6562,7 +6558,7 @@
         state.employeeFormBaseline = null;
         state.employeeShiftAccrualOpen = false;
         state.employeeShiftAccrualDraft = '';
-        renderEmployeesListPanel();
+        renderEmployeesList();
         return;
       }
       const employees = Array.isArray(state.employees) ? state.employees : [];
@@ -6581,10 +6577,9 @@
       }
       syncEmployeeSalaryReconciliationPeriodUi();
       fillEmployeeForm(state.employeeCreateMode ? null : selectedEmployeeRecord());
-      renderEmployeesListPanel();
+      renderEmployeesList();
       renderEmployeesDetails();
       syncEmployeesReportPanelUi();
-      renderEmployeeProfileMeta();
       renderEmployeeShiftAccrualDialog();
     }
 
@@ -9550,7 +9545,7 @@
     }
 
     function renderMobileShell() {
-      if (!els.mobileAppShell) return;
+      if (!els.mobileAppShell || !state.mobileLite) return;
       const view = normalizeMobileView(state.mobileView);
       state.mobileView = view;
       els.mobileAppShell.dataset.mobileActiveView = view;
@@ -10383,6 +10378,13 @@
     function refreshBoardTimerVisuals() {
       if (document.hidden || !state.snapshot?.cards) return;
       const nowMs = Date.now();
+      const articlesById = new Map();
+      els.board?.querySelectorAll('.card[data-card-id]').forEach((article) => {
+        const id = article.dataset.cardId;
+        const articles = articlesById.get(id);
+        if (articles) articles.push(article);
+        else articlesById.set(id, [article]);
+      });
       state.snapshot.cards.forEach((card) => {
         if (!cardTimerIsRunning(card)) return;
         const visual = timerVisualState(card, nowMs);
@@ -10397,7 +10399,7 @@
         card.deadline_heat_border_color = visual.border;
         card.deadline_heat_ring_color = visual.ring;
         card.deadline_heat_glow_color = visual.glow;
-        const articles = els.board?.querySelectorAll('.card[data-card-id="' + CSS.escape(String(card.id || '')) + '"]') || [];
+        const articles = articlesById.get(String(card.id || '')) || [];
         articles.forEach((article) => {
           article.dataset.timerState = 'running';
           article.dataset.indicator = visual.indicator;
@@ -13424,7 +13426,7 @@
         const updatedCard = repairOrderResponseCard(data, order);
         order = applyRepairOrderCardUpdate(updatedCard, data?.repair_order || order);
       }
-      applyRepairOrderToForm(order);
+      if (!cardId) applyRepairOrderToForm(order);
     }
 
     function closeRepairOrderModal() {
@@ -13754,7 +13756,7 @@
       }
       if (state.currentTab === 'journal') loadActiveCardTab('journal');
       if (state.cardCleanupState !== 'error') {
-        state.cardCleanupState = currentCard?.id ? 'idle' : 'idle';
+        state.cardCleanupState = 'idle';
         state.cardCleanupError = '';
       }
       if (!String(state.agentTaskId || '').trim()) stopCardCleanupPolling();
@@ -14693,7 +14695,8 @@
           if (!openedFromCache && closeModalEl) popModal(modalKeyForElement(closeModalEl));
           const shouldHydrateOpenModal = !openedFromCache
             || (
-              els.cardModal?.classList.contains('is-open')
+              !cachedFullCard
+              && els.cardModal?.classList.contains('is-open')
               && state.cardHydrationSeq === hydrationSeq
               && state.editingId === normalizedCardId
             );
@@ -18039,11 +18042,13 @@
     function scheduleCashboxDetailLoad(cashboxId, { openModal = false } = {}) {
       const normalizedId = String(cashboxId || '').trim();
       if (!normalizedId) return;
-      window.setTimeout(() => {
+      const requestSeq = state.cashboxesRequestSeq;
+      window.requestAnimationFrame(() => {
+        if (state.cashboxesRequestSeq !== requestSeq) return;
         if (!els.cashboxesModal?.classList.contains('is-open')) return;
         if (String(state.activeCashboxId || '').trim() !== normalizedId) return;
         loadCashboxDetail(normalizedId, { openModal });
-      }, CASHBOX_DETAIL_DEFER_DELAY_MS);
+      });
     }
 
     async function loadCashboxes(openModal = false, { deferDetail = false, consumeNotifications = false } = {}) {

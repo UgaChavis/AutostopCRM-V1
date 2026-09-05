@@ -1,50 +1,25 @@
-# Agent Instructions
+# Working On AutoStop CRM
 
-AutoStop CRM agents are autonomous operators: use current code and focused
-checks as truth, preserve user work, and keep instructions compact.
+Own the user's outcome. Choose the approach, tools, and order from current
+code and evidence; examples and debt tasks are optional aids. Reuse known
+context, ask only for a real blocker, and keep changes and instructions small.
+Authorization already given for this task remains valid through completion.
 
-## Scope
+Use [README.md](README.md) for architecture and the relevant contract or check;
+read deeper documentation only when it helps the task. Business rules belong
+in shared services, used by browser, Windows client, API, and MCP.
 
-- Product: AutoStop CRM on `autostopcrm-v1`; production MCP is
-  `https://crm.autostopcrm.ru/mcp`.
-- `minimal_kanban`, `%APPDATA%\Minimal Kanban`, and `Start Kanban.exe` are
-  compatibility names. Retain them until read-only production and rollback
-  evidence proves removal safe.
-- Canonical documents: `AGENTS.md`, `README.md`, `API_GUIDE.md`,
-  `MCP_GUIDE.md`, `CHATGPT_CONNECTOR_SETUP.md`, and
-  `docs/OPERATIONS_RUNBOOK.md`. Do not duplicate their narrow contracts.
-
-## Autonomy And Impact
-
-- Infer the goal from relevant CRM, Store, and sanctioned conversation context.
-  A VIN, article, photo, part name, or short answer can start a quote. Reuse
-  known facts; ask only for a real blocker.
-- Routes, tools, scenarios, and examples are hints, not required call order,
-  template, VIN-first chain, one-question rule, or read/dry-run/readback ritual.
-  Choose the smallest useful context, action, or question from the evidence.
-- Check native guards only at real impact: money, a published customer price,
-  an order, deletion/archive, a new external recipient, deployment, or secrets.
-  Explicit authority limits the action, never ordinary reasoning or dialogue.
-
-## Worktree And Data
-
-- Start with `git status --short --branch`; preserve unrelated work. Do not
-  commit, reset, revert, delete, or overwrite user work without explicit intent.
-- Never expose credentials, `.env`, keys, private bundles, production data,
-  attachments, ledgers, audit archives, or operator activity.
-- Finance stop-line: never manually edit production state, cashboxes,
-  repair-order ledgers, or archives. A repair requires read-only/dry-run
-  evidence, a verified-backup, and the runbook's explicit-owner flow.
-- Public anonymous API/MCP reads and writes remain blocked in production.
-
-## Architecture, Verification, Release
-
-- Services own business rules; `api/route_registry.py` owns HTTP classification;
-  `src/minimal_kanban/mcp/` owns the public gateway and internal Store boundary.
-  Keep API, MCP, UI, and scripts on shared service contracts.
-- Run the smallest relevant check first; shared work uses
-  `run_checks.ps1 -Profile ci`. State what was not run.
-- Deploy only on an explicit user request. Production evidence must compare all
-  Git revisions to the target, run live smoke against the exact URL, and confirm
-  health and relevant logs. Use `docs/OPERATIONS_RUNBOOK.md`; never invent a
-  release procedure here.
+- Inspect the worktree and preserve unrelated user work. Keep secrets,
+  production data, attachments, ledgers, and private context out of Git/output.
+- Preserve needed behavior, data durability, authentication, and native guards
+  for money, customer prices, orders, deletion, and external recipients.
+  Production finance or historical-data repair follows the
+  [operations runbook](docs/OPERATIONS_RUNBOOK.md).
+- Compatibility names `minimal_kanban`, `%APPDATA%\Minimal Kanban`, and
+  `Start Kanban.exe` still serve deployed clients and data. Retire them only
+  with migration and rollback evidence.
+- Match verification to the changed behavior; use `run_checks.ps1 -Profile ci`
+  for the final shared change. Report measured effects and verification gaps.
+- When deployment is in the user's scope, finish the runbook release and
+  prove target Git revision, live endpoint behavior, health, and logs.
+  Repository publication alone does not imply a production rollout.

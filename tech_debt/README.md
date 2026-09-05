@@ -13,9 +13,10 @@ Completed work belongs in gates, not historical narratives.
   exact values from their current checks.
 - Compatibility names `minimal_kanban`, `%APPDATA%\Minimal Kanban`, and
   `Start Kanban.exe` stay until an independently proven migration.
-- Task 017 is read-only inventory only. Generated/ignored output cleanup stays
-  separate and recoverable; releases, `.venv`, production data, and rollback
-  assets are never generic cleanup targets.
+- Task 017 uses read-only production inventory to decide which unused code can
+  be retired. Generated/ignored output cleanup stays separate and recoverable;
+  releases, `.venv`, production data, and rollback assets are never generic
+  cleanup targets.
 
 ## Active Owners
 

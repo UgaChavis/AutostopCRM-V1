@@ -1629,7 +1629,6 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function saveEmployee()", BOARD_WEB_APP_HTML)
         self.assertIn("function deleteEmployee()", BOARD_WEB_APP_HTML)
         self.assertIn("function filteredEmployeesList()", BOARD_WEB_APP_HTML)
-        self.assertIn("function renderEmployeesListPanel()", BOARD_WEB_APP_HTML)
         self.assertNotIn("function handleEmployeesSearchInput(event)", BOARD_WEB_APP_HTML)
         self.assertNotIn("function handleEmployeesVisibilityFilterClick(event)", BOARD_WEB_APP_HTML)
         self.assertIn("function confirmDiscardEmployeeChanges()", BOARD_WEB_APP_HTML)
@@ -2718,11 +2717,10 @@ class WebAssetsTests(unittest.TestCase):
             "(group.title ? '<div class=\"vehicle-group__title\">' + escapeHtml(group.title) + '</div>' : '')",
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn("const summaryLines = [];", BOARD_WEB_APP_HTML)
-        self.assertNotIn("summaryLines.push('Пробег: ' + profile.mileage)", BOARD_WEB_APP_HTML)
+        self.assertIn("els.vehiclePanelSummary.textContent = '';", BOARD_WEB_APP_HTML)
         self.assertNotIn("const display = vehicleDisplayFromProfile(profile);", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "els.vehiclePanelSummary.style.display = summaryLines.length ? '' : 'none';",
+            "els.vehiclePanelSummary.style.display = 'none';",
             BOARD_WEB_APP_HTML,
         )
 
@@ -5395,7 +5393,6 @@ class WebAssetsTests(unittest.TestCase):
             "state.cashboxesLoaded && Array.isArray(state.cashboxes) && state.cashboxes.length",
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn("const CASHBOX_DETAIL_DEFER_DELAY_MS = 120;", BOARD_WEB_APP_HTML)
         self.assertIn("cashboxesLoaded: false,", BOARD_WEB_APP_HTML)
         self.assertIn("function scheduleCashboxDetailLoad(", BOARD_WEB_APP_HTML)
         self.assertIn(

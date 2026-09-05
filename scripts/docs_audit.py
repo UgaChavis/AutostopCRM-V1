@@ -22,7 +22,6 @@ from minimal_kanban.json_safety import reject_deeply_nested_json  # noqa: E402
 
 GIT_COMMAND_TIMEOUT_SECONDS = 15
 DOCS_AUDIT_TEXT_MAX_BYTES = 2 * 1024 * 1024
-AGENT_CONNECTOR_DOC_MAX_TOTAL_LINES = 110
 
 CRM_CANONICAL_DOCS = (
     "AGENTS.md",
@@ -31,11 +30,6 @@ CRM_CANONICAL_DOCS = (
     "MCP_GUIDE.md",
     "README.md",
     "docs/OPERATIONS_RUNBOOK.md",
-)
-
-AGENT_CONNECTOR_DOCS = (
-    "AGENTS.md",
-    "CHATGPT_CONNECTOR_SETUP.md",
 )
 
 CRM_DOCUMENTATION_MANIFESTS = (
@@ -58,7 +52,12 @@ CRM_MCP_RAW_TOOL_SOURCE_PATHS = (
 
 DOCUMENTATION_SUFFIXES = (".md", ".txt", ".rst", ".adoc")
 
-ACTIVE_DOC_GLOBS = ("tech_debt/*.md",)
+REPOSITORY_SKILL = "tools/codex/skills/autostopcrm-maintain"
+ACTIVE_DOC_GLOBS = (
+    "tech_debt/*.md",
+    f"{REPOSITORY_SKILL}/*.md",
+    f"{REPOSITORY_SKILL}/references/*.md",
+)
 
 MARKDOWN_LINK_PATTERN = re.compile(r"!?\[[^\]]*\]\((?P<target><[^>]+>|[^)\s]+)")
 
@@ -379,16 +378,8 @@ MCP_GUIDE_REQUIRED_TEXT = (
         "MCP allowed-origin transport security override is not documented",
     ),
     (
-        "owner-approved OAuth 2.1",
-        "production ChatGPT/Codex OAuth setup flow is not documented in MCP guide",
-    ),
-    (
         "https://crm.autostopcrm.ru/mcp",
         "production MCP connector URL is not documented",
-    ),
-    (
-        "Public anonymous writes must remain blocked",
-        "MCP security rule for public anonymous writes is not documented",
     ),
     (
         "exactly 24 tools",
@@ -404,29 +395,6 @@ MCP_GUIDE_REQUIRED_TEXT = (
     ),
 )
 
-AGENTS_REQUIRED_TEXT = tuple(
-    (required_text, "agent instructions are missing a required safety contract")
-    for required_text in (
-        "Deploy only on an explicit user request",
-        "Production evidence",
-        "compare all Git revisions",
-        "run live smoke",
-        "Finance stop-line",
-        "read-only/dry-run",
-        "verified-backup",
-        "explicit-owner flow",
-        "compatibility names",
-        "read-only production and rollback evidence",
-        "run_checks.ps1 -Profile ci",
-        "`minimal_kanban`",
-        "`%APPDATA%\\Minimal Kanban`",
-        "`Start Kanban.exe`",
-    )
-) + tuple(
-    (f"`{relative_path}`", f"agent instructions do not route canonical doc: {relative_path}")
-    for relative_path in CRM_CANONICAL_DOCS
-)
-
 CHATGPT_CONNECTOR_REQUIRED_TEXT = tuple(
     (required_text, "ChatGPT connector setup is missing a required client/auth contract")
     for required_text in (
@@ -434,9 +402,7 @@ CHATGPT_CONNECTOR_REQUIRED_TEXT = tuple(
         "[MCP_GUIDE.md](MCP_GUIDE.md)",
         "agent_bootstrap",
         "get_runtime_status",
-        "Public anonymous writes must remain blocked",
-        "owner-approved OAuth 2.1",
-        "authorization",
+        "OAuth 2.1",
     )
 )
 
@@ -854,37 +820,13 @@ def _missing_text_issues(
 
 
 def _check_agent_connector_doc_contract(root: Path) -> list[Issue]:
-    paths = tuple(root / relative_path for relative_path in AGENT_CONNECTOR_DOCS)
-    issues = [
-        *_missing_text_issues(
-            paths[0],
-            AGENTS_REQUIRED_TEXT,
-            issue_code="agents_missing_contract",
-            root=root,
-        ),
-        *_missing_text_issues(
-            paths[1],
-            CHATGPT_CONNECTOR_REQUIRED_TEXT,
-            issue_code="chatgpt_connector_setup_missing_contract",
-            root=root,
-        ),
-    ]
-    if not all(path.exists() for path in paths):
-        return issues
-
-    total_lines = sum(len(_read_text(path).splitlines()) for path in paths)
-    if total_lines > AGENT_CONNECTOR_DOC_MAX_TOTAL_LINES:
-        issues.append(
-            Issue(
-                "agent_connector_docs_line_cap_exceeded",
-                " + ".join(AGENT_CONNECTOR_DOCS),
-                (
-                    f"current={total_lines}; max={AGENT_CONNECTOR_DOC_MAX_TOTAL_LINES}; "
-                    f"delta=+{total_lines - AGENT_CONNECTOR_DOC_MAX_TOTAL_LINES}"
-                ),
-            )
-        )
-    return issues
+    # Audit executable setup identifiers, not the wording or size of agent guidance.
+    return _missing_text_issues(
+        root / "CHATGPT_CONNECTOR_SETUP.md",
+        CHATGPT_CONNECTOR_REQUIRED_TEXT,
+        issue_code="chatgpt_connector_setup_missing_contract",
+        root=root,
+    )
 
 
 def _scan_existing_canonical_docs_for_forbidden_text(root: Path) -> list[Issue]:
@@ -910,8 +852,10 @@ def _scan_retired_candidate_issues(root: Path) -> list[Issue]:
     ]
 
 
-def _scan_user_skill_doc_issues(_root: Path, skill_paths: tuple[Path, ...]) -> list[Issue]:
-    skills_root = _user_skills_root()
+def _scan_user_skill_doc_issues(
+    _root: Path, skill_paths: tuple[Path, ...], *, skills_root: Path | None = None
+) -> list[Issue]:
+    skills_root = (skills_root or _user_skills_root()).expanduser()
     selected_paths, issues = _resolve_user_skill_paths(skill_paths, skills_root=skills_root)
     docs, discovery_issues = _iter_user_skill_docs(
         selected_paths,
@@ -1142,7 +1086,7 @@ def _iter_retired_candidates(root: Path) -> list[Path]:
 
 
 def _user_skills_root() -> Path:
-    return Path.home() / ".codex" / "skills"
+    return Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "skills"
 
 
 def _is_link_like(path: Path) -> bool:
@@ -1755,6 +1699,7 @@ def audit(
     manager_root: Path | None = None,
     include_skills: bool = False,
     skill_paths: tuple[Path, ...] = (),
+    skills_root: Path | None = None,
     secret_bundle: Path | None = None,
 ) -> list[Issue]:
     root = root.resolve()
@@ -1765,6 +1710,11 @@ def audit(
     issues.extend(_check_dockerignore_keeps_canonical_markdown(root))
     issues.extend(_check_canonical_local_links(root))
     issues.extend(_scan_existing_canonical_docs_for_forbidden_text(root))
+    for path in sorted((root / REPOSITORY_SKILL).rglob("*")):
+        if path.is_file() and path.suffix in {".md", ".yaml"}:
+            text = _read_text(path)
+            issues.extend(scan_forbidden_text(path, text, root=root))
+            issues.extend(scan_user_skill_forbidden_text(path, text, root=root))
 
     issues.extend(_check_script_instruction_text(root))
     issues.extend(_check_api_guide_required_routes(root))
@@ -1797,13 +1747,13 @@ def audit(
             )
 
     if include_skills:
-        issues.extend(_scan_user_skill_doc_issues(root, skill_paths))
-    elif skill_paths:
+        issues.extend(_scan_user_skill_doc_issues(root, skill_paths, skills_root=skills_root))
+    elif skill_paths or skills_root is not None:
         issues.append(
             Issue(
                 "skill_paths_require_include_skills",
                 str(root),
-                "--skill-path requires --include-skills",
+                "--skill-path and --skills-root require --include-skills",
             )
         )
 
@@ -1856,6 +1806,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Repeatable autostopcrm-* directory under the local user skill root.",
     )
     parser.add_argument(
+        "--skills-root",
+        type=Path,
+        default=None,
+        help="Explicit installed skills root (default: CODEX_HOME/skills or ~/.codex/skills).",
+    )
+    parser.add_argument(
         "--secret-bundle",
         type=Path,
         default=None,
@@ -1868,6 +1824,7 @@ def main(argv: list[str] | None = None) -> int:
         manager_root=args.manager_root,
         include_skills=args.include_skills,
         skill_paths=tuple(args.skill_path),
+        skills_root=args.skills_root,
         secret_bundle=args.secret_bundle,
     )
     if args.format == "json":

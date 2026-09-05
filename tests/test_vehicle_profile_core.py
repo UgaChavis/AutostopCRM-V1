@@ -3,7 +3,6 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -20,6 +19,31 @@ from minimal_kanban.vehicle_profile import (  # noqa: E402
 
 
 class VehicleProfileCoreTests(unittest.TestCase):
+    def test_catalog_aliases_preserve_model_detection_without_inventing_specs(self) -> None:
+        service = VehicleProfileService()
+        for make, russian_make, alias, expected in (
+            ("SUZUKI", "СУЗУКИ", "SWIFT", "Swift"),
+            ("KIA", "КИА", "RIO", "Rio"),
+            ("TOYOTA", "ТОЙОТА", "CAMRY", "Camry"),
+            ("TOYOTA", "ТОЙОТА", "CAMRY 70", "Camry"),
+            ("TOYOTA", "ТОЙОТА", "XV70", "Camry"),
+            ("NISSAN", "НИССАН", "X-TRAIL", "X-Trail"),
+            ("NISSAN", "НИССАН", "XTRAIL", "X-Trail"),
+            ("NISSAN", "НИССАН", "T32", "X-Trail"),
+            ("LADA", "ЛАДА", "VESTA", "Vesta"),
+        ):
+            for text in (
+                f"{make} {alias}",
+                f"{make} {alias}".casefold(),
+                f"{russian_make} {alias}",
+            ):
+                with self.subTest(text=text):
+                    profile, _, _ = service._parse_text_payload(text)
+                    self.assertEqual(profile.model_display, expected)
+                    self.assertIsNone(profile.engine_displacement_l)
+                    self.assertEqual(profile.engine_code, "")
+                    self.assertEqual(service._detect_model_from_catalog(alias, "HONDA"), "")
+
     def test_numeric_normalizers_reject_non_finite_and_pathological_values(self) -> None:
         self.assertIsNone(normalize_vehicle_float("9" * 400))
         self.assertIsNone(normalize_vehicle_float("1e309"))
@@ -27,14 +51,6 @@ class VehicleProfileCoreTests(unittest.TestCase):
         self.assertIsNone(normalize_vehicle_int("9" * 20))
         self.assertEqual(normalize_source_confidence("nan"), 0.0)
         self.assertEqual(normalize_source_confidence(float("inf")), 0.0)
-
-    def test_service_normalizes_non_finite_and_boolean_timeouts(self) -> None:
-        service = VehicleProfileService(timeout_seconds=float("inf"))
-
-        self.assertEqual(service._timeout_seconds, 12.0)
-        self.assertEqual(VehicleProfileService(timeout_seconds=True)._timeout_seconds, 12.0)
-        self.assertIsNone(service._kw_or_hp_to_hp(None, "999999"))
-        self.assertEqual(service._kw_or_hp_to_hp(None, "100"), 134)
 
     def test_to_dict_normalizes_direct_dataclass_meta_values(self) -> None:
         profile = VehicleProfile(
@@ -67,114 +83,6 @@ class VehicleProfileCoreTests(unittest.TestCase):
         self.assertEqual(payload["field_sources"], {})
         self.assertEqual(payload["warnings"], ["duplicate warning"])
         self.assertEqual(compact["manual_fields"], ["vin", "make_display"])
-
-    def test_vin_enrichment_ignores_non_object_nhtsa_json(self) -> None:
-        class _Response:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, exc_type, exc, tb) -> None:
-                _ = (exc_type, exc, tb)
-
-            def raise_for_status(self) -> None:
-                return None
-
-            def iter_bytes(self, *, chunk_size=None):
-                _ = chunk_size
-                yield b"[]"
-
-        service = VehicleProfileService()
-        with patch(
-            "minimal_kanban.services.vehicle_profile_service.httpx.stream",
-            return_value=_Response(),
-        ):
-            self.assertIsNone(service._enrich_from_vin_decode("JSAZC72S001234567"))
-
-    def test_vin_enrichment_ignores_nonstandard_nhtsa_json_constants(self) -> None:
-        class _Response:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, exc_type, exc, tb) -> None:
-                _ = (exc_type, exc, tb)
-
-            def raise_for_status(self) -> None:
-                return None
-
-            def iter_bytes(self, *, chunk_size=None):
-                _ = chunk_size
-                yield b'{"Results":[{"Make":NaN}]}'
-
-        service = VehicleProfileService()
-        with patch(
-            "minimal_kanban.services.vehicle_profile_service.httpx.stream",
-            return_value=_Response(),
-        ):
-            self.assertIsNone(service._enrich_from_vin_decode("JSAZC72S001234567"))
-
-    def test_vin_enrichment_rejects_oversized_nhtsa_response(self) -> None:
-        class _Response:
-            chunk_size = 0
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, exc_type, exc, tb) -> None:
-                _ = (exc_type, exc, tb)
-
-            def raise_for_status(self) -> None:
-                return None
-
-            def iter_bytes(self, *, chunk_size=None):
-                self.chunk_size = int(chunk_size or 1)
-                yield b"x" * self.chunk_size
-
-        response = _Response()
-        service = VehicleProfileService()
-        with (
-            patch(
-                "minimal_kanban.services.vehicle_profile_service.NHTSA_VIN_RESPONSE_MAX_BYTES", 4
-            ),
-            patch(
-                "minimal_kanban.services.vehicle_profile_service.httpx.stream",
-                return_value=response,
-            ),
-        ):
-            self.assertIsNone(service._enrich_from_vin_decode("JSAZC72S001234567"))
-
-        self.assertEqual(response.chunk_size, 5)
-
-    def test_vin_enrichment_does_not_follow_redirects(self) -> None:
-        class _Response:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, exc_type, exc, tb) -> None:
-                _ = (exc_type, exc, tb)
-
-            def raise_for_status(self) -> None:
-                return None
-
-            def iter_bytes(self, *, chunk_size=None):
-                _ = chunk_size
-                yield (b'{"Results":[{"Make":"Toyota","Model":"Camry","ModelYear":"2020"}]}')
-
-        stream_kwargs: dict[str, object] = {}
-
-        def fake_stream(*args, **kwargs):
-            _ = args
-            stream_kwargs.update(kwargs)
-            return _Response()
-
-        service = VehicleProfileService()
-        with patch(
-            "minimal_kanban.services.vehicle_profile_service.httpx.stream",
-            side_effect=fake_stream,
-        ):
-            profile = service._enrich_from_vin_decode("JSAZC72S001234567")
-
-        self.assertIsNotNone(profile)
-        self.assertIs(stream_kwargs["follow_redirects"], False)
 
     def test_finalize_profile_metadata_rejects_non_finite_confidence(self) -> None:
         service = VehicleProfileService()

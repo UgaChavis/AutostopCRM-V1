@@ -1,13 +1,8 @@
 from __future__ import annotations
 
-import json
-import math
 import re
 from copy import deepcopy
-from dataclasses import dataclass, field
 from typing import Any
-
-import httpx
 
 from ..models import CARD_DESCRIPTION_LIMIT, CARD_TITLE_LIMIT, normalize_text
 from ..vehicle_profile import (
@@ -45,14 +40,6 @@ _MAKE_ALIASES: dict[str, tuple[str, ...]] = {
     "AUDI": ("AUDI", "АУДИ"),
     "LEXUS": ("LEXUS", "ЛЕКСУС"),
 }
-
-NHTSA_VIN_RESPONSE_MAX_BYTES = 1 * 1024 * 1024
-VEHICLE_PROFILE_HTTP_TIMEOUT_MAX_SECONDS = 60.0
-
-
-def _reject_json_constant(value: str) -> None:
-    raise ValueError(f"Unsupported JSON constant: {value}")
-
 
 _GEARBOX_PATTERNS: tuple[tuple[str, str], ...] = (
     ("CVT", r"\bCVT\b|ВАРИАТОР"),
@@ -141,198 +128,16 @@ _PROBLEM_MARKER_PATTERN = re.compile(
 )
 
 
-@dataclass(frozen=True, slots=True)
-class VehicleCatalogEntry:
-    key: str
-    make_display: str
-    model_display: str
-    year_from: int
-    year_to: int
-    model_aliases: tuple[str, ...]
-    base_fields: dict[str, Any] = field(default_factory=dict)
-    detailed_fields: dict[str, Any] = field(default_factory=dict)
-    engine_codes: tuple[str, ...] = field(default_factory=tuple)
-    engine_models: tuple[str, ...] = field(default_factory=tuple)
-    displacements_l: tuple[float, ...] = field(default_factory=tuple)
-    source_ref: str = ""
-
-
-_CATALOG_ENTRIES: tuple[VehicleCatalogEntry, ...] = (
-    VehicleCatalogEntry(
-        key="suzuki_swift_azg_k12b",
-        make_display="Suzuki",
-        model_display="Swift",
-        year_from=2011,
-        year_to=2016,
-        model_aliases=("SWIFT",),
-        base_fields={
-            "generation_or_platform": "AZG / ZC72S",
-            "fuel_type": "gasoline",
-            "wheel_bolt_pattern": "4x100",
-            "brake_front_type": "disc",
-            "brake_rear_type": "drum",
-            "steering_system_type": "electric power steering",
-            "oem_notes": "Компактный городской хэтчбек. Точные жидкости зависят от двигателя и коробки.",
-        },
-        detailed_fields={
-            "engine_code": "K12B",
-            "engine_model": "K12B",
-            "engine_displacement_l": 1.2,
-            "engine_power_hp": 94,
-            "gearbox_type": "automatic",
-            "drivetrain": "FWD",
-            "oil_engine_capacity_l": 3.7,
-            "coolant_capacity_l": 5.2,
-        },
-        engine_codes=("K12B",),
-        engine_models=("K12B",),
-        displacements_l=(1.2,),
-        source_ref="catalog:minimal_kanban/suzuki_swift_azg_k12b",
-    ),
-    VehicleCatalogEntry(
-        key="kia_rio_qb_g4fc",
-        make_display="Kia",
-        model_display="Rio",
-        year_from=2015,
-        year_to=2020,
-        model_aliases=("RIO",),
-        base_fields={
-            "generation_or_platform": "QB / FB",
-            "fuel_type": "gasoline",
-            "wheel_bolt_pattern": "4x100",
-            "brake_front_type": "ventilated disc",
-            "brake_rear_type": "disc/drum by trim",
-            "steering_system_type": "electric power steering",
-        },
-        detailed_fields={
-            "engine_code": "G4FC",
-            "engine_model": "Gamma 1.6 MPI",
-            "engine_displacement_l": 1.6,
-            "engine_power_hp": 123,
-            "gearbox_type": "automatic",
-            "drivetrain": "FWD",
-            "oil_engine_capacity_l": 3.6,
-            "oil_gearbox_capacity_l": 6.7,
-            "coolant_capacity_l": 5.7,
-        },
-        engine_codes=("G4FC",),
-        engine_models=("GAMMA 1.6 MPI", "G4FC"),
-        displacements_l=(1.6,),
-        source_ref="catalog:minimal_kanban/kia_rio_qb_g4fc",
-    ),
-    VehicleCatalogEntry(
-        key="toyota_camry_xv70_a25a",
-        make_display="Toyota",
-        model_display="Camry",
-        year_from=2018,
-        year_to=2024,
-        model_aliases=("CAMRY", "CAMRY 70", "XV70"),
-        base_fields={
-            "generation_or_platform": "XV70",
-            "fuel_type": "gasoline",
-            "wheel_bolt_pattern": "5x114.3",
-            "brake_front_type": "ventilated disc",
-            "brake_rear_type": "disc",
-            "steering_system_type": "electric power steering",
-        },
-        detailed_fields={
-            "engine_code": "A25A-FKS",
-            "engine_model": "Dynamic Force 2.5",
-            "engine_displacement_l": 2.5,
-            "engine_power_hp": 200,
-            "gearbox_type": "automatic",
-            "gearbox_model": "UA80E",
-            "drivetrain": "FWD",
-            "oil_engine_capacity_l": 4.5,
-            "oil_gearbox_capacity_l": 8.2,
-            "coolant_capacity_l": 6.2,
-        },
-        engine_codes=("A25A-FKS",),
-        engine_models=("A25A-FKS", "DYNAMIC FORCE 2.5"),
-        displacements_l=(2.5,),
-        source_ref="catalog:minimal_kanban/toyota_camry_xv70_a25a",
-    ),
-    VehicleCatalogEntry(
-        key="nissan_xtrail_t32_mr20",
-        make_display="Nissan",
-        model_display="X-Trail",
-        year_from=2014,
-        year_to=2021,
-        model_aliases=("X-TRAIL", "XTRAIL", "T32"),
-        base_fields={
-            "generation_or_platform": "T32",
-            "fuel_type": "gasoline",
-            "wheel_bolt_pattern": "5x114.3",
-            "brake_front_type": "ventilated disc",
-            "brake_rear_type": "disc",
-            "steering_system_type": "electric power steering",
-        },
-        detailed_fields={
-            "engine_code": "MR20DD",
-            "engine_model": "MR20DD",
-            "engine_displacement_l": 2.0,
-            "engine_power_hp": 144,
-            "gearbox_type": "CVT",
-            "gearbox_model": "JF016E",
-            "drivetrain": "AWD",
-            "oil_engine_capacity_l": 4.4,
-            "oil_gearbox_capacity_l": 7.2,
-            "coolant_capacity_l": 7.1,
-        },
-        engine_codes=("MR20DD",),
-        engine_models=("MR20DD",),
-        displacements_l=(2.0,),
-        source_ref="catalog:minimal_kanban/nissan_xtrail_t32_mr20",
-    ),
-    VehicleCatalogEntry(
-        key="lada_vesta_21129",
-        make_display="Lada",
-        model_display="Vesta",
-        year_from=2016,
-        year_to=2024,
-        model_aliases=("VESTA",),
-        base_fields={
-            "generation_or_platform": "2180",
-            "fuel_type": "gasoline",
-            "wheel_bolt_pattern": "4x100",
-            "brake_front_type": "ventilated disc",
-            "brake_rear_type": "drum/disc by trim",
-            "steering_system_type": "electric power steering",
-        },
-        detailed_fields={
-            "engine_code": "21129",
-            "engine_model": "VAZ-21129",
-            "engine_displacement_l": 1.6,
-            "engine_power_hp": 106,
-            "gearbox_type": "manual",
-            "drivetrain": "FWD",
-            "oil_engine_capacity_l": 4.4,
-            "coolant_capacity_l": 7.8,
-        },
-        engine_codes=("21129", "VAZ-21129"),
-        engine_models=("VAZ-21129", "21129"),
-        displacements_l=(1.6,),
-        source_ref="catalog:minimal_kanban/lada_vesta_21129",
-    ),
+_MODEL_ALIASES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("Suzuki", "Swift", ("SWIFT",)),
+    ("Kia", "Rio", ("RIO",)),
+    ("Toyota", "Camry", ("CAMRY", "CAMRY 70", "XV70")),
+    ("Nissan", "X-Trail", ("X-TRAIL", "XTRAIL", "T32")),
+    ("Lada", "Vesta", ("VESTA",)),
 )
 
 
-def _normalize_timeout_seconds(value: Any, *, default: float = 12.0) -> float:
-    if isinstance(value, bool):
-        return default
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError, OverflowError):
-        return default
-    if not math.isfinite(parsed):
-        return default
-    return min(max(parsed, 1.0), VEHICLE_PROFILE_HTTP_TIMEOUT_MAX_SECONDS)
-
-
 class VehicleProfileService:
-    def __init__(self, *, timeout_seconds: float = 12.0) -> None:
-        self._timeout_seconds = _normalize_timeout_seconds(timeout_seconds)
-
     def normalize_profile_payload(
         self,
         raw_profile: Any,
@@ -718,104 +523,11 @@ class VehicleProfileService:
 
         return profile, {"title": title_candidate, "description": description_candidate}, warnings
 
-    def _enrich_from_vin_decode(self, vin: str) -> VehicleProfile | None:
-        normalized_vin = soft_normalize_vin(vin)
-        if len(normalized_vin) != 17:
-            return None
-        url = f"https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValuesExtended/{normalized_vin}?format=json"
-        try:
-            with httpx.stream(
-                "GET", url, timeout=self._timeout_seconds, follow_redirects=False
-            ) as response:
-                response.raise_for_status()
-                payload = json.loads(
-                    self._read_response_text(response, max_bytes=NHTSA_VIN_RESPONSE_MAX_BYTES),
-                    parse_constant=_reject_json_constant,
-                )
-        except Exception:
-            return None
-        if not isinstance(payload, dict):
-            return None
-        results = payload.get("Results")
-        if not isinstance(results, list) or not results:
-            return None
-        record = results[0] if isinstance(results[0], dict) else {}
-        profile = VehicleProfile(
-            make_display=self._title_case(record.get("Make")),
-            model_display=normalize_vehicle_text(record.get("Model")),
-            generation_or_platform=self._join_non_empty(
-                [record.get("Series"), record.get("Trim")], separator=" / "
-            ),
-            production_year=normalize_vehicle_int(record.get("ModelYear")),
-            vin=normalized_vin,
-            engine_code=normalize_vehicle_text(record.get("EngineModel")),
-            engine_model=normalize_vehicle_text(record.get("EngineModel")),
-            engine_displacement_l=normalize_vehicle_float(record.get("DisplacementL")),
-            engine_power_hp=self._kw_or_hp_to_hp(record.get("EngineHP"), record.get("EngineKW")),
-            gearbox_type=normalize_vehicle_text(record.get("TransmissionStyle"), limit=40),
-            gearbox_model=normalize_vehicle_text(record.get("TransmissionSpeeds"), limit=40),
-            drivetrain=normalize_vehicle_text(record.get("DriveType"), limit=40),
-            fuel_type=normalize_vehicle_text(record.get("FuelTypePrimary"), limit=40),
-            source_summary="Official VIN decode via NHTSA vPIC",
-            source_confidence=0.88,
-            source_links_or_refs=[url],
-            data_completion_state="mostly_autofilled",
-            raw_input_text="",
-            image_parse_status="not_attempted",
-        )
-        profile.autofilled_fields = sorted(
-            field_name
-            for field_name in (
-                "make_display",
-                "model_display",
-                "generation_or_platform",
-                "production_year",
-                "vin",
-                "engine_code",
-                "engine_model",
-                "engine_displacement_l",
-                "engine_power_hp",
-                "gearbox_type",
-                "gearbox_model",
-                "drivetrain",
-                "fuel_type",
-            )
-            if not self._is_empty_vehicle_value(getattr(profile, field_name))
-        )
-        profile.field_sources = {
-            field_name: "official_vin_decode_nhtsa" for field_name in profile.autofilled_fields
-        }
-        return profile if not profile.is_empty() else None
-
-    def _read_response_text(
-        self, response: httpx.Response, *, max_bytes: int = NHTSA_VIN_RESPONSE_MAX_BYTES
-    ) -> str:
-        chunks: list[bytes] = []
-        total = 0
-        for chunk in response.iter_bytes(chunk_size=max_bytes + 1):
-            if not chunk:
-                continue
-            total += len(chunk)
-            if total > max_bytes:
-                raise ValueError(f"NHTSA response is too large ({max_bytes} byte limit)")
-            chunks.append(chunk)
-        return b"".join(chunks).decode("utf-8", errors="replace")
-
     def _extract_capacity(self, pattern: re.Pattern[str], text: str) -> float | None:
         match = pattern.search(text)
         if not match:
             return None
         return normalize_vehicle_float(match.group(1))
-
-    def _kw_or_hp_to_hp(self, hp_value: Any, kw_value: Any) -> int | None:
-        hp = normalize_vehicle_int(hp_value)
-        if hp:
-            return hp
-        kw = normalize_vehicle_float(kw_value)
-        if not kw:
-            return None
-        hp_from_kw = int(round(kw * 1.34102))
-        return hp_from_kw if 0 < hp_from_kw <= 3000 else None
 
     def _display_make(self, make: str) -> str:
         normalized = normalize_vehicle_text(make)
@@ -825,12 +537,12 @@ class VehicleProfileService:
 
     def _detect_model_from_catalog(self, text: str, detected_make: str) -> str:
         upper_text = text.upper()
-        for entry in _CATALOG_ENTRIES:
-            if detected_make and self._slug(entry.make_display) != self._slug(detected_make):
+        for make, model, aliases in _MODEL_ALIASES:
+            if detected_make and self._slug(make) != self._slug(detected_make):
                 continue
-            for alias in entry.model_aliases:
+            for alias in aliases:
                 if re.search(rf"\b{re.escape(alias)}\b", upper_text, re.IGNORECASE):
-                    return normalize_vehicle_text(entry.model_display)
+                    return normalize_vehicle_text(model)
         return ""
 
     def _detect_model_from_make_alias(self, text: str, detected_make: str) -> str:
@@ -1039,11 +751,6 @@ class VehicleProfileService:
             base = max(base, 0.95)
         return round(max(0.0, min(1.0, base)), 2)
 
-    def _join_non_empty(self, values: list[Any], *, separator: str = " ") -> str:
-        normalized = [normalize_vehicle_text(value, limit=80) for value in values]
-        normalized = [value for value in normalized if value]
-        return separator.join(normalized)
-
     def _normalize_warnings(self, values: list[str]) -> list[str]:
         warnings: list[str] = []
         for raw in values:
@@ -1054,10 +761,6 @@ class VehicleProfileService:
 
     def _slug(self, value: str) -> str:
         return re.sub(r"[^a-z0-9а-яё]+", " ", str(value or "").strip().casefold()).strip()
-
-    def _title_case(self, value: Any) -> str:
-        text = normalize_vehicle_text(value)
-        return text.title() if text else ""
 
     def _is_empty_vehicle_value(self, value: Any) -> bool:
         return value in (None, "", [], {}, ())

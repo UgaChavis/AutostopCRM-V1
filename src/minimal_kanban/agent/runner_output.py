@@ -127,27 +127,6 @@ class AgentRunnerOutputMixin:
             return data
         return payload
 
-    def _response_meta(self, payload: Any) -> dict[str, Any]:
-        if not isinstance(payload, dict):
-            return {}
-        meta = payload.get("meta")
-        return meta if isinstance(meta, dict) else {}
-
-    def _tool_payload_error_code(self, payload: Any) -> str:
-        data = self._response_data(payload)
-        meta = self._response_meta(payload)
-        return str(meta.get("error_code") or data.get("error_code") or "").strip().lower()
-
-    def _is_partial_tool_payload(self, payload: Any) -> bool:
-        if not isinstance(payload, dict):
-            return False
-        data = self._response_data(payload)
-        meta = self._response_meta(payload)
-        return bool(meta.get("partial") or data.get("partial"))
-
-    def _is_budget_exceeded_payload(self, payload: Any) -> bool:
-        return self._tool_payload_error_code(payload) == "external_budget_exceeded"
-
     def _record_action(
         self,
         *,

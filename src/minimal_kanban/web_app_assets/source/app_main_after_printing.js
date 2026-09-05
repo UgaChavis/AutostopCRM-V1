@@ -859,9 +859,8 @@
 
     function refreshVehiclePanel() {
       const profile = cloneVehicleProfile(state.vehicleProfileDraft || emptyVehicleProfile());
-      const summaryLines = [];
-      els.vehiclePanelSummary.textContent = summaryLines.join('\n');
-      els.vehiclePanelSummary.style.display = summaryLines.length ? '' : 'none';
+      els.vehiclePanelSummary.textContent = '';
+      els.vehiclePanelSummary.style.display = 'none';
 
       const vinInput = getVehicleFieldInput('vin');
       if (vinInput) vinInput.classList.toggle('vehicle-suspect', vinLooksSuspicious(profile.vin));

@@ -20,6 +20,7 @@ versions
 backups
 tmp
 tests
+tools/codex
 data
 .codex-remote-attachments
 scripts/*.example

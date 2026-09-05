@@ -1,78 +1,15 @@
-# 013. Вынести payroll calculators и reconciliation
+# 013. Payroll calculations
 
-Приоритет: P1
-Этап: 1
-Оценка: 8–12 дней
-Риск реализации: высокий
-Статус: ready после 001 и 012; coverage обеспечивается текущими gates
+Payroll calculations, salary ledger, reconciliation and reports should share
+formulas and make state I/O distinguishable from calculation. A previous file
+extraction did not itself reduce total complexity; judge changes by actual
+responsibility, duplication and measured cost.
 
-## Результат
+Preserve minor units/Decimal, ROUND_HALF_UP, deterministic cent balancing and
+legacy normalization. Presentation rounding must not alter ledger values.
+Keep revision checks and posting/reversal behavior.
 
-Payroll-расчёты, reconciliation и report aggregation отделены от state I/O.
-Mutation services сначала строят детерминированный plan, затем применяют его.
-
-## Доказательства
-
-Current family:
-
-- `CardServicePayrollMixin` — 4 266 строк / 84 methods (module 4 467);
-- `card_service_salary_ledger.py` — 993 строки; вынесенный
-  `_build_employee_salary_ledger` всё ещё 438 строк, complexity 52 и 60 branches;
-- reconciliation complexity 42, report builder complexity 33;
-- предыдущее выделение уменьшило один модуль, но не снизило суммарную сложность
-  payroll family; следующий срез обязан уменьшить builder cap, а не только
-  переместить строки.
-
-## Scope
-
-1. Pure calculators принимают immutable snapshots и возвращают typed result:
-   lines, totals, issues, proposed postings/reversals.
-2. Отдельный applier проверяет expected revisions и пишет bundle один раз.
-3. Общие money/rounding/sign helpers не дублируются.
-4. Payroll reports используют calculator result, а не повторяют формулу.
-5. Finance audit/safe fixes остаются за отдельной задачей 019.
-
-## TDD-план
-
-Golden fixtures без персональных production данных:
-
-- hourly/piecework/material/shift/manual accruals;
-- reopen/reclose reversal;
-- salary policy migration;
-- negative/zero/boundary cents;
-- timezone/month boundary;
-- legacy missing snapshots;
-- order independence/permutation invariants;
-- sum(lines) == totals and journal balance invariants.
-
-Добавить property-style loops стандартным unittest; внешний Hypothesis только
-если несколько конкретных багов докажут его ценность.
-
-## Подводные камни
-
-- Decimal/minor units не смешивать с float.
-- ROUND_HALF_UP и deterministic cent balancing сохранить.
-- Report presentation rounding не менять ledger.
-- Legacy records с отсутствующими fields должны нормализоваться до расчёта.
-- Plan должен исключать actor PII и secret data.
-
-## Acceptance criteria
-
-- Core calculators не читают/пишут store и не используют current time без
-  аргумента clock.
-- Existing totals/fixtures byte-equivalent.
-- Mutation applier делает один controlled commit.
-- Complexity/length ключевых builders заметно снижены; exemptions ratcheted.
-- Payroll audit scripts и full suite проходят.
-
-## Проверки
-
-`python -m unittest tests.test_payroll_audit_report tests.test_payroll_policy_2026_07_13 tests.test_payroll_snapshot_preservation tests.test_payroll_unaccrued_work_rows tests.test_repair_order_payroll_accruals tests.test_repair_order_reopen -v`
-`python scripts/payroll_audit_report.py --help`
-[канонический Stage-1 performance gate](../docs/OPERATIONS_RUNBOOK.md#performance-smoke)
-
-## Stop condition
-
-Если golden fixture расходится с текущим behavior, сначала определить:
-регрессия это или известная ошибка. Нельзя менять expected totals в cleanup
-commit без owner-reviewed finance defect.
+Validate hourly/piecework/material/shift/manual accruals, reopen/reclose,
+missing snapshots, negative/zero/boundary amounts, timezone/month boundaries,
+order independence and line-total/journal balance. Real financial data repair
+is outside code cleanup; investigate differences before replacing expectations.

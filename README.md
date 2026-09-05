@@ -16,6 +16,9 @@ Use current code and focused checks first:
 - [MCP guide](MCP_GUIDE.md) — Gateway v2, Store boundary, and action guards;
 - [ChatGPT/Responses compatibility](CHATGPT_CONNECTOR_SETUP.md) — OAuth setup.
 
+The single [CRM development skill](tools/codex/skills/autostopcrm-maintain/SKILL.md)
+is versioned here; the runbook describes checking or installing its local copy.
+
 Generated builds, release copies, screenshots, private bundles, and old plans
 are not sources of truth. For production, use the runbook to compare local,
 remote, and server revisions and verify live health.

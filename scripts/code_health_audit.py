@@ -18,7 +18,7 @@ MAX_PY_MODULE_LINES = 2500
 MAX_TEST_MODULE_LINES = 3000
 MAX_CLASS_LINES = 2500
 MAX_FUNCTION_LINES = 450
-EXPECTED_SIZE_EXEMPTION_COUNT = 34
+EXPECTED_SIZE_EXEMPTION_COUNT = 33
 
 
 @dataclass(frozen=True)
@@ -53,7 +53,7 @@ ALLOWED_LARGE_MODULES = {
         "raw readback verifier split target", 1464, 1464, "009"
     ),
     "src/minimal_kanban/services/card_service.py": RatchetBudget(
-        "domain facade split target", 11627, 11627, "012"
+        "domain facade split target", 11494, 11494, "012"
     ),
     "src/minimal_kanban/services/card_service_finance.py": RatchetBudget(
         "finance domain split target", 3048, 3048, "019"
@@ -65,7 +65,7 @@ ALLOWED_LARGE_MODULES = {
         "snapshot serialization split target", 2879, 2879, "018"
     ),
     "src/minimal_kanban/agent/runner.py": RatchetBudget(
-        "autonomous agent orchestration boundary", 3682, 3682, "206"
+        "autonomous agent orchestration boundary", 2633, 2633, "206"
     ),
     "src/minimal_kanban/mcp/server.py": RatchetBudget(
         "MCP registry split target", 3514, 3514, "008"
@@ -95,7 +95,7 @@ ALLOWED_LARGE_CLASSES = {
         "print rendering and draft-store split target", 2831, 2831, "014"
     ),
     "src/minimal_kanban/services/card_service.py:CardService": RatchetBudget(
-        "domain facade split target", 11122, 11122, "012"
+        "domain facade split target", 10990, 10990, "012"
     ),
     "src/minimal_kanban/services/card_service_payroll.py:CardServicePayrollMixin": RatchetBudget(
         "payroll domain split target", 4266, 4266, "013"
@@ -105,9 +105,6 @@ ALLOWED_LARGE_CLASSES = {
     ),
     "src/minimal_kanban/services/snapshot_service.py:SnapshotService": RatchetBudget(
         "snapshot serialization split target", 2574, 2574, "018"
-    ),
-    "src/minimal_kanban/agent/runner.py:AgentRunner": RatchetBudget(
-        "autonomous agent orchestration boundary", 3462, 3462, "206"
     ),
     "tests/test_api.py:ApiServerTests": RatchetBudget(
         "legacy broad API coverage pending route split", 7259, 7259, "003"
@@ -211,6 +208,7 @@ TRACKED_FILE_ROLES = frozenset(
         "test",
         "config_deploy",
         "technical_debt_task",
+        "agent_skill",
     }
 )
 
@@ -288,6 +286,8 @@ def classify_repository_file(path: str) -> TrackedFileClassification:
         role = "canonical_doc"
     elif normalized.startswith("tech_debt/") and normalized.endswith(".md"):
         role = "technical_debt_task"
+    elif normalized.startswith("tools/codex/skills/autostopcrm-maintain/"):
+        role = "agent_skill"
     elif normalized in DEPENDENCY_MANIFESTS:
         role = "manifest"
     elif normalized.startswith("tests/"):

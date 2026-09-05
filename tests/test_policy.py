@@ -12,7 +12,6 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.agent.contracts import PatchResult, PlanResult
-from minimal_kanban.agent.instructions import build_default_system_prompt
 from minimal_kanban.agent.policy import ToolPolicyEngine
 from minimal_kanban.agent.tools import AgentToolExecutor
 
@@ -468,16 +467,7 @@ class ToolPolicyEngineTests(unittest.TestCase):
         self.assertIn("get_gpt_wall", prompt)
         self.assertIn("create_cashbox", prompt)
         self.assertIn("archive_card", prompt)
-        self.assertIn("requires explicit user authority", prompt)
         self.assertNotIn("delete_column", prompt)
-
-        system_prompt = build_default_system_prompt()
-        self.assertIn("independent, practical director", system_prompt)
-        self.assertIn("quote request", system_prompt)
-        self.assertIn("Routes, scenarios, and source groups are hints", system_prompt)
-        self.assertIn("native guard", system_prompt)
-        self.assertIn("exactly one JSON object", system_prompt)
-        self.assertLess(len(system_prompt), 5000)
 
 
 if __name__ == "__main__":

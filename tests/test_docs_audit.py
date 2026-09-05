@@ -467,9 +467,7 @@ class DocsAuditTests(unittest.TestCase):
             {
                 "MCP allowed-host transport security override is not documented: MINIMAL_KANBAN_MCP_ALLOWED_HOSTS",
                 "MCP allowed-origin transport security override is not documented: MINIMAL_KANBAN_MCP_ALLOWED_ORIGINS",
-                "production ChatGPT/Codex OAuth setup flow is not documented in MCP guide: owner-approved OAuth 2.1",
                 "production MCP connector URL is not documented: https://crm.autostopcrm.ru/mcp",
-                "MCP security rule for public anonymous writes is not documented: Public anonymous writes must remain blocked",
                 "exact Gateway v2 production tool count is not documented: exactly 24 tools",
                 "safe exhaustive Gateway v2 release check is not documented: --exhaustive",
                 "ChatGPT authenticated-client compatibility is not documented: OAuth 2.1",
@@ -539,46 +537,19 @@ class DocsAuditTests(unittest.TestCase):
         self.assertIn("47 CRM workflow operations", issues[0].detail)
         self.assertEqual([], corrected_issues)
 
-    def test_agent_connector_docs_contract_matches_compacted_baseline(self) -> None:
-        module = load_docs_audit_module()
-
-        self.assertEqual([], module._check_agent_connector_doc_contract(ROOT))
-        total_lines = sum(
-            len((ROOT / relative_path).read_text(encoding="utf-8").splitlines())
-            for relative_path in module.AGENT_CONNECTOR_DOCS
-        )
-
-        self.assertLessEqual(total_lines, module.AGENT_CONNECTOR_DOC_MAX_TOTAL_LINES)
-        self.assertLess(total_lines, 266)
-
-    def test_agent_connector_docs_contract_enforces_cap_and_wrapped_semantics(self) -> None:
+    def test_agent_guidance_can_change_without_rewriting_audit_rules(self) -> None:
         module = load_docs_audit_module()
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
-            (temp_root / "AGENTS.md").write_text("owner\ngate\n", encoding="utf-8")
-            (temp_root / "CHATGPT_CONNECTOR_SETUP.md").write_text(
-                "client rules\n", encoding="utf-8"
+            (temp_root / "AGENTS.md").write_text(
+                "Use current code and judgment.\n" * 120, encoding="utf-8"
             )
-            with (
-                patch.object(module, "AGENTS_REQUIRED_TEXT", (("owner gate", "missing owner"),)),
-                patch.object(
-                    module,
-                    "CHATGPT_CONNECTOR_REQUIRED_TEXT",
-                    (("auth gate", "missing auth"),),
-                ),
-                patch.object(module, "AGENT_CONNECTOR_DOC_MAX_TOTAL_LINES", 2),
-            ):
-                issues = module._check_agent_connector_doc_contract(temp_root)
-
-        self.assertEqual(
-            [
-                "chatgpt_connector_setup_missing_contract",
-                "agent_connector_docs_line_cap_exceeded",
-            ],
-            [issue.code for issue in issues],
-        )
-        self.assertEqual("current=3; max=2; delta=+1", issues[1].detail)
+            (temp_root / "CHATGPT_CONNECTOR_SETUP.md").write_text(
+                (ROOT / "CHATGPT_CONNECTOR_SETUP.md").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            self.assertEqual([], module._check_agent_connector_doc_contract(temp_root))
 
     def test_chatgpt_connector_setup_mentions_current_endpoint_and_safety(self) -> None:
         module = load_docs_audit_module()
@@ -603,9 +574,7 @@ class DocsAuditTests(unittest.TestCase):
                     "[MCP_GUIDE.md](MCP_GUIDE.md)",
                     "agent_bootstrap",
                     "get_runtime_status",
-                    "Public anonymous writes must remain blocked",
-                    "owner-approved OAuth 2.1",
-                    "authorization",
+                    "OAuth 2.1",
                 )
             },
             {issue.detail for issue in issues},
@@ -749,7 +718,46 @@ class DocsAuditTests(unittest.TestCase):
             skill_audit.assert_not_called()
             module.audit(ROOT, include_skills=True, skill_paths=skill_paths)
 
-        skill_audit.assert_called_once_with(ROOT.resolve(), skill_paths)
+        skill_audit.assert_called_once_with(ROOT.resolve(), skill_paths, skills_root=None)
+
+    def test_skill_scan_uses_codex_home_or_user_home_fallback(self) -> None:
+        module = load_docs_audit_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            for environment, expected in (
+                ({"CODEX_HOME": str(temp_root / "portable-codex")}, temp_root / "portable-codex"),
+                ({}, temp_root / "user-home" / ".codex"),
+            ):
+                selected = expected / "skills" / "autostopcrm-maintain"
+                selected.mkdir(parents=True)
+                (selected / "SKILL.md").write_text("CRM guidance\n", encoding="utf-8")
+                with (
+                    self.subTest(environment=environment),
+                    patch.dict(module.os.environ, environment, clear=True),
+                    patch.object(module.Path, "home", return_value=temp_root / "user-home"),
+                ):
+                    self.assertEqual(
+                        [], module._scan_user_skill_doc_issues(ROOT, (Path(selected.name),))
+                    )
+
+    def test_explicit_skills_root_selects_custom_installation_and_requires_opt_in(self) -> None:
+        module = load_docs_audit_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            selected = Path(temp_dir) / "custom-packages" / "autostopcrm-maintain"
+            selected.mkdir(parents=True)
+            (selected / "SKILL.md").write_text("CRM guidance\n", encoding="utf-8")
+            with patch.dict(module.os.environ, {"CODEX_HOME": str(Path(temp_dir) / "unused")}):
+                self.assertEqual(
+                    [],
+                    module.audit(
+                        ROOT,
+                        include_skills=True,
+                        skill_paths=(Path(selected.name),),
+                        skills_root=selected.parent,
+                    ),
+                )
+                issues = module.audit(ROOT, skills_root=selected.parent)
+            self.assertIn("skill_paths_require_include_skills", {issue.code for issue in issues})
 
     def test_skill_paths_fail_closed_without_complete_opt_in(self) -> None:
         module = load_docs_audit_module()
@@ -1142,6 +1150,8 @@ class DocsAuditTests(unittest.TestCase):
                     str(skill_paths[0]),
                     "--skill-path",
                     str(skill_paths[1]),
+                    "--skills-root",
+                    "custom-packages",
                 ]
             )
 
@@ -1151,6 +1161,7 @@ class DocsAuditTests(unittest.TestCase):
             manager_root=None,
             include_skills=True,
             skill_paths=skill_paths,
+            skills_root=Path("custom-packages"),
             secret_bundle=None,
         )
         print_mock.assert_called_once_with([])

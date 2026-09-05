@@ -44,6 +44,30 @@ jobs:
               test ! -e /app/output/docker-context-probe/ignored.png
             '
 
+      - name: Verify packaged agent browser
+        run: |
+          docker run --rm -i --entrypoint python "autostopcrm-ci:${GITHUB_SHA}" - <<'PY'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, "/app/src")
+          sys.path.insert(0, "/app/scripts")
+          from playwright.sync_api import sync_playwright
+          from browser_smoke_profiles import _probe_chromium
+          from minimal_kanban.agent.web_tools import DuckDuckGoSearchClient
+
+          assert not list(Path("/ms-playwright").glob("chromium-[0-9]*"))
+          assert _probe_chromium(), "packaged headless browser must pass preflight"
+          with sync_playwright() as playwright:
+              browser = DuckDuckGoSearchClient()._launch_chromium(playwright)
+              try:
+                  page = browser.new_page()
+                  page.set_content("<title>CRM runtime</title><h1>Ready</h1>")
+                  assert page.title() == "CRM runtime"
+                  assert page.locator("h1").inner_text() == "Ready"
+              finally:
+                  browser.close()
+          PY
+
   quality:
     runs-on: ubuntu-latest
     timeout-minutes: 30

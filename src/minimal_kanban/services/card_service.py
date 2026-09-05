@@ -31,7 +31,6 @@ from ..models import (
     CARD_MANUAL_TAG_LIMIT,
     CARD_TITLE_LIMIT,
     CARD_VEHICLE_LIMIT,
-    COLUMN_LABEL_LIMIT,
     COUNTER_MAX_VALUE,
     DEFAULT_DEADLINE_TOTAL_SECONDS,
     MAX_ATTACHMENT_SIZE_BYTES,
@@ -3312,68 +3311,12 @@ class CardService(
             )
 
     def replace_repair_order_works(self, payload: dict | None = None) -> dict:
-        with self._lock:
-            payload = payload or {}
-            rows = self._validated_repair_order_rows(payload.get("rows"), field_name="rows")
-            bundle = self._store.read_bundle()
-            cards = bundle["cards"]
-            events = bundle["events"]
-            columns = bundle["columns"]
-            card = self._find_card(cards, payload.get("card_id"))
-            self._ensure_not_archived(card)
-            if card.repair_order.status == REPAIR_ORDER_STATUS_CLOSED:
-                self._fail(
-                    "repair_order_closed_read_only",
-                    "Закрытый заказ-наряд сначала нужно вернуть в работу.",
-                    status_code=409,
-                    details={"card_id": card.id},
-                )
-            actor_name, source = self._audit_identity(payload, default_source="api")
-            next_payload = self._merged_repair_order_storage(
-                card.repair_order.to_storage_dict(),
-                {"works": rows},
-            )
-            changed = self._update_repair_order(
-                card,
-                cards,
-                next_payload,
-                events,
-                actor_name,
-                source,
-                cashboxes=bundle["cashboxes"],
-                cash_transactions=bundle["cash_transactions"],
-                settings=bundle["settings"],
-                operator_session=payload.get("_operator_session"),
-            )
-            numbering_changed = self._synchronize_repair_order_numbers(cards)
-            if changed or numbering_changed:
-                self._touch_card(card, actor_name)
-                self._refresh_card_ai_fingerprint_if_agent_changed(card, actor_name, source)
-                if self._card_has_repair_order(card):
-                    self._ensure_repair_order_text_file(card, force=True)
-                self._save_bundle(
-                    bundle,
-                    columns=columns,
-                    cards=cards,
-                    cashboxes=bundle["cashboxes"],
-                    cash_transactions=bundle["cash_transactions"],
-                    events=events,
-                )
-            return {
-                "repair_order": card.repair_order.to_dict(),
-                "card": self._serialize_card(
-                    card,
-                    events,
-                    column_labels=self._column_labels(columns),
-                    viewer_username=actor_name,
-                ),
-                "meta": {
-                    "changed": changed or numbering_changed,
-                    "rows": len(card.repair_order.works),
-                },
-            }
+        return self._replace_repair_order_rows(payload, field="works")
 
     def replace_repair_order_materials(self, payload: dict | None = None) -> dict:
+        return self._replace_repair_order_rows(payload, field="materials")
+
+    def _replace_repair_order_rows(self, payload: dict | None, *, field: str) -> dict:
         with self._lock:
             payload = payload or {}
             rows = self._validated_repair_order_rows(payload.get("rows"), field_name="rows")
@@ -3393,7 +3336,7 @@ class CardService(
             actor_name, source = self._audit_identity(payload, default_source="api")
             next_payload = self._merged_repair_order_storage(
                 card.repair_order.to_storage_dict(),
-                {"materials": rows},
+                {field: rows},
             )
             changed = self._update_repair_order(
                 card,
@@ -3431,7 +3374,7 @@ class CardService(
                 ),
                 "meta": {
                     "changed": changed or numbering_changed,
-                    "rows": len(card.repair_order.materials),
+                    "rows": len(getattr(card.repair_order, field)),
                 },
             }
 
@@ -11007,39 +10950,6 @@ class CardService(
             return None
         return self._validated_column(value, columns)
 
-    def _validated_column_label(
-        self,
-        value,
-        columns: list[Column],
-        *,
-        exclude_column_id: str | None = None,
-    ) -> str:
-        label = str(value or "").strip()
-        if not label:
-            self._fail(
-                "validation_error",
-                "Нужно передать непустой label для нового столбца.",
-                details={"field": "label"},
-            )
-        if len(label) > COLUMN_LABEL_LIMIT:
-            self._fail(
-                "validation_error",
-                f"Поле label не должно превышать {COLUMN_LABEL_LIMIT} символов.",
-                details={"field": "label"},
-            )
-        existing_labels = {
-            column.label.casefold()
-            for column in columns
-            if exclude_column_id is None or column.id != exclude_column_id
-        }
-        if label.casefold() in existing_labels:
-            self._fail(
-                "validation_error",
-                "Столбец с таким названием уже существует.",
-                details={"field": "label"},
-            )
-        return label
-
     def _validated_tags(self, value) -> list[CardTag]:
         if value is None:
             return []
@@ -11504,16 +11414,6 @@ class CardService(
         if isinstance(value, dict):
             payload.update(value)
         return self._normalized_ai_board_control_settings(payload)
-
-    def _next_column_id(self, columns: list[Column], label: str) -> str:
-        existing_ids = {column.id for column in columns}
-        _ = label
-        index = 1
-        while True:
-            column_id = f"column_{index}"
-            if column_id not in existing_ids:
-                return column_id
-            index += 1
 
     def _ensure_not_archived(self, card: Card) -> None:
         if card.archived:

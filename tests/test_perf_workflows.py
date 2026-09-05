@@ -32,71 +32,27 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.module = load_perf_workflows()
 
-    def test_script_exposes_required_cli_flags_and_local_only_write_gate(self) -> None:
-        script = SCRIPT_PATH.read_text(encoding="utf-8")
-
+    def test_cli_help_exposes_reproducible_local_measurements(self) -> None:
+        stdout = io.StringIO()
+        with (
+            patch.object(sys, "argv", ["perf_workflows.py", "--help"]),
+            contextlib.redirect_stdout(stdout),
+            self.assertRaises(SystemExit) as raised,
+        ):
+            self.module.main()
+        self.assertEqual(raised.exception.code, 0)
+        help_text = stdout.getvalue()
         for flag in (
             "--iterations",
             "--warmup-iterations",
-            "--card-id",
-            "--state-file",
+            "--source-root",
+            "--representative-browser",
             "--synthetic-state-profile",
+            "--local-temp-server",
             "--stage1-only",
-            "--max-storage-write-ms",
-            "--max-revision-server-ms",
-            "--max-get-card-direct-ms",
-            "--max-list-cashboxes-ms",
-            "--max-feed-read-ms",
-            "--max-feed-replay-ms",
             "--browser-timeout-seconds",
         ):
-            with self.subTest(flag=flag):
-                self.assertIn(flag, script)
-        for removed_flag in (
-            "--base-url",
-            "--operator-token",
-            "--operator-username",
-            "--operator-password",
-        ):
-            with self.subTest(removed_flag=removed_flag):
-                self.assertNotIn(removed_flag, script)
-        self.assertIn("Write workflow skipped.", script)
-        self.assertNotIn("--allow-write-workflows", script)
-        self.assertNotIn("external_write_workflows_enabled", script)
-        self.assertIn('reconfigure(encoding="utf-8")', script)
-        self.assertIn("autostop-perf", script)
-        self.assertIn('"#cardDescriptionEditor", f"Perf workflow description save {index}"', script)
-        self.assertIn("open_repair_order_salary_override", script)
-        self.assertIn("open_employee_salary_ledger", script)
-        self.assertIn("open_employee_salary_reconciliation_print", script)
-        self.assertIn("run_browser_workflows_with_timeout", script)
-        self.assertIn("asyncio.wait_for(run_browser_workflows(args)", script)
-        self.assertIn("browser_failure_result", script)
-        self.assertIn("PLAYWRIGHT_CLOSE_TIMEOUT_SECONDS", script)
-        self.assertIn("await close_with_timeout(context.close())", script)
-        self.assertIn("async def force_close_open_modals(", script)
-        self.assertIn("await force_close_open_modals(page)", script)
-        self.assertIn("async def close_modal_best_effort(", script)
-        self.assertIn("async def goto_with_retry(", script)
-        self.assertIn("ERR_CONNECTION_TIMED_OUT", script)
-        self.assertIn("await goto_with_retry(page, runtime.browser_url", script)
-        self.assertIn("runtime.authenticated_url(", script)
-        self.assertIn('f"/employee_salary_reconciliation_print?{query}"', script)
-        self.assertNotIn(
-            'f"{runtime.base_url}/employee_salary_reconciliation_print?{query}"',
-            script,
-        )
-        navigation_index = script.index("await goto_with_retry(page, runtime.browser_url")
-        login_index = script.index("await login_browser(page)", navigation_index)
-        board_index = script.index('await page.wait_for_selector("#board"', login_index)
-        card_index = script.index("await page.wait_for_selector(card_selector", board_index)
-        self.assertLess(navigation_index, login_index)
-        self.assertLess(login_index, board_index)
-        self.assertLess(board_index, card_index)
-        self.assertNotIn("print_page = await context.new_page()", script)
-        self.assertIn("browser_url", self.module.BrowserRuntime.__dataclass_fields__)
-        self.assertIn("salary_override_card_id", self.module.BrowserRuntime.__dataclass_fields__)
-        self.assertIn("employee_id", self.module.BrowserRuntime.__dataclass_fields__)
+            self.assertIn(flag, help_text)
 
     def test_browser_write_workflows_require_local_temp_runtime(self) -> None:
         remote_runtime = self.module.BrowserRuntime(
@@ -355,6 +311,113 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
             self.assertEqual(len(state["clients"]), 4000)
             self.assertEqual(len(state["events"]), 5000)
             self.assertEqual(len(state["cash_transactions"]), 1500)
+
+    def test_browser_scale_preserves_smoke_entities_settings_and_columns(self) -> None:
+        from minimal_kanban.storage.json_store import JsonStore
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_file = Path(temp_dir) / "state.json"
+            state = self.module.build_synthetic_current_production_state()
+            state["columns"] = [{"id": "smoke-column", "label": "SMOKE", "position": 0}]
+            state["cards"] = [
+                {**state["cards"][0], "id": "smoke-card", "column": "smoke-column", "client_id": ""}
+            ]
+            for key in ("clients", "events", "cashboxes", "cash_transactions"):
+                state[key] = []
+            state["settings"]["has_seen_onboarding"] = True
+            state_file.write_text(json.dumps(state), encoding="utf-8")
+            store = JsonStore(state_file=state_file)
+            original_columns = [column.id for column in store.read_bundle()["columns"]]
+            runtime = SimpleNamespace(state_store=store, temp_dir=SimpleNamespace(name=temp_dir))
+
+            metadata = self.module.seed_browser_scale(runtime)
+            bundle = store.read_bundle()
+
+            self.assertGreaterEqual(metadata["state_bytes"], self.module.SYNTHETIC_STATE_MIN_BYTES)
+            self.assertEqual(metadata["counts"]["cards"], 621)
+            self.assertEqual(metadata["counts"]["clients"], 4000)
+            self.assertEqual([column.id for column in bundle["columns"]], original_columns)
+            self.assertEqual(bundle["cards"][0].id, "smoke-card")
+            self.assertTrue(bundle["settings"]["has_seen_onboarding"])
+            self.assertTrue(all(card.column in original_columns for card in bundle["cards"]))
+
+    def test_source_root_selects_application_and_rejects_already_imported_other_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            package_dir = Path(temp_dir) / "src" / "minimal_kanban"
+            package_dir.mkdir(parents=True)
+            (package_dir / "__init__.py").write_text("", encoding="utf-8")
+            with (
+                patch.object(sys, "path", list(sys.path)),
+                patch.dict(sys.modules, {"minimal_kanban": None}),
+            ):
+                first = self.module.configure_source_root(temp_dir)
+                self.assertEqual(sys.path[0], str(package_dir.parent))
+                (package_dir / "test.js").write_text("const changed = true;", encoding="utf-8")
+                second = self.module.configure_source_root(temp_dir)
+                self.assertNotEqual(first["source_sha256"], second["source_sha256"])
+                self.assertEqual(first["harness_sha256"], second["harness_sha256"])
+            with patch.dict(
+                sys.modules,
+                {
+                    "minimal_kanban": SimpleNamespace(
+                        __file__=str(ROOT / "src/minimal_kanban/__init__.py")
+                    )
+                },
+            ):
+                with self.assertRaisesRegex(ValueError, "already imported"):
+                    self.module.configure_source_root(temp_dir)
+
+    def test_browser_measurement_excludes_warmups_but_runs_preparation_and_cleanup(self) -> None:
+        calls = []
+        page = SimpleNamespace(evaluate=AsyncMock(return_value={}))
+        action = AsyncMock(side_effect=lambda index: calls.append(("action", index)))
+        prepare = AsyncMock(side_effect=lambda index: calls.append(("prepare", index)))
+        cleanup = AsyncMock(side_effect=lambda: calls.append(("cleanup", None)))
+        with patch.object(self.module, "browser_perf_entries", AsyncMock(return_value=[])):
+            row = asyncio.run(
+                self.module.measure_browser_action(
+                    page,
+                    scenario="save_card",
+                    iterations=2,
+                    warmup_iterations=1,
+                    responses=[],
+                    action=action,
+                    prepare=prepare,
+                    cleanup=cleanup,
+                )
+            )
+        self.assertEqual(row["iterations"], 2)
+        self.assertEqual(
+            calls,
+            [
+                item
+                for index in (-1, 0, 1)
+                for item in (("prepare", index), ("action", index), ("cleanup", None))
+            ],
+        )
+
+    def test_requested_browser_budgets_fail_for_skipped_and_over_budget_scenarios(self) -> None:
+        args = SimpleNamespace(
+            max_open_card_ms=700,
+            max_save_card_ms=1200,
+            max_move_card_ms=1200,
+            max_open_modal_ms=800,
+            max_backend_write_ms=0,
+            max_startup_ms=2500,
+            max_two_view_readback_ms=10000,
+            max_payroll_ui_ms=1200,
+            max_print_ms=1200,
+        )
+        rows = [
+            {"scenario": "open_card", "skipped": True},
+            {"scenario": "startup.cold_authenticated", "p95_ms": 2501},
+            {"scenario": "save_card.two_view_readback", "p95_ms": 10001},
+            {"scenario": "open_employee_salary_ledger", "p95_ms": 1201},
+            {"scenario": "open_employee_salary_reconciliation_print", "p95_ms": 1199},
+        ]
+        violations = self.module.evaluate_thresholds(rows, args)
+        self.assertEqual(len(violations), 4)
+        self.assertEqual(violations[0]["metric"], "required_workflow_skipped")
 
     def test_response_payload_bytes_ignores_invalid_values(self) -> None:
         self.assertEqual(

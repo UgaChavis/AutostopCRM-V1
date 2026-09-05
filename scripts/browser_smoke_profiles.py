@@ -5,7 +5,6 @@ import shutil
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
 
 PROFILE_CORE = "core"
 PROFILE_FULL = "full"
@@ -151,7 +150,16 @@ def _probe_chromium() -> bool:
 
         playwright = sync_playwright().start()
         try:
-            return Path(playwright.chromium.executable_path).is_file()
+            # Headless-only installations need not contain the headed executable.
+            browser = playwright.chromium.launch(
+                headless=True,
+                timeout=10_000,
+                args=["--disable-dev-shm-usage", "--no-sandbox"],
+            )
+            try:
+                return browser.is_connected()
+            finally:
+                browser.close()
         finally:
             playwright.stop()
     except Exception:

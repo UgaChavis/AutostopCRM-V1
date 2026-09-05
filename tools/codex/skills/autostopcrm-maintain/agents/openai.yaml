@@ -1,0 +1,4 @@
+interface:
+  display_name: "AutoStop CRM"
+  short_description: "Maintain and simplify AutoStop CRM"
+  default_prompt: "Use $autostopcrm-maintain to improve the CRM with focused checks and measured results."

@@ -122,16 +122,34 @@ local-environment scans are opt-in:
 ```powershell
 .\.venv\Scripts\python.exe scripts\docs_audit.py --format text --manager-root C:\path\to\AutostopManager
 .\.venv\Scripts\python.exe scripts\docs_audit.py --format text --include-skills `
-  --skill-path autostopcrm-maintain `
-  --skill-path autostopcrm-code-maintain `
-  --skill-path autostopcrm-optimize `
-  --skill-path autostopcrm-ui-optimize
+  --skill-path autostopcrm-maintain
 .\.venv\Scripts\python.exe scripts\docs_audit.py --format text --secret-bundle C:\path\to\private-access-bundle
 ```
 
 Each `--skill-path` must name a direct, non-linked `autostopcrm-*` directory
-under `~/.codex/skills` with a regular `SKILL.md`; unselected skills are ignored.
+under `CODEX_HOME/skills` (or `~/.codex/skills` when unset) with a regular
+`SKILL.md`; unselected skills are ignored. To audit a custom installation,
+pass the same `--skills-root C:\path\to\packages` to the installer and this
+audit command, together with `--include-skills --skill-path autostopcrm-maintain`.
 The secret-bundle scan reports stale instruction classes, never secret values.
+
+The canonical CRM development skill lives in
+`tools/codex/skills/autostopcrm-maintain`. Check the installed copy with
+`.\.venv\Scripts\python.exe scripts\install_codex_skill.py`; exit 1 means
+missing, different, or superseded CRM skills remain. Use `--apply` to install
+that source and replace the four older CRM packages with this single skill.
+The helper moves replaced packages into `skill-backups` beside the skills
+directory, prints the backup path, and leaves other skills untouched. Restore
+those saved directories to roll back. `--skills-root` selects an explicit
+installation root; otherwise the helper uses `CODEX_HOME/skills` or
+`~/.codex/skills`. Installed copies are artifacts, not independently edited
+documentation. Developer skills are excluded from the runtime image.
+
+The embedded agent has a separate effective prompt: a nonempty
+`agent/system_prompt.md` under its app-data directory replaces the code default;
+persisted context, tool descriptions, and current task hints are appended.
+Inspect that precedence on the active Windows/server installation before
+diagnosing restrictive behavior. Preserve custom facts, settings, and memory.
 
 Use the fast changed-file profile while iterating:
 
@@ -180,9 +198,11 @@ missing. The mandatory `--profile core` does not require the PDF toolchain.
   atomically publishes `build/` and `dist/`.
 - `scripts/prepare_release.ps1` calls that build, assembles the portable
   `release/Start Kanban.exe`, and publishes it from `release.staging/`.
-- `scripts/run_quality_pass.ps1` is the separate desktop packaging gate. It
-  reruns its lint, test, and localization prechecks, then `prepare_release.ps1`
-  and `scripts/post_build_verification.py` against the portable executable.
+- `scripts/run_quality_pass.ps1` synchronizes pinned dependencies and prepares
+  the headless browser, runs the canonical local CI profile once,
+  then `prepare_release.ps1` and `scripts/post_build_verification.py` against
+  the portable executable. It is the combined local release gate; a separate
+  CI run immediately before it would repeat the same checks.
 
 Do not treat a successful `build_app.ps1` alone as a verified release.
 
@@ -202,6 +222,20 @@ Local read/workflow checks:
 .\.venv\Scripts\python.exe scripts\perf_mcp.py --local-temp-server --iterations 3
 .\.venv\Scripts\python.exe scripts\perf_workflows.py --local-temp-server --iterations 3
 ```
+
+For a release comparison, run the same harness against the baseline and candidate
+checkouts with `--source-root`, three series of 20 repetitions per checkout:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\perf_workflows.py --source-root <checkout> --local-temp-server --synthetic-state-profile current-production --representative-browser --stage1-only --iterations 20 --warmup-iterations 2
+```
+
+This browser profile uses the production-sized synthetic fixture, ordinary
+background polling, and two sessions. Cold startup means a fresh browser context
+with an already-running API. Compare medians and p95 under the same machine load;
+keep the source and harness fingerprints with the JSON results. Resource entries
+cover the action page; observed API requests cover both pages. The shorter default
+browser fixture does not establish production-sized performance.
 
 After deploy, use `check_live_connector.py` below for public HTTPS and auth.
 Measure the production backends from inside the running container so no

@@ -43,10 +43,6 @@ class AgentPayloadHardeningTests(unittest.TestCase):
 
         self.assertEqual(runner._safe_non_negative_int(1e308), 1_000_000_000)
         self.assertEqual(runner._safe_non_negative_int(-1e308), 0)
-        self.assertEqual(
-            runner._summarize_price_summary({"price_summary": {"offers_total": 1e308}}),
-            "",
-        )
 
     def test_contract_to_dict_normalizes_corrupted_payload_shapes(self) -> None:
         evidence = EvidenceResult(
@@ -148,43 +144,6 @@ class AgentPayloadHardeningTests(unittest.TestCase):
 
         self.assertEqual(filtered.card_patch, {})
         self.assertEqual(filtered.append_only_notes, ["note"])
-
-    def test_runner_autofill_vehicle_patch_rejects_bad_numeric_values(self) -> None:
-        runner = object.__new__(AgentRunner)
-
-        patch = AgentRunner._autofill_vehicle_patch(
-            runner,
-            facts={"vin": "JSAZC72S001234567", "vehicle_profile": {}},
-            decoded_vin={
-                "vin": "JSAZC72S001234567",
-                "model_year": "9" * 20,
-                "engine_power_hp": "9" * 20,
-                "web_source_urls": "https://example.com",
-                "web_enrichment_fields": "engine_power_hp",
-            },
-            vin_decode_status="success",
-        )
-
-        self.assertNotIn("production_year", patch)
-        self.assertNotIn("engine_power_hp", patch)
-        self.assertEqual(patch["source_links_or_refs"], [])
-
-    def test_runner_price_summary_ignores_corrupt_numbers(self) -> None:
-        runner = object.__new__(AgentRunner)
-
-        self.assertEqual(
-            AgentRunner._summarize_price_summary(
-                runner,
-                {
-                    "price_summary": {
-                        "offers_total": "inf",
-                        "min_rub": "nan",
-                        "max_rub": "999999999999999999999",
-                    }
-                },
-            ),
-            "",
-        )
 
     def test_runner_board_control_task_update_normalizes_runtime_containers(self) -> None:
         storage = _BoardRuntimeStorage(

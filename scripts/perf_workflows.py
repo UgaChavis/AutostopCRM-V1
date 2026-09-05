@@ -5,9 +5,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import hashlib
 import json
 import logging
 import math
+import platform
 import re
 import statistics
 import sys
@@ -188,6 +190,7 @@ class BrowserRuntime:
     payroll_card_id: str = ""
     salary_override_card_id: str = ""
     runtime: Any | None = field(default=None, repr=False)
+    fixture: dict[str, Any] = field(default_factory=dict)
 
     def authenticated_url(self, path: str) -> str:
         if not self.local_temp_server or self.runtime is None:
@@ -206,6 +209,16 @@ class BrowserRuntime:
 
 def browser_write_workflows_enabled(runtime: BrowserRuntime) -> bool:
     return bool(runtime.local_temp_server and runtime.runtime is not None)
+
+
+def verify_temp_state_field(runtime: BrowserRuntime, field: str, expected: str) -> None:
+    if not browser_write_workflows_enabled(runtime):
+        raise ValueError("disk readback requires a process-owned local temp runtime")
+    state_file = Path(runtime.runtime.temp_dir.name) / "state.json"
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    card = next((item for item in state["cards"] if item.get("id") == runtime.card_id), {})
+    if card.get(field) != expected:
+        raise ValueError("temporary state disk readback differs from the saved edit")
 
 
 def percentile(values: list[float], ratio: float) -> float:
@@ -355,6 +368,14 @@ def summarize_samples(samples: list[dict[str, Any]], *, scenario: str) -> dict[s
         },
         "request_count": round(statistics.mean(request_counts), 1) if request_counts else 0.0,
         "payload_bytes": round(statistics.mean(payload_sizes)) if payload_sizes else 0,
+        "resources": {
+            name: round(statistics.mean(_safe_int(item.get(name)) for item in samples))
+            for name in ("resource_count", "resource_bytes", "js_heap_bytes")
+        }
+        if samples
+        else {},
+        "resource_scope": "action_page_only",
+        "api_request_scope": "all_observed_pages",
         "ui_perf_entries": ui_entries[-20:],
     }
 
@@ -548,6 +569,13 @@ def start_browser_runtime(args: argparse.Namespace) -> BrowserRuntime:
     from browser_smoke import start_temp_runtime
 
     runtime = start_temp_runtime(start_port=args.start_port)
+    fixture = {"profile": "smoke"}
+    try:
+        if getattr(args, "synthetic_state_profile", ""):
+            fixture = seed_browser_scale(runtime)
+    except BaseException:
+        runtime.close()
+        raise
     return BrowserRuntime(
         base_url=runtime.base_url,
         browser_url=runtime.browser_url,
@@ -557,7 +585,60 @@ def start_browser_runtime(args: argparse.Namespace) -> BrowserRuntime:
         payroll_card_id=runtime.payroll_card_id,
         salary_override_card_id=runtime.salary_override_card_id,
         runtime=runtime,
+        fixture=fixture,
     )
+
+
+def seed_browser_scale(runtime: Any) -> dict[str, Any]:
+    """Grow only a process-owned smoke fixture through its normal storage writer."""
+    from minimal_kanban.storage.json_store import JsonStore
+
+    bundle = runtime.state_store.read_bundle()
+    state = build_synthetic_current_production_state()
+    state["columns"] = [column.to_dict() for column in bundle["columns"]]
+    for index, card in enumerate(state["cards"]):
+        card["column"] = state["columns"][index % len(state["columns"])]["id"]
+    with tempfile.TemporaryDirectory(prefix="autostop-perf-browser-seed-") as temp_dir:
+        state_file = Path(temp_dir) / "state.json"
+        state_file.write_text(_json_dumps(state), encoding="utf-8")
+        seed = JsonStore(state_file=state_file, logger=_logger()).read_bundle()
+        merged = {
+            key: list(value) + list(seed[key])
+            if isinstance(value, list) and key != "columns"
+            else value
+            for key, value in bundle.items()
+        }
+        runtime.state_store.write_bundle(**merged)
+    return {
+        "profile": SYNTHETIC_STATE_PROFILE,
+        "state_bytes": (Path(runtime.temp_dir.name) / "state.json").stat().st_size,
+        "counts": {key: len(merged[key]) for key in SYNTHETIC_STATE_COUNTS},
+    }
+
+
+def configure_source_root(value: str) -> dict[str, Any]:
+    """Select application code before imports; the measurement harness stays identical."""
+    source = (Path(value).resolve() if value else ROOT) / "src"
+    if not (source / "minimal_kanban" / "__init__.py").is_file():
+        raise ValueError("source root must contain the CRM application package")
+    package = sys.modules.get("minimal_kanban")
+    if package is not None and Path(package.__file__).resolve().parent != source / "minimal_kanban":
+        raise ValueError("application code was already imported from another source root")
+    if str(source) in sys.path:
+        sys.path.remove(str(source))
+    sys.path.insert(0, str(source))
+    digest = hashlib.sha256()
+    for path in sorted(source.rglob("*")):
+        if path.is_file() and path.suffix in {".py", ".js", ".css", ".html"}:
+            digest.update(path.relative_to(source).as_posix().encode("utf-8"))
+            digest.update(path.read_bytes())
+    return {
+        "source_sha256": digest.hexdigest(),
+        "harness_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "python": platform.python_version(),
+        "platform": platform.system(),
+        "machine": platform.machine(),
+    }
 
 
 def scenario_target(scenario: str) -> float:
@@ -792,23 +873,43 @@ async def measure_browser_action(
     iterations: int,
     responses: list[dict[str, Any]],
     action: Callable[[int], Awaitable[None]],
+    warmup_iterations: int = 0,
+    prepare: Callable[[int], Awaitable[None]] | None = None,
+    cleanup: Callable[[], Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
     samples: list[dict[str, Any]] = []
-    for index in range(max(1, iterations)):
+    for index in range(-warmup_iterations, max(1, iterations)):
+        if prepare is not None:
+            await prepare(index)
+        previous_origin = await page.evaluate(
+            "() => { performance.clearResourceTimings(); window.__AUTOSTOP_PERF__ = []; return performance.timeOrigin; }"
+        )
         response_start = len(responses)
-        perf_start = len(await browser_perf_entries(page))
         started_at = time.perf_counter()
+        error = None
         try:
             await action(index)
         except Exception as exc:
-            duration_ms = (time.perf_counter() - started_at) * 1000
-            try:
-                perf_delta = (await browser_perf_entries(page))[perf_start:]
-            except Exception:
-                perf_delta = []
-            with contextlib.suppress(Exception):
-                await force_close_open_modals(page)
-            response_delta = responses[response_start:]
+            error = exc
+        duration_ms = (time.perf_counter() - started_at) * 1000
+        perf_delta = []
+        resources = {}
+        with contextlib.suppress(Exception):
+            perf_delta = await browser_perf_entries(page)
+            resources = await page.evaluate(
+                """(previousOrigin) => {
+              const entries = performance.getEntriesByType('resource');
+              if (previousOrigin !== performance.timeOrigin) entries.push(...performance.getEntriesByType('navigation'));
+              return {
+                resource_count: entries.length,
+                resource_bytes: entries.reduce((sum, item) => sum + item.encodedBodySize, 0),
+                js_heap_bytes: performance.memory?.usedJSHeapSize || 0
+              };
+            }""",
+                previous_origin,
+            )
+        response_delta = responses[response_start:]
+        if index >= 0 or error is not None:
             samples.append(
                 {
                     "duration_ms": duration_ms,
@@ -820,26 +921,15 @@ async def measure_browser_action(
                         if str(item.get("server_timing") or "").strip()
                     ],
                     "ui_perf_entries": perf_delta,
-                    "error": str(exc),
+                    **resources,
                 }
             )
-            return failed_row(scenario, exc, samples=samples)
-        duration_ms = (time.perf_counter() - started_at) * 1000
-        perf_delta = (await browser_perf_entries(page))[perf_start:]
-        response_delta = responses[response_start:]
-        samples.append(
-            {
-                "duration_ms": duration_ms,
-                "request_count": len(response_delta),
-                "payload_bytes": _response_payload_bytes(response_delta),
-                "server_timing": [
-                    str(item.get("server_timing") or "")
-                    for item in response_delta
-                    if str(item.get("server_timing") or "").strip()
-                ],
-                "ui_perf_entries": perf_delta,
-            }
-        )
+        if error is not None:
+            with contextlib.suppress(Exception):
+                await force_close_open_modals(page)
+            return failed_row(scenario, error, samples=samples)
+        if cleanup is not None:
+            await cleanup()
     return summarize_samples(samples, scenario=scenario)
 
 
@@ -847,6 +937,112 @@ async def login_browser(page: Any) -> None:
     from browser_smoke_support import _login_successfully
 
     await _login_successfully(page)
+
+
+async def measure_representative_browser(
+    browser: Any,
+    context: Any,
+    page: Any,
+    runtime: BrowserRuntime,
+    args: argparse.Namespace,
+    responses: list[dict[str, Any]],
+    observe: Callable[[Any], None],
+) -> list[dict[str, Any]]:
+    """Measure real authenticated startup and freshness without changing poll timers."""
+    from browser_smoke_support import _wait_modal_closed, _wait_modal_open
+
+    card_selector = f'.card[data-card-id="{runtime.card_id}"]'
+    saved_session = await context.storage_state()
+    rows = []
+
+    async def open_board(target: Any) -> None:
+        await goto_with_retry(target, runtime.browser_url)
+        await target.wait_for_selector(card_selector, timeout=15000)
+
+    cold_samples = []
+    for _index in range(args.iterations):
+        cold_context = await browser.new_context(
+            viewport={"width": 1440, "height": 960}, storage_state=saved_session
+        )
+        try:
+            cold_page = await cold_context.new_page()
+            observe(cold_page)
+            row = await measure_browser_action(
+                cold_page,
+                scenario="startup.cold_authenticated",
+                iterations=1,
+                responses=responses,
+                action=lambda _index: open_board(cold_page),
+            )
+            if row.get("failed"):
+                return [row]
+            cold_samples.append(
+                {
+                    "duration_ms": row["p50_ms"],
+                    "request_count": row["request_count"],
+                    "payload_bytes": row["payload_bytes"],
+                    **row["resources"],
+                }
+            )
+        finally:
+            await close_with_timeout(cold_context.close())
+    rows.append(summarize_samples(cold_samples, scenario="startup.cold_authenticated"))
+    rows.append(
+        await measure_browser_action(
+            page,
+            scenario="startup.warm_authenticated",
+            iterations=args.iterations,
+            warmup_iterations=args.warmup_iterations,
+            responses=responses,
+            action=lambda _index: open_board(page),
+        )
+    )
+    observer_context = await browser.new_context(
+        viewport={"width": 1440, "height": 960}, storage_state=saved_session
+    )
+    try:
+        observer = await observer_context.new_page()
+        observe(observer)
+        await open_board(observer)
+        await page.wait_for_function("() => document.hidden === false")
+        await observer.wait_for_function("() => document.hidden === false")
+
+        async def prepare_save(index: int) -> None:
+            await page.click(card_selector)
+            await _wait_modal_open(page, "#cardModal")
+            await page.wait_for_function(
+                "() => !document.querySelector('#cardDescriptionEditor')?.classList.contains('is-loading')"
+            )
+            await page.fill("#cardTitle", f"Perf two-view readback {index}")
+
+        async def save_and_observe(index: int) -> None:
+            expected = f"Perf two-view readback {index}"
+            await page.click("#saveCardButton")
+            await _wait_modal_closed(page, "#cardModal")
+            await observer.wait_for_function(
+                "({selector, expected}) => document.querySelector(selector + ' .card__title')?.textContent === expected",
+                arg={"selector": card_selector, "expected": expected},
+                timeout=20000,
+            )
+            persisted = runtime.runtime.service.get_card({"card_id": runtime.card_id})["card"]
+            if persisted["title"] != expected:
+                raise ValueError("two-view persisted readback differs from the saved edit")
+
+        rows.append(
+            await measure_browser_action(
+                page,
+                scenario="save_card.two_view_readback",
+                iterations=args.iterations,
+                warmup_iterations=args.warmup_iterations,
+                responses=responses,
+                prepare=prepare_save,
+                action=save_and_observe,
+            )
+        )
+        verify_temp_state_field(runtime, "title", f"Perf two-view readback {args.iterations - 1}")
+    finally:
+        await close_with_timeout(observer_context.close())
+    return rows
 
 
 async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
@@ -861,7 +1057,9 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
 
     from browser_smoke import _launch_chromium, _wait_modal_closed, _wait_modal_open
 
+    runtime_started = time.perf_counter()
     runtime = start_browser_runtime(args)
+    fixture_setup_ms = (time.perf_counter() - runtime_started) * 1000
     rows: list[dict[str, Any]] = []
     console_errors: list[str] = []
     page_errors: list[str] = []
@@ -876,19 +1074,11 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
         async with async_playwright() as playwright:
             browser = await _launch_chromium(playwright, headless=not args.headed)
             context = await browser.new_context(viewport={"width": 1440, "height": 960})
+            perf_mode = "0" if getattr(args, "representative_browser", False) else "1"
             await context.add_init_script(
-                "window.localStorage.setItem('autostop-perf', '1');window.__AUTOSTOP_PERF__ = [];"
+                f"window.localStorage.setItem('autostop-perf', '{perf_mode}');window.__AUTOSTOP_PERF__ = [];"
             )
             page = await context.new_page()
-            page.on(
-                "console",
-                lambda msg: console_errors.append(msg.text) if msg.type == "error" else None,
-            )
-            page.on("pageerror", lambda exc: page_errors.append(str(exc)))
-            page.on(
-                "requestfailed",
-                lambda request: failed_requests.append(format_failed_request(request)),
-            )
 
             def record_response(response: Any) -> None:
                 url = str(response.url)
@@ -905,7 +1095,19 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                     }
                 )
 
-            page.on("response", record_response)
+            def observe(target: Any) -> None:
+                target.on(
+                    "console",
+                    lambda msg: console_errors.append(msg.text) if msg.type == "error" else None,
+                )
+                target.on("pageerror", lambda exc: page_errors.append(str(exc)))
+                target.on(
+                    "requestfailed",
+                    lambda request: failed_requests.append(format_failed_request(request)),
+                )
+                target.on("response", record_response)
+
+            observe(page)
             try:
                 await goto_with_retry(page, runtime.browser_url, wait_until="domcontentloaded")
                 await login_browser(page)
@@ -938,22 +1140,23 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                         await force_close_open_modals(page)
 
                 async def open_card_action(_: int) -> None:
-                    await close_card_if_open()
                     await page.click(card_selector)
                     await _wait_modal_open(page, "#cardModal")
                     await page.wait_for_function(
                         "() => !document.querySelector('#cardDescriptionEditor')?.classList.contains('is-loading')",
                         timeout=8000,
                     )
-                    await close_card_if_open()
 
                 rows.append(
                     await measure_browser_action(
                         page,
                         scenario="open_card",
                         iterations=args.iterations,
+                        warmup_iterations=args.warmup_iterations,
                         responses=responses,
                         action=open_card_action,
+                        prepare=lambda _index: close_card_if_open(),
+                        cleanup=close_card_if_open,
                     )
                 )
 
@@ -971,6 +1174,7 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                         page,
                         scenario="open_card_journal",
                         iterations=args.iterations,
+                        warmup_iterations=args.warmup_iterations,
                         responses=responses,
                         action=open_journal_action,
                     )
@@ -979,7 +1183,7 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                 can_write = browser_write_workflows_enabled(runtime)
                 if can_write:
 
-                    async def save_card_action(index: int) -> None:
+                    async def prepare_save_card(index: int) -> None:
                         await close_card_if_open()
                         await page.click(card_selector)
                         await _wait_modal_open(page, "#cardModal")
@@ -990,17 +1194,31 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                         await page.fill(
                             "#cardDescriptionEditor", f"Perf workflow description save {index}"
                         )
+
+                    async def save_card_action(index: int) -> None:
                         await page.click("#saveCardButton")
                         await _wait_modal_closed(page, "#cardModal")
+                        persisted = runtime.runtime.service.get_card({"card_id": runtime.card_id})[
+                            "card"
+                        ]
+                        if persisted["description"] != f"Perf workflow description save {index}":
+                            raise ValueError("saved description differs from persisted readback")
 
                     rows.append(
                         await measure_browser_action(
                             page,
                             scenario="save_card",
                             iterations=args.iterations,
+                            warmup_iterations=args.warmup_iterations,
                             responses=responses,
                             action=save_card_action,
+                            prepare=prepare_save_card,
                         )
+                    )
+                    verify_temp_state_field(
+                        runtime,
+                        "description",
+                        f"Perf workflow description save {args.iterations - 1}",
                     )
 
                     async def move_card_action(_: int) -> None:
@@ -1034,6 +1252,7 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                             page,
                             scenario="move_card",
                             iterations=args.iterations,
+                            warmup_iterations=args.warmup_iterations,
                             responses=responses,
                             action=move_card_action,
                         )
@@ -1057,14 +1276,24 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                 async def modal_action(
                     scenario: str, button: str, modal: str, ready_selector: str
                 ) -> None:
-                    await close_modal_best_effort(modal)
-                    await page.click(button)
+                    if scenario == "open_modal.cashboxes":
+                        async with page.expect_response(
+                            lambda response: (
+                                urllib.parse.urlsplit(response.url).path == "/api/get_cashbox"
+                                and response.status == 200
+                            ),
+                            timeout=10000,
+                        ) as detail_response:
+                            await page.click(button)
+                        await detail_response.value
+                        await wait_for_modal_ready(page, modal, "#cashboxTransactions > *")
+                    else:
+                        await page.click(button)
                     await _wait_modal_open(page, modal)
                     try:
                         await wait_for_modal_ready(page, modal, ready_selector)
                     except Exception as exc:
                         raise RuntimeError(f"{scenario} modal did not become ready") from exc
-                    await close_modal_best_effort(modal)
 
                 for scenario, button, modal, ready_selector in MODAL_WORKFLOWS:
                     rows.append(
@@ -1072,10 +1301,12 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                             page,
                             scenario=scenario,
                             iterations=args.iterations,
+                            warmup_iterations=args.warmup_iterations,
                             responses=responses,
                             action=lambda _index, s=scenario, b=button, m=modal, r=ready_selector: (
                                 modal_action(s, b, m, r)
                             ),
+                            cleanup=lambda m=modal: close_modal_best_effort(m),
                         )
                     )
 
@@ -1117,6 +1348,7 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                             page,
                             scenario="open_repair_order_salary_override",
                             iterations=args.iterations,
+                            warmup_iterations=args.warmup_iterations,
                             responses=responses,
                             action=open_repair_order_salary_override_action,
                         )
@@ -1156,6 +1388,7 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                             page,
                             scenario="open_employee_salary_ledger",
                             iterations=args.iterations,
+                            warmup_iterations=args.warmup_iterations,
                             responses=responses,
                             action=open_employee_salary_ledger_action,
                         )
@@ -1178,6 +1411,7 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                             page,
                             scenario="open_employee_salary_reconciliation_print",
                             iterations=args.iterations,
+                            warmup_iterations=args.warmup_iterations,
                             responses=responses,
                             action=open_employee_salary_reconciliation_print_action,
                         )
@@ -1195,6 +1429,12 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                             "Employee reconciliation print workflow is available only in --local-temp-server.",
                         )
                     )
+                if getattr(args, "representative_browser", False):
+                    rows.extend(
+                        await measure_representative_browser(
+                            browser, context, page, runtime, args, responses, observe
+                        )
+                    )
             finally:
                 await close_with_timeout(context.close())
                 await close_with_timeout(browser.close())
@@ -1203,6 +1443,11 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
 
     return {
         "local_temp_server": runtime.local_temp_server,
+        "fixture": runtime.fixture,
+        "fixture_setup_ms": round(fixture_setup_ms, 1),
+        "polling": "normal" if getattr(args, "representative_browser", False) else "disabled",
+        "startup_scope": "authenticated browser context; API process already running",
+        "browser_version": browser.version,
         "rows": rows,
         "events": browser_event_report(console_errors, page_errors, failed_requests),
     }
@@ -1706,6 +1951,12 @@ def evaluate_thresholds(
         "backend.list_cashboxes": getattr(args, "max_list_cashboxes_ms", 0.0),
         "change_feed.read_page": getattr(args, "max_feed_read_ms", 0.0),
         "change_feed.replay_page": getattr(args, "max_feed_replay_ms", 0.0),
+        "startup.cold_authenticated": getattr(args, "max_startup_ms", 0.0),
+        "startup.warm_authenticated": getattr(args, "max_startup_ms", 0.0),
+        "save_card.two_view_readback": getattr(args, "max_two_view_readback_ms", 0.0),
+        "open_repair_order_salary_override": getattr(args, "max_payroll_ui_ms", 0.0),
+        "open_employee_salary_ledger": getattr(args, "max_payroll_ui_ms", 0.0),
+        "open_employee_salary_reconciliation_print": getattr(args, "max_print_ms", 0.0),
     }
     violations: list[dict[str, Any]] = []
     for row in rows:
@@ -1731,12 +1982,15 @@ def evaluate_thresholds(
                 }
             )
             continue
-        if row.get("skipped"):
-            continue
         threshold = thresholds.get(scenario)
         if threshold is None and scenario.startswith("open_modal."):
             threshold = args.max_open_modal_ms
         if not threshold or threshold <= 0:
+            continue
+        if row.get("skipped"):
+            violations.append(
+                {"scenario": scenario, "metric": "required_workflow_skipped", "actual": 1, "max": 0}
+            )
             continue
         actual = _safe_float(row.get("p95_ms"))
         if actual > threshold:
@@ -1766,6 +2020,8 @@ def main() -> int:
         choices=(SYNTHETIC_STATE_PROFILE,),
     )
     parser.add_argument("--local-temp-server", action="store_true")
+    parser.add_argument("--source-root", default="")
+    parser.add_argument("--representative-browser", action="store_true")
     parser.add_argument("--stage1-only", action="store_true")
     parser.add_argument("--skip-browser", action="store_true")
     parser.add_argument("--headed", action="store_true")
@@ -1774,6 +2030,10 @@ def main() -> int:
     parser.add_argument("--max-save-card-ms", default=0.0)
     parser.add_argument("--max-move-card-ms", default=0.0)
     parser.add_argument("--max-open-modal-ms", default=0.0)
+    parser.add_argument("--max-startup-ms", default=0.0)
+    parser.add_argument("--max-two-view-readback-ms", default=0.0)
+    parser.add_argument("--max-payroll-ui-ms", default=0.0)
+    parser.add_argument("--max-print-ms", default=0.0)
     parser.add_argument("--max-backend-write-ms", default=0.0)
     parser.add_argument("--max-storage-write-ms", default=0.0)
     parser.add_argument("--max-revision-server-ms", default=0.0)
@@ -1783,6 +2043,10 @@ def main() -> int:
     parser.add_argument("--max-feed-replay-ms", default=0.0)
     parser.add_argument("--browser-timeout-seconds", default=DEFAULT_BROWSER_TIMEOUT_SECONDS)
     args = parser.parse_args()
+    try:
+        environment = configure_source_root(args.source_root)
+    except ValueError:
+        parser.error("invalid application source root")
     args.iterations = _bounded_iterations(args.iterations)
     args.warmup_iterations = _safe_int(
         args.warmup_iterations,
@@ -1796,6 +2060,8 @@ def main() -> int:
     args.max_open_modal_ms = _bounded_float(
         args.max_open_modal_ms, default=0.0, maximum=3_600_000.0
     )
+    for name in ("max_startup_ms", "max_two_view_readback_ms", "max_payroll_ui_ms", "max_print_ms"):
+        setattr(args, name, _bounded_float(getattr(args, name), default=0.0, maximum=3_600_000.0))
     args.max_backend_write_ms = _bounded_float(
         args.max_backend_write_ms,
         default=0.0,
@@ -1838,6 +2104,7 @@ def main() -> int:
         args.synthetic_state_profile = SYNTHETIC_STATE_PROFILE
 
     output: dict[str, Any] = {
+        "environment": environment,
         "iterations": args.iterations,
         "warmup_iterations": args.warmup_iterations,
         "safe_mode": {

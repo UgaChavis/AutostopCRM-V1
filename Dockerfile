@@ -57,7 +57,8 @@ RUN apt-get update && \
 COPY requirements-runtime.txt ./
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements-runtime.txt && \
-    python -m playwright install --with-deps chromium && \
+    python -m playwright install --with-deps chromium --only-shell && \
+    rm -rf /var/lib/apt/lists/* && \
     chmod -R a+rX /ms-playwright
 
 COPY . .
