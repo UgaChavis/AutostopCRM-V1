@@ -438,6 +438,11 @@ class ToolPolicyEngineTests(unittest.TestCase):
         system_prompt = build_default_system_prompt()
         self.assertIn("short structured patch", system_prompt)
         self.assertIn("repair-order header", system_prompt)
+        self.assertIn("a rigid workflow", system_prompt)
+        self.assertIn("Never invent IDs", system_prompt)
+        self.assertIn("Reread after every write", system_prompt)
+        self.assertIn("exactly one JSON object", system_prompt)
+        self.assertLess(len(system_prompt), 5000)
 
 
 if __name__ == "__main__":
