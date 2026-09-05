@@ -238,19 +238,29 @@ class FastStateWriteTests(unittest.TestCase):
         self.assertIn("Русский текст 🚗".encode(), fast_payload)
 
     def test_fast_serializer_falls_back_or_fails_closed_for_unsupported_values(self) -> None:
-        too_large_for_orjson = 1 << 80
-        with patch.object(
-            json_store_module.orjson,
-            "dumps",
-            side_effect=AssertionError("orjson must not receive unsupported values"),
-        ) as fast_dumps:
-            _safe, payload, _fingerprint = _serialized_state(
-                {"value": too_large_for_orjson},
-                already_safe=True,
-                fast_serializer=True,
-            )
-        fast_dumps.assert_not_called()
-        self.assertEqual(json.loads(payload)["value"], too_large_for_orjson)
+        fallback_states = (
+            {"value": 1 << 80},
+            {1: "non-string-key"},
+        )
+        for state in fallback_states:
+            with self.subTest(state=state):
+                with patch.object(
+                    json_store_module.orjson,
+                    "dumps",
+                    wraps=json_store_module.orjson.dumps,
+                ) as fast_dumps:
+                    _safe, payload, _fingerprint = _serialized_state(
+                        state,
+                        already_safe=True,
+                        fast_serializer=True,
+                    )
+                fast_dumps.assert_called_once()
+                _safe, legacy_payload, _fingerprint = _serialized_state(
+                    state,
+                    already_safe=True,
+                    fast_serializer=False,
+                )
+                self.assertEqual(payload, legacy_payload)
 
         unsupported_values = (
             datetime(2026, 7, 22, tzinfo=UTC),

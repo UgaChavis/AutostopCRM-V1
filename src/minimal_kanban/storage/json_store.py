@@ -82,7 +82,7 @@ def _serialized_state(
     if fast_serializer and _supports_fast_state_serialization(safe_state):
         try:
             payload = orjson.dumps(safe_state)
-        except orjson.JSONEncodeError:
+        except TypeError:
             payload = _stdlib_state_payload(safe_state)
     else:
         payload = _stdlib_state_payload(safe_state)
@@ -109,16 +109,12 @@ def _supports_fast_state_serialization(value: Any) -> bool:
         if item is None or item_type in {str, bool}:
             continue
         if item_type is int:
-            if item < -(1 << 63) or item > (1 << 64) - 1:
-                return False
             continue
         if item_type is float:
             if not math.isfinite(item):
                 return False
             continue
         if item_type is dict:
-            if any(type(key) is not str for key in item):
-                return False
             pending.extend(item.values())
             continue
         if item_type in {list, tuple}:
