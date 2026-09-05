@@ -44,6 +44,9 @@ jobs:
               test ! -e /app/output/docker-context-probe/ignored.png
             '
 
+      - name: Verify packaged documentation
+        run: docker run --rm --entrypoint python "autostopcrm-ci:${GITHUB_SHA}" scripts/docs_audit.py --format text
+
       - name: Verify packaged agent browser
         run: |
           docker run --rm -i --entrypoint python "autostopcrm-ci:${GITHUB_SHA}" - <<'PY'
