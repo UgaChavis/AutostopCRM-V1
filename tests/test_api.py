@@ -964,14 +964,12 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(launched["data"]["meta"]["scenario_id"], "full_card_enrichment")
         agent_control.enqueue_card_autofill_task.assert_called()
         payload = agent_control.enqueue_card_autofill_task.call_args.args[0]
-        prompt_text = str(
-            payload.get("task_text", payload.get("prompt", payload.get("ai_autofill_prompt", "")))
-        )
-        self.assertIn("полное заполнение", prompt_text.lower())
-        self.assertIn("update_card", prompt_text)
-        self.assertIn("update_repair_order", prompt_text)
-        self.assertIn("replace_repair_order_works", prompt_text)
-        self.assertIn("replace_repair_order_materials", prompt_text)
+        self.assertEqual(payload["card_id"], card_id)
+        self.assertEqual(payload["title"], "AI карточка")
+        self.assertEqual(payload["requested_by"], "AI")
+        self.assertNotIn("task_text", payload)
+        self.assertNotIn("prompt", payload)
+        self.assertNotIn("ai_autofill_prompt", payload)
         self.assertEqual(payload["scenario_id"], "full_card_enrichment")
         self.assertEqual(
             agent_control.enqueue_card_autofill_task.call_args.kwargs["purpose"],

@@ -50,10 +50,10 @@ class AgentCardEditingContractTests(unittest.TestCase):
         )
         self.assertEqual("compact", board_api.calls[0]["response_mode"])
 
-    def test_agent_description_patch_verification_is_exact_not_whitespace_insensitive(
+    def test_agent_value_verification_preserves_exact_description_whitespace(
         self,
     ) -> None:
         runner = object.__new__(AgentRunner)
 
-        self.assertIs(runner._description_patch_applied("  A  B  ", "  A  B  "), True)
-        self.assertIs(runner._description_patch_applied("A B", "A  B"), False)
+        self.assertIs(runner._values_equal("  A  B  ", "  A  B  "), True)
+        self.assertIs(runner._values_equal("A B", "A  B"), False)
