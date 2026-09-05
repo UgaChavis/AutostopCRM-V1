@@ -76,20 +76,8 @@ STORE_QUOTE_CONDUCTOR_OPERATIONS = frozenset(
         "decline",
     }
 )
+STORE_QUOTE_CONDUCTOR_LEGACY_DIALOGUE_OPERATIONS = frozenset({"clarification", "wait", "reply"})
 STORE_QUOTE_CONDUCTOR_STORE_WRITE_OPERATIONS = frozenset({"draft", "publish", "reopen", "order"})
-STORE_QUOTE_CONDUCTOR_REPLY_CLASSIFICATIONS = frozenset(
-    {"clarification", "addition", "selection", "consent", "decline", "ambiguous"}
-)
-STORE_QUOTE_CONDUCTOR_TELEGRAM_MESSAGE_KINDS = frozenset(
-    {
-        "identity_prompt",
-        "clarification",
-        "offer",
-        "selection_confirmation",
-        "addition_clarification",
-        "payment_instruction",
-    }
-)
 STORE_OPERATION_ENTITIES = {
     "assign_quote_request": "store_quote_request",
     "set_quote_request_status": "store_quote_request",
@@ -102,7 +90,6 @@ _STORE_CORRELATION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$")
 _STORE_QUOTE_CONDUCTOR_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$")
 _STORE_QUOTE_CONDUCTOR_HASH = re.compile(r"^[0-9a-f]{64}$")
 _STORE_QUOTE_CONDUCTOR_SAFE_CODE = re.compile(r"^[A-Za-z0-9_.:-]{1,160}$")
-_STORE_QUOTE_CONDUCTOR_INBOUND_RECEIPT = re.compile(r"^[A-Za-z0-9._~-]{16,1024}$")
 _STORE_CHANGE_FIELDS = {
     "assign_quote_request": ("assigned_user_id",),
     "set_quote_request_status": ("status",),
@@ -419,10 +406,10 @@ def validate_store_quote_conductor_request(
             missing.append("run_id")
         if operation != "status" and expected_state_version is None:
             missing.append("expected_state_version")
-    if is_store_write or operation == "wait":
+    if is_store_write:
         if not _normalized_text(payload.get("expected_revision")):
             missing.append("expected_revision")
-    if operation == "start" or is_store_write or operation == "wait":
+    if operation == "start" or is_store_write:
         correlation_id = _normalized_text(payload.get("correlation_id"))
         if _STORE_CORRELATION_ID.fullmatch(correlation_id) is None:
             missing.append("correlation_id")
@@ -433,6 +420,16 @@ def validate_store_quote_conductor_request(
             "passed": False,
             "warning": "store_quote_conductor_required_fields_missing_or_invalid",
             "missing_fields": list(dict.fromkeys(missing)),
+        }
+
+    if operation in STORE_QUOTE_CONDUCTOR_LEGACY_DIALOGUE_OPERATIONS:
+        return {
+            "passed": True,
+            "operation": operation,
+            "mode": effective_mode,
+            "is_store_write": False,
+            "run_id": run_id,
+            "expected_state_version": expected_state_version,
         }
 
     entries = payload.get("entries")
@@ -468,97 +465,31 @@ def validate_store_quote_conductor_request(
     if evidence is not None and not isinstance(evidence, Mapping):
         return {"passed": False, "warning": "store_quote_conductor_evidence_invalid"}
 
-    step_id = _normalized_text(payload.get("step_id"))
-    if operation == "reply" and _STORE_QUOTE_CONDUCTOR_ID.fullmatch(step_id) is None:
-        return {"passed": False, "warning": "store_quote_conductor_step_id_required"}
     reply_classification = _normalized_text(payload.get("reply_classification")).casefold()
-    if (
-        operation == "reply"
-        and reply_classification not in STORE_QUOTE_CONDUCTOR_REPLY_CLASSIFICATIONS
-    ):
-        return {"passed": False, "warning": "store_quote_conductor_reply_classification_invalid"}
     if operation != "reply" and reply_classification:
         return {
             "passed": False,
             "warning": "store_quote_conductor_reply_classification_not_allowed",
         }
-    if operation == "reply":
-        # The incoming Telegram bridge, not a Gateway caller, proves the
-        # current quote/version/context.  These hashes used to be caller
-        # assertions and are deliberately rejected on replies now.
-        asserted_fields = (
-            "consent_context_hash",
-            "published_snapshot_hash",
-            "telegram_context_hash",
-        )
-        if any(_normalized_text(payload.get(field)) for field in asserted_fields):
-            return {
-                "passed": False,
-                "warning": "store_quote_conductor_reply_binding_must_be_transport_verified",
-            }
-        receipt = payload.get("telegram_inbound_receipt")
-        if (
-            not isinstance(receipt, str)
-            or _STORE_QUOTE_CONDUCTOR_INBOUND_RECEIPT.fullmatch(receipt.strip()) is None
-        ):
-            return {
-                "passed": False,
-                "warning": "store_quote_conductor_telegram_inbound_receipt_required",
-            }
-    elif _normalized_text(payload.get("telegram_inbound_receipt")):
+    if _normalized_text(payload.get("telegram_inbound_receipt")):
         return {
             "passed": False,
             "warning": "store_quote_conductor_telegram_inbound_receipt_not_allowed",
         }
-    if operation == "reply":
-        # Hash-shaped receipts are opaque transient capabilities.  Do not
-        # normalize, retain, or return them from this Gateway.
-        if len(str(payload.get("telegram_inbound_receipt") or "")) > 1024:
-            return {
-                "passed": False,
-                "warning": "store_quote_conductor_telegram_inbound_receipt_required",
-            }
     telegram_context_hash = _normalized_text(payload.get("telegram_context_hash")).casefold()
     telegram_message = payload.get("telegram_message")
     telegram_message_kind = _normalized_text(payload.get("telegram_message_kind")).casefold()
-    if operation == "wait":
-        if (
-            _STORE_QUOTE_CONDUCTOR_HASH.fullmatch(
-                _normalized_text(payload.get("published_snapshot_hash")).casefold()
-            )
-            is None
-        ):
-            return {
-                "passed": False,
-                "warning": "store_quote_conductor_wait_published_snapshot_hash_required",
-            }
-        if _STORE_QUOTE_CONDUCTOR_HASH.fullmatch(telegram_context_hash) is None:
-            return {
-                "passed": False,
-                "warning": "store_quote_conductor_telegram_context_hash_required",
-            }
-        if telegram_message_kind not in STORE_QUOTE_CONDUCTOR_TELEGRAM_MESSAGE_KINDS:
-            return {
-                "passed": False,
-                "warning": "store_quote_conductor_telegram_message_kind_invalid",
-            }
-        if not _valid_store_quote_telegram_text(telegram_message):
-            return {
-                "passed": False,
-                "warning": "store_quote_conductor_telegram_message_invalid",
-            }
-    elif telegram_context_hash:
-        if operation != "reply":
-            return {
-                "passed": False,
-                "warning": "store_quote_conductor_telegram_context_hash_not_allowed",
-            }
-    if operation != "wait" and telegram_message not in (None, ""):
+    if telegram_context_hash:
+        return {
+            "passed": False,
+            "warning": "store_quote_conductor_telegram_context_hash_not_allowed",
+        }
+    if telegram_message not in (None, ""):
         return {
             "passed": False,
             "warning": "store_quote_conductor_telegram_message_not_allowed",
         }
-    if operation != "wait" and telegram_message_kind:
+    if telegram_message_kind:
         return {
             "passed": False,
             "warning": "store_quote_conductor_telegram_message_kind_not_allowed",
@@ -1127,14 +1058,11 @@ def _normalized_text(value: Any) -> str:
 
 
 def _valid_store_quote_telegram_text(value: Any) -> bool:
-    """Mirror Manager's bounded, human-style outbound Telegram contract."""
+    """Check only bounded Telegram text safety and transport limits."""
 
     if not isinstance(value, str) or not value or len(value) > 4_096:
         return False
-    if any(marker in value for marker in ("\r", "\n", "\x00")):
-        return False
-    sentence_count = len(re.findall(r"[.!?]+", value))
-    return 1 <= sentence_count <= 3 and value.count("?") == 1 and value.endswith("?")
+    return not any(marker in value for marker in ("\r", "\n", "\x00"))
 
 
 def _normalized_optional_text(value: Any) -> str | None:
@@ -1201,8 +1129,8 @@ __all__ = [
     "STORE_OWNER_API_CAPABILITY_NAME",
     "STORE_OPERATION_ENTITIES",
     "STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME",
+    "STORE_QUOTE_CONDUCTOR_LEGACY_DIALOGUE_OPERATIONS",
     "STORE_QUOTE_CONDUCTOR_OPERATIONS",
-    "STORE_QUOTE_CONDUCTOR_REPLY_CLASSIFICATIONS",
     "STORE_QUOTE_CONDUCTOR_STORE_WRITE_OPERATIONS",
     "STORE_READ_CAPABILITY_NAMES",
     "STORE_SEARCH_ENTITIES",

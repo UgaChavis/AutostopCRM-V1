@@ -170,6 +170,31 @@ class FastStateWriteTests(unittest.TestCase):
         self.assertIn("event-first", event_ids)
         self.assertIn("event-second", event_ids)
 
+    def test_fast_write_reuses_unchanged_storage_payloads(self) -> None:
+        state_file = self._state_path("payload-cache")
+        store = self._seed_store(state_file)
+        bundle = store.read_bundle()
+        self._fast_write(store, bundle)
+
+        with patch.object(
+            Card,
+            "to_storage_dict",
+            side_effect=AssertionError("unchanged card payload should be reused"),
+        ):
+            self._fast_write(store, bundle)
+
+    def test_fast_write_persists_in_place_card_seen_change(self) -> None:
+        state_file = self._state_path("payload-cache-seen")
+        store = self._seed_store(state_file)
+        bundle = store.read_bundle()
+        self._fast_write(store, bundle)
+
+        self.assertTrue(bundle["cards"][0].mark_seen("OPERATOR-1"))
+        self._fast_write(store, bundle)
+
+        reloaded = JsonStore(state_file=state_file, logger=self.logger).read_bundle()
+        self.assertIn("OPERATOR-1", reloaded["cards"][0].seen_by_users)
+
     def test_fast_write_is_byte_equivalent_to_normal_write_after_card_change(self) -> None:
         normal_path = self._state_path("normal")
         fast_path = self._state_path("fast")
@@ -207,14 +232,22 @@ class FastStateWriteTests(unittest.TestCase):
         bundle = store.read_bundle()
         bundle["events"].append(self._event("event-fast-path"))
 
-        with patch.object(
-            json_store_module.orjson,
-            "dumps",
-            wraps=json_store_module.orjson.dumps,
-        ) as fast_dumps:
+        with (
+            patch.object(
+                json_store_module.orjson,
+                "dumps",
+                wraps=json_store_module.orjson.dumps,
+            ) as fast_dumps,
+            patch.object(
+                json_store_module,
+                "_supports_fast_state_serialization",
+                side_effect=AssertionError("trusted cached writes must skip the safety scan"),
+            ) as safety_scan,
+        ):
             self._fast_write(store, bundle)
 
         self.assertEqual(fast_dumps.call_count, 1)
+        safety_scan.assert_not_called()
 
     def test_fast_serializer_preserves_json_semantics_for_unicode_and_floats(self) -> None:
         state = {

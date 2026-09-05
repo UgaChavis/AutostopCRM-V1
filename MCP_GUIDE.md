@@ -155,12 +155,10 @@ inventory is available through `discover_raw_capabilities` ->
 public 24-tool surface. It exposes only the current bounded input contract;
 never infer parameters from an admin screen or older release.
 
-The generic `store_owner_api` transport is internal-only: it cannot be
-discovered, schema-read, or invoked through the public raw-capability tools.
-Admin V2 customer estimates use the typed
-`agent_inventory_workflow(operation="store_quote_conductor")` route, never a
-generic Store owner transport or raw discovery. The Manager keeps the owner
-transport only as an implementation dependency of reviewed internal workflows.
+The generic `store_owner_api` transport is internal-only and cannot be reached
+through public raw-capability tools. Admin V2 quote work uses the typed
+`agent_inventory_workflow(operation="store_quote_conductor")` route; Telegram
+dialogue is a separate workflow, not a conductor transport.
 
 The canonical Store operation semantics, finance classifier coverage, exact
 customer-publication boundary, and order pagination are in

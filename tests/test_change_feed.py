@@ -236,6 +236,20 @@ class ChangeFeedStorageContractTests(ChangeFeedTestCase):
             [row["event_id"] for row in rows],
         )
 
+    def test_identical_state_fingerprint_skips_repeated_projection_work(self) -> None:
+        path = self.base_dir / "no-op.sqlite3"
+        store = ChangeFeedStore(path)
+        store.initialize_baseline([])
+        state = {"cards": [], "events": []}
+
+        store.prepare_state_write("same-state", [], state=state)
+        store.commit_state_write("same-state")
+
+        with patch.object(store, "_source_state", side_effect=AssertionError("unexpected scan")):
+            self.assertEqual(0, store.prepare_state_write("same-state", [], state=state))
+        self.assertEqual(0, store.commit_state_write("same-state"))
+        self.assertEqual([], store.raw_events_for_test())
+
     def test_restart_publishes_durable_outbox_when_post_state_commit_was_interrupted(
         self,
     ) -> None:

@@ -11,6 +11,7 @@ from .agent_gateway_support import _envelope, _policy_error
 from .gateway_media import tool_result
 from .store_gateway import (
     STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME,
+    STORE_QUOTE_CONDUCTOR_LEGACY_DIALOGUE_OPERATIONS,
     store_quote_conductor_arguments,
     store_quote_conductor_safe_projection,
     store_quote_conductor_safe_verification,
@@ -62,29 +63,35 @@ async def execute_store_quote_conductor(
     if policy_error:
         return workflow_error_result("inventory", policy_error)
     effective_mode = str(validation["mode"])
+    if conductor_operation in STORE_QUOTE_CONDUCTOR_LEGACY_DIALOGUE_OPERATIONS:
+        return tool_result(
+            _envelope(
+                ok=False,
+                status="unavailable",
+                summary={
+                    "workflow_id": "inventory",
+                    "operation": STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME,
+                    "conductor_operation": conductor_operation,
+                    "dialogue_workflow": "separate_telegram_workflow",
+                },
+                warnings=["store_quote_conductor_dialogue_workflow_required"],
+                next_actions=["Use the separate Telegram workflow for customer dialogue."],
+                meta={
+                    "mode": effective_mode,
+                    "dry_run": False,
+                    "ledger_owned_by_named_workflow": True,
+                    "refs_only": True,
+                    "external_store_write": False,
+                },
+            ),
+            label="inventory",
+        )
     arguments = store_quote_conductor_arguments(
         raw_tools,
         payload,
         idempotency_key=idempotency_key,
         mode=effective_mode,
     )
-    if conductor_operation == "reply" and "telegram_inbound_receipt" not in arguments:
-        # Do not silently downgrade a reply to an older Manager contract:
-        # without the typed inbound transport proof, client consent must
-        # remain untrusted and no order path may continue.
-        return tool_result(
-            _envelope(
-                ok=False,
-                status="blocked",
-                summary={
-                    "workflow_id": "inventory",
-                    "operation": STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME,
-                    "conductor_operation": conductor_operation,
-                },
-                warnings=["store_quote_conductor_inbound_proof_capability_unavailable"],
-            ),
-            label="inventory",
-        )
     result = await invoke_store(STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME, arguments)
     source_status = str(result.get("status") or "").strip().casefold()
     status = (
