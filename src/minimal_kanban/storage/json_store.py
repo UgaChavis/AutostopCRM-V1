@@ -76,13 +76,17 @@ def _json_safe_dict(value: Any) -> dict[str, Any]:
 
 
 def _serialized_state(
-    state: dict[str, Any], *, already_safe: bool = False, fast_serializer: bool = False
+    state: dict[str, Any],
+    *,
+    already_safe: bool = False,
+    fast_serializer: bool = False,
+    trusted_safe: bool = False,
 ) -> tuple[dict[str, Any], bytes, str]:
     safe_state = state if already_safe else _json_safe_dict(state)
-    if fast_serializer and _supports_fast_state_serialization(safe_state):
+    if fast_serializer and (trusted_safe or _supports_fast_state_serialization(safe_state)):
         try:
             payload = orjson.dumps(safe_state)
-        except orjson.JSONEncodeError:
+        except TypeError:
             payload = _stdlib_state_payload(safe_state)
     else:
         payload = _stdlib_state_payload(safe_state)
@@ -109,16 +113,12 @@ def _supports_fast_state_serialization(value: Any) -> bool:
         if item is None or item_type in {str, bool}:
             continue
         if item_type is int:
-            if item < -(1 << 63) or item > (1 << 64) - 1:
-                return False
             continue
         if item_type is float:
             if not math.isfinite(item):
                 return False
             continue
         if item_type is dict:
-            if any(type(key) is not str for key in item):
-                return False
             pending.extend(item.values())
             continue
         if item_type in {list, tuple}:
@@ -192,6 +192,7 @@ class JsonStore:
         self._trusted_inventory_item_versions: dict[str, tuple[int, str]] = {}
         self._trusted_inventory_movement_objects: set[int] = set()
         self._trusted_event_objects: set[int] = set()
+        self._storage_dict_cache: dict[str, dict[int, tuple[Any, Any, dict[str, Any]]]] = {}
         get_app_data_dir().mkdir(parents=True, exist_ok=True)
         self._state_file.parent.mkdir(parents=True, exist_ok=True)
         if not self._state_file.exists():
@@ -484,6 +485,7 @@ class JsonStore:
                         state,
                         already_safe=True,
                         fast_serializer=True,
+                        trusted_safe=True,
                     )
                 except Exception:
                     self._invalidate_read_cache()
@@ -766,23 +768,72 @@ class JsonStore:
             "settings": normalized_settings,
         }
 
-    @staticmethod
-    def _state_from_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
+    def _storage_payloads(
+        self,
+        name: str,
+        values: list[Any],
+        converter,
+    ) -> list[dict[str, Any]]:
+        previous = self._storage_dict_cache.get(name, {})
+        current: dict[int, tuple[Any, Any, dict[str, Any]]] = {}
+        payloads: list[dict[str, Any]] = []
+        for item in values:
+            if isinstance(item, Card):
+                version = (
+                    item.updated_at,
+                    item.is_unread,
+                    tuple(sorted(item.seen_by_users.items())),
+                )
+            else:
+                version = getattr(item, "updated_at", None)
+            if version is None:
+                payloads.append(converter(item))
+                continue
+            item_id = id(item)
+            cached = previous.get(item_id)
+            if cached is not None and cached[0] is item and cached[1] == version:
+                payload = cached[2]
+            else:
+                payload = converter(item)
+            current[item_id] = (item, version, payload)
+            payloads.append(payload)
+        self._storage_dict_cache[name] = current
+        return payloads
+
+    def _state_from_bundle(self, bundle: dict[str, Any]) -> dict[str, Any]:
         return {
             "schema_version": DEFAULT_STATE["schema_version"],
-            "columns": [column.to_dict() for column in bundle["columns"]],
-            "cards": [card.to_storage_dict() for card in bundle["cards"]],
-            "clients": [client.to_storage_dict() for client in bundle["clients"]],
-            "stickies": [sticky.to_storage_dict() for sticky in bundle["stickies"]],
-            "cashboxes": [cashbox.to_storage_dict() for cashbox in bundle["cashboxes"]],
-            "cash_transactions": [
-                transaction.to_storage_dict() for transaction in bundle["cash_transactions"]
-            ],
-            "inventory_items": [item.to_storage_dict() for item in bundle["inventory_items"]],
-            "inventory_movements": [
-                movement.to_storage_dict() for movement in bundle["inventory_movements"]
-            ],
-            "events": [event.to_dict() for event in bundle["events"]],
+            "columns": self._storage_payloads(
+                "columns", bundle["columns"], lambda item: item.to_dict()
+            ),
+            "cards": self._storage_payloads(
+                "cards", bundle["cards"], lambda item: item.to_storage_dict()
+            ),
+            "clients": self._storage_payloads(
+                "clients", bundle["clients"], lambda item: item.to_storage_dict()
+            ),
+            "stickies": self._storage_payloads(
+                "stickies", bundle["stickies"], lambda item: item.to_storage_dict()
+            ),
+            "cashboxes": self._storage_payloads(
+                "cashboxes", bundle["cashboxes"], lambda item: item.to_storage_dict()
+            ),
+            "cash_transactions": self._storage_payloads(
+                "cash_transactions",
+                bundle["cash_transactions"],
+                lambda item: item.to_storage_dict(),
+            ),
+            "inventory_items": self._storage_payloads(
+                "inventory_items", bundle["inventory_items"], lambda item: item.to_storage_dict()
+            ),
+            "inventory_movements": self._storage_payloads(
+                "inventory_movements",
+                bundle["inventory_movements"],
+                lambda item: item.to_storage_dict(),
+            ),
+            "events": self._storage_payloads(
+                "events", bundle["events"], lambda item: item.to_dict()
+            ),
             "settings": bundle["settings"],
         }
 
@@ -873,6 +924,7 @@ class JsonStore:
         *,
         already_safe: bool = False,
         fast_serializer: bool = False,
+        trusted_safe: bool = False,
     ) -> tuple[float, float]:
         existing_signature = self._state_signature()
         if existing_signature is not None and existing_signature != self._validated_state_signature:
@@ -882,6 +934,7 @@ class JsonStore:
             state,
             already_safe=already_safe,
             fast_serializer=fast_serializer,
+            trusted_safe=trusted_safe,
         )
         if not self._change_feed_initialized:
             if self._state_file.exists():
@@ -973,6 +1026,7 @@ class JsonStore:
         self._trusted_inventory_item_versions.clear()
         self._trusted_inventory_movement_objects.clear()
         self._trusted_event_objects.clear()
+        self._storage_dict_cache.clear()
 
     def _set_read_cache(
         self,

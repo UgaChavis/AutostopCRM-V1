@@ -330,6 +330,7 @@ class ChangeFeedStore:
                 "high_water": "0",
                 "initialized": "0",
                 "pending_fingerprint": "",
+                "committed_fingerprint": "",
             }
             connection.executemany(
                 "INSERT OR IGNORE INTO metadata(key, value) VALUES (?, ?)", defaults.items()
@@ -1089,6 +1090,13 @@ class ChangeFeedStore:
                 raise ChangeFeedPendingWriteError(
                     "A prior change-feed outbox stage must be reconciled before another write."
                 )
+            if not pending_fingerprint and hmac.compare_digest(
+                self._metadata(connection, "committed_fingerprint"), fingerprint
+            ):
+                connection.execute("DELETE FROM pending_events")
+                connection.execute("DELETE FROM pending_entity_changes")
+                connection.execute("DELETE FROM pending_source_changes")
+                return 0
             compacted = self._compact_unseen_events(connection, events)
             connection.execute("DELETE FROM pending_events")
             ordinal, covered = self._stage_unseen_audit_events(
@@ -1164,7 +1172,12 @@ class ChangeFeedStore:
         # atomic publish either survives, or the durable pending stage survives and is
         # replayed by reconcile_state against the authoritative state fingerprint.
         with self._transaction(immediate=True, durable=False) as connection:
-            if self._metadata(connection, "pending_fingerprint") != state_fingerprint:
+            pending_fingerprint = self._metadata(connection, "pending_fingerprint")
+            if not pending_fingerprint and hmac.compare_digest(
+                self._metadata(connection, "committed_fingerprint"), state_fingerprint
+            ):
+                return 0
+            if pending_fingerprint != state_fingerprint:
                 raise RuntimeError("Change-feed state fingerprint does not match staged outbox.")
             rows = connection.execute(
                 "SELECT * FROM pending_events WHERE state_fingerprint = ? ORDER BY ordinal",
@@ -1178,6 +1191,7 @@ class ChangeFeedStore:
             self._apply_pending_source_changes(connection)
             connection.execute("DELETE FROM pending_events")
             self._set_metadata(connection, "pending_fingerprint", "")
+            self._set_metadata(connection, "committed_fingerprint", state_fingerprint)
             return published
 
     def reconcile_state(
@@ -1200,6 +1214,7 @@ class ChangeFeedStore:
                     connection, project_crm_source_signatures(state or {})
                 )
                 self._set_metadata(connection, "initialized", "1")
+                self._set_metadata(connection, "committed_fingerprint", fingerprint)
                 return self._status(connection)
             pending_fingerprint = self._metadata(connection, "pending_fingerprint")
             if pending_fingerprint:
@@ -1239,6 +1254,7 @@ class ChangeFeedStore:
                 self._apply_pending_entity_changes(connection, fingerprint)
                 self._apply_pending_source_changes(connection)
             connection.execute("DELETE FROM pending_events")
+            self._set_metadata(connection, "committed_fingerprint", fingerprint)
             return self._status(connection)
 
     @staticmethod

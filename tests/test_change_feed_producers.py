@@ -19,6 +19,9 @@ from minimal_kanban.operator_permissions import SALARY_BALANCE_RESET_PERMISSION 
 from minimal_kanban.services.card_service import CardService  # noqa: E402
 from minimal_kanban.services.errors import ServiceError  # noqa: E402
 from minimal_kanban.services.shared_files_service import SharedFilesService  # noqa: E402
+from minimal_kanban.storage import (
+    change_feed_projection as change_feed_projection_module,  # noqa: E402
+)
 from minimal_kanban.storage.change_feed_projection import (  # noqa: E402
     project_crm_source_signatures,
 )
@@ -426,6 +429,41 @@ class ChangeFeedProducerContractTests(unittest.TestCase):
         restarted = JsonStore(self.base_dir / "state.json", logger=self.logger)
         restarted.reconcile_change_feed()
         self.assertEqual(restart_high_water, self.high_water())
+
+    def test_source_signature_cache_is_exact_and_skips_long_inputs(self) -> None:
+        cache = change_feed_projection_module._cached_source_digest
+        cache.cache_clear()
+        item = {"id": "cashbox-cache", "updated_at": "2099-01-01T00:00:00+00:00"}
+        short_state = {"cashboxes": [{**item, "status": "active"}]}
+        key = ("cashbox", item["id"])
+
+        try:
+            first = project_crm_source_signatures(short_state)
+            repeated = project_crm_source_signatures(short_state)
+            changed = project_crm_source_signatures({"cashboxes": [{**item, "status": "paused"}]})
+            after_changed = cache.cache_info()
+            long_value = "x" * (change_feed_projection_module._SOURCE_DIGEST_CACHE_MAX_CHARS + 1)
+            long_input = project_crm_source_signatures(
+                {"cashboxes": [{**item, "status": long_value}]}
+            )
+            private_input = project_crm_source_signatures(
+                {
+                    "settings": {
+                        "employee_salary_balance_resets": [
+                            {"id": "reset-cache", "employee_name": "Test employee"}
+                        ]
+                    }
+                }
+            )
+
+            self.assertEqual(first, repeated)
+            self.assertGreater(after_changed.hits, 0)
+            self.assertNotEqual(first[key], changed[key])
+            self.assertNotEqual(first[key], long_input[key])
+            self.assertIn(("employee_salary_balance_reset", "reset-cache"), private_input)
+            self.assertEqual(cache.cache_info(), after_changed)
+        finally:
+            cache.cache_clear()
 
     def test_state_lifecycle_covers_move_archive_restore_and_tombstone(self) -> None:
         card_id = self.service.create_card({"title": "Lifecycle matrix"})["card"]["id"]

@@ -5,11 +5,14 @@ import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any
 
 _TECHNICAL_ID_PATTERN = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
 _PRIVATE_VIEWER_SETTING_KEYS = frozenset({"_cashbox_notification_seen_by_users"})
 _PRIVATE_OPERATOR_USER_KEYS = frozenset({"board_preferences"})
+_SOURCE_DIGEST_CACHE_MAX_ENTRIES = 8192
+_SOURCE_DIGEST_CACHE_MAX_CHARS = 512
 SourceKey = tuple[str, str]
 
 
@@ -65,9 +68,16 @@ def _digest(value: object) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _source_digest(*values: object) -> str:
-    payload = "\x1f".join(str(value or "") for value in values).encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()
+@lru_cache(maxsize=_SOURCE_DIGEST_CACHE_MAX_ENTRIES)
+def _cached_source_digest(payload: str) -> str:
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _source_digest(*values: object, cacheable: bool = True) -> str:
+    payload = "\x1f".join(str(value or "") for value in values)
+    if cacheable and len(payload) <= _SOURCE_DIGEST_CACHE_MAX_CHARS:
+        return _cached_source_digest(payload)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _selected(sources: set[SourceKey] | None, source_type: str, source_id: str) -> bool:
@@ -440,7 +450,8 @@ def project_crm_source_signatures(state: Mapping[str, Any] | object) -> dict[Sou
                 *(
                     f"{key}:{value}"
                     for key, value in sorted(_mapping(card.get("seen_by_users")).items())
-                )
+                ),
+                cacheable=False,
             ),
             len(_items(card.get("attachments"))),
             len(_items(repair_order.get("works"))),
@@ -487,6 +498,7 @@ def project_crm_source_signatures(state: Mapping[str, Any] | object) -> dict[Sou
             item.get("idempotency_key"),
             item.get("actor_name"),
             item.get("source"),
+            cacheable=False,
         )
     board_settings = {
         key: value

@@ -476,6 +476,8 @@ class ToolPolicyEngineTests(unittest.TestCase):
         self.assertIn("quote request", system_prompt)
         self.assertIn("Routes, scenarios, and source groups are hints", system_prompt)
         self.assertIn("native guard", system_prompt)
+        self.assertIn("exactly one JSON object", system_prompt)
+        self.assertLess(len(system_prompt), 5000)
 
 
 if __name__ == "__main__":

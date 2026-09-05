@@ -22,7 +22,7 @@ from minimal_kanban.json_safety import reject_deeply_nested_json  # noqa: E402
 
 GIT_COMMAND_TIMEOUT_SECONDS = 15
 DOCS_AUDIT_TEXT_MAX_BYTES = 2 * 1024 * 1024
-AGENT_CONNECTOR_DOC_MAX_TOTAL_LINES = 175
+AGENT_CONNECTOR_DOC_MAX_TOTAL_LINES = 110
 
 CRM_CANONICAL_DOCS = (
     "AGENTS.md",

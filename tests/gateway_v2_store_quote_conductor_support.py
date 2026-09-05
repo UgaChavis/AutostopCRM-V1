@@ -5,7 +5,10 @@ import hashlib
 import json
 from typing import Any
 
-from minimal_kanban.mcp.store_gateway import STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME
+from minimal_kanban.mcp.store_gateway import (
+    STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME,
+    _valid_store_quote_telegram_text,
+)
 
 
 def _fake_digest(value: object) -> str:
@@ -80,11 +83,7 @@ def register_fake_store_quote_conductor(server: Any, state: dict[str, Any]) -> N
             return replay
         response = {
             "ok": True,
-            "status": "planned"
-            if mode == "dry_run"
-            else "external_wait"
-            if operation == "wait"
-            else "completed",
+            "status": "planned" if mode == "dry_run" else "completed",
             "run_id": run_id or 901,
             "summary": {
                 "phase": operation,
@@ -276,9 +275,7 @@ class StoreQuoteConductorCasesMixin:
         self.assertFalse(any(name == "store_management_action" for name, _ in state["calls"]))
         self.assertFalse(any(name == "start_workflow" for name, _ in state["calls"]))
 
-    async def test_low_risk_conductor_draft_and_reply_need_only_current_target_context(
-        self,
-    ) -> None:
+    async def test_low_risk_conductor_draft_needs_only_current_target_context(self) -> None:
         server, state = self._create_store_server()
         inventory = server._tool_manager.get_tool("agent_inventory_workflow")
         draft = await inventory.run(
@@ -293,207 +290,61 @@ class StoreQuoteConductorCasesMixin:
             },
             convert_result=False,
         )
-        reply = await inventory.run(
-            {
-                "operation": STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME,
-                "payload": {
-                    "operation": "reply",
-                    "quote_request_id": "quote-1",
-                    "step_id": "telegram-wait-0001",
-                    "telegram_inbound_receipt": "telegram-receipt-0003",
-                },
-            },
-            convert_result=False,
-        )
-
         self.assertTrue(draft.structuredContent["ok"])
-        self.assertTrue(reply.structuredContent["ok"])
         self.assertEqual("apply", draft.structuredContent["summary"]["mode"])
-        self.assertEqual("apply", reply.structuredContent["summary"]["mode"])
         self.assertNotIn("ledger_owned_by_named_workflow", draft.structuredContent["meta"])
         calls = [
             arguments
             for name, arguments in state["calls"]
             if name == STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME
-        ][-2:]
-        self.assertEqual(["draft", "reply"], [call["operation"] for call in calls])
-        self.assertTrue(
-            all(call["idempotency_key"].startswith("store-implicit-") for call in calls)
-        )
-        self.assertEqual([None, None], [call["run_id"] for call in calls])
-        self.assertEqual([None, None], [call["expected_state_version"] for call in calls])
-        self.assertEqual(["", ""], [call["expected_revision"] for call in calls])
-        self.assertEqual(["", ""], [call["correlation_id"] for call in calls])
+        ]
+        self.assertEqual(1, len(calls))
+        self.assertEqual("draft", calls[0]["operation"])
+        self.assertTrue(calls[0]["idempotency_key"].startswith("store-implicit-"))
+        self.assertIsNone(calls[0]["run_id"])
+        self.assertIsNone(calls[0]["expected_state_version"])
+        self.assertEqual("", calls[0]["expected_revision"])
+        self.assertEqual("", calls[0]["correlation_id"])
         self.assertFalse(any(name == "start_workflow" for name, _ in state["calls"]))
 
-    async def test_store_quote_conductor_refs_only_phase_rejects_preview_and_order_needs_hashes(
+    async def test_legacy_dialogue_operations_are_unavailable_and_do_not_call_conductor(
         self,
     ) -> None:
         server, state = self._create_store_server()
         inventory = server._tool_manager.get_tool("agent_inventory_workflow")
-        wait_payload = {
-            "operation": "wait",
-            "quote_request_id": "quote-1",
-            "run_id": 901,
-            "expected_state_version": 5,
-            "expected_revision": "2026-07-16T10:00:00+00:00",
-            "correlation_id": "quote-conductor-wait-0001",
-            "published_snapshot_hash": "b" * 64,
-            "telegram_context_hash": "c" * 64,
-            "telegram_message": "PRIVATE_TELEGRAM_TEXT. Детали подберем сегодня. Сообщите удобный способ связи.",
-            "telegram_message_kind": "offer",
-            "step_id": "telegram-wait-0001",
-        }
-        rejected_preview = await inventory.run(
-            {
-                "operation": STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME,
-                "payload": wait_payload,
-                "idempotency_key": "quote-conductor-wait-preview-0001",
-                "mode": "dry_run",
-            },
-            convert_result=False,
-        )
-        accepted_wait = await inventory.run(
-            {
-                "operation": STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME,
-                "payload": wait_payload,
-                "idempotency_key": "quote-conductor-wait-apply-0001",
-            },
-            convert_result=False,
-        )
-        rejected_missing_delivery_context = await inventory.run(
-            {
-                "operation": STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME,
-                "payload": {
-                    key: value for key, value in wait_payload.items() if key != "telegram_message"
-                },
-                "idempotency_key": "quote-conductor-wait-missing-message-0001",
-            },
-            convert_result=False,
-        )
-        accepted_addition = await inventory.run(
-            {
-                "operation": STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME,
-                "payload": {
-                    "operation": "reply",
-                    "quote_request_id": "quote-1",
-                    "run_id": 901,
-                    "expected_state_version": 6,
-                    "step_id": "telegram-wait-0001",
-                    "telegram_inbound_receipt": "telegram-receipt-0001",
-                },
-                "idempotency_key": "quote-conductor-reply-addition-0001",
-            },
-            convert_result=False,
-        )
-        rejected_missing_reply_proof = await inventory.run(
-            {
-                "operation": STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME,
-                "payload": {
-                    "operation": "reply",
-                    "quote_request_id": "quote-1",
-                    "run_id": 901,
-                    "expected_state_version": 6,
-                    "step_id": "telegram-wait-0001",
-                    "reply_classification": "consent",
-                },
-                "idempotency_key": "quote-conductor-reply-missing-proof-0001",
-            },
-            convert_result=False,
-        )
-        rejected_asserted_consent = await inventory.run(
-            {
-                "operation": STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME,
-                "payload": {
-                    "operation": "reply",
-                    "quote_request_id": "quote-1",
-                    "run_id": 901,
-                    "expected_state_version": 6,
-                    "step_id": "telegram-wait-0001",
-                    "reply_classification": "consent",
-                    "telegram_inbound_receipt": "telegram-receipt-0002",
-                    "consent_context_hash": "d" * 64,
-                },
-                "idempotency_key": "quote-conductor-reply-asserted-consent-0001",
-            },
-            convert_result=False,
-        )
-        rejected_order = await inventory.run(
-            {
-                "operation": STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME,
-                "payload": {
-                    "operation": "order",
-                    "quote_request_id": "quote-1",
-                    "run_id": 901,
-                    "expected_state_version": 6,
-                    "expected_revision": "2026-07-16T10:00:00+00:00",
-                    "correlation_id": "quote-conductor-order-0001",
-                    "consent_context_hash": "not-a-hash",
-                    "published_snapshot_hash": "b" * 64,
-                },
-                "idempotency_key": "quote-conductor-order-apply-0001",
-                "mode": "apply",
-            },
-            convert_result=False,
+        for operation in ("clarification", "wait", "reply"):
+            with self.subTest(operation=operation):
+                result = await inventory.run(
+                    {
+                        "operation": STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME,
+                        "payload": {
+                            "operation": operation,
+                            "quote_request_id": "quote-1",
+                            "run_id": 901,
+                            "expected_state_version": 5,
+                            "telegram_message": "PRIVATE_TELEGRAM_TEXT without style rules",
+                        },
+                        "idempotency_key": f"quote-conductor-{operation}-0001",
+                    },
+                    convert_result=False,
+                )
+                self.assertFalse(result.structuredContent["ok"])
+                self.assertEqual("unavailable", result.structuredContent["status"])
+                self.assertIn(
+                    "store_quote_conductor_dialogue_workflow_required",
+                    result.structuredContent["warnings"],
+                )
+
+        self.assertEqual(
+            [],
+            [
+                arguments
+                for name, arguments in state["calls"]
+                if name == STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME
+            ],
         )
 
-        self.assertFalse(rejected_preview.structuredContent["ok"])
-        self.assertIn(
-            "store_quote_conductor_refs_only_apply_required",
-            rejected_preview.structuredContent["warnings"],
-        )
-        self.assertTrue(accepted_wait.structuredContent["ok"])
-        self.assertEqual("external_wait", accepted_wait.structuredContent["status"])
-        self.assertFalse(accepted_wait.structuredContent["meta"]["external_store_write"])
-        public_wait = json.dumps(accepted_wait.structuredContent, ensure_ascii=False)
-        self.assertNotIn("PRIVATE_TELEGRAM_TEXT", public_wait)
-        self.assertEqual("c" * 64, accepted_wait.structuredContent["data"]["telegram_context_hash"])
-        self.assertEqual("offer", accepted_wait.structuredContent["data"]["telegram_message_kind"])
-        self.assertFalse(rejected_missing_delivery_context.structuredContent["ok"])
-        self.assertIn(
-            "store_quote_conductor_telegram_message_invalid",
-            rejected_missing_delivery_context.structuredContent["warnings"],
-        )
-        self.assertTrue(accepted_addition.structuredContent["ok"])
-        self.assertEqual(
-            "reply",
-            accepted_addition.structuredContent["summary"]["conductor_operation"],
-        )
-        self.assertNotIn(
-            "telegram-receipt-0001",
-            json.dumps(accepted_addition.structuredContent, ensure_ascii=False),
-        )
-        self.assertFalse(rejected_missing_reply_proof.structuredContent["ok"])
-        self.assertIn(
-            "store_quote_conductor_telegram_inbound_receipt_required",
-            rejected_missing_reply_proof.structuredContent["warnings"],
-        )
-        self.assertFalse(rejected_asserted_consent.structuredContent["ok"])
-        self.assertIn(
-            "store_quote_conductor_reply_binding_must_be_transport_verified",
-            rejected_asserted_consent.structuredContent["warnings"],
-        )
-        self.assertFalse(rejected_order.structuredContent["ok"])
-        self.assertIn(
-            "store_quote_conductor_order_context_hash_required",
-            rejected_order.structuredContent["warnings"],
-        )
-        conductor_calls = [
-            arguments
-            for name, arguments in state["calls"]
-            if name == STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME
-        ]
-        self.assertEqual(2, len(conductor_calls))
-        self.assertEqual("wait", conductor_calls[0]["operation"])
-        self.assertEqual("apply", conductor_calls[0]["mode"])
-        self.assertEqual("2026-07-16T10:00:00+00:00", conductor_calls[0]["expected_revision"])
-        self.assertEqual("quote-conductor-wait-0001", conductor_calls[0]["correlation_id"])
-        self.assertEqual("c" * 64, conductor_calls[0]["telegram_context_hash"])
-        self.assertEqual(
-            "PRIVATE_TELEGRAM_TEXT. Детали подберем сегодня. Сообщите удобный способ связи.",
-            conductor_calls[0]["telegram_message"],
-        )
-        self.assertEqual("offer", conductor_calls[0]["telegram_message_kind"])
-        self.assertEqual("reply", conductor_calls[1]["operation"])
-        self.assertEqual("", conductor_calls[1]["reply_classification"])
-        self.assertEqual("telegram-receipt-0001", conductor_calls[1]["telegram_inbound_receipt"])
+    def test_telegram_text_validation_is_technical_only(self) -> None:
+        self.assertTrue(_valid_store_quote_telegram_text("Two sentences. No forced question."))
+        self.assertFalse(_valid_store_quote_telegram_text("line one\nline two"))
+        self.assertFalse(_valid_store_quote_telegram_text(""))
