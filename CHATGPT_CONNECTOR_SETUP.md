@@ -1,31 +1,22 @@
 # AutoStop CRM: ChatGPT And Responses MCP Access
 
-This note covers client and authentication compatibility for
-`https://crm.autostopcrm.ru/mcp`. Tool behavior and write rules belong in
-[MCP_GUIDE.md](MCP_GUIDE.md); deployment, credentials, and live verification
-belong in [the operations runbook](docs/OPERATIONS_RUNBOOK.md).
+This is the compact client/auth note for `https://crm.autostopcrm.ru/mcp`.
+Tool behavior belongs in [MCP_GUIDE.md](MCP_GUIDE.md); operations and release
+verification belong in the [runbook](docs/OPERATIONS_RUNBOOK.md).
 
-## Production Contract
+## Client Contract
 
-- The endpoint is scoped to one current AutoStop CRM board. Public anonymous
-  reads are rejected; Public anonymous writes must remain blocked.
-- Production uses `AUTOSTOP_MCP_OAUTH_ENABLED=1` and
-  `AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED=0`.
-- The owner-approved OAuth 2.1 flow uses authorization code with PKCE S256,
-  explicit administrator approval, short-lived access tokens, rotating refresh
-  tokens, and exact audience/scope validation. Authorization is never
-  auto-approved.
-- Encrypted authorization state survives container replacement. The rotating
-  bearer is internal compatibility for server smoke and Responses API access;
-  it is not a ChatGPT/Codex client configuration shortcut.
-
-## Supported Clients
-
-- ChatGPT Apps/Connectors discover the protected resource, register a client, and open the CRM administrator approval page.
-- Codex is configured with only the public MCP URL and no static headers; then
-  run `codex mcp login autostopcrm`.
-- Responses API remote MCP tools use `server_url` plus the tool-level
-  `authorization` field on every Response creation request:
+- The endpoint serves one protected CRM board. Public anonymous reads are
+  rejected, and Public anonymous writes must remain blocked.
+- Production uses owner-approved OAuth 2.1 authorization code with PKCE S256,
+  administrator approval, rotating refresh tokens, and exact audience/scope
+  validation. Keep `AUTOSTOP_MCP_OAUTH_ENABLED=1` and
+  `AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED=0`; the encrypted state survives normal
+  container replacement.
+- ChatGPT Apps discover the protected resource and use its approval page.
+  Codex uses the public URL with no static headers, then runs
+  `codex mcp login autostopcrm`.
+- Responses remote MCP tools send the current tool-level `authorization`:
 
 ```json
 {
@@ -36,34 +27,21 @@ belong in [the operations runbook](docs/OPERATIONS_RUNBOOK.md).
 }
 ```
 
-OpenAI does not store `authorization` in the Response object. Provision the
-real token through the client secret/environment mechanism; never put it in
-source, documentation, shell history, logs, or ordinary chat. ChatGPT and Codex
-rotate refresh tokens automatically. After explicit revocation or loss of the
-local credential store, repeat the owner-approved link flow.
+Provide that token through a secret/environment mechanism, never source,
+documentation, shell history, logs, or ordinary chat. A revoked link uses the
+normal owner-approved flow again.
 
-Authoritative OpenAI references: [Apps SDK authentication](https://developers.openai.com/apps-sdk/build/auth)
-and [MCP and Connectors](https://developers.openai.com/api/docs/guides/tools-connectors-mcp).
+Platform details: [Apps SDK authentication](https://developers.openai.com/apps-sdk/build/auth) and [MCP and Connectors](https://developers.openai.com/api/docs/guides/tools-connectors-mcp).
 
-## First Calls And Safety
+## Safe Use
 
-1. Call `agent_bootstrap`.
-2. Use `agent_board_digest`, `agent_search`, and `agent_entity_context` to find
-   exact targets.
-3. For a mutation, create `prepare_action_contract`, run the named workflow in
-   `dry_run`, then `apply` with a unique idempotency key, and reread the target.
+1. Begin with `agent_bootstrap`; use focused reads to identify exact targets.
+2. For a mutation, prepare the action, use dry-run then apply with a unique
+   idempotency key, and reread the target.
+3. Use `get_runtime_status` only for runtime/auth diagnostics. Keep approvals
+   for sensitive actions and require explicit owner intent for money, client,
+   file, order, inventory, archive, or delete changes.
 
-Use `get_runtime_status` only for explicit runtime/auth diagnostics. The client
-must expose the current Gateway v2 surface and no low-level legacy tool names;
-the exact source-derived contract is in `MCP_GUIDE.md`.
-
-Keep normal tool approvals enabled for sensitive actions. Read live context
-before every write, and do not move, archive, delete, or change money, client,
-file, order, or inventory data without explicit owner intent.
-
-## Verification
-
-Client setup uses the standard OAuth flow only. Run the exhaustive Gateway
-check inside the CRM container so the internal compatibility bearer stays
-server-local; follow `MCP_GUIDE.md` and the operations runbook for the exact
-read-only/dry-run/synthetic release check.
+The client must expose the current Gateway surface, not hidden legacy tools.
+Use the runbook's read-only/dry-run/synthetic release check when verification
+is authorized.

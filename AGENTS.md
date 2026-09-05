@@ -1,106 +1,63 @@
 # Agent Instructions
 
-Repository rules for coding agents. Code, tests, and the canonical documents
-below are the source of truth; keep this file compact.
+Work from current code, tests, and the canonical documents. Treat these rules
+as decision boundaries, not a substitute for judgment: choose the smallest
+useful reversible step, explain material tradeoffs, and ask only when authority
+or a consequential choice is genuinely missing.
 
-## Scope And Canonical Sources
+## Product And Sources
 
-- Product: AutoStop CRM. Production branch: `autostopcrm-v1`; production URL:
-  `https://crm.autostopcrm.ru`; MCP: `https://crm.autostopcrm.ru/mcp`.
+- AutoStop CRM ships from `autostopcrm-v1`; production is
+  `https://crm.autostopcrm.ru` and MCP is `https://crm.autostopcrm.ru/mcp`.
 - `minimal_kanban`, `%APPDATA%\Minimal Kanban`, and `Start Kanban.exe` are
-  compatibility names for the same product. Treat them as active until
-  read-only production and rollback evidence proves removal is safe.
-- Start with the task's code and tests, then route questions to the narrow
-  canonical owner:
-  - `README.md` — project map and supported entry points;
-  - `docs/OPERATIONS_RUNBOOK.md` — operations, maintenance, release, rollback,
-    credentials, and production verification;
+  compatibility names for the same product. Keep them until read-only
+  production and rollback evidence proves removal safe.
+- Start with the task-local code and tests, then use the narrow owner:
+  - `README.md` — project map and entry points;
+  - `docs/OPERATIONS_RUNBOOK.md` — operations, release, rollback, credentials,
+    and production verification;
   - `API_GUIDE.md` — HTTP contracts;
-  - `MCP_GUIDE.md` — MCP tools, workflows, and write safety;
-  - `CHATGPT_CONNECTOR_SETUP.md` — client/auth compatibility only;
+  - `MCP_GUIDE.md` — MCP surface and write safety;
+  - `CHATGPT_CONNECTOR_SETUP.md` — client/auth compatibility;
   - `AUTOSTOPCRM_FULL_INSTRUCTION.txt` — short server note.
-- The canonical set is `AGENTS.md` plus those six documents. Do not recreate
-  removed historical plans or handoff files.
+- `AGENTS.md` and those six files are the canonical set. Do not recreate
+  retired plans or parallel handoffs.
 
-## Worktree, Data, And Ownership
+## Safe Autonomy
 
-- Begin with `git status --short --branch`; preserve unrelated user changes.
-- Never reset, revert, delete, or overwrite user work without an explicit
-  request. Keep each change focused and use `rg`, existing models, structured
-  parsers, and `apply_patch` where appropriate.
-- Do not commit unless the user asks. A request to publish changes does not
-  authorize a production deploy.
-- Never commit or expose credentials, `.env`, SSH keys, private access bundles,
-  secret-bearing logs, runtime state, production snapshots, `data/`,
-  attachments, financial ledgers, operator activity, or audit archives.
-- Finance stop-line: do not manually edit production `state.json`, cashboxes,
-  repair-order ledgers, `audit-archive`, or `operator-activity`. Finance safe
-  fixes and historical cleanup require the runbook's read-only/dry-run,
-  verified-backup, explicit-owner flow. Repair-order numbers have no supported
-  correction flow; `/api/correct_repair_order_number` must reject with
-  `repair_order_number_immutable`.
+- Begin with `git status --short --branch`; preserve unrelated work. Publish
+  only within the task's scope; a commit or push never authorizes deployment.
+- Keep credentials, `.env`, private bundles, runtime data, attachments,
+  financial ledgers, operator activity, and audit archives out of Git, logs,
+  and chat.
+- Finance stop-line: never edit production `state.json`, cashboxes,
+  repair-order ledgers, `audit-archive`, or `operator-activity` by hand.
+  Finance fixes and historical cleanup require the runbook's read-only/dry-run,
+  verified-backup, explicit-owner flow. Repair-order numbers remain immutable.
 - Public anonymous API/MCP reads and every write must remain blocked in
   production.
-- Legacy or migration code is not dead-code proof. Delete it only after exact
+- A legacy or migration name is not dead-code proof. Remove it only after
   runtime/data/deploy evidence, replacement and rollback analysis, and owner
-  approval; uncertain compatibility is not removable.
+  approval; uncertain compatibility stays.
 
-## Architecture Boundaries
+## Design And Verification
 
-- Business logic: `src/minimal_kanban/services/`; persistence and normalization:
-  `src/minimal_kanban/storage/json_store.py`.
-- HTTP: `src/minimal_kanban/api/server.py` and `route_registry.py`; update the
-  immutable `RouteSpec` for registry-owned routes.
-- MCP: `src/minimal_kanban/mcp/`; `server.py` orchestrates registrars,
-  `tool_registry.py` owns raw registration, and `agent_gateway_v2.py` owns the
-  production surface.
-- Browser source: `src/minimal_kanban/web_app_assets/source/`; preserve output
-  assembled by `web_app_assets/assembler.py`.
-- API, MCP, UI, smoke scripts, and compatibility routes must share backend
-  contracts instead of duplicating behavior.
+- Keep business rules in `src/minimal_kanban/services/`, persistence in
+  `storage/json_store.py`, HTTP policy in `api/route_registry.py`, MCP surface
+  in `mcp/`, and browser source in `web_app_assets/source/`. Reuse service
+  contracts instead of duplicating rules across transports.
+- For live CRM work, read context first. A write needs explicit owner intent,
+  an action contract, dry-run/apply where supported, idempotency, and exact
+  reread; use `MCP_GUIDE.md` for the guarded fallback.
+- Run focused checks first. Shared changes require
+  `run_checks.ps1 -Profile ci` and hosted CI; UI changes also need JS syntax
+  and relevant browser smoke. State what was not run and why.
 
-## MCP And Live CRM
+## Release And Documents
 
-- Begin normal work with `agent_bootstrap`; locate exact targets with
-  `agent_board_digest`, `agent_search`, and `agent_entity_context`.
-- For a write, build `prepare_action_contract`, run the named workflow in
-  `dry_run`, then `apply` with a unique idempotency key, and reread the exact
-  target. Follow `MCP_GUIDE.md` for guarded raw fallback.
-- Read live context before every write. Do not move, archive, delete, or change
-  money, client, file, order, or inventory data without explicit owner intent.
-- Production clients use owner-approved OAuth 2.1 with PKCE and refresh-token
-  rotation. The rotating bearer is internal compatibility only.
-
-## Verification
-
-Run focused checks first, then broaden for shared behavior:
-
-- docs: `.\.venv\Scripts\python.exe scripts/docs_audit.py --format text`;
-- Python/service/API/MCP: focused `unittest`, then `.\scripts\run_checks.ps1`; shared/full: `.\scripts\run_checks.ps1 -Profile ci`, then hosted CI;
-- formatting/lint: Ruff format-check and lint;
-- UI: `scripts/check_web_assets_js.py` plus relevant browser smoke;
-- Gateway/runtime: `scripts/check_agent_gateway_v2.py`; use `--exhaustive` for a
-  release check;
-- production-impacting work: the runbook release checklist.
-
-State which relevant checks were not run and why.
-
-## Release Boundary
-
-- `origin/autostopcrm-v1` is the production source of truth.
-- Deploy only on an explicit user request. Commit or push approval alone is not
-  deploy approval.
-- Use `docs/OPERATIONS_RUNBOOK.md`; never improvise server access or release
-  commands from this file.
+- Deploy only on an explicit user request. Use the runbook rather than
+  improvised server commands.
 - Production evidence: compare all Git revisions to the target SHA, run live
-  smoke against the exact live URL, confirm service/restart health, and inspect
-  relevant logs.
-- Never delete server-local `.env`, data, backups, active volumes,
-  nginx/systemd/VPN files, or dirty parallel checkouts.
-
-## Documentation Changes
-
-Keep agent rules here, the project map in `README.md`, operations in the
-runbook, and API/MCP/client details in their narrow contracts. When an active
-document is added, deleted, or renamed, update `scripts/docs_audit.py`,
-`README.md`, the runbook, and `.dockerignore` together.
+  smoke against the exact URL, then confirm service health and relevant logs.
+- When an active document changes identity, update its audit owner, `README.md`,
+  the runbook, and `.dockerignore`; delete obsolete parallel instructions.
