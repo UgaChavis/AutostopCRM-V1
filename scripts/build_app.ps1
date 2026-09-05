@@ -37,18 +37,35 @@ Assert-LastExitCode "Install dependencies"
 if (Test-Path $distStagingPath) { Remove-Item -Recurse -Force $distStagingPath }
 if (Test-Path $buildStagingPath) { Remove-Item -Recurse -Force $buildStagingPath }
 
-& $pythonExe -m PyInstaller `
-    --noconfirm `
-    --clean `
-    --windowed `
-    --name MinimalKanban `
-    --distpath $distStagingPath `
-    --workpath $buildStagingPath `
-    --paths (Join-Path $projectRoot "src") `
-    --add-data "$webAssetSourcePath;minimal_kanban/web_app_assets/source" `
-    --add-data "$staticAssetPath;minimal_kanban/static" `
-    (Join-Path $projectRoot "main.py")
-Assert-LastExitCode "Build production app"
+$pythonBasePrefixJson = & $pythonExe -c "import json, sys; print(json.dumps(sys.base_prefix))"
+Assert-LastExitCode "Locate Python base installation"
+$pythonBasePrefix = $pythonBasePrefixJson | ConvertFrom-Json
+$originalBuildSearchPath = $env:PATH
+try {
+    # Foreign native tools can shadow Windows DLLs with incompatible ICU exports.
+    $env:PATH = @(
+        [Environment]::GetFolderPath([Environment+SpecialFolder]::System)
+        [Environment]::GetFolderPath([Environment+SpecialFolder]::Windows)
+        $pythonBasePrefix
+        (Join-Path $pythonBasePrefix "DLLs")
+        (Split-Path -Parent $pythonExe)
+    ) -join [IO.Path]::PathSeparator
+    & $pythonExe -m PyInstaller `
+        --noconfirm `
+        --clean `
+        --windowed `
+        --name MinimalKanban `
+        --distpath $distStagingPath `
+        --workpath $buildStagingPath `
+        --paths (Join-Path $projectRoot "src") `
+        --add-data "$webAssetSourcePath;minimal_kanban/web_app_assets/source" `
+        --add-data "$staticAssetPath;minimal_kanban/static" `
+        (Join-Path $projectRoot "main.py")
+    Assert-LastExitCode "Build production app"
+}
+finally {
+    $env:PATH = $originalBuildSearchPath
+}
 
 if (Test-Path $buildPath) {
     try {

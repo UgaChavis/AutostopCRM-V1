@@ -195,7 +195,8 @@ missing. The mandatory `--profile core` does not require the PDF toolchain.
 ### Desktop Build and Release
 
 - `scripts/build_app.ps1` creates a fresh staged PyInstaller build and
-  atomically publishes `build/` and `dist/`.
+  atomically publishes `build/` and `dist/`; its DLL search uses only Windows
+  and the selected Python installation, restoring the caller's PATH afterward.
 - `scripts/prepare_release.ps1` calls that build, assembles the portable
   `release/Start Kanban.exe`, and publishes it from `release.staging/`.
 - `scripts/run_quality_pass.ps1` synchronizes pinned dependencies and prepares
