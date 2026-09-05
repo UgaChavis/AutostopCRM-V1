@@ -2426,12 +2426,13 @@ class CardServiceTests(unittest.TestCase):
         )
         self.assertEqual(agent_control.autofill_calls[-1]["purpose"], "full_card_enrichment")
         self.assertEqual(agent_control.autofill_calls[-1]["mode"], "full_card_enrichment")
-        prompt_text = str(agent_control.autofill_calls[-1]["payload"].get("task_text", ""))
-        self.assertIn("полное заполнение", prompt_text.lower())
-        self.assertIn("update_card", prompt_text)
-        self.assertIn("update_repair_order", prompt_text)
-        self.assertIn("replace_repair_order_works", prompt_text)
-        self.assertIn("replace_repair_order_materials", prompt_text)
+        payload = agent_control.autofill_calls[-1]["payload"]
+        self.assertEqual(payload["card_id"], card_id)
+        self.assertEqual(payload["title"], "Agent enrichment")
+        self.assertEqual(payload["requested_by"], "AI")
+        self.assertNotIn("task_text", payload)
+        self.assertNotIn("prompt", payload)
+        self.assertNotIn("ai_autofill_prompt", payload)
         self.assertEqual(agent_control.autofill_calls[-1]["source"], "ui_full_card_enrichment")
 
     def test_set_card_ai_autofill_enqueues_agent_task_when_agent_is_attached(self) -> None:
