@@ -3,7 +3,7 @@
 ## Purpose
 
 The public Gateway v2 is a compact decision surface, not a script. It exposes
-exactly 24 tools for 46 CRM workflow operations. Start from whichever relevant
+exactly 24 tools for 46 CRM workflow operations. Use whichever relevant
 CRM, Store, or sanctioned conversation context best clarifies the request;
 there is no mandatory bootstrap, read, contract, dry-run, or response order.
 A VIN, article, photo, part name, or short reply can justify a bounded quote
