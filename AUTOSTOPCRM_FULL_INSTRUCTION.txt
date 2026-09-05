@@ -1,28 +1,20 @@
 AUTOSTOP CRM
-Short server operator note
+Compact server handoff
 
-Canonical runbook: /opt/autostopcrm/docs/OPERATIONS_RUNBOOK.md
-Run every command from /opt/autostopcrm.
+Work from /opt/autostopcrm. The canonical source for operations, rollback, and
+maintenance is docs/OPERATIONS_RUNBOOK.md; use current state and that runbook
+for diagnosis. This note keeps release boundaries, not a rigid procedure.
 
-Runtime:
-- checkout: /opt/autostopcrm
-- branch: autostopcrm-v1
-- public CRM: https://crm.autostopcrm.ru
-- public MCP: https://crm.autostopcrm.ru/mcp
-- compose services: autostopcrm, searxng, crawl4ai
-- host data: /opt/autostopcrm/data
-- container data: /home/autostop/.minimal-kanban
-- host upstreams: 127.0.0.1:8000 -> API 41731; 127.0.0.1:8001 -> MCP 41831
+Runtime: branch autostopcrm-v1; CRM https://crm.autostopcrm.ru; MCP
+https://crm.autostopcrm.ru/mcp. Compose services: autostopcrm, searxng,
+crawl4ai. Data: /opt/autostopcrm/data -> /home/autostop/.minimal-kanban.
 
-Deploy only with explicit owner intent and after the intended commit is on
-origin/autostopcrm-v1:
+Deploy only with explicit owner intent, a clean checkout, and exact
+origin/autostopcrm-v1 parity. CRM_DEPLOY_BRANCH=autostopcrm-v1 is fixed in
+deploy.sh; do not pass a branch or Git-sync override:
 ./deploy.sh
 
-The target branch is fixed by `CRM_DEPLOY_BRANCH=autostopcrm-v1` inside the
-script. Do not pass a branch or Git-sync override; deployment requires a clean
-checkout at exact remote parity.
-
-Verify:
+Release evidence:
 git status --short --branch
 git rev-parse --short HEAD
 git rev-parse --short origin/autostopcrm-v1
@@ -33,18 +25,17 @@ docker compose exec -T autostopcrm python scripts/check_agent_gateway_v2.py --mc
 docker compose exec -T autostopcrm python scripts/check_mcp_oauth.py --mcp-url https://crm.autostopcrm.ru/mcp
 docker compose exec -T autostopcrm python scripts/docs_audit.py --format text
 
-Diagnostics:
-docker compose logs --tail=200 autostopcrm
+Quick read-only start: docker compose logs --tail=200 autostopcrm
 curl -fsS http://127.0.0.1:8000/api/health
-python3 scripts/state_size_report.py --json
-python3 scripts/compact_audit_events.py --dry-run --json
 
-Safety:
-- keep .env, data, backups, active volumes, and dirty parallel checkouts
-- never print tokens or full environment dumps
-- never edit state.json, audit-archive, operator-activity, repair-order, or cashbox ledgers manually
-- repair-order numbers are immutable; the compatibility correction route is blocked
-- use dry-run and a verified backup before any approved maintenance write
-- public anonymous API/MCP reads and all writes must stay blocked
-- keep production OAuth enabled, AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED=0, and the encrypted OAuth state key stable
-- public clients must see exactly 24 Gateway v2 tools; use agent_bootstrap -> digest -> focused read -> action contract -> named dry_run/apply -> reread
+Hard boundaries:
+- Preserve .env, data, backups, active volumes, and dirty parallel checkouts;
+  never expose tokens or full environment dumps.
+- Never edit state.json, audit-archive, operator-activity, repair-order, or
+  cashbox ledgers manually. Repair-order numbers are immutable.
+- An approved maintenance write needs dry-run and a verified backup. Anonymous
+  public API/MCP reads and every write remain blocked.
+- Keep production OAuth enabled, AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED=0, and its
+  encrypted state key stable. Public clients retain exactly 24 Gateway v2
+  tools; agent writes use context -> action contract -> named dry_run/apply ->
+  reread.
