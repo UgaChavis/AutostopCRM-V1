@@ -88,10 +88,10 @@ STORE_QUOTE_CONDUCTOR_OPERATIONS = frozenset(
     }
 )
 STORE_QUOTE_CONDUCTOR_LEGACY_DIALOGUE_OPERATIONS = frozenset({"clarification", "wait", "reply"})
-STORE_QUOTE_CONDUCTOR_STORE_WRITE_OPERATIONS = frozenset({"publish", "order"})
-STORE_QUOTE_CONDUCTOR_LOW_RISK_OPERATIONS = frozenset({"draft"})
-# Internal drafts need current target context; customer dialogue uses the
-# separate Telegram workflow whose retired conductor transport stays disabled.
+# Every phase that mutates a Store estimate must use the full write guard
+# contract. Customer dialogue stays on the separate Telegram workflow.
+STORE_QUOTE_CONDUCTOR_STORE_WRITE_OPERATIONS = frozenset({"draft", "publish", "reopen", "order"})
+STORE_QUOTE_CONDUCTOR_LOW_RISK_OPERATIONS = frozenset()
 STORE_OPERATION_ENTITIES = {
     "assign_quote_request": "store_quote_request",
     "set_quote_request_status": "store_quote_request",

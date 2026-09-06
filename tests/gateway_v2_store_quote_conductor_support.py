@@ -250,7 +250,8 @@ class StoreQuoteConductorCasesMixin:
         self.assertEqual("apply", applied.structuredContent["summary"]["mode"])
         self.assertTrue(replay.structuredContent["summary"]["deduplicated"])
         self.assertTrue(applied.structuredContent["meta"]["refs_only"])
-        self.assertFalse(applied.structuredContent["meta"]["external_store_write"])
+        self.assertEqual("write", applied.structuredContent["summary"]["risk"])
+        self.assertTrue(applied.structuredContent["meta"]["external_store_write"])
         public_payload = json.dumps(
             [dry_run.structuredContent, applied.structuredContent, replay.structuredContent],
             ensure_ascii=False,
@@ -275,37 +276,85 @@ class StoreQuoteConductorCasesMixin:
         self.assertFalse(any(name == "store_management_action" for name, _ in state["calls"]))
         self.assertFalse(any(name == "start_workflow" for name, _ in state["calls"]))
 
-    async def test_low_risk_conductor_draft_needs_only_current_target_context(self) -> None:
+    async def test_conductor_draft_and_reopen_require_full_write_guards(self) -> None:
         server, state = self._create_store_server()
         inventory = server._tool_manager.get_tool("agent_inventory_workflow")
-        draft = await inventory.run(
+        payloads = {
+            "draft": {
+                "operation": "draft",
+                "quote_request_id": "quote-1",
+                "entries": [{"name": "PART"}],
+                "coverage": [{"request_item": "PART"}],
+            },
+            "reopen": {
+                "operation": "reopen",
+                "quote_request_id": "quote-1",
+            },
+        }
+        required = {
+            "run_id",
+            "expected_state_version",
+            "expected_revision",
+            "correlation_id",
+            "idempotency_key",
+        }
+        for operation, payload in payloads.items():
+            with self.subTest(operation=operation):
+                blocked = await inventory.run(
+                    {
+                        "operation": STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME,
+                        "payload": payload,
+                        "mode": "apply",
+                    },
+                    convert_result=False,
+                )
+                self.assertFalse(blocked.structuredContent["ok"])
+                self.assertIn(
+                    "store_quote_conductor_required_fields_missing_or_invalid",
+                    blocked.structuredContent["warnings"],
+                )
+                self.assertTrue(
+                    required.issubset(set(blocked.structuredContent["summary"]["missing_fields"]))
+                )
+        self.assertFalse(
+            any(name == STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME for name, _ in state["calls"])
+        )
+        self.assertFalse(any(name == "start_workflow" for name, _ in state["calls"]))
+
+    async def test_conductor_reopen_is_a_guarded_store_write(self) -> None:
+        server, state = self._create_store_server()
+        inventory = server._tool_manager.get_tool("agent_inventory_workflow")
+        reopened = await inventory.run(
             {
                 "operation": STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME,
                 "payload": {
-                    "operation": "draft",
+                    "operation": "reopen",
                     "quote_request_id": "quote-1",
-                    "entries": [{"name": "PART"}],
-                    "coverage": [{"request_item": "PART"}],
+                    "run_id": 901,
+                    "expected_state_version": 4,
+                    "expected_revision": "2026-07-16T10:00:00+00:00",
+                    "correlation_id": "quote-conductor-reopen-0001",
                 },
+                "idempotency_key": "quote-conductor-reopen-apply-0001",
+                "mode": "apply",
             },
             convert_result=False,
         )
-        self.assertTrue(draft.structuredContent["ok"])
-        self.assertEqual("apply", draft.structuredContent["summary"]["mode"])
-        self.assertNotIn("ledger_owned_by_named_workflow", draft.structuredContent["meta"])
+        self.assertTrue(reopened.structuredContent["ok"])
+        self.assertEqual("write", reopened.structuredContent["summary"]["risk"])
+        self.assertTrue(reopened.structuredContent["meta"]["external_store_write"])
         calls = [
             arguments
             for name, arguments in state["calls"]
             if name == STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME
         ]
         self.assertEqual(1, len(calls))
-        self.assertEqual("draft", calls[0]["operation"])
-        self.assertTrue(calls[0]["idempotency_key"].startswith("store-implicit-"))
-        self.assertIsNone(calls[0]["run_id"])
-        self.assertIsNone(calls[0]["expected_state_version"])
-        self.assertEqual("", calls[0]["expected_revision"])
-        self.assertEqual("", calls[0]["correlation_id"])
-        self.assertFalse(any(name == "start_workflow" for name, _ in state["calls"]))
+        self.assertEqual("reopen", calls[0]["operation"])
+        self.assertEqual("apply", calls[0]["mode"])
+        self.assertEqual(901, calls[0]["run_id"])
+        self.assertEqual(4, calls[0]["expected_state_version"])
+        self.assertEqual("2026-07-16T10:00:00+00:00", calls[0]["expected_revision"])
+        self.assertEqual("quote-conductor-reopen-0001", calls[0]["correlation_id"])
 
     async def test_legacy_dialogue_operations_are_unavailable_and_do_not_call_conductor(
         self,
