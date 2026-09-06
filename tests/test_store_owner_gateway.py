@@ -165,6 +165,14 @@ class StoreOwnerGatewayTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertTrue(_is_finance_capability("mark_order_ready", {}))
+        for conductor_operation in ("draft", "publish", "reopen", "order"):
+            with self.subTest(conductor_operation=conductor_operation):
+                self.assertTrue(
+                    _is_finance_capability(
+                        "store_quote_conductor",
+                        {"operation": conductor_operation},
+                    )
+                )
         self.assertTrue(
             _is_finance_capability(
                 "set_quote_request_status",
@@ -224,6 +232,8 @@ class StoreOwnerGatewayTests(unittest.IsolatedAsyncioTestCase):
         cases = (
             ("set_quote_request_status", {"status": "WAITING_FOR_APPROVAL"}),
             ("mark_order_ready", {"status": "READY"}),
+            ("store_quote_conductor", {"operation": "draft"}),
+            ("store_quote_conductor", {"operation": "reopen"}),
         )
         with patch.dict(
             "os.environ",
