@@ -103,7 +103,11 @@ class DocsAuditTests(unittest.TestCase):
     def test_manager_audit_does_not_restore_intentionally_removed_legacy_maps(self) -> None:
         module = load_docs_audit_module()
 
-        removed = {"docs/agent/knowledge_base_index.md", "docs/agent/phone_flow.json"}
+        removed = {
+            "docs/agent/autostop_manager_skill.md",
+            "docs/agent/knowledge_base_index.md",
+            "docs/agent/phone_flow.json",
+        }
 
         self.assertTrue(removed.isdisjoint(module.MANAGER_CANONICAL_DOCS))
         self.assertTrue(removed.isdisjoint(module.MANAGER_GATEWAY_INSTRUCTION_DOCS))
