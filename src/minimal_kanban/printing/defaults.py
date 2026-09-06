@@ -13,6 +13,10 @@ from __future__ import annotations
 
 from .layout import COMPLETION_ACT_LAYOUT
 from .models import PrintDocumentDefinition, PrintTemplateRecord
+from .repair_order_future_v2 import (
+    FUTURE_REPAIR_ORDER_V2_STYLES,
+    FUTURE_REPAIR_ORDER_V2_TEMPLATE,
+)
 
 BUILTIN_PRINT_DOCUMENTS: tuple[PrintDocumentDefinition, ...] = (
     PrintDocumentDefinition(
@@ -1132,6 +1136,7 @@ PRINT_BASE_STYLES = (
         str(COMPLETION_ACT_LAYOUT.final_block_margin_top_mm),
     )
 )
+PRINT_BASE_STYLES = f"{PRINT_BASE_STYLES}\n{FUTURE_REPAIR_ORDER_V2_STYLES}".strip()
 
 
 _BUILTIN_CREATED_AT = "2026-04-06T00:00:00+00:00"
@@ -1205,8 +1210,16 @@ def _technical_repair_order_template_record() -> PrintTemplateRecord:
     )
 
 
+def _future_repair_order_v2_template_record() -> PrintTemplateRecord:
+    return _record(
+        "repair_order",
+        "future_v2",
+        "Шаблон заказ-наряда — будущая версия 2",
+        FUTURE_REPAIR_ORDER_V2_TEMPLATE,
+    )
+
+
 def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
-    """Return built-in templates keyed by document type for the print workspace."""
     return (
         _record(
             "repair_order",
@@ -1301,6 +1314,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
 </div>
             """,
         ),
+        _future_repair_order_v2_template_record(),
         _record(
             "vehicle_acceptance_act",
             "standard",

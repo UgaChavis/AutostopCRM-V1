@@ -29,6 +29,7 @@ from ..storage.change_feed_store import ChangeFeedStore
 from ..storage.file_lock import ProcessFileLock
 from ..storage.limited_io import read_bytes_limited
 from . import document_policy
+from . import repair_order_future_v2 as future_v2
 from .defaults import BUILTIN_PRINT_DOCUMENTS, PRINT_BASE_STYLES, builtin_template_records
 from .document_guard import export_document_meta, invoice_guard
 from .errors import PrintModuleError
@@ -3887,9 +3888,7 @@ class PrintModuleService:
         cash_like_prepayment = _round_money(cash_prepayment + card_prepayment)
         cashless_prepayment = payment_summary["base_paid_noncash"]
         client_context = _client_invoice_context(
-            client,
-            order_client=order.client,
-            order_phone=order.phone,
+            client, order_client=order.client, order_phone=order.phone
         )
         regulated_context = _regulated_document_context(
             order=order,
@@ -3993,6 +3992,7 @@ class PrintModuleService:
             },
             "works": works,
             "materials": materials,
+            "future_repair_order_v2": {"pages": future_v2.build_pages(works, materials)},
             "line_items": invoice_line_items_for_document,
             "parts_sale_items": materials,
             "issue_points": issue_points,

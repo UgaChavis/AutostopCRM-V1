@@ -949,6 +949,82 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("Администратор", document["pages"][1]["html"])
         self.assertIn("Клиент", document["pages"][1]["html"])
 
+    def test_future_repair_order_v2_is_available_without_replacing_standard(self) -> None:
+        workspace = self.service.workspace(self.card)
+        repair_order_document = next(
+            item for item in workspace["documents"] if item["id"] == "repair_order"
+        )
+        repair_order_templates = workspace["templates"]["repair_order"]
+
+        self.assertEqual(
+            repair_order_document["selected_template_id"],
+            "builtin:repair_order:standard",
+        )
+        self.assertEqual(
+            {item["id"] for item in repair_order_templates},
+            {"builtin:repair_order:standard", "builtin:repair_order:future_v2"},
+        )
+
+        preview = self.service.preview_documents(
+            self.card,
+            selected_document_ids=["repair_order"],
+            active_document_id="repair_order",
+            selected_template_ids={"repair_order": "builtin:repair_order:future_v2"},
+        )
+
+        document = preview["documents"][0]
+        rendered_html = "".join(page["html"] for page in document["pages"])
+        self.assertEqual(document["template"]["id"], "builtin:repair_order:future_v2")
+        self.assertEqual(document["page_count"], 3)
+        self.assertIn("Toyota Camry XV70", rendered_html)
+        self.assertIn("Диагностика АКПП", rendered_html)
+        self.assertIn("Материалы / запчасти", rendered_html)
+        self.assertIn("+15%, включая налоги и сборы", rendered_html)
+        self.assertIn("Администратор / исполнитель", rendered_html)
+        self.assertNotIn("Материалы / запчасти — продолжение", rendered_html)
+        self.assertIn(".future-ro__terms .doc-terms__lead { display: none; }", rendered_html)
+        self.assertNotIn("Работы — 6 000,00", rendered_html)
+
+        large_card_payload = self.card.to_dict()
+        large_card_payload["repair_order"]["works"] = [
+            {"name": f"Работа {index}", "quantity": "1", "price": "100"} for index in range(1, 26)
+        ]
+        large_card_payload["repair_order"]["materials"] = [
+            {"name": f"Материал {index}", "quantity": "1", "price": "200"}
+            for index in range(1, 126)
+        ]
+        large_card = Card.from_dict(large_card_payload)
+        large_preview = self.service.preview_documents(
+            large_card,
+            selected_document_ids=["repair_order"],
+            selected_template_ids={"repair_order": "builtin:repair_order:future_v2"},
+        )["documents"][0]
+        self.assertEqual(large_preview["page_count"], 5)
+        expected_ranges = (
+            "позиции 1–25",
+            "позиции 26–68",
+            "позиции 69–111",
+            "позиции 112–150",
+        )
+        for page, expected_range in zip(large_preview["pages"][:4], expected_ranges, strict=True):
+            self.assertIn(expected_range, page["html"])
+        self.assertIn("Гарантийные и важные условия", large_preview["pages"][4]["html"])
+
+        workspace_after_preview = self.service.workspace(self.card)
+        self.assertEqual(
+            workspace_after_preview["documents"][0]["selected_template_id"],
+            "builtin:repair_order:standard",
+        )
+
+        prepayment_preview = self.service.preview_documents(
+            build_cashless_prepayment_example_card(),
+            selected_document_ids=["repair_order"],
+            selected_template_ids={"repair_order": "builtin:repair_order:future_v2"},
+        )["documents"][0]
+        prepayment_html = "".join(page["html"] for page in prepayment_preview["pages"])
+        self.assertIn("<b>190 045 ₽</b>", prepayment_html)
+        self.assertIn("<b>223 582,35 ₽</b>", prepayment_html)
+
     def test_invoice_template_renders_brand_header_and_banking_block(self) -> None:
         preview = self.service.preview_documents(
             self.card,
