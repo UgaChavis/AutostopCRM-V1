@@ -1055,7 +1055,15 @@ PRINT_BASE_STYLES = """
     line-height: 1.1;
     text-align: right;
   }
-  @page regulated-landscape { size: A4 landscape; margin: 6mm; }
+  @page regulated-landscape {
+    size: A4 landscape;
+    margin: 6mm;
+    @bottom-right {
+      content: "Лист " counter(page) " из " counter(pages);
+      font-family: Arial, "Segoe UI", sans-serif;
+      font-size: 6pt;
+    }
+  }
   @page completion-act-page { size: A4 portrait; margin: 9mm; }
   @page { size: A4; margin: 9mm; }
   @media print {
@@ -1711,7 +1719,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
       <td class="regulated-sign-caption" colspan="2">(основной государственный регистрационный номер индивидуального предпринимателя и дата присвоения такого номера)</td><td></td>
     </tr>
   </table>
-  <div class="regulated-page-footer">Счет-фактура № {{regulated.document_number_display}} от {{regulated.document_date_display}} страница 1 из 1</div>
+  <div class="regulated-page-footer">Счет-фактура № {{regulated.document_number_display}} от {{regulated.document_date_display}}</div>
 </div>
             """,
         ),
@@ -1864,7 +1872,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
       </tr>
     </tbody>
   </table>
-  <div class="regulated-page-footer">УПД № {{regulated.document_number_display}} от {{regulated.document_date_display}} страница 1 из 2</div>
+  <div class="regulated-page-footer">УПД № {{regulated.document_number_display}} от {{regulated.document_date_display}}</div>
 </div>
 <!-- AUTOSTOPCRM_PAGE_BREAK -->
 <div class="document-page regulated-page regulated-page--landscape regulated-page--upd">
@@ -2084,7 +2092,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
       <td class="regulated-sign-caption" colspan="3">(может не заполняться при проставлении печати в М.П., может быть указан ИНН / КПП)</td>
     </tr>
   </table>
-  <div class="regulated-page-footer">УПД № {{regulated.document_number_display}} от {{regulated.document_date_display}} страница 2 из 2</div>
+  <div class="regulated-page-footer">УПД № {{regulated.document_number_display}} от {{regulated.document_date_display}}</div>
 </div>
             """,
         ),

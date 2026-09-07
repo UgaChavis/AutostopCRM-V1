@@ -1450,10 +1450,15 @@ class PrintingServiceTests(unittest.TestCase):
             "753,73",
             "15 828,24",
             "regulated-req-payment-grid",
-            "Счет-фактура № 268 от 20.05.2026 страница 1 из 1",
+            "Счет-фактура № 268 от 20.05.2026",
         ]
         for fragment in expected_fragments:
             self.assertIn(fragment, text)
+        self.assertNotIn("страница 1 из 1", text)
+        self.assertIn(
+            'content: "Лист " counter(page) " из " counter(pages)',
+            PRINT_BASE_STYLES,
+        )
         self.assertNotIn(
             '<td class="regulated-req-value">№ 268 от 20.05.2026</td>',
             preview["documents"][0]["pages"][0]["html"],
@@ -1673,10 +1678,12 @@ class PrintingServiceTests(unittest.TestCase):
             "2 489,35",
             "52 276,38",
             "Счет на оплату №169 от 08.05.2026",
-            "УПД № 169 от 08.05.2026 страница 2 из 2",
+            "УПД № 169 от 08.05.2026",
         ]
         for fragment in expected_fragments:
             self.assertIn(fragment, text)
+        self.assertNotIn("страница 1 из 2", text)
+        self.assertNotIn("страница 2 из 2", text)
 
     def test_regulated_work_unit_can_be_set_explicitly_for_upd_rows(self) -> None:
         card = Card.from_dict(
