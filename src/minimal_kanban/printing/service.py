@@ -20,6 +20,7 @@ from typing import Any
 from ..models import Card, ClientProfile, parse_datetime, utc_now_iso
 from ..repair_order import (
     REPAIR_ORDER_PAYMENT_METHOD_CASHLESS,
+    REPAIR_ORDER_PAYMENT_NET_RATE,
     RepairOrder,
     RepairOrderRow,
     repair_order_cashless_gross_value,
@@ -32,6 +33,7 @@ from . import document_policy
 from . import repair_order_future_v2 as future_v2
 from .defaults import BUILTIN_PRINT_DOCUMENTS, PRINT_BASE_STYLES, builtin_template_records
 from .document_guard import export_document_meta, invoice_guard
+from .document_money import DocumentMoneyError, build_canonical_document_money
 from .errors import PrintModuleError
 from .formatting import (
     _RU_MONTHS_GENITIVE,
@@ -42,7 +44,6 @@ from .formatting import (
     _money_words_display,
     _parse_decimal,
     _round_money,
-    _split_tax_included_amount,
 )
 from .layout import COMPLETION_ACT_LAYOUT
 from .manual_documents import (
@@ -610,28 +611,69 @@ def _regulated_unit_payload(item: dict[str, Any]) -> dict[str, str]:
     return {"unit_code_display": "796", "unit_display": display}
 
 
+def _decimal_display(value: Decimal, *, precision: int) -> str:
+    whole, _, fraction = format(value, f".{precision}f").partition(".")
+    grouped_whole = f"{int(whole):,}".replace(",", " ")
+    return f"{grouped_whole},{fraction}"
+
+
+def _unit_price_display(value: Decimal, precision: int) -> str:
+    return _money_display(value) if precision == 2 else _decimal_display(value, precision=precision)
+
+
+def _canonical_cashless_line_items(
+    line_items: list[dict[str, Any]], *, target_total: Decimal, tax_rate: Decimal
+) -> list[dict[str, Any]]:
+    base_totals = [
+        _round_money(_parse_decimal(item.get("total")) or Decimal("0")) for item in line_items
+    ]
+    quantities = [_parse_decimal(item.get("quantity")) for item in line_items]
+    try:
+        money = build_canonical_document_money(
+            base_totals,
+            quantities,
+            target_total=target_total,
+            net_rate=REPAIR_ORDER_PAYMENT_NET_RATE,
+            tax_rate=tax_rate,
+        )
+    except DocumentMoneyError as exc:
+        raise PrintModuleError(
+            "validation_error", "Не удалось согласовать суммы печатных документов."
+        ) from exc
+    canonical_items: list[dict[str, Any]] = []
+    for item, row in zip(line_items, money.rows, strict=True):
+        canonical_items.append(
+            {
+                **item,
+                "price": row.invoice_unit_price,
+                "price_display": _unit_price_display(
+                    row.invoice_unit_price, row.invoice_unit_precision
+                ),
+                "total": row.gross,
+                "total_display": _money_display(row.gross),
+                "subtotal": row.subtotal,
+                "vat": row.vat,
+                "vat_adjustment": row.vat_adjustment,
+                "regulated_price": row.regulated_unit_price,
+                "regulated_price_display": _unit_price_display(
+                    row.regulated_unit_price, row.regulated_unit_precision
+                ),
+            }
+        )
+    return canonical_items
+
+
 def _regulated_line_item_dict(
     item: dict[str, Any],
     *,
     index: int,
     tax: dict[str, Any],
 ) -> dict[str, Any]:
-    quantity = _parse_decimal(item.get("quantity"))
-    price = _parse_decimal(item.get("price")) or Decimal("0")
-    subtotal = _parse_decimal(item.get("total"))
-    if subtotal is None:
-        subtotal = _round_money((quantity or Decimal("0")) * price)
-    gross_total = repair_order_cashless_gross_value(subtotal)
-    rate = tax["rate"] if tax.get("has_vat") else Decimal("0")
-    if tax.get("has_vat"):
-        subtotal, vat = _split_tax_included_amount(gross_total, rate)
-    else:
-        subtotal = gross_total
-        vat = Decimal("0")
+    gross_total = _round_money(_parse_decimal(item.get("total")) or Decimal("0"))
+    subtotal = _round_money(_parse_decimal(item.get("subtotal")) or Decimal("0"))
+    vat = _round_money(_parse_decimal(item.get("vat")) or Decimal("0"))
     total_with_tax = gross_total
-    price_value = (
-        _round_money(subtotal / quantity) if quantity and quantity > Decimal("0") else subtotal
-    )
+    price_value = _parse_decimal(item.get("regulated_price")) or subtotal
     unit_payload = _regulated_unit_payload(item)
     return {
         **item,
@@ -641,7 +683,7 @@ def _regulated_line_item_dict(
         "name": _display(item.get("name"), limit=260),
         "quantity_display": _display(item.get("quantity_display") or item.get("quantity")),
         "price": price_value,
-        "price_display": _money_display(price_value),
+        "price_display": item.get("regulated_price_display") or _money_display(price_value),
         "subtotal": subtotal,
         "subtotal_display": _money_display(subtotal),
         "tax_rate_display": tax["rate_display"] if tax.get("has_vat") else "Без НДС",
@@ -658,103 +700,6 @@ def _regulated_line_item_dict(
     }
 
 
-def _balance_regulated_line_totals(
-    line_items: list[dict[str, Any]],
-    *,
-    target_total: Decimal,
-    tax_rate: Decimal,
-    target_vat: Decimal | None = None,
-) -> list[dict[str, Any]]:
-    if not line_items:
-        return line_items
-    target_total = _round_money(target_total)
-    if target_vat is None:
-        _, target_vat = _split_tax_included_amount(target_total, tax_rate)
-    target_vat = Decimal("0.00") if tax_rate <= Decimal("0") else _round_money(target_vat)
-    balanced_items = [dict(item) for item in line_items]
-    current_total = _round_money(
-        sum(
-            (_parse_decimal(item.get("total_with_tax")) or Decimal("0") for item in balanced_items),
-            Decimal("0"),
-        )
-    )
-    remaining_total_adjustment = _round_money(target_total - current_total)
-    for item in reversed(balanced_items):
-        if remaining_total_adjustment == Decimal("0"):
-            break
-        current_item_total = _round_money(
-            _parse_decimal(item.get("total_with_tax")) or Decimal("0")
-        )
-        adjustment = (
-            remaining_total_adjustment
-            if remaining_total_adjustment > Decimal("0")
-            else max(remaining_total_adjustment, -current_item_total)
-        )
-        total_with_tax = _round_money(current_item_total + adjustment)
-        subtotal, vat = _split_tax_included_amount(total_with_tax, tax_rate)
-        item.update(
-            {
-                "subtotal": subtotal,
-                "vat": vat,
-                "total_with_tax": total_with_tax,
-            }
-        )
-        remaining_total_adjustment = _round_money(remaining_total_adjustment - adjustment)
-    if remaining_total_adjustment != Decimal("0"):
-        raise PrintModuleError(
-            "validation_error",
-            "Не удалось сбалансировать итог документа без отрицательной строки.",
-        )
-
-    current_vat = _round_money(
-        sum(
-            (_parse_decimal(item.get("vat")) or Decimal("0") for item in balanced_items),
-            Decimal("0"),
-        )
-    )
-    remaining_vat_adjustment = _round_money(target_vat - current_vat)
-    for item in reversed(balanced_items):
-        if remaining_vat_adjustment == Decimal("0"):
-            break
-        subtotal = _round_money(_parse_decimal(item.get("subtotal")) or Decimal("0"))
-        vat = _round_money(_parse_decimal(item.get("vat")) or Decimal("0"))
-        adjustment = (
-            min(remaining_vat_adjustment, subtotal)
-            if remaining_vat_adjustment > Decimal("0")
-            else max(remaining_vat_adjustment, -vat)
-        )
-        item["subtotal"] = _round_money(subtotal - adjustment)
-        item["vat"] = _round_money(vat + adjustment)
-        remaining_vat_adjustment = _round_money(remaining_vat_adjustment - adjustment)
-    if remaining_vat_adjustment != Decimal("0"):
-        raise PrintModuleError(
-            "validation_error",
-            "Не удалось сбалансировать НДС документа без отрицательной строки.",
-        )
-
-    for item in balanced_items:
-        total_with_tax = _round_money(_parse_decimal(item.get("total_with_tax")) or Decimal("0"))
-        subtotal = _round_money(_parse_decimal(item.get("subtotal")) or Decimal("0"))
-        vat = _round_money(_parse_decimal(item.get("vat")) or Decimal("0"))
-        quantity = _parse_decimal(item.get("quantity"))
-        price = (
-            _round_money(subtotal / quantity) if quantity and quantity > Decimal("0") else subtotal
-        )
-        item.update(
-            {
-                "price": price,
-                "price_display": _money_display(price),
-                "subtotal": subtotal,
-                "subtotal_display": _money_display(subtotal),
-                "vat": vat,
-                "vat_display": _money_display(vat) if tax_rate > Decimal("0") else "Без НДС",
-                "total_with_tax": total_with_tax,
-                "total_with_tax_display": _money_display(total_with_tax),
-            }
-        )
-    return balanced_items
-
-
 def _regulated_document_context(
     *,
     order: RepairOrder,
@@ -769,21 +714,7 @@ def _regulated_document_context(
         _regulated_line_item_dict(item, index=index, tax=tax)
         for index, item in enumerate(line_items)
     ]
-    base_subtotal = _round_money(
-        sum(
-            (_parse_decimal(item.get("total")) or Decimal("0") for item in line_items),
-            Decimal("0"),
-        )
-    )
-    target_total = repair_order_cashless_gross_value(base_subtotal)
-    tax_rate = tax["rate"] if tax.get("has_vat") else Decimal("0")
-    _, target_vat = _split_tax_included_amount(target_total, tax_rate)
-    rows = _balance_regulated_line_totals(
-        raw_rows,
-        target_total=target_total,
-        tax_rate=tax_rate,
-        target_vat=target_vat,
-    )
+    rows = raw_rows
     subtotal = _round_money(
         sum((_parse_decimal(item.get("subtotal")) or Decimal("0") for item in rows), Decimal("0"))
     )
@@ -1188,17 +1119,6 @@ def _repair_row_dict(row: RepairOrderRow, *, section: str, index: int) -> dict[s
     }
 
 
-def _invoice_line_item_dict(item: dict[str, Any]) -> dict[str, Any]:
-    invoice_item = dict(item)
-    price = repair_order_cashless_gross_value(_parse_decimal(item.get("price")) or Decimal("0"))
-    total = repair_order_cashless_gross_value(_parse_decimal(item.get("total")) or Decimal("0"))
-    invoice_item["price"] = price
-    invoice_item["total"] = total
-    invoice_item["price_display"] = _money_display(price)
-    invoice_item["total_display"] = _money_display(total)
-    return invoice_item
-
-
 def _invoice_print_prepayment_value(payment_summary: dict[str, Decimal]) -> Decimal:
     cash_like_prepayment = _round_money(
         payment_summary["base_paid_cash_only"] + payment_summary["base_paid_card"]
@@ -1207,30 +1127,6 @@ def _invoice_print_prepayment_value(payment_summary: dict[str, Decimal]) -> Deci
     return _round_money(
         repair_order_cashless_gross_value(cash_like_prepayment) + cashless_prepayment
     )
-
-
-def _balance_invoice_line_totals(
-    line_items: list[dict[str, Any]], target_total: Decimal
-) -> list[dict[str, Any]]:
-    if not line_items:
-        return line_items
-    current_total = _round_money(
-        sum(
-            (_parse_decimal(item.get("total")) or Decimal("0") for item in line_items),
-            Decimal("0"),
-        )
-    )
-    adjustment = _round_money(target_total - current_total)
-    if adjustment == Decimal("0"):
-        return line_items
-    balanced_items = list(line_items)
-    last_index = len(balanced_items) - 1
-    last_item = dict(balanced_items[last_index])
-    total = _round_money((_parse_decimal(last_item.get("total")) or Decimal("0")) + adjustment)
-    last_item["total"] = total
-    last_item["total_display"] = _money_display(total)
-    balanced_items[last_index] = last_item
-    return balanced_items
 
 
 def _print_safe_repair_order_dict(order: RepairOrder) -> dict[str, Any]:
@@ -3848,22 +3744,17 @@ class PrintModuleService:
             for key, value in payment_summary.items()
         }
         invoice_cashless_total = repair_order_cashless_gross_value(payment_summary["base_total"])
-        invoice_line_items = _balance_invoice_line_totals(
-            [_invoice_line_item_dict(item) for item in base_line_items],
-            invoice_cashless_total,
+        invoice_tax = _invoice_tax_payload(order)
+        invoice_line_items = _canonical_cashless_line_items(
+            base_line_items,
+            target_total=invoice_cashless_total,
+            tax_rate=invoice_tax["rate"] if invoice_tax.get("has_vat") else Decimal("0"),
         )
-        invoice_base_total = payment_summary["base_total"]
-        invoice_total = invoice_cashless_total if document.id == "invoice" else invoice_base_total
+        invoice_total = invoice_cashless_total
         invoice_line_items_for_document = (
             invoice_line_items if document.id == "invoice" else base_line_items
         )
-        invoice_tax = _invoice_tax_payload(order)
-        _, invoice_tax_amount = _split_tax_included_amount(invoice_total, invoice_tax["rate"])
-        invoice_tax_display = _money_display(invoice_tax_amount)
-        invoice_total_display = _money_display(invoice_total)
-        invoice_total_words_display = _money_words_display(invoice_total)
         invoice_prepayment = _invoice_print_prepayment_value(payment_summary)
-        invoice_amount_due = _round_money(max(invoice_total - invoice_prepayment, Decimal("0")))
         cash_total = payment_summary["base_total"]
         noncash_total = repair_order_cashless_gross_value(payment_summary["base_total"])
         noncash_taxes_and_fees = noncash_total - payment_summary["base_total"]
@@ -3894,9 +3785,14 @@ class PrintModuleService:
             order=order,
             settings=settings,
             client=client,
-            line_items=base_line_items,
+            line_items=invoice_line_items,
             document_overrides=document_overrides,
         )
+        invoice_tax_amount = regulated_context["vat"]
+        invoice_tax_display = _money_display(invoice_tax_amount)
+        invoice_total_display = _money_display(invoice_total)
+        invoice_total_words_display = _money_words_display(invoice_total)
+        invoice_amount_due = _round_money(max(invoice_total - invoice_prepayment, Decimal("0")))
         completion_act_context: dict[str, Any] = {}
         if document.id == "completion_act":
             completion_act_context = self._completion_act_document_context(
@@ -4101,7 +3997,7 @@ class PrintModuleService:
                 "has_payment_summary": True,
             },
             "invoice": {
-                "line_items": invoice_line_items_for_document,
+                "line_items": invoice_line_items,
                 "tax_label": invoice_tax["label"],
                 "tax_rate_display": invoice_tax["rate_display"],
                 "subtotal": invoice_total,

@@ -37,7 +37,6 @@ from minimal_kanban.printing.printers import _normalize_copy_count
 from minimal_kanban.printing.service import (
     PrintModuleError,
     PrintModuleService,
-    _balance_regulated_line_totals,
     _money_display,
     _money_words_display,
 )
@@ -1044,7 +1043,7 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("Сумма прописью", html)
         self.assertIn("Всего к оплате", html)
         self.assertIn("Предоплата", html)
-        self.assertIn("2 941,18", html)
+        self.assertIn("2 941,17", html)
         self.assertIn("16 235,29", html)
         self.assertIn("1 000,00", html)
         self.assertIn("15 235,29", html)
@@ -1078,14 +1077,14 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertTrue(invoice["has_prepayment"])
         self.assertEqual(context["line_items"], invoice_items)
         self.assertEqual(invoice_items[0]["name"], "Диагностика АКПП")
-        self.assertEqual(invoice_items[0]["price"], Decimal("2941.18"))
-        self.assertEqual(invoice_items[0]["total"], Decimal("2941.18"))
-        self.assertEqual(invoice_items[0]["price_display"], "2 941,18")
-        self.assertEqual(invoice_items[0]["total_display"], "2 941,18")
+        self.assertEqual(invoice_items[0]["price"], Decimal("2941.17"))
+        self.assertEqual(invoice_items[0]["total"], Decimal("2941.17"))
+        self.assertEqual(invoice_items[0]["price_display"], "2 941,17")
+        self.assertEqual(invoice_items[0]["total_display"], "2 941,17")
         self.assertEqual(invoice_items[2]["name"], "ATF")
-        self.assertEqual(invoice_items[2]["price"], Decimal("1117.65"))
+        self.assertEqual(invoice_items[2]["price"], Decimal("1117.6467"))
         self.assertEqual(invoice_items[2]["total"], Decimal("6705.88"))
-        self.assertEqual(invoice_items[2]["price_display"], "1 117,65")
+        self.assertEqual(invoice_items[2]["price_display"], "1 117,6467")
         self.assertEqual(invoice_items[2]["total_display"], "6 705,88")
 
     def test_vat_5_regression_reconciles_invoice_and_regulated_documents(self) -> None:
@@ -1159,7 +1158,7 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("13 204,48", rendered_html[0])
         self.assertNotIn("13 864,71", rendered_html[0])
 
-    def test_vat_5_document_rounding_cent_is_balanced_to_invoice(self) -> None:
+    def test_vat_5_document_vat_matches_total_fraction_and_canonical_rows(self) -> None:
         settings = self.service._read_settings()
         invoice = self.service._build_document_context(
             self.card,
@@ -1186,65 +1185,7 @@ class PrintingServiceTests(unittest.TestCase):
                 invoice["vat"],
             )
             self.assertEqual(regulated["rows"][-1]["subtotal"], Decimal("2352.94"))
-            self.assertEqual(regulated["rows"][-1]["vat"], Decimal("117.64"))
-
-    def test_regulated_vat_balancing_never_creates_negative_rows(self) -> None:
-        rows = [
-            {
-                "name": f"row-{index}",
-                "quantity": "1",
-                "subtotal": Decimal("0.01"),
-                "vat": Decimal("0.00"),
-                "total_with_tax": Decimal("0.01"),
-            }
-            for index in range(150)
-        ]
-
-        balanced = _balance_regulated_line_totals(
-            rows,
-            target_total=Decimal("1.50"),
-            target_vat=Decimal("0.07"),
-            tax_rate=Decimal("0.05"),
-        )
-
-        self.assertEqual(
-            sum((row["total_with_tax"] for row in balanced), Decimal("0")),
-            Decimal("1.50"),
-        )
-        self.assertEqual(sum((row["vat"] for row in balanced), Decimal("0")), Decimal("0.07"))
-        self.assertEqual(
-            sum((row["subtotal"] for row in balanced), Decimal("0")),
-            Decimal("1.43"),
-        )
-        self.assertTrue(
-            all(
-                row["subtotal"] >= Decimal("0")
-                and row["vat"] >= Decimal("0")
-                and row["subtotal"] + row["vat"] == row["total_with_tax"]
-                and row["quantity"] == "1"
-                for row in balanced
-            )
-        )
-
-        reduced = _balance_regulated_line_totals(
-            rows,
-            target_total=Decimal("0.50"),
-            target_vat=Decimal("0.02"),
-            tax_rate=Decimal("0.05"),
-        )
-        self.assertEqual(
-            sum((row["total_with_tax"] for row in reduced), Decimal("0")),
-            Decimal("0.50"),
-        )
-        self.assertEqual(sum((row["vat"] for row in reduced), Decimal("0")), Decimal("0.02"))
-        self.assertTrue(
-            all(
-                row["subtotal"] >= Decimal("0")
-                and row["vat"] >= Decimal("0")
-                and row["subtotal"] + row["vat"] == row["total_with_tax"]
-                for row in reduced
-            )
-        )
+            self.assertEqual(regulated["rows"][-1]["vat"], Decimal("117.65"))
 
     def test_regulated_vat_supports_single_empty_and_fractional_quantity_rows(self) -> None:
         settings = self.service._read_settings()
@@ -1360,7 +1301,7 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("5%", html)
         self.assertIn("(5б)", html)
         self.assertIn("15 462,18", html)
-        self.assertIn("2 941,18", html)
+        self.assertIn("2 941,17", html)
         self.assertIn("773,11", html)
         self.assertIn("16 235,29", html)
         self.assertIn("Руководитель организации", html)
@@ -1501,11 +1442,11 @@ class PrintingServiceTests(unittest.TestCase):
             ">н/ч<",
             ">796<",
             ">шт<",
-            "1 258,82",
-            "14 569,42",
+            "1 258,83",
+            "14 569,41",
             "15 074,51",
-            "59,94",
-            "693,79",
+            "59,95",
+            "693,78",
             "753,73",
             "15 828,24",
             "regulated-req-payment-grid",
@@ -1701,8 +1642,8 @@ class PrintingServiceTests(unittest.TestCase):
             "1 104,44",
             "23 193,28",
             "2 577,04",
-            "2 454,32",
-            "122,72",
+            "2 454,33",
+            "122,71",
             "2 577,04",
             "3 865,54",
             "3 681,47",
@@ -1716,7 +1657,7 @@ class PrintingServiceTests(unittest.TestCase):
             "9 571,83",
             "478,59",
             "10 050,42",
-            "2 156,11",
+            "2 156,1133",
             "6 468,34",
             "323,42",
             "6 791,76",
@@ -1725,8 +1666,8 @@ class PrintingServiceTests(unittest.TestCase):
             "122,72",
             "2 577,04",
             "1 932,78",
-            "1 840,75",
-            "92,03",
+            "1 840,74",
+            "92,04",
             "1 932,78",
             "49 787,03",
             "2 489,35",
