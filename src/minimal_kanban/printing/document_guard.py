@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from .formatting import DEFAULT_INVOICE_TAX_LABEL
+
 
 def invoice_guard(document_id: str, context: Mapping[str, Any]) -> dict[str, Any] | None:
     if document_id != "invoice":
@@ -13,7 +15,7 @@ def invoice_guard(document_id: str, context: Mapping[str, Any]) -> dict[str, Any
     financial_mismatch = invoice["amount_due"] != totals["noncash_due"]
     rendered_tax_status = str(invoice["tax_label"]).strip()
     stored_tax_status = str(repair_order.get("tax_label") or "").strip()
-    effective_tax_status = stored_tax_status or rendered_tax_status
+    effective_tax_status = stored_tax_status or DEFAULT_INVOICE_TAX_LABEL
     tax_mismatch = rendered_tax_status != effective_tax_status
     mismatch = financial_mismatch or tax_mismatch
     return {

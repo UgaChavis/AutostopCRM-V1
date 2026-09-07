@@ -11,6 +11,7 @@ from .manual_documents import _normalize_multiline, _normalize_text
 _MONEY_QUANT = Decimal("0.01")
 _MONEY_ABS_MAX = Decimal("999999999999999.99")
 _INVOICE_VAT_RATE = Decimal("0.05")
+DEFAULT_INVOICE_TAX_LABEL = "НДС (5%)"
 _RU_MONTHS_GENITIVE = (
     "",
     "января",
@@ -124,7 +125,7 @@ def _invoice_tax_payload(order: RepairOrder) -> dict[str, Any]:
     raw_label = _normalize_text(getattr(order, "tax_label", ""), limit=48)
     if not raw_label:
         return {
-            "label": "НДС (5%)",
+            "label": DEFAULT_INVOICE_TAX_LABEL,
             "rate_display": "5%",
             "rate": _INVOICE_VAT_RATE,
             "has_vat": True,
