@@ -11,9 +11,10 @@ def invoice_guard(document_id: str, context: Mapping[str, Any]) -> dict[str, Any
     totals = context["totals"]
     repair_order = context["repair_order"]
     financial_mismatch = invoice["amount_due"] != totals["noncash_due"]
-    tax_mismatch = (
-        str(invoice["tax_label"]).strip() != str(repair_order.get("tax_label") or "").strip()
-    )
+    rendered_tax_status = str(invoice["tax_label"]).strip()
+    stored_tax_status = str(repair_order.get("tax_label") or "").strip()
+    effective_tax_status = stored_tax_status or rendered_tax_status
+    tax_mismatch = rendered_tax_status != effective_tax_status
     mismatch = financial_mismatch or tax_mismatch
     return {
         "money_basis": "cashless",

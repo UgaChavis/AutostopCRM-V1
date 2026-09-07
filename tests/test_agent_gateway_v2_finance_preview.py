@@ -507,3 +507,18 @@ class AgentGatewayFinancePreviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("1176.47", guard["rendered_total"])
         self.assertFalse(guard["mismatch_with_current_repair_order"])
         self.assertFalse(guard["financial_or_tax_mismatch"])
+
+    def test_print_guard_treats_blank_legacy_tax_label_as_rendered_default(self) -> None:
+        context = {
+            "invoice": {
+                "amount_due": Decimal("1176.47"),
+                "tax_label": "НДС (5%)",
+            },
+            "repair_order": {"tax_label": ""},
+            "totals": {"noncash_due": Decimal("1176.47")},
+        }
+
+        guard = invoice_guard("invoice", context)
+
+        self.assertFalse(guard["tax_mismatch"])
+        self.assertFalse(guard["mismatch_with_current_repair_order"])
