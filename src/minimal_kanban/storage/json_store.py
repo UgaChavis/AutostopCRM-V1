@@ -656,18 +656,26 @@ class JsonStore:
         valid_column_ids = {column.id for column in trusted_columns}
         if any(card.column not in valid_column_ids for card in trusted_cards):
             raise ValueError("Cached cards bundle references an unknown column.")
-        trusted_cards = [
-            card
-            if self._trusted_card_versions.get(card.id) == (id(card), card.updated_at)
-            or self._routing_only_card_payload(card) is not None
-            else Card.from_dict(
-                card.to_storage_dict(),
-                valid_columns=valid_column_ids,
-                default_column=trusted_columns[0].id,
-                fallback_position=index,
-            )
-            for index, card in enumerate(trusted_cards)
-        ]
+        for index, card in enumerate(trusted_cards):
+            if self._trusted_card_versions.get(card.id) == (id(card), card.updated_at):
+                continue
+            payload = self._routing_only_card_payload(card)
+            if payload is None:
+                trusted_cards[index] = Card.from_dict(
+                    card.to_storage_dict(),
+                    valid_columns=valid_column_ids,
+                    default_column=trusted_columns[0].id,
+                    fallback_position=index,
+                )
+            else:
+                # Reuse this verified snapshot later in the same locked write.
+                # Position normalization still invalidates its version if needed;
+                # any failed write clears the whole speculative payload cache.
+                self._storage_dict_cache["cards"][id(card)] = (
+                    card,
+                    self._card_storage_version(card),
+                    payload,
+                )
         trusted_cards, _ = self._apply_card_retention(trusted_cards)
         self._normalize_card_positions(trusted_cards)
 

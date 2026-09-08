@@ -57,6 +57,16 @@ class StorageWriteOptimizationTests(unittest.TestCase):
             {card.id: card.updated_at for card in originals},
         )
 
+    def test_routing_payload_is_validated_once_during_one_locked_write(self):
+        bundle = self.seed_cards()
+        cards = [copy(card) for card in bundle["cards"]]
+        cards[0].position, cards[1].position = 1, 0
+        with patch.object(
+            Card, "to_storage_dict", autospec=True, side_effect=Card.to_storage_dict
+        ) as serialize:
+            self.store.write_cached_bundle(bundle, **{**bundle, "cards": cards})
+        self.assertEqual([call.args[0] for call in serialize.call_args_list], cards)
+
     def test_routing_shortcut_rejects_content_replacement_and_invalid_position(self):
         original = self.seed_cards()["cards"][0]
         for name, value in (
