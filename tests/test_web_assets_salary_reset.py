@@ -38,7 +38,7 @@ class SalaryBalanceResetWebAssetTests(unittest.TestCase):
         )
         permission_editor = _asset_section(
             "function editOperatorUserPermissions(username)",
-            "function renderOperatorActivityUserOptions()",
+            "function setOperatorAdminTab(",
         )
         self.assertIn(
             "state.operatorPermissionEditorUsername = normalizedUsername;",

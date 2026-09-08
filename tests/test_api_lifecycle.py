@@ -52,6 +52,11 @@ class ApiLifecycleTests(unittest.TestCase):
                     self.assertTrue(json.load(response)["ok"])
                 self.assertTrue(second._thread.is_alive())
                 first.stop()
+                released_port = first.port
+                first._start_port = released_port
+                first.start()
+                self.assertEqual(first.port, released_port)
+                self.assertTrue(first._thread.is_alive())
             finally:
                 for server in servers:
                     server.stop()

@@ -150,7 +150,7 @@ class EmployeeCashboxAccessWebAssetTests(unittest.TestCase):
     def test_admin_editor_enforces_salary_reset_permission_dependency(self) -> None:
         dependency = _asset_section(
             "function syncOperatorAdminSalaryResetPermission()",
-            "function renderOperatorActivityUserOptions()",
+            "function setOperatorAdminTab(",
         )
         self.assertIn(
             "const canAccessEmployeesCashboxes = Boolean("

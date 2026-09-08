@@ -2119,7 +2119,7 @@ class ApiServer:
             server.api_logger = self._logger
             thread = threading.Thread(
                 target=server.serve_forever,
-                kwargs={"poll_interval": 0.05},
+                kwargs={"poll_interval": 0.02},
                 name="minimal-kanban-api",
                 daemon=True,
             )
