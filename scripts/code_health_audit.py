@@ -86,7 +86,7 @@ ALLOWED_LARGE_MODULES = {
         "Gateway contract coverage pending family split", 4400, 4400, "003"
     ),
     "tests/test_web_assets.py": RatchetBudget(
-        "web asset contract coverage pending chunk split", 5942, 5942, "003"
+        "web asset contract coverage pending chunk split", 5549, 5549, "003"
     ),
 }
 
@@ -116,7 +116,7 @@ ALLOWED_LARGE_CLASSES = {
         "legacy broad service coverage pending domain split", 12550, 12550, "003"
     ),
     "tests/test_web_assets.py:WebAssetsTests": RatchetBudget(
-        "web asset contract coverage pending chunk split", 5884, 5884, "003"
+        "web asset contract coverage pending chunk split", 5491, 5491, "003"
     ),
 }
 
