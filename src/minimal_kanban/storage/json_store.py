@@ -944,15 +944,24 @@ class JsonStore:
             if trusted_safe
             else None
         )
+        unchanged = False
+
+        def mark_unchanged() -> None:
+            nonlocal unchanged
+            unchanged = True
+
         try:
             self._change_feed_store.prepare_state_write(
                 fingerprint,
                 safe_state.get("events"),
                 state=safe_state,
                 source_signatures=source_signatures,
+                on_unchanged=mark_unchanged,
             )
         except ChangeFeedPendingWriteError:
+            unchanged = False
             self._reconcile_change_feed_locked()
+            # Recovery completes the normal write path, even for identical bytes.
             self._change_feed_store.prepare_state_write(
                 fingerprint,
                 safe_state.get("events"),
@@ -964,6 +973,19 @@ class JsonStore:
                 "change_feed_prepare",
                 (time.perf_counter() - feed_prepare_started_at) * 1000,
             )
+        if (
+            unchanged
+            and existing_signature is not None
+            and existing_signature
+            == self._validated_state_signature
+            == self._change_feed_state_signature
+            == self._state_signature()
+        ):
+            # SQL confirmed these exact bytes were committed without a pending
+            # outbox; the still-validated file already contains the requested state.
+            record_timing("write", 0.0)
+            record_timing("change_feed_commit", 0.0)
+            return serialize_ms, 0.0
         temp_file = self._state_file.with_name(f".{self._state_file.name}.{uuid4().hex}.tmp")
         write_started_at = time.perf_counter()
         try:

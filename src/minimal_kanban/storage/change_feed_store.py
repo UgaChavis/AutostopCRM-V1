@@ -1106,6 +1106,7 @@ class ChangeFeedStore:
         source_signatures: Mapping[tuple[str, str], str]
         | Callable[[], Mapping[tuple[str, str], str]]
         | None = None,
+        on_unchanged: Callable[[], None] | None = None,
     ) -> int:
         """Durably stage unseen compact events before the CRM state replace."""
 
@@ -1126,6 +1127,8 @@ class ChangeFeedStore:
                 connection.execute("DELETE FROM pending_events")
                 connection.execute("DELETE FROM pending_entity_changes")
                 connection.execute("DELETE FROM pending_source_changes")
+                if on_unchanged is not None:
+                    on_unchanged()
                 return 0
             compacted = self._compact_unseen_events(connection, events)
             connection.execute("DELETE FROM pending_events")
