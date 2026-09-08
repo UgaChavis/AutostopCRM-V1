@@ -33,6 +33,7 @@ from .card_service_cashbox_cancellation import (
     CardServiceCashboxCancellationMixin,
 )
 from .finance_read_core import CASHBOX_NOTIFICATION_SEEN_SETTING_KEY
+from .journal_labels import day_label, month_label, week_label
 from .payroll_constants import EMPLOYEE_SHIFT_ACCRUAL_NOTE
 
 EMPLOYEES_SETTING_KEY = "employees"
@@ -67,7 +68,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     "Нужно определить пользователя, который просмотрел кассы.",
                     details={"field": "actor_name"},
                 )
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update()
             transactions = bundle["cash_transactions"]
             requested_transaction_id = normalize_text(
                 payload.get("through_transaction_id"), default="", limit=128
@@ -132,7 +133,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     if normalize_text(item, default="", limit=240)
                 }
             actor_name, source = self._audit_identity(payload, default_source="api")
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update("cash_transactions")
             audit = self._build_finance_audit(bundle)
             expected_issue_ids = payload.get("expected_issue_ids")
             current_issue_ids = [str(issue.get("id") or "") for issue in audit["issues"]]
@@ -354,7 +355,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
     def create_cashbox(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update()
             cashboxes = self._ordered_cashboxes(bundle["cashboxes"])
             transactions = bundle["cash_transactions"]
             events = bundle["events"]
@@ -433,7 +434,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
     def reorder_cashboxes(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update("cashboxes")
             cashboxes = self._ordered_cashboxes(bundle["cashboxes"])
             transactions = bundle["cash_transactions"]
             events = bundle["events"]
@@ -472,9 +473,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             )
             if before_cashbox_id and str(before_cashbox_id).strip() == cashbox.id:
                 return {
-                    "cashboxes": [
-                        self._serialize_cashbox(item, transactions) for item in cashboxes
-                    ],
+                    "cashboxes": self._serialize_cashboxes(cashboxes, transactions),
                     "cashbox": self._serialize_cashbox(cashbox, transactions),
                     "meta": {
                         "changed": False,
@@ -513,9 +512,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     events=events,
                 )
             return {
-                "cashboxes": [
-                    self._serialize_cashbox(item, transactions) for item in reordered_cashboxes
-                ],
+                "cashboxes": self._serialize_cashboxes(reordered_cashboxes, transactions),
                 "cashbox": self._serialize_cashbox(cashbox, transactions),
                 "meta": {
                     "changed": changed,
@@ -526,7 +523,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
     def create_cashbox_transfer(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update("cashboxes")
             cashboxes = self._ordered_cashboxes(bundle["cashboxes"])
             transactions = bundle["cash_transactions"]
             events = bundle["events"]
@@ -641,7 +638,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
     def delete_cashbox(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update("cashboxes")
             cashboxes = self._ordered_cashboxes(bundle["cashboxes"])
             transactions = bundle["cash_transactions"]
             events = bundle["events"]
@@ -783,7 +780,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
     def delete_gateway_attestation_payment_fixture(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update("cashboxes", card_id=payload.get("card_id"))
             cards = bundle["cards"]
             cashboxes = bundle["cashboxes"]
             transactions = bundle["cash_transactions"]
@@ -905,8 +902,6 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 )
             card.repair_order = RepairOrder()
             self._touch_card(card, actor_name)
-            if self._card_has_repair_order(card):
-                self._ensure_repair_order_text_file(card, force=True)
             self._refresh_cashbox_updated_at(cashbox, remaining_transactions)
             self._append_event(
                 events,
@@ -955,7 +950,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
     def create_cash_transaction(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update("cashboxes")
             cashboxes = bundle["cashboxes"]
             transactions = bundle["cash_transactions"]
             events = bundle["events"]
@@ -1039,7 +1034,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
     def create_employee_salary_transaction(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update("cashboxes")
             cashboxes = bundle["cashboxes"]
             transactions = bundle["cash_transactions"]
             events = bundle["events"]
@@ -1176,7 +1171,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
     def create_employee_shift_accrual(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update()
             settings = dict(bundle["settings"])
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="ui")
@@ -1301,7 +1296,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
     def cancel_last_cash_transaction(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update("cards", "cashboxes", "cash_transactions")
             cards = bundle["cards"]
             cashboxes = bundle["cashboxes"]
             transactions = bundle["cash_transactions"]
@@ -1433,8 +1428,6 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     )
                 self._touch_card(linked_card, actor_name)
                 self._refresh_card_ai_fingerprint_if_agent_changed(linked_card, actor_name, source)
-                if self._card_has_repair_order(linked_card):
-                    self._ensure_repair_order_text_file(linked_card, force=True)
             else:
                 transactions[:] = [
                     item for item in transactions if item.id != latest_transaction.id
@@ -2742,58 +2735,11 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             return "unknown"
         return created_at.date().isoformat()
 
-    def _cash_journal_day_label(self, date_key: str) -> str:
-        try:
-            value = datetime.strptime(date_key, "%Y-%m-%d")
-        except ValueError:
-            return date_key
-        weekdays = [
-            "понедельник",
-            "вторник",
-            "среда",
-            "четверг",
-            "пятница",
-            "суббота",
-            "воскресенье",
-        ]
-        return f"{value.strftime('%d.%m.%Y')}, {weekdays[value.weekday()]}"
+    _cash_journal_day_label = staticmethod(day_label)
 
-    def _cash_journal_week_label(self, week_key: str) -> str:
-        try:
-            year_text, week_text = week_key.split("-W", 1)
-            if (
-                not year_text.isdecimal()
-                or not week_text.isdecimal()
-                or len(year_text) != 4
-                or len(week_text) > 2
-            ):
-                return week_key
-            start = datetime.fromisocalendar(int(year_text), int(week_text), 1)
-            end = datetime.fromisocalendar(int(year_text), int(week_text), 7)
-        except (ValueError, TypeError):
-            return week_key
-        return f"{week_text} неделя: {start.strftime('%d.%m')} - {end.strftime('%d.%m.%Y')}"
+    _cash_journal_week_label = staticmethod(week_label)
 
-    def _cash_journal_month_label(self, month_key: str) -> str:
-        try:
-            value = datetime.strptime(month_key, "%Y-%m")
-        except ValueError:
-            return month_key
-        month_names = [
-            "Январь",
-            "Февраль",
-            "Март",
-            "Апрель",
-            "Май",
-            "Июнь",
-            "Июль",
-            "Август",
-            "Сентябрь",
-            "Октябрь",
-            "Ноябрь",
-            "Декабрь",
-        ]
-        return f"{month_names[value.month - 1]} {value.year}"
+    _cash_journal_month_label = staticmethod(month_label)
 
     def _cash_journal_markdown(
         self,
@@ -2970,21 +2916,54 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
         cashbox: CashBox,
         transactions: list[CashTransaction],
     ) -> dict[str, object]:
-        related = self._cashbox_transactions(transactions, cashbox.id)
-        income_minor = sum(item.amount_minor for item in related if item.direction == "income")
-        expense_minor = sum(item.amount_minor for item in related if item.direction == "expense")
-        balance_minor = income_minor - expense_minor
-        return {
-            "transactions_total": len(related),
-            "income_total_minor": income_minor,
-            "income_total_display": self._cashbox_rounded_money_text(income_minor),
-            "expense_total_minor": expense_minor,
-            "expense_total_display": self._cashbox_rounded_money_text(expense_minor),
-            "balance_minor": balance_minor,
-            "balance_display": self._cashbox_rounded_money_text(balance_minor),
-            "balance_sign": "negative" if balance_minor < 0 else "positive",
-            "last_transaction_at": related[0].created_at if related else None,
+        return self._cashbox_statistics_by_id([cashbox], transactions)[cashbox.id]
+
+    def _cashbox_statistics_by_id(
+        self, cashboxes: list[CashBox], transactions: list[CashTransaction]
+    ) -> dict[str, dict[str, Any]]:
+        statistics = {
+            cashbox.id: {
+                "transactions_total": 0,
+                "income_total_minor": 0,
+                "expense_total_minor": 0,
+                "last_transaction_at": None,
+            }
+            for cashbox in cashboxes
         }
+        latest_keys: dict[str, tuple[datetime, str]] = {}
+        parsed_timestamps: dict[str, datetime] = {}
+        for item in transactions:
+            summary = statistics.get(item.cashbox_id)
+            if summary is None:
+                continue
+            summary["transactions_total"] += 1
+            if item.direction in {"income", "expense"}:
+                summary[f"{item.direction}_total_minor"] += item.amount_minor
+            if item.created_at not in parsed_timestamps:
+                parsed_timestamps[item.created_at] = (
+                    self._cash_transaction_business_sortable_datetime(item.created_at)
+                )
+            key = (parsed_timestamps[item.created_at], item.id)
+            if item.cashbox_id not in latest_keys or key > latest_keys[item.cashbox_id]:
+                latest_keys[item.cashbox_id] = key
+                summary["last_transaction_at"] = item.created_at
+        for summary in statistics.values():
+            balance_minor = summary["income_total_minor"] - summary["expense_total_minor"]
+            summary["balance_minor"] = balance_minor
+            summary["balance_sign"] = "negative" if balance_minor < 0 else "positive"
+            for kind in ("income_total", "expense_total", "balance"):
+                summary[f"{kind}_display"] = self._cashbox_rounded_money_text(
+                    summary[f"{kind}_minor"]
+                )
+        return statistics
+
+    def _serialize_cashboxes(
+        self, cashboxes: list[CashBox], transactions: list[CashTransaction]
+    ) -> list[dict[str, object]]:
+        statistics = self._cashbox_statistics_by_id(cashboxes, transactions)
+        return [
+            {**cashbox.to_dict(), "statistics": statistics[cashbox.id]} for cashbox in cashboxes
+        ]
 
     def _serialize_cashbox(
         self,

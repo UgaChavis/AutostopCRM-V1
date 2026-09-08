@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
-import math
 import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
+
+from .json_safety import json_safe_value as _json_safe_value
 
 CONNECTION_CARD_FILENAME = "GPT_MCP_CONNECTION_CARD.txt"
 CONNECTOR_JSON_FILENAME = "chatgpt-connector.json"
@@ -18,24 +19,6 @@ CONNECTOR_AUTH_LABELS = {
     "bearer": "Bearer token",
     "oauth_embedded": "Embedded OAuth / DCR",
 }
-
-
-def _json_safe_value(value: object, *, depth: int = 8) -> object:
-    if depth <= 0:
-        return str(value)
-    if value is None or isinstance(value, (str, bool, int)):
-        return value
-    if isinstance(value, float):
-        return value if math.isfinite(value) else None
-    if isinstance(value, dict):
-        return {
-            str(key): _json_safe_value(item, depth=depth - 1)
-            for key, item in value.items()
-            if key is not None
-        }
-    if isinstance(value, (list, tuple, set)):
-        return [_json_safe_value(item, depth=depth - 1) for item in value]
-    return str(value)
 
 
 def _json_dumps(payload: object, *, indent: int = 2) -> str:

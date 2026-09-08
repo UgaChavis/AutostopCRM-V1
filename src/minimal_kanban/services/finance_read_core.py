@@ -43,9 +43,7 @@ class FinanceReadCore:
                     },
                 }
             transactions = bundle["cash_transactions"]
-            serialized_cashboxes = [
-                service._serialize_cashbox(cashbox, transactions) for cashbox in cashboxes[:limit]
-            ]
+            serialized_cashboxes = service._serialize_cashboxes(cashboxes[:limit], transactions)
             return {
                 "cashboxes": serialized_cashboxes,
                 "notification": service._cashbox_notification_summary(bundle, payload),
@@ -83,7 +81,7 @@ class FinanceReadCore:
                 else service._serialize_cash_transaction
             )
             return {
-                "cashbox": service._serialize_cashbox(cashbox, bundle["cash_transactions"]),
+                "cashbox": service._serialize_cashbox(cashbox, transactions),
                 "transactions": [
                     serialize_transaction(
                         item,

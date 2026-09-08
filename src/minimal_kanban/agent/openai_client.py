@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 
+from ..json_safety import json_safe_value as _json_safe_value
 from .config import (
     get_agent_openai_api_key,
     get_agent_openai_base_url,
@@ -29,24 +30,6 @@ def _reject_json_constant(value: str) -> None:
 def _null_json_constant(value: str) -> None:
     _ = value
     return None
-
-
-def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
-    if depth <= 0:
-        return str(value)
-    if value is None or isinstance(value, (str, bool, int)):
-        return value
-    if isinstance(value, float):
-        return value if math.isfinite(value) else None
-    if isinstance(value, dict):
-        return {
-            str(key): _json_safe_value(item, depth=depth - 1)
-            for key, item in value.items()
-            if key is not None
-        }
-    if isinstance(value, (list, tuple, set)):
-        return [_json_safe_value(item, depth=depth - 1) for item in value]
-    return str(value)
 
 
 def _json_dumps(payload: Any) -> str:

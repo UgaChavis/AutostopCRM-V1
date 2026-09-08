@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from logging import Logger
 from pathlib import Path
 from typing import Any, BinaryIO
 
+from ..json_safety import json_safe_value as _json_safe_value
 from ..performance import measure_timing
 from .file_lock import ProcessFileLock
 
@@ -47,7 +48,53 @@ class AuditArchiveStore:
     def archive_dir(self) -> Path:
         return self._archive_dir
 
-    def archive_details(
+    def archive_details(self, **kwargs) -> AuditArchiveWrite:
+        with self._lock.acquire():
+            return self._archive_details_locked(**kwargs)
+
+    @contextmanager
+    def stage_events(self, events):
+        """Keep this batch's append private to writers until the state save succeeds.
+
+        Validation happens before entry. On a failed state write only our own
+        append is rolled back, while holding the same archive lock throughout.
+        Existing archive records and the monthly compatibility format stay intact.
+        """
+        pending = [event for event in events if details_need_archive(event.action, event.details)]
+        if not pending:
+            yield
+            return
+        with self._lock.acquire():
+            checkpoints = {}
+            originals = [(event, event.details) for event in pending]
+            try:
+                for event in pending:
+                    path = self._archive_dir / f"{_archive_month(event.timestamp)}.jsonl"
+                    if path not in checkpoints:
+                        checkpoints[path] = path.stat().st_size if path.exists() else None
+                    archived = self._archive_details_locked(
+                        event_id=event.id,
+                        action=event.action,
+                        card_id=event.card_id,
+                        timestamp=event.timestamp,
+                        details=event.details,
+                    )
+                    event.details = compact_audit_event_details(
+                        action=event.action, details=event.details, archive_ref=archived.ref
+                    )
+                yield
+            except BaseException:
+                for event, details in originals:
+                    event.details = details
+                for path, size in checkpoints.items():
+                    if size is None:
+                        path.unlink(missing_ok=True)
+                    else:
+                        with path.open("r+b") as handle:
+                            handle.truncate(size)
+                raise
+
+    def _archive_details_locked(
         self,
         *,
         event_id: str,
@@ -79,10 +126,9 @@ class AuditArchiveStore:
         if len(payload.rstrip(b"\n")) > AUDIT_ARCHIVE_LINE_MAX_BYTES:
             raise ValueError("audit archive record exceeds line size limit")
         with measure_timing("audit_archive"):
-            with self._lock.acquire():
-                self._archive_dir.mkdir(parents=True, exist_ok=True)
-                with archive_file.open("ab") as handle:
-                    handle.write(payload)
+            self._archive_dir.mkdir(parents=True, exist_ok=True)
+            with archive_file.open("ab") as handle:
+                handle.write(payload)
         return AuditArchiveWrite(ref=f"{archive_file.name}#{event_id}", bytes_written=len(payload))
 
     def load_details(self, ref: str, *, event_id: str | None = None) -> dict[str, Any] | None:
@@ -435,21 +481,3 @@ def _compact_json_safe_value(value: Any) -> Any:
 
 def _reject_json_constant(value: str) -> None:
     raise ValueError(f"Unsupported JSON constant: {value}")
-
-
-def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
-    if depth <= 0:
-        return str(value)
-    if value is None or isinstance(value, (str, bool, int)):
-        return value
-    if isinstance(value, float):
-        return value if math.isfinite(value) else None
-    if isinstance(value, dict):
-        return {
-            str(key): _json_safe_value(item, depth=depth - 1)
-            for key, item in value.items()
-            if key is not None
-        }
-    if isinstance(value, (list, tuple, set)):
-        return [_json_safe_value(item, depth=depth - 1) for item in value]
-    return str(value)

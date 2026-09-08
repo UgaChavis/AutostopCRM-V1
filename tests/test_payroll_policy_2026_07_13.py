@@ -4,6 +4,7 @@ import logging
 import sys
 import tempfile
 import unittest
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
@@ -164,8 +165,11 @@ class PayrollPolicyMigrationTests(unittest.TestCase):
     def test_dry_run_apply_and_second_apply_are_idempotent(self) -> None:
         card_id = self._qualified_order()
         before = self.state_file.read_bytes()
+        retained = self.store.read_bundle()
+        retained_before = deepcopy(retained)
         dry_run = self.service.migrate_payroll_policy_2026_07_13(apply=False)
         self.assertEqual(self.state_file.read_bytes(), before)
+        self.assertEqual(retained, retained_before)
         self.assertEqual(dry_run["mode"], "dry-run")
         self.assertEqual(dry_run["affected_repair_orders_count"], 1)
 
@@ -243,6 +247,19 @@ class PayrollPolicyMigrationTests(unittest.TestCase):
             ),
             2,
         )
+
+    def test_failed_apply_preserves_retained_orders_settings_and_audit(self) -> None:
+        self._qualified_order()
+        retained = self.store.read_bundle()
+        before = deepcopy(retained)
+        state_bytes = self.state_file.read_bytes()
+        with patch.object(self.store, "_write_state", side_effect=OSError("injected")):
+            with self.assertRaises(OSError):
+                self.service.migrate_payroll_policy_2026_07_13(
+                    apply=True, expected_employee_ids=self.expected_ids
+                )
+        self.assertEqual(retained, before)
+        self.assertEqual(self.state_file.read_bytes(), state_bytes)
 
     def test_exact_matrix_recalculates_historical_rows_from_cutoff(self) -> None:
         card = self.service.create_card(

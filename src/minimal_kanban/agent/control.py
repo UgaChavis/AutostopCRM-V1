@@ -7,6 +7,7 @@ import uuid
 from datetime import timedelta
 from typing import Any
 
+from ..json_safety import bounded_dict_list, bounded_text_list
 from ..models import parse_datetime, utc_now, utc_now_iso
 from .compact_context import build_ai_compact_context_packet
 from .config import (
@@ -1275,34 +1276,9 @@ class AgentControlService:
     def _dict_or_empty(self, value: Any) -> dict[str, Any]:
         return dict(value) if isinstance(value, dict) else {}
 
-    def _bounded_dict_list(self, value: Any, *, limit: int) -> list[dict[str, Any]]:
-        if not isinstance(value, list):
-            return []
-        items: list[dict[str, Any]] = []
-        for item in value:
-            if not isinstance(item, dict):
-                continue
-            items.append(dict(item))
-            if len(items) >= limit:
-                break
-        return items
+    _bounded_dict_list = staticmethod(bounded_dict_list)
 
-    def _bounded_text_list(self, value: Any, *, limit: int) -> list[str]:
-        if isinstance(value, str):
-            raw_items: list[Any] = [value]
-        elif isinstance(value, list):
-            raw_items = value
-        else:
-            return []
-        items: list[str] = []
-        for raw in raw_items:
-            text = str(raw or "").strip()
-            if not text:
-                continue
-            items.append(text)
-            if len(items) >= limit:
-                break
-        return items
+    _bounded_text_list = staticmethod(bounded_text_list)
 
     def _normalize_seconds(
         self,

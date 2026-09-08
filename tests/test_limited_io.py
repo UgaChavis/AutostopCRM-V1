@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -14,12 +14,31 @@ if str(SRC) not in sys.path:
 
 from minimal_kanban.storage.limited_io import (  # noqa: E402
     copy_file_limited,
+    is_regular_file,
     read_bytes_limited,
     read_text_limited,
 )
 
 
 class LimitedIoTests(unittest.TestCase):
+    def test_regular_file_predicate_rejects_links_directories_and_stat_errors(self) -> None:
+        for symlink, regular, expected in (
+            (False, True, True),
+            (False, False, False),
+            (True, True, False),
+        ):
+            path = Mock(spec=Path)
+            path.is_symlink.return_value = symlink
+            path.is_file.return_value = regular
+            self.assertIs(is_regular_file(path), expected)
+            if symlink:
+                path.is_file.assert_not_called()
+        for method in ("is_symlink", "is_file"):
+            path = Mock(spec=Path)
+            path.is_symlink.return_value = False
+            getattr(path, method).side_effect = OSError("injected")
+            self.assertFalse(is_regular_file(path))
+
     def test_read_text_limited_reads_utf8_payload(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "state.json"

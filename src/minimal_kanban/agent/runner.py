@@ -8,6 +8,8 @@ import time
 import uuid
 from typing import Any
 
+from ..json_safety import bounded_dict_list, bounded_text_list
+from ..json_safety import json_safe_value as _json_safe_value
 from ..mcp.client import BoardApiClient, BoardApiTransportError, discover_board_api
 from ..models import utc_now_iso
 from ..services.vehicle_profile_service import VehicleProfileService
@@ -109,24 +111,6 @@ _AUTOFILL_PART_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("свечи зажигания", ("свеч", "spark")),
     ("аккумулятор", ("аккумулятор", "battery")),
 )
-
-
-def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
-    if depth <= 0:
-        return str(value)
-    if value is None or isinstance(value, (str, bool, int)):
-        return value
-    if isinstance(value, float):
-        return value if math.isfinite(value) else None
-    if isinstance(value, dict):
-        return {
-            str(key): _json_safe_value(item, depth=depth - 1)
-            for key, item in value.items()
-            if key is not None
-        }
-    if isinstance(value, (list, tuple, set)):
-        return [_json_safe_value(item, depth=depth - 1) for item in value]
-    return str(value)
 
 
 def _json_dumps(payload: Any, *, indent: int | None = None, sort_keys: bool = False) -> str:
@@ -2516,17 +2500,7 @@ class AgentRunner(AgentRunnerOutputMixin):
     def _safe_dict(self, value: Any) -> dict[str, Any]:
         return dict(value) if isinstance(value, dict) else {}
 
-    def _safe_dict_list(self, value: Any, *, limit: int) -> list[dict[str, Any]]:
-        if not isinstance(value, list):
-            return []
-        items: list[dict[str, Any]] = []
-        for item in value:
-            if not isinstance(item, dict):
-                continue
-            items.append(dict(item))
-            if len(items) >= limit:
-                break
-        return items
+    _safe_dict_list = staticmethod(bounded_dict_list)
 
     def _safe_non_negative_int(self, value: Any) -> int:
         if isinstance(value, bool):
@@ -2541,22 +2515,7 @@ class AgentRunner(AgentRunnerOutputMixin):
             return 1_000_000_000
         return int(numeric)
 
-    def _safe_text_list(self, value: Any, *, limit: int) -> list[str]:
-        if isinstance(value, str):
-            raw_items: list[Any] = [value]
-        elif isinstance(value, list):
-            raw_items = value
-        else:
-            return []
-        items: list[str] = []
-        for raw in raw_items:
-            text = str(raw or "").strip()
-            if not text:
-                continue
-            items.append(text)
-            if len(items) >= limit:
-                break
-        return items
+    _safe_text_list = staticmethod(bounded_text_list)
 
 
 def build_board_api_client(*, logger: logging.Logger) -> BoardApiClient:

@@ -7,6 +7,15 @@ from uuid import uuid4
 _COPY_CHUNK_BYTES = 1024 * 1024
 
 
+def is_regular_file(path: Path) -> bool:
+    try:
+        if path.is_symlink():
+            return False
+        return path.is_file()
+    except OSError:
+        return False
+
+
 def _normalize_max_bytes(max_bytes: int, *, label: str) -> int:
     if isinstance(max_bytes, bool | str):
         raise ValueError(f"{label} max bytes must be an integer")

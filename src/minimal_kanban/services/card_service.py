@@ -1,29 +1,23 @@
 from __future__ import annotations
 
 import base64
-import binascii
 import hashlib
 import json
 import math
 import re
-import shutil
 import time
 import uuid
-import xml.etree.ElementTree as ET
-import zipfile
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from io import BytesIO
 from logging import Logger
-from pathlib import Path, PurePath
+from pathlib import Path
 from typing import Any
-
-from defusedxml.ElementTree import fromstring as safe_xml_fromstring
 
 from ..agent.knowledge import build_ai_chat_knowledge_packet
 from ..agent.openai_client import AgentModelError, OpenAIJsonAgentClient
 from ..config import ATTACHMENTS_DIR_NAME, get_fast_state_writes_enabled
 from ..demo_seed import build_demo_board
+from ..json_safety import json_safe_api_value as _json_safe_value
 from ..models import (
     CARD_BOARD_SUMMARY_LIMIT,
     CARD_BOARD_SUMMARY_LINE_LIMIT,
@@ -33,14 +27,12 @@ from ..models import (
     CARD_VEHICLE_LIMIT,
     COUNTER_MAX_VALUE,
     DEFAULT_DEADLINE_TOTAL_SECONDS,
-    MAX_ATTACHMENT_SIZE_BYTES,
     MAX_DEADLINE_TOTAL_SECONDS,
     REPAIR_ORDER_FILE_RETENTION_LIMIT,
     TAG_LIMIT,
     VALID_INDICATORS,
     VALID_STATUSES,
     WARNING_THRESHOLD_RATIO,
-    Attachment,
     AuditEvent,
     Card,
     CardTag,
@@ -67,6 +59,9 @@ from ..models import (
     short_entity_id,
     utc_now,
     utc_now_iso,
+)
+from ..models import (
+    MAX_ATTACHMENT_SIZE_BYTES as MAX_ATTACHMENT_SIZE_BYTES,
 )
 from ..performance import MeasuredRLock, measure_timing
 from ..printing.service import PrintModuleError, PrintModuleService
@@ -95,12 +90,31 @@ from ..storage.audit_archive import (
     hydrate_audit_event_details,
 )
 from ..storage.json_store import JsonStore, StateWriteConflictError, default_columns
-from ..storage.limited_io import read_bytes_limited, read_text_limited
+from ..storage.limited_io import read_text_limited
 from ..vehicle_profile import (
     VEHICLE_COMPACT_FIELDS,
     VehicleProfile,
     normalize_license_plate,
 )
+from .bundle_draft import BundleDraft, DraftEvents, detach_card
+from .card_attachments import _ALLOWED_ATTACHMENT_EXTENSIONS as _ALLOWED_ATTACHMENT_EXTENSIONS
+from .card_attachments import _ALLOWED_ATTACHMENT_TYPES_LABEL as _ALLOWED_ATTACHMENT_TYPES_LABEL
+from .card_attachments import _ATTACHMENT_BASE64_DEFAULT_BYTES as _ATTACHMENT_BASE64_DEFAULT_BYTES
+from .card_attachments import (
+    _ATTACHMENT_BASE64_ENCODED_MAX_CHARS as _ATTACHMENT_BASE64_ENCODED_MAX_CHARS,
+)
+from .card_attachments import _ATTACHMENT_BASE64_MAX_BYTES as _ATTACHMENT_BASE64_MAX_BYTES
+from .card_attachments import (
+    _ATTACHMENT_DANGEROUS_INTERMEDIATE_EXTENSIONS as _ATTACHMENT_DANGEROUS_INTERMEDIATE_EXTENSIONS,
+)
+from .card_attachments import _ATTACHMENT_EXTENSION_TO_TYPE as _ATTACHMENT_EXTENSION_TO_TYPE
+from .card_attachments import _ATTACHMENT_GENERIC_MIME_TYPES as _ATTACHMENT_GENERIC_MIME_TYPES
+from .card_attachments import _ATTACHMENT_READ_DEFAULT_CHARS as _ATTACHMENT_READ_DEFAULT_CHARS
+from .card_attachments import _ATTACHMENT_READ_MAX_CHARS as _ATTACHMENT_READ_MAX_CHARS
+from .card_attachments import _ATTACHMENT_TYPE_SPECS as _ATTACHMENT_TYPE_SPECS
+from .card_attachments import _ATTACHMENT_XML_READ_MAX_BYTES as _ATTACHMENT_XML_READ_MAX_BYTES
+from .card_attachments import _OLE_MAGIC as _OLE_MAGIC
+from .card_attachments import CardAttachmentsMixin
 from .card_service_clients import CardServiceClientsMixin
 from .card_service_dashboard import (
     DISPLAY_DASHBOARD_MESSAGE_KEY,
@@ -126,6 +140,7 @@ from .ready_column import (
     READY_COLUMN_LABEL,
     ensure_ready_column,
 )
+from .repair_order_artifacts import RepairOrderArtifactsMixin, publish_text
 from .repair_order_number_audit import build_repair_order_number_audit
 from .repair_order_text_renderer import render_bounded_repair_order_text
 from .snapshot_service import SnapshotService
@@ -347,142 +362,7 @@ _MOJIBAKE_HINT_CHARS = frozenset("РСЃЌљњўќџ °±²ієїґ†‡‰‹
 GPT_WALL_TEXT_LINE_LIMIT = 3000
 REPAIR_ORDER_SORT_FIELDS = {"number", "opened_at", "closed_at"}
 REPAIR_ORDER_SORT_DIRECTIONS = {"asc", "desc"}
-_ALLOWED_ATTACHMENT_EXTENSIONS = (
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".webp",
-    ".gif",
-    ".doc",
-    ".docx",
-    ".xls",
-    ".xlsx",
-    ".txt",
-    ".pdf",
-)
-_ALLOWED_ATTACHMENT_TYPES_LABEL = "PNG, JPG, JPEG, WEBP, GIF, DOC, DOCX, XLS, XLSX, TXT, PDF"
-_ATTACHMENT_GENERIC_MIME_TYPES = frozenset({"", "application/octet-stream"})
-_ATTACHMENT_DANGEROUS_INTERMEDIATE_EXTENSIONS = frozenset(
-    {
-        ".bat",
-        ".cmd",
-        ".com",
-        ".dll",
-        ".exe",
-        ".js",
-        ".jse",
-        ".msi",
-        ".ps1",
-        ".scr",
-        ".sh",
-        ".vbs",
-    }
-)
-_ATTACHMENT_TYPE_SPECS: dict[str, dict[str, Any]] = {
-    "png": {
-        "extensions": {".png"},
-        "canonical_extension": ".png",
-        "canonical_mime": "image/png",
-        "mime_types": {"image/png"},
-    },
-    "jpeg": {
-        "extensions": {".jpg", ".jpeg"},
-        "canonical_extension": ".jpg",
-        "canonical_mime": "image/jpeg",
-        "mime_types": {"image/jpeg", "image/jpg", "image/pjpeg"},
-    },
-    "webp": {
-        "extensions": {".webp"},
-        "canonical_extension": ".webp",
-        "canonical_mime": "image/webp",
-        "mime_types": {"image/webp"},
-    },
-    "gif": {
-        "extensions": {".gif"},
-        "canonical_extension": ".gif",
-        "canonical_mime": "image/gif",
-        "mime_types": {"image/gif"},
-    },
-    "doc": {
-        "extensions": {".doc"},
-        "canonical_extension": ".doc",
-        "canonical_mime": "application/msword",
-        "mime_types": {
-            "application/doc",
-            "application/msword",
-            "application/vnd.ms-word",
-            "application/x-ole-storage",
-        },
-    },
-    "docx": {
-        "extensions": {".docx"},
-        "canonical_extension": ".docx",
-        "canonical_mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "mime_types": {
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "application/zip",
-        },
-    },
-    "xls": {
-        "extensions": {".xls"},
-        "canonical_extension": ".xls",
-        "canonical_mime": "application/vnd.ms-excel",
-        "mime_types": {
-            "application/msexcel",
-            "application/vnd.ms-excel",
-            "application/x-msexcel",
-            "application/x-ole-storage",
-        },
-    },
-    "xlsx": {
-        "extensions": {".xlsx"},
-        "canonical_extension": ".xlsx",
-        "canonical_mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "mime_types": {
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            "application/zip",
-        },
-    },
-    "txt": {
-        "extensions": {".txt"},
-        "canonical_extension": ".txt",
-        "canonical_mime": "text/plain",
-        "mime_types": {"text/plain"},
-    },
-    "pdf": {
-        "extensions": {".pdf"},
-        "canonical_extension": ".pdf",
-        "canonical_mime": "application/pdf",
-        "mime_types": {"application/pdf", "application/x-pdf"},
-    },
-}
-_ATTACHMENT_EXTENSION_TO_TYPE = {
-    extension: type_name
-    for type_name, spec in _ATTACHMENT_TYPE_SPECS.items()
-    for extension in spec["extensions"]
-}
-_OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
-_ATTACHMENT_READ_DEFAULT_CHARS = 12_000
-_ATTACHMENT_READ_MAX_CHARS = 50_000
-_ATTACHMENT_BASE64_DEFAULT_BYTES = 1_048_576
-_ATTACHMENT_BASE64_MAX_BYTES = 4_194_304
-_ATTACHMENT_BASE64_ENCODED_MAX_CHARS = ((MAX_ATTACHMENT_SIZE_BYTES + 2) // 3) * 4
-_ATTACHMENT_XML_READ_MAX_BYTES = 5_000_000
 REPAIR_ORDER_TEXT_FILE_MAX_BYTES = 1_000_000
-
-
-def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
-    if depth <= 0:
-        return str(value)
-    if value is None or isinstance(value, str | bool | int):
-        return value
-    if isinstance(value, float):
-        return value if math.isfinite(value) else None
-    if isinstance(value, dict):
-        return {str(key): _json_safe_value(item, depth=depth - 1) for key, item in value.items()}
-    if isinstance(value, list | tuple | set):
-        return [_json_safe_value(item, depth=depth - 1) for item in value]
-    return str(value)
 
 
 def _json_dumps(
@@ -503,6 +383,8 @@ def _json_dumps(
 
 
 class CardService(
+    CardAttachmentsMixin,
+    RepairOrderArtifactsMixin,
     CardServiceFinanceMixin,
     CardServiceInventoryMixin,
     CardServiceClientsMixin,
@@ -709,7 +591,10 @@ class CardService(
 
     def create_card(self, payload: dict) -> dict:
         with self._lock:
-            bundle = self._store.read_bundle()
+            client_id = normalize_text(payload.get("client_id"), default="", limit=128)
+            bundle = self._read_bundle_for_update(
+                "columns", "cashboxes", "cash_transactions", client_id=client_id or None
+            )
             columns = bundle["columns"]
             cards = bundle["cards"]
             clients = bundle["clients"]
@@ -752,7 +637,6 @@ class CardService(
                 tags=tags,
                 is_unread=mark_unread,
             )
-            client_id = normalize_text(payload.get("client_id"), default="", limit=128)
             if client_id:
                 client = self._find_client(clients, client_id)
                 card.client_id = client.id
@@ -824,7 +708,13 @@ class CardService(
     def set_card_board_summary(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "columns",
+                "cashboxes",
+                "cash_transactions",
+                "inventory_items",
+                card_id=payload.get("card_id", ""),
+            )
             cards = bundle["cards"]
             events = bundle["events"]
             card = self._find_card(cards, payload.get("card_id"))
@@ -874,7 +764,13 @@ class CardService(
             return self._set_card_ai_autofill_with_agent_control(payload)
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "columns",
+                "cashboxes",
+                "cash_transactions",
+                "inventory_items",
+                card_id=payload.get("card_id", ""),
+            )
             cards = bundle["cards"]
             events = bundle["events"]
             columns = bundle["columns"]
@@ -940,7 +836,13 @@ class CardService(
     def cleanup_card_content(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "columns",
+                "cashboxes",
+                "cash_transactions",
+                "inventory_items",
+                card_id=payload.get("card_id", ""),
+            )
             cards = bundle["cards"]
             events = bundle["events"]
             columns = bundle["columns"]
@@ -1024,7 +926,13 @@ class CardService(
             return self._run_full_card_enrichment_with_agent_control(payload)
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "columns",
+                "cashboxes",
+                "cash_transactions",
+                "inventory_items",
+                card_id=payload.get("card_id", ""),
+            )
             cards = bundle["cards"]
             events = bundle["events"]
             columns = bundle["columns"]
@@ -1067,7 +975,13 @@ class CardService(
     def _set_card_ai_autofill_with_agent_control(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "columns",
+                "cashboxes",
+                "cash_transactions",
+                "inventory_items",
+                card_id=payload.get("card_id", ""),
+            )
             cards = bundle["cards"]
             events = bundle["events"]
             columns = bundle["columns"]
@@ -1208,7 +1122,13 @@ class CardService(
     def _run_full_card_enrichment_with_agent_control(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "columns",
+                "cashboxes",
+                "cash_transactions",
+                "inventory_items",
+                card_id=payload.get("card_id", ""),
+            )
             cards = bundle["cards"]
             events = bundle["events"]
             columns = bundle["columns"]
@@ -1304,7 +1224,13 @@ class CardService(
     def mark_card_seen(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "columns",
+                "cashboxes",
+                "cash_transactions",
+                "inventory_items",
+                card_id=payload.get("card_id", ""),
+            )
             cards = bundle["cards"]
             events = bundle["events"]
             columns = bundle["columns"]
@@ -1546,7 +1472,9 @@ class CardService(
             sort_dir = self._validated_repair_order_sort_direction(payload.get("sort_dir"))
             compact = self._validated_optional_bool(payload, "compact", default=False)
             redact_private = self._validated_optional_bool(payload, "redact_private", default=False)
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "cards", "columns", "cashboxes", "cash_transactions", "inventory_items"
+            )
             cards = bundle["cards"]
             if self._synchronize_repair_order_numbers(cards):
                 self._save_bundle(
@@ -1951,7 +1879,9 @@ class CardService(
             )
             target_ids = self._manager_card_id_filter(payload)
             expected_updated_at_by_card_id = self._manager_expected_updated_at_by_card_id(payload)
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "cards", "columns", "cashboxes", "cash_transactions", "inventory_items"
+            )
             cards = bundle["cards"]
             events = bundle["events"]
             column_labels = self._column_labels(bundle["columns"])
@@ -2038,7 +1968,9 @@ class CardService(
             only_stale = self._validated_optional_bool(payload, "only_stale", default=False)
             target_ids = self._manager_card_id_filter(payload)
             expected_updated_at_by_card_id = self._manager_expected_updated_at_by_card_id(payload)
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "cards", "columns", "cashboxes", "cash_transactions", "inventory_items"
+            )
             cards = bundle["cards"]
             events = bundle["events"]
             column_labels = self._column_labels(bundle["columns"])
@@ -2209,7 +2141,9 @@ class CardService(
             )
             target_ids = self._manager_card_id_filter(payload)
             expected_updated_at_by_card_id = self._manager_expected_updated_at_by_card_id(payload)
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "cards", "columns", "cashboxes", "cash_transactions", "inventory_items"
+            )
             cards = bundle["cards"]
             events = bundle["events"]
             columns = bundle["columns"]
@@ -2658,7 +2592,13 @@ class CardService(
             create_if_missing = self._validated_optional_bool(
                 payload, "create_if_missing", default=True
             )
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "columns",
+                "cashboxes",
+                "cash_transactions",
+                "inventory_items",
+                card_id=payload.get("card_id", ""),
+            )
             cards = bundle["cards"]
             events = bundle["events"]
             columns = bundle["columns"]
@@ -2707,7 +2647,6 @@ class CardService(
                 if created or numbering_changed or synced_fields or cleared_client_information:
                     if synced_fields or cleared_client_information:
                         self._touch_card(card, actor_name)
-                        self._ensure_repair_order_text_file(card, force=True)
                     self._save_bundle(
                         bundle,
                         columns=columns,
@@ -2736,7 +2675,13 @@ class CardService(
         with self._lock:
             payload = payload or {}
             patch = self._validated_repair_order_patch(payload.get("repair_order"))
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "columns",
+                "cashboxes",
+                "cash_transactions",
+                "inventory_items",
+                card_id=payload.get("card_id", ""),
+            )
             cards = bundle["cards"]
             events = bundle["events"]
             columns = bundle["columns"]
@@ -2836,8 +2781,6 @@ class CardService(
             if changed or numbering_changed:
                 self._touch_card(card, actor_name)
                 self._refresh_card_ai_fingerprint_if_agent_changed(card, actor_name, source)
-                if self._card_has_repair_order(card):
-                    self._ensure_repair_order_text_file(card, force=True)
                 self._save_bundle(
                     bundle,
                     columns=columns,
@@ -2985,7 +2928,9 @@ class CardService(
 
     def migrate_repair_order_cycles(self, *, apply: bool = False) -> dict[str, Any]:
         with self._lock:
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "cards", "columns", "cashboxes", "cash_transactions", "inventory_items"
+            )
             cards = bundle["cards"]
             events = bundle["events"]
             migrated_card_ids: list[str] = []
@@ -3131,7 +3076,13 @@ class CardService(
     def reopen_repair_order(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "columns",
+                "cashboxes",
+                "cash_transactions",
+                "inventory_items",
+                card_id=payload.get("card_id", ""),
+            )
             cards = bundle["cards"]
             columns = bundle["columns"]
             events = bundle["events"]
@@ -3247,7 +3198,6 @@ class CardService(
                 },
             )
             self._touch_card(card, actor_name)
-            self._ensure_repair_order_text_file(card, force=True)
             self._save_bundle(
                 bundle,
                 columns=columns,
@@ -3320,7 +3270,13 @@ class CardService(
         with self._lock:
             payload = payload or {}
             rows = self._validated_repair_order_rows(payload.get("rows"), field_name="rows")
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "columns",
+                "cashboxes",
+                "cash_transactions",
+                "inventory_items",
+                card_id=payload.get("card_id", ""),
+            )
             cards = bundle["cards"]
             events = bundle["events"]
             columns = bundle["columns"]
@@ -3354,8 +3310,6 @@ class CardService(
             if changed or numbering_changed:
                 self._touch_card(card, actor_name)
                 self._refresh_card_ai_fingerprint_if_agent_changed(card, actor_name, source)
-                if self._card_has_repair_order(card):
-                    self._ensure_repair_order_text_file(card, force=True)
                 self._save_bundle(
                     bundle,
                     columns=columns,
@@ -3384,7 +3338,13 @@ class CardService(
             status = self._validated_repair_order_status(
                 payload.get("status"), default=REPAIR_ORDER_STATUS_OPEN
             )
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "columns",
+                "cashboxes",
+                "cash_transactions",
+                "inventory_items",
+                card_id=payload.get("card_id", ""),
+            )
             cards = bundle["cards"]
             events = bundle["events"]
             columns = bundle["columns"]
@@ -3493,8 +3453,6 @@ class CardService(
             if changed or numbering_changed:
                 self._touch_card(card, actor_name)
                 self._refresh_card_ai_fingerprint_if_agent_changed(card, actor_name, source)
-                if self._card_has_repair_order(card):
-                    self._ensure_repair_order_text_file(card, force=True)
                 self._save_bundle(
                     bundle,
                     columns=columns,
@@ -3525,7 +3483,9 @@ class CardService(
         operator_payload: dict[str, Any] | None = None,
     ) -> tuple[Path | bytes, str]:
         with self._lock:
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "columns", "cashboxes", "cash_transactions", "inventory_items", card_id=card_id
+            )
             if self._synchronize_repair_order_numbers(bundle["cards"]):
                 self._save_bundle(
                     bundle,
@@ -3558,7 +3518,13 @@ class CardService(
     def get_repair_order_text(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "columns",
+                "cashboxes",
+                "cash_transactions",
+                "inventory_items",
+                card_id=payload.get("card_id", ""),
+            )
             if self._synchronize_repair_order_numbers(bundle["cards"]):
                 self._save_bundle(
                     bundle,
@@ -4104,7 +4070,13 @@ class CardService(
                     self._fail(
                         exc.code, exc.message, status_code=exc.status_code, details=exc.details
                     )
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "columns",
+                "cashboxes",
+                "cash_transactions",
+                "inventory_items",
+                card_id=payload.get("card_id", ""),
+            )
             card = self._find_card(bundle["cards"], payload.get("card_id"))
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="ui")
@@ -4392,7 +4364,7 @@ class CardService(
                         ]
                     },
                 )
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update("cashboxes", card_id=payload.get("card_id", ""))
             cards = bundle["cards"]
             events = bundle["events"]
             card = self._find_card(cards, payload.get("card_id"))
@@ -4570,8 +4542,6 @@ class CardService(
             if changed or numbering_changed or ready_column_changed or linked_vehicle_changed:
                 self._touch_card(card, actor_name, notify_viewers=notify_viewers)
                 self._refresh_card_ai_fingerprint_if_agent_changed(card, actor_name, source)
-                if self._card_has_repair_order(card):
-                    self._ensure_repair_order_text_file(card, force=True)
                 self._save_bundle(
                     bundle,
                     columns=bundle["columns"],
@@ -4621,7 +4591,13 @@ class CardService(
 
     def autofill_repair_order(self, payload: dict) -> dict:
         with self._lock:
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "columns",
+                "cashboxes",
+                "cash_transactions",
+                "inventory_items",
+                card_id=payload.get("card_id", ""),
+            )
             cards = bundle["cards"]
             events = bundle["events"]
             columns = bundle["columns"]
@@ -4636,7 +4612,6 @@ class CardService(
                 card.repair_order = next_order
                 self._touch_card(card, actor_name)
                 self._refresh_card_ai_fingerprint_if_agent_changed(card, actor_name, source)
-                self._ensure_repair_order_text_file(card, force=True)
                 self._append_event(
                     events,
                     actor_name=actor_name,
@@ -4677,7 +4652,13 @@ class CardService(
 
     def start_card_timer(self, payload: dict) -> dict:
         with self._lock:
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "columns",
+                "cashboxes",
+                "cash_transactions",
+                "inventory_items",
+                card_id=payload.get("card_id", ""),
+            )
             cards = bundle["cards"]
             events = bundle["events"]
             card = self._find_card(cards, payload.get("card_id"))
@@ -4740,7 +4721,13 @@ class CardService(
 
     def stop_card_timer(self, payload: dict) -> dict:
         with self._lock:
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "columns",
+                "cashboxes",
+                "cash_transactions",
+                "inventory_items",
+                card_id=payload.get("card_id", ""),
+            )
             cards = bundle["cards"]
             events = bundle["events"]
             card = self._find_card(cards, payload.get("card_id"))
@@ -4783,7 +4770,13 @@ class CardService(
 
     def set_card_indicator(self, payload: dict) -> dict:
         with self._lock:
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "columns",
+                "cashboxes",
+                "cash_transactions",
+                "inventory_items",
+                card_id=payload.get("card_id", ""),
+            )
             cards = bundle["cards"]
             events = bundle["events"]
             card = self._find_card(cards, payload.get("card_id"))
@@ -4851,7 +4844,13 @@ class CardService(
                     "response_mode для перемещения карточки должен быть legacy или delta.",
                     details={"field": "response_mode"},
                 )
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "columns",
+                "cashboxes",
+                "cash_transactions",
+                "inventory_items",
+                card_id=payload.get("card_id", ""),
+            )
             cards = bundle["cards"]
             columns = bundle["columns"]
             events = bundle["events"]
@@ -4899,8 +4898,6 @@ class CardService(
                 self._touch_card(card, actor_name)
             numbering_changed = self._synchronize_repair_order_numbers(cards)
             if changed or ready_state_changed or ready_column_changed or numbering_changed:
-                if self._card_has_repair_order(card):
-                    self._ensure_repair_order_text_file(card, force=True)
                 self._save_bundle(bundle, columns=columns, cards=cards, events=events)
             self._logger.info(
                 "move_card id=%s column=%s position=%s actor=%s source=%s",
@@ -4959,7 +4956,13 @@ class CardService(
 
     def archive_card(self, payload: dict) -> dict:
         with self._lock:
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "columns",
+                "cashboxes",
+                "cash_transactions",
+                "inventory_items",
+                card_id=payload.get("card_id", ""),
+            )
             cards = bundle["cards"]
             events = bundle["events"]
             card = self._find_card(cards, payload.get("card_id"))
@@ -5004,7 +5007,9 @@ class CardService(
 
     def bulk_move_cards(self, payload: dict) -> dict:
         with self._lock:
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "cards", "columns", "cashboxes", "cash_transactions", "inventory_items"
+            )
             cards = bundle["cards"]
             columns = bundle["columns"]
             events = bundle["events"]
@@ -5160,7 +5165,9 @@ class CardService(
     def mark_card_ready(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "cards", "columns", "cashboxes", "cash_transactions", "inventory_items"
+            )
             actor_name, source = self._audit_identity(payload, default_source="api")
             ready_column_id, ready_column_changed = self._ensure_ready_column_for_bundle(
                 bundle, actor_name=actor_name, source=source
@@ -5180,7 +5187,13 @@ class CardService(
 
     def restore_card(self, payload: dict) -> dict:
         with self._lock:
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                "columns",
+                "cashboxes",
+                "cash_transactions",
+                "inventory_items",
+                card_id=payload.get("card_id", ""),
+            )
             cards = bundle["cards"]
             columns = bundle["columns"]
             events = bundle["events"]
@@ -5237,7 +5250,7 @@ class CardService(
 
     def create_sticky(self, payload: dict) -> dict:
         with self._lock:
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update("stickies")
             stickies = bundle["stickies"]
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="api")
@@ -5296,7 +5309,7 @@ class CardService(
                     "Для обновления стикера нужно передать хотя бы одно поле: text или deadline.",
                     details={"fields": ["text", "deadline"]},
                 )
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update("stickies")
             stickies = bundle["stickies"]
             events = bundle["events"]
             sticky = self._find_sticky(stickies, payload.get("sticky_id"))
@@ -5364,7 +5377,7 @@ class CardService(
 
     def move_sticky(self, payload: dict) -> dict:
         with self._lock:
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update("stickies")
             stickies = bundle["stickies"]
             events = bundle["events"]
             sticky = self._find_sticky(stickies, payload.get("sticky_id"))
@@ -5411,7 +5424,7 @@ class CardService(
 
     def delete_sticky(self, payload: dict) -> dict:
         with self._lock:
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update("stickies")
             stickies = bundle["stickies"]
             events = bundle["events"]
             sticky = self._find_sticky(stickies, payload.get("sticky_id"))
@@ -5440,276 +5453,6 @@ class CardService(
                 "deleted": True,
                 "sticky_id": sticky.id,
                 "stickies": [self._serialize_sticky(item) for item in stickies],
-            }
-
-    def add_card_attachment(self, payload: dict) -> dict:
-        with self._lock:
-            bundle = self._store.read_bundle()
-            cards = bundle["cards"]
-            events = bundle["events"]
-            card = self._find_card(cards, payload.get("card_id"))
-            self._ensure_not_archived(card)
-            actor_name, source = self._audit_identity(payload, default_source="api")
-            file_bytes = self._validated_attachment_content(payload.get("content_base64"))
-            file_name, mime_type, stored_extension = self._validated_attachment_upload(
-                payload.get("file_name"),
-                payload.get("mime_type"),
-                file_bytes,
-            )
-            attachment_id = str(uuid.uuid4())
-            stored_name = f"{attachment_id}{stored_extension}"
-            self._write_attachment_file(card.id, stored_name, file_bytes)
-            attachment = Attachment(
-                id=attachment_id,
-                file_name=file_name,
-                stored_name=stored_name,
-                mime_type=mime_type,
-                size_bytes=len(file_bytes),
-                created_at=utc_now_iso(),
-                created_by=actor_name,
-            )
-            card.attachments.append(attachment)
-            self._touch_card(card, actor_name)
-            self._append_event(
-                events,
-                actor_name=actor_name,
-                source=source,
-                action="attachment_added",
-                message=f"{actor_name} добавил файл",
-                card_id=card.id,
-                details={
-                    "attachment_id": attachment.id,
-                    "file_name": attachment.file_name,
-                    "size_bytes": attachment.size_bytes,
-                },
-            )
-            self._save_bundle(bundle, columns=bundle["columns"], cards=cards, events=events)
-            self._logger.info(
-                "add_attachment card_id=%s attachment_id=%s actor=%s",
-                card.id,
-                attachment.id,
-                actor_name,
-            )
-            return {
-                "card": self._serialize_card(
-                    card,
-                    events,
-                    column_labels=self._column_labels(bundle["columns"]),
-                    include_removed_attachments=True,
-                    viewer_username=actor_name,
-                ),
-                "attachment": attachment.to_dict(),
-            }
-
-    def remove_card_attachment(self, payload: dict) -> dict:
-        with self._lock:
-            bundle = self._store.read_bundle()
-            cards = bundle["cards"]
-            events = bundle["events"]
-            card = self._find_card(cards, payload.get("card_id"))
-            self._ensure_not_archived(card)
-            actor_name, source = self._audit_identity(payload, default_source="api")
-            attachment = self._find_attachment(card, payload.get("attachment_id"))
-            if attachment.removed:
-                self._fail(
-                    "validation_error",
-                    "Файл уже удалён из карточки.",
-                    details={"attachment_id": attachment.id},
-                )
-            attachment.removed = True
-            attachment.removed_at = utc_now_iso()
-            attachment.removed_by = actor_name
-            self._delete_attachment_file(card.id, attachment.stored_name)
-            self._touch_card(card, actor_name)
-            self._append_event(
-                events,
-                actor_name=actor_name,
-                source=source,
-                action="attachment_removed",
-                message=f"{actor_name} удалил файл",
-                card_id=card.id,
-                details={"attachment_id": attachment.id, "file_name": attachment.file_name},
-            )
-            self._save_bundle(bundle, columns=bundle["columns"], cards=cards, events=events)
-            self._logger.info(
-                "remove_attachment card_id=%s attachment_id=%s actor=%s",
-                card.id,
-                attachment.id,
-                actor_name,
-            )
-            return {
-                "card": self._serialize_card(
-                    card,
-                    events,
-                    column_labels=self._column_labels(bundle["columns"]),
-                    include_removed_attachments=True,
-                    viewer_username=actor_name,
-                )
-            }
-
-    def get_attachment_download(self, card_id: str, attachment_id: str) -> tuple[Path, Attachment]:
-        with self._lock:
-            bundle = self._store.read_bundle()
-            card = self._find_card(bundle["cards"], card_id)
-            attachment = self._find_attachment(card, attachment_id)
-            if attachment.removed:
-                self._fail(
-                    "not_found",
-                    "Файл был удалён из карточки.",
-                    status_code=404,
-                    details={"attachment_id": attachment.id},
-                )
-            attachment_path = self._require_attachment_file(card.id, attachment)
-            attachment_path, repaired = self._repair_attachment_metadata(
-                card.id, attachment, attachment_path
-            )
-            if repaired:
-                self._save_bundle(
-                    bundle,
-                    columns=bundle["columns"],
-                    cards=bundle["cards"],
-                    events=bundle["events"],
-                )
-            return attachment_path, attachment
-
-    def list_card_attachments(self, payload: dict | None = None) -> dict:
-        payload = dict(payload or {})
-        include_removed = normalize_bool(payload.get("include_removed"), default=False)
-        with self._lock:
-            bundle = self._store.read_bundle()
-            card = self._find_card(bundle["cards"], payload.get("card_id"))
-            attachments = card.attachments if include_removed else card.active_attachments()
-            items = [
-                self._attachment_agent_dict(card.id, attachment)
-                for attachment in attachments
-                if include_removed or not attachment.removed
-            ]
-            return {
-                "card": self._serialize_card(
-                    card,
-                    bundle["events"],
-                    column_labels=self._column_labels(bundle["columns"]),
-                ),
-                "attachments": items,
-                "meta": {
-                    "card_id": card.id,
-                    "include_removed": include_removed,
-                    "total": len(items),
-                    "read_tool": "read_card_attachment",
-                    "metadata_tool": "get_card_attachment",
-                },
-            }
-
-    def get_card_attachment(self, payload: dict | None = None) -> dict:
-        payload = dict(payload or {})
-        with self._lock:
-            bundle = self._store.read_bundle()
-            card = self._find_card(bundle["cards"], payload.get("card_id"))
-            attachment = self._find_attachment(card, payload.get("attachment_id"))
-            if attachment.removed:
-                self._fail(
-                    "not_found",
-                    "Файл был удалён из карточки.",
-                    status_code=404,
-                    details={"attachment_id": attachment.id},
-                )
-            attachment_path = self._require_attachment_file(card.id, attachment)
-            attachment_path, repaired = self._repair_attachment_metadata(
-                card.id, attachment, attachment_path
-            )
-            if repaired:
-                self._save_bundle(
-                    bundle,
-                    columns=bundle["columns"],
-                    cards=bundle["cards"],
-                    events=bundle["events"],
-                )
-            return {
-                "card": self._serialize_card(
-                    card,
-                    bundle["events"],
-                    column_labels=self._column_labels(bundle["columns"]),
-                ),
-                "attachment": self._attachment_agent_dict(
-                    card.id, attachment, attachment_path=attachment_path
-                ),
-            }
-
-    def read_card_attachment(self, payload: dict | None = None) -> dict:
-        payload = dict(payload or {})
-        mode = normalize_text(payload.get("mode"), default="preview", limit=24).lower()
-        if mode not in {"preview", "text", "base64", "auto"}:
-            self._fail(
-                "validation_error",
-                "Параметр mode должен быть preview, text, base64 или auto.",
-                details={"field": "mode"},
-            )
-        max_chars = self._validated_numeric_limit(
-            payload.get("max_chars"),
-            field="max_chars",
-            default=_ATTACHMENT_READ_DEFAULT_CHARS,
-            maximum=_ATTACHMENT_READ_MAX_CHARS,
-        )
-        max_base64_bytes = self._validated_numeric_limit(
-            payload.get("max_base64_bytes"),
-            field="max_base64_bytes",
-            default=_ATTACHMENT_BASE64_DEFAULT_BYTES,
-            maximum=_ATTACHMENT_BASE64_MAX_BYTES,
-        )
-        include_base64 = normalize_bool(payload.get("include_base64"), default=False)
-        if mode == "base64":
-            include_base64 = True
-
-        with self._lock:
-            bundle = self._store.read_bundle()
-            card = self._find_card(bundle["cards"], payload.get("card_id"))
-            attachment = self._find_attachment(card, payload.get("attachment_id"))
-            if attachment.removed:
-                self._fail(
-                    "not_found",
-                    "Файл был удалён из карточки.",
-                    status_code=404,
-                    details={"attachment_id": attachment.id},
-                )
-            attachment_path = self._require_attachment_file(card.id, attachment)
-            attachment_path, repaired = self._repair_attachment_metadata(
-                card.id, attachment, attachment_path
-            )
-            if repaired:
-                self._save_bundle(
-                    bundle,
-                    columns=bundle["columns"],
-                    cards=bundle["cards"],
-                    events=bundle["events"],
-                )
-            content = self._read_attachment_file_bytes(attachment_path, attachment)
-            attachment_meta = self._attachment_agent_dict(
-                card.id, attachment, attachment_path=attachment_path
-            )
-            content_payload = self._attachment_content_payload(
-                attachment=attachment,
-                content=content,
-                mode=mode,
-                max_chars=max_chars,
-                include_base64=include_base64,
-                max_base64_bytes=max_base64_bytes,
-            )
-            return {
-                "card": self._serialize_card(
-                    card,
-                    bundle["events"],
-                    column_labels=self._column_labels(bundle["columns"]),
-                ),
-                "attachment": attachment_meta,
-                "content": content_payload,
-                "meta": {
-                    "card_id": card.id,
-                    "attachment_id": attachment.id,
-                    "mode": mode,
-                    "max_chars": max_chars,
-                    "include_base64": include_base64,
-                    "max_base64_bytes": max_base64_bytes,
-                },
             }
 
     def set_onboarding_seen(self, value: bool) -> None:
@@ -5892,9 +5635,13 @@ class CardService(
 
         if previous_column != target_column:
             for position, item in enumerate(source_cards):
-                item.position = position
+                if item.position != position:
+                    detach_card(cards, item).position = position
         for position, item in enumerate(target_cards):
-            item.position = position
+            if item is card:
+                item.position = position
+            elif item.position != position:
+                detach_card(cards, item).position = position
 
         return {
             "before_column": previous_column,
@@ -6317,6 +6064,16 @@ class CardService(
             result.append(_SEARCH_CYRILLIC_TO_LATIN.get(char, char))
         return " ".join("".join(result).split())
 
+    def _read_bundle_for_update(self, *domains: str, card_id=None, client_id=None) -> BundleDraft:
+        source, signature = self._store.read_bundle_with_signature()
+        if card_id is not None:
+            card_id = self._find_card(source["cards"], card_id).id
+        if client_id is not None:
+            client_id = self._find_client(source["clients"], client_id).id
+        return BundleDraft(
+            source, domains=domains, card_id=card_id, client_id=client_id, signature=signature
+        )
+
     def _save_bundle(
         self,
         bundle: dict,
@@ -6352,19 +6109,38 @@ class CardService(
             "events": events,
             "settings": bundle["settings"] if settings is None else settings,
         }
+        prepared_artifacts = self._prepare_repair_order_artifacts(bundle, cards)
+        if isinstance(bundle, BundleDraft):
+            write_arguments["expected_signature"] = bundle.signature
         try:
-            if require_compare_and_swap or get_fast_state_writes_enabled():
-                written_bundle = self._store.write_cached_bundle(bundle, **write_arguments)
-            else:
-                written_bundle = self._store.write_bundle(**write_arguments)
+            previous_events = (
+                {event.id for event in bundle.source["events"]}
+                if isinstance(bundle, BundleDraft)
+                else set()
+            )
+            pending_events = (
+                [event for event in events if event.id not in previous_events]
+                if isinstance(bundle, BundleDraft)
+                else []
+            )
+            with self._audit_archive.stage_events(pending_events):
+                if require_compare_and_swap or get_fast_state_writes_enabled():
+                    source = bundle.source if isinstance(bundle, BundleDraft) else bundle
+                    written_bundle = self._store.write_cached_bundle(source, **write_arguments)
+                else:
+                    written_bundle = self._store.write_bundle(**write_arguments)
         except StateWriteConflictError:
             self._fail(
                 "state_write_conflict",
                 "Данные изменились параллельно. Обновите карточку и повторите действие.",
                 status_code=409,
             )
+        self._publish_repair_order_artifacts(prepared_artifacts)
         written_cards = written_bundle["cards"]
-        self._cleanup_runtime_artifacts_if_due(written_cards, force=force_cleanup)
+        try:
+            self._cleanup_runtime_artifacts_if_due(written_cards, force=force_cleanup)
+        except Exception:
+            self._logger.exception("post_commit_runtime_cleanup_failed")
 
     def _cleanup_runtime_artifacts_if_due(self, cards: list[Card], *, force: bool = False) -> None:
         now = time.monotonic()
@@ -6680,7 +6456,7 @@ class CardService(
         event_id = str(uuid.uuid4())
         timestamp = utc_now_iso()
         event_details = dict(details or {})
-        if details_need_archive(action, event_details):
+        if not isinstance(events, DraftEvents) and details_need_archive(action, event_details):
             try:
                 archive_write = self._audit_archive.archive_details(
                     event_id=event_id,
@@ -6775,23 +6551,6 @@ class CardService(
                 return cashbox
         self._fail(
             "not_found", "Касса не найдена.", status_code=404, details={"cashbox_id": cashbox_id}
-        )
-
-    def _find_attachment(self, card: Card, attachment_id: str | None) -> Attachment:
-        if not attachment_id:
-            self._fail(
-                "validation_error",
-                "Нужно передать attachment_id.",
-                details={"field": "attachment_id"},
-            )
-        for attachment in card.attachments:
-            if attachment.id == str(attachment_id):
-                return attachment
-        self._fail(
-            "not_found",
-            "Файл в карточке не найден.",
-            status_code=404,
-            details={"attachment_id": attachment_id},
         )
 
     def _update_title(
@@ -8892,7 +8651,6 @@ class CardService(
         )
         if changed:
             self._touch_card(card, actor_name)
-            self._ensure_repair_order_text_file(card, force=True)
         return changed
 
     def _ensure_card_can_be_archived(self, card: Card) -> None:
@@ -9657,6 +9415,7 @@ class CardService(
             if normalize_text(card.repair_order.number, default="", limit=40):
                 continue
             expected = self._next_repair_order_number(cards, exclude_card_id=card.id)
+            card = detach_card(cards, card)
             card.repair_order = RepairOrder.from_dict(
                 {
                     **card.repair_order.to_storage_dict(),
@@ -9824,23 +9583,24 @@ class CardService(
 
     def _ensure_repair_order_text_file(self, card: Card, *, force: bool = False) -> Path:
         path = self._repair_order_text_path(card)
+        content = self._render_repair_order_text(card, path)
         if not force and path.exists():
-            return path
-        self._repair_orders_dir.mkdir(parents=True, exist_ok=True)
-        content = render_bounded_repair_order_text(
+            try:
+                if self._read_repair_order_text_file(path) == content:
+                    return path
+            except (OSError, ServiceError):
+                pass
+        publish_text(path, content)
+        self._cleanup_repair_order_text_files(card, keep_path=path)
+        return path
+
+    def _render_repair_order_text(self, card: Card, path: Path) -> str:
+        return render_bounded_repair_order_text(
             card,
             json_dumps=_json_dumps,
             file_name=path.name,
             max_bytes=REPAIR_ORDER_TEXT_FILE_MAX_BYTES,
         )
-        temp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-        try:
-            temp_path.write_text(content, encoding="utf-8")
-            temp_path.replace(path)
-        finally:
-            temp_path.unlink(missing_ok=True)
-        self._cleanup_repair_order_text_files(card, keep_path=path)
-        return path
 
     def _repair_order_text_path(self, card: Card) -> Path:
         return self._repair_orders_dir / self._repair_order_file_name(card)
@@ -9937,28 +9697,6 @@ class CardService(
                 continue
             try:
                 candidate.unlink()
-            except OSError:
-                continue
-
-    def _cleanup_attachment_directories(self, cards: list[Card]) -> None:
-        keep_card_ids = {card.id for card in cards}
-        root = self._attachments_dir.resolve(strict=False)
-        for candidate in self._attachments_dir.iterdir():
-            if candidate.name in keep_card_ids:
-                continue
-            try:
-                if candidate.is_symlink():
-                    candidate.unlink()
-                    continue
-                if not candidate.is_dir():
-                    continue
-                candidate.resolve(strict=False).relative_to(root)
-            except OSError:
-                continue
-            except ValueError:
-                continue
-            try:
-                shutil.rmtree(candidate)
             except OSError:
                 continue
 
@@ -10080,625 +9818,6 @@ class CardService(
         ):
             return self._resolved_card_vehicle_label("", next_profile)
         return self._validated_vehicle(current_vehicle)
-
-    def _attachment_agent_dict(
-        self,
-        card_id: str,
-        attachment: Attachment,
-        *,
-        attachment_path: Path | None = None,
-    ) -> dict[str, Any]:
-        attachment_type = self._attachment_type_from_metadata(attachment)
-        content_kind = self._attachment_content_kind(attachment_type)
-        payload = {
-            "id": attachment.id,
-            "card_id": card_id,
-            "file_name": attachment.file_name,
-            "mime_type": attachment.mime_type,
-            "size_bytes": attachment.size_bytes,
-            "created_at": attachment.created_at,
-            "created_by": attachment.created_by,
-            "removed": attachment.removed,
-            "removed_at": attachment.removed_at,
-            "removed_by": attachment.removed_by,
-            "extension": self._attachment_extension(attachment.file_name),
-            "content_type": attachment_type,
-            "content_kind": content_kind,
-            "readable_as_text": content_kind in {"text", "pdf", "docx", "xlsx"},
-            "supports_base64": True,
-            "download_path": f"/api/attachment?card_id={card_id}&attachment_id={attachment.id}",
-        }
-        if attachment_path is not None:
-            payload["exists_on_disk"] = self._attachment_is_regular_file(attachment_path)
-            if payload["exists_on_disk"]:
-                try:
-                    payload["sha256"] = self._attachment_file_sha256(attachment_path)
-                except ValueError:
-                    payload["oversized_on_disk"] = True
-                except OSError:
-                    payload["exists_on_disk"] = False
-        return payload
-
-    def _attachment_content_payload(
-        self,
-        *,
-        attachment: Attachment,
-        content: bytes,
-        mode: str,
-        max_chars: int,
-        include_base64: bool,
-        max_base64_bytes: int,
-    ) -> dict[str, Any]:
-        attachment_type = self._attachment_type_from_metadata(attachment)
-        content_kind = self._attachment_content_kind(attachment_type)
-        payload: dict[str, Any] = {
-            "mode": mode,
-            "content_kind": content_kind,
-            "content_type": attachment_type,
-            "size_bytes": len(content),
-            "sha256": hashlib.sha256(content).hexdigest(),
-            "text": "",
-            "text_length": 0,
-            "text_truncated": False,
-            "encoding": "",
-            "extraction_status": "unsupported",
-            "extraction_warnings": [],
-            "base64_included": False,
-        }
-        if content_kind == "image":
-            payload["image"] = self._attachment_image_metadata(content, attachment_type)
-            payload["extraction_status"] = "image_binary"
-            payload["extraction_warnings"].append(
-                "Изображение не распознается OCR на стороне CRM; используйте base64/data_url для vision-модели агента."
-            )
-        elif content_kind == "text":
-            text, encoding = self._decode_attachment_text(content)
-            self._set_truncated_attachment_text(payload, text, max_chars)
-            payload["encoding"] = encoding
-            payload["extraction_status"] = "ok"
-        elif content_kind == "docx":
-            text = self._extract_docx_text(content, max_chars=max_chars)
-            self._set_truncated_attachment_text(payload, text, max_chars)
-            payload["encoding"] = "office-openxml"
-            payload["extraction_status"] = "ok" if text.strip() else "empty"
-        elif content_kind == "xlsx":
-            text = self._extract_xlsx_text(content, max_chars=max_chars)
-            self._set_truncated_attachment_text(payload, text, max_chars)
-            payload["encoding"] = "office-openxml"
-            payload["extraction_status"] = "ok" if text.strip() else "empty"
-        elif content_kind == "pdf":
-            text = self._extract_pdf_text(content, max_chars=max_chars)
-            self._set_truncated_attachment_text(payload, text, max_chars)
-            payload["encoding"] = "pdf-best-effort"
-            payload["extraction_status"] = "best_effort" if text.strip() else "unsupported"
-            if not text.strip():
-                payload["extraction_warnings"].append(
-                    "PDF не содержит простого текстового слоя, который можно извлечь штатными средствами."
-                )
-        elif content_kind == "office_legacy":
-            payload["extraction_warnings"].append(
-                "Старые DOC/XLS сохранены как бинарные OLE-файлы; для чтения агентом загрузите DOCX/XLSX или используйте base64."
-            )
-
-        if include_base64:
-            if len(content) <= max_base64_bytes:
-                encoded = base64.b64encode(content).decode("ascii")
-                mime_type = attachment.mime_type or "application/octet-stream"
-                payload["base64"] = encoded
-                payload["data_url"] = f"data:{mime_type};base64,{encoded}"
-                payload["base64_included"] = True
-            else:
-                payload["base64_omitted_reason"] = (
-                    f"file_size_exceeds_limit:{len(content)}>{max_base64_bytes}"
-                )
-        return payload
-
-    def _set_truncated_attachment_text(
-        self, payload: dict[str, Any], text: str, max_chars: int
-    ) -> None:
-        text = str(text or "")
-        payload["text_length"] = len(text)
-        if len(text) > max_chars:
-            payload["text"] = text[:max_chars]
-            payload["text_truncated"] = True
-        else:
-            payload["text"] = text
-            payload["text_truncated"] = False
-
-    def _append_limited_attachment_text(
-        self,
-        parts: list[str],
-        current_chars: int,
-        fragment: str,
-        *,
-        max_chars: int,
-    ) -> tuple[int, bool]:
-        fragment = str(fragment or "")
-        if not fragment:
-            return current_chars, False
-        limit = max_chars + 1
-        remaining = limit - current_chars
-        if remaining <= 0:
-            return current_chars, True
-        if len(fragment) > remaining:
-            parts.append(fragment[:remaining])
-            return limit, True
-        parts.append(fragment)
-        return current_chars + len(fragment), False
-
-    def _attachment_type_from_metadata(self, attachment: Attachment) -> str:
-        extension = self._attachment_extension(attachment.file_name)
-        if extension in _ATTACHMENT_EXTENSION_TO_TYPE:
-            return _ATTACHMENT_EXTENSION_TO_TYPE[extension]
-        mime_type = self._normalized_attachment_mime_type(attachment.mime_type)
-        for type_name, spec in _ATTACHMENT_TYPE_SPECS.items():
-            if mime_type in spec["mime_types"]:
-                return type_name
-        return "binary"
-
-    def _attachment_content_kind(self, attachment_type: str) -> str:
-        if attachment_type in {"png", "jpeg", "gif", "webp"}:
-            return "image"
-        if attachment_type == "txt":
-            return "text"
-        if attachment_type in {"pdf", "docx", "xlsx"}:
-            return attachment_type
-        if attachment_type in {"doc", "xls"}:
-            return "office_legacy"
-        return "binary"
-
-    def _decode_attachment_text(self, content: bytes) -> tuple[str, str]:
-        encodings = ("utf-8-sig", "utf-8", "cp1251", "utf-16", "latin-1")
-        for encoding in encodings:
-            try:
-                decoded = content.decode(encoding)
-            except UnicodeDecodeError:
-                continue
-            return decoded, encoding
-        return content.decode("utf-8", errors="replace"), "utf-8-replace"
-
-    def _parse_attachment_xml(self, content: bytes) -> ET.Element:
-        prefix = content.lstrip()[:2048].lower()
-        if b"<!doctype" in prefix or b"<!entity" in prefix:
-            raise ET.ParseError("XML entities are not supported in attachments.")
-        return safe_xml_fromstring(content)
-
-    def _read_attachment_zip_member(
-        self,
-        archive: zipfile.ZipFile,
-        info: zipfile.ZipInfo,
-    ) -> bytes | None:
-        if info.file_size > _ATTACHMENT_XML_READ_MAX_BYTES:
-            return None
-        try:
-            with archive.open(info) as member:
-                content = member.read(_ATTACHMENT_XML_READ_MAX_BYTES + 1)
-        except (OSError, RuntimeError, NotImplementedError, zipfile.BadZipFile):
-            return None
-        if len(content) > _ATTACHMENT_XML_READ_MAX_BYTES:
-            return None
-        return content
-
-    def _extract_docx_text(
-        self, content: bytes, *, max_chars: int = _ATTACHMENT_READ_MAX_CHARS
-    ) -> str:
-        try:
-            with zipfile.ZipFile(BytesIO(content)) as archive:
-                info = archive.getinfo("word/document.xml")
-                xml_content = self._read_attachment_zip_member(archive, info)
-                if xml_content is None:
-                    return ""
-                root = self._parse_attachment_xml(xml_content)
-        except (KeyError, OSError, ET.ParseError, zipfile.BadZipFile):
-            return ""
-        parts: list[str] = []
-        current_chars = 0
-        for paragraph in root.iter(
-            "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p"
-        ):
-            text_parts = [
-                node.text or ""
-                for node in paragraph.iter(
-                    "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"
-                )
-            ]
-            line = "".join(text_parts).strip()
-            if line:
-                fragment = line if not parts else f"\n{line}"
-                current_chars, done = self._append_limited_attachment_text(
-                    parts,
-                    current_chars,
-                    fragment,
-                    max_chars=max_chars,
-                )
-                if done:
-                    return "".join(parts)
-        if parts:
-            return "".join(parts)
-        for node in root.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"):
-            line = (node.text or "").strip()
-            if not line:
-                continue
-            fragment = line if not parts else f"\n{line}"
-            current_chars, done = self._append_limited_attachment_text(
-                parts,
-                current_chars,
-                fragment,
-                max_chars=max_chars,
-            )
-            if done:
-                break
-        return "".join(parts)
-
-    def _extract_xlsx_text(
-        self, content: bytes, *, max_chars: int = _ATTACHMENT_READ_MAX_CHARS
-    ) -> str:
-        try:
-            with zipfile.ZipFile(BytesIO(content)) as archive:
-                shared_strings = self._xlsx_shared_strings(archive)
-                parts: list[str] = []
-                current_chars = 0
-                worksheet_names = sorted(
-                    name
-                    for name in archive.namelist()
-                    if name.startswith("xl/worksheets/") and name.endswith(".xml")
-                )
-                for worksheet_name in worksheet_names[:20]:
-                    info = archive.getinfo(worksheet_name)
-                    xml_content = self._read_attachment_zip_member(archive, info)
-                    if xml_content is None:
-                        continue
-                    root = self._parse_attachment_xml(xml_content)
-                    sheet_label = PurePath(worksheet_name).stem
-                    sheet_started = False
-                    for cell in root.iter(
-                        "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}c"
-                    ):
-                        value = self._xlsx_cell_text(cell, shared_strings)
-                        if value:
-                            ref = cell.attrib.get("r", "")
-                            cell_text = f"{ref}: {value}" if ref else value
-                            if sheet_started:
-                                fragment = f"\n{cell_text}"
-                            else:
-                                prefix = "\n\n" if parts else ""
-                                fragment = f"{prefix}[{sheet_label}]\n{cell_text}"
-                                sheet_started = True
-                            current_chars, done = self._append_limited_attachment_text(
-                                parts,
-                                current_chars,
-                                fragment,
-                                max_chars=max_chars,
-                            )
-                            if done:
-                                return "".join(parts)
-                return "".join(parts)
-        except (OSError, ET.ParseError, zipfile.BadZipFile):
-            return ""
-        return ""
-
-    def _xlsx_shared_strings(self, archive: zipfile.ZipFile) -> list[str]:
-        try:
-            info = archive.getinfo("xl/sharedStrings.xml")
-            xml_content = self._read_attachment_zip_member(archive, info)
-            if xml_content is None:
-                return []
-            root = self._parse_attachment_xml(xml_content)
-        except (KeyError, OSError, ET.ParseError):
-            return []
-        result: list[str] = []
-        for item in root.iter("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}si"):
-            parts = [
-                node.text or ""
-                for node in item.iter(
-                    "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}t"
-                )
-            ]
-            result.append("".join(parts))
-        return result
-
-    def _xlsx_cell_text(self, cell: ET.Element, shared_strings: list[str]) -> str:
-        cell_type = cell.attrib.get("t", "")
-        if cell_type == "inlineStr":
-            parts = [
-                node.text or ""
-                for node in cell.iter(
-                    "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}t"
-                )
-            ]
-            return "".join(parts).strip()
-        value_node = cell.find("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}v")
-        raw_value = (value_node.text or "").strip() if value_node is not None else ""
-        if cell_type == "s" and raw_value.isdigit():
-            try:
-                index = int(raw_value)
-            except (OverflowError, ValueError):
-                return raw_value
-            if 0 <= index < len(shared_strings):
-                return shared_strings[index].strip()
-        return raw_value
-
-    def _extract_pdf_text(
-        self, content: bytes, *, max_chars: int = _ATTACHMENT_READ_MAX_CHARS
-    ) -> str:
-        parts: list[str] = []
-        current_chars = 0
-        for match in re.finditer(rb"\((?:\\.|[^\\)])*\)\s*Tj", content):
-            text = self._decode_pdf_literal(match.group(0).rsplit(b")", 1)[0][1:])
-            if not text.strip():
-                continue
-            fragment = text if not parts else f"\n{text}"
-            current_chars, done = self._append_limited_attachment_text(
-                parts,
-                current_chars,
-                fragment,
-                max_chars=max_chars,
-            )
-            if done:
-                return "".join(parts)
-        for match in re.finditer(rb"\[(.*?)\]\s*TJ", content, flags=re.DOTALL):
-            for literal in re.finditer(rb"\((?:\\.|[^\\)])*\)", match.group(1)):
-                text = self._decode_pdf_literal(literal.group(0)[1:-1])
-                if not text.strip():
-                    continue
-                fragment = text if not parts else f"\n{text}"
-                current_chars, done = self._append_limited_attachment_text(
-                    parts,
-                    current_chars,
-                    fragment,
-                    max_chars=max_chars,
-                )
-                if done:
-                    return "".join(parts)
-        return "".join(parts)
-
-    def _decode_pdf_literal(self, value: bytes) -> str:
-        replacements = {
-            b"\\n": b"\n",
-            b"\\r": b"\r",
-            b"\\t": b"\t",
-            b"\\b": b"\b",
-            b"\\f": b"\f",
-            b"\\(": b"(",
-            b"\\)": b")",
-            b"\\\\": b"\\",
-        }
-        for old, new in replacements.items():
-            value = value.replace(old, new)
-        return value.decode("utf-8", errors="replace")
-
-    def _attachment_image_metadata(self, content: bytes, attachment_type: str) -> dict[str, Any]:
-        dimensions = self._attachment_image_dimensions(content, attachment_type)
-        return {
-            "width": dimensions[0] if dimensions else None,
-            "height": dimensions[1] if dimensions else None,
-        }
-
-    def _attachment_image_dimensions(
-        self, content: bytes, attachment_type: str
-    ) -> tuple[int, int] | None:
-        if (
-            attachment_type == "png"
-            and len(content) >= 24
-            and content.startswith(b"\x89PNG\r\n\x1a\n")
-        ):
-            return int.from_bytes(content[16:20], "big"), int.from_bytes(content[20:24], "big")
-        if attachment_type == "gif" and len(content) >= 10:
-            return int.from_bytes(content[6:8], "little"), int.from_bytes(content[8:10], "little")
-        if attachment_type == "jpeg":
-            return self._jpeg_dimensions(content)
-        if attachment_type == "webp":
-            return self._webp_dimensions(content)
-        return None
-
-    def _jpeg_dimensions(self, content: bytes) -> tuple[int, int] | None:
-        if len(content) < 4 or not content.startswith(b"\xff\xd8"):
-            return None
-        position = 2
-        while position + 9 < len(content):
-            if content[position] != 0xFF:
-                position += 1
-                continue
-            marker = content[position + 1]
-            position += 2
-            if marker in {0xD8, 0xD9}:
-                continue
-            if position + 2 > len(content):
-                return None
-            segment_length = int.from_bytes(content[position : position + 2], "big")
-            if segment_length < 2:
-                return None
-            if marker in {
-                0xC0,
-                0xC1,
-                0xC2,
-                0xC3,
-                0xC5,
-                0xC6,
-                0xC7,
-                0xC9,
-                0xCA,
-                0xCB,
-                0xCD,
-                0xCE,
-                0xCF,
-            } and position + 7 <= len(content):
-                height = int.from_bytes(content[position + 3 : position + 5], "big")
-                width = int.from_bytes(content[position + 5 : position + 7], "big")
-                return width, height
-            position += segment_length
-        return None
-
-    def _webp_dimensions(self, content: bytes) -> tuple[int, int] | None:
-        if len(content) < 30 or not (content.startswith(b"RIFF") and content[8:12] == b"WEBP"):
-            return None
-        chunk = content[12:16]
-        if chunk == b"VP8X" and len(content) >= 30:
-            width = int.from_bytes(content[24:27], "little") + 1
-            height = int.from_bytes(content[27:30], "little") + 1
-            return width, height
-        return None
-
-    def _attachment_path(self, card_id: str, stored_name: str) -> Path:
-        card_dir = self._attachment_card_dir(card_id)
-        safe_name = self._validated_attachment_stored_name(stored_name)
-        root = self._attachments_dir.resolve(strict=False)
-        attachment_path = card_dir / safe_name
-        try:
-            attachment_path.relative_to(root)
-        except ValueError:
-            self._fail("validation_error", "Некорректный путь файла вложения.")
-        return attachment_path
-
-    def _attachment_card_dir(self, card_id: str) -> Path:
-        safe_card_id = self._validated_attachment_path_segment(card_id, field="card_id")
-        root = self._attachments_dir.resolve(strict=False)
-        card_dir = (root / safe_card_id).resolve(strict=False)
-        try:
-            card_dir.relative_to(root)
-        except ValueError:
-            self._fail("validation_error", "Некорректный каталог вложений карточки.")
-        return card_dir
-
-    def _validated_attachment_path_segment(self, value: Any, *, field: str) -> str:
-        segment = str(value or "").strip()
-        if (
-            not segment
-            or segment in {".", ".."}
-            or "\x00" in segment
-            or "/" in segment
-            or "\\" in segment
-        ):
-            self._fail(
-                "validation_error",
-                "Некорректный путь файла вложения.",
-                details={"field": field},
-            )
-        return segment
-
-    def _validated_attachment_stored_name(self, stored_name: str) -> str:
-        raw_name = str(stored_name or "").strip()
-        safe_name = normalize_file_name(raw_name)
-        if (
-            not safe_name
-            or safe_name != raw_name
-            or safe_name in {".", ".."}
-            or PurePath(safe_name).name != safe_name
-        ):
-            self._fail(
-                "validation_error",
-                "Некорректное имя файла вложения на диске.",
-                details={"field": "stored_name"},
-            )
-        return safe_name
-
-    def _attachment_exists_on_disk(self, card_id: str, attachment: Attachment | None) -> bool:
-        if attachment is None or attachment.removed:
-            return False
-        try:
-            return self._attachment_is_regular_file(
-                self._attachment_path(card_id, attachment.stored_name)
-            )
-        except (OSError, ServiceError):
-            return False
-
-    def _attachment_is_regular_file(self, attachment_path: Path) -> bool:
-        try:
-            if attachment_path.is_symlink():
-                return False
-            return attachment_path.is_file()
-        except OSError:
-            return False
-
-    def _read_attachment_file_bytes(self, attachment_path: Path, attachment: Attachment) -> bytes:
-        try:
-            return read_bytes_limited(
-                attachment_path,
-                max_bytes=MAX_ATTACHMENT_SIZE_BYTES,
-                label="attachment file",
-            )
-        except OSError:
-            self._fail(
-                "not_found",
-                "Файл не найден на диске.",
-                status_code=404,
-                details={"attachment_id": attachment.id},
-            )
-        except ValueError:
-            self._fail(
-                "validation_error",
-                "Сохранённый файл вложения превышает допустимый размер.",
-                details={
-                    "attachment_id": attachment.id,
-                    "file_name": attachment.file_name,
-                    "size_bytes": MAX_ATTACHMENT_SIZE_BYTES + 1,
-                    "max_size_bytes": MAX_ATTACHMENT_SIZE_BYTES,
-                },
-            )
-
-    def _attachment_file_sha256(self, attachment_path: Path) -> str:
-        if attachment_path.stat().st_size > MAX_ATTACHMENT_SIZE_BYTES:
-            raise ValueError("attachment file is too large")
-        digest = hashlib.sha256()
-        bytes_read = 0
-        with attachment_path.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                bytes_read += len(chunk)
-                if bytes_read > MAX_ATTACHMENT_SIZE_BYTES:
-                    raise ValueError("attachment file is too large")
-                digest.update(chunk)
-        return digest.hexdigest()
-
-    def _write_attachment_file(self, card_id: str, stored_name: str, content: bytes) -> Path:
-        if len(content) > MAX_ATTACHMENT_SIZE_BYTES:
-            raise ValueError("attachment file is too large")
-        attachment_path = self._attachment_path(card_id, stored_name)
-        attachment_path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = attachment_path.with_name(f".{attachment_path.name}.{uuid.uuid4().hex}.tmp")
-        try:
-            temp_path.write_bytes(content)
-            temp_path.replace(attachment_path)
-        finally:
-            temp_path.unlink(missing_ok=True)
-        return attachment_path
-
-    def _delete_attachment_file(self, card_id: str, stored_name: str) -> None:
-        attachment_path = self._attachment_path(card_id, stored_name)
-        if attachment_path.is_file() or attachment_path.is_symlink():
-            attachment_path.unlink()
-        self._cleanup_empty_attachment_directory(card_id)
-
-    def _require_attachment_file(self, card_id: str, attachment: Attachment) -> Path:
-        attachment_path = self._attachment_path(card_id, attachment.stored_name)
-        for _ in range(20):
-            if self._attachment_is_regular_file(attachment_path):
-                return attachment_path
-            if attachment_path.exists():
-                break
-            time.sleep(0.05)
-        self._fail(
-            "not_found",
-            "Файл не найден на диске.",
-            status_code=404,
-            details={"attachment_id": attachment.id},
-        )
-
-    def _cleanup_empty_attachment_directory(self, card_id: str) -> None:
-        try:
-            attachment_dir = self._attachment_card_dir(card_id)
-        except ServiceError:
-            return
-        if not attachment_dir.exists() or not attachment_dir.is_dir():
-            return
-        try:
-            next(attachment_dir.iterdir())
-            return
-        except StopIteration:
-            pass
-        try:
-            attachment_dir.rmdir()
-        except OSError:
-            return
 
     def _validated_sticky_text(self, value) -> str:
         text = " ".join(str(value or "").strip().split())
@@ -11006,301 +10125,6 @@ class CardService(
                 details={"field": "query"},
             )
         return query
-
-    def _validated_attachment_upload(
-        self, file_name_value, mime_type_value, content: bytes
-    ) -> tuple[str, str, str]:
-        detected_type = self._detect_attachment_type(content)
-        if not detected_type:
-            self._fail(
-                "validation_error",
-                f"Разрешены только {_ALLOWED_ATTACHMENT_TYPES_LABEL}. Файл повреждён или его формат не распознан.",
-                details={
-                    "field": "content_base64",
-                    "allowed_extensions": list(_ALLOWED_ATTACHMENT_EXTENSIONS),
-                },
-            )
-        spec = _ATTACHMENT_TYPE_SPECS[detected_type]
-        file_name = normalize_file_name(file_name_value)
-        if file_name:
-            self._ensure_safe_attachment_name(file_name)
-            requested_extension = self._attachment_extension(file_name)
-            if not requested_extension:
-                requested_extension = spec["canonical_extension"]
-                file_name = self._attachment_name_with_extension(file_name, requested_extension)
-            elif requested_extension not in _ATTACHMENT_EXTENSION_TO_TYPE:
-                if requested_extension in _ATTACHMENT_DANGEROUS_INTERMEDIATE_EXTENSIONS:
-                    self._fail(
-                        "validation_error",
-                        f"Разрешены только {_ALLOWED_ATTACHMENT_TYPES_LABEL}.",
-                        details={
-                            "field": "file_name",
-                            "file_name": file_name,
-                            "allowed_extensions": list(_ALLOWED_ATTACHMENT_EXTENSIONS),
-                        },
-                    )
-                requested_extension = spec["canonical_extension"]
-                file_name = self._append_attachment_extension(file_name, requested_extension)
-            elif _ATTACHMENT_EXTENSION_TO_TYPE[requested_extension] != detected_type:
-                self._fail(
-                    "validation_error",
-                    "Расширение файла не соответствует его содержимому.",
-                    details={
-                        "field": "file_name",
-                        "file_name": file_name,
-                        "expected_extensions": sorted(spec["extensions"]),
-                    },
-                )
-        else:
-            requested_extension = spec["canonical_extension"]
-            file_name = self._generated_attachment_name(requested_extension)
-
-        normalized_mime_type = self._normalized_attachment_mime_type(mime_type_value)
-        if (
-            normalized_mime_type not in _ATTACHMENT_GENERIC_MIME_TYPES
-            and normalized_mime_type not in spec["mime_types"]
-        ):
-            self._fail(
-                "validation_error",
-                "MIME-тип файла не соответствует его расширению и содержимому.",
-                details={
-                    "field": "mime_type",
-                    "file_name": file_name,
-                    "mime_type": normalized_mime_type,
-                    "expected_mime_types": sorted(spec["mime_types"]),
-                },
-            )
-        file_name = self._attachment_name_with_extension(file_name, requested_extension)
-        return file_name, spec["canonical_mime"], requested_extension
-
-    def _repair_attachment_metadata(
-        self, card_id: str, attachment: Attachment, attachment_path: Path
-    ) -> tuple[Path, bool]:
-        content = self._read_attachment_file_bytes(attachment_path, attachment)
-        detected_type = self._detect_attachment_type(content)
-        if not detected_type:
-            self._fail(
-                "validation_error",
-                "Сохранённый файл повреждён или его формат больше не поддерживается.",
-                details={
-                    "attachment_id": attachment.id,
-                    "file_name": attachment.file_name,
-                },
-            )
-        spec = _ATTACHMENT_TYPE_SPECS[detected_type]
-        repaired = False
-
-        normalized_name = normalize_file_name(attachment.file_name)
-        if normalized_name:
-            try:
-                self._ensure_safe_attachment_name(normalized_name)
-            except ServiceError:
-                normalized_name = ""
-        if not normalized_name:
-            normalized_name = self._generated_attachment_name(spec["canonical_extension"])
-        else:
-            current_extension = self._attachment_extension(normalized_name)
-            if current_extension not in spec["extensions"]:
-                if (
-                    current_extension in _ATTACHMENT_EXTENSION_TO_TYPE
-                    or current_extension in _ATTACHMENT_DANGEROUS_INTERMEDIATE_EXTENSIONS
-                ):
-                    normalized_name = self._attachment_name_with_extension(
-                        self._attachment_stem(normalized_name) or "attachment",
-                        spec["canonical_extension"],
-                    )
-                else:
-                    normalized_name = self._append_attachment_extension(
-                        normalized_name, spec["canonical_extension"]
-                    )
-        if attachment.file_name != normalized_name:
-            attachment.file_name = normalized_name
-            repaired = True
-
-        if attachment.mime_type != spec["canonical_mime"]:
-            attachment.mime_type = spec["canonical_mime"]
-            repaired = True
-
-        preferred_extension = self._preferred_storage_extension(attachment.file_name, spec)
-        preferred_stored_name = f"{attachment.id}{preferred_extension}"
-        if attachment.stored_name != preferred_stored_name:
-            target_path = self._attachment_path(card_id, preferred_stored_name)
-            if target_path != attachment_path and not target_path.exists():
-                attachment_path.rename(target_path)
-                attachment_path = target_path
-                attachment.stored_name = preferred_stored_name
-                repaired = True
-        return attachment_path, repaired
-
-    def _ensure_safe_attachment_name(self, file_name: str) -> None:
-        suffixes = [suffix.lower() for suffix in PurePath(file_name).suffixes]
-        dangerous_suffixes = [
-            suffix
-            for suffix in suffixes[:-1]
-            if suffix in _ATTACHMENT_DANGEROUS_INTERMEDIATE_EXTENSIONS
-        ]
-        if dangerous_suffixes:
-            self._fail(
-                "validation_error",
-                "Имя файла содержит опасное двойное расширение.",
-                details={
-                    "field": "file_name",
-                    "file_name": file_name,
-                    "blocked_extensions": dangerous_suffixes,
-                },
-            )
-
-    def _generated_attachment_name(self, extension: str) -> str:
-        stamp = utc_now().strftime("%Y%m%d-%H%M%S")
-        return f"attachment-{stamp}{extension}"
-
-    def _attachment_extension(self, file_name: str) -> str:
-        return PurePath(str(file_name or "")).suffix.lower()
-
-    def _attachment_stem(self, file_name: str) -> str:
-        normalized_name = normalize_file_name(file_name)
-        if not normalized_name:
-            return ""
-        suffix = PurePath(normalized_name).suffix
-        if not suffix:
-            return normalized_name
-        return normalized_name[: -len(suffix)].rstrip(" .")
-
-    def _attachment_name_with_extension(self, file_name: str, extension: str) -> str:
-        normalized_name = normalize_file_name(file_name)
-        stem = self._attachment_stem(normalized_name) if normalized_name else ""
-        stem = stem or "attachment"
-        return normalize_file_name(f"{stem}{extension}") or f"attachment{extension}"
-
-    def _append_attachment_extension(self, file_name: str, extension: str) -> str:
-        normalized_name = normalize_file_name(file_name)
-        normalized_name = normalized_name or "attachment"
-        return normalize_file_name(f"{normalized_name}{extension}") or f"attachment{extension}"
-
-    def _preferred_storage_extension(self, file_name: str, spec: dict[str, Any]) -> str:
-        extension = self._attachment_extension(file_name)
-        if extension in spec["extensions"]:
-            return extension
-        return spec["canonical_extension"]
-
-    def _normalized_attachment_mime_type(self, value) -> str:
-        mime_type = normalize_text(value, default="", limit=160).lower()
-        if not mime_type:
-            return ""
-        return mime_type.split(";", 1)[0].strip()
-
-    def _detect_attachment_type(self, content: bytes) -> str | None:
-        if content.startswith(b"\x89PNG\r\n\x1a\n"):
-            return "png"
-        if content.startswith(b"\xff\xd8\xff"):
-            return "jpeg"
-        if content.startswith((b"GIF87a", b"GIF89a")):
-            return "gif"
-        if len(content) >= 12 and content.startswith(b"RIFF") and content[8:12] == b"WEBP":
-            return "webp"
-        if content.startswith(b"%PDF-"):
-            return "pdf"
-        if content.startswith(_OLE_MAGIC):
-            return self._detect_ole_attachment_type(content)
-        if content.startswith((b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")):
-            return self._detect_openxml_attachment_type(content)
-        if self._looks_like_text_content(content):
-            return "txt"
-        return None
-
-    def _detect_openxml_attachment_type(self, content: bytes) -> str | None:
-        try:
-            with zipfile.ZipFile(BytesIO(content)) as archive:
-                names = set(archive.namelist())
-        except (OSError, zipfile.BadZipFile):
-            return None
-        if "[Content_Types].xml" not in names:
-            return None
-        if any(name.startswith("word/") for name in names):
-            return "docx"
-        if any(name.startswith("xl/") for name in names):
-            return "xlsx"
-        return None
-
-    def _detect_ole_attachment_type(self, content: bytes) -> str | None:
-        if (
-            b"WordDocument" in content
-            or b"W\x00o\x00r\x00d\x00D\x00o\x00c\x00u\x00m\x00e\x00n\x00t\x00" in content
-        ):
-            return "doc"
-        if (
-            b"Workbook" in content
-            or b"W\x00o\x00r\x00k\x00b\x00o\x00o\x00k\x00" in content
-            or b"Book" in content
-            or b"B\x00o\x00o\x00k\x00" in content
-        ):
-            return "xls"
-        return None
-
-    def _looks_like_text_content(self, content: bytes) -> bool:
-        sample = content[:8192]
-        if not sample:
-            return True
-        if sample.startswith((b"\xff\xfe", b"\xfe\xff")):
-            return self._looks_like_decoded_text(sample, ("utf-16", "utf-16-le", "utf-16-be"))
-        if b"\x00" in sample:
-            return False
-        control_bytes = sum(1 for byte in sample if byte < 32 and byte not in (9, 10, 13))
-        if control_bytes / max(1, len(sample)) > 0.05:
-            return False
-        return self._looks_like_decoded_text(sample, ("utf-8-sig", "utf-8", "cp1251"))
-
-    def _looks_like_decoded_text(self, content: bytes, encodings: tuple[str, ...]) -> bool:
-        for encoding in encodings:
-            try:
-                decoded = content.decode(encoding)
-            except UnicodeDecodeError:
-                continue
-            if self._printable_text_ratio(decoded) >= 0.85:
-                return True
-        return False
-
-    def _printable_text_ratio(self, value: str) -> float:
-        if not value:
-            return 1.0
-        printable_chars = sum(1 for char in value if char.isprintable() or char in "\r\n\t")
-        return printable_chars / len(value)
-
-    def _validated_attachment_content(self, value) -> bytes:
-        raw_value = normalize_text(value, default="")
-        if not raw_value:
-            self._fail(
-                "validation_error",
-                "Нужно передать content_base64 для файла.",
-                details={"field": "content_base64"},
-            )
-        if len(raw_value) > _ATTACHMENT_BASE64_ENCODED_MAX_CHARS:
-            self._fail(
-                "validation_error",
-                "Файл слишком большой.",
-                details={"field": "content_base64", "max_size_bytes": MAX_ATTACHMENT_SIZE_BYTES},
-            )
-        try:
-            content = base64.b64decode(raw_value.encode("utf-8"), validate=True)
-        except (binascii.Error, ValueError):
-            self._fail(
-                "validation_error",
-                "Поле content_base64 содержит некорректные данные.",
-                details={"field": "content_base64"},
-            )
-        if not content:
-            self._fail(
-                "validation_error",
-                "Нельзя загрузить пустой файл.",
-                details={"field": "content_base64"},
-            )
-        if len(content) > MAX_ATTACHMENT_SIZE_BYTES:
-            self._fail(
-                "validation_error",
-                "Файл слишком большой.",
-                details={"field": "content_base64", "max_size_bytes": MAX_ATTACHMENT_SIZE_BYTES},
-            )
-        return content
 
     def _validated_limit(self, value, *, default: int, maximum: int) -> int:
         if value in (None, ""):

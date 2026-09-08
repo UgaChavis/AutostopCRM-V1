@@ -5,7 +5,7 @@ import json
 import math
 import shutil
 import time
-from copy import deepcopy
+from copy import copy, deepcopy
 from datetime import timedelta
 from logging import Logger
 from pathlib import Path
@@ -15,6 +15,7 @@ from uuid import uuid4
 import orjson
 
 from ..config import get_app_data_dir, get_state_file
+from ..json_safety import json_safe_storage_value as _json_safe_value
 from ..json_safety import reject_deeply_nested_json
 from ..models import (
     ARCHIVED_CARD_RETENTION_LIMIT,
@@ -36,6 +37,7 @@ from ..models import (
 from ..performance import MeasuredRLock, record_timing
 from ..services.ready_column import ensure_ready_column
 from ..texts import COLUMN_LABELS_RU
+from .change_feed_projection import cached_crm_source_signatures
 from .change_feed_store import ChangeFeedPendingWriteError, ChangeFeedStore
 from .file_lock import ProcessFileLock
 from .limited_io import read_bytes_limited, read_text_limited
@@ -50,24 +52,6 @@ def default_columns() -> list[Column]:
     for position, column_id in enumerate(DEFAULT_COLUMN_IDS):
         columns.append(Column(id=column_id, label=COLUMN_LABELS_RU[column_id], position=position))
     return columns
-
-
-def _json_safe_value(value: Any, *, depth: int = _JSON_SAFE_MAX_DEPTH) -> Any:
-    if depth <= 0:
-        return str(value)
-    if value is None or isinstance(value, (str, bool, int)):
-        return value
-    if isinstance(value, float):
-        return value if math.isfinite(value) else 0.0
-    if isinstance(value, dict):
-        return {
-            str(key): _json_safe_value(item, depth=depth - 1)
-            for key, item in value.items()
-            if key is not None
-        }
-    if isinstance(value, (list, tuple, set)):
-        return [_json_safe_value(item, depth=depth - 1) for item in value]
-    return str(value)
 
 
 def _json_safe_dict(value: Any) -> dict[str, Any]:
@@ -193,6 +177,7 @@ class JsonStore:
         self._trusted_inventory_movement_objects: set[int] = set()
         self._trusted_event_objects: set[int] = set()
         self._storage_dict_cache: dict[str, dict[int, tuple[Any, Any, dict[str, Any]]]] = {}
+        self._source_signature_cache: dict = {}
         get_app_data_dir().mkdir(parents=True, exist_ok=True)
         self._state_file.parent.mkdir(parents=True, exist_ok=True)
         if not self._state_file.exists():
@@ -338,10 +323,13 @@ class JsonStore:
         inventory_movements: list[InventoryMovement] | None = None,
         events: list[AuditEvent],
         settings: dict[str, Any] | None = None,
+        expected_signature: tuple[int, int, int, int] | None = None,
     ) -> dict[str, Any]:
         started_at = time.perf_counter()
         with self._lock:
             with self._process_lock.acquire():
+                if expected_signature is not None and expected_signature != self._state_signature():
+                    raise StateWriteConflictError("Detached state no longer matches state.json.")
                 # The caller may already have mutated the cached domain objects. Drop
                 # their provenance before any fallible normalization or I/O so a
                 # failed legacy write can never be observed as persisted state.
@@ -418,7 +406,7 @@ class JsonStore:
                 state_conversion_ms = (time.perf_counter() - state_started_at) * 1000
                 record_timing("serialize", state_conversion_ms)
                 json_serialize_ms, write_ms = self._write_state(state)
-                self._set_read_cache(bundle, self._state_signature())
+                self._set_read_cache(bundle, self._validated_state_signature)
                 total_ms = (time.perf_counter() - started_at) * 1000
                 record_timing("storage", total_ms)
                 self._log_write_metrics(
@@ -444,6 +432,7 @@ class JsonStore:
         inventory_movements: list[InventoryMovement],
         events: list[AuditEvent],
         settings: dict[str, Any],
+        expected_signature: tuple[int, int, int, int] | None = None,
     ) -> dict[str, Any]:
         """Persist a bundle already normalized by this store, failing closed on drift."""
 
@@ -453,6 +442,7 @@ class JsonStore:
                 current_signature = self._state_signature()
                 if (
                     source_bundle is not self._read_cache_bundle
+                    or (expected_signature is not None and current_signature != expected_signature)
                     or current_signature is None
                     or current_signature != self._read_cache_signature
                 ):
@@ -493,7 +483,7 @@ class JsonStore:
                     raise
                 source_bundle.clear()
                 source_bundle.update(bundle)
-                self._set_read_cache(source_bundle, self._state_signature())
+                self._set_read_cache(source_bundle, self._validated_state_signature)
                 total_ms = (time.perf_counter() - started_at) * 1000
                 record_timing("storage", total_ms)
                 self._log_write_metrics(
@@ -781,6 +771,8 @@ class JsonStore:
             if isinstance(item, Card):
                 version = (
                     item.updated_at,
+                    item.column,
+                    item.position,
                     item.is_unread,
                     tuple(sorted(item.seen_by_users.items())),
                 )
@@ -946,11 +938,17 @@ class JsonStore:
         serialize_ms = (time.perf_counter() - serialize_started_at) * 1000
         record_timing("serialize", serialize_ms)
         feed_prepare_started_at = time.perf_counter()
+        source_signatures = (
+            cached_crm_source_signatures(safe_state, self._source_signature_cache)
+            if trusted_safe
+            else None
+        )
         try:
             self._change_feed_store.prepare_state_write(
                 fingerprint,
                 safe_state.get("events"),
                 state=safe_state,
+                source_signatures=source_signatures,
             )
         except ChangeFeedPendingWriteError:
             self._reconcile_change_feed_locked()
@@ -958,6 +956,7 @@ class JsonStore:
                 fingerprint,
                 safe_state.get("events"),
                 state=safe_state,
+                source_signatures=source_signatures,
             )
         finally:
             record_timing(
@@ -976,14 +975,25 @@ class JsonStore:
                 self._log_warning("Change-feed outbox abort deferred: %s", abort_exc)
             raise
         finally:
-            temp_file.unlink(missing_ok=True)
+            try:
+                temp_file.unlink(missing_ok=True)
+            except OSError as exc:
+                self._log_warning("State temporary-file cleanup deferred: %s", exc)
             write_ms = (time.perf_counter() - write_started_at) * 1000
             record_timing("write", write_ms)
-        written_signature = self._state_signature()
+        # replace() is the commit point. A subsequent stat/cleanup problem must
+        # not invite a duplicate payment or roll back its already referenced audit.
+        try:
+            written_signature = self._state_signature()
+        except OSError as exc:
+            self._log_warning("Committed state verification deferred: %s", exc)
+            written_signature = None
         self._change_feed_state_signature = written_signature
         if written_signature is None or written_signature[3] != payload_bytes:
-            self._change_feed_store.abort_state_write(fingerprint)
-            raise OSError("state file post-write verification failed")
+            self._log_warning("Committed state needs readback; durable feed stage retained.")
+            self._change_feed_state_signature = None
+            self._validated_state_signature = None
+            return serialize_ms, write_ms
         feed_commit_started_at = time.perf_counter()
         try:
             self._change_feed_store.commit_state_write(fingerprint)
@@ -1219,6 +1229,7 @@ class JsonStore:
 
     def _normalize_card_positions(self, cards: list[Card]) -> bool:
         changed = False
+        indexes = {id(card): index for index, card in enumerate(cards)}
         cards_by_column: dict[str, list[Card]] = {}
         for card in cards:
             cards_by_column.setdefault(card.column, []).append(card)
@@ -1229,6 +1240,10 @@ class JsonStore:
             )
             for position, card in enumerate(ordered):
                 if card.position != position:
+                    if self._trusted_card_versions.get(card.id) == (id(card), card.updated_at):
+                        detached = copy(card)
+                        cards[indexes[id(card)]] = detached
+                        card = detached
                     card.position = position
                     changed = True
         return changed

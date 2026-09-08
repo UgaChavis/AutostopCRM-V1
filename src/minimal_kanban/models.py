@@ -15,6 +15,7 @@ from pathlib import PurePath
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from .json_safety import json_safe_value as _json_safe_value
 from .repair_order import RepairOrder
 from .vehicle_profile import VehicleProfile, build_vehicle_display, normalize_license_plate
 
@@ -105,24 +106,6 @@ _CARD_COMPACT_EMAIL_PATTERN = re.compile(r"\b[\w.+-]+@[\w.-]+\.\w+\b", re.IGNORE
 _CARD_DESCRIPTION_UNDERLINE_PATTERN = re.compile(r"\+\+([\s\S]+?)\+\+")
 _CARD_DESCRIPTION_BOLD_PATTERN = re.compile(r"\*\*([\s\S]+?)\*\*")
 _CARD_DESCRIPTION_ITALIC_PATTERN = re.compile(r"(^|[^*])\*([^*\n]+?)\*(?!\*)")
-
-
-def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
-    if depth <= 0:
-        return str(value)
-    if value is None or isinstance(value, (str, bool, int)):
-        return value
-    if isinstance(value, float):
-        return value if math.isfinite(value) else None
-    if isinstance(value, dict):
-        return {
-            str(key): _json_safe_value(item, depth=depth - 1)
-            for key, item in value.items()
-            if key is not None
-        }
-    if isinstance(value, (list, tuple, set)):
-        return [_json_safe_value(item, depth=depth - 1) for item in value]
-    return str(value)
 
 
 def utc_now() -> datetime:

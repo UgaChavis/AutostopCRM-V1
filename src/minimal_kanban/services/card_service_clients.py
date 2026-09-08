@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from functools import lru_cache
 from typing import Any
 
 from ..models import (
@@ -17,6 +18,11 @@ from ..repair_order import REPAIR_ORDER_STATUS_CLOSED
 _PHONE_PATTERN = re.compile(
     r"(?:\+7|8)\s*(?:\(\s*\d{3}\s*\)|\d{3})\s*[\- ]?\s*\d{3}\s*[\- ]?\s*\d{2}\s*[\- ]?\s*\d{2}"
 )
+
+
+@lru_cache(maxsize=128)
+def _prepared_search_variant(variant: str) -> tuple[tuple[str, ...], str]:
+    return tuple(variant.split()), re.sub(r"[\W_]+", "", variant)
 
 
 class CardServiceClientsMixin:
@@ -104,7 +110,7 @@ class CardServiceClientsMixin:
     def create_client(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update()
             clients = list(bundle["clients"])
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="api")
@@ -149,7 +155,7 @@ class CardServiceClientsMixin:
     def update_client(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update()
             clients = list(bundle["clients"])
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="api")
@@ -189,7 +195,9 @@ class CardServiceClientsMixin:
     def link_card_to_client(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(
+                card_id=payload.get("card_id"), client_id=payload.get("client_id")
+            )
             cards = bundle["cards"]
             clients = bundle["clients"]
             events = bundle["events"]
@@ -314,7 +322,7 @@ class CardServiceClientsMixin:
     def upsert_client_vehicle(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update("cards", client_id=payload.get("client_id"))
             clients = list(bundle["clients"])
             cards = bundle["cards"]
             events = bundle["events"]
@@ -443,7 +451,7 @@ class CardServiceClientsMixin:
     def delete_client_vehicle(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update("cards", client_id=payload.get("client_id"))
             clients = list(bundle["clients"])
             cards = bundle["cards"]
             events = bundle["events"]
@@ -528,7 +536,7 @@ class CardServiceClientsMixin:
     def unlink_card_from_client(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update(card_id=payload.get("card_id"))
             cards = bundle["cards"]
             events = bundle["events"]
             card = self._find_card(cards, payload.get("card_id"))
@@ -576,7 +584,7 @@ class CardServiceClientsMixin:
     def delete_client(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update("cards")
             cards = bundle["cards"]
             clients = list(bundle["clients"])
             events = bundle["events"]
@@ -1054,12 +1062,19 @@ class CardServiceClientsMixin:
         return related_fields
 
     def _client_related_vehicle_fields_index_for(
-        self, clients: list[ClientProfile], cards: list[Card]
+        self,
+        clients: list[ClientProfile],
+        cards: list[Card],
+        *,
+        client_signature: tuple[Any, ...] | None = None,
     ) -> dict[str, list[str]]:
         signature = (
-            tuple(self._client_search_index_key(client) for client in clients),
+            client_signature
+            if client_signature is not None
+            else tuple(self._client_search_index_key(client) for client in clients),
             tuple(
                 (
+                    id(card),
                     card.id,
                     card.updated_at,
                     card.client_id,
@@ -1074,11 +1089,20 @@ class CardServiceClientsMixin:
         related_fields = self._client_related_vehicle_fields_index(clients, cards)
         self._client_related_vehicle_fields_index_signature = signature
         self._client_related_vehicle_fields_index_cache = related_fields
+        # Keep this generation alive: a reload with preserved timestamps must
+        # invalidate the index, and Python must not recycle the old object IDs.
+        self._client_related_vehicle_fields_index_source_cards = tuple(cards)
         return related_fields
 
     def _client_related_search_index(
         self, fields_by_client_id: dict[str, list[str]]
     ) -> dict[str, dict[str, Any]]:
+        signature = tuple(
+            (client_id, tuple(fields)) for client_id, fields in fields_by_client_id.items()
+        )
+        cached = getattr(self, "_client_related_search_index_cache", None)
+        if cached is not None and cached[0] == signature:
+            return cached[1]
         index: dict[str, dict[str, Any]] = {}
         for client_id, fields in fields_by_client_id.items():
             searchable = [self._normalize_search_text(value) for value in fields if value]
@@ -1091,6 +1115,7 @@ class CardServiceClientsMixin:
                 "compact_searchable": compact_searchable,
                 "phone_keys": phone_keys,
             }
+        self._client_related_search_index_cache = (signature, index)
         return index
 
     def _score_client_related_search_fields(
@@ -1130,14 +1155,14 @@ class CardServiceClientsMixin:
         related_compact_searchable: list[str],
     ) -> int:
         score = 0
+        parts, compact_variant = _prepared_search_variant(variant)
         for value in related_searchable:
             if value == variant:
                 score += 7
             elif variant in value:
                 score += 5
-            elif all(part in value for part in variant.split()):
+            elif all(part in value for part in parts):
                 score += 3
-        compact_variant = re.sub(r"[\W_]+", "", variant)
         if compact_variant and any(
             compact_variant in value for value in related_compact_searchable
         ):
@@ -1481,6 +1506,8 @@ class CardServiceClientsMixin:
         ]
         normalized_values: set[str] = set()
         for value in values:
+            if not value:
+                continue
             normalized = self._normalize_search_text(value)
             if normalized:
                 normalized_values.add(normalized)
@@ -1556,8 +1583,11 @@ class CardServiceClientsMixin:
             vehicle_keys,
         )
 
-    def _client_search_index_for(self, clients: list[ClientProfile]) -> dict[str, dict[str, Any]]:
-        signature = tuple(self._client_search_index_key(client) for client in clients)
+    def _client_search_index_for(
+        self, clients: list[ClientProfile], *, signature: tuple[Any, ...] | None = None
+    ) -> dict[str, dict[str, Any]]:
+        if signature is None:
+            signature = tuple(self._client_search_index_key(client) for client in clients)
         if signature == self._client_search_index_signature:
             return self._client_search_index
 
@@ -1647,11 +1677,20 @@ class CardServiceClientsMixin:
         query_digits = re.sub(r"\D+", "", query)
         query_phone_variants = self._phone_search_variants(query)
         phone_like_query = bool(query_digits) and not re.search(r"[A-Za-zА-Яа-я]", query)
+        client_signature = (
+            tuple(self._client_search_index_key(client) for client in clients)
+            if client_search_index is None or related_fields_by_client_id is None
+            else None
+        )
         if client_search_index is None:
-            client_search_index = self._client_search_index_for(clients)
+            client_search_index = self._client_search_index_for(clients, signature=client_signature)
         if related_fields_by_client_id is None:
             related_fields_by_client_id = (
-                self._client_related_vehicle_fields_index_for(clients, cards) if cards else {}
+                self._client_related_vehicle_fields_index_for(
+                    clients, cards, client_signature=client_signature
+                )
+                if cards
+                else {}
             )
         if related_search_index_by_client_id is None:
             related_search_index_by_client_id = self._client_related_search_index(
@@ -1832,21 +1871,21 @@ class CardServiceClientsMixin:
         compact_searchable: list[str],
     ) -> int:
         score = 0
+        parts, compact_variant = _prepared_search_variant(variant)
         for value in searchable:
             if value == variant:
                 score += 8
             elif variant in value:
                 score += 4
-            elif all(part in value for part in variant.split()):
+            elif all(part in value for part in parts):
                 score += 2
         for value in vehicle_searchable:
             if value == variant:
                 score += 7
             elif variant in value:
                 score += 5
-            elif all(part in value for part in variant.split()):
+            elif all(part in value for part in parts):
                 score += 3
-        compact_variant = re.sub(r"[\W_]+", "", variant)
         if compact_variant and any(compact_variant in value for value in compact_searchable):
             score += 5
         return score

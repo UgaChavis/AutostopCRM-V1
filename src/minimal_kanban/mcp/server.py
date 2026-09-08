@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import html
 import json
-import math
 import os
 import threading
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
+from functools import partial
 from logging import Logger
 from pathlib import Path
 from time import perf_counter
@@ -35,6 +35,7 @@ from ..services.snapshot_service import GPT_WALL_AGENT_EVENT_LIMIT
 from ..settings_models import derive_allowed_hosts, derive_allowed_origins
 from . import payloads as _payloads
 from .agent_gateway_support import MANAGER_GATEWAY_DEPENDENCY_NAMES
+from .agent_gateway_support import _read_annotations as _read_tool_annotations
 from .agent_gateway_v2 import register_agent_gateway_v2
 from .auth import StaticBearerTokenVerifier, build_auth_settings
 from .board_card_timer_writes import (
@@ -55,7 +56,7 @@ from .card_attachment_reads import (
     CardAttachmentReadContext,
     register_card_attachment_reads,
 )
-from .client import BoardApiClient, BoardApiTransportError
+from .client import BoardApiClient, BoardApiTransportError, _normalize_int
 from .connector_diagnostics import (
     ConnectorDiagnosticsContext,
     register_connector_diagnostics,
@@ -186,16 +187,6 @@ def _tool_scope_suffix() -> str:
 
 def _scoped_description(summary: str) -> str:
     return f"{_external_product_text(summary)} {_tool_scope_suffix()}"
-
-
-def _read_tool_annotations(title: str | None = None) -> ToolAnnotations:
-    return ToolAnnotations(
-        title=title,
-        readOnlyHint=True,
-        destructiveHint=False,
-        idempotentHint=True,
-        openWorldHint=False,
-    )
 
 
 def _write_tool_annotations(
@@ -781,27 +772,7 @@ def create_mcp_server(
             ),
         )
 
-    def _normalize_limit(
-        value: Any,
-        *,
-        default: int,
-        minimum: int = 1,
-        maximum: int | None = None,
-    ) -> int:
-        if isinstance(value, bool):
-            value = default
-        try:
-            numeric = float(value)
-        except (TypeError, ValueError, OverflowError):
-            numeric = float(default)
-        if not math.isfinite(numeric) or not numeric.is_integer():
-            numeric = float(default)
-        if numeric < minimum:
-            return minimum
-        if maximum is not None and numeric > maximum:
-            return maximum
-        normalized = int(numeric)
-        return normalized
+    _normalize_limit = partial(_normalize_int, minimum=1)
 
     def _attach_response_meta(tool_name: str, response: dict) -> dict:
         payload = dict(response)

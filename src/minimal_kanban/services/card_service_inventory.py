@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import uuid
+from copy import deepcopy
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -67,7 +68,7 @@ class CardServiceInventoryMixin:
         with self._lock:
             payload = payload or {}
             actor_name, source = self._audit_identity(payload, default_source="api")
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update()
             items: list[InventoryItem] = list(bundle["inventory_items"])
             movements: list[InventoryMovement] = list(bundle["inventory_movements"])
             events = bundle["events"]
@@ -124,7 +125,7 @@ class CardServiceInventoryMixin:
             payload = payload or {}
             actor_name, source = self._audit_identity(payload, default_source="api")
             quantity = self._validated_inventory_quantity(payload.get("quantity"))
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update()
             items: list[InventoryItem] = list(bundle["inventory_items"])
             movements: list[InventoryMovement] = list(bundle["inventory_movements"])
             events = bundle["events"]
@@ -186,7 +187,7 @@ class CardServiceInventoryMixin:
             actor_name, source = self._audit_identity(payload, default_source="api")
             quantity = self._validated_inventory_quantity(payload.get("quantity"))
             quantity_text = self._inventory_decimal_text(quantity)
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update("cashboxes", card_id=payload.get("card_id"))
             cards = bundle["cards"]
             events = bundle["events"]
             columns = bundle["columns"]
@@ -286,8 +287,6 @@ class CardServiceInventoryMixin:
             if changed or numbering_changed:
                 self._touch_card(card, actor_name)
                 self._refresh_card_ai_fingerprint_if_agent_changed(card, actor_name, source)
-                if self._card_has_repair_order(card):
-                    self._ensure_repair_order_text_file(card, force=True)
             self._save_bundle(
                 bundle,
                 columns=columns,
@@ -325,7 +324,7 @@ class CardServiceInventoryMixin:
                     "Нужно передать movement_id для возврата.",
                     details={"field": "movement_id"},
                 )
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update("cashboxes")
             cards = bundle["cards"]
             columns = bundle["columns"]
             events = bundle["events"]
@@ -374,6 +373,9 @@ class CardServiceInventoryMixin:
             if card is not None:
                 self._ensure_not_archived(card)
                 self._ensure_inventory_card_expected_updated_at(card, payload)
+                card_index = next(index for index, item in enumerate(cards) if item is card)
+                card = deepcopy(card)
+                cards[card_index] = card
                 rows = [row.to_dict() for row in card.repair_order.materials]
                 row_index = self._inventory_row_index_by_movement(
                     rows, source_movement.id, row_index
@@ -433,8 +435,6 @@ class CardServiceInventoryMixin:
             if card is not None and (changed or numbering_changed):
                 self._touch_card(card, actor_name)
                 self._refresh_card_ai_fingerprint_if_agent_changed(card, actor_name, source)
-                if self._card_has_repair_order(card):
-                    self._ensure_repair_order_text_file(card, force=True)
             self._save_bundle(
                 bundle,
                 columns=columns,

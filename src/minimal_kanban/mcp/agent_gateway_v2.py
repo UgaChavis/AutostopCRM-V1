@@ -133,6 +133,7 @@ from .store_gateway import (
     workflow_state_version as _workflow_state_version,
 )
 from .store_quote_conductor_bridge import execute_store_quote_conductor
+from .tool_execution import ToolExecutor
 from .web_gateway import (
     WEB_RESEARCH_CAPABILITY_DESCRIPTIONS,
     WEB_RESEARCH_CAPABILITY_NAMES,
@@ -303,6 +304,8 @@ def register_agent_gateway_v2(
                 "Production Agent Gateway requires a compatible FastMCP tool registry"
             )
         return set()
+    executor = ToolExecutor()
+    executor.prepare_tools(tools.values())
     if not policy.gateway_enabled:
         if policy.production:
             for name in list(tools):
@@ -358,8 +361,7 @@ def register_agent_gateway_v2(
             OAUTH_AUDIT_ASSERTION_HEADER: assertion,
         }
 
-    async def _board_call(function: Any, /, *args: Any, **kwargs: Any) -> Any:
-        return await asyncio.to_thread(function, *args, **kwargs)
+    _board_call = executor.run_sync
 
     async def _invoke(
         name: str,
@@ -376,10 +378,8 @@ def register_agent_gateway_v2(
                 )
                 return invoke_web_research(executor, name, arguments)
 
-            # Playwright's synchronous API rejects execution inside the MCP
-            # asyncio loop.  A worker thread also keeps page rendering from
-            # blocking every other Gateway request.
-            return await asyncio.to_thread(run_web_research)
+            # Playwright's synchronous API requires a worker, not the request loop.
+            return await executor.run_sync(run_web_research)
         virtual_route = _virtual_api_route(name)
         if virtual_route is not None:
             payload = dict(arguments)

@@ -23,7 +23,7 @@ class CardServiceCashboxCancellationMixin:
     def cancel_cash_transaction(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update("cards", "cashboxes", "cash_transactions")
             cards = bundle["cards"]
             cashboxes = bundle["cashboxes"]
             transactions = bundle["cash_transactions"]
@@ -175,8 +175,6 @@ class CardServiceCashboxCancellationMixin:
                 )
                 self._touch_card(linked_card, actor_name)
                 self._refresh_card_ai_fingerprint_if_agent_changed(linked_card, actor_name, source)
-                if self._card_has_repair_order(linked_card):
-                    self._ensure_repair_order_text_file(linked_card, force=True)
             self._append_event(
                 events,
                 actor_name=actor_name,

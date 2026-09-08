@@ -201,7 +201,7 @@ def _maintenance_technical_write_allowed(
     return release_smoke_proof_matches(agent_bearer_token, normalized_revision, proof)
 
 
-def _read_annotations(title: str) -> ToolAnnotations:
+def _read_annotations(title: str | None = None) -> ToolAnnotations:
     return ToolAnnotations(
         title=title,
         readOnlyHint=True,

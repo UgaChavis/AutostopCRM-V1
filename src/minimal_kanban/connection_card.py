@@ -1,34 +1,16 @@
 from __future__ import annotations
 
 import json
-import math
 import sys
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .config import get_log_file, get_settings_file, get_state_file
 from .integration_runtime import McpRuntimeState
+from .json_safety import json_safe_value as _json_safe_value
 from .mcp.agent_gateway_support import PERMANENT_AGENT_GATEWAY_TOOL_NAMES
 from .models import utc_now_iso
 from .settings_models import IntegrationSettings
-
-
-def _json_safe_value(value: object, *, depth: int = 8) -> object:
-    if depth <= 0:
-        return str(value)
-    if value is None or isinstance(value, (str, bool, int)):
-        return value
-    if isinstance(value, float):
-        return value if math.isfinite(value) else None
-    if isinstance(value, dict):
-        return {
-            str(key): _json_safe_value(item, depth=depth - 1)
-            for key, item in value.items()
-            if key is not None
-        }
-    if isinstance(value, (list, tuple, set)):
-        return [_json_safe_value(item, depth=depth - 1) for item in value]
-    return str(value)
 
 
 def _json_dumps(payload: object, *, indent: int = 2) -> str:

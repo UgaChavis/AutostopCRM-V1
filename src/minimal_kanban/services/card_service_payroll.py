@@ -48,6 +48,7 @@ from .payroll_constants import (
 from .payroll_constants import (
     repair_order_payroll_scheme as _repair_order_payroll_scheme,
 )
+from .payroll_report_text import employee_salary_report_text
 from .payroll_snapshot_preservation import preserve_repair_order_payroll_snapshots
 
 EMPLOYEES_SETTING_KEY = "employees"
@@ -254,8 +255,7 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
     ) -> dict[str, Any]:
         """Build or apply the dated payroll policy without rewriting payouts."""
         with self._lock:
-            original_bundle = self._store.read_bundle()
-            bundle = deepcopy(original_bundle)
+            bundle = self._read_bundle_for_update("cards")
             settings = dict(bundle["settings"])
             employees = self._employees_from_settings(settings)
             original_employees_by_id = {item["id"]: deepcopy(item) for item in employees}
@@ -611,7 +611,7 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
                     },
                 )
                 self._save_bundle(
-                    original_bundle,
+                    bundle,
                     columns=bundle["columns"],
                     cards=bundle["cards"],
                     events=events,
@@ -1352,191 +1352,33 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
                 + repair_order_accrual_total
             )
         )
-        base_salary_money = self._employee_salary_report_money(base_salary_total)
-        shift_accrual_money = self._employee_salary_report_money(shift_accrual_total)
-        work_money = self._employee_salary_report_money(work_total)
-        work_accrued_money = self._employee_salary_report_money(resolved_work_accrued_total)
-        material_money = self._employee_salary_report_money(material_total)
-        material_cost_money = self._employee_salary_report_money(material_cost_total)
-        material_profit_money = self._employee_salary_report_money(material_profit_total)
-        material_accrued_money = self._employee_salary_report_money(material_accrued_total)
-        repair_order_accrual_money = self._employee_salary_report_money(repair_order_accrual_total)
-        accrued_money = self._employee_salary_report_money(resolved_accrued_total)
-        return {
+        payload: dict[str, object] = {
             "repair_order_count": repair_order_count,
             "base_salary_count": base_salary_count,
-            "base_salary_total": base_salary_money["raw"],
-            "base_salary_total_minor": base_salary_money["minor"],
-            "base_salary_total_display": base_salary_money["display"],
             "shift_accrual_count": shift_accrual_count,
-            "shift_accrual_total": shift_accrual_money["raw"],
-            "shift_accrual_total_minor": shift_accrual_money["minor"],
-            "shift_accrual_total_display": shift_accrual_money["display"],
             "work_count": work_count,
-            "work_total": work_money["raw"],
-            "work_total_minor": work_money["minor"],
-            "work_total_display": work_money["display"],
-            "work_accrued_total": work_accrued_money["raw"],
-            "work_accrued_total_minor": work_accrued_money["minor"],
-            "work_accrued_total_display": work_accrued_money["display"],
             "material_count": material_count,
-            "material_total": material_money["raw"],
-            "material_total_minor": material_money["minor"],
-            "material_total_display": material_money["display"],
-            "material_cost_total": material_cost_money["raw"],
-            "material_cost_total_minor": material_cost_money["minor"],
-            "material_cost_total_display": material_cost_money["display"],
-            "material_profit_total": material_profit_money["raw"],
-            "material_profit_total_minor": material_profit_money["minor"],
-            "material_profit_total_display": material_profit_money["display"],
-            "material_accrued_total": material_accrued_money["raw"],
-            "material_accrued_total_minor": material_accrued_money["minor"],
-            "material_accrued_total_display": material_accrued_money["display"],
             "repair_order_accrual_count": repair_order_accrual_count,
             "repair_order_accrual_reversal_count": repair_order_accrual_reversal_count,
-            "repair_order_accrual_total": repair_order_accrual_money["raw"],
-            "repair_order_accrual_total_minor": repair_order_accrual_money["minor"],
-            "repair_order_accrual_total_display": repair_order_accrual_money["display"],
-            "accrued_total": accrued_money["raw"],
-            "accrued_total_minor": accrued_money["minor"],
-            "accrued_total_display": accrued_money["display"],
         }
-
-    def _employee_salary_report_totals_lines(self, totals: dict[str, object]) -> list[str]:
-        return [
-            "ИТОГО",
-            f"Заказ-нарядов:        {totals['repair_order_count']}",
-            f"Окладов:              {totals['base_salary_count']}",
-            f"Начислено окладом:    {totals['base_salary_total_display']}",
-            f"Выплат за смены:      {totals['shift_accrual_count']}",
-            f"Начислено сменами:    {totals['shift_accrual_total_display']}",
-            f"Работ:                {totals['work_count']}",
-            f"Стоимость работ:      {totals['work_total_display']}",
-            f"Материалы:            {totals['material_count']}",
-            f"Прибыль материалов:   {totals['material_profit_total_display']}",
-            f"Начислено с работ:    {totals['work_accrued_total_display']}",
-            f"Начислено с мат.:     {totals['material_accrued_total_display']}",
-            f"Начислений от ЗН:     {totals['repair_order_accrual_count']}",
-            f"Отмен начислений ЗН:  {totals['repair_order_accrual_reversal_count']}",
-            f"Начислено от ЗН:      {totals['repair_order_accrual_total_display']}",
-            f"Начислено:            {totals['accrued_total_display']}",
-        ]
-
-    def _employee_salary_report_base_salary_lines(self, salary: dict[str, Any]) -> list[str]:
-        return [
-            "Оклад | " + f"{salary['created_at']} | " + f"начислено: {salary['amount_display']}"
-        ]
-
-    def _employee_salary_report_shift_lines(self, shift: dict[str, Any]) -> list[str]:
-        return [
-            "Смены | "
-            + f"{shift['created_at']} | "
-            + f"{shift['note']} | "
-            + f"начислено: {shift['amount_display']}"
-        ]
-
-    def _employee_salary_report_work_lines(self, work: dict[str, Any]) -> list[str]:
-        lines = [f"  - {work['name']}"]
-        if work["quantity"] or work["price"]:
-            lines.append(
-                f"    Кол-во: {work['quantity'] or '-'} | "
-                + f"Цена: {work['price_display'] or '-'}"
-            )
-        lines.append(f"    Стоимость: {work['total_display']}")
-        if work.get("scheme"):
-            lines.append(f"    Схема: {work['scheme']}")
-        lines.append(f"    Начислено: {work['accrued_display']}")
-        return lines
-
-    def _employee_salary_report_material_lines(self, material: dict[str, Any]) -> list[str]:
-        lines = [f"  - Материал: {material['name']}"]
-        if material["quantity"] or material["price"]:
-            lines.append(
-                f"    Кол-во: {material['quantity'] or '-'} | "
-                + f"Цена: {material['price_display'] or '-'} | "
-                + f"Закупка: {material['cost_price_display'] or '-'}"
-            )
-        lines.append(f"    Продажа: {material['total_display']}")
-        lines.append(f"    Закупка всего: {material['cost_total_display']}")
-        lines.append(f"    Прибыль: {material['profit_display']}")
-        lines.append(f"    Начислено: {material['accrued_display']}")
-        return lines
-
-    def _employee_salary_report_order_lines(self, order: dict[str, Any]) -> list[str]:
-        lines = [
-            "ЗН "
-            + f"{order['repair_order_number']} | {order['vehicle']} | "
-            + f"госномер: {order['license_plate']}"
-        ]
-        lines.append(
-            f"Работ: {order['work_count']} | "
-            + f"Стоимость работ: {order['work_total_display']} | "
-            + f"Материалов: {order['material_count']} | "
-            + f"Прибыль материалов: {order['material_profit_total_display']} | "
-            + f"Начислено: {order['accrued_total_display']}"
-        )
-        for work in order["works"]:
-            lines.extend(self._employee_salary_report_work_lines(work))
-        for material in order["materials"]:
-            lines.extend(self._employee_salary_report_material_lines(material))
-        lines.append("")
-        return lines
-
-    def _employee_salary_report_day_lines(self, day: dict[str, Any]) -> list[str]:
-        lines: list[str] = []
-        for salary in day.get("base_salary_accruals", []):
-            lines.extend(self._employee_salary_report_base_salary_lines(salary))
-        for shift in day.get("shift_accruals", []):
-            lines.extend(self._employee_salary_report_shift_lines(shift))
-        for accrual in day.get("repair_order_accruals", []):
-            label = "Отмена" if accrual.get("kind") == "reversal" else "Начисление"
-            lines.append(
-                f"{label} от ЗН {accrual['repair_order_number']} | "
-                + f"база: {accrual['base_amount_display']} | "
-                + f"схема: {accrual['scheme']} | "
-                + f"начислено: {accrual['amount_display']}"
-            )
-        for order in day["repair_orders"]:
-            lines.extend(self._employee_salary_report_order_lines(order))
-        day_totals = day["totals"]
-        lines.append(
-            "Итого за день: "
-            + f"заказ-нарядов {day_totals['repair_order_count']}, "
-            + f"окладов {day_totals['base_salary_count']}, "
-            + f"смен {day_totals['shift_accrual_count']}, "
-            + f"работ {day_totals['work_count']}, "
-            + f"материалов {day_totals['material_count']}, "
-            + f"начислений от ЗН {day_totals['repair_order_accrual_count']}, "
-            + f"отмен ЗН {day_totals['repair_order_accrual_reversal_count']}, "
-            + f"стоимость {day_totals['work_total_display']}, "
-            + f"прибыль материалов {day_totals['material_profit_total_display']}, "
-            + f"начислено {day_totals['accrued_total_display']}"
-        )
-        return lines
-
-    def _employee_salary_report_text(
-        self,
-        *,
-        employee: dict[str, Any],
-        period: dict[str, str],
-        totals: dict[str, object],
-        days: list[dict[str, Any]],
-    ) -> str:
-        lines = [
-            "ОТЧЕТ ПО НАЧИСЛЕНИЯМ",
-            "",
-            f"Сотрудник: {employee.get('name') or 'Сотрудник'}",
-            f"Период: {period['label']}",
-            "",
-        ]
-        if not days:
-            lines.append("За выбранный период начислений по закрытым заказ-нарядам нет.")
-            return "\n".join(lines).strip()
-        lines.extend(self._employee_salary_report_totals_lines(totals))
-        for day in days:
-            lines.extend(["", str(day["label"]), ""])
-            lines.extend(self._employee_salary_report_day_lines(day))
-        return "\n".join(lines).strip()
+        amounts = {
+            "base_salary_total": base_salary_total,
+            "shift_accrual_total": shift_accrual_total,
+            "work_total": work_total,
+            "work_accrued_total": resolved_work_accrued_total,
+            "material_total": material_total,
+            "material_cost_total": material_cost_total,
+            "material_profit_total": material_profit_total,
+            "material_accrued_total": material_accrued_total,
+            "repair_order_accrual_total": repair_order_accrual_total,
+            "accrued_total": resolved_accrued_total,
+        }
+        for name, amount in amounts.items():
+            money = self._employee_salary_report_money(amount)
+            payload[name] = money["raw"]
+            payload[f"{name}_minor"] = money["minor"]
+            payload[f"{name}_display"] = money["display"]
+        return payload
 
     def _group_employee_repair_order_accruals_for_salary_report(
         self,
@@ -1995,7 +1837,7 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
             repair_order_accrual_reversal_count=total_repair_order_accrual_reversal_count,
             repair_order_accrual_total=total_repair_order_accrual_total,
         )
-        text = self._employee_salary_report_text(
+        text = employee_salary_report_text(
             employee=employee,
             period=period,
             totals=totals,
@@ -2152,7 +1994,7 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
                         status_code=403,
                         details={"field": DASHBOARD_VISIBLE_FIELD},
                     )
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update()
             actor_name, source = self._audit_identity(payload, default_source="api")
             settings = dict(bundle["settings"])
             employees = self._employees_from_settings(settings)
@@ -2253,7 +2095,7 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
     def toggle_employee(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update()
             actor_name, source = self._audit_identity(payload, default_source="api")
             settings = dict(bundle["settings"])
             employees = self._employees_from_settings(settings)
@@ -2308,7 +2150,7 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
     def delete_employee(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update()
             actor_name, source = self._audit_identity(payload, default_source="api")
             settings = dict(bundle["settings"])
             employees = self._employees_from_settings(settings)

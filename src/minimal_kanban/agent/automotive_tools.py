@@ -9,6 +9,7 @@ from urllib.parse import quote
 
 import httpx
 
+from ..json_safety import json_safe_value as _json_safe_value
 from .drive2_research import Drive2CaseResearch
 from .source_registry import PARTS_CATALOG_SOURCES, PARTS_PRICE_SOURCES, trusted_domains
 from .web_tools import DuckDuckGoSearchClient, InternetToolError, _normalize_seconds
@@ -63,24 +64,6 @@ _PART_QUERY_ALIASES: tuple[tuple[str, tuple[str, ...]], ...] = (
 
 def _reject_json_constant(value: str) -> None:
     raise ValueError(f"Unsupported JSON constant: {value}")
-
-
-def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
-    if depth <= 0:
-        return str(value)
-    if value is None or isinstance(value, (str, bool, int)):
-        return value
-    if isinstance(value, float):
-        return value if math.isfinite(value) else None
-    if isinstance(value, dict):
-        return {
-            str(key): _json_safe_value(item, depth=depth - 1)
-            for key, item in value.items()
-            if key is not None
-        }
-    if isinstance(value, (list, tuple, set)):
-        return [_json_safe_value(item, depth=depth - 1) for item in value]
-    return str(value)
 
 
 class AutomotiveLookupService:

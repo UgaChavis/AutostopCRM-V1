@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import binascii
 import json
-import math
 import mimetypes
 import os
 import threading
@@ -16,12 +15,18 @@ from typing import Any
 from uuid import uuid4
 
 from ..config import get_shared_files_dir, get_shared_files_index_file
+from ..json_safety import json_safe_storage_value as _json_safe_value
 from ..json_safety import reject_deeply_nested_json
 from ..models import normalize_actor_name, normalize_file_name, normalize_int
 from ..storage.change_feed_projection import project_shared_files
 from ..storage.change_feed_store import ChangeFeedStore
 from ..storage.file_lock import ProcessFileLock
-from ..storage.limited_io import copy_file_limited, read_bytes_limited, read_text_limited
+from ..storage.limited_io import (
+    copy_file_limited,
+    is_regular_file,
+    read_bytes_limited,
+    read_text_limited,
+)
 from .errors import ServiceError
 
 SHARED_FILES_STORAGE_LIMIT_BYTES = 500 * 1024 * 1024
@@ -617,13 +622,7 @@ class SharedFilesService:
             raise ServiceError("validation_error", "Некорректный путь файла.") from None
         return path
 
-    def _storage_is_regular_file(self, path: Path) -> bool:
-        try:
-            if path.is_symlink():
-                return False
-            return path.is_file()
-        except OSError:
-            return False
+    _storage_is_regular_file = staticmethod(is_regular_file)
 
     def _storage_path_can_unlink(self, path: Path) -> bool:
         try:
@@ -892,21 +891,3 @@ def _normalize_bool(value: Any, *, default: bool) -> bool:
 
 def _reject_json_constant(value: str) -> None:
     raise ValueError(f"Unsupported JSON constant: {value}")
-
-
-def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
-    if depth <= 0:
-        return str(value)
-    if value is None or isinstance(value, (str, bool, int)):
-        return value
-    if isinstance(value, float):
-        return value if math.isfinite(value) else 0.0
-    if isinstance(value, dict):
-        return {
-            str(key): _json_safe_value(item, depth=depth - 1)
-            for key, item in value.items()
-            if key is not None
-        }
-    if isinstance(value, (list, tuple, set)):
-        return [_json_safe_value(item, depth=depth - 1) for item in value]
-    return str(value)

@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from ..json_safety import json_safe_value as _json_safe_value
 from ..mcp.client import BoardApiClient
 from ..models import normalize_bool
 from ..services.snapshot_service import GPT_WALL_AGENT_EVENT_LIMIT
@@ -75,24 +76,6 @@ def _requires_explicit_user_authority(tool_name: str, args: dict[str, Any]) -> b
     if tool_name in {"replace_repair_order_works", "replace_repair_order_materials"}:
         return _contains_repair_order_money(args.get("rows"))
     return False
-
-
-def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
-    if depth <= 0:
-        return str(value)
-    if value is None or isinstance(value, (str, bool, int)):
-        return value
-    if isinstance(value, float):
-        return value if math.isfinite(value) else None
-    if isinstance(value, dict):
-        return {
-            str(key): _json_safe_value(item, depth=depth - 1)
-            for key, item in value.items()
-            if key is not None
-        }
-    if isinstance(value, (list, tuple, set)):
-        return [_json_safe_value(item, depth=depth - 1) for item in value]
-    return str(value)
 
 
 def _json_dumps(payload: Any) -> str:

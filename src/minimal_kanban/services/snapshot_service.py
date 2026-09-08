@@ -10,6 +10,7 @@ from datetime import datetime
 from threading import RLock
 from typing import Any
 
+from ..json_safety import json_safe_api_value as _json_safe_value
 from ..models import (
     ARCHIVE_PREVIEW_LIMIT,
     AuditEvent,
@@ -26,6 +27,7 @@ from ..models import (
     utc_now_iso,
 )
 from ..storage.json_store import JsonStore
+from .journal_labels import day_label, month_label, week_label
 from .operator_visibility import (
     operator_can_access_employees_cashboxes,
     project_operator_result,
@@ -261,20 +263,6 @@ CARD_JOURNAL_PAYMENT_METHOD_LABELS = {
     "transfer": "перевод",
     "mixed": "смешанная оплата",
 }
-
-
-def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
-    if depth <= 0:
-        return str(value)
-    if value is None or isinstance(value, str | bool | int):
-        return value
-    if isinstance(value, float):
-        return value if math.isfinite(value) else None
-    if isinstance(value, dict):
-        return {str(key): _json_safe_value(item, depth=depth - 1) for key, item in value.items()}
-    if isinstance(value, list | tuple | set):
-        return [_json_safe_value(item, depth=depth - 1) for item in value]
-    return str(value)
 
 
 def _json_dumps(
@@ -2542,58 +2530,11 @@ class SnapshotService:
             result.append(payload)
         return result
 
-    def _card_log_day_label(self, date_key: str) -> str:
-        try:
-            value = datetime.strptime(date_key, "%Y-%m-%d")
-        except ValueError:
-            return date_key
-        weekdays = [
-            "понедельник",
-            "вторник",
-            "среда",
-            "четверг",
-            "пятница",
-            "суббота",
-            "воскресенье",
-        ]
-        return f"{value.strftime('%d.%m.%Y')}, {weekdays[value.weekday()]}"
+    _card_log_day_label = staticmethod(day_label)
 
-    def _card_log_week_label(self, week_key: str) -> str:
-        try:
-            year_text, week_text = week_key.split("-W", 1)
-            if (
-                not year_text.isdecimal()
-                or not week_text.isdecimal()
-                or len(year_text) != 4
-                or len(week_text) > 2
-            ):
-                return week_key
-            start = datetime.fromisocalendar(int(year_text), int(week_text), 1)
-            end = datetime.fromisocalendar(int(year_text), int(week_text), 7)
-        except (ValueError, TypeError):
-            return week_key
-        return f"{week_text} неделя: {start.strftime('%d.%m')} - {end.strftime('%d.%m.%Y')}"
+    _card_log_week_label = staticmethod(week_label)
 
-    def _card_log_month_label(self, month_key: str) -> str:
-        try:
-            value = datetime.strptime(month_key, "%Y-%m")
-        except ValueError:
-            return month_key
-        month_names = [
-            "Январь",
-            "Февраль",
-            "Март",
-            "Апрель",
-            "Май",
-            "Июнь",
-            "Июль",
-            "Август",
-            "Сентябрь",
-            "Октябрь",
-            "Ноябрь",
-            "Декабрь",
-        ]
-        return f"{month_names[value.month - 1]} {value.year}"
+    _card_log_month_label = staticmethod(month_label)
 
     def _card_log_totals(self, entries: list[dict[str, Any]]) -> dict[str, object]:
         return {

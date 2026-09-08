@@ -177,6 +177,9 @@ class ChangeFeedStore:
 
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
+        self._source_baseline_cache = None
+        self._prepared_sources = None
+        self._seen_baseline_cache = None
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._ensure_schema()
 
@@ -392,16 +395,24 @@ class ChangeFeedStore:
             compacted.append(event)
         return compacted
 
-    @staticmethod
     def _compact_unseen_events(
-        connection: sqlite3.Connection, events: object
+        self, connection: sqlite3.Connection, events: object
     ) -> list[dict[str, Any]]:
         if not isinstance(events, list):
             return []
-        known = {
-            str(row["source_event_id"])
-            for row in connection.execute("SELECT source_event_id FROM seen_sources").fetchall()
-        }
+        token = (
+            self._metadata(connection, "committed_fingerprint"),
+            self._metadata(connection, "high_water"),
+        )
+        cached = self._seen_baseline_cache
+        if cached is not None and cached[0] == token:
+            known = cached[1]
+        else:
+            known = {
+                str(row["source_event_id"])
+                for row in connection.execute("SELECT source_event_id FROM seen_sources").fetchall()
+            }
+            self._seen_baseline_cache = (token, known)
         compacted: list[dict[str, Any]] = []
         pending_ids: set[str] = set()
         for raw_event in events:
@@ -459,14 +470,19 @@ class ChangeFeedStore:
             ),
         )
 
-    @staticmethod
-    def _source_state(connection: sqlite3.Connection) -> dict[tuple[str, str], str]:
+    def _source_state(self, connection: sqlite3.Connection) -> dict[tuple[str, str], str]:
+        fingerprint = self._metadata(connection, "committed_fingerprint")
+        cached = self._source_baseline_cache
+        if cached is not None and cached[0] == fingerprint:
+            return cached[1]
         rows = connection.execute(
             "SELECT source_type, source_id, signature FROM source_state"
         ).fetchall()
-        return {
+        sources = {
             (str(row["source_type"]), str(row["source_id"])): str(row["signature"]) for row in rows
         }
+        self._source_baseline_cache = (fingerprint, sources)
+        return sources
 
     @staticmethod
     def _replace_source_baseline(
@@ -668,9 +684,15 @@ class ChangeFeedStore:
         audit_covered_entities: Mapping[tuple[str, str], set[str]],
         ordinal: int,
         incremental: bool = True,
+        source_signatures: Mapping[tuple[str, str], str] | None = None,
     ) -> int:
         previous_sources = self._source_state(connection)
-        current_sources = project_crm_source_signatures(state)
+        current_sources = (
+            source_signatures
+            if source_signatures is not None
+            else project_crm_source_signatures(state)
+        )
+        self._prepared_sources = (state_fingerprint, current_sources)
         changed_sources = self._stage_source_changes(
             connection,
             previous=previous_sources,
@@ -1075,7 +1097,12 @@ class ChangeFeedStore:
         return ordinal, covered
 
     def prepare_state_write(
-        self, state_fingerprint: str, events: object, *, state: object | None = None
+        self,
+        state_fingerprint: str,
+        events: object,
+        *,
+        state: object | None = None,
+        source_signatures: Mapping[tuple[str, str], str] | None = None,
     ) -> int:
         """Durably stage unseen compact events before the CRM state replace."""
 
@@ -1111,6 +1138,7 @@ class ChangeFeedStore:
                     state=state,
                     audit_covered_entities=covered,
                     ordinal=ordinal,
+                    source_signatures=source_signatures,
                 )
             else:
                 connection.execute("DELETE FROM pending_entity_changes")
@@ -1192,6 +1220,18 @@ class ChangeFeedStore:
             connection.execute("DELETE FROM pending_events")
             self._set_metadata(connection, "pending_fingerprint", "")
             self._set_metadata(connection, "committed_fingerprint", state_fingerprint)
+            if (
+                self._prepared_sources is not None
+                and self._prepared_sources[0] == state_fingerprint
+            ):
+                self._source_baseline_cache = self._prepared_sources
+            cached_seen = self._seen_baseline_cache
+            if cached_seen is not None:
+                known = cached_seen[1] | {str(row["source_event_id"]) for row in rows}
+                self._seen_baseline_cache = (
+                    (state_fingerprint, self._metadata(connection, "high_water")),
+                    known,
+                )
             return published
 
     def reconcile_state(

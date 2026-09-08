@@ -406,6 +406,59 @@ def project_crm_state(
     return projected
 
 
+def cached_crm_source_signatures(state: Mapping[str, Any], cache: dict) -> dict[SourceKey, str]:
+    """Reuse signatures only for immutable storage payloads owned by JsonStore.
+
+    This is not a revision-only shortcut: replacement payloads (including an
+    external state reload with unchanged timestamps) are always recomputed.
+    References are retained, so recycled Python ids cannot produce a false hit.
+    """
+    subset = {"settings": state.get("settings", {})}
+    retained = {}
+    signatures = {}
+    for name in (
+        "columns",
+        "cards",
+        "clients",
+        "stickies",
+        "cashboxes",
+        "cash_transactions",
+        "inventory_items",
+        "inventory_movements",
+    ):
+        pending = []
+        for item in _items(state.get(name)):
+            key = (name, str(item.get("id", "")))
+            old = cache.get(key)
+            if old is not None and old[0] is item:
+                signatures.update(old[1])
+                retained[key] = old
+            else:
+                pending.append(item)
+        subset[name] = pending
+    fresh = project_crm_source_signatures(subset)
+    signatures.update(fresh)
+    entity_types = {
+        "columns": "column",
+        "cards": "card",
+        "clients": "client",
+        "stickies": "sticky",
+        "cashboxes": "cashbox",
+        "cash_transactions": "cash_transaction",
+        "inventory_items": "inventory_item",
+        "inventory_movements": "inventory_movement",
+    }
+    for name, entity_type in entity_types.items():
+        for item in subset[name]:
+            entity_id = str(item.get("id", ""))
+            key = (entity_type, entity_id)
+            if entity_id and key in fresh:
+                retained[(name, entity_id)] = (item, {key: fresh[key]})
+    cache.clear()
+    cache.update(retained)
+    return signatures
+
+
 def project_crm_source_signatures(state: Mapping[str, Any] | object) -> dict[SourceKey, str]:
     """Return cheap mutation signatures used to limit normal commit projection work."""
 

@@ -6,6 +6,8 @@ import re
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
+from ..json_safety import find_mapping as _find_mapping
+
 STORE_READ_CAPABILITY_NAMES = frozenset(
     {
         "store_runtime_status",
@@ -1025,24 +1027,6 @@ def _find_value(value: Any, keys: frozenset[str], *, depth: int = 0) -> Any:
         for candidate in value[:25]:
             found = _find_value(candidate, keys, depth=depth + 1)
             if found not in (None, "", [], {}):
-                return found
-    return None
-
-
-def _find_mapping(value: Any, key: str, expected: Any, *, depth: int = 0) -> dict[str, Any] | None:
-    if depth > 7:
-        return None
-    if isinstance(value, Mapping):
-        if key in value and str(value.get(key)) == str(expected):
-            return dict(value)
-        for item in value.values():
-            found = _find_mapping(item, key, expected, depth=depth + 1)
-            if found is not None:
-                return found
-    elif isinstance(value, list):
-        for item in value[:200]:
-            found = _find_mapping(item, key, expected, depth=depth + 1)
-            if found is not None:
                 return found
     return None
 

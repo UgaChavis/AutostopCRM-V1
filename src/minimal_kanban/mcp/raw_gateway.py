@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
 from ..api.route_registry import PROXIED_WRITE_ROUTES
+from ..json_safety import find_mapping as _find_mapping
 from ..storage.change_feed_store import (
     CHANGE_FEED_CONSUMER_MAX_LENGTH,
     CHANGE_FEED_PAGE_DEFAULT,
@@ -252,30 +253,6 @@ def _completion_act_schema(route: str) -> dict[str, Any] | None:
             {"required": ["form_data"], "not": {"required": ["form"]}},
         ]
     return schema
-
-
-def _find_mapping(
-    value: Any,
-    key: str,
-    expected: Any,
-    *,
-    depth: int = 0,
-) -> dict[str, Any] | None:
-    if depth > 7:
-        return None
-    if isinstance(value, Mapping):
-        if key in value and str(value.get(key)) == str(expected):
-            return dict(value)
-        for item in value.values():
-            found = _find_mapping(item, key, expected, depth=depth + 1)
-            if found is not None:
-                return found
-    elif isinstance(value, list):
-        for item in value[:200]:
-            found = _find_mapping(item, key, expected, depth=depth + 1)
-            if found is not None:
-                return found
-    return None
 
 
 def _mapping_subset_matches(expected: Mapping[str, Any], actual: Any) -> bool:

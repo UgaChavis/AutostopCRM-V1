@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import re
 from dataclasses import dataclass
 from functools import lru_cache
@@ -11,6 +10,7 @@ from urllib.parse import urlsplit
 from ..storage.limited_io import read_text_limited
 from .automotive_tools import AutomotiveLookupService, InternetToolError
 from .source_registry import trusted_domains
+from .web_tools import _normalize_int as _normalize_limit
 
 
 @dataclass(frozen=True)
@@ -258,22 +258,6 @@ def _build_crm_summary(context: dict[str, Any]) -> dict[str, Any]:
 def _normalize_text(value: Any) -> str:
     text = str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
     return re.sub(r"\s+", " ", text)
-
-
-def _normalize_limit(value: Any, *, default: int, minimum: int = 1, maximum: int) -> int:
-    if isinstance(value, bool) or (isinstance(value, float) and not value.is_integer()):
-        return default
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError, OverflowError):
-        return default
-    if not math.isfinite(numeric) or not numeric.is_integer():
-        return default
-    if numeric < minimum:
-        return default
-    if numeric > maximum:
-        return maximum
-    return int(numeric)
 
 
 def _context_text(context: dict[str, Any]) -> str:
