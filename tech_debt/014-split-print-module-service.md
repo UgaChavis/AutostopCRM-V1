@@ -4,6 +4,10 @@ PrintModuleService joins templates, drafts, document contexts, calculation and
 export. Reduce repeated calculation and isolate responsibilities where useful;
 invoice, invoice-factura, UPD and completion act share the backend's values.
 
+`document_rendering.py` owns HTML shells and preview projection; preview,
+export and print use the same prepared-document batch. Context calculation and
+draft persistence still need smaller independently testable boundaries.
+
 Preserve VAT modes, cent balancing, manual documents, draft versions/source
 fingerprints, idempotency, reset tombstones and legacy draft recovery. Validate
 filesystem limits and renderer failure cleanup. Backup/restore consumes drafts.

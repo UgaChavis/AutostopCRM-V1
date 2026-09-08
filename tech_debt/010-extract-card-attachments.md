@@ -1,8 +1,8 @@
 # 010. Card attachments
 
-Attachment CRUD, extraction and filesystem handling are a separable concern
-inside CardService. Reuse shared validation or extract a focused boundary when
-that reduces maintenance cost; keep the public facade and storage layout.
+Attachment CRUD, extraction and filesystem handling belong to
+`services/card_attachments.py`; CardService remains the public facade. Future
+work is narrower parser/IO boundaries, not another copy of the attachment API.
 
 Preserve file/state failure ordering, valid filenames, Content-Disposition,
 size/type/content limits, symlink and traversal checks, archive extraction limits,

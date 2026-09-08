@@ -11,6 +11,16 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _resolved_requirements(name: str) -> str:
+    lines = []
+    for line in (PROJECT_ROOT / name).read_text(encoding="utf-8").splitlines():
+        if line.startswith("-r "):
+            lines.append(_resolved_requirements(line[3:].strip()))
+        else:
+            lines.append(line)
+    return "\n".join(lines)
+
+
 def _posix_bash_available() -> bool:
     bash = shutil.which("bash")
     if os.name != "posix" or not bash:
@@ -31,6 +41,40 @@ def _posix_bash_available() -> bool:
 
 
 class DeployScriptTests(unittest.TestCase):
+    def test_dependency_pins_are_shared_without_build_tools_in_runtime(self) -> None:
+        manifests = sorted(PROJECT_ROOT.glob("requirements*.txt"))
+        pins = [
+            line.split("==", 1)[0].casefold()
+            for manifest in manifests
+            for line in manifest.read_text(encoding="utf-8").splitlines()
+            if "==" in line
+        ]
+        self.assertEqual(len(pins), len(set(pins)))
+        runtime = _resolved_requirements("requirements-runtime.txt")
+        desktop = _resolved_requirements("requirements.txt")
+        development = _resolved_requirements("requirements-dev.txt")
+        self.assertIn("playwright==", runtime)
+        self.assertNotIn("pyinstaller==", runtime)
+        self.assertNotIn("coverage==", runtime)
+        self.assertIn("pyinstaller==", desktop)
+        self.assertIn("coverage==", development)
+        self.assertIn(
+            "COPY requirements-common.txt requirements-runtime.txt ./",
+            (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8"),
+        )
+
+    def test_ci_parallel_checks_have_a_fail_closed_aggregate(self) -> None:
+        workflow = (PROJECT_ROOT / ".github/workflows/quality.yml").read_text(encoding="utf-8")
+        self.assertIn("suite: [static, unit, browser-performance]", workflow)
+        self.assertIn("fail-fast: false", workflow)
+        self.assertIn("cache: pip", workflow)
+        self.assertIn("path: ~/.cache/ms-playwright", workflow)
+        aggregate = workflow[workflow.index("\n  quality:\n") :]
+        self.assertIn("if: ${{ always() }}", aggregate)
+        self.assertIn("needs: [checks, docker-runtime-assets]", aggregate)
+        self.assertIn('test "$CHECKS_RESULT" = success', aggregate)
+        self.assertIn('test "$DOCKER_RESULT" = success', aggregate)
+
     def test_deploy_script_verifies_active_v1_branch_without_destructive_reset(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
         preflight = (PROJECT_ROOT / "scripts" / "release_git_preflight.sh").read_text(
@@ -969,10 +1013,8 @@ printf 'status=%s\n' "$status"
         compose = (PROJECT_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
         dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
         deploy_script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
-        desktop_requirements = (PROJECT_ROOT / "requirements.txt").read_text(encoding="utf-8")
-        runtime_requirements = (PROJECT_ROOT / "requirements-runtime.txt").read_text(
-            encoding="utf-8"
-        )
+        desktop_requirements = _resolved_requirements("requirements.txt")
+        runtime_requirements = _resolved_requirements("requirements-runtime.txt")
 
         self.assertNotIn("searxng/searxng:latest", compose)
         self.assertNotIn("unclecode/crawl4ai:latest", compose)
@@ -1104,7 +1146,12 @@ printf 'status=%s\n' "$status"
             "printf 'excluded-by-dockerignore\\n' > output/docker-context-probe/ignored.png",
             workflow,
         )
-        self.assertIn('docker build --tag "autostopcrm-ci:${GITHUB_SHA}" .', workflow)
+        self.assertIn("uses: docker/build-push-action@v7", workflow)
+        self.assertIn("context: .", workflow)
+        self.assertIn("load: true", workflow)
+        self.assertIn("push: false", workflow)
+        self.assertIn("tags: autostopcrm-ci:${{ github.sha }}", workflow)
+        self.assertIn("cache-to: type=gha,scope=crm-runtime,mode=max", workflow)
         self.assertIn("docker run --rm", workflow)
         self.assertIn("test -s /app/src/minimal_kanban/static/favicon.png", workflow)
         self.assertIn("test ! -e /app/output/docker-context-probe/ignored.png", workflow)
@@ -1115,10 +1162,10 @@ printf 'status=%s\n' "$status"
         workflow = (PROJECT_ROOT / ".github" / "workflows" / "quality.yml").read_text(
             encoding="utf-8"
         )
-        requirements_dev = (PROJECT_ROOT / "requirements-dev.txt").read_text(encoding="utf-8")
+        requirements_dev = _resolved_requirements("requirements-dev.txt")
 
         self.assertIn("defaults:\n      run:\n        shell: bash", workflow)
-        self.assertIn("python -m pip install -r requirements-runtime.txt", workflow)
+        self.assertIn("python -m pip install -r requirements-dev.txt", workflow)
         self.assertIn("Validate production Compose configuration", workflow)
         self.assertIn("docker compose config --quiet", workflow)
         self.assertIn("AUTOSTOP_CRAWL4AI_API_TOKEN", workflow)
@@ -1445,7 +1492,7 @@ printf 'status=%s\n' "$status"
 
         full_browser_block = workflow_step_block("Optional full browser smoke")
         self.assertIn(
-            "if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser_smoke == 'true' }}",
+            "if: ${{ matrix.suite == 'browser-performance' && github.event_name == 'workflow_dispatch' && inputs.browser_smoke == 'true' }}",
             full_browser_block,
         )
         self.assertIn(
@@ -1455,7 +1502,7 @@ printf 'status=%s\n' "$status"
 
         live_probe_block = workflow_step_block("Optional read-only live probes")
         self.assertIn(
-            "if: ${{ github.event_name == 'workflow_dispatch' && inputs.live_probes == 'true' }}",
+            "if: ${{ matrix.suite == 'browser-performance' && github.event_name == 'workflow_dispatch' && inputs.live_probes == 'true' }}",
             live_probe_block,
         )
         self.assertIn("--base-url https://crm.autostopcrm.ru", live_probe_block)

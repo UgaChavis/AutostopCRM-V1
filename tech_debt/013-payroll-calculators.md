@@ -5,6 +5,10 @@ formulas and make state I/O distinguishable from calculation. A previous file
 extraction did not itself reduce total complexity; judge changes by actual
 responsibility, duplication and measured cost.
 
+Text presentation is isolated in `payroll_report_text.py`; monetary column
+projection is shared. Remaining work is calculation/ledger separation, not
+moving the same report text again.
+
 Preserve minor units/Decimal, ROUND_HALF_UP, deterministic cent balancing and
 legacy normalization. Presentation rounding must not alter ledger values.
 Keep revision checks and posting/reversal behavior.

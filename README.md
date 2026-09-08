@@ -37,7 +37,11 @@ Owner MCP client -> 24-tool Gateway v2 -> internal Store adapter -> Store API
 - `src/minimal_kanban/mcp/` owns the public Gateway v2, action guards, and the
   internal Store adapter. API, MCP, UI, and scripts use the same services.
 - `src/minimal_kanban/web_app_assets/source/` plus `assembler.py` own browser
-  assets. `main.py` and `main_mcp.py` are desktop and API/MCP entrypoints.
+  assets; `module_assets.py` owns versioned on-demand panel bundles. `main.py`
+  and `main_mcp.py` are desktop and API/MCP entrypoints. The Qt window hosts
+  the browser UI and integration settings, not a second native CRM board.
+- Detached service bundles prepare mutations before JsonStore commits them;
+  derived repair-order text files are published after the authoritative save.
 
 The agent builds a customer goal from relevant CRM, Store, and sanctioned
 conversation context. A short quote signal can be enough to start. Routes and
@@ -58,6 +62,10 @@ prices, orders, deletion, new external recipients, deployment, and secrets.
 Local API/UI defaults to `http://127.0.0.1:41731`; MCP defaults to
 `http://127.0.0.1:41831/mcp`. Production topology and release recovery are in
 the [operations runbook](docs/OPERATIONS_RUNBOOK.md).
+
+Dependency pins have one hierarchy: `requirements-common.txt` ->
+`requirements-runtime.txt` (server/browser automation) -> `requirements.txt`
+(Windows packaging) -> `requirements-dev.txt` (development and verification).
 
 ## Safety
 

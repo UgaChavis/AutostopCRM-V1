@@ -54,7 +54,7 @@ RUN apt-get update && \
         libxtst6 && \
     rm -rf /var/lib/apt/lists/*
 
-COPY requirements-runtime.txt ./
+COPY requirements-common.txt requirements-runtime.txt ./
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements-runtime.txt && \
     python -m playwright install --with-deps chromium --only-shell && \

@@ -47,76 +47,76 @@ ALLOWED_LARGE_MODULES = {
         "Gateway attestation suite split target", 9498, 9498, "206"
     ),
     "src/minimal_kanban/mcp/agent_gateway_v2.py": RatchetBudget(
-        "Gateway workflow executor split target", 3376, 3376, "009"
+        "Gateway workflow executor split target", 3375, 3375, "009"
     ),
     "src/minimal_kanban/mcp/raw_gateway.py": RatchetBudget(
-        "raw readback verifier split target", 1464, 1464, "009"
+        "raw readback verifier split target", 1441, 1441, "009"
     ),
     "src/minimal_kanban/services/card_service.py": RatchetBudget(
-        "domain facade split target", 11494, 11494, "012"
+        "domain facade split target", 10318, 10318, "012"
     ),
     "src/minimal_kanban/services/card_service_finance.py": RatchetBudget(
-        "finance domain split target", 3048, 3048, "019"
+        "finance domain split target", 3027, 3027, "019"
     ),
     "src/minimal_kanban/services/card_service_payroll.py": RatchetBudget(
-        "payroll domain split target", 4467, 4467, "013"
+        "payroll domain split target", 4309, 4309, "013"
     ),
     "src/minimal_kanban/services/snapshot_service.py": RatchetBudget(
-        "snapshot serialization split target", 2879, 2879, "018"
+        "snapshot serialization split target", 2820, 2820, "018"
     ),
     "src/minimal_kanban/agent/runner.py": RatchetBudget(
-        "autonomous agent orchestration boundary", 2633, 2633, "206"
+        "autonomous agent orchestration boundary", 2592, 2592, "206"
     ),
     "src/minimal_kanban/mcp/server.py": RatchetBudget(
-        "MCP registry split target", 3514, 3514, "008"
+        "MCP registry split target", 3484, 3484, "008"
     ),
     "src/minimal_kanban/printing/service.py": RatchetBudget(
-        "print rendering workflow split target", 4223, 4223, "014"
+        "print rendering workflow split target", 4044, 4044, "014"
     ),
     "src/minimal_kanban/printing/web_module.py": RatchetBudget(
         "embedded print UI asset split target", 3367, 3367, "021"
     ),
     "tests/test_service.py": RatchetBudget(
-        "legacy broad service coverage pending domain split", 13512, 13512, "003"
+        "legacy broad service coverage pending domain split", 12768, 12768, "003"
     ),
     "tests/test_api.py": RatchetBudget(
-        "legacy broad API coverage pending route split", 7684, 7684, "003"
+        "legacy broad API coverage pending route split", 7671, 7671, "003"
     ),
     "tests/test_agent_gateway_v2.py": RatchetBudget(
-        "Gateway contract coverage pending family split", 4445, 4445, "003"
+        "Gateway contract coverage pending family split", 4400, 4400, "003"
     ),
     "tests/test_web_assets.py": RatchetBudget(
-        "web asset contract coverage pending chunk split", 5954, 5954, "003"
+        "web asset contract coverage pending chunk split", 5950, 5950, "003"
     ),
 }
 
 ALLOWED_LARGE_CLASSES = {
     "src/minimal_kanban/printing/service.py:PrintModuleService": RatchetBudget(
-        "print rendering and draft-store split target", 2831, 2831, "014"
+        "print rendering and draft-store split target", 2751, 2751, "014"
     ),
     "src/minimal_kanban/services/card_service.py:CardService": RatchetBudget(
-        "domain facade split target", 10990, 10990, "012"
+        "domain facade split target", 9934, 9934, "012"
     ),
     "src/minimal_kanban/services/card_service_payroll.py:CardServicePayrollMixin": RatchetBudget(
-        "payroll domain split target", 4266, 4266, "013"
+        "payroll domain split target", 4107, 4107, "013"
     ),
     "src/minimal_kanban/services/card_service_finance.py:CardServiceFinanceMixin": RatchetBudget(
-        "finance domain split target", 3002, 3002, "019"
+        "finance domain split target", 2980, 2980, "019"
     ),
     "src/minimal_kanban/services/snapshot_service.py:SnapshotService": RatchetBudget(
-        "snapshot serialization split target", 2574, 2574, "018"
+        "snapshot serialization split target", 2527, 2527, "018"
     ),
     "tests/test_api.py:ApiServerTests": RatchetBudget(
-        "legacy broad API coverage pending route split", 7259, 7259, "003"
+        "legacy broad API coverage pending route split", 7245, 7245, "003"
     ),
     "tests/test_agent_gateway_v2.py:AgentGatewayV2Tests": RatchetBudget(
-        "Gateway contract coverage pending family split", 3024, 3024, "003"
+        "Gateway contract coverage pending family split", 2972, 2972, "003"
     ),
     "tests/test_service.py:CardServiceTests": RatchetBudget(
-        "legacy broad service coverage pending domain split", 13294, 13294, "003"
+        "legacy broad service coverage pending domain split", 12550, 12550, "003"
     ),
     "tests/test_web_assets.py:WebAssetsTests": RatchetBudget(
-        "web asset contract coverage pending chunk split", 5896, 5896, "003"
+        "web asset contract coverage pending chunk split", 5892, 5892, "003"
     ),
 }
 
@@ -128,19 +128,19 @@ ALLOWED_LARGE_FUNCTIONS = {
         "bounded data-only demo seed factory", 957, 957, "001"
     ),
     "src/minimal_kanban/mcp/agent_gateway_v2.py:register_agent_gateway_v2": RatchetBudget(
-        "Gateway v2 registry split target", 3086, 3086, "008"
+        "Gateway v2 registry split target", 3077, 3077, "008"
     ),
     "src/minimal_kanban/mcp/agent_gateway_v2.py:register_agent_gateway_v2._execute_workflow": RatchetBudget(
-        "Gateway workflow executor split target", 610, 610, "009"
+        "Gateway workflow executor split target", 599, 599, "009"
     ),
     "src/minimal_kanban/mcp/agent_gateway_v2.py:register_agent_gateway_v2.call_raw_capability": RatchetBudget(
-        "raw capability executor split target", 707, 707, "009"
+        "raw capability executor split target", 702, 702, "009"
     ),
     "src/minimal_kanban/mcp/raw_gateway.py:verify_virtual_api_write_readback": RatchetBudget(
         "raw readback verifier split target", 966, 966, "009"
     ),
     "src/minimal_kanban/mcp/server.py:create_mcp_server": RatchetBudget(
-        "MCP registry split target", 3104, 3104, "008"
+        "MCP registry split target", 3083, 3083, "008"
     ),
     "src/minimal_kanban/printing/defaults.py:builtin_template_records": RatchetBudget(
         "bounded data-only built-in print template factory", 1164, 1164, "001"
@@ -152,10 +152,10 @@ ALLOWED_LARGE_FUNCTIONS = {
 
 COMPLEXITY_RATCHETS = {
     "src/minimal_kanban/mcp/agent_gateway_v2.py:register_agent_gateway_v2._execute_workflow": RatchetBudget(
-        "Gateway workflow branch complexity split target", 56, 56, "009"
+        "Gateway workflow branch complexity split target", 54, 54, "009"
     ),
     "src/minimal_kanban/services/card_service.py:CardService.update_card": RatchetBudget(
-        "card update branch complexity split target", 29, 29, "012"
+        "card update branch complexity split target", 28, 28, "012"
     ),
 }
 
@@ -170,7 +170,12 @@ CANONICAL_DOCS = frozenset(
     }
 )
 DEPENDENCY_MANIFESTS = frozenset(
-    {"requirements.txt", "requirements-dev.txt", "requirements-runtime.txt"}
+    {
+        "requirements-common.txt",
+        "requirements.txt",
+        "requirements-dev.txt",
+        "requirements-runtime.txt",
+    }
 )
 CONFIG_DEPLOY_FILES = frozenset(
     {

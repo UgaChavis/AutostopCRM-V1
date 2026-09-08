@@ -33,6 +33,7 @@ CRM_CANONICAL_DOCS = (
 )
 
 CRM_DOCUMENTATION_MANIFESTS = (
+    "requirements-common.txt",
     "requirements.txt",
     "requirements-dev.txt",
     "requirements-runtime.txt",

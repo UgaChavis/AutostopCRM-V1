@@ -47,13 +47,19 @@ On the workstation:
 
 ```powershell
 git status --short --branch
-git fetch origin autostopcrm-v1 --prune
+git fetch --no-tags --refmap= origin refs/heads/autostopcrm-v1:refs/remotes/origin/crm-production-baseline
 git rev-parse HEAD
-git rev-parse origin/autostopcrm-v1
+git rev-parse refs/remotes/origin/crm-production-baseline
+git ls-remote origin refs/heads/autostopcrm-v1
 ```
 
 Preserve every pre-existing user change. Before any production operation,
 compare the server:
+
+On case-insensitive Windows filesystems, do not resolve production through an
+ambiguous remote-tracking ref when a historical `AutostopCRM-V1` branch also
+exists. The exact lowercase remote ref and distinct local alias above avoid
+that collision; `--refmap=` disables opportunistic updates of colliding refs.
 
 ```powershell
 if (-not $env:AUTOSTOPCRM_SSH_KEY) {
@@ -175,6 +181,11 @@ The local profile is not a complete hosted attestation. GitHub CI remains
 required for the Ubuntu/Python 3.12 harness, production Compose configuration,
 and `docker-runtime-assets` container contract.
 
+Hosted static, unit/coverage, browser/performance and Docker gates run in
+parallel. The final `quality` job requires every gate to succeed, including
+when a dependency was cancelled or skipped. Pip, Chromium and Docker layers
+are cached; the Docker candidate is loaded only for tests, never pushed.
+
 The repository-health audit classifies every tracked file as a canonical doc,
 manifest, runtime code/asset, operations tool, test, or deploy configuration.
 It fails on an unknown role or tracked generated artifact; `--format json`
@@ -186,6 +197,13 @@ The health audit also enforces exact no-growth caps for every grandfathered
 large module, class, and function. Branch-coverage floors live in
 `scripts/coverage_baseline.json`; do not lower them to make a change pass.
 GitHub Actions publishes the full coverage evidence.
+
+Regression suites `test_save_isolation`, `test_bundle_draft`, and
+`test_mcp_tool_execution` cover detached-write rejection, ordering/restart,
+archive and derived-file failures, and nonblocking MCP execution. A timeout
+does not cancel an already running synchronous write or authorize a retry.
+After an atomic state replace, deferred cleanup/readback failures are logged;
+the durable change-feed stage remains available for reconciliation.
 
 Before the release-sized browser profile, run
 `.\scripts\toolchain_doctor.ps1 -SkipServer`. `--profile full` fails before
@@ -237,6 +255,25 @@ with an already-running API. Compare medians and p95 under the same machine load
 keep the source and harness fingerprints with the JSON results. Resource entries
 cover the action page; observed API requests cover both pages. The shorter default
 browser fixture does not establish production-sized performance.
+
+`scripts/perf_comparison.py --baseline <checkout> --output-dir output/perf-comparison`
+runs these baseline/candidate series serially with alternating order and retains
+every result. Add `--browser` for the representative two-session browser flows;
+use `--scale 2` or `--scale 4` for larger synthetic state. It compares the median
+series p95, flags missing scenarios, and applies a 10% regression limit (an
+absolute 2 ms allowance for baseline operations below 10 ms).
+
+Run `scripts/perf_browser_panels.py --source-root <checkout> --series 3 --iterations 20`
+on each revision as well. It measures first printing, inventory, payroll and
+cash-journal opens in fresh authenticated contexts, cold mobile startup and
+input-to-current-result client search. Keep this first-open latency separate
+from initial JavaScript savings; lazy loading must not hide a transferred delay.
+The comparison runner's `--panels` flag alternates these cold-panel series too.
+
+`scripts/benchmark_unit_suite.py --source-root <checkout> --output-dir output/unit-benchmark`
+records full discovery/run counts, duration, exact skip reasons and failure IDs.
+Run timing comparisons without concurrent builds, tests or browser measurements.
+This timing helper does not replace the canonical branch-coverage CI gate.
 
 After deploy, use `check_live_connector.py` below for public HTTPS and auth.
 Measure the production backends from inside the running container so no
@@ -631,7 +668,7 @@ journalctl -u autostopcrm-watchdog.service -n 100 --no-pager
 
 The current canonical document list is maintained in [README](../README.md).
 
-`requirements.txt`, `requirements-dev.txt`, and
+`requirements-common.txt`, `requirements.txt`, `requirements-dev.txt`, and
 `requirements-runtime.txt` are dependency manifests. Do not add one-off plans,
 frozen audit reports, release copies, or secret-access notes as active project
 documentation. Delete obsolete material instead of maintaining parallel

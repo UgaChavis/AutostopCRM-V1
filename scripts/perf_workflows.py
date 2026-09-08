@@ -572,7 +572,7 @@ def start_browser_runtime(args: argparse.Namespace) -> BrowserRuntime:
     fixture = {"profile": "smoke"}
     try:
         if getattr(args, "synthetic_state_profile", ""):
-            fixture = seed_browser_scale(runtime)
+            fixture = seed_browser_scale(runtime, scale=getattr(args, "synthetic_state_scale", 1))
     except BaseException:
         runtime.close()
         raise
@@ -589,12 +589,12 @@ def start_browser_runtime(args: argparse.Namespace) -> BrowserRuntime:
     )
 
 
-def seed_browser_scale(runtime: Any) -> dict[str, Any]:
+def seed_browser_scale(runtime: Any, *, scale: int = 1) -> dict[str, Any]:
     """Grow only a process-owned smoke fixture through its normal storage writer."""
     from minimal_kanban.storage.json_store import JsonStore
 
     bundle = runtime.state_store.read_bundle()
-    state = build_synthetic_current_production_state()
+    state = build_synthetic_current_production_state(scale=scale)
     state["columns"] = [column.to_dict() for column in bundle["columns"]]
     for index, card in enumerate(state["cards"]):
         card["column"] = state["columns"][index % len(state["columns"])]["id"]
@@ -1465,9 +1465,12 @@ def response_size(payload: dict[str, Any]) -> int:
     return len(_json_dumps(payload, separators=(",", ":")).encode("utf-8"))
 
 
-def build_synthetic_current_production_state() -> dict[str, Any]:
+def build_synthetic_current_production_state(*, scale: int = 1) -> dict[str, Any]:
     """Build deterministic, non-business data with the current production shape."""
 
+    if scale not in (1, 2, 4):
+        raise ValueError("synthetic scale must be 1, 2 or 4")
+    counts = {key: value * scale for key, value in SYNTHETIC_STATE_COUNTS.items()}
     timestamp = "2099-01-01T00:00:00+00:00"
     columns = [
         {"id": "inbox", "label": "ВХОДЯЩИЕ", "position": 0},
@@ -1490,14 +1493,14 @@ def build_synthetic_current_production_state() -> dict[str, Any]:
             "notification_updated_at": timestamp,
             "deadline_timestamp": timestamp,
             "deadline_total_seconds": 173700,
-            "client_id": f"perf-client-{index % SYNTHETIC_STATE_COUNTS['clients']:04d}",
+            "client_id": f"perf-client-{index % counts['clients']:04d}",
             "vehicle_profile": {},
             "repair_order": {},
             "tags": [],
             "attachments": [],
             "seen_by_users": {},
         }
-        for index in range(SYNTHETIC_STATE_COUNTS["cards"])
+        for index in range(counts["cards"])
     ]
     client_filler = "C" * 850
     clients = [
@@ -1510,7 +1513,7 @@ def build_synthetic_current_production_state() -> dict[str, Any]:
             "created_at": timestamp,
             "updated_at": timestamp,
         }
-        for index in range(SYNTHETIC_STATE_COUNTS["clients"])
+        for index in range(counts["clients"])
     ]
     event_filler = "E" * 300
     events = [
@@ -1522,9 +1525,9 @@ def build_synthetic_current_production_state() -> dict[str, Any]:
             "action": "performance_event",
             "message": f"Synthetic performance event {index:05d}",
             "details": {"payload": event_filler, "sequence": index},
-            "card_id": f"perf-card-{index % SYNTHETIC_STATE_COUNTS['cards']:04d}",
+            "card_id": f"perf-card-{index % counts['cards']:04d}",
         }
-        for index in range(SYNTHETIC_STATE_COUNTS["events"])
+        for index in range(counts["events"])
     ]
     cashboxes = [
         {
@@ -1549,7 +1552,7 @@ def build_synthetic_current_production_state() -> dict[str, Any]:
             "source": "system",
             "transaction_kind": "performance",
         }
-        for index in range(SYNTHETIC_STATE_COUNTS["cash_transactions"])
+        for index in range(counts["cash_transactions"])
     ]
     return {
         "schema_version": 9,
@@ -1575,8 +1578,8 @@ def build_synthetic_current_production_state() -> dict[str, Any]:
     }
 
 
-def write_synthetic_current_production_state(state_file: Path) -> dict[str, Any]:
-    state = build_synthetic_current_production_state()
+def write_synthetic_current_production_state(state_file: Path, *, scale: int = 1) -> dict[str, Any]:
+    state = build_synthetic_current_production_state(scale=scale)
     state_file.write_text(
         _json_dumps(state, separators=(",", ":")),
         encoding="utf-8",
@@ -1589,7 +1592,7 @@ def write_synthetic_current_production_state(state_file: Path) -> dict[str, Any]
     return {
         "profile": SYNTHETIC_STATE_PROFILE,
         "state_bytes": state_bytes,
-        "counts": dict(SYNTHETIC_STATE_COUNTS),
+        "counts": {key: len(state[key]) for key in SYNTHETIC_STATE_COUNTS},
     }
 
 
@@ -2023,6 +2026,7 @@ def main() -> int:
     parser.add_argument("--source-root", default="")
     parser.add_argument("--representative-browser", action="store_true")
     parser.add_argument("--stage1-only", action="store_true")
+    parser.add_argument("--synthetic-state-scale", type=int, choices=(1, 2, 4), default=1)
     parser.add_argument("--skip-browser", action="store_true")
     parser.add_argument("--headed", action="store_true")
     parser.add_argument("--start-port", default=42831)
@@ -2135,7 +2139,9 @@ def main() -> int:
         try:
             with tempfile.TemporaryDirectory(prefix="autostop-perf-synthetic-") as temp_dir:
                 synthetic_state_file = Path(temp_dir) / "state.json"
-                synthetic_meta = write_synthetic_current_production_state(synthetic_state_file)
+                synthetic_meta = write_synthetic_current_production_state(
+                    synthetic_state_file, scale=args.synthetic_state_scale
+                )
                 args.state_file = str(synthetic_state_file)
                 state_result = run_state_file_benchmark(args)
                 state_result["synthetic"] = synthetic_meta

@@ -17,6 +17,13 @@ on:
         required: false
         default: "false"
 
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/codex/') }}
+
 jobs:
   docker-runtime-assets:
     runs-on: ubuntu-latest
@@ -31,8 +38,18 @@ jobs:
           mkdir -p output/docker-context-probe
           printf 'excluded-by-dockerignore\n' > output/docker-context-probe/ignored.png
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
       - name: Build unpublishable runtime candidate
-        run: docker build --tag "autostopcrm-ci:${GITHUB_SHA}" .
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          push: false
+          tags: autostopcrm-ci:${{ github.sha }}
+          cache-from: type=gha,scope=crm-runtime
+          cache-to: type=gha,scope=crm-runtime,mode=max
 
       - name: Verify runtime PNG contract
         run: |
@@ -71,9 +88,14 @@ jobs:
                   browser.close()
           PY
 
-  quality:
+  checks:
+    name: ${{ matrix.suite }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [static, unit, browser-performance]
     # Explicit bash enables `-o pipefail`, so `python ... | tee ...`
     # steps cannot mask a failed quality gate behind tee's zero status.
     defaults:
@@ -88,6 +110,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Install Qt runtime dependencies
+        if: ${{ matrix.suite != 'static' }}
         run: |
           sudo sed -i \
             's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' \
@@ -127,18 +150,27 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements-runtime.txt
-          python -m pip install -r requirements.txt
           python -m pip install -r requirements-dev.txt
 
+      - name: Cache Chromium
+        if: ${{ matrix.suite == 'browser-performance' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: chromium-${{ runner.os }}-${{ hashFiles('requirements-runtime.txt') }}
+
       - name: Install Chromium for mandatory browser smoke
+        if: ${{ matrix.suite == 'browser-performance' }}
         run: python -m playwright install --with-deps chromium
 
       - name: Validate production Compose configuration
+        if: ${{ matrix.suite == 'static' }}
         env:
           AUTOSTOP_MCP_OAUTH_STATE_KEY: ci-only-oauth-state-key
           AUTOSTOP_AGENT_GATEWAY_ENABLED: "0"
@@ -155,15 +187,19 @@ jobs:
           docker compose config --quiet
 
       - name: Ruff format
+        if: ${{ matrix.suite == 'static' }}
         run: ruff format --check .
 
       - name: Ruff lint
+        if: ${{ matrix.suite == 'static' }}
         run: ruff check .
 
       - name: Docs audit
+        if: ${{ matrix.suite == 'static' }}
         run: python scripts/docs_audit.py --format text
 
       - name: Unit tests with runtime branch coverage
+        if: ${{ matrix.suite == 'unit' }}
         run: |
           coverage erase
           coverage run -m unittest discover -s tests -v
@@ -174,6 +210,7 @@ jobs:
           coverage html -d htmlcov
 
       - name: Release backup and restore branch coverage
+        if: ${{ matrix.suite == 'unit' }}
         run: |
           coverage erase
           coverage run --source=scripts -m unittest \
@@ -184,10 +221,11 @@ jobs:
           coverage json -o coverage-release.json
 
       - name: Coverage ratchet
+        if: ${{ matrix.suite == 'unit' }}
         run: python scripts/coverage_audit.py --format text
 
       - name: Upload coverage evidence
-        if: ${{ always() }}
+        if: ${{ always() && matrix.suite == 'unit' }}
         uses: actions/upload-artifact@v7
         with:
           name: branch-coverage-${{ github.sha }}
@@ -201,27 +239,32 @@ jobs:
           if-no-files-found: warn
 
       - name: Code health audit
+        if: ${{ matrix.suite == 'static' }}
         run: python scripts/code_health_audit.py --format text
 
       - name: Localization audit
+        if: ${{ matrix.suite == 'static' }}
         run: python scripts/audit_localization.py
 
       - name: Generated JavaScript syntax
+        if: ${{ matrix.suite == 'static' }}
         run: python scripts/check_web_assets_js.py
 
       - name: Capability and change-feed parity
+        if: ${{ matrix.suite == 'static' }}
         run: |
           python scripts/crm_capability_parity.py --require-complete
           python scripts/crm_change_feed_producer_parity.py --require-complete
 
       - name: Mandatory core browser smoke
+        if: ${{ matrix.suite == 'browser-performance' }}
         id: core_browser_smoke
         env:
           AUTOSTOP_BROWSER_SMOKE_SCREENSHOT_DIR: output/browser-smoke-core
         run: python scripts/browser_smoke.py --profile core --attempts 1 | tee browser-smoke-core.json
 
       - name: Upload failed core browser smoke evidence
-        if: ${{ failure() && steps.core_browser_smoke.outcome == 'failure' }}
+        if: ${{ failure() && matrix.suite == 'browser-performance' && steps.core_browser_smoke.outcome == 'failure' }}
         uses: actions/upload-artifact@v7
         with:
           name: core-browser-smoke-failure-${{ github.sha }}
@@ -231,9 +274,11 @@ jobs:
           if-no-files-found: warn
 
       - name: Compile release probe scripts
+        if: ${{ matrix.suite == 'static' }}
         run: python -m py_compile scripts/perf_probe.py scripts/perf_mcp.py scripts/perf_workflows.py scripts/finance_audit_report.py scripts/browser_smoke.py
 
       - name: Local temp performance probe
+        if: ${{ matrix.suite == 'browser-performance' }}
         run: |
           python scripts/perf_probe.py \
             --local-temp-server \
@@ -244,6 +289,7 @@ jobs:
             --max-get-card-ms 800 | tee perf-probe-local.json
 
       - name: Stage 1 production-scale performance gates
+        if: ${{ matrix.suite == 'browser-performance' }}
         run: |
           python scripts/perf_workflows.py \
             --synthetic-state-profile current-production \
@@ -260,7 +306,7 @@ jobs:
             --max-feed-replay-ms 20 | tee perf-stage1.json
 
       - name: Upload Stage 1 performance artifact
-        if: ${{ always() }}
+        if: ${{ always() && matrix.suite == 'browser-performance' }}
         uses: actions/upload-artifact@v7
         with:
           name: stage1-performance-${{ github.sha }}
@@ -268,11 +314,11 @@ jobs:
           if-no-files-found: warn
 
       - name: Optional full browser smoke
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser_smoke == 'true' }}
+        if: ${{ matrix.suite == 'browser-performance' && github.event_name == 'workflow_dispatch' && inputs.browser_smoke == 'true' }}
         run: python scripts/browser_smoke.py --profile full --attempts 1 | tee browser-smoke-full.json
 
       - name: Optional read-only live probes
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.live_probes == 'true' }}
+        if: ${{ matrix.suite == 'browser-performance' && github.event_name == 'workflow_dispatch' && inputs.live_probes == 'true' }}
         run: |
           python scripts/perf_probe.py \
             --base-url https://crm.autostopcrm.ru \
@@ -286,7 +332,7 @@ jobs:
             --format json | tee finance-audit.json
 
       - name: Upload live probe artifacts
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && (inputs.live_probes == 'true' || inputs.browser_smoke == 'true') }}
+        if: ${{ always() && matrix.suite == 'browser-performance' && github.event_name == 'workflow_dispatch' && (inputs.live_probes == 'true' || inputs.browser_smoke == 'true') }}
         uses: actions/upload-artifact@v7
         with:
           name: optional-probes
@@ -297,3 +343,17 @@ jobs:
             browser-smoke-full.json
             output/playwright/
           if-no-files-found: ignore
+
+  quality:
+    if: ${{ always() }}
+    needs: [checks, docker-runtime-assets]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every release gate
+        env:
+          CHECKS_RESULT: ${{ needs.checks.result }}
+          DOCKER_RESULT: ${{ needs.docker-runtime-assets.result }}
+        run: |
+          test "$CHECKS_RESULT" = success
+          test "$DOCKER_RESULT" = success

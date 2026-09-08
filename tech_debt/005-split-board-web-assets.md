@@ -1,8 +1,10 @@
 # 005. Browser maintainability
 
-The browser source combines board/cards, clients, orders, stock, payroll,
-files, mobile navigation, polling and modal state. The existing assembler
-produces a fingerprinted asset used by the browser and Windows package.
+The startup bundle retains board/cards, clients, navigation, polling and modal
+state. Payroll, stock, printing and cash-journal panels have versioned lazy
+bundles. The assembler/loader and Windows package share that asset contract.
+Continue separating board/session responsibilities only when it simplifies
+behavior; startup bytes and first-panel latency must be measured together.
 
 Reduce duplicate requests/rendering and unrelated responsibilities when current
 measurements justify it. Existing chunks can support a smaller change without

@@ -8,7 +8,7 @@
     "floor_rule": "measured baseline rounded down by no more than 0.5 percentage points",
     "notes": [
       "Runtime and release-script reports are deliberately separate measurements.",
-      "The card_service floor includes the current attachment implementation until task 010 extracts it."
+      "Extracted domain helpers stay in their original coverage floor; moving code does not retire coverage obligations."
     ]
   },
   "measurements": {
@@ -103,6 +103,7 @@
       "scope": "files",
       "paths": [
         "src/minimal_kanban/mcp/agent_gateway_v2.py",
+        "src/minimal_kanban/mcp/tool_execution.py",
         "src/minimal_kanban/mcp/raw_gateway.py"
       ],
       "minimum_percent": 82.0,
@@ -122,7 +123,8 @@
         "src/minimal_kanban/services/change_feed_service.py",
         "src/minimal_kanban/storage/change_feed_projection.py",
         "src/minimal_kanban/storage/change_feed_store.py",
-        "src/minimal_kanban/storage/json_store.py"
+        "src/minimal_kanban/storage/json_store.py",
+        "src/minimal_kanban/json_safety.py"
       ],
       "minimum_percent": 85.5,
       "baseline": {
@@ -138,7 +140,8 @@
       "scope": "files",
       "paths": [
         "src/minimal_kanban/services/card_service_finance.py",
-        "src/minimal_kanban/services/finance_read_core.py"
+        "src/minimal_kanban/services/finance_read_core.py",
+        "src/minimal_kanban/services/journal_labels.py"
       ],
       "minimum_percent": 88.5,
       "baseline": {
@@ -154,6 +157,7 @@
       "scope": "files",
       "paths": [
         "src/minimal_kanban/services/card_service_payroll.py",
+        "src/minimal_kanban/services/payroll_report_text.py",
         "src/minimal_kanban/services/payroll_active_periods.py",
         "src/minimal_kanban/services/payroll_constants.py",
         "src/minimal_kanban/services/payroll_snapshot_preservation.py"
@@ -188,6 +192,10 @@
       "scope": "files",
       "paths": [
         "src/minimal_kanban/services/card_service.py",
+        "src/minimal_kanban/services/card_attachments.py",
+        "src/minimal_kanban/services/bundle_draft.py",
+        "src/minimal_kanban/services/repair_order_artifacts.py",
+        "src/minimal_kanban/json_safety.py",
         "src/minimal_kanban/services/shared_files_service.py"
       ],
       "minimum_percent": 82.0,
@@ -213,6 +221,7 @@
         "src/minimal_kanban/printing/pdf.py",
         "src/minimal_kanban/printing/printers.py",
         "src/minimal_kanban/printing/service.py",
+        "src/minimal_kanban/printing/document_rendering.py",
         "src/minimal_kanban/printing/template_engine.py",
         "src/minimal_kanban/printing/web_module.py"
       ],
