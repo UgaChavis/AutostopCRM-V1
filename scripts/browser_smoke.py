@@ -127,6 +127,11 @@ def _json_dumps(payload: Any) -> str:
     return json.dumps(_json_safe_value(payload), ensure_ascii=False, indent=2, allow_nan=False)
 
 
+def _screenshot_directory(default: Path | None = None) -> Path | None:
+    directory = str(os.environ.get("AUTOSTOP_BROWSER_SMOKE_SCREENSHOT_DIR") or "").strip()
+    return Path(directory).expanduser().resolve() if directory else default
+
+
 def _browser_timeout_seconds(value: Any) -> float:
     if isinstance(value, bool):
         return DEFAULT_BROWSER_SMOKE_TIMEOUT_SECONDS
@@ -571,9 +576,8 @@ async def _exercise_card_modal_roundtrip(
             }"""
         )
     )
-    screenshot_dir = str(os.environ.get("AUTOSTOP_BROWSER_SMOKE_SCREENSHOT_DIR") or "").strip()
-    if screenshot_dir:
-        artifact_dir = Path(screenshot_dir).expanduser().resolve()
+    artifact_dir = _screenshot_directory()
+    if artifact_dir is not None:
         artifact_dir.mkdir(parents=True, exist_ok=True)
         await page.locator(".signal-panel").screenshot(
             path=str(artifact_dir / "card-timer-running.png")
@@ -852,7 +856,7 @@ async def _exercise_display_dashboard(page: Any) -> bool:
         )
         await dashboard_page.wait_for_timeout(950)
 
-        artifact_dir = ROOT / "output" / "playwright"
+        artifact_dir = _screenshot_directory(ROOT / "output" / "playwright")
         artifact_dir.mkdir(parents=True, exist_ok=True)
         await dashboard_page.screenshot(
             path=str(artifact_dir / "tv-dashboard-1920x1080.png"),
@@ -1092,12 +1096,7 @@ async def _exercise_completion_act_editor(page: Any, runtime: TempRuntime) -> bo
     repair_order_before = runtime.service.get_repair_order({"card_id": runtime.card_id})[
         "repair_order"
     ]
-    screenshot_dir = str(os.environ.get("AUTOSTOP_BROWSER_SMOKE_SCREENSHOT_DIR") or "").strip()
-    artifact_dir = (
-        Path(screenshot_dir).expanduser().resolve()
-        if screenshot_dir
-        else Path(runtime.temp_dir.name) / "playwright"
-    )
+    artifact_dir = _screenshot_directory(Path(runtime.temp_dir.name) / "playwright")
     artifact_dir.mkdir(parents=True, exist_ok=True)
     await page.click("#repairOrderPrintButton")
     await _wait_modal_open(page, "#repairOrderPrintModal")
