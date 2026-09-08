@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import ntpath
 import os
 import sys
 import tempfile
@@ -233,6 +234,58 @@ class PostBuildVerificationTests(unittest.TestCase):
 
         self.assertEqual(popen.call_args.args[0], [str(executable)])
         self.assertEqual(popen.call_args.kwargs["stdin"], self.module.subprocess.DEVNULL)
+
+    def test_launch_app_isolates_roaming_local_and_desktop_without_changing_parent(self) -> None:
+        appdata_root = Path("C:/fixture/verification/AppData/Roaming")
+        inherited_paths = {
+            "APPDATA": "C:/fixture/real-user/roaming",
+            "LOCALAPPDATA": "C:/fixture/real-user/local",
+            "USERPROFILE": "C:/fixture/real-user",
+        }
+        with (
+            patch.dict(os.environ, inherited_paths),
+            patch.object(self.module.subprocess, "Popen") as popen,
+        ):
+            original_environment = dict(os.environ)
+            self.module.launch_app(Path("C:/fixture/app.exe"), appdata_root, api_port=41739)
+            self.assertEqual(original_environment, dict(os.environ))
+
+        child_env = popen.call_args.kwargs["env"]
+        self.assertEqual(str(appdata_root), child_env["APPDATA"])
+        self.assertEqual(str(appdata_root / "local"), child_env["LOCALAPPDATA"])
+        self.assertEqual(str(appdata_root / "profile"), child_env["USERPROFILE"])
+        self.assertEqual(original_environment.get("HOME"), child_env.get("HOME"))
+        self.assertEqual("41739", child_env["MINIMAL_KANBAN_API_PORT"])
+        self.assertEqual("1", child_env["MINIMAL_KANBAN_API_PORT_FALLBACK_LIMIT"])
+        with patch.dict(os.environ, child_env, clear=True):
+            self.assertEqual(str(appdata_root / "profile"), ntpath.expanduser("~"))
+            if os.name == "nt":
+                from minimal_kanban.desktop_connector_files import _resolve_desktop_path
+
+                self.assertEqual(appdata_root / "profile" / "Desktop", _resolve_desktop_path())
+
+    def test_launch_options_cannot_override_disposable_profile_paths(self) -> None:
+        appdata_root = Path("C:/fixture/verification/StartupErrorAppData")
+        extra_env = {
+            "APPDATA": "C:/fixture/real-user/roaming",
+            "LOCALAPPDATA": "C:/fixture/real-user/local",
+            "USERPROFILE": "C:/fixture/real-user",
+            "MINIMAL_KANBAN_SUPPRESS_ERROR_DIALOGS": "1",
+        }
+        original_options = dict(extra_env)
+        original_environment = dict(os.environ)
+        with patch.object(self.module.subprocess, "Popen") as popen:
+            self.module.launch_app(
+                Path("C:/fixture/app.exe"), appdata_root, api_port=41739, extra_env=extra_env
+            )
+
+        child_env = popen.call_args.kwargs["env"]
+        self.assertEqual(str(appdata_root), child_env["APPDATA"])
+        self.assertEqual(str(appdata_root / "local"), child_env["LOCALAPPDATA"])
+        self.assertEqual(str(appdata_root / "profile"), child_env["USERPROFILE"])
+        self.assertEqual("1", child_env["MINIMAL_KANBAN_SUPPRESS_ERROR_DIALOGS"])
+        self.assertEqual(original_options, extra_env)
+        self.assertEqual(original_environment, dict(os.environ))
 
     def test_read_log_tail_text_reads_bounded_tail(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

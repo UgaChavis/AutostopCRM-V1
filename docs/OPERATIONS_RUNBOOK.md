@@ -248,6 +248,10 @@ missing. The mandatory `--profile core` does not require the PDF toolchain.
   CI run immediately before it would repeat the same checks.
 
 Do not treat a successful `build_app.ps1` alone as a verified release.
+The executable verifier isolates its child process's roaming/local application
+data and Windows profile. Connector notes are written to that disposable
+profile's Desktop; launch overrides must not redirect them to the operator's
+real profile. Full browser/PDF smoke remains a separate gate.
 
 ## Performance Smoke
 

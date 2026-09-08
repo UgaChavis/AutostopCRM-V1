@@ -241,11 +241,15 @@ def launch_app(
     extra_env: dict[str, str] | None = None,
 ) -> subprocess.Popen:
     env = os.environ.copy()
-    env["APPDATA"] = str(appdata_root)
     env["MINIMAL_KANBAN_API_PORT"] = str(api_port)
     env["MINIMAL_KANBAN_API_PORT_FALLBACK_LIMIT"] = str(api_fallback_limit)
     if extra_env:
         env.update(extra_env)
+    # Startup also publishes connector files under Path.home() / "Desktop".
+    # Apply these last so launch options cannot escape the disposable profile.
+    env["APPDATA"] = str(appdata_root)
+    env["USERPROFILE"] = str(appdata_root / "profile")
+    env["LOCALAPPDATA"] = str(appdata_root / "local")
     return subprocess.Popen([str(executable)], env=env, stdin=subprocess.DEVNULL)
 
 
