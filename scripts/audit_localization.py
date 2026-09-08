@@ -10,7 +10,6 @@ TARGETS = [
     ROOT / "src" / "minimal_kanban" / "services" / "card_service.py",
     ROOT / "src" / "minimal_kanban" / "services" / "card_service_payroll.py",
     ROOT / "src" / "minimal_kanban" / "ui" / "main_window.py",
-    ROOT / "src" / "minimal_kanban" / "ui" / "widgets.py",
     ROOT / "README.md",
     ROOT / "API_GUIDE.md",
     ROOT / "MCP_GUIDE.md",

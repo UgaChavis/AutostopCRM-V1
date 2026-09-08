@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import math
 import os
 import threading
+
+from .models import _normalize_copy_count
 
 
 class PrinterBackendError(RuntimeError):
@@ -64,20 +65,6 @@ def list_printers(*, default_name: str = "") -> list[dict[str, object]]:
         )
     printers.sort(key=lambda item: (not item["is_default"], str(item["label"]).lower()))
     return printers
-
-
-def _normalize_copy_count(value: object) -> int:
-    if isinstance(value, bool):
-        return 1
-    if isinstance(value, str) and len(value.strip()) > 6:
-        return 1
-    try:
-        numeric = float(1 if value is None or value == "" else value)
-    except (OverflowError, TypeError, ValueError):
-        return 1
-    if not math.isfinite(numeric) or not numeric.is_integer():
-        return 1
-    return max(1, min(20, int(numeric)))
 
 
 def print_html(

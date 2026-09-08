@@ -23,10 +23,8 @@ from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication, QLineEdit, QMessageBox
 
 from minimal_kanban.integration_runtime import McpRuntimeState
-from minimal_kanban.services.card_service import CardService
 from minimal_kanban.settings_service import ConnectionCheckResult, SettingsService
 from minimal_kanban.settings_store import SettingsStore
-from minimal_kanban.storage.json_store import JsonStore
 from minimal_kanban.tunnel_runtime import TunnelRuntimeState
 from minimal_kanban.ui.main_window import MainWindow
 from minimal_kanban.ui.settings_window import SettingsWindow
@@ -102,20 +100,19 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
-        self.state_file = Path(self.temp_dir.name) / "state.json"
         self.settings_file = Path(self.temp_dir.name) / "settings.json"
         self.logger = logging.getLogger(f"test.settings.ui.{self._testMethodName}")
         self.logger.handlers.clear()
         self.logger.addHandler(logging.NullHandler())
         self.logger.propagate = False
-        self.board_store = JsonStore(state_file=self.state_file, logger=self.logger)
         self.settings_store = SettingsStore(settings_file=self.settings_file, logger=self.logger)
         self.settings_service = SettingsService(self.settings_store, self.logger)
-        self.card_service = CardService(self.board_store, self.logger)
-        self.card_service.set_onboarding_seen(True)
         self.controller = FakeMcpController()
+        self.browser_open = self.enterContext(
+            patch("minimal_kanban.ui.main_window.webbrowser.open")
+        )
         self.window = MainWindow(
-            self.card_service,
+            "http://127.0.0.1:41731",
             "http://127.0.0.1:41731",
             self.settings_service,
             mcp_controller=self.controller,

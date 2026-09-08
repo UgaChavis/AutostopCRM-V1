@@ -50,12 +50,17 @@ def _browser_javascript_sources() -> list[tuple[str, str]]:
     sys.path.insert(0, str(SRC))
     from minimal_kanban.web_assets import (
         BOARD_WEB_APP_JS,
+        BOARD_WEB_APP_MODULES,
         DISPLAY_DASHBOARD_HTML,
         MODULE_MAP_HTML,
     )
 
     return (
         [("board_external", BOARD_WEB_APP_JS)]
+        + [
+            (f"board_module_{index}", source)
+            for index, source in enumerate(BOARD_WEB_APP_MODULES.values())
+        ]
         + [
             ("display_dashboard", script)
             for script in extract_inline_scripts(DISPLAY_DASHBOARD_HTML)

@@ -62,6 +62,7 @@ from ..web_assets import (
     BOARD_WEB_APP_HTML,
     BOARD_WEB_APP_JS,
     BOARD_WEB_APP_JS_PATH,
+    BOARD_WEB_APP_MODULES,
     DISPLAY_DASHBOARD_HTML,
     MODULE_MAP_HTML,
     MODULE_MAP_INFRASTRUCTURE,
@@ -394,6 +395,10 @@ _BOARD_ASSETS = {
         BOARD_WEB_APP_JS.encode("utf-8"),
         "application/javascript; charset=utf-8",
     ),
+    **{
+        path: (source.encode("utf-8"), "application/javascript; charset=utf-8")
+        for path, source in BOARD_WEB_APP_MODULES.items()
+    },
 }
 _BOARD_ASSETS_GZIP = {
     route: gzip.compress(asset[0], mtime=0) for route, asset in _BOARD_ASSETS.items()
@@ -2113,7 +2118,10 @@ class ApiServer:
                 continue
             server.api_logger = self._logger
             thread = threading.Thread(
-                target=server.serve_forever, name="minimal-kanban-api", daemon=True
+                target=server.serve_forever,
+                kwargs={"poll_interval": 0.05},
+                name="minimal-kanban-api",
+                daemon=True,
             )
             self._server = server
             self._thread = thread

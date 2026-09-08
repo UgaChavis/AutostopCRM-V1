@@ -500,7 +500,6 @@
     remountElement('operatorUserEmployeeSaveButton');
     remountElement('operatorUserEmployeeClearButton');
     remountElement('operatorUserEmployeeCancelButton');
-    remountElement('operatorActivityExportButton');
     remountElement('sharedFilesButton');
     remountElement('sharedFilesUploadButton');
     remountElement('sharedFilesOpenButton');
@@ -563,15 +562,6 @@
     els.operatorUserEmployeeSaveButton?.addEventListener('click', () => saveOperatorEmployeeBinding());
     els.operatorUserEmployeeClearButton?.addEventListener('click', () => saveOperatorEmployeeBinding(''));
     els.operatorUserEmployeeCancelButton?.addEventListener('click', closeOperatorEmployeeBinding);
-    els.operatorActivityDays?.addEventListener('change', handleOperatorActivityFilterChange);
-    els.operatorActivityUserFilter?.addEventListener('change', handleOperatorActivityFilterChange);
-    els.operatorActivityModuleFilter?.addEventListener('change', handleOperatorActivityFilterChange);
-    els.operatorActivityActionFilter?.addEventListener('change', handleOperatorActivityFilterChange);
-    els.operatorActivitySearchInput?.addEventListener('input', handleOperatorActivityFilterChange);
-    els.operatorActivityExportButton?.addEventListener('click', exportOperatorActivity);
-    els.operatorActivityTable?.addEventListener('click', handleOperatorActivityTableClick);
-    els.operatorActivityTable?.addEventListener('keydown', handleOperatorActivityTableKeydown);
-    window.addEventListener('resize', updateOperatorActivityScrollHint);
 
     els.boardSettingsButton.addEventListener('click', openBoardSettings);
     els.archiveButton.addEventListener('click', openArchiveModal);

@@ -24,20 +24,9 @@ from ..connection_card import (
     resolve_local_api_bearer_token,
 )
 from ..desktop_connector_files import write_connector_files
-from ..services.card_service import CardService
-from ..services.errors import ServiceError
 from ..settings_models import is_http_url
 from ..settings_service import SettingsService
-from ..texts import (
-    API_LABEL_PREFIX,
-    APP_DISPLAY_NAME,
-    BUTTON_HELP,
-    BUTTON_NEW_CARD,
-    BUTTON_NEW_COLUMN,
-    TOOLTIP_SETTINGS,
-    get_column_empty_message,
-)
-from .widgets import CardWidget, ColumnWidget
+from ..texts import APP_DISPLAY_NAME, TOOLTIP_SETTINGS
 
 if TYPE_CHECKING:
     from ..integration_runtime import McpRuntimeController
@@ -88,27 +77,6 @@ QLabel#StatusText {
     color: #ece8d8;
     font-size: 14px;
 }
-QFrame#SummaryCard {
-    background-color: #202923;
-    border: 1px solid #586257;
-    min-height: 84px;
-}
-QLabel[role="summaryLabel"] {
-    color: #c9c8bc;
-    font-family: Consolas;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-}
-QLabel[role="summaryValue"] {
-    color: #f1efe4;
-    font-family: Consolas;
-    font-size: 18px;
-    font-weight: 700;
-}
-QLabel[role="summaryHint"] {
-    color: #b8b7ab;
-    font-size: 12px;
-}
 """
 
 
@@ -118,31 +86,20 @@ class MainWindow(QMainWindow):
 
     def __init__(
         self,
-        local_board_url_or_service,
-        network_board_url_or_api_url: str,
+        local_board_url: str,
+        network_board_url: str,
         settings_service: SettingsService,
         mcp_controller: McpRuntimeController | None = None,
         tunnel_controller: TunnelRuntimeController | None = None,
     ) -> None:
         super().__init__()
-        self._service: CardService | None = None
-        if isinstance(local_board_url_or_service, str):
-            self._local_board_url = local_board_url_or_service
-            self._network_board_url = network_board_url_or_api_url
-        else:
-            self._service = local_board_url_or_service
-            self._local_board_url = network_board_url_or_api_url
-            self._network_board_url = network_board_url_or_api_url
-
+        self._local_board_url = local_board_url
+        self._network_board_url = network_board_url
         self._settings_service = settings_service
         self._mcp_controller = mcp_controller
         self._tunnel_controller = tunnel_controller
         self._settings_window: SettingsWindow | None = None
         self._auto_open_done = False
-        self._render_signature = None
-        self._column_signature: tuple[tuple[str, str], ...] = ()
-        self._card_widgets: dict[str, CardWidget] = {}
-        self.columns: dict[str, ColumnWidget] = {}
         self._public_board_url = ""
         self._access_board_url = ""
         self._effective_mcp_url = ""
@@ -168,37 +125,7 @@ class MainWindow(QMainWindow):
         )
         self.status_label.setObjectName("StatusText")
         self.status_label.setWordWrap(True)
-        self.api_label = QLabel(f"{API_LABEL_PREFIX} {self._local_board_url}")
-        self.api_label.hide()
-        self.help_button = QPushButton(BUTTON_HELP)
-        self.help_button.hide()
-        self.new_card_button = QPushButton(BUTTON_NEW_CARD)
-        self.new_card_button.hide()
-        self.new_column_button = QPushButton(BUTTON_NEW_COLUMN)
-        self.new_column_button.hide()
         status_panel = self._build_status_panel()
-        summary_panel = self._build_summary_panel()
-
-        local_panel, self.local_value_label, _, _ = self._build_address_panel(
-            "Локальный адрес",
-            self._local_board_url,
-            self.open_local_board,
-            self.copy_local_url,
-        )
-        network_panel, self.network_value_label, _, _ = self._build_address_panel(
-            "Сетевой адрес",
-            self._network_board_url,
-            self.open_network_board,
-            self.copy_network_url,
-        )
-        access_panel, self.access_value_label, self.access_open_button, self.access_copy_button = (
-            self._build_address_panel(
-                "Ссылка доступа",
-                self._access_board_url or self._format_address_placeholder(),
-                self.open_access_board,
-                self.copy_access_url,
-            )
-        )
         mcp_panel, self.mcp_value_label, self.mcp_open_button, self.mcp_copy_button = (
             self._build_address_panel(
                 "MCP URL для ChatGPT",
@@ -211,9 +138,6 @@ class MainWindow(QMainWindow):
 
         open_button = QPushButton("Открыть доску")
         open_button.clicked.connect(self.open_local_board)
-
-        copy_button = QPushButton("Копировать сетевой адрес")
-        copy_button.clicked.connect(self.copy_network_url)
 
         settings_button = QPushButton("Настройки GPT / MCP")
         settings_button.setAccessibleName("Настройки")
@@ -230,35 +154,15 @@ class MainWindow(QMainWindow):
         action_row.setContentsMargins(0, 0, 0, 0)
         action_row.setSpacing(10)
         action_row.addWidget(open_button)
-        action_row.addWidget(copy_button)
         action_row.addWidget(connect_gpt_button)
         action_row.addWidget(settings_button)
         action_row.addStretch(1)
 
-        note = QLabel(
-            "Как работать:\n"
-            "1. Нажми «Открыть доску».\n"
-            "2. Для доступа из сети дай коллегам сетевой адрес.\n"
-            "3. Для интернета или bearer-защиты копируй «Ссылку доступа».\n"
-            "4. Для ChatGPT копируй «MCP URL для ChatGPT» или жми «Подключить к ChatGPT».\n"
-            "5. Все действия попадут в общий журнал карточек."
-        )
-        note.setStyleSheet("color: #c9c8bc; line-height: 1.5;")
         self.compact_hint_label = QLabel(
             "Откройте доску, дождитесь публичного HTTPS MCP URL и подключите ChatGPT "
             "с режимом авторизации из настроек интеграции."
         )
         self.compact_hint_label.setStyleSheet("color: #b8b7ab; line-height: 1.4;")
-        summary_panel.hide()
-        local_panel.hide()
-        network_panel.hide()
-        access_panel.hide()
-        note.hide()
-        copy_button.hide()
-        self._hidden_summary_panel = summary_panel
-        self._hidden_local_panel = local_panel
-        self._hidden_network_panel = network_panel
-        self._hidden_access_panel = access_panel
 
         root = QWidget()
         layout = QVBoxLayout(root)
@@ -273,12 +177,9 @@ class MainWindow(QMainWindow):
         layout.addStretch(1)
         self.setCentralWidget(root)
 
-        if self._service is not None:
-            self.refresh_board(force=True)
         if self._mcp_controller is not None:
             QTimer.singleShot(0, self._autostart_mcp_if_enabled)
-        if self._service is None:
-            QTimer.singleShot(700, self._open_once_after_start)
+        QTimer.singleShot(700, self._open_once_after_start)
 
     def _build_status_panel(self) -> QFrame:
         panel = QFrame()
@@ -293,56 +194,6 @@ class MainWindow(QMainWindow):
         layout.addWidget(lead)
         layout.addWidget(self.status_label)
         return panel
-
-    def _build_summary_panel(self) -> QWidget:
-        panel = QWidget()
-        layout = QHBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
-
-        local_card, self.local_state_value_label, self.local_state_hint_label = (
-            self._build_summary_card("Локальная доска")
-        )
-        access_card, self.access_state_value_label, self.access_state_hint_label = (
-            self._build_summary_card("Общий доступ")
-        )
-        mcp_card, self.mcp_state_value_label, self.mcp_state_hint_label = self._build_summary_card(
-            "ChatGPT / MCP"
-        )
-        columns_card, self.columns_total_value_label, self.columns_total_hint_label = (
-            self._build_summary_card("Столбцы")
-        )
-        cards_card, self.cards_total_value_label, self.cards_total_hint_label = (
-            self._build_summary_card("Активные карточки")
-        )
-
-        for card in (local_card, access_card, mcp_card, columns_card, cards_card):
-            layout.addWidget(card, 1)
-
-        self._sync_overview_panel()
-        self._sync_board_summary()
-        return panel
-
-    def _build_summary_card(self, label_text: str) -> tuple[QFrame, QLabel, QLabel]:
-        panel = QFrame()
-        panel.setObjectName("SummaryCard")
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(6)
-
-        label = QLabel(label_text)
-        label.setProperty("role", "summaryLabel")
-        value = QLabel("-")
-        value.setProperty("role", "summaryValue")
-        hint = QLabel("")
-        hint.setProperty("role", "summaryHint")
-        hint.setWordWrap(True)
-
-        layout.addWidget(label)
-        layout.addWidget(value)
-        layout.addWidget(hint)
-        layout.addStretch(1)
-        return panel, value, hint
 
     def _build_address_panel(self, label_text: str, value_text: str, open_callback, copy_callback):
         panel = QFrame()
@@ -373,9 +224,6 @@ class MainWindow(QMainWindow):
         layout.addLayout(buttons)
         return panel, value, open_button, copy_button
 
-    def _format_address_placeholder(self) -> str:
-        return "НЕ НАСТРОЕНА"
-
     def _format_public_mcp_placeholder(self) -> str:
         return ""
 
@@ -398,72 +246,11 @@ class MainWindow(QMainWindow):
         )
 
     def _sync_publish_panel(self) -> None:
-        if not hasattr(self, "access_value_label"):
-            return
-        value = self._access_board_url or self._format_address_placeholder()
-        self.access_value_label.setText(value)
-        enabled = bool(self._access_board_url)
-        self.access_open_button.setEnabled(enabled)
-        self.access_copy_button.setEnabled(enabled)
         mcp_value = self._effective_mcp_url or self._format_public_mcp_placeholder()
         self.mcp_value_label.setText(mcp_value)
         mcp_enabled = bool(self._effective_mcp_url)
         self.mcp_open_button.setEnabled(mcp_enabled)
         self.mcp_copy_button.setEnabled(mcp_enabled)
-        self._sync_overview_panel()
-
-    def _sync_overview_panel(self) -> None:
-        if not hasattr(self, "local_state_value_label"):
-            return
-
-        self.local_state_value_label.setText("АКТИВЕН")
-        self.local_state_hint_label.setText("Локальное окно и API на этом компьютере")
-
-        access_ready = bool(self._access_board_url)
-        self.access_state_value_label.setText("ГОТОВО" if access_ready else "ЛОКАЛЬНО")
-        self.access_state_hint_label.setText(
-            "Можно делиться ссылкой с другими пользователями"
-            if access_ready
-            else "Внешний адрес доски пока не задан"
-        )
-
-        public_mcp_ready = self._effective_mcp_url.startswith("https://")
-        mcp_state = (
-            "ГОТОВО"
-            if public_mcp_ready
-            else ("ЛОКАЛЬНО" if self._effective_mcp_url else "ОЖИДАНИЕ")
-        )
-        self.mcp_state_value_label.setText(mcp_state)
-        self.mcp_state_hint_label.setText(
-            "MCP URL готов для подключения ChatGPT"
-            if public_mcp_ready
-            else "Для ChatGPT нужен внешний HTTPS MCP URL"
-        )
-
-    def _sync_board_summary(
-        self, columns: list[dict] | None = None, cards: list[dict] | None = None
-    ) -> None:
-        if not hasattr(self, "columns_total_value_label"):
-            return
-
-        if columns is None:
-            columns = list(self.columns.values()) if self.columns else None
-        if cards is None:
-            cards = list(self._card_widgets.values()) if self._card_widgets else None
-
-        if columns is None:
-            self.columns_total_value_label.setText("-")
-            self.columns_total_hint_label.setText("Сводка появится после загрузки доски")
-        else:
-            self.columns_total_value_label.setText(str(len(columns)))
-            self.columns_total_hint_label.setText("Столбцов в текущей доске")
-
-        if cards is None:
-            self.cards_total_value_label.setText("-")
-            self.cards_total_hint_label.setText("Нет данных о карточках")
-        else:
-            self.cards_total_value_label.setText(str(len(cards)))
-            self.cards_total_hint_label.setText("Карточек в работе сейчас")
 
     def _copy_text(self, value: str, message: str) -> None:
         clipboard = QGuiApplication.clipboard()
@@ -688,134 +475,3 @@ class MainWindow(QMainWindow):
 
     def _show_error(self, message: str) -> None:
         QMessageBox.critical(self, "Ошибка", message)
-
-    def _load_cards(self) -> list[dict] | None:
-        if self._service is None:
-            return []
-        try:
-            return self._service.get_cards({"include_archived": False})["cards"]
-        except ServiceError as exc:
-            self._show_error(exc.message)
-        return None
-
-    def _load_columns(self) -> list[dict] | None:
-        if self._service is None:
-            return []
-        try:
-            return self._service.list_columns()["columns"]
-        except ServiceError as exc:
-            self._show_error(exc.message)
-        return None
-
-    def _normalize_refresh_board_cards(
-        self,
-        cards: list[dict],
-        *,
-        valid_column_ids: set[str],
-        fallback_column_id: str,
-    ) -> list[dict]:
-        render_cards: list[dict] = []
-        seen_card_ids: set[str] = set()
-        for source_card in cards:
-            card_id = str(source_card.get("id") or "").strip()
-            if not card_id or card_id in seen_card_ids:
-                continue
-            seen_card_ids.add(card_id)
-            card = dict(source_card)
-            card["id"] = card_id
-            card_column = str(card.get("column") or "")
-            if card_column not in valid_column_ids:
-                if not fallback_column_id:
-                    continue
-                card_column = fallback_column_id
-            card["column"] = card_column
-            render_cards.append(card)
-        return render_cards
-
-    def _refresh_board_signature(
-        self, column_signature: tuple[tuple[str, str], ...], render_cards: list[dict]
-    ) -> tuple[object, ...]:
-        return tuple(
-            [column_signature]
-            + [
-                (
-                    card["id"],
-                    card["title"],
-                    card["description"],
-                    card["column"],
-                    card["archived"],
-                    card["deadline_timestamp"],
-                    card["updated_at"],
-                )
-                for card in render_cards
-            ]
-        )
-
-    def _refresh_board_widgets(
-        self, columns: list[dict], render_cards: list[dict]
-    ) -> dict[str, CardWidget]:
-        grouped = {column["id"]: [] for column in columns}
-        new_widgets: dict[str, CardWidget] = {}
-        for card in render_cards:
-            widget = self._card_widgets.get(card["id"])
-            if widget is None:
-                widget = CardWidget(card)
-            else:
-                widget.update_card(card)
-            grouped[card["column"]].append(widget)
-            new_widgets[card["id"]] = widget
-        self._card_widgets = new_widgets
-        for column in columns:
-            self.columns[column["id"]].set_cards(grouped[column["id"]])
-        return new_widgets
-
-    def refresh_board(
-        self,
-        *,
-        force: bool = False,
-        cards: list[dict] | None = None,
-        columns: list[dict] | None = None,
-    ) -> None:
-        if self._service is None:
-            return
-        if columns is None:
-            columns = self._load_columns()
-        if columns is None:
-            return
-        if cards is None:
-            cards = self._load_cards()
-        if cards is None:
-            return
-
-        column_signature = tuple((column["id"], column["label"]) for column in columns)
-        valid_column_ids = {column_id for column_id, _ in column_signature}
-        fallback_column_id = column_signature[0][0] if column_signature else ""
-        render_cards = self._normalize_refresh_board_cards(
-            cards,
-            valid_column_ids=valid_column_ids,
-            fallback_column_id=fallback_column_id,
-        )
-
-        self._sync_board_summary(columns=columns, cards=render_cards)
-
-        if force or column_signature != self._column_signature:
-            self._sync_columns(columns)
-
-        signature = self._refresh_board_signature(column_signature, render_cards)
-        if not force and signature == self._render_signature:
-            return
-        self._render_signature = signature
-
-        self._refresh_board_widgets(columns, render_cards)
-
-    def _sync_columns(self, columns: list[dict]) -> None:
-        self.columns = {}
-        self._card_widgets = {}
-        for column in columns:
-            widget = ColumnWidget(
-                column["id"],
-                column["label"],
-                get_column_empty_message(column["id"], column["label"]),
-            )
-            self.columns[column["id"]] = widget
-        self._column_signature = tuple((column["id"], column["label"]) for column in columns)

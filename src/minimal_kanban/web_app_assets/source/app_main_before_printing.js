@@ -20,6 +20,7 @@
     const CARD_JOURNAL_INITIAL_LIMIT = 50;
     const CARD_JOURNAL_LIMIT_STEP = 50;
     const CARD_JOURNAL_MAX_LIMIT = 1000;
+    const FULL_CARD_CACHE_LIMIT = 100;
     const CARD_OPEN_SIDE_EFFECT_DELAY_MS = 700;
     const CARD_SEEN_SUPPRESSION_TTL_MS = 60000;
     const MOBILE_VIEW_ORDER = ['board', 'cashboxes', 'inventory', 'repair-orders', 'more'];
@@ -63,13 +64,6 @@
       operatorUsers: [],
       operatorPermissionEditorUsername: '',
       operatorEmployeeBindingUser: '',
-      operatorAdminTab: 'users',
-      operatorActivityRows: [],
-      operatorActivityMeta: null,
-      operatorActivitySelectedId: '',
-      operatorActivityDetails: null,
-      operatorActivityDetailsLoading: false,
-      operatorActivityDebounceTimer: null,
       apiToken: localStorage.getItem(API_TOKEN_STORAGE_KEY) || '',
       boardScale: 1,
       boardPan: {
@@ -217,6 +211,7 @@
       clientsUiBound: false,
       clientsSearchTimer: null,
       clientsRequestSeq: 0,
+      clientsProfileRequestSeq: 0,
       clientsMetaState: null,
       clientsDraftBaseline: '',
       clientVehicleEditor: null,
@@ -464,192 +459,7 @@
       return;
     }
 
-    function ensureEmployeesUi() {
-      if (document.getElementById('employeesModal')) return;
-      document.body.insertAdjacentHTML(
-        'beforeend',
-        ''
-          + '<div class="modal" id="employeesModal">'
-            + '<div class="dialog dialog--employees dialog--fixed-actions">'
-              + '<div class="dialog__head dialog__floating-actions">'
-                + '<div class="dialog__title">СОТРУДНИКИ</div>'
-                + '<div class="employees-dialog-actions">'
-                  + '<button class="btn btn--ghost" id="employeesCreateButton" type="button">ДОБАВИТЬ</button>'
-                  + '<button class="btn" data-close="employees">ЗАКРЫТЬ</button>'
-                + '</div>'
-              + '</div>'
-              + '<div class="dialog__body-scroll employees-layout">'
-                + '<div class="employees-pane employees-pane--list">'
-                  + '<div class="subpanel">'
-                    + '<div class="employees-panel-head">'
-                      + '<div class="panel-title">СПИСОК СОТРУДНИКОВ</div>'
-                      + '</div>'
-                    + '</div>'
-                    + '<div class="employees-list" id="employeesList"></div>'
-                  + '</div>'
-                + '<div class="employees-pane">'
-                  + '<div class="subpanel" id="employeesProfilePanel">'
-                    + '<div class="employees-card-head dialog__floating-actions">'
-                      + '<div class="employees-card-head-main">'
-                        + '<div class="panel-title">ПРОФИЛЬ</div>'
-                        + '<div class="employees-card-title"><strong id="employeesCardMode">НОВЫЙ СОТРУДНИК</strong></div>'
-                      + '</div>'
-                      + '<div class="employees-card-actions">'
-                        + '<button class="btn btn--ghost" id="employeeSaveButton" type="button">СОХРАНИТЬ</button>'
-                        + '<button class="btn btn--ghost" id="employeeDeleteButton" type="button">УВОЛИТЬ СОТРУДНИКА</button>'
-                      + '</div>'
-                    + '</div>'
-                    + '<div class="employees-form-grid">'
-                      + '<div class="field employees-field--span-4"><label for="employeeNameInput">ИМЯ</label><input id="employeeNameInput" type="text" maxlength="80"></div>'
-                      + '<div class="field employees-field--span-4"><label for="employeeMiddleNameInput">ОТЧЕСТВО</label><input id="employeeMiddleNameInput" type="text" maxlength="80"></div>'
-                      + '<div class="field employees-field--span-4"><label for="employeePositionInput">ДОЛЖНОСТЬ</label><input id="employeePositionInput" type="text" maxlength="80"></div>'
-                      + '<input id="employeeSalaryModeInput" type="hidden" value="percent_only">'
-                      + '<input id="employeeBaseSalaryInput" type="hidden" value="">'
-                      + '<input id="employeeWorkPercentInput" type="hidden" value="">'
-                      + '<input id="employeeMaterialPercentInput" type="hidden" value="">'
-                      + '<input id="employeeRepairOrderPercentInput" type="hidden" value="">'
-                      + '<div class="employees-incentives" id="employeeIncentivesPanel">'
-                        + '<div class="employees-incentives__head">'
-                          + '<div class="panel-title">НАЧИСЛЕНИЯ</div>'
-                          + '<div class="employees-incentives__actions">'
-                            + '<button class="btn btn--ghost" id="employeeShiftAccrualButton" type="button">+ СМЕНЫ</button>'
-                            + '<div class="employees-incentives__choices" id="employeeIncentiveAddChoices"></div>'
-                          + '</div>'
-                        + '</div>'
-                        + '<div class="employees-incentives__list" id="employeeIncentivesList"></div>'
-                        + '<div class="employees-salary-dialog employees-shift-dialog" id="employeeShiftAccrualDialog" hidden>'
-                          + '<div class="employees-salary-dialog__head">'
-                            + '<div class="panel-title">ВЫПЛАТА ЗА СМЕНЫ</div>'
-                            + '<button class="btn btn--ghost" id="employeeShiftAccrualCancelButton" type="button">ОТМЕНА</button>'
-                          + '</div>'
-                          + '<div class="employees-salary-dialog__body">'
-                            + '<div class="field employees-field--compact employees-field--salary"><label for="employeeShiftAccrualAmountInput">СУММА</label><input id="employeeShiftAccrualAmountInput" type="text" inputmode="decimal" maxlength="40" placeholder="0"></div>'
-                            + '<button class="btn btn--accent" id="employeeShiftAccrualConfirmButton" type="button">НАЧИСЛИТЬ</button>'
-                          + '</div>'
-                        + '</div>'
-                      + '</div>'
-                    + '</div>'
-                  + '</div>'
-                  + '<div class="subpanel employees-read-only-notice" id="employeesReadOnlyNotice" hidden>'
-                    + '<div class="panel-title">ТОЛЬКО ПРОСМОТР</div>'
-                    + '<div class="log-row__meta">Доступен только список активных сотрудников. Зарплаты, начисления, отчёты и изменение данных закрыты.</div>'
-                  + '</div>'
-                  + '<div class="subpanel" id="employeesReportPanel">'
-                    + '<div class="employees-panel-head"><div class="panel-title">ОТЧЁТ ПО СОТРУДНИКУ</div><input class="repair-orders-search" id="employeesMonthInput" type="month"></div>'
-              + '<div class="employees-report-shell" id="employeesReportShell">'
-                + '<div class="employees-report-panel employees-report-panel--details is-collapsed" id="employeesDetailsPanel">'
-                  + '<div class="employees-report-panel__head">'
-                    + '<div class="employees-report-panel__title">ДЕТАЛИЗАЦИЯ</div>'
-                    + '<div class="employees-report-panel__meta" id="employeesReportMeta">Выберите сотрудника слева, чтобы открыть детализацию.</div>'
-                  + '</div>'
-                  + '<div class="employees-report-panel__meta" id="employeesDetailsMeta">Отчёт откроется после выбора сотрудника.</div>'
-                  + '<div class="employees-table-wrap employees-table-wrap--details"><table class="employees-table"><thead><tr><th>ДАТА</th><th>НАРЯД</th><th>АВТО</th><th>ТИП</th><th>ПОЗИЦИЯ</th><th class="is-num">ПРОДАЖА</th><th class="is-num">ЗАКУПКА</th><th class="is-num">ПРИБЫЛЬ</th><th class="is-num">НАЧИСЛЕНО</th></tr></thead><tbody id="employeesDetailTable"></tbody></table></div>'
-                + '</div>'
-              + '</div>'
-                    + '</div>'
-                  + '</div>'
-                + '</div>'
-              + '</div>'
-            + '</div>'
-          + '</div>'
-          + '<div class="modal" id="employeeSalaryModal">'
-            + '<div class="dialog dialog--salary" style="width:min(980px,100%);">'
-              + '<div class="dialog__head">'
-                + '<div class="dialog__title">ЗАРПЛАТА / <span id="employeeSalaryTitle">СОТРУДНИК</span></div>'
-                + '<button class="btn" data-close="employeeSalary">ЗАКРЫТЬ</button>'
-              + '</div>'
-              + '<div class="employees-salary-head">'
-                + '<div class="employees-salary-balance">'
-                  + '<div class="employees-salary-balance__label">БАЛАНС</div>'
-                  + '<div class="employees-salary-balance__value" id="employeeSalaryBalance">0</div>'
-                + '</div>'
-                + '<div class="employees-salary-actions">'
-                  + '<button class="btn btn--danger hidden" id="employeeSalaryResetButton" type="button">ОБНУЛИТЬ БАЛАНС</button>'
-                  + '<button class="btn btn--accent" id="employeeSalaryPayoutButton" type="button">ВЫПЛАТИТЬ ЗАРПЛАТУ</button>'
-                  + '<button class="btn btn--accent" id="employeeSalaryAdvanceButton" type="button">ВЫДАТЬ АВАНС</button>'
-                + '</div>'
-              + '</div>'
-              + '<div class="employees-salary-summary" id="employeeSalarySummary"></div>'
-              + '<div class="employees-salary-journal">'
-                + '<div class="employees-salary-journal__head">'
-                  + '<div class="panel-title">ЖУРНАЛ ЗА 6 МЕС.</div>'
-                  + '<div class="employees-salary-journal__meta" id="employeeSalaryJournalMeta"></div>'
-                + '</div>'
-                + '<div class="employees-table-wrap">'
-                  + '<table class="employees-table employees-salary-table">'
-                    + '<thead><tr><th>ДАТА</th><th>ТИП</th><th>НАРЯД</th><th>АВТО</th><th>РАБОТА</th><th>КОММЕНТАРИЙ</th><th class="is-num">СУММА</th></tr></thead>'
-                    + '<tbody id="employeeSalaryJournalTable"></tbody>'
-                  + '</table>'
-                + '</div>'
-              + '</div>'
-              + '<div class="employees-salary-dialog" id="employeeSalaryActionDialog" hidden>'
-                + '<div class="employees-salary-dialog__head">'
-                  + '<div class="panel-title" id="employeeSalaryActionTitle">ВЫПЛАТА ЗАРПЛАТЫ</div>'
-                  + '<button class="btn btn--ghost" id="employeeSalaryActionCancelButton" type="button">ОТМЕНА</button>'
-                + '</div>'
-                + '<div class="employees-salary-dialog__body">'
-                  + '<div class="field employees-field--compact employees-field--salary"><label for="employeeSalaryAmountInput">СУММА</label><input id="employeeSalaryAmountInput" type="text" inputmode="decimal" maxlength="40" placeholder="0"></div>'
-                  + '<div class="field employees-field--compact employees-field--salary"><label for="employeeSalaryCashboxSelect">КАССА</label><select id="employeeSalaryCashboxSelect"></select></div>'
-                  + '<button class="btn btn--accent" id="employeeSalaryActionConfirmButton" type="button">ВЫПЛАТИТЬ</button>'
-                + '</div>'
-              + '</div>'
-              + '<div class="employees-salary-dialog" id="employeeSalaryAdvanceDialog" hidden>'
-                + '<div class="employees-salary-dialog__head">'
-                  + '<div class="panel-title" id="employeeSalaryAdvanceTitle">АВАНС</div>'
-                  + '<button class="btn btn--ghost" id="employeeSalaryAdvanceCancelButton" type="button">ОТМЕНА</button>'
-                + '</div>'
-                + '<div class="employees-salary-dialog__body">'
-                  + '<div class="field employees-field--compact employees-field--salary"><label for="employeeSalaryAdvanceAmountInput">СУММА</label><input id="employeeSalaryAdvanceAmountInput" type="text" inputmode="decimal" maxlength="40" placeholder="0"></div>'
-                  + '<div class="field employees-field--compact employees-field--salary"><label for="employeeSalaryAdvanceCashboxSelect">КАССА</label><select id="employeeSalaryAdvanceCashboxSelect"></select></div>'
-                  + '<div class="field employees-field--compact employees-field--salary employees-salary-dialog__wide"><label for="employeeSalaryAdvanceCommentInput">КОММЕНТАРИЙ</label><input id="employeeSalaryAdvanceCommentInput" type="text" maxlength="240" placeholder="Под что выдается аванс"></div>'
-                  + '<button class="btn btn--accent" id="employeeSalaryAdvanceConfirmButton" type="button">ВЫДАТЬ АВАНС</button>'
-                + '</div>'
-              + '</div>'
-            + '</div>'
-          + '</div>'
-          + '<div class="modal" id="employeeSalaryReconciliationPeriodModal">'
-            + '<div class="dialog dialog--salary-report-period">'
-              + '<div class="dialog__head">'
-                + '<div class="dialog__title">ОТЧЕТ / <span id="employeeSalaryReconciliationPeriodTitle">СОТРУДНИК</span></div>'
-                + '<button class="btn" data-close="employee-salary-reconciliation-period">ЗАКРЫТЬ</button>'
-              + '</div>'
-              + '<div class="employees-report-period employees-report-period--dialog" id="employeeSalaryReconciliationPeriod">'
-                + '<div class="employees-report-period__head">'
-                  + '<div class="panel-title">ПЕРИОД АКТА</div>'
-                  + '<select class="employees-report-period__mode" id="employeeSalaryReconciliationPeriodMode" aria-label="Режим периода акта сверки зарплаты">'
-                    + '<option value="days">ПОСЛЕДНИЕ ДНИ</option>'
-                    + '<option value="dates">ДАТЫ</option>'
-                  + '</select>'
-                + '</div>'
-                + '<div class="employees-report-period__controls">'
-                  + '<label class="employees-report-period__field" id="employeeSalaryReconciliationDaysField" for="employeeSalaryReconciliationDaysInput"><span>ДНЕЙ</span><input id="employeeSalaryReconciliationDaysInput" type="number" inputmode="numeric" min="1" max="366" step="1" value="30"></label>'
-                  + '<label class="employees-report-period__field employees-report-period__date" id="employeeSalaryReconciliationDateFromField" for="employeeSalaryReconciliationDateFromInput" hidden><span>С</span><input id="employeeSalaryReconciliationDateFromInput" type="date"></label>'
-                  + '<label class="employees-report-period__field employees-report-period__date" id="employeeSalaryReconciliationDateToField" for="employeeSalaryReconciliationDateToInput" hidden><span>ПО</span><input id="employeeSalaryReconciliationDateToInput" type="date"></label>'
-                + '</div>'
-                + '<div class="employees-report-period__actions">'
-                  + '<button class="btn btn--accent" id="employeeSalaryReconciliationOpenButton" type="button">ОТКРЫТЬ ОТЧЕТ</button>'
-                  + '<button class="btn btn--ghost" id="employeeSalaryReconciliationCancelButton" type="button">ОТМЕНА</button>'
-                + '</div>'
-              + '</div>'
-            + '</div>'
-          + '</div>'
-          + '<div class="modal" id="employeeSalaryReportModal">'
-            + '<div class="dialog dialog--salary-report">'
-              + '<div class="dialog__head">'
-                + '<div class="dialog__title">ОТЧЁТ ПО НАЧИСЛЕНИЯМ / <span id="employeeSalaryReportTitle">СОТРУДНИК</span></div>'
-                + '<div style="display:flex; gap:8px; flex-wrap:wrap;">'
-                  + '<button class="btn btn--ghost" id="employeeSalaryReportDownloadButton" type="button">СКАЧАТЬ .MD</button>'
-                  + '<button class="btn" data-close="employee-salary-report">ЗАКРЫТЬ</button>'
-                + '</div>'
-              + '</div>'
-              + '<div class="employee-salary-report" id="employeeSalaryReportRoot">'
-                + '<div class="employee-salary-report__meta" id="employeeSalaryReportMeta">ЗАГРУЗКА...</div>'
-                + '<pre class="employee-salary-report__text" id="employeeSalaryReportText">ЗАГРУЗКА...</pre>'
-              + '</div>'
-            + '</div>'
-          + '</div>'
-      );
-    }
+    // @include employees_markup.js
 
     ensureRepairOrderPaymentsUi();
     ensureCashboxesUi();
@@ -825,17 +635,6 @@
       operatorUserEmployeeSaveButton: document.getElementById('operatorUserEmployeeSaveButton'),
       operatorUserEmployeeClearButton: document.getElementById('operatorUserEmployeeClearButton'),
       operatorUserEmployeeCancelButton: document.getElementById('operatorUserEmployeeCancelButton'),
-      operatorActivityFilters: document.getElementById('operatorActivityFilters'),
-      operatorActivityDays: document.getElementById('operatorActivityDays'),
-      operatorActivityUserFilter: document.getElementById('operatorActivityUserFilter'),
-      operatorActivityModuleFilter: document.getElementById('operatorActivityModuleFilter'),
-      operatorActivityActionFilter: document.getElementById('operatorActivityActionFilter'),
-      operatorActivitySearchInput: document.getElementById('operatorActivitySearchInput'),
-      operatorActivityExportButton: document.getElementById('operatorActivityExportButton'),
-      operatorActivityTable: document.getElementById('operatorActivityTable'),
-      operatorActivityMeta: document.getElementById('operatorActivityMeta'),
-      operatorActivityScrollHint: document.getElementById('operatorActivityScrollHint'),
-      operatorActivityDetailsPanel: document.getElementById('operatorActivityDetailsPanel'),
       adminUserLogin: document.getElementById('adminUserLogin'),
       adminUserPassword: document.getElementById('adminUserPassword'),
       adminUserSalaryBalanceReset: document.getElementById('adminUserSalaryBalanceReset'),
@@ -2533,6 +2332,30 @@
 
     function resetViewerScopedState() {
       state.viewerStateGeneration += 1;
+      if (typeof resetBoardModules === 'function') resetBoardModules();
+      state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
+      state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
+      if (state.clientsSearchTimer) window.clearTimeout(state.clientsSearchTimer);
+      if (state.mobileClientsSearchTimer) window.clearTimeout(state.mobileClientsSearchTimer);
+      if (state.clientSuggestTimer) window.clearTimeout(state.clientSuggestTimer);
+      state.clientsSearchTimer = null;
+      state.mobileClientsSearchTimer = null;
+      state.clientSuggestTimer = null;
+      state.clients = [];
+      state.clientsLoaded = false;
+      state.clientsQuery = '';
+      state.clientsActiveId = '';
+      state.clientsActiveProfile = null;
+      state.clientsMetaState = null;
+      state.clientsDraftBaseline = '';
+      state.clientVehicleEditor = null;
+      state.mobileClientsLoading = false;
+      state.mobileClientProfileLoading = false;
+      state.clientSuggestions = [];
+      state.clientSuggestionProfiles = {};
+      if (els.clientsSearchInput) els.clientsSearchInput.value = '';
+      if (els.mobileClientsSearchInput) els.mobileClientsSearchInput.value = '';
+      if (typeof renderClientProfileEmptyState === 'function') renderClientProfileEmptyState();
       state.personalBoardPreferences = null;
       state.personalBoardPreferencesRevision += 1;
       state.extraBoardColumnSettingsOpen = false;
@@ -3072,7 +2895,6 @@
     function renderOperatorUsers(data) {
       const users = data?.users || [];
       state.operatorUsers = users;
-      renderOperatorActivityUserOptions();
       els.adminUsersList.innerHTML = users.length
         ? users.map((user) => {
             const stats = user.stats || {};
@@ -3155,295 +2977,8 @@
       syncOperatorAdminSalaryResetPermission();
     }
 
-    function renderOperatorActivityUserOptions() {
-      if (!els.operatorActivityUserFilter) return;
-      const current = String(els.operatorActivityUserFilter.value || '');
-      const options = ['<option value="">ВСЕ</option>'].concat(
-        (state.operatorUsers || []).map((user) => {
-          const username = String(user?.username || '').trim();
-          if (!username) return '';
-          return '<option value="' + escapeHtml(username) + '">' + escapeHtml(username) + '</option>';
-        }).filter(Boolean)
-      );
-      els.operatorActivityUserFilter.innerHTML = options.join('');
-      if ([...els.operatorActivityUserFilter.options].some((option) => option.value === current)) {
-        els.operatorActivityUserFilter.value = current;
-      }
-    }
-
-    function operatorActivityModuleLabel(value) {
-      const labels = {
-        auth: 'Вход',
-        card: 'Карточки',
-        board: 'Доска',
-        client: 'Клиенты',
-        vehicle: 'Автомобили',
-        repair_order: 'Заказ-наряд',
-        cashbox: 'Касса',
-        employee: 'Сотрудники',
-        payroll: 'Зарплата',
-        file: 'Файлы',
-        admin: 'Админ',
-        agent: 'Агент',
-      };
-      return labels[String(value || '').trim()] || String(value || '-').trim() || '-';
-    }
-
-    function operatorActivityActionLabel(value) {
-      const labels = {
-        login: 'Вход',
-        logout: 'Выход',
-        card_opened: 'Открыл карточку',
-        operator_activity_exported: 'Экспорт',
-        cash_transaction_created: 'Касса',
-        repair_order_updated: 'Заказ-наряд',
-      };
-      return labels[String(value || '').trim()] || String(value || '-').trim() || '-';
-    }
-
-    function operatorActivityCell(value, extraClass = '', attrs = {}) {
-      const classes = ['operator-activity-cell'].concat(extraClass ? [extraClass] : []);
-      const attrText = Object.entries(attrs || {})
-        .filter(([, attrValue]) => attrValue !== undefined && attrValue !== null && attrValue !== false)
-        .map(([attrName, attrValue]) => ' ' + attrName + '="' + escapeHtml(attrValue === true ? '' : attrValue) + '"')
-        .join('');
-      return '<div class="' + classes.join(' ') + '"' + attrText + '>' + escapeHtml(value || '-') + '</div>';
-    }
-
-    function operatorActivityMoneyCell(value, extraClass = '', attrs = {}) {
-      const text = String(value || '').trim();
-      const tone = text.startsWith('-') ? ' operator-activity-cell--danger' : '';
-      return operatorActivityCell(text || '-', 'operator-activity-cell--money' + tone + extraClass, attrs);
-    }
-
-    function operatorActivityCellAttrs(row) {
-      const activityId = String(row?.id || '').trim();
-      if (!activityId) return {};
-      return {
-        'data-operator-activity-id': activityId,
-        role: 'button',
-        tabindex: '0',
-      };
-    }
-
-    function updateOperatorActivityScrollHint() {
-      if (!els.operatorActivityScrollHint) return;
-      const apply = () => {
-        const scroll = els.operatorActivityTable?.parentElement;
-        const hasOverflow = !!scroll && scroll.scrollWidth > scroll.clientWidth + 4;
-        const narrow = window.matchMedia('(max-width: 700px)').matches;
-        scroll?.classList.toggle('is-overflowing', hasOverflow);
-        els.operatorActivityScrollHint.hidden = !(hasOverflow && narrow);
-      };
-      apply();
-      window.requestAnimationFrame(apply);
-    }
-
-    function updateOperatorActivitySelection() {
-      if (!els.operatorActivityTable) return;
-      els.operatorActivityTable.querySelectorAll('[data-operator-activity-id]').forEach((cell) => {
-        cell.classList.toggle(
-          'operator-activity-cell--selected',
-          cell.dataset.operatorActivityId === state.operatorActivitySelectedId,
-        );
-      });
-    }
-
-    function operatorActivityDetailHtml(label, value) {
-      const text = String(value ?? '').trim() || '-';
-      return '<div class="operator-activity-detail"><strong>' + escapeHtml(label) + '</strong>' + escapeHtml(text) + '</div>';
-    }
-
-    function operatorActivityDetailLabel(key) {
-      const labels = {
-        card_id: 'card_id',
-        card_title: 'Карточка',
-        marked_seen: 'Отмечено',
-        repair_order_id: 'ЗН',
-        cashbox_id: 'Касса',
-        file_name: 'Файл',
-        client_id: 'Клиент',
-        employee_id: 'Сотрудник',
-      };
-      return labels[String(key || '').trim()] || String(key || '').trim() || '-';
-    }
-
-    function renderOperatorActivityDetailsPanel() {
-      if (!els.operatorActivityDetailsPanel) return;
-      const activityId = state.operatorActivitySelectedId;
-      if (!activityId) {
-        els.operatorActivityDetailsPanel.classList.add('hidden');
-        els.operatorActivityDetailsPanel.innerHTML = '';
-        return;
-      }
-      const row = (state.operatorActivityRows || []).find((item) => String(item?.id || '') === activityId) || {};
-      const payload = state.operatorActivityDetails || {};
-      const activity = payload.activity || row;
-      const details = payload.details || {};
-      const detailsKeys = Object.keys(details || {});
-      els.operatorActivityDetailsPanel.classList.remove('hidden');
-      if (state.operatorActivityDetailsLoading) {
-        els.operatorActivityDetailsPanel.innerHTML =
-          '<div class="operator-activity-details__head"><span>ДЕТАЛИ</span><span>ЗАГРУЗКА...</span></div>';
-        return;
-      }
-      const detailText = detailsKeys.length
-        ? detailsKeys.map((key) => operatorActivityDetailHtml(operatorActivityDetailLabel(key), typeof details[key] === 'object' ? JSON.stringify(details[key]) : details[key])).join('')
-        : '<div class="log-row__meta">Детали недоступны, строка сохранена.</div>';
-      els.operatorActivityDetailsPanel.innerHTML =
-        '<div class="operator-activity-details__head"><span>' + escapeHtml(activity.action_label || operatorActivityActionLabel(activity.action)) + '</span><span>' + escapeHtml(activity.username || '-') + '</span></div>' +
-        '<div class="operator-activity-details__grid">' +
-          operatorActivityDetailHtml('Время', formatDate(activity.timestamp)) +
-          operatorActivityDetailHtml('Источник', String(activity.source || '').toUpperCase()) +
-          operatorActivityDetailHtml('Код', activity.action) +
-          operatorActivityDetailHtml('ID события', activity.id) +
-          operatorActivityDetailHtml('ID объекта', activity.object_id) +
-          operatorActivityDetailHtml('Архив деталей', activity.details_ref) +
-        '</div>' +
-        detailText;
-    }
-
-    async function openOperatorActivityDetails(activityId) {
-      const normalizedId = String(activityId || '').trim();
-      if (!normalizedId) return;
-      state.operatorActivitySelectedId = normalizedId;
-      state.operatorActivityDetails = null;
-      state.operatorActivityDetailsLoading = true;
-      updateOperatorActivitySelection();
-      renderOperatorActivityDetailsPanel();
-      try {
-        const data = await api('/api/get_operator_activity_details?activity_id=' + encodeURIComponent(normalizedId));
-        if (state.operatorActivitySelectedId !== normalizedId) return;
-        state.operatorActivityDetails = data;
-      } catch (error) {
-        if (state.operatorActivitySelectedId === normalizedId) {
-          state.operatorActivityDetails = {
-            activity: (state.operatorActivityRows || []).find((item) => String(item?.id || '') === normalizedId) || {},
-            details: {},
-            error: error.message,
-          };
-          setStatus(error.message, true);
-        }
-      } finally {
-        if (state.operatorActivitySelectedId === normalizedId) {
-          state.operatorActivityDetailsLoading = false;
-          renderOperatorActivityDetailsPanel();
-        }
-      }
-    }
-
-    function renderOperatorActivityTable(data) {
-      const rows = data?.activities || [];
-      state.operatorActivityRows = rows;
-      state.operatorActivityMeta = data?.meta || null;
-      if (state.operatorActivitySelectedId && !rows.some((row) => String(row?.id || '') === state.operatorActivitySelectedId)) {
-        state.operatorActivitySelectedId = '';
-        state.operatorActivityDetails = null;
-        state.operatorActivityDetailsLoading = false;
-      }
-      const header = [
-        operatorActivityCell('Время', 'operator-activity-cell--head operator-activity-cell--sticky'),
-        operatorActivityCell('Польз.', 'operator-activity-cell--head'),
-        operatorActivityCell('Модуль', 'operator-activity-cell--head'),
-        operatorActivityCell('Действие', 'operator-activity-cell--head'),
-        operatorActivityCell('Объект', 'operator-activity-cell--head'),
-        operatorActivityCell('Изменение', 'operator-activity-cell--head'),
-        operatorActivityCell('Сумма', 'operator-activity-cell--head'),
-        operatorActivityCell('Источник', 'operator-activity-cell--head'),
-      ].join('');
-      const emptyRow = operatorActivityCell('СОБЫТИЙ ПО ФИЛЬТРАМ НЕТ.', 'operator-activity-cell--sticky')
-        + operatorActivityCell('', '')
-        + operatorActivityCell('', '')
-        + operatorActivityCell('', '')
-        + operatorActivityCell('', '')
-        + operatorActivityCell('', '')
-        + operatorActivityCell('', '')
-        + operatorActivityCell('', '');
-      const body = rows.map((row) => {
-        const attrs = operatorActivityCellAttrs(row);
-        const selected = String(row?.id || '') === state.operatorActivitySelectedId ? ' operator-activity-cell--selected' : '';
-        const interactive = attrs['data-operator-activity-id'] ? ' operator-activity-cell--interactive' + selected : '';
-        return [
-          operatorActivityCell(formatDate(row.timestamp), 'operator-activity-cell--sticky' + interactive, attrs),
-          operatorActivityCell(row.username, interactive, attrs),
-          operatorActivityCell(operatorActivityModuleLabel(row.module), interactive, attrs),
-          operatorActivityCell(row.action_label || operatorActivityActionLabel(row.action), interactive, attrs),
-          operatorActivityCell(row.object_label || '-', interactive, attrs),
-          operatorActivityCell(row.summary, (String(row.severity || '') === 'ok' ? 'operator-activity-cell--ok' : '') + interactive, attrs),
-          operatorActivityMoneyCell(row.amount, interactive, attrs),
-          operatorActivityCell(String(row.source || '').toUpperCase(), interactive, attrs),
-        ].join('');
-      }).join('');
-      els.operatorActivityTable.innerHTML = header + (body || emptyRow);
-      const meta = data?.meta || {};
-      const total = meta.total ?? rows.length;
-      els.operatorActivityMeta.textContent = escapeHtml(rows.length) + ' из ' + escapeHtml(total) + (meta.has_more ? ' | ещё есть' : '');
-      renderOperatorActivityDetailsPanel();
-      updateOperatorActivityScrollHint();
-    }
-
-    function operatorActivityQueryString() {
-      const params = new URLSearchParams();
-      params.set('limit', '100');
-      const days = String(els.operatorActivityDays?.value || '90').trim();
-      if (days) params.set('days', days);
-      const username = String(els.operatorActivityUserFilter?.value || '').trim();
-      if (username) params.set('username', username);
-      const module = String(els.operatorActivityModuleFilter?.value || '').trim();
-      if (module) params.set('module', module);
-      const action = String(els.operatorActivityActionFilter?.value || '').trim();
-      if (action) params.set('action', action);
-      const query = String(els.operatorActivitySearchInput?.value || '').trim();
-      if (query) params.set('query', query);
-      return params.toString();
-    }
-
-    async function reloadOperatorActivity() {
-      return loadModalData('/api/list_operator_activity?' + operatorActivityQueryString(), {
-        modalEl: els.operatorAdminModal,
-        onSuccess: renderOperatorActivityTable,
-      });
-    }
-
-    async function exportOperatorActivity() {
-      try {
-        const data = await api('/api/export_operator_activity?' + operatorActivityQueryString());
-        const text = String(data?.text || '').trim();
-        if (!text) {
-          setStatus('ОТЧЁТ ПУСТ.', true);
-          return;
-        }
-        openTextBlobWindow(text, data?.file_name || 'operator-activity.txt');
-      } catch (error) {
-        setStatus(error.message, true);
-      }
-    }
-
-    function handleOperatorActivityFilterChange() {
-      if (state.operatorActivityDebounceTimer) window.clearTimeout(state.operatorActivityDebounceTimer);
-      state.operatorActivityDebounceTimer = window.setTimeout(() => {
-        state.operatorActivityDebounceTimer = null;
-        reloadOperatorActivity().catch((error) => setStatus(error.message, true));
-      }, 180);
-    }
-
-    function handleOperatorActivityTableClick(event) {
-      const target = event.target?.closest?.('[data-operator-activity-id]');
-      if (!(target instanceof HTMLElement)) return;
-      openOperatorActivityDetails(target.dataset.operatorActivityId);
-    }
-
-    function handleOperatorActivityTableKeydown(event) {
-      if (event.key !== 'Enter' && event.key !== ' ') return;
-      const target = event.target?.closest?.('[data-operator-activity-id]');
-      if (!(target instanceof HTMLElement)) return;
-      event.preventDefault();
-      openOperatorActivityDetails(target.dataset.operatorActivityId);
-    }
-
     function setOperatorAdminTab(tabName) {
       const normalized = 'users';
-      state.operatorAdminTab = normalized;
       els.operatorAdminUsersPanel?.classList.toggle('hidden', normalized !== 'users');
       els.operatorAdminUsersPanel?.classList.toggle('is-active', normalized === 'users');
       syncOperatorAdminCloseButton();
@@ -3559,6 +3094,11 @@
     function popModal(key, options = {}) {
       const normalizedKey = String(key || '').trim();
       if (!normalizedKey) return;
+      if (normalizedKey === 'clients' && !options.keepOpen) {
+        state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
+        state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
+        state.mobileClientProfileLoading = false;
+      }
       const stack = Array.isArray(state.modalStack) ? state.modalStack : [];
       const index = stack.findIndex((entry) => entry?.key === normalizedKey);
       const entry = index >= 0 ? stack[index] : null;
@@ -3573,6 +3113,11 @@
     function closeModalAndChildren(closeKey) {
       const normalizedKey = String(closeKey || '').trim();
       if (!normalizedKey) return false;
+      if (normalizedKey === 'clients') {
+        state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
+        state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
+        state.mobileClientProfileLoading = false;
+      }
       const closingKeys = new Set([normalizedKey]);
       let changed = true;
       while (changed) {
@@ -3699,16 +3244,18 @@
       closeModalAndChildren(normalizedKey);
     }
 
-    async function loadModalData(path, { method = 'GET', body = null, openModal = false, modalEl = null, onSuccess, onError } = {}) {
+    async function loadModalData(path, { method = 'GET', body = null, openModal = false, modalEl = null, onSuccess, onError, isCurrent = () => true } = {}) {
       return perfMeasureAsync('loadModalData:' + String(path || '').split('?')[0], async () => {
         try {
           const request = { method };
           if (body !== null) request.body = body;
           const data = await api(path, request);
+          if (!isCurrent()) return null;
           if (typeof onSuccess === 'function') onSuccess(data);
-          maybeOpenModal(modalEl, openModal);
+          if (isCurrent()) maybeOpenModal(modalEl, openModal);
           return data;
         } catch (error) {
+          if (!isCurrent()) return null;
           if (typeof onError === 'function') onError(error);
           maybeOpenModal(modalEl, openModal);
           setStatus(error.message, true);
@@ -3846,6 +3393,8 @@
     }
 
     function renderClientProfileEmptyState() {
+      state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
+      state.mobileClientProfileLoading = false;
       state.clientsActiveId = '';
       state.clientsActiveProfile = null;
       state.clientVehicleEditor = null;
@@ -4023,6 +3572,8 @@
     }
 
     function resetClientForm() {
+      state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
+      state.mobileClientProfileLoading = false;
       state.clientsActiveId = '';
       state.clientsActiveProfile = null;
       state.clientVehicleEditor = null;
@@ -4224,6 +3775,8 @@
       state.clientsQuery = query;
       const requestSeq = Math.trunc(finiteNonNegativeNumber(state.clientsRequestSeq)) + 1;
       state.clientsRequestSeq = requestSeq;
+      const viewerStateGeneration = state.viewerStateGeneration;
+      const isCurrentRequest = () => state.clientsRequestSeq === requestSeq && state.viewerStateGeneration === viewerStateGeneration;
       state.clientsMetaState = null;
       if (els.clientsMeta) els.clientsMeta.textContent = query ? 'ПОИСК ПО ВСЕМ КЛИЕНТАМ...' : 'ЗАГРУЗКА КРАТКОГО СПИСКА...';
       const path = query
@@ -4232,21 +3785,17 @@
       const data = await loadModalData(path, {
         openModal,
         modalEl: els.clientsModal,
+        isCurrent: isCurrentRequest,
         onSuccess: (payload) => {
-          if (state.clientsRequestSeq !== requestSeq) return;
+          if (!isCurrentRequest()) return;
           const clients = Array.isArray(payload?.clients) ? payload.clients : [];
           state.clientsMetaState = payload?.meta || null;
           state.clients = clients;
           state.clientsLoaded = true;
-          if (state.clientsActiveId && !state.clients.some((client) => client.id === state.clientsActiveId)) {
-            state.clientsActiveId = '';
-          } else if (!state.clients.length) {
-            state.clientsActiveId = '';
-          }
           renderClientsList();
         },
       });
-      if (state.clientsRequestSeq !== requestSeq) return data;
+      if (!isCurrentRequest()) return data;
       if (openModal && !state.clientsActiveId && !state.clientsActiveProfile) {
         renderClientProfileEmptyState();
       }
@@ -4256,14 +3805,21 @@
     async function selectClient(clientId) {
       const normalizedId = String(clientId || '').trim();
       if (!normalizedId) return;
+      if (typeof renderClientProfileEmptyState === 'function') renderClientProfileEmptyState();
+      const requestSeq = (state.clientsProfileRequestSeq || 0) + 1;
+      state.clientsProfileRequestSeq = requestSeq;
+      state.clientsActiveId = normalizedId;
+      const viewerStateGeneration = state.viewerStateGeneration;
+      const isCurrent = () => state.viewerStateGeneration === viewerStateGeneration && state.clientsProfileRequestSeq === requestSeq && state.clientsActiveId === normalizedId;
       try {
         const data = await api('/api/get_client?client_id=' + encodeURIComponent(normalizedId) + '&order_limit=30');
+        if (!isCurrent()) return;
         state.clientsActiveId = data?.client?.id || normalizedId;
         state.clientVehicleEditor = null;
         renderClientProfile(data);
         renderClientsList();
       } catch (error) {
-        setStatus(error.message, true);
+        if (isCurrent()) setStatus(error.message, true);
       }
     }
 
@@ -4839,6 +4395,9 @@
     }
 
     async function refreshClientSuggestionsForCard() {
+      const viewerStateGeneration = state.viewerStateGeneration;
+      const hydrationSeq = state.cardHydrationSeq;
+      const isCurrent = () => state.viewerStateGeneration === viewerStateGeneration && state.cardHydrationSeq === hydrationSeq;
       const profile = readVehicleProfileForm();
       const queryCandidates = clientSuggestionQueryCandidates(profile);
       if (!queryCandidates.length) {
@@ -4858,7 +4417,7 @@
           }
         }));
         const currentProfile = readVehicleProfileForm();
-        if (clientSuggestionProfileSignature(currentProfile) !== profileSignature) return;
+        if (!isCurrent() || clientSuggestionProfileSignature(currentProfile) !== profileSignature) return;
         const clients = mergeClientSuggestionResults(suggestionGroups);
         state.clientSuggestionFocusIndex = clients.length ? 0 : -1;
         const loadedProfiles = state.clientSuggestionProfiles || {};
@@ -4869,7 +4428,7 @@
         }, {});
         renderClientSuggestions(clients, { query: displayQuery, showEmpty: true });
       } catch (_) {
-        hideClientSuggestions();
+        if (isCurrent()) hideClientSuggestions();
       }
     }
 
@@ -4916,14 +4475,18 @@
     async function loadClientSuggestionVehicles(clientId) {
       const client = state.clientSuggestions.find((item) => item.id === clientId);
       if (!client) return;
+      const viewerStateGeneration = state.viewerStateGeneration;
+      const hydrationSeq = state.cardHydrationSeq;
+      const isCurrent = () => state.viewerStateGeneration === viewerStateGeneration && state.cardHydrationSeq === hydrationSeq && state.clientSuggestions.some((item) => item.id === clientId);
       window.clearTimeout(state.clientSuggestTimer);
       state.clientSuggestTimer = null;
       try {
         const data = await api('/api/get_client?client_id=' + encodeURIComponent(clientId) + '&order_limit=5');
+        if (!isCurrent()) return;
         state.clientSuggestionProfiles = { ...(state.clientSuggestionProfiles || {}), [clientId]: data || {} };
         renderClientSuggestions(state.clientSuggestions, { query: state.clientSuggestionQuery, showEmpty: true });
       } catch (error) {
-        setStatus(error.message, true);
+        if (isCurrent()) setStatus(error.message, true);
       }
     }
 
@@ -5126,1881 +4689,7 @@
       return (state.employees || []).find((item) => item.id === state.activeEmployeeId) || null;
     }
 
-    const EMPLOYEE_INCENTIVE_DEFINITIONS = [
-      {
-        kind: 'base_salary',
-        inputKey: 'employeeBaseSalaryInput',
-        label: 'Оклад',
-        shortLabel: 'Оклад',
-        hint: 'Фиксированная сумма за неделю. Начисляется по пятницам в 20:00.',
-        valueLabel: 'Сумма',
-        placeholder: '0',
-        defaultValue: '0',
-        inactiveValue: '',
-        activeModes: ['salary_only', 'salary_plus_percent'],
-      },
-      {
-        kind: 'work_percent',
-        inputKey: 'employeeWorkPercentInput',
-        label: 'Выплата с работ',
-        shortLabel: '% с работ',
-        hint: 'Процент от закрытых работ сотрудника.',
-        valueLabel: 'Процент',
-        placeholder: '0',
-        defaultValue: '0',
-        inactiveValue: '',
-        activeModes: ['percent_only', 'salary_plus_percent'],
-      },
-      {
-        kind: 'material_percent',
-        inputKey: 'employeeMaterialPercentInput',
-        label: 'Материалы и запчасти',
-        shortLabel: '% с материалов',
-        hint: 'Процент от прибыли продажи материалов и запчастей.',
-        valueLabel: 'Процент',
-        placeholder: '10',
-        defaultValue: '10',
-        inactiveValue: '0',
-        activeModes: [],
-      },
-      {
-        kind: 'repair_order_percent',
-        inputKey: 'employeeRepairOrderPercentInput',
-        label: 'Заказ-наряды',
-        shortLabel: '% от наличной стоимости ЗН',
-        hint: 'Процент от стоимости заказ-наряда за наличный расчёт: работы плюс материалы без безналичной надбавки, независимо от способа оплаты.',
-        valueLabel: 'Процент',
-        placeholder: '0',
-        defaultValue: '0',
-        inactiveValue: '0',
-        activeModes: [],
-      },
-    ];
-
-    function employeeSalaryModeLabel(mode) {
-      if (mode === 'none') return 'БЕЗ НАЧИСЛЕНИЙ';
-      if (mode === 'salary_only') return 'ОКЛАД';
-      if (mode === 'percent_only') return '% ОТ РАБОТ';
-      return 'ОКЛАД + %';
-    }
-
-    function normalizeEmployeeComparableText(value) {
-      return String(value ?? '').trim();
-    }
-
-    function normalizeEmployeeComparableNumber(value) {
-      const parsed = repairOrderParseNumber(value);
-      return parsed === null ? '' : repairOrderNumberToRaw(parsed);
-    }
-
-    function employeeCurrentPayrollTerm(employee) {
-      if (!employee || typeof employee !== 'object') return {};
-      if (employee.current_payroll_term && typeof employee.current_payroll_term === 'object') {
-        return { ...employee, ...employee.current_payroll_term };
-      }
-      const now = Date.now();
-      const terms = (Array.isArray(employee.payroll_terms) ? employee.payroll_terms : [])
-        .map((term) => ({
-          term,
-          startsAt: Date.parse(String(term?.effective_from || '')),
-          endsAt: term?.effective_to ? Date.parse(String(term.effective_to)) : Number.POSITIVE_INFINITY,
-        }))
-        .filter((item) => Number.isFinite(item.startsAt))
-        .sort((left, right) => left.startsAt - right.startsAt);
-      const current = terms.slice().reverse().find(
-        (item) => item.startsAt <= now && now < item.endsAt
-      )?.term;
-      return current ? { ...employee, ...current } : employee;
-    }
-
-    function employeePayrollFormulaLabel(employee) {
-      const current = employeeCurrentPayrollTerm(employee);
-      const parts = [];
-      const baseSalary = normalizeEmployeeComparableNumber(current.base_salary);
-      const workPercent = normalizeEmployeeComparableNumber(current.work_percent);
-      const materialPercent = normalizeEmployeeComparableNumber(current.material_percent);
-      const repairOrderPercent = normalizeEmployeeComparableNumber(current.repair_order_percent);
-      if (baseSalary && baseSalary !== '0') parts.push('Оклад ' + baseSalary + ' ₽/нед.');
-      if (workPercent && workPercent !== '0') parts.push(workPercent + '% с работ');
-      if (materialPercent && materialPercent !== '0') parts.push(materialPercent + '% с прибыли материалов');
-      if (repairOrderPercent && repairOrderPercent !== '0') parts.push(repairOrderPercent + '% от стоимости заказ-наряда за наличный расчёт');
-      return parts.length ? parts.join(' + ') : 'Без начислений';
-    }
-
-    function employeeSalaryModeFromIncentives(flags) {
-      const hasBase = Boolean(flags?.base_salary);
-      const hasWork = Boolean(flags?.work_percent);
-      if (hasBase && hasWork) return 'salary_plus_percent';
-      if (hasBase) return 'salary_only';
-      if (hasWork) return 'percent_only';
-      return 'none';
-    }
-
-    function employeeIncentiveDefinition(kind) {
-      return EMPLOYEE_INCENTIVE_DEFINITIONS.find((item) => item.kind === kind) || null;
-    }
-
-    function employeeIncentiveInput(kind) {
-      const definition = employeeIncentiveDefinition(kind);
-      const inputKey = definition?.inputKey || '';
-      return inputKey ? els[inputKey] : null;
-    }
-
-    function employeeIncentiveFlagsFromValues(mode, baseSalary, workPercent, materialPercent, repairOrderPercent) {
-      const normalizedMode = normalizeEmployeeComparableText(mode || 'percent_only');
-      const rawValues = {
-        base_salary: baseSalary,
-        work_percent: workPercent,
-        material_percent: materialPercent,
-        repair_order_percent: repairOrderPercent,
-      };
-      return EMPLOYEE_INCENTIVE_DEFINITIONS.reduce((flags, item) => {
-        const normalizedValue = normalizeEmployeeComparableNumber(rawValues[item.kind]);
-        const activeByValue = Boolean(normalizedValue && normalizedValue !== '0');
-        const activeByMode = Array.isArray(item.activeModes) && item.activeModes.includes(normalizedMode);
-        flags[item.kind] = activeByMode || activeByValue;
-        return flags;
-      }, {});
-    }
-
-    function employeeIncentiveSummaryLabel(employee) {
-      const current = employeeCurrentPayrollTerm(employee);
-      const flags = employeeIncentiveFlagsFromValues(
-        current?.salary_mode,
-        current?.base_salary,
-        current?.work_percent,
-        current?.material_percent,
-        current?.repair_order_percent,
-      );
-      return Object.values(flags).some(Boolean)
-        ? employeePayrollFormulaLabel(current)
-        : 'БЕЗ НАЧИСЛЕНИЙ';
-    }
-
-    function currentEmployeeIncentiveFlags() {
-      return employeeIncentiveFlagsFromValues(
-        els.employeeSalaryModeInput?.value,
-        els.employeeBaseSalaryInput?.value,
-        els.employeeWorkPercentInput?.value,
-        els.employeeMaterialPercentInput?.value,
-        els.employeeRepairOrderPercentInput?.value,
-      );
-    }
-
-    function employeeIncentiveFieldValue(kind) {
-      return String(employeeIncentiveInput(kind)?.value || '');
-    }
-
-    function setEmployeeIncentiveFieldValue(kind, value) {
-      const input = employeeIncentiveInput(kind);
-      if (input) input.value = String(value ?? '');
-    }
-
-    function syncEmployeeSalaryModeFromIncentives(flags = currentEmployeeIncentiveFlags()) {
-      if (els.employeeSalaryModeInput) {
-        els.employeeSalaryModeInput.value = employeeSalaryModeFromIncentives(flags);
-      }
-    }
-
-    function setEmployeeIncentiveActive(kind, active) {
-      const definition = employeeIncentiveDefinition(kind);
-      if (!definition) return;
-      const flags = currentEmployeeIncentiveFlags();
-      const wasActive = Boolean(flags[kind]);
-      flags[kind] = Boolean(active);
-      if (active && (!wasActive || !employeeIncentiveFieldValue(kind))) {
-        setEmployeeIncentiveFieldValue(kind, definition.defaultValue ?? '0');
-      }
-      if (!active) {
-        setEmployeeIncentiveFieldValue(kind, definition.inactiveValue ?? '');
-      }
-      syncEmployeeSalaryModeFromIncentives(flags);
-      renderEmployeeIncentives();
-      renderEmployeeProfileMeta();
-      const nextInput = els.employeeIncentivesList?.querySelector('[data-employee-incentive-value="' + kind + '"]');
-      if (active && nextInput instanceof HTMLInputElement) {
-        setTimeout(() => nextInput.focus(), 0);
-      }
-    }
-
-    function renderEmployeeIncentives() {
-      if (!els.employeeIncentivesList || !els.employeeIncentiveAddChoices) return;
-      const flags = currentEmployeeIncentiveFlags();
-      const activeDefinitions = EMPLOYEE_INCENTIVE_DEFINITIONS.filter((item) => Boolean(flags[item.kind]));
-      const inactiveDefinitions = EMPLOYEE_INCENTIVE_DEFINITIONS.filter((item) => !flags[item.kind]);
-      els.employeeIncentiveAddChoices.innerHTML = inactiveDefinitions.length
-        ? inactiveDefinitions.map((item) => (
-          '<button class="btn btn--ghost" type="button" data-employee-incentive-add="' + escapeHtml(item.kind) + '">+ ' + escapeHtml(item.shortLabel) + '</button>'
-        )).join('')
-        : '<span class="employees-row__summary-label">ВСЁ ДОБАВЛЕНО</span>';
-      if (!activeDefinitions.length) {
-        els.employeeIncentivesList.innerHTML = '<div class="employees-incentives__empty">Начисления не добавлены. Добавьте оклад, процент с работ или процент с материалов.</div>';
-        return;
-      }
-      els.employeeIncentivesList.innerHTML = activeDefinitions.map((item) => {
-        const value = employeeIncentiveFieldValue(item.kind);
-        return '<div class="employees-incentive-row" data-employee-incentive-row="' + escapeHtml(item.kind) + '">'
-          + '<div class="employees-incentive-row__main">'
-            + '<div class="employees-incentive-row__title">' + escapeHtml(item.label) + '</div>'
-            + '<div class="employees-incentive-row__hint">' + escapeHtml(item.hint) + '</div>'
-          + '</div>'
-          + '<label class="employees-incentive-row__value"><span>' + escapeHtml(item.valueLabel) + '</span><input type="text" inputmode="decimal" maxlength="40" placeholder="' + escapeHtml(item.placeholder) + '" value="' + escapeHtml(value) + '" data-employee-incentive-value="' + escapeHtml(item.kind) + '"></label>'
-          + '<button class="btn btn--ghost employees-incentive-row__remove" type="button" data-employee-incentive-remove="' + escapeHtml(item.kind) + '">УДАЛИТЬ</button>'
-          + '</div>';
-      }).join('');
-    }
-
-    function renderEmployeeShiftAccrualDialog() {
-      const employee = selectedEmployeeRecord();
-      const isOpen = Boolean(state.employeeShiftAccrualOpen && employee && !state.employeeCreateMode);
-      if (els.employeeShiftAccrualDialog) els.employeeShiftAccrualDialog.hidden = !isOpen;
-      if (els.employeeShiftAccrualButton) {
-        els.employeeShiftAccrualButton.disabled = !employee || state.employeeCreateMode || employeeFormHasUnsavedChanges();
-      }
-      if (!isOpen) return;
-      if (els.employeeShiftAccrualAmountInput && !String(els.employeeShiftAccrualAmountInput.value || '').trim()) {
-        els.employeeShiftAccrualAmountInput.value = state.employeeShiftAccrualDraft || '';
-      }
-    }
-
-    function openEmployeeShiftAccrualDialog() {
-      const employee = selectedEmployeeRecord();
-      if (!employee || state.employeeCreateMode) {
-        setStatus('СНАЧАЛА ВЫБЕРИТЕ СОТРУДНИКА.', true);
-        return;
-      }
-      if (employeeFormHasUnsavedChanges()) {
-        setStatus('СНАЧАЛА СОХРАНИТЕ ИЗМЕНЕНИЯ СОТРУДНИКА.', true);
-        return;
-      }
-      state.employeeShiftAccrualOpen = true;
-      state.employeeShiftAccrualDraft = '';
-      if (els.employeeShiftAccrualAmountInput) els.employeeShiftAccrualAmountInput.value = '';
-      renderEmployeeShiftAccrualDialog();
-      if (els.employeeShiftAccrualAmountInput) {
-        setTimeout(() => els.employeeShiftAccrualAmountInput.focus(), 0);
-      }
-    }
-
-    function closeEmployeeShiftAccrualDialog() {
-      state.employeeShiftAccrualOpen = false;
-      state.employeeShiftAccrualDraft = '';
-      if (els.employeeShiftAccrualAmountInput) els.employeeShiftAccrualAmountInput.value = '';
-      renderEmployeeShiftAccrualDialog();
-    }
-
-    function employeeComparableSnapshot(employee = null) {
-      const current = employeeCurrentPayrollTerm(employee);
-      return {
-        name: normalizeEmployeeComparableText(employee?.name),
-        position: normalizeEmployeeComparableText(employee?.position),
-        salary_mode: normalizeEmployeeComparableText(current?.salary_mode || 'percent_only'),
-        base_salary: normalizeEmployeeComparableNumber(current?.base_salary),
-        work_percent: normalizeEmployeeComparableNumber(current?.work_percent),
-        material_percent: normalizeEmployeeComparableNumber(current?.material_percent),
-        repair_order_percent: normalizeEmployeeComparableNumber(current?.repair_order_percent),
-        is_active: employee ? Boolean(employee.is_active) : true,
-      };
-    }
-
-    function employeeCombinedNameFromForm() {
-      return [els.employeeNameInput?.value, els.employeeMiddleNameInput?.value]
-        .map((part) => String(part || '').trim())
-        .filter(Boolean)
-        .join(' ');
-    }
-
-    function employeeFormSnapshot() {
-      return {
-        name: normalizeEmployeeComparableText(employeeCombinedNameFromForm()),
-        position: normalizeEmployeeComparableText(els.employeePositionInput?.value),
-        salary_mode: normalizeEmployeeComparableText(els.employeeSalaryModeInput?.value || 'percent_only'),
-        base_salary: normalizeEmployeeComparableNumber(els.employeeBaseSalaryInput?.value),
-        work_percent: normalizeEmployeeComparableNumber(els.employeeWorkPercentInput?.value),
-        material_percent: normalizeEmployeeComparableNumber(els.employeeMaterialPercentInput?.value),
-        repair_order_percent: normalizeEmployeeComparableNumber(els.employeeRepairOrderPercentInput?.value),
-        is_active: Boolean(selectedEmployeeRecord()?.is_active ?? true),
-      };
-    }
-
-    function employeeFormHasUnsavedChanges() {
-      const baseline = state.employeeFormBaseline || employeeComparableSnapshot(selectedEmployeeRecord());
-      return JSON.stringify(employeeFormSnapshot()) !== JSON.stringify(baseline);
-    }
-
-    function employeeRowAriaLabel(employee, summaryValue) {
-      return [
-        String(employee?.name || 'Без имени'),
-        String(employee?.position || 'без должности'),
-        'начисления ' + employeeIncentiveSummaryLabel(employee),
-        'к выплате ' + String(summaryValue || '0'),
-      ].filter(Boolean).join('. ');
-    }
-
-    function employeeSalaryReconciliationDateInputValue(date) {
-      if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
-      return [
-        String(date.getFullYear()).padStart(4, '0'),
-        String(date.getMonth() + 1).padStart(2, '0'),
-        String(date.getDate()).padStart(2, '0'),
-      ].join('-');
-    }
-
-    function employeeSalaryReconciliationTodayInputValue() {
-      return employeeSalaryReconciliationDateInputValue(new Date());
-    }
-
-    function employeeSalaryReconciliationDefaultDateFrom(daysValue) {
-      const rawDaysValue = daysValue === undefined || daysValue === null || daysValue === '' ? '30' : daysValue;
-      const days = Number.parseInt(String(rawDaysValue), 10);
-      const safeDays = Number.isFinite(days) && days > 0 ? Math.min(days, 366) : 30;
-      const date = new Date();
-      date.setDate(date.getDate() - safeDays);
-      return employeeSalaryReconciliationDateInputValue(date);
-    }
-
-    function employeeSalaryReconciliationNormalizedDays({ strict = false } = {}) {
-      const raw = String(els.employeeSalaryReconciliationDaysInput?.value || state.employeeSalaryReconciliationDays || '').trim();
-      if (!raw) {
-        if (strict) setStatus('УКАЖИТЕ КОЛИЧЕСТВО ДНЕЙ ДЛЯ АКТА.', true);
-        return strict ? null : 30;
-      }
-      const parsed = Number.parseInt(raw, 10);
-      if (!Number.isFinite(parsed) || String(parsed) !== raw.replace(/^\+/, '')) {
-        if (strict) setStatus('КОЛИЧЕСТВО ДНЕЙ ДОЛЖНО БЫТЬ ЦЕЛЫМ ЧИСЛОМ.', true);
-        return strict ? null : 30;
-      }
-      if (parsed < 1 || parsed > 366) {
-        if (strict) setStatus('ПЕРИОД АКТА ДОЛЖЕН БЫТЬ ОТ 1 ДО 366 ДНЕЙ.', true);
-        return strict ? null : Math.min(Math.max(parsed, 1), 366);
-      }
-      return parsed;
-    }
-
-    function employeeSalaryReconciliationQueryParams(employeeId, { strict = false } = {}) {
-      const requestedId = String(employeeId || '').trim();
-      if (!requestedId) return null;
-      const params = new URLSearchParams();
-      params.set('employee_id', requestedId);
-      const mode = String(state.employeeSalaryReconciliationPeriodMode || 'days');
-      if (mode === 'dates') {
-        const dateFrom = String(els.employeeSalaryReconciliationDateFromInput?.value || state.employeeSalaryReconciliationDateFrom || '').trim();
-        const dateTo = String(els.employeeSalaryReconciliationDateToInput?.value || state.employeeSalaryReconciliationDateTo || '').trim();
-        if (!dateFrom || !dateTo) {
-          if (strict) setStatus('УКАЖИТЕ ДАТЫ НАЧАЛА И ОКОНЧАНИЯ АКТА.', true);
-          return strict ? null : params;
-        }
-        if (dateFrom > dateTo) {
-          if (strict) setStatus('ДАТА НАЧАЛА АКТА НЕ МОЖЕТ БЫТЬ ПОЗЖЕ ДАТЫ ОКОНЧАНИЯ.', true);
-          return strict ? null : params;
-        }
-        params.set('date_from', dateFrom);
-        params.set('date_to', dateTo);
-      } else {
-        const days = employeeSalaryReconciliationNormalizedDays({ strict });
-        if (days === null) return null;
-        params.set('days', String(days));
-      }
-      return params;
-    }
-
-    function employeeSalaryReconciliationApiPath(employeeId, options = {}) {
-      const params = employeeSalaryReconciliationQueryParams(employeeId, options);
-      if (!params) return '';
-      return '/api/get_employee_salary_reconciliation?' + params.toString();
-    }
-
-    function syncEmployeeSalaryReconciliationPeriodUi() {
-      const mode = state.employeeSalaryReconciliationPeriodMode === 'dates' ? 'dates' : 'days';
-      state.employeeSalaryReconciliationPeriodMode = mode;
-      const days = employeeSalaryReconciliationNormalizedDays();
-      state.employeeSalaryReconciliationDays = String(days);
-      if (els.employeeSalaryReconciliationPeriodMode) {
-        els.employeeSalaryReconciliationPeriodMode.value = mode;
-      }
-      if (els.employeeSalaryReconciliationDaysInput) {
-        els.employeeSalaryReconciliationDaysInput.value = state.employeeSalaryReconciliationDays;
-      }
-      if (!state.employeeSalaryReconciliationDateTo) {
-        state.employeeSalaryReconciliationDateTo = employeeSalaryReconciliationTodayInputValue();
-      }
-      if (!state.employeeSalaryReconciliationDateFrom) {
-        state.employeeSalaryReconciliationDateFrom = employeeSalaryReconciliationDefaultDateFrom(days);
-      }
-      if (state.employeeSalaryReconciliationDateFrom > state.employeeSalaryReconciliationDateTo) {
-        state.employeeSalaryReconciliationDateTo = state.employeeSalaryReconciliationDateFrom;
-      }
-      if (els.employeeSalaryReconciliationDateFromInput) {
-        els.employeeSalaryReconciliationDateFromInput.value = state.employeeSalaryReconciliationDateFrom;
-      }
-      if (els.employeeSalaryReconciliationDateToInput) {
-        els.employeeSalaryReconciliationDateToInput.value = state.employeeSalaryReconciliationDateTo;
-      }
-      const dateMode = mode === 'dates';
-      if (els.employeeSalaryReconciliationDaysField) {
-        els.employeeSalaryReconciliationDaysField.hidden = dateMode;
-      }
-      if (els.employeeSalaryReconciliationDateFromField) {
-        els.employeeSalaryReconciliationDateFromField.hidden = !dateMode;
-      }
-      if (els.employeeSalaryReconciliationDateToField) {
-        els.employeeSalaryReconciliationDateToField.hidden = !dateMode;
-      }
-    }
-
-    function handleEmployeeSalaryReconciliationPeriodChange() {
-      state.employeeSalaryReconciliationPeriodMode = els.employeeSalaryReconciliationPeriodMode?.value === 'dates' ? 'dates' : 'days';
-      state.employeeSalaryReconciliationDays = String(employeeSalaryReconciliationNormalizedDays() ?? 30);
-      state.employeeSalaryReconciliationDateFrom = String(els.employeeSalaryReconciliationDateFromInput?.value || state.employeeSalaryReconciliationDateFrom || '').trim();
-      state.employeeSalaryReconciliationDateTo = String(els.employeeSalaryReconciliationDateToInput?.value || state.employeeSalaryReconciliationDateTo || '').trim();
-      syncEmployeeSalaryReconciliationPeriodUi();
-    }
-
-    function confirmDiscardEmployeeChanges() {
-      if (!employeeFormHasUnsavedChanges()) return true;
-      return window.confirm('Несохранённые изменения сотрудника будут потеряны. Продолжить?');
-    }
-
-    function filteredEmployeesList() {
-      const employees = Array.isArray(state.employees) ? state.employees : [];
-      return employees
-        .filter((employee) => {
-          if (!employee) return false;
-          return Boolean(employee.is_active);
-        })
-        .slice()
-        .sort((left, right) => String(left?.name || '').localeCompare(String(right?.name || ''), 'ru'));
-    }
-
-    function syncEmployeesReadOnlyWorkspaceUi() {
-      const canManageEmployees = operatorCanAccessEmployeesCashboxes();
-      const readOnly = operatorHasEmployeesReadOnlyAccess();
-      if (els.employeesCreateButton) {
-        els.employeesCreateButton.hidden = !canManageEmployees;
-        els.employeesCreateButton.disabled = !canManageEmployees;
-      }
-      if (els.employeesProfilePanel) els.employeesProfilePanel.hidden = !canManageEmployees;
-      if (els.employeesReportPanel) els.employeesReportPanel.hidden = !canManageEmployees;
-      if (els.employeesReadOnlyNotice) els.employeesReadOnlyNotice.hidden = !readOnly;
-    }
-
-    function payrollSummaryMap() {
-      const rows = Array.isArray(state.payrollReport?.summary) ? state.payrollReport.summary : [];
-      return rows.reduce((map, row) => {
-        map.set(String(row.employee_id || ''), row);
-        return map;
-      }, new Map());
-    }
-
-    function renderEmployeeProfileMeta() {
-      if (!els.employeesMeta) return;
-      const selectedEmployee = selectedEmployeeRecord();
-      const currentTerm = employeeCurrentPayrollTerm(selectedEmployee);
-      const mode = String(els.employeeSalaryModeInput?.value || currentTerm?.salary_mode || 'salary_plus_percent').trim();
-      const parts = [];
-      if (selectedEmployee) {
-        parts.push(selectedEmployee.is_active ? 'АКТИВЕН' : 'ВЫКЛ');
-      } else {
-        parts.push('НОВЫЙ СОТРУДНИК');
-      }
-      const flags = currentEmployeeIncentiveFlags();
-      const incentiveLabels = EMPLOYEE_INCENTIVE_DEFINITIONS
-        .filter((item) => Boolean(flags[item.kind]))
-        .map((item) => item.shortLabel);
-      parts.push(incentiveLabels.length ? incentiveLabels.join(' + ') : employeeSalaryModeLabel(mode));
-      if (currentTerm?.effective_from) {
-        parts.push('УСЛОВИЯ С ' + formatDateTime(currentTerm.effective_from));
-      }
-      if (employeeFormHasUnsavedChanges()) parts.push('ИЗМЕНЕНО');
-      els.employeesMeta.textContent = parts.join(' · ');
-    }
-
-    function syncEmployeesReportPanelUi() {
-      const detailsOpen = Boolean(state.employeesReportDetailsOpen && String(state.activeEmployeeId || '').trim());
-      if (els.employeesReportShell) {
-        els.employeesReportShell.dataset.detailsOpen = detailsOpen ? 'true' : 'false';
-      }
-      els.employeesDetailsPanel?.classList.toggle('is-collapsed', !detailsOpen);
-      if (els.employeesDetailsPanel) {
-        els.employeesDetailsPanel.dataset.reportState = detailsOpen ? 'open' : 'collapsed';
-      }
-    }
-
-    function syncEmployeeSalaryModeUi() {
-      syncEmployeeSalaryModeFromIncentives();
-      renderEmployeeIncentives();
-      renderEmployeeProfileMeta();
-    }
-
-    function fillEmployeeForm(employee) {
-      const current = employee ? employeeCurrentPayrollTerm(employee) : null;
-      if (els.employeesCardMode) {
-        els.employeesCardMode.textContent = current ? String(current.name || 'СОТРУДНИК').toUpperCase() : 'НОВЫЙ СОТРУДНИК';
-      }
-      els.employeeNameInput.value = current?.name || '';
-      if (els.employeeMiddleNameInput) els.employeeMiddleNameInput.value = '';
-      els.employeePositionInput.value = current?.position || '';
-      els.employeeSalaryModeInput.value = current?.salary_mode || 'percent_only';
-      els.employeeBaseSalaryInput.value = current?.base_salary || '';
-      els.employeeWorkPercentInput.value = current?.work_percent || '';
-      els.employeeMaterialPercentInput.value = current?.material_percent || '';
-      els.employeeRepairOrderPercentInput.value = current?.repair_order_percent || '';
-      if (els.employeeDeleteButton) {
-        els.employeeDeleteButton.disabled = !current;
-      }
-      state.employeeFormBaseline = employeeComparableSnapshot(current);
-      syncEmployeeSalaryModeUi();
-    }
-
-    function readEmployeeFormPayload() {
-      const selectedEmployee = selectedEmployeeRecord();
-      const payload = {
-        create_mode: Boolean(state.employeeCreateMode),
-        employee_id: state.employeeCreateMode ? '' : (state.activeEmployeeId || ''),
-        name: employeeCombinedNameFromForm(),
-        position: els.employeePositionInput.value,
-        salary_mode: els.employeeSalaryModeInput.value,
-        base_salary: els.employeeBaseSalaryInput.value,
-        work_percent: els.employeeWorkPercentInput.value,
-        material_percent: els.employeeMaterialPercentInput.value,
-        repair_order_percent: els.employeeRepairOrderPercentInput.value,
-        is_active: selectedEmployee ? Boolean(selectedEmployee.is_active) : true,
-        actor_name: state.actor,
-        source: 'ui',
-      };
-      return payload;
-    }
-
-    function renderEmployeesList() {
-      const employees = Array.isArray(state.employees) ? state.employees : [];
-      const visibleEmployees = filteredEmployeesList();
-      const readOnly = operatorHasEmployeesReadOnlyAccess();
-      const summaryMap = payrollSummaryMap();
-      if (!els.employeesList) return;
-      if (!employees.length) {
-        els.employeesList.innerHTML = '<div class="cashboxes-empty">Нет сотрудников.</div>';
-        return;
-      }
-      if (!visibleEmployees.length) {
-        els.employeesList.innerHTML = '<div class="cashboxes-empty">Ничего не найдено.</div>';
-        return;
-      }
-      els.employeesList.innerHTML = visibleEmployees.map((employee) => {
-        const isActive = !state.employeeCreateMode && employee.id === state.activeEmployeeId;
-        const summary = summaryMap.get(String(employee.id || ''));
-        const summaryLabel = 'К ВЫПЛАТЕ';
-        const summaryValue = String(employee.balance_total ?? summary?.balance_total ?? summary?.total_salary ?? '0');
-        const rowLabel = readOnly
-          ? [employee.name || 'Сотрудник', employee.position || 'Без должности'].join(' · ')
-          : employeeRowAriaLabel(employee, summaryValue);
-        const readOnlyContent = '<div class="employees-row__formula">ТОЛЬКО ПРОСМОТР</div>';
-        const fullAccessContent = '<div class="employees-row__formula">' + escapeHtml(employeePayrollFormulaLabel(employee)) + '</div>'
-          + '<div class="employees-row__summary"><span class="employees-row__summary-label">' + escapeHtml(summaryLabel) + '</span><strong>' + escapeHtml(summaryValue) + '</strong></div>';
-        const actions = readOnly
-          ? ''
-          : '<div class="employees-row__actions">'
-            + '<button class="btn btn--ghost employees-row__salary" type="button" data-employee-salary="' + escapeHtml(employee.id) + '">ЗАРПЛАТА</button>'
-            + '<button class="btn btn--ghost employees-row__report" type="button" data-employee-report="' + escapeHtml(employee.id) + '" title="ВЫБРАТЬ ПЕРИОД И ОТКРЫТЬ ПЕЧАТНЫЙ АКТ СВЕРКИ ЗАРПЛАТЫ">ОТЧЕТ</button>'
-          + '</div>';
-        return '<div class="employees-row' + (isActive ? ' is-active' : '') + '">'
-          + '<button class="employees-row__body" type="button" data-employee-id="' + escapeHtml(employee.id) + '" aria-label="Сотрудник ' + escapeHtml(rowLabel) + '" title="' + escapeHtml(rowLabel) + '">'
-            + '<div class="employees-row__top"><div class="employees-row__title">' + escapeHtml(employee.name) + '</div></div>'
-            + '<div class="employees-row__meta">' + escapeHtml(employee.position || 'Без должности') + '</div>'
-            + (readOnly ? readOnlyContent : fullAccessContent)
-          + '</button>'
-          + actions
-          + '</div>';
-      }).join('');
-    }
-
-    function renderEmployeesDetails() {
-      const selectedId = state.employeesReportDetailsOpen ? String(state.activeEmployeeId || '').trim() : '';
-      const selectedEmployee = selectedId ? selectedEmployeeRecord() : null;
-      const rows = Array.isArray(state.payrollReport?.detail_rows) ? state.payrollReport.detail_rows : [];
-      const visibleRows = selectedId ? rows.filter((item) => String(item.employee_id || '').trim() === selectedId) : [];
-      if (els.employeesReportMeta) {
-        els.employeesReportMeta.textContent = selectedEmployee
-          ? ('Детализация: ' + String(selectedEmployee.name || 'СОТРУДНИК').toUpperCase())
-          : 'Выберите сотрудника слева, чтобы открыть детализацию.';
-      }
-      if (els.employeesDetailsMeta) {
-        els.employeesDetailsMeta.textContent = selectedEmployee
-          ? ('Выбран ' + String(selectedEmployee.name || 'сотрудник') + ' · ' + employeeIncentiveSummaryLabel(selectedEmployee))
-          : 'Детализация появится после выбора сотрудника.';
-      }
-      if (!selectedId) {
-        els.employeesDetailTable.innerHTML = '<tr><td colspan="9">Выберите сотрудника слева, чтобы увидеть его наряды.</td></tr>';
-        return;
-      }
-      if (!visibleRows.length) {
-        els.employeesDetailTable.innerHTML = '<tr><td colspan="9">Строк начисления нет.</td></tr>';
-        return;
-      }
-      els.employeesDetailTable.innerHTML = visibleRows.map((row) => {
-        const rowType = String(row.row_type || '').trim();
-        const isMaterial = rowType === 'material';
-        const isBaseSalary = rowType === 'base_salary';
-        const isShiftAccrual = rowType === 'shift_accrual';
-        const isRepairOrderAccrual = rowType === 'repair_order_accrual' || rowType === 'repair_order_accrual_reversal';
-        const positionName = isRepairOrderAccrual ? (row.material_name || '% от стоимости ЗН за наличный расчёт') : ((isBaseSalary || isShiftAccrual) ? (row.material_name || (isBaseSalary ? 'Недельный оклад' : 'Выплата за смены за текущую неделю')) : (isMaterial ? (row.material_name || '-') : ((row.works_count || '0') + ' раб.')));
-        const saleTotal = isRepairOrderAccrual ? (row.base_amount || row.work_total || '0') : ((isBaseSalary || isShiftAccrual) ? '-' : (isMaterial ? (row.material_total || '0') : (row.work_total || '0')));
-        const costTotal = (isBaseSalary || isShiftAccrual || isRepairOrderAccrual) ? '-' : (isMaterial ? (row.material_cost_total || '0') : '-');
-        const profitTotal = (isBaseSalary || isShiftAccrual || isRepairOrderAccrual) ? '-' : (isMaterial ? (row.material_profit || '0') : '-');
-        return '<tr data-card-id="' + escapeHtml(row.card_id || '') + '" data-open-repair-order="' + (row.repair_order_number ? '1' : '') + '">' +
-          '<td>' + escapeHtml(row.closed_at || '-') + '</td>' +
-          '<td>' + escapeHtml(row.repair_order_number || '-') + '</td>' +
-          '<td>' + escapeHtml(row.vehicle || '-') + '</td>' +
-          '<td>' + escapeHtml(row.type_label || (isMaterial ? 'Материал' : 'Работа')) + '</td>' +
-          '<td>' + escapeHtml(positionName) + '</td>' +
-          '<td class="is-num">' + escapeHtml(saleTotal) + '</td>' +
-          '<td class="is-num">' + escapeHtml(costTotal) + '</td>' +
-          '<td class="is-num">' + escapeHtml(profitTotal) + '</td>' +
-          '<td class="is-num">' + escapeHtml(row.salary_amount || '0') + '</td>' +
-        '</tr>';
-      }).join('');
-    }
-
-    function selectedEmployeeSalaryRecord() {
-      return (Array.isArray(state.employees) ? state.employees : []).find((item) => item.id === state.activeEmployeeSalaryId) || null;
-    }
-
-    function employeeSalaryActionLabel(kind) {
-      return String(kind || '') === 'salary_advance' ? 'АВАНС' : 'ВЫПЛАТА ЗАРПЛАТЫ';
-    }
-
-    function preferredEmployeeSalaryCashboxId() {
-      const items = Array.isArray(state.cashboxes) ? state.cashboxes : [];
-      const current = String(state.employeeSalaryCashboxId || state.activeCashboxId || '').trim();
-      if (current && items.some((item) => String(item?.id || '').trim() === current)) return current;
-      const cashMatch = items.find((item) => {
-        const name = String(item?.name || '').trim().toLowerCase();
-        return name === 'наличный' || name.includes('налич') || name.includes('cash');
-      });
-      return String((cashMatch || items[0] || {})?.id || '').trim();
-    }
-
-    function renderEmployeeSalaryCashboxOptions(selectEl = els.employeeSalaryCashboxSelect) {
-      if (!(selectEl instanceof HTMLElement)) return;
-      const items = (Array.isArray(state.cashboxes) ? state.cashboxes : []).slice().sort((left, right) => {
-        const orderDiff = finiteNumber(left?.order) - finiteNumber(right?.order);
-        if (orderDiff) return orderDiff;
-        return String(left?.name || '').localeCompare(String(right?.name || ''), 'ru', { sensitivity: 'base' });
-      });
-      const selectedId = preferredEmployeeSalaryCashboxId();
-      selectEl.innerHTML = ['<option value="">ВЫБЕРИ КАССУ</option>'].concat(items.map((item) => {
-        const itemId = String(item?.id || '').trim();
-        const selected = itemId && itemId === selectedId ? ' selected' : '';
-        return '<option value="' + escapeHtml(itemId) + '"' + selected + '>' + escapeHtml(item?.name || 'Касса') + '</option>';
-      })).join('');
-      if (selectedId) {
-        selectEl.value = selectedId;
-        state.employeeSalaryCashboxId = selectedId;
-      }
-    }
-
-    async function ensureEmployeeSalaryCashboxes() {
-      if (state.cashboxesLoaded && Array.isArray(state.cashboxes) && state.cashboxes.length) {
-        renderEmployeeSalaryCashboxOptions();
-        return;
-      }
-      const data = await api('/api/list_cashboxes?limit=200');
-      state.cashboxes = Array.isArray(data?.cashboxes) ? data.cashboxes : [];
-      state.cashboxesLoaded = true;
-      state.cashboxesReferencesOnly = Boolean(data?.meta?.references_only);
-      renderEmployeeSalaryCashboxOptions();
-    }
-
-    function renderEmployeeSalaryActionDialog() {
-      if (!els.employeeSalaryActionDialog || !els.employeeSalaryActionTitle || !els.employeeSalaryActionConfirmButton) return;
-      const isOpen = String(state.employeeSalaryActionKind || '').trim() === 'salary_payout';
-      els.employeeSalaryActionDialog.hidden = !isOpen;
-      if (!isOpen) return;
-      els.employeeSalaryActionTitle.textContent = employeeSalaryActionLabel('salary_payout');
-      els.employeeSalaryActionConfirmButton.textContent = 'ВЫПЛАТИТЬ';
-      if (els.employeeSalaryAmountInput && !String(els.employeeSalaryAmountInput.value || '').trim()) {
-        els.employeeSalaryAmountInput.value = state.employeeSalaryActionDraft || '';
-      }
-      renderEmployeeSalaryCashboxOptions(els.employeeSalaryCashboxSelect);
-    }
-
-    function renderEmployeeSalaryAdvanceDialog() {
-      if (!els.employeeSalaryAdvanceDialog || !els.employeeSalaryAdvanceTitle || !els.employeeSalaryAdvanceConfirmButton) return;
-      const isOpen = Boolean(state.employeeSalaryAdvanceOpen);
-      els.employeeSalaryAdvanceDialog.hidden = !isOpen;
-      if (!isOpen) return;
-      els.employeeSalaryAdvanceTitle.textContent = 'АВАНС';
-      els.employeeSalaryAdvanceConfirmButton.textContent = 'ВЫДАТЬ АВАНС';
-      if (els.employeeSalaryAdvanceAmountInput && !String(els.employeeSalaryAdvanceAmountInput.value || '').trim()) {
-        els.employeeSalaryAdvanceAmountInput.value = state.employeeSalaryAdvanceDraft || '';
-      }
-      if (els.employeeSalaryAdvanceCommentInput && !String(els.employeeSalaryAdvanceCommentInput.value || '').trim()) {
-        els.employeeSalaryAdvanceCommentInput.value = state.employeeSalaryAdvanceNoteDraft || '';
-      }
-      renderEmployeeSalaryCashboxOptions(els.employeeSalaryAdvanceCashboxSelect);
-    }
-
-    function renderEmployeeSalaryModal() {
-      const employee = selectedEmployeeSalaryRecord();
-      const sheet = state.employeeSalarySheet;
-      if (!els.employeeSalaryModal) return;
-      if (els.employeeSalaryTitle) {
-        els.employeeSalaryTitle.textContent = employee ? String(employee.name || 'СОТРУДНИК').toUpperCase() : 'СОТРУДНИК';
-      }
-      if (els.employeeSalaryBalance) {
-        els.employeeSalaryBalance.textContent = String(sheet?.balance_display || sheet?.balance_total || '0');
-      }
-      if (els.employeeSalaryResetButton) {
-        const canResetBalance = operatorCanResetSalaryBalance();
-        const balanceMinor = Number(sheet?.balance_minor);
-        els.employeeSalaryResetButton.classList.toggle('hidden', !canResetBalance);
-        els.employeeSalaryResetButton.disabled = Boolean(
-          state.employeeSalaryResetPending
-          || !sheet
-          || !Number.isSafeInteger(balanceMinor)
-          || balanceMinor === 0
-        );
-        els.employeeSalaryResetButton.textContent = state.employeeSalaryResetPending
-          ? 'ОБНУЛЕНИЕ...'
-          : 'ОБНУЛИТЬ БАЛАНС';
-      }
-      if (els.employeeSalaryJournalMeta) {
-        const periods = finiteNonNegativeNumber(sheet?.period_months, 6);
-        const rows = finiteNonNegativeNumber(sheet?.journal_total);
-        els.employeeSalaryJournalMeta.textContent = 'ПЕРИОД ' + periods + ' МЕС. · СТРОК ' + rows;
-      }
-      if (els.employeeSalarySummary) {
-        const summaryItems = [
-          { label: 'НАЧИСЛЕНО', value: sheet?.accrued_total_display || sheet?.accrued_total || '0' },
-          { label: 'ВЫПЛАЧЕНО', value: sheet?.payout_total_display || '0' },
-          { label: 'АВАНС', value: sheet?.advance_total_display || '0' },
-          { label: 'БАЛАНС', value: sheet?.balance_display || sheet?.balance_total || '0', accent: true },
-        ];
-        els.employeeSalarySummary.innerHTML = summaryItems.map((item) => {
-          const accentClass = item.accent ? ' employees-kpi--accent' : '';
-          return '<div class="employees-kpi' + accentClass + '"><div class="employees-kpi__label">' + escapeHtml(item.label) + '</div><div class="employees-kpi__value">' + escapeHtml(item.value) + '</div></div>';
-        }).join('');
-      }
-      if (els.employeeSalaryJournalTable) {
-        const rows = Array.isArray(sheet?.journal_rows) ? sheet.journal_rows : [];
-        if (!rows.length) {
-          els.employeeSalaryJournalTable.innerHTML = '<tr><td colspan="7">За выбранный период движений нет.</td></tr>';
-        } else {
-          els.employeeSalaryJournalTable.innerHTML = rows.map((row) => {
-            return '<tr>'
-              + '<td>' + escapeHtml(row.created_at || '-') + '</td>'
-              + '<td>' + escapeHtml(row.kind_label || '-') + '</td>'
-              + '<td>' + escapeHtml(row.repair_order_number || row.source_label || '-') + '</td>'
-              + '<td>' + escapeHtml(row.vehicle || '-') + '</td>'
-              + '<td>' + escapeHtml(row.work_name || '-') + '</td>'
-              + '<td>' + escapeHtml(row.note || '-') + '</td>'
-              + '<td class="is-num">' + escapeHtml(row.amount_display || '0') + '</td>'
-              + '</tr>';
-          }).join('');
-        }
-      }
-      renderEmployeeSalaryActionDialog();
-      renderEmployeeSalaryAdvanceDialog();
-    }
-
-    async function loadEmployeeSalarySheet(employeeId, { openModal = false } = {}) {
-      const requestedId = String(employeeId || '').trim();
-      if (!requestedId) return null;
-      if (String(state.activeEmployeeSalaryId || '').trim() !== requestedId) {
-        closeEmployeeSalaryDialog();
-      }
-      state.activeEmployeeSalaryId = requestedId;
-      const data = await api('/api/get_employee_salary_ledger?employee_id=' + encodeURIComponent(requestedId) + '&months=6');
-      if (String(state.activeEmployeeSalaryId || '').trim() !== requestedId) return data;
-      state.employeeSalarySheet = data || null;
-      renderEmployeeSalaryModal();
-      maybeOpenModal(els.employeeSalaryModal, openModal);
-      return data;
-    }
-
-    async function openEmployeeSalaryDialog(kind) {
-      if (String(kind || '').trim() === 'salary_advance') {
-        await openEmployeeSalaryAdvanceDialog();
-        return;
-      }
-      state.employeeSalaryAdvanceOpen = false;
-      state.employeeSalaryAdvanceDraft = '';
-      state.employeeSalaryAdvanceNoteDraft = '';
-      if (els.employeeSalaryAdvanceAmountInput) els.employeeSalaryAdvanceAmountInput.value = '';
-      if (els.employeeSalaryAdvanceCommentInput) els.employeeSalaryAdvanceCommentInput.value = '';
-      state.employeeSalaryActionKind = String(kind || '').trim();
-      state.employeeSalaryActionDraft = '';
-      if (els.employeeSalaryAmountInput) els.employeeSalaryAmountInput.value = '';
-      try {
-        await ensureEmployeeSalaryCashboxes();
-      } catch (error) {
-        setStatus(error.message, true);
-      }
-      renderEmployeeSalaryModal();
-      if (els.employeeSalaryAmountInput) setTimeout(() => els.employeeSalaryAmountInput.focus(), 0);
-    }
-
-    async function openEmployeeSalaryAdvanceDialog() {
-      state.employeeSalaryActionKind = '';
-      state.employeeSalaryActionDraft = '';
-      if (els.employeeSalaryAmountInput) els.employeeSalaryAmountInput.value = '';
-      state.employeeSalaryAdvanceOpen = true;
-      state.employeeSalaryAdvanceDraft = '';
-      state.employeeSalaryAdvanceNoteDraft = '';
-      if (els.employeeSalaryAdvanceAmountInput) els.employeeSalaryAdvanceAmountInput.value = '';
-      if (els.employeeSalaryAdvanceCommentInput) els.employeeSalaryAdvanceCommentInput.value = '';
-      try {
-        await ensureEmployeeSalaryCashboxes();
-      } catch (error) {
-        setStatus(error.message, true);
-      }
-      renderEmployeeSalaryModal();
-      if (els.employeeSalaryAdvanceAmountInput) {
-        setTimeout(() => els.employeeSalaryAdvanceAmountInput.focus(), 0);
-      }
-    }
-
-    function closeEmployeeSalaryDialog() {
-      state.employeeSalaryActionKind = '';
-      state.employeeSalaryActionDraft = '';
-      if (els.employeeSalaryAmountInput) els.employeeSalaryAmountInput.value = '';
-      state.employeeSalaryAdvanceOpen = false;
-      state.employeeSalaryAdvanceDraft = '';
-      state.employeeSalaryAdvanceNoteDraft = '';
-      if (els.employeeSalaryAdvanceAmountInput) els.employeeSalaryAdvanceAmountInput.value = '';
-      if (els.employeeSalaryAdvanceCommentInput) els.employeeSalaryAdvanceCommentInput.value = '';
-      renderEmployeeSalaryModal();
-    }
-
-    function closeEmployeeSalaryAdvanceDialog() {
-      state.employeeSalaryAdvanceOpen = false;
-      state.employeeSalaryAdvanceDraft = '';
-      state.employeeSalaryAdvanceNoteDraft = '';
-      if (els.employeeSalaryAdvanceAmountInput) els.employeeSalaryAdvanceAmountInput.value = '';
-      if (els.employeeSalaryAdvanceCommentInput) els.employeeSalaryAdvanceCommentInput.value = '';
-      renderEmployeeSalaryModal();
-    }
-
-    function closeEmployeeSalaryModal() {
-      popModal('employeeSalary');
-      state.activeEmployeeSalaryId = '';
-      state.employeeSalarySheet = null;
-      closeEmployeeSalaryDialog();
-    }
-
-    function selectedEmployeeSalaryReportRecord() {
-      return (Array.isArray(state.employees) ? state.employees : []).find((item) => item.id === state.activeEmployeeSalaryReportId) || null;
-    }
-
-    function selectedEmployeeSalaryReconciliationReportRecord() {
-      return (Array.isArray(state.employees) ? state.employees : []).find((item) => item.id === state.activeEmployeeSalaryReconciliationReportId) || null;
-    }
-
-    function currentEmployeeSalaryReportMonth() {
-      const value = String(els.employeesMonthInput?.value || state.payrollMonth || currentPayrollMonthValue()).trim();
-      return /^\d{4}-\d{2}$/.test(value) ? value : currentPayrollMonthValue();
-    }
-
-    function renderEmployeeSalaryReportModal() {
-      const report = state.employeeSalaryReport;
-      const employee = selectedEmployeeSalaryReportRecord();
-      if (!els.employeeSalaryReportModal) return;
-      if (els.employeeSalaryReportTitle) {
-        els.employeeSalaryReportTitle.textContent = employee ? String(employee.name || 'СОТРУДНИК').toUpperCase() : 'СОТРУДНИК';
-      }
-      if (els.employeeSalaryReportMeta) {
-        if (!report) {
-          els.employeeSalaryReportMeta.textContent = 'ЗАГРУЗКА ОТЧЁТА...';
-        } else {
-          const periodLabel = String(report?.period?.label || report?.meta?.month || currentEmployeeSalaryReportMonth()).trim();
-          const orderCount = finiteNonNegativeNumber(report?.totals?.repair_order_count);
-          const workCount = finiteNonNegativeNumber(report?.totals?.work_count);
-          const materialCount = finiteNonNegativeNumber(report?.totals?.material_count);
-          els.employeeSalaryReportMeta.textContent = 'ПЕРИОД: ' + periodLabel + ' · ЗН: ' + String(orderCount) + ' · РАБОТ: ' + String(workCount) + ' · МАТ.: ' + String(materialCount);
-        }
-      }
-      if (els.employeeSalaryReportText) {
-        els.employeeSalaryReportText.textContent = report ? String(report.text || report.markdown || 'ОТЧЁТ ПУСТ.') : 'ЗАГРУЗКА...';
-      }
-    }
-
-    async function loadEmployeeSalaryReport(employeeId, { openModal = false } = {}) {
-      const requestedId = String(employeeId || '').trim();
-      if (!requestedId) return null;
-      const month = currentEmployeeSalaryReportMonth();
-      state.activeEmployeeSalaryReportId = requestedId;
-      state.employeeSalaryReport = null;
-      renderEmployeeSalaryReportModal();
-      maybeOpenModal(els.employeeSalaryReportModal, openModal);
-      const data = await api('/api/get_employee_salary_report?employee_id=' + encodeURIComponent(requestedId) + '&month=' + encodeURIComponent(month));
-      if (String(state.activeEmployeeSalaryReportId || '').trim() !== requestedId) return data;
-      state.employeeSalaryReport = data || null;
-      renderEmployeeSalaryReportModal();
-      return data;
-    }
-
-    function closeEmployeeSalaryReportModal() {
-      popModal('employee-salary-report');
-      state.activeEmployeeSalaryReportId = '';
-      state.employeeSalaryReport = null;
-      renderEmployeeSalaryReportModal();
-    }
-
-    function renderEmployeeSalaryReconciliationPeriodDialog() {
-      const employee = selectedEmployeeSalaryReconciliationReportRecord();
-      if (els.employeeSalaryReconciliationPeriodTitle) {
-        els.employeeSalaryReconciliationPeriodTitle.textContent = employee ? String(employee.name || 'СОТРУДНИК').toUpperCase() : 'СОТРУДНИК';
-      }
-      syncEmployeeSalaryReconciliationPeriodUi();
-    }
-
-    function openEmployeeSalaryReconciliationPeriodDialog(employeeId) {
-      if (!requireEmployeesCashboxesAccess()) return;
-      const requestedId = String(employeeId || '').trim();
-      if (!requestedId) return;
-      state.activeEmployeeSalaryReconciliationReportId = requestedId;
-      renderEmployeeSalaryReconciliationPeriodDialog();
-      pushModal('employee-salary-reconciliation-period', els.employeeSalaryReconciliationPeriodModal);
-      const focusTarget = state.employeeSalaryReconciliationPeriodMode === 'dates'
-        ? els.employeeSalaryReconciliationDateFromInput
-        : els.employeeSalaryReconciliationDaysInput;
-      if (focusTarget instanceof HTMLElement) {
-        window.setTimeout(() => focusTarget.focus({ preventScroll: true }), 0);
-      }
-    }
-
-    function closeEmployeeSalaryReconciliationPeriodDialog() {
-      popModal('employee-salary-reconciliation-period');
-      state.activeEmployeeSalaryReconciliationReportId = '';
-      renderEmployeeSalaryReconciliationPeriodDialog();
-    }
-
-    async function openSelectedEmployeeSalaryReconciliationPrint(event) {
-      if (event?.preventDefault) event.preventDefault();
-      const requestedId = String(state.activeEmployeeSalaryReconciliationReportId || '').trim();
-      if (!requestedId) {
-        setStatus('СНАЧАЛА ВЫБЕРИТЕ СОТРУДНИКА.', true);
-        return;
-      }
-      const opened = await openEmployeeSalaryReport(requestedId);
-      if (opened) closeEmployeeSalaryReconciliationPeriodDialog();
-    }
-
-    async function downloadEmployeeSalaryReport() {
-      const report = state.employeeSalaryReport;
-      if (!report) return;
-      try {
-        const markdown = String(report.markdown || report.text || '').trim();
-        if (!markdown) {
-          setStatus('ОТЧЕТ ПУСТ.', true);
-          return;
-        }
-        const fileName = String(report.file_name || 'employee-accrual-report.md').replace(/\.txt$/i, '.md');
-        const blob = new Blob([markdown + '\n'], { type: 'text/markdown;charset=utf-8' });
-        triggerBlobDownload(blob, fileName);
-        setStatus('ОТЧЁТ СКАЧАН.', false);
-      } catch (error) {
-        setStatus(String(error?.message || 'НЕ УДАЛОСЬ СКАЧАТЬ ОТЧЁТ.'), true);
-      }
-    }
-
-    async function loadEmployeeSalaryReconciliation(employeeId) {
-      const requestedId = String(employeeId || '').trim();
-      if (!requestedId) return null;
-      const path = employeeSalaryReconciliationApiPath(requestedId, { strict: true });
-      if (!path) return null;
-      return await api(path);
-    }
-
-    function employeeSalaryReconciliationText(value, fallback = '-') {
-      const text = String(value ?? '').trim();
-      return text ? text : fallback;
-    }
-
-    function employeeSalaryReconciliationVehicleHtml(row) {
-      const vehicle = employeeSalaryReconciliationText(row?.vehicle, '');
-      const plate = employeeSalaryReconciliationText(row?.license_plate, '');
-      if (vehicle && plate) {
-        return escapeHtml(vehicle) + '<br><span class="muted">госномер: ' + escapeHtml(plate) + '</span>';
-      }
-      return escapeHtml(vehicle || plate || '-');
-    }
-
-    function employeeSalaryReconciliationEmptyText(report) {
-      const label = employeeSalaryReconciliationText(report?.period?.label, '');
-      return label ? ('За период ' + label + ' движений нет.') : 'За выбранный период движений нет.';
-    }
-
-    function employeeSalaryReconciliationRowsHtml(report) {
-      const rows = Array.isArray(report?.rows) ? report.rows : [];
-      if (!rows.length) {
-        return '<tr><td colspan="11" class="empty">' + escapeHtml(employeeSalaryReconciliationEmptyText(report)) + '</td></tr>';
-      }
-      return rows.map((row) => {
-        return '<tr>'
-          + '<td class="is-num">' + escapeHtml(row.number || '') + '</td>'
-          + '<td>' + escapeHtml(employeeSalaryReconciliationText(row.date)) + '</td>'
-          + '<td>' + escapeHtml(employeeSalaryReconciliationText(row.kind_label)) + '</td>'
-          + '<td>' + escapeHtml(employeeSalaryReconciliationText(row.repair_order_number)) + '</td>'
-          + '<td>' + employeeSalaryReconciliationVehicleHtml(row) + '</td>'
-          + '<td>' + escapeHtml(employeeSalaryReconciliationText(row.item)) + '</td>'
-          + '<td>' + escapeHtml(employeeSalaryReconciliationText(row.calculation_base)) + '</td>'
-          + '<td>' + escapeHtml(employeeSalaryReconciliationText(row.scheme)) + '</td>'
-          + '<td class="money">' + escapeHtml(employeeSalaryReconciliationText(row.accrued_display, '')) + '</td>'
-          + '<td class="money">' + escapeHtml(employeeSalaryReconciliationText(row.payment_display, '')) + '</td>'
-          + '<td>' + escapeHtml(employeeSalaryReconciliationText(row.note, '')) + '</td>'
-          + '</tr>';
-      }).join('');
-    }
-
-    function employeeSalaryReconciliationTotalsHtml(report) {
-      const totals = report?.totals || {};
-      const items = [
-        ['Всего начислено', totals.accrued_total_display || totals.accrued_total || '0'],
-        ['Выплачено', totals.payout_total_display || totals.payout_total || '0'],
-        ['Авансы', totals.advance_total_display || totals.advance_total || '0'],
-        ['Корректировка баланса', totals.adjustment_total_display || totals.adjustment_total || '0'],
-        ['Итог к выплате', totals.amount_due_total_display || totals.amount_due_total || '0'],
-      ];
-      return items.map((item) => {
-        return '<div class="summary-item"><span>' + escapeHtml(item[0]) + '</span><strong>' + escapeHtml(item[1]) + '</strong></div>';
-      }).join('');
-    }
-
-    function employeeSalaryReconciliationPrintDate(value) {
-      const raw = employeeSalaryReconciliationText(value, '');
-      if (!raw) return '';
-      try {
-        const date = value instanceof Date ? value : new Date(raw);
-        if (Number.isNaN(date.getTime())) return raw;
-        const dd = String(date.getDate()).padStart(2, '0');
-        const mm = String(date.getMonth() + 1).padStart(2, '0');
-        return dd + '.' + mm + '.' + date.getFullYear();
-      } catch {
-        return raw;
-      }
-    }
-
-    function buildEmployeeSalaryReconciliationPrintHtml(report) {
-      const employee = report?.employee || {};
-      const period = report?.period || {};
-      const title = 'Акт сверки зарплаты';
-      const generatedAt = employeeSalaryReconciliationPrintDate(period.generated_at);
-      return '<!doctype html><html lang="ru"><head><meta charset="utf-8">'
-        + '<title>' + escapeHtml(title) + '</title>'
-        + '<style>'
-        + '@page { size: A4 landscape; margin: 12mm; }'
-        + 'body { margin: 0; color: #111; background: #fff; font: 12px/1.35 "Segoe UI", Arial, sans-serif; }'
-        + '.toolbar { position: sticky; top: 0; display: flex; justify-content: flex-end; gap: 8px; padding: 10px 0; background: #fff; border-bottom: 1px solid #ddd; margin-bottom: 18px; }'
-        + '.print-button { border: 1px solid #111; background: #111; color: #fff; padding: 8px 14px; cursor: pointer; font-weight: 700; letter-spacing: .04em; }'
-        + 'h1 { margin: 0 0 10px; font-size: 22px; line-height: 1.15; }'
-        + '.meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 18px; margin-bottom: 14px; }'
-        + '.meta div, .summary-item { border: 1px solid #d4d4d4; padding: 7px 8px; }'
-        + '.meta span, .summary-item span { display: block; color: #555; font-size: 10px; text-transform: uppercase; }'
-        + '.meta strong, .summary-item strong { display: block; margin-top: 2px; font-size: 13px; }'
-        + '.summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 10px 0 16px; }'
-        + 'table { width: 100%; border-collapse: collapse; table-layout: fixed; }'
-        + 'th, td { border: 1px solid #c9c9c9; padding: 5px 6px; vertical-align: top; word-break: break-word; }'
-        + 'th { background: #efefef; text-align: left; font-size: 10px; text-transform: uppercase; }'
-        + '.is-num, .money { text-align: right; white-space: nowrap; }'
-        + '.muted { color: #555; }'
-        + '.empty { text-align: center; padding: 18px; color: #555; }'
-        + '.signatures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; margin-top: 28px; }'
-        + '.signature { border-top: 1px solid #111; padding-top: 6px; min-height: 34px; }'
-        + '@media print { .toolbar { display: none; } body { font-size: 11px; } th, td { padding: 4px 5px; } }'
-        + '</style></head><body>'
-        + '<div class="toolbar"><button class="print-button" type="button" onclick="window.print()">ПЕЧАТЬ</button></div>'
-        + '<main>'
-        + '<h1>' + escapeHtml(title) + '</h1>'
-        + '<section class="meta">'
-        + '<div><span>Сотрудник</span><strong>' + escapeHtml(employeeSalaryReconciliationText(employee.name, 'Сотрудник')) + '</strong></div>'
-        + '<div><span>Должность</span><strong>' + escapeHtml(employeeSalaryReconciliationText(employee.position, 'Не указана')) + '</strong></div>'
-        + '<div><span>Период</span><strong>' + escapeHtml(employeeSalaryReconciliationText(period.label, 'Последние 30 дней')) + '</strong></div>'
-        + '</section>'
-        + '<section class="summary">' + employeeSalaryReconciliationTotalsHtml(report) + '</section>'
-        + '<table><thead><tr>'
-        + '<th style="width:34px;">№</th><th style="width:84px;">Дата</th><th style="width:76px;">Движение</th><th style="width:58px;">ЗН</th>'
-        + '<th style="width:130px;">Авто / госномер</th><th>Работа / позиция</th><th style="width:120px;">База расчета</th>'
-        + '<th style="width:105px;">Схема</th><th style="width:92px;">Начислено</th><th style="width:98px;">Выплата / аванс</th><th>Примечание</th>'
-        + '</tr></thead><tbody>' + employeeSalaryReconciliationRowsHtml(report) + '</tbody></table>'
-        + '<section class="signatures">'
-        + '<div class="signature">Бухгалтер</div>'
-        + '<div class="signature">Сотрудник</div>'
-        + '<div class="signature">Дата' + (generatedAt ? ': ' + escapeHtml(generatedAt) : '') + '</div>'
-        + '</section>'
-        + '</main></body></html>';
-    }
-
-    function createEmployeeSalaryReconciliationPrintWindow() {
-      const printWindow = window.open('', '_blank', 'width=1200,height=800');
-      if (!printWindow) {
-        setStatus('БРАУЗЕР ЗАБЛОКИРОВАЛ ПЕЧАТНОЕ ОКНО.', true);
-        return null;
-      }
-      printWindow.document.open();
-      printWindow.document.write(
-        '<!doctype html><html lang="ru"><head><meta charset="utf-8">'
-        + '<title>Акт сверки зарплаты</title>'
-        + '<style>body{margin:32px;color:#111;background:#fff;font:14px/1.45 "Segoe UI",Arial,sans-serif;}</style>'
-        + '</head><body><h1>Загрузка акта сверки зарплаты...</h1></body></html>'
-      );
-      printWindow.document.close();
-      printWindow.focus();
-      return printWindow;
-    }
-
-    function openEmployeeSalaryReconciliationPrint(report, printWindow = null) {
-      const html = buildEmployeeSalaryReconciliationPrintHtml(report || {});
-      const targetWindow = printWindow || createEmployeeSalaryReconciliationPrintWindow();
-      if (!targetWindow) {
-        setStatus('БРАУЗЕР ЗАБЛОКИРОВАЛ ПЕЧАТНОЕ ОКНО.', true);
-        return false;
-      }
-      targetWindow.document.open();
-      targetWindow.document.write(html);
-      targetWindow.document.close();
-      targetWindow.focus();
-      return true;
-    }
-
-    async function openEmployeeSalaryModal(employeeId) {
-      if (!requireEmployeesCashboxesAccess()) return;
-      const requestedId = String(employeeId || '').trim();
-      if (!requestedId) return;
-      if (!confirmDiscardEmployeeChanges()) return;
-      try {
-        await loadEmployeeSalarySheet(requestedId, { openModal: true });
-      } catch (error) {
-        setStatus(error.message, true);
-      }
-    }
-
-    async function openEmployeeSalaryReport(employeeId) {
-      const requestedId = String(employeeId || '').trim();
-      if (!requestedId) return false;
-      if (!employeeSalaryReconciliationApiPath(requestedId, { strict: true })) return false;
-      const printWindow = createEmployeeSalaryReconciliationPrintWindow();
-      if (!printWindow) return false;
-      try {
-        const report = await loadEmployeeSalaryReconciliation(requestedId);
-        if (openEmployeeSalaryReconciliationPrint(report, printWindow)) {
-          setStatus('АКТ СВЕРКИ ЗАРПЛАТЫ ОТКРЫТ.', false);
-          return true;
-        }
-      } catch (error) {
-        try {
-          printWindow.close();
-        } catch (_) {
-        }
-        setStatus(error.message, true);
-      }
-      return false;
-    }
-
-    function createEmployeeSalaryResetIdempotencyKey() {
-      if (typeof window.crypto?.randomUUID === 'function') {
-        return 'salary-balance-reset-' + window.crypto.randomUUID();
-      }
-      return 'salary-balance-reset-' + Date.now() + '-' + Math.random().toString(16).slice(2);
-    }
-
-    function employeeSalaryResetIntent(employeeId, balanceMinor, balanceRevision) {
-      const existing = state.employeeSalaryResetIntent;
-      if (
-        existing
-        && existing.employeeId === employeeId
-        && existing.balanceMinor === balanceMinor
-        && existing.balanceRevision === balanceRevision
-      ) return existing;
-      const intent = {
-        employeeId,
-        balanceMinor,
-        balanceRevision,
-        idempotencyKey: createEmployeeSalaryResetIdempotencyKey(),
-      };
-      state.employeeSalaryResetIntent = intent;
-      return intent;
-    }
-
-    async function handleEmployeeSalaryReset() {
-      if (state.employeeSalaryResetPending) return;
-      if (!operatorCanResetSalaryBalance()) {
-        setStatus('НЕТ ПРАВА НА ОБНУЛЕНИЕ ЗАРПЛАТНОГО БАЛАНСА.', true);
-        return;
-      }
-      const employeeId = String(state.activeEmployeeSalaryId || '').trim();
-      const employee = selectedEmployeeSalaryRecord();
-      const sheet = state.employeeSalarySheet;
-      const balanceMinor = Number(sheet?.balance_minor);
-      const balanceRevision = String(sheet?.balance_revision || '').trim();
-      if (!employeeId || !employee || !Number.isSafeInteger(balanceMinor) || !balanceRevision) {
-        setStatus('ОБНОВИТЕ ЗАРПЛАТНЫЙ ЛИСТ И ПОВТОРИТЕ.', true);
-        return;
-      }
-      if (balanceMinor === 0) {
-        state.employeeSalaryResetIntent = null;
-        setStatus('БАЛАНС УЖЕ РАВЕН НУЛЮ.', false);
-        return;
-      }
-
-      state.employeeSalaryResetPending = true;
-      renderEmployeeSalaryModal();
-      const employeeName = String(employee.name || 'СОТРУДНИК');
-      const balanceDisplay = String(sheet?.balance_display || sheet?.balance_total || balanceMinor);
-      const confirmed = window.confirm(
-        'Обнулить зарплатный баланс сотрудника «' + employeeName + '»?\n\n'
-        + 'Текущий баланс: ' + balanceDisplay + '.\n'
-        + 'Будет записана некассовая корректировка «ОБНУЛЕНИЕ БАЛАНСА». История выплат сохранится.'
-      );
-      if (!confirmed) {
-        state.employeeSalaryResetPending = false;
-        renderEmployeeSalaryModal();
-        return;
-      }
-
-      const intent = employeeSalaryResetIntent(employeeId, balanceMinor, balanceRevision);
-      try {
-        const data = await api('/api/reset_employee_salary_balance', {
-          method: 'POST',
-          body: {
-            employee_id: employeeId,
-            expected_balance_minor: balanceMinor,
-            expected_balance_revision: balanceRevision,
-            idempotency_key: intent.idempotencyKey,
-            source: 'ui',
-          },
-        });
-        state.employeeSalaryResetIntent = null;
-        state.employeeSalarySheet = data?.ledger || null;
-        renderEmployeeSalaryModal();
-        state.employeesLoadedMonth = '';
-        await loadEmployeesReference();
-        await loadPayrollReport();
-        renderEmployeesWorkspace();
-        setStatus(data?.meta?.replayed ? 'ОБНУЛЕНИЕ УЖЕ БЫЛО ПРИМЕНЕНО.' : 'БАЛАНС ОБНУЛЁН.', false);
-      } catch (error) {
-        if (
-          error?.code === 'salary_balance_reset_conflict'
-          || error?.code === 'salary_balance_reset_idempotency_conflict'
-        ) {
-          state.employeeSalaryResetIntent = null;
-          try {
-            await loadEmployeeSalarySheet(employeeId, { openModal: true });
-            setStatus(
-              error?.code === 'salary_balance_reset_conflict'
-                ? 'БАЛАНС ИЗМЕНИЛСЯ. ПРОВЕРЬТЕ НОВУЮ СУММУ И ПОДТВЕРДИТЕ ЕЩЁ РАЗ.'
-                : 'КЛЮЧ ЗАПРОСА УЖЕ ИСПОЛЬЗОВАН. ПРОВЕРЬТЕ СУММУ И ПОДТВЕРДИТЕ ЕЩЁ РАЗ.',
-              true,
-            );
-          } catch (refreshError) {
-            setStatus(refreshError.message, true);
-          }
-        } else {
-          setStatus(error.message, true);
-        }
-      } finally {
-        state.employeeSalaryResetPending = false;
-        renderEmployeeSalaryModal();
-      }
-    }
-
-    async function handleEmployeeSalaryActionConfirm() {
-      const employeeId = String(state.activeEmployeeSalaryId || '').trim();
-      const kind = String(state.employeeSalaryActionKind || '').trim();
-      const amount = String(els.employeeSalaryAmountInput?.value || '').trim();
-      if (!employeeId || !kind) {
-        setStatus('СНАЧАЛА ВЫБЕРИТЕ СОТРУДНИКА.', true);
-        return;
-      }
-      if (!amount) {
-        setStatus('УКАЖИТЕ СУММУ.', true);
-        return;
-      }
-      const cashboxId = String(els.employeeSalaryCashboxSelect?.value || state.employeeSalaryCashboxId || '').trim();
-      if (!cashboxId) {
-        setStatus('ВЫБЕРИТЕ КАССУ ДЛЯ СПИСАНИЯ.', true);
-        els.employeeSalaryCashboxSelect?.focus();
-        return;
-      }
-      try {
-        if (els.employeeSalaryActionConfirmButton) els.employeeSalaryActionConfirmButton.disabled = true;
-        await api('/api/create_employee_salary_transaction', {
-          method: 'POST',
-          body: {
-            employee_id: employeeId,
-            transaction_kind: kind,
-            amount,
-            cashbox_id: cashboxId,
-            actor_name: state.actor,
-            source: 'ui',
-          },
-        });
-        state.employeeSalaryCashboxId = cashboxId;
-        state.employeeSalaryActionDraft = '';
-        closeEmployeeSalaryDialog();
-        await loadEmployeeSalarySheet(employeeId, { openModal: true });
-        state.employeesLoadedMonth = '';
-        await loadEmployeesReference();
-        await loadPayrollReport();
-        renderEmployeesWorkspace();
-        await refreshCashboxesAfterMoneyMutation({ deferDetail: true });
-        setStatus(kind === 'salary_advance' ? 'АВАНС ВЫДАН.' : 'ЗАРПЛАТА ВЫПЛАЧЕНА.', false);
-      } catch (error) {
-        setStatus(error.message, true);
-      } finally {
-        if (els.employeeSalaryActionConfirmButton) els.employeeSalaryActionConfirmButton.disabled = false;
-      }
-    }
-
-    async function handleEmployeeSalaryAdvanceConfirm() {
-      const employeeId = String(state.activeEmployeeSalaryId || '').trim();
-      const amount = String(els.employeeSalaryAdvanceAmountInput?.value || '').trim();
-      const comment = String(els.employeeSalaryAdvanceCommentInput?.value || '').trim();
-      if (!employeeId) {
-        setStatus('СНАЧАЛА ВЫБЕРИТЕ СОТРУДНИКА.', true);
-        return;
-      }
-      if (!amount) {
-        setStatus('УКАЖИТЕ СУММУ.', true);
-        return;
-      }
-      const cashboxId = String(els.employeeSalaryAdvanceCashboxSelect?.value || state.employeeSalaryCashboxId || '').trim();
-      if (!cashboxId) {
-        setStatus('ВЫБЕРИТЕ КАССУ ДЛЯ СПИСАНИЯ.', true);
-        els.employeeSalaryAdvanceCashboxSelect?.focus();
-        return;
-      }
-      try {
-        if (els.employeeSalaryAdvanceConfirmButton) els.employeeSalaryAdvanceConfirmButton.disabled = true;
-        await api('/api/create_employee_salary_transaction', {
-          method: 'POST',
-          body: {
-            employee_id: employeeId,
-            transaction_kind: 'salary_advance',
-            amount,
-            cashbox_id: cashboxId,
-            note: comment ? ('Аванс: ' + comment) : '',
-            actor_name: state.actor,
-            source: 'ui',
-          },
-        });
-        state.employeeSalaryCashboxId = cashboxId;
-        state.employeeSalaryAdvanceDraft = '';
-        state.employeeSalaryAdvanceNoteDraft = '';
-        closeEmployeeSalaryAdvanceDialog();
-        await loadEmployeeSalarySheet(employeeId, { openModal: true });
-        state.employeesLoadedMonth = '';
-        await loadEmployeesReference();
-        await loadPayrollReport();
-        renderEmployeesWorkspace();
-        await refreshCashboxesAfterMoneyMutation({ deferDetail: true });
-        setStatus('АВАНС ВЫДАН.', false);
-      } catch (error) {
-        setStatus(error.message, true);
-      } finally {
-        if (els.employeeSalaryAdvanceConfirmButton) els.employeeSalaryAdvanceConfirmButton.disabled = false;
-      }
-    }
-
-    async function handleEmployeeShiftAccrualConfirm() {
-      const employeeId = String(state.activeEmployeeId || '').trim();
-      const amount = String(els.employeeShiftAccrualAmountInput?.value || '').trim();
-      if (!employeeId || state.employeeCreateMode) {
-        setStatus('СНАЧАЛА ВЫБЕРИТЕ СОТРУДНИКА.', true);
-        return;
-      }
-      if (employeeFormHasUnsavedChanges()) {
-        setStatus('СНАЧАЛА СОХРАНИТЕ ИЗМЕНЕНИЯ СОТРУДНИКА.', true);
-        return;
-      }
-      if (!amount) {
-        setStatus('УКАЖИТЕ СУММУ.', true);
-        els.employeeShiftAccrualAmountInput?.focus();
-        return;
-      }
-      try {
-        if (els.employeeShiftAccrualConfirmButton) els.employeeShiftAccrualConfirmButton.disabled = true;
-        await api('/api/create_employee_shift_accrual', {
-          method: 'POST',
-          body: {
-            employee_id: employeeId,
-            amount,
-            note: 'Выплата за смены за текущую неделю',
-            actor_name: state.actor,
-            source: 'ui',
-          },
-        });
-        closeEmployeeShiftAccrualDialog();
-        state.employeesLoadedMonth = '';
-        await loadEmployeesReference();
-        renderEmployeesWorkspace();
-        try {
-          await loadPayrollReport();
-          renderEmployeesWorkspace();
-        } catch (reportError) {
-          setStatus(reportError.message, true);
-        }
-        if (String(state.activeEmployeeSalaryId || '') === employeeId) {
-          await loadEmployeeSalarySheet(employeeId, { openModal: true });
-        }
-        setStatus('ВЫПЛАТА ЗА СМЕНЫ НАЧИСЛЕНА.', false);
-      } catch (error) {
-        setStatus(error.message, true);
-      } finally {
-        if (els.employeeShiftAccrualConfirmButton) els.employeeShiftAccrualConfirmButton.disabled = false;
-      }
-    }
-
-    function renderEmployeesWorkspace() {
-      syncEmployeesReadOnlyWorkspaceUi();
-      if (operatorHasEmployeesReadOnlyAccess()) {
-        state.employeeCreateMode = false;
-        state.employeesReportDetailsOpen = false;
-        state.employeeFormBaseline = null;
-        state.employeeShiftAccrualOpen = false;
-        state.employeeShiftAccrualDraft = '';
-        renderEmployeesList();
-        return;
-      }
-      const employees = Array.isArray(state.employees) ? state.employees : [];
-      if (!state.employeeCreateMode && !state.activeEmployeeId && employees.length) {
-        state.activeEmployeeId = employees[0].id;
-      }
-      if (state.activeEmployeeId && !employees.some((item) => item.id === state.activeEmployeeId)) {
-        state.activeEmployeeId = employees[0]?.id || '';
-      }
-      if (!employees.length) {
-        state.activeEmployeeId = '';
-        state.employeeCreateMode = true;
-      }
-      if (els.employeesMonthInput) {
-        els.employeesMonthInput.value = state.payrollMonth || currentPayrollMonthValue();
-      }
-      syncEmployeeSalaryReconciliationPeriodUi();
-      fillEmployeeForm(state.employeeCreateMode ? null : selectedEmployeeRecord());
-      renderEmployeesList();
-      renderEmployeesDetails();
-      syncEmployeesReportPanelUi();
-      renderEmployeeShiftAccrualDialog();
-    }
-
-    function applyEmployeesReferenceData(data, month) {
-      state.employees = Array.isArray(data?.employees) ? data.employees : [];
-      state.employeesLoadedMonth = month;
-      if (!state.employeeCreateMode && !state.activeEmployeeId && state.employees.length) {
-        state.activeEmployeeId = state.employees[0].id;
-      }
-      if (!state.employees.length) {
-        state.employeeCreateMode = true;
-      }
-    }
-
-    async function loadEmployeesReference({ month: requestedMonth = '', apply = true } = {}) {
-      const viewerStateGeneration = state.viewerStateGeneration;
-      const accessRevision = state.employeesCashboxesAccessRevision;
-      const month = String(requestedMonth || state.payrollMonth || currentPayrollMonthValue()).trim();
-      if (state.employeesLoadedMonth === month && Array.isArray(state.employees)) {
-        return { employees: state.employees, meta: { cached: true, month } };
-      }
-      let request = null;
-      if (
-        state.employeesReferencePromise
-        && state.employeesReferencePromise.month === month
-        && state.employeesReferencePromise.viewerStateGeneration === viewerStateGeneration
-      ) {
-        request = state.employeesReferencePromise.promise;
-      } else {
-        request = api('/api/list_employees?month=' + encodeURIComponent(month))
-          .finally(() => {
-            if (state.employeesReferencePromise?.promise === request) {
-              state.employeesReferencePromise = null;
-            }
-          });
-        state.employeesReferencePromise = { month, viewerStateGeneration, promise: request };
-      }
-      const data = await request;
-      if (
-        viewerStateGeneration !== state.viewerStateGeneration
-        || accessRevision !== state.employeesCashboxesAccessRevision
-      ) return data;
-      const activeMonth = state.payrollMonth || currentPayrollMonthValue();
-      if (apply && month === activeMonth) applyEmployeesReferenceData(data, month);
-      return data;
-    }
-
-    async function loadPayrollReport({ month: requestedMonth = '', apply = true } = {}) {
-      const viewerStateGeneration = state.viewerStateGeneration;
-      const month = String(requestedMonth || state.payrollMonth || currentPayrollMonthValue()).trim();
-      const report = await api('/api/get_payroll_report?month=' + encodeURIComponent(month));
-      if (viewerStateGeneration !== state.viewerStateGeneration) return report;
-      const activeMonth = state.payrollMonth || currentPayrollMonthValue();
-      if (apply && month === activeMonth) {
-        state.payrollReport = report;
-        state.payrollReportMonth = month;
-      }
-      return report;
-    }
-
-    async function loadEmployeesWorkspaceData(month) {
-      const viewerStateGeneration = state.viewerStateGeneration;
-      const requestedMonth = String(month || state.payrollMonth || currentPayrollMonthValue()).trim();
-      state.payrollMonth = requestedMonth;
-      const loadGeneration = state.employeesWorkspaceLoadGeneration + 1;
-      state.employeesWorkspaceLoadGeneration = loadGeneration;
-      if (!operatorCanAccessEmployeesCashboxes()) {
-        const employeesData = await loadEmployeesReference({ month: requestedMonth, apply: false });
-        const isCurrent = viewerStateGeneration === state.viewerStateGeneration
-          && loadGeneration === state.employeesWorkspaceLoadGeneration
-          && requestedMonth === state.payrollMonth;
-        if (!isCurrent) return { applied: false, generation: loadGeneration, month: requestedMonth };
-        applyEmployeesReferenceData(employeesData, requestedMonth);
-        state.payrollReport = null;
-        state.payrollReportMonth = '';
-        return { applied: true, generation: loadGeneration, month: requestedMonth };
-      }
-      let employeesData;
-      let payrollReport;
-      try {
-        [employeesData, payrollReport] = await Promise.all([
-          loadEmployeesReference({ month: requestedMonth, apply: false }),
-          loadPayrollReport({ month: requestedMonth, apply: false }),
-        ]);
-      } catch (error) {
-        const isStale = viewerStateGeneration !== state.viewerStateGeneration
-          || loadGeneration !== state.employeesWorkspaceLoadGeneration
-          || requestedMonth !== state.payrollMonth;
-        if (isStale) return { applied: false, generation: loadGeneration, month: requestedMonth };
-        throw error;
-      }
-      const isCurrent = viewerStateGeneration === state.viewerStateGeneration
-        && loadGeneration === state.employeesWorkspaceLoadGeneration
-        && requestedMonth === state.payrollMonth;
-      if (!isCurrent) return { applied: false, generation: loadGeneration, month: requestedMonth };
-      applyEmployeesReferenceData(employeesData, requestedMonth);
-      state.payrollReport = payrollReport;
-      state.payrollReportMonth = requestedMonth;
-      return { applied: true, generation: loadGeneration, month: requestedMonth };
-    }
-
-    function refreshRepairOrderEmployeeSelects() {
-      if (!els.repairOrderModal?.classList.contains('is-open')) return;
-      renderRepairOrderRows('works', readRepairOrderRows('works'));
-    }
-
-    async function loadEmployeesWorkspace(openModal = false) {
-      const month = els.employeesMonthInput?.value || state.payrollMonth || currentPayrollMonthValue();
-      const loadResult = await loadEmployeesWorkspaceData(month);
-      if (!loadResult.applied) return loadResult;
-      renderEmployeesWorkspace();
-      refreshRepairOrderEmployeeSelects();
-      if (openModal) {
-        pushModal('employees', els.employeesModal);
-        els.employeesModal.scrollTop = 0;
-        const dialog = els.employeesModal.querySelector('.dialog');
-        if (dialog instanceof HTMLElement) {
-          dialog.scrollTop = 0;
-          dialog.scrollLeft = 0;
-        }
-        const closeButton = els.employeesModal.querySelector('[data-close="employees"]');
-        if (closeButton instanceof HTMLElement) {
-          closeButton.focus({ preventScroll: true });
-        }
-      }
-      return loadResult;
-    }
-
-    async function addEmployeeFromForm() {
-      if (!requireEmployeesCashboxesAccess()) return;
-      if (state.employeeCreateMode && employeeFormHasUnsavedChanges()) {
-        await saveEmployee();
-        return;
-      }
-      if (!confirmDiscardEmployeeChanges()) return;
-      state.employeeCreateMode = true;
-      state.activeEmployeeId = '';
-      state.employeesReportDetailsOpen = false;
-      state.employeeShiftAccrualOpen = false;
-      state.employeeShiftAccrualDraft = '';
-      renderEmployeesWorkspace();
-      setStatus('ЗАПОЛНИТЕ НОВОГО СОТРУДНИКА И НАЖМИТЕ ДОБАВИТЬ.', false);
-      if (els.employeeNameInput) {
-        setTimeout(() => els.employeeNameInput.focus(), 0);
-      }
-    }
-
-    function openEmployeesModal() {
-      if (!requireEmployeesViewAccess()) return;
-      ensureEmployeesUi();
-      hydrateEmployeesUiRefs();
-      bindEmployeesUiEvents();
-      state.employeesReportDetailsOpen = false;
-      if (els.employeesMonthInput && !els.employeesMonthInput.value) {
-        els.employeesMonthInput.value = state.payrollMonth || currentPayrollMonthValue();
-      }
-      if (document.activeElement instanceof HTMLElement) {
-        document.activeElement.blur();
-      }
-      els.employeesModal.scrollTop = 0;
-      const dialog = els.employeesModal.querySelector('.dialog');
-      if (dialog instanceof HTMLElement) {
-        dialog.scrollTop = 0;
-        dialog.scrollLeft = 0;
-      }
-      loadEmployeesWorkspace(true).catch((error) => setStatus(error.message, true));
-    }
-
-    async function saveEmployee() {
-      if (!requireEmployeesCashboxesAccess()) return;
-      const employeeName = employeeCombinedNameFromForm();
-      if (!employeeName) {
-        if (els.employeeNameInput) els.employeeNameInput.focus();
-        setStatus('УКАЖИ ИМЯ СОТРУДНИКА.', true);
-        return;
-      }
-      try {
-        const data = await api('/api/save_employee', { method: 'POST', body: readEmployeeFormPayload() });
-      state.employees = Array.isArray(data?.employees) ? data.employees : [];
-      state.employeesLoadedMonth = state.payrollMonth || currentPayrollMonthValue();
-      state.employeeCreateMode = false;
-      state.activeEmployeeId = data?.employee?.id || state.activeEmployeeId;
-        await loadPayrollReport();
-        if (String(state.activeEmployeeSalaryId || '') === String(data?.employee?.id || '')) {
-          await loadEmployeeSalarySheet(state.activeEmployeeSalaryId, { openModal: true });
-        }
-        renderEmployeesWorkspace();
-        refreshRepairOrderEmployeeSelects();
-        setStatus(data?.created ? 'СОТРУДНИК ДОБАВЛЕН.' : 'СОТРУДНИК СОХРАНЕН.', false);
-      } catch (error) {
-        setStatus(error.message, true);
-      }
-    }
-
-    async function deleteEmployee() {
-      if (!requireEmployeesCashboxesAccess()) return;
-      const employee = selectedEmployeeRecord();
-      if (!employee) {
-        setStatus('ВЫБЕРИ СОТРУДНИКА ДЛЯ УДАЛЕНИЯ.', true);
-        return;
-      }
-      if (!confirmDiscardEmployeeChanges()) return;
-      if (!window.confirm('Удалить сотрудника "' + String(employee.name || 'Сотрудник') + '"?')) return;
-      try {
-        const data = await api('/api/delete_employee', {
-          method: 'POST',
-          body: {
-            employee_id: employee.id,
-            actor_name: state.actor,
-            source: 'ui',
-          },
-        });
-        state.employees = Array.isArray(data?.employees) ? data.employees : [];
-        state.employeesLoadedMonth = state.payrollMonth || currentPayrollMonthValue();
-        if (String(state.activeEmployeeId || '') === String(employee.id || '')) {
-          state.activeEmployeeId = '';
-        }
-        state.employeesReportDetailsOpen = false;
-        state.employeeShiftAccrualOpen = false;
-        state.employeeShiftAccrualDraft = '';
-        state.employeeCreateMode = !state.employees.length;
-        await loadPayrollReport();
-        if (String(state.activeEmployeeSalaryId || '') === String(employee.id || '')) {
-          state.activeEmployeeSalaryId = '';
-          state.employeeSalarySheet = null;
-          closeEmployeeSalaryModal();
-        }
-        if (String(state.activeEmployeeSalaryReportId || '') === String(employee.id || '')) {
-          closeEmployeeSalaryReportModal();
-        }
-        renderEmployeesWorkspace();
-        refreshRepairOrderEmployeeSelects();
-        setStatus('СОТРУДНИК УДАЛЕН.', false);
-      } catch (error) {
-        setStatus(error.message, true);
-      }
-    }
-
-    async function handleEmployeesMonthChange() {
-      if (!confirmDiscardEmployeeChanges()) {
-        if (els.employeesMonthInput) {
-          els.employeesMonthInput.value = state.payrollMonth || currentPayrollMonthValue();
-        }
-        return;
-      }
-      try {
-        await loadEmployeesWorkspace(false);
-      } catch (error) {
-        setStatus(error.message, true);
-      }
-    }
-
-    function handleEmployeesListClick(event) {
-      if (operatorHasEmployeesReadOnlyAccess()) return;
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      const salaryButton = target.closest('[data-employee-salary]');
-      if (salaryButton instanceof HTMLElement) {
-        const employeeId = String(salaryButton.dataset.employeeSalary || '').trim();
-        if (!employeeId) return;
-        openEmployeeSalaryModal(employeeId);
-        return;
-      }
-      const reportButton = target.closest('[data-employee-report]');
-      if (reportButton instanceof HTMLElement) {
-        event.preventDefault();
-        const employeeId = String(reportButton.dataset.employeeReport || '').trim();
-        if (!employeeId) return;
-        openEmployeeSalaryReconciliationPeriodDialog(employeeId);
-        return;
-      }
-      const row = target.closest('[data-employee-id]');
-      if (!(row instanceof HTMLElement)) return;
-      const nextEmployeeId = String(row.dataset.employeeId || '').trim();
-      if (!nextEmployeeId) return;
-      if (!confirmDiscardEmployeeChanges()) return;
-      state.employeeCreateMode = false;
-      state.activeEmployeeId = nextEmployeeId;
-      state.employeesReportDetailsOpen = true;
-      state.employeeShiftAccrualOpen = false;
-      state.employeeShiftAccrualDraft = '';
-      renderEmployeesWorkspace();
-    }
-
-    function handleEmployeesModalFormInput(event) {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      if (target.closest('#employeeSalaryReconciliationPeriod')) return;
-      if (target === els.employeeShiftAccrualAmountInput) {
-        state.employeeShiftAccrualDraft = String(els.employeeShiftAccrualAmountInput.value || '').trim();
-        return;
-      }
-      const incentiveInput = target.closest('[data-employee-incentive-value]');
-      if (incentiveInput instanceof HTMLInputElement) {
-        const kind = String(incentiveInput.dataset.employeeIncentiveValue || '').trim();
-        setEmployeeIncentiveFieldValue(kind, incentiveInput.value);
-        syncEmployeeSalaryModeFromIncentives();
-        renderEmployeeProfileMeta();
-        renderEmployeeShiftAccrualDialog();
-        return;
-      }
-      if (target === els.employeeSalaryModeInput) {
-        syncEmployeeSalaryModeUi();
-        renderEmployeeShiftAccrualDialog();
-        return;
-      }
-      if (
-        target === els.employeeNameInput
-        || target === els.employeeMiddleNameInput
-        || target === els.employeePositionInput
-        || target === els.employeeBaseSalaryInput
-        || target === els.employeeWorkPercentInput
-        || target === els.employeeMaterialPercentInput
-        || target === els.employeeRepairOrderPercentInput
-      ) {
-        renderEmployeeProfileMeta();
-        renderEmployeeShiftAccrualDialog();
-      }
-    }
-
-    function handleEmployeesModalKeydown(event) {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      if (target === els.employeeShiftAccrualAmountInput && event.key === 'Enter') {
-        event.preventDefault();
-        handleEmployeeShiftAccrualConfirm();
-      }
-    }
-
-    function handleEmployeeSalaryModalInput(event) {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      if (target === els.employeeSalaryAmountInput) {
-        state.employeeSalaryActionDraft = String(els.employeeSalaryAmountInput.value || '').trim();
-        return;
-      }
-      if (target === els.employeeSalaryAdvanceAmountInput) {
-        state.employeeSalaryAdvanceDraft = String(els.employeeSalaryAdvanceAmountInput.value || '').trim();
-        return;
-      }
-      if (target === els.employeeSalaryAdvanceCommentInput) {
-        state.employeeSalaryAdvanceNoteDraft = String(els.employeeSalaryAdvanceCommentInput.value || '').trim();
-        return;
-      }
-      if (target === els.employeeSalaryCashboxSelect) {
-        state.employeeSalaryCashboxId = String(els.employeeSalaryCashboxSelect.value || '').trim();
-        return;
-      }
-      if (target === els.employeeSalaryAdvanceCashboxSelect) {
-        state.employeeSalaryCashboxId = String(els.employeeSalaryAdvanceCashboxSelect.value || '').trim();
-      }
-    }
-
-    function handleEmployeeSalaryModalKeydown(event) {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      if (target === els.employeeSalaryAmountInput && event.key === 'Enter') {
-        event.preventDefault();
-        handleEmployeeSalaryActionConfirm();
-        return;
-      }
-      if (
-        (target === els.employeeSalaryAdvanceAmountInput || target === els.employeeSalaryAdvanceCommentInput)
-        && event.key === 'Enter'
-      ) {
-        event.preventDefault();
-        handleEmployeeSalaryAdvanceConfirm();
-      }
-    }
-
-    function handleEmployeeSalaryActionButtonsClick(event) {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      if (target === els.employeeSalaryResetButton) {
-        handleEmployeeSalaryReset();
-        return;
-      }
-      if (target === els.employeeSalaryPayoutButton) {
-        openEmployeeSalaryDialog('salary_payout');
-        return;
-      }
-      if (target === els.employeeSalaryAdvanceButton) {
-        openEmployeeSalaryAdvanceDialog();
-        return;
-      }
-      if (target === els.employeeSalaryActionCancelButton) {
-        closeEmployeeSalaryDialog();
-        return;
-      }
-      if (target === els.employeeSalaryActionConfirmButton) {
-        handleEmployeeSalaryActionConfirm();
-        return;
-      }
-      if (target === els.employeeSalaryAdvanceCancelButton) {
-        closeEmployeeSalaryAdvanceDialog();
-        return;
-      }
-      if (target === els.employeeSalaryAdvanceConfirmButton) {
-        handleEmployeeSalaryAdvanceConfirm();
-      }
-    }
-
-    async function handleEmployeesDetailClick(event) {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      const row = target.closest('[data-card-id]');
-      if (!(row instanceof HTMLElement)) return;
-      const cardId = String(row.dataset.cardId || '').trim();
-      if (!cardId) return;
-      if (!confirmDiscardEmployeeChanges()) return;
-      try {
-        const shouldOpenRepairOrder = String(row.dataset.openRepairOrder || '') === '1';
-        if (shouldOpenRepairOrder) {
-          await openRepairOrderCard(cardId, { parentLayer: 'employees' });
-        } else {
-          await openCardWorkspace(cardId, { openCardModalEl: true });
-        }
-      } catch (error) {
-        setStatus(error.message, true);
-      }
-    }
+    // @include payroll_workspace.js
 
     async function runFullCardEnrichment() {
       if (!requireOperatorSession()) return;
@@ -8016,6 +5705,7 @@
       const snapshot = state.snapshot || {};
       const columns = Array.isArray(snapshot.columns) ? snapshot.columns : [];
       const cards = Array.isArray(snapshot.cards) ? snapshot.cards : [];
+      const cardsByColumn = buildBoardCardsByColumn(snapshot);
       if (!columns.length) {
         els.mobileBoardColumns.innerHTML = '<div class="mobile-empty">ДОСКА ЗАГРУЖАЕТСЯ...</div>';
         return;
@@ -8032,7 +5722,7 @@
         const isPersonalExtraColumn = Boolean(column?.is_personal_extra_column);
         const columnCards = isPersonalExtraColumn
           ? extraBoardColumnCards(snapshot)
-          : cards.filter((card) => String(card?.column || '') === columnId);
+          : (cardsByColumn.get(columnId) || []);
         const expanded = mobileColumnIsExpanded(columnId);
         const previewCards = expanded ? columnCards : columnCards.slice(0, 4);
         const hiddenCount = Math.max(0, columnCards.length - previewCards.length);
@@ -8890,29 +6580,42 @@
       if (els.clientsSearchInput) els.clientsSearchInput.value = query;
       state.mobileClientsLoading = true;
       renderMobileClientsPanel();
+      const viewerStateGeneration = state.viewerStateGeneration;
+      const pending = loadClients({ openModal: false });
+      const requestSeq = state.clientsRequestSeq;
       try {
-        await loadClients({ openModal: false });
+        await pending;
       } finally {
-        state.mobileClientsLoading = false;
-        renderMobileClientsPanel();
+        if (state.viewerStateGeneration === viewerStateGeneration && state.clientsRequestSeq === requestSeq) {
+          state.mobileClientsLoading = false;
+          renderMobileClientsPanel();
+        }
       }
     }
 
     async function loadMobileClientProfile(clientId) {
       const normalizedId = String(clientId || '').trim();
       if (!normalizedId) return;
+      state.clientsActiveProfile = null;
+      const requestSeq = (state.clientsProfileRequestSeq || 0) + 1;
+      state.clientsProfileRequestSeq = requestSeq;
       state.clientsActiveId = normalizedId;
+      const viewerStateGeneration = state.viewerStateGeneration;
+      const isCurrent = () => state.viewerStateGeneration === viewerStateGeneration && state.clientsProfileRequestSeq === requestSeq && state.clientsActiveId === normalizedId;
       state.mobileClientProfileLoading = true;
       renderMobileClientsPanel();
       try {
         const data = await api('/api/get_client?client_id=' + encodeURIComponent(normalizedId) + '&order_limit=8');
+        if (!isCurrent()) return;
         state.clientsActiveId = data?.client?.id || normalizedId;
         state.clientsActiveProfile = data || null;
       } catch (error) {
-        setStatus(error.message, true);
+        if (isCurrent()) setStatus(error.message, true);
       } finally {
-        state.mobileClientProfileLoading = false;
-        renderMobileClientsPanel();
+        if (isCurrent()) {
+          state.mobileClientProfileLoading = false;
+          renderMobileClientsPanel();
+        }
       }
     }
 
@@ -8923,6 +6626,12 @@
     }
 
     function closeMobileMorePanel() {
+      if (state.mobileMorePanel === 'clients') {
+        state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
+        state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
+        state.mobileClientProfileLoading = false;
+        state.mobileClientsLoading = false;
+      }
       state.mobileMorePanel = '';
       renderMobileMore();
     }
@@ -8951,211 +6660,7 @@
       }
     }
 
-    function mobileEmployeeSummaryMap() {
-      return payrollSummaryMap();
-    }
-
-    function mobileEmployeeBalanceValue(employee, summary) {
-      return String(employee?.balance_total ?? summary?.balance_total ?? summary?.total_salary ?? '0');
-    }
-
-    function mobileEmployeeMoneyText(value) {
-      const raw = String(value ?? '').trim();
-      return raw ? repairOrderFormatRubles(raw) : repairOrderFormatRubles(0);
-    }
-
-    function mobileEmployeeDetailRows(employeeId) {
-      const normalizedId = String(employeeId || '').trim();
-      if (!normalizedId) return [];
-      return (Array.isArray(state.payrollReport?.detail_rows) ? state.payrollReport.detail_rows : [])
-        .filter((row) => String(row?.employee_id || '').trim() === normalizedId);
-    }
-
-    function mobileEmployeeAccrualTitle(row) {
-      const type = String(row?.type_label || row?.row_type || 'Начисление').trim();
-      const number = String(row?.repair_order_number || '').trim();
-      const vehicle = String(row?.vehicle || '').trim();
-      return [
-        type,
-        number ? ('№ ' + number) : '',
-        vehicle,
-      ].filter(Boolean).join(' · ') || 'Начисление';
-    }
-
-    function mobileEmployeeAccrualMeta(row) {
-      const parts = [];
-      if (row?.closed_at) parts.push(formatDate(row.closed_at));
-      const worksCount = finiteNonNegativeNumber(row?.works_count);
-      const materialsCount = finiteNonNegativeNumber(row?.materials_count);
-      if (worksCount > 0) parts.push('РАБОТ: ' + String(worksCount));
-      if (String(row?.work_total || '').trim() && String(row?.work_total || '0') !== '0') {
-        parts.push('РАБОТЫ ' + mobileEmployeeMoneyText(row.work_total));
-      }
-      if (materialsCount > 0) parts.push('МАТ.: ' + String(materialsCount));
-      if (String(row?.material_profit || '').trim() && String(row?.material_profit || '0') !== '0') {
-        parts.push('ПРИБЫЛЬ ' + mobileEmployeeMoneyText(row.material_profit));
-      }
-      return parts.join(' · ') || 'ДЕТАЛЕЙ НЕТ';
-    }
-
-    function renderMobileEmployeesList() {
-      if (!els.mobileEmployeesList) return;
-      const employees = filteredEmployeesList();
-      const readOnly = operatorHasEmployeesReadOnlyAccess();
-      const summaryMap = mobileEmployeeSummaryMap();
-      if (state.mobileEmployeesLoading && !employees.length) {
-        els.mobileEmployeesList.innerHTML = '<div class="mobile-employee-detail__empty">ЗАГРУЗКА СОТРУДНИКОВ...</div>';
-        return;
-      }
-      if (!employees.length) {
-        els.mobileEmployeesList.innerHTML = '<div class="mobile-employee-detail__empty">СОТРУДНИКОВ ПОКА НЕТ.</div>';
-        return;
-      }
-      if (readOnly) {
-        els.mobileEmployeesList.innerHTML = employees.map((employee) => {
-          const isActive = String(employee.id || '') === String(state.activeEmployeeId || '');
-          return '<button class="mobile-employee-row' + (isActive ? ' is-active' : '') + '" type="button" data-mobile-employee-id="' + escapeHtml(employee.id || '') + '">'
-            + '<div class="mobile-employee-row__top">'
-              + '<div class="mobile-employee-row__name">' + escapeHtml(employee.name || 'Сотрудник') + '</div>'
-            + '</div>'
-            + '<div class="mobile-employee-row__meta">' + escapeHtml(employee.position || 'Без должности') + '</div>'
-            + '<div class="mobile-employee-row__meta">ТОЛЬКО ПРОСМОТР</div>'
-          + '</button>';
-        }).join('');
-        return;
-      }
-      els.mobileEmployeesList.innerHTML = employees.map((employee) => {
-        const summary = summaryMap.get(String(employee.id || ''));
-        const balance = mobileEmployeeBalanceValue(employee, summary);
-        const isActive = String(employee.id || '') === String(state.activeEmployeeId || '');
-        return '<button class="mobile-employee-row' + (isActive ? ' is-active' : '') + '" type="button" data-mobile-employee-id="' + escapeHtml(employee.id || '') + '">'
-          + '<div class="mobile-employee-row__top">'
-            + '<div class="mobile-employee-row__name">' + escapeHtml(employee.name || 'Сотрудник') + '</div>'
-            + '<div class="mobile-employee-row__balance">' + escapeHtml(mobileEmployeeMoneyText(balance)) + '</div>'
-          + '</div>'
-          + '<div class="mobile-employee-row__meta">' + escapeHtml(employee.position || 'Без должности') + '</div>'
-          + '<div class="mobile-employee-row__meta">' + escapeHtml(employeeIncentiveSummaryLabel(employee)) + '</div>'
-        + '</button>';
-      }).join('');
-    }
-
-    function renderMobileEmployeeDetail() {
-      if (!els.mobileEmployeeDetail) return;
-      const employees = filteredEmployeesList();
-      let employee = selectedEmployeeRecord();
-      if (!employee && employees.length) {
-        employee = employees[0];
-        state.activeEmployeeId = employee.id || '';
-      }
-      if (state.mobileEmployeesLoading && !employee) {
-        els.mobileEmployeeDetail.innerHTML = '<div class="mobile-employee-detail__empty">ЗАГРУЗКА НАЧИСЛЕНИЙ...</div>';
-        return;
-      }
-      if (!employee) {
-        els.mobileEmployeeDetail.innerHTML = '<div class="mobile-employee-detail__empty">ВЫБЕРИТЕ СОТРУДНИКА, ЧТОБЫ УВИДЕТЬ НАЧИСЛЕНИЯ.</div>';
-        return;
-      }
-      if (operatorHasEmployeesReadOnlyAccess()) {
-        els.mobileEmployeeDetail.innerHTML = '<div class="mobile-employee-detail__head">'
-          + '<div>'
-            + '<div class="mobile-employee-detail__name">' + escapeHtml(employee.name || 'Сотрудник') + '</div>'
-            + '<div class="mobile-employee-detail__meta">' + escapeHtml(employee.position || 'Без должности') + '</div>'
-          + '</div>'
-        + '</div>'
-        + '<section class="mobile-employee-detail__section"><h4>ТОЛЬКО ПРОСМОТР</h4><div class="mobile-employee-detail__empty">Зарплаты, начисления, отчёты и изменение данных недоступны.</div></section>';
-        return;
-      }
-      const summary = mobileEmployeeSummaryMap().get(String(employee.id || '')) || {};
-      const balance = mobileEmployeeBalanceValue(employee, summary);
-      const details = mobileEmployeeDetailRows(employee.id);
-      const detailsHtml = details.length
-        ? details.slice(0, 5).map((row) => {
-          return '<div class="mobile-employee-accrual">'
-            + '<strong>' + escapeHtml(mobileEmployeeAccrualTitle(row)) + '</strong>'
-            + '<span>' + escapeHtml(mobileEmployeeAccrualMeta(row)) + '</span>'
-            + '<span>НАЧИСЛЕНО ' + escapeHtml(mobileEmployeeMoneyText(row?.salary_amount ?? 0)) + '</span>'
-          + '</div>';
-        }).join('')
-        : '<div class="mobile-employee-detail__empty">НАЧИСЛЕНИЙ ЗА МЕСЯЦ ПОКА НЕТ.</div>';
-      els.mobileEmployeeDetail.innerHTML = '<div class="mobile-employee-detail__head">'
-          + '<div>'
-            + '<div class="mobile-employee-detail__name">' + escapeHtml(employee.name || 'Сотрудник') + '</div>'
-            + '<div class="mobile-employee-detail__meta">' + escapeHtml(employee.position || 'Без должности') + ' · ' + escapeHtml(employeeIncentiveSummaryLabel(employee)) + '</div>'
-          + '</div>'
-          + '<div class="mobile-employee-detail__balance">' + escapeHtml(mobileEmployeeMoneyText(balance)) + '</div>'
-        + '</div>'
-        + '<div class="mobile-employee-kpis">'
-          + '<div class="mobile-employee-kpi"><span>К выплате</span><strong>' + escapeHtml(mobileEmployeeMoneyText(balance)) + '</strong></div>'
-          + '<div class="mobile-employee-kpi"><span>Начислено</span><strong>' + escapeHtml(mobileEmployeeMoneyText(summary.total_salary ?? summary.accrued_total ?? 0)) + '</strong></div>'
-          + '<div class="mobile-employee-kpi"><span>Работы</span><strong>' + escapeHtml(String(finiteNonNegativeNumber(summary.works_count))) + ' / ' + escapeHtml(mobileEmployeeMoneyText(summary.work_accrued_total ?? 0)) + '</strong></div>'
-          + '<div class="mobile-employee-kpi"><span>Материалы</span><strong>' + escapeHtml(String(finiteNonNegativeNumber(summary.materials_count))) + ' / ' + escapeHtml(mobileEmployeeMoneyText(summary.materials_accrued_total ?? 0)) + '</strong></div>'
-        + '</div>'
-        + '<section class="mobile-employee-detail__section"><h4>Последние начисления</h4>' + detailsHtml + '</section>';
-    }
-
-    function renderMobileEmployeesPanel() {
-      const isOpen = state.mobileMorePanel === 'employees';
-      if (els.mobileEmployeesPanel) els.mobileEmployeesPanel.hidden = !isOpen;
-      syncMobileMorePanelChrome();
-      if (!isOpen) return;
-      const employees = filteredEmployeesList();
-      if (!state.activeEmployeeId && employees.length) {
-        state.activeEmployeeId = employees[0].id || '';
-      }
-      if (els.mobileEmployeesMeta) {
-        const month = state.payrollMonth || currentPayrollMonthValue();
-        if (state.mobileEmployeesLoading) {
-          els.mobileEmployeesMeta.textContent = 'ЗАГРУЗКА...';
-        } else if (operatorHasEmployeesReadOnlyAccess()) {
-          els.mobileEmployeesMeta.textContent = 'ТОЛЬКО ПРОСМОТР · АКТИВНЫХ: ' + String(employees.length);
-        } else if (employees.length) {
-          els.mobileEmployeesMeta.textContent = 'МЕСЯЦ: ' + month + ' · АКТИВНЫХ: ' + String(employees.length);
-        } else {
-          els.mobileEmployeesMeta.textContent = 'СОТРУДНИКОВ ПОКА НЕТ';
-        }
-      }
-      renderMobileEmployeesList();
-      renderMobileEmployeeDetail();
-    }
-
-    async function loadMobileEmployees({ force = false } = {}) {
-      const month = state.payrollMonth || currentPayrollMonthValue();
-      const needsPayrollData = operatorCanAccessEmployeesCashboxes();
-      if (!force && state.employeesLoadedMonth === month && Array.isArray(state.employees) && (!needsPayrollData || state.payrollReportMonth === month)) {
-        renderMobileEmployeesPanel();
-        return;
-      }
-      state.payrollMonth = month;
-      state.mobileEmployeesLoading = true;
-      renderMobileEmployeesPanel();
-      try {
-        await loadEmployeesWorkspaceData(month);
-      } catch (error) {
-        setStatus(error.message, true);
-      } finally {
-        state.mobileEmployeesLoading = false;
-        renderMobileEmployeesPanel();
-      }
-    }
-
-    function openMobileEmployeesPanel() {
-      if (!requireEmployeesViewAccess()) return;
-      state.mobileMorePanel = 'employees';
-      renderMobileMore();
-      loadMobileEmployees();
-    }
-
-    function handleMobileEmployeesClick(event) {
-      const button = event.target instanceof HTMLElement ? event.target.closest('[data-mobile-employee-id]') : null;
-      if (!button || !els.mobileEmployeesPanel?.contains(button)) return;
-      const employeeId = String(button.getAttribute('data-mobile-employee-id') || '').trim();
-      if (!employeeId) return;
-      event.preventDefault();
-      state.activeEmployeeId = employeeId;
-      state.employeeCreateMode = false;
-      state.employeesReportDetailsOpen = true;
-      renderMobileEmployeesPanel();
-    }
+    // @include employees_mobile.js
 
     function renderMobileArchiveRows(cards) {
       return cards.map((card) => {
@@ -10131,6 +7636,7 @@
         if (els.board) applyBoardScale(1, { syncInput: false });
       } else if (els.board) {
         applyBoardScalePreference({ fallbackValue: state.snapshot?.settings?.board_scale ?? 1, syncInput: true, persistFallback: false });
+        renderBoard();
       }
       renderMobileShell();
       return enabled;
@@ -14661,7 +12167,7 @@
         const cachedCard = snapshotCardById(normalizedCardId);
         const cachedFullCard = cachedCard
           ? cachedFullCardForSnapshot(cachedCard)
-          : (state.fullCardCache.get(normalizedCardId) || null);
+          : null;
         let openedFromCache = false;
         const hydrationSeq = state.cardHydrationSeq + 1;
         state.cardHydrationSeq = hydrationSeq;
@@ -14904,16 +12410,16 @@
     }
 
     async function loadGptWall(openModal = false) {
-      try {
-        const data = await api('/api/get_gpt_wall', { method: 'POST', body: { include_archived: true, event_limit: 100 } });
-        renderGptWall(data);
-        if (openModal) pushModal('wall', els.gptWallModal);
-      } catch (error) {
-        els.gptWallMeta.textContent = 'ОШИБКА ЗАГРУЗКИ СЛОЯ GPT.';
-        els.gptWallText.textContent = error.message;
-        if (openModal) pushModal('wall', els.gptWallModal);
-        setStatus(error.message, true);
-      }
+      await loadModalData('/api/get_gpt_wall', {
+        method: 'POST',
+        body: { include_archived: true, event_limit: 100 },
+        openModal,
+        modalEl: els.gptWallModal,
+        onSuccess: renderGptWall,
+        onError: (error) => {
+          setModalTextError(els.gptWallMeta, els.gptWallText, 'ОШИБКА ЗАГРУЗКИ СЛОЯ GPT.', error.message);
+        },
+      });
     }
 
     repairOrderListTotalText = function(value, fallbackValue = '') {
@@ -15153,24 +12659,6 @@
       loadRepairOrders(false);
     }
 
-    loadGptWall = async function(openModal = false) {
-      await loadModalData('/api/get_gpt_wall', {
-        method: 'POST',
-        body: { include_archived: true, event_limit: 100 },
-        openModal,
-        modalEl: els.gptWallModal,
-        onSuccess: renderGptWall,
-        onError: (error) => {
-          setModalTextError(
-            els.gptWallMeta,
-            els.gptWallText,
-            'ОШИБКА ЗАГРУЗКИ СЛОЯ GPT.',
-            error.message,
-          );
-        },
-      });
-    };
-
     function sortBoardCards(cards) {
       return (Array.isArray(cards) ? cards : []).slice().sort((left, right) =>
         ((left.position ?? 0) - (right.position ?? 0))
@@ -15243,9 +12731,51 @@
       + '</section>';
     }
 
+    function reconcileBoardCards(currentList, nextList, cards, variant = '') {
+      if (!(state.boardRenderedCards instanceof WeakMap)) state.boardRenderedCards = new WeakMap();
+      const models = new Map(cards.map((card) => [String(card.id), JSON.stringify([variant, card])]));
+      const previous = new Map(Array.from(currentList.children).map((node) => [node.dataset.cardId, node]));
+      const desired = Array.from(nextList.children).map((nextNode) => {
+        const cardId = nextNode.dataset.cardId;
+        const oldNode = previous.get(cardId);
+        const signature = models.get(cardId);
+        const node = signature && oldNode && state.boardRenderedCards.get(oldNode) === signature ? oldNode : nextNode;
+        if (signature) state.boardRenderedCards.set(node, signature);
+        return node;
+      });
+      const retained = new Set(desired);
+      Array.from(currentList.children).forEach((node) => { if (!retained.has(node)) node.remove(); });
+      desired.forEach((node, index) => {
+        if (currentList.children[index] !== node) currentList.insertBefore(node, currentList.children[index] || null);
+      });
+    }
+
+    function reconcileBoardSection(currentSection, nextSection, cards) {
+      const currentList = currentSection?.querySelector('.column__cards');
+      const nextList = nextSection.querySelector('.column__cards');
+      const variant = nextSection.dataset.virtualColumn ? JSON.stringify(extraBoardColumnPreferences()) : '';
+      if (!currentSection || !currentList || !nextList) {
+        if (nextList) reconcileBoardCards(nextList, nextList, cards, variant);
+        return nextSection;
+      }
+      Array.from(currentSection.attributes).forEach((attr) => {
+        if (!nextSection.hasAttribute(attr.name)) currentSection.removeAttribute(attr.name);
+      });
+      Array.from(nextSection.attributes).forEach((attr) => currentSection.setAttribute(attr.name, attr.value));
+      const currentHead = currentSection.querySelector('.column__head');
+      const nextHead = nextSection.querySelector('.column__head');
+      if (currentHead && nextHead && !currentHead.isEqualNode(nextHead)) currentHead.replaceWith(nextHead);
+      reconcileBoardCards(currentList, nextList, cards, variant);
+      return currentSection;
+    }
+
     function renderBoardColumnById(columnId, cardsByColumn = null) {
       const snapshot = state.snapshot;
       if (!snapshot || !columnId) return false;
+      if (state.mobileLite) {
+        renderMobileShell();
+        return true;
+      }
       const columnIndex = snapshot.columns.findIndex((column) => column.id === columnId);
       if (columnIndex < 0) return false;
       const currentSection = els.board.querySelector('[data-column-id="' + columnId + '"]');
@@ -15254,7 +12784,7 @@
       template.innerHTML = renderBoardColumnHtml(snapshot.columns[columnIndex], columnIndex, snapshot, cardsByColumn);
       const nextSection = template.content.firstElementChild;
       if (!nextSection) return false;
-      currentSection.replaceWith(nextSection);
+      reconcileBoardSection(currentSection, nextSection, sortedCardsForBoardColumn(snapshot, columnId, cardsByColumn));
       return true;
     }
 
@@ -15265,11 +12795,39 @@
         perfEnd(perfToken, { skipped: true });
         return;
       }
+      if (state.mobileLite) {
+        renderMobileShell();
+        perfEnd(perfToken, { mobile: true, cards: snapshot.cards?.length || 0 });
+        return;
+      }
       const cardsByColumn = buildBoardCardsByColumn(snapshot);
-      const addColumnButtonHtml = '<button class="board-add-column" type="button" data-create-column="true" title="Добавить столбец" aria-label="Добавить столбец">+</button>';
-      const extraColumnHtml = extraBoardColumnIsOpen() ? renderExtraBoardColumnHtml(snapshot) : '';
-      els.board.innerHTML = snapshot.columns.map((column, index) => renderBoardColumnHtml(column, index, snapshot, cardsByColumn)).join('') + extraColumnHtml + addColumnButtonHtml + '<div class="sticky-layer" id="stickyLayer"></div>';
-      els.stickyLayer = document.getElementById('stickyLayer');
+      if (!(state.boardRenderedSections instanceof WeakMap)) state.boardRenderedSections = new WeakMap();
+      const currentSections = new Map(Array.from(els.board.querySelectorAll(':scope > .column')).map((node) => [node.dataset.columnId || '__extra__', node]));
+      const desired = snapshot.columns.map((column, index) => ({
+        key: column.id,
+        cards: cardsByColumn.get(column.id) || [],
+        signature: JSON.stringify([column, index, snapshot.columns.length, cardsByColumn.get(column.id) || []]),
+        html: () => renderBoardColumnHtml(column, index, snapshot, cardsByColumn),
+      }));
+      if (extraBoardColumnIsOpen()) {
+        const cards = extraBoardColumnCards(snapshot);
+        desired.push({key: '__extra__', cards, signature: JSON.stringify([extraBoardColumnPreferences(), state.boardScale, cards]), html: () => renderExtraBoardColumnHtml(snapshot)});
+      }
+      const desiredKeys = new Set(desired.map((item) => item.key));
+      currentSections.forEach((node, key) => { if (!desiredKeys.has(key)) node.remove(); });
+      desired.forEach((item, index) => {
+        let node = currentSections.get(item.key);
+        if (!node || state.boardRenderedSections.get(node) !== item.signature) {
+          const template = document.createElement('template');
+          template.innerHTML = item.html();
+          node = reconcileBoardSection(node, template.content.firstElementChild, item.cards);
+          state.boardRenderedSections.set(node, item.signature);
+        }
+        if (els.board.children[index] !== node) els.board.insertBefore(node, els.board.children[index] || null);
+      });
+      if (!els.board.querySelector('.board-add-column')) els.board.insertAdjacentHTML('beforeend', '<button class="board-add-column" type="button" data-create-column="true" title="Добавить столбец" aria-label="Добавить столбец">+</button>');
+      if (!els.board.querySelector('#stickyLayer')) els.board.insertAdjacentHTML('beforeend', '<div class="sticky-layer" id="stickyLayer"></div>');
+      els.stickyLayer = els.board.querySelector('#stickyLayer');
       renderStickies();
       renderMobileShell();
       perfEnd(perfToken, { cards: snapshot.cards?.length || 0, columns: snapshot.columns?.length || 0 });
@@ -15467,7 +13025,11 @@
     function cacheFullCard(card) {
       const cardId = String(card?.id || '').trim();
       if (!cardId) return null;
+      state.fullCardCache.delete(cardId);
       state.fullCardCache.set(cardId, card);
+      while (state.fullCardCache.size > FULL_CARD_CACHE_LIMIT) {
+        state.fullCardCache.delete(state.fullCardCache.keys().next().value);
+      }
       return card;
     }
 
@@ -15477,8 +13039,8 @@
       const cachedCard = state.fullCardCache.get(cardId);
       if (!cachedCard) return null;
       const expectedUpdatedAt = String(card?.updated_at || '').trim();
-      if (expectedUpdatedAt && String(cachedCard.updated_at || '').trim() !== expectedUpdatedAt) return null;
-      return cachedCard;
+      if (!expectedUpdatedAt || String(cachedCard.updated_at || '').trim() !== expectedUpdatedAt) return null;
+      return cacheFullCard(cachedCard);
     }
 
     async function fetchFullCard(cardId, expectedUpdatedAt = '') {
@@ -15486,10 +13048,15 @@
       if (!normalizedCardId) return null;
       const cachedCard = state.fullCardCache.get(normalizedCardId);
       const normalizedExpectedUpdatedAt = String(expectedUpdatedAt || '').trim();
-      if (cachedCard && (!normalizedExpectedUpdatedAt || String(cachedCard.updated_at || '').trim() === normalizedExpectedUpdatedAt)) return cachedCard;
+      if (cachedCard && normalizedExpectedUpdatedAt && String(cachedCard.updated_at || '').trim() === normalizedExpectedUpdatedAt) return cacheFullCard(cachedCard);
       const pending = state.cardFetchInFlight.get(normalizedCardId);
-      if (pending) return pending;
       const viewerStateGeneration = state.viewerStateGeneration;
+      if (pending) {
+        if (pending.expectedUpdatedAt === normalizedExpectedUpdatedAt) return pending;
+        await pending;
+        if (viewerStateGeneration !== state.viewerStateGeneration) return null;
+        return fetchFullCard(normalizedCardId, normalizedExpectedUpdatedAt);
+      }
       let request = null;
       request = api('/api/get_card?card_id=' + encodeURIComponent(normalizedCardId))
         .then((data) => {
@@ -15502,6 +13069,7 @@
           }
         });
       state.cardFetchInFlight.set(normalizedCardId, request);
+      request.expectedUpdatedAt = normalizedExpectedUpdatedAt;
       return request;
     }
 
@@ -16671,890 +14239,7 @@
       loadRepairOrders(true);
     }
 
-    function inventoryItemId(item) {
-      return String(item?.id || '').trim();
-    }
-
-    function inventoryItemById(itemId) {
-      const normalizedId = String(itemId || '').trim();
-      if (!normalizedId) return null;
-      return (Array.isArray(state.inventoryItems) ? state.inventoryItems : [])
-        .find((item) => inventoryItemId(item) === normalizedId) || null;
-    }
-
-    function activeInventoryItem() {
-      return inventoryItemById(state.inventoryActiveId);
-    }
-
-    function inventoryDecimalText(value, fallback = '0') {
-      const normalized = String(value ?? '').trim().replace(',', '.');
-      if (!normalized) return fallback;
-      const parsed = Number(normalized);
-      if (!Number.isFinite(parsed)) return fallback;
-      if (!String(normalized).includes('.')) return String(normalized);
-      return String(normalized).replace(/0+$/, '').replace(/\.$/, '') || '0';
-    }
-
-    function inventoryDisplayQuantity(item) {
-      return inventoryDecimalText(item?.quantity, '0') + ' ' + (item?.unit || 'шт');
-    }
-
-    function inventoryItemMeta(item) {
-      const parts = [];
-      const catalog = String(item?.catalog_number || '').trim();
-      if (catalog) parts.push(catalog);
-      parts.push(inventoryDisplayQuantity(item));
-      parts.push('закуп ' + repairOrderFormatRubles(item?.cost_price ?? 0));
-      parts.push('прод ' + repairOrderFormatRubles(item?.sale_price ?? 0));
-      return parts.join(' · ');
-    }
-
-    function inventorySearchMatches(item, query) {
-      const needle = String(query || '').trim().toLowerCase();
-      if (!needle) return true;
-      return [
-        item?.name,
-        item?.catalog_number,
-        item?.id,
-      ].some((value) => String(value || '').toLowerCase().includes(needle));
-    }
-
-    function inventoryItemQuantityNumber(item) {
-      const parsed = repairOrderParseNumber(item?.quantity);
-      return parsed === null ? 0 : parsed;
-    }
-
-    function inventoryFilteredItems() {
-      const query = String(state.inventoryQuery || '').trim();
-      const stockFilter = String(state.inventoryStockFilter || 'all');
-      return (Array.isArray(state.inventoryItems) ? state.inventoryItems : [])
-        .filter((item) => inventorySearchMatches(item, query))
-        .filter((item) => {
-          const quantity = inventoryItemQuantityNumber(item);
-          if (stockFilter === 'in_stock') return quantity > 0;
-          if (stockFilter === 'zero') return quantity <= 0;
-          return true;
-        });
-    }
-
-    function inventoryUpdatedText(item) {
-      const value = item?.updated_at || item?.created_at || '';
-      return value ? formatDate(value) : '-';
-    }
-
-    function inventoryTableRowHtml(item) {
-      const itemId = inventoryItemId(item);
-      const activeClass = itemId === String(state.inventoryActiveId || '').trim() ? ' is-active' : '';
-      const zeroClass = inventoryItemQuantityNumber(item) <= 0 ? ' is-zero' : '';
-      return '<tr class="inventory-table__row' + activeClass + zeroClass + '" data-inventory-item-id="' + escapeHtml(itemId) + '">'
-        + '<td><button class="inventory-table__select" type="button" data-inventory-item-id="' + escapeHtml(itemId) + '">' + escapeHtml(item?.name || 'Позиция без названия') + '</button></td>'
-        + '<td class="inventory-table__mono">' + escapeHtml(item?.catalog_number || '-') + '</td>'
-        + '<td class="inventory-table__number">' + escapeHtml(inventoryDisplayQuantity(item)) + '</td>'
-        + '<td class="inventory-table__number">' + escapeHtml(repairOrderFormatRubles(item?.cost_price ?? 0)) + '</td>'
-        + '<td class="inventory-table__number">' + escapeHtml(repairOrderFormatRubles(item?.sale_price ?? 0)) + '</td>'
-        + '<td class="inventory-table__mono">' + escapeHtml(inventoryUpdatedText(item)) + '</td>'
-      + '</tr>';
-    }
-
-    function inventoryMovementKindText(kind) {
-      const normalized = String(kind || '').trim();
-      if (normalized === 'incoming') return 'ПРИХОД';
-      if (normalized === 'write_off') return 'СПИСАНИЕ';
-      if (normalized === 'return') return 'ВОЗВРАТ';
-      if (normalized === 'adjustment') return 'КОРР.';
-      return normalized || '-';
-    }
-
-    function inventoryMovementItemName(movement) {
-      const item = inventoryItemById(movement?.item_id);
-      return item?.name || movement?.item_name || movement?.item_id || '-';
-    }
-
-    function inventoryMovementCardText(movement) {
-      const orderNumber = String(movement?.repair_order_number || '').trim();
-      if (orderNumber) return 'ЗН ' + orderNumber;
-      const cardId = String(movement?.card_id || '').trim();
-      return cardId ? ('КАРТА ' + cardId.slice(0, 8)) : '-';
-    }
-
-    function inventoryMovementPriceText(movement) {
-      const kind = String(movement?.kind || '');
-      const value = kind === 'incoming' ? movement?.cost_price : movement?.sale_price;
-      return repairOrderFormatRubles(value ?? 0);
-    }
-
-    function inventoryMovementQuantityText(movement) {
-      const quantity = inventoryDecimalText(movement?.quantity, '0') + ' ' + (movement?.unit || 'шт');
-      const delta = inventoryDecimalText(movement?.quantity_delta, '');
-      return delta && delta !== '0' ? quantity + ' (' + delta + ')' : quantity;
-    }
-
-    function inventoryMovementRowHtml(movement) {
-      return '<tr>'
-        + '<td class="inventory-table__mono">' + escapeHtml(formatDate(movement?.created_at || '')) + '</td>'
-        + '<td>' + escapeHtml(inventoryMovementKindText(movement?.kind)) + '</td>'
-        + '<td>' + escapeHtml(inventoryMovementItemName(movement)) + '</td>'
-        + '<td class="inventory-table__number">' + escapeHtml(inventoryMovementQuantityText(movement)) + '</td>'
-        + '<td class="inventory-table__number">' + escapeHtml(inventoryMovementPriceText(movement)) + '</td>'
-        + '<td class="inventory-table__mono">' + escapeHtml(inventoryMovementCardText(movement)) + '</td>'
-        + '<td class="inventory-table__mono">' + escapeHtml(movement?.actor_name || '-') + '</td>'
-      + '</tr>';
-    }
-
-    function renderInventoryWorkspace() {
-      const isMovements = state.inventoryView === 'movements';
-      if (els.inventoryPositionsTab) {
-        els.inventoryPositionsTab.classList.toggle('is-active', !isMovements);
-        els.inventoryPositionsTab.setAttribute('aria-selected', isMovements ? 'false' : 'true');
-      }
-      if (els.inventoryMovementsTab) {
-        els.inventoryMovementsTab.classList.toggle('is-active', isMovements);
-        els.inventoryMovementsTab.setAttribute('aria-selected', isMovements ? 'true' : 'false');
-      }
-      if (els.inventoryPositionsPanel) els.inventoryPositionsPanel.hidden = isMovements;
-      if (els.inventoryMovementsPanel) els.inventoryMovementsPanel.hidden = !isMovements;
-      if (els.inventoryStockFilter && els.inventoryStockFilter.value !== state.inventoryStockFilter) {
-        els.inventoryStockFilter.value = state.inventoryStockFilter;
-      }
-    }
-
-    function renderInventoryQuickState() {
-      if (!els.inventoryQuickState) return;
-      const item = activeInventoryItem();
-      const refs = inventoryFormRefs({ mobile: false });
-      let stateName = 'dirty';
-      let text = item ? 'ИЗМЕНЕНО' : 'НОВАЯ ПОЗИЦИЯ';
-      if (item?.id) {
-        const dirty = [
-          [refs.name?.value, item.name || ''],
-          [refs.catalog?.value, item.catalog_number || ''],
-          [refs.unit?.value, item.unit || 'шт'],
-          [refs.costPrice?.value, inventoryDecimalText(item.cost_price, '0')],
-          [refs.salePrice?.value, inventoryDecimalText(item.sale_price, '0')],
-        ].some(([left, right]) => String(left ?? '').trim() !== String(right ?? '').trim());
-        if (!dirty && inventoryItemQuantityNumber(item) <= 0) {
-          stateName = 'empty';
-          text = 'НЕТ ОСТАТКА';
-        } else if (!dirty) {
-          stateName = 'saved';
-          text = 'СОХРАНЕНО · ' + inventoryDisplayQuantity(item);
-        }
-      }
-      els.inventoryQuickState.dataset.state = stateName;
-      els.inventoryQuickState.textContent = text;
-    }
-
-    function renderInventoryMovements() {
-      if (!els.inventoryMovementsBody) return;
-      const movements = Array.isArray(state.inventoryMovements) ? state.inventoryMovements.slice().reverse() : [];
-      if (state.inventoryMovementsLoading && !movements.length) {
-        els.inventoryMovementsBody.innerHTML = '<tr><td colspan="7" class="cashboxes-empty">ЗАГРУЖАЮ ДВИЖЕНИЯ...</td></tr>';
-        return;
-      }
-      els.inventoryMovementsBody.innerHTML = movements.length
-        ? movements.map((movement) => inventoryMovementRowHtml(movement)).join('')
-        : '<tr><td colspan="7" class="cashboxes-empty">ДВИЖЕНИЙ ПОКА НЕТ.</td></tr>';
-    }
-
-    function renderMobileInventoryMovements() {
-      if (!els.mobileInventoryRecentMovements) return;
-      const item = activeInventoryItem();
-      if (!item?.id) {
-        els.mobileInventoryRecentMovements.innerHTML = '<div class="mobile-kicker">ДВИЖЕНИЯ</div><div class="mobile-empty">ВЫБЕРИТЕ ПОЗИЦИЮ.</div>';
-        return;
-      }
-      const itemId = inventoryItemId(item);
-      const movements = (Array.isArray(state.inventoryMovements) ? state.inventoryMovements : [])
-        .filter((movement) => String(movement?.item_id || '').trim() === itemId)
-        .slice()
-        .reverse()
-        .slice(0, 5);
-      if (!state.inventoryMovementsLoaded && !movements.length) {
-        els.mobileInventoryRecentMovements.innerHTML = '<div class="mobile-kicker">ДВИЖЕНИЯ</div><div class="mobile-empty">ДВИЖЕНИЯ ЗАГРУЖАЮТСЯ...</div>';
-        return;
-      }
-      els.mobileInventoryRecentMovements.innerHTML = '<div class="mobile-kicker">ПОСЛЕДНИЕ ДВИЖЕНИЯ</div>'
-        + (movements.length
-          ? movements.map((movement) => (
-            '<div class="mobile-inventory-movement">'
-              + '<span>' + escapeHtml(formatDate(movement?.created_at || '') + ' · ' + inventoryMovementKindText(movement?.kind)) + '</span>'
-              + '<strong>' + escapeHtml(inventoryMovementQuantityText(movement)) + '</strong>'
-            + '</div>'
-          )).join('')
-          : '<div class="mobile-empty">ДВИЖЕНИЙ ПО ЭТОЙ ПОЗИЦИИ НЕТ.</div>');
-    }
-
-    function inventoryStatus(text, isError = false) {
-      const statusText = String(text || '').trim();
-      if (els.inventoryStatusLine) {
-        els.inventoryStatusLine.textContent = statusText;
-        els.inventoryStatusLine.dataset.tone = isError ? 'error' : 'normal';
-      }
-      if (els.repairOrderInventoryStatus) {
-        els.repairOrderInventoryStatus.textContent = statusText;
-        els.repairOrderInventoryStatus.dataset.tone = isError ? 'error' : 'normal';
-      }
-      if (els.mobileInventoryStatusLine) {
-        els.mobileInventoryStatusLine.textContent = statusText;
-        els.mobileInventoryStatusLine.dataset.tone = isError ? 'error' : 'normal';
-      }
-    }
-
-    function inventoryRowHtml(item, { mobile = false, panel = false } = {}) {
-      const itemId = inventoryItemId(item);
-      const activeId = panel ? state.repairOrderInventorySelectedId : state.inventoryActiveId;
-      const activeClass = itemId === String(activeId || '').trim() ? ' is-active' : '';
-      const className = panel ? 'repair-order-inventory-result' : (mobile ? 'inventory-row mobile-inventory-row' : 'inventory-row');
-      const attr = panel ? 'data-repair-order-inventory-item-id' : (mobile ? 'data-mobile-inventory-item-id' : 'data-inventory-item-id');
-      return '<button class="' + className + activeClass + '" type="button" ' + attr + '="' + escapeHtml(itemId) + '">'
-        + '<div class="inventory-row__top">'
-          + '<span class="inventory-row__name">' + escapeHtml(item?.name || 'Позиция без названия') + '</span>'
-          + '<strong class="inventory-row__qty">' + escapeHtml(inventoryDisplayQuantity(item)) + '</strong>'
-        + '</div>'
-        + '<div class="inventory-row__meta">' + escapeHtml(inventoryItemMeta(item)) + '</div>'
-      + '</button>';
-    }
-
-    function renderInventoryItems() {
-      const items = inventoryFilteredItems();
-      if (els.inventorySearchInput && els.inventorySearchInput.value !== state.inventoryQuery) {
-        els.inventorySearchInput.value = state.inventoryQuery;
-      }
-      renderInventoryWorkspace();
-      if (els.inventoryTableBody) {
-        els.inventoryTableBody.innerHTML = !state.inventoryLoaded && !items.length
-          ? '<tr><td colspan="6" class="cashboxes-empty">ЗАГРУЖАЮ СКЛАД...</td></tr>'
-          : (items.length
-            ? items.map((item) => inventoryTableRowHtml(item)).join('')
-            : '<tr><td colspan="6" class="cashboxes-empty">ПОЗИЦИЙ ПОКА НЕТ.</td></tr>');
-      } else if (els.inventoryItemsList) {
-        els.inventoryItemsList.innerHTML = !state.inventoryLoaded && !items.length
-          ? '<div class="cashboxes-empty">ЗАГРУЖАЮ СКЛАД...</div>'
-          : (items.length
-            ? items.map((item) => inventoryRowHtml(item)).join('')
-            : '<div class="cashboxes-empty">ПОЗИЦИЙ ПОКА НЕТ.</div>');
-      }
-      renderInventoryMovements();
-      renderMobileInventory();
-      renderRepairOrderInventoryPanel();
-    }
-
-    function inventoryFormRefs({ mobile = state.mobileLite && state.mobileView === 'inventory' } = {}) {
-      return mobile ? {
-        name: els.mobileInventoryNameInput,
-        catalog: els.mobileInventoryCatalogInput,
-        unit: els.mobileInventoryUnitSelect,
-        quantity: els.mobileInventoryQuantityInput,
-        replenishQuantity: els.mobileInventoryReplenishQuantityInput,
-        costPrice: els.mobileInventoryCostPriceInput,
-        salePrice: els.mobileInventorySalePriceInput,
-        saveButton: els.mobileInventorySaveButton,
-        replenishButton: els.mobileInventoryReplenishButton,
-      } : {
-        name: els.inventoryNameInput,
-        catalog: els.inventoryCatalogInput,
-        unit: els.inventoryUnitSelect,
-        quantity: els.inventoryQuantityInput,
-        replenishQuantity: els.inventoryReplenishQuantityInput,
-        costPrice: els.inventoryCostPriceInput,
-        salePrice: els.inventorySalePriceInput,
-        saveButton: els.inventorySaveButton,
-        replenishButton: els.inventoryReplenishButton,
-      };
-    }
-
-    function syncInventoryForm(refs, item) {
-      if (!refs?.name) return;
-      const hasItem = Boolean(item?.id);
-      refs.name.value = hasItem ? String(item.name || '') : '';
-      if (refs.catalog) refs.catalog.value = hasItem ? String(item.catalog_number || '') : '';
-      if (refs.unit) refs.unit.value = hasItem ? String(item.unit || 'шт') : 'шт';
-      if (refs.quantity) {
-        refs.quantity.value = hasItem ? inventoryDecimalText(item.quantity, '0') : '0';
-        refs.quantity.readOnly = hasItem;
-        refs.quantity.title = hasItem ? 'Остаток меняется через пополнение или списание.' : '';
-      }
-      if (refs.replenishQuantity) refs.replenishQuantity.value = '';
-      if (refs.costPrice) refs.costPrice.value = hasItem ? inventoryDecimalText(item.cost_price, '0') : '0';
-      if (refs.salePrice) refs.salePrice.value = hasItem ? inventoryDecimalText(item.sale_price, '0') : '0';
-      if (refs.saveButton) refs.saveButton.disabled = state.inventorySaving;
-      if (refs.replenishButton) refs.replenishButton.disabled = state.inventorySaving || !hasItem;
-    }
-
-    function renderInventoryForm() {
-      const item = activeInventoryItem();
-      if (els.inventoryDetailTitle) {
-        els.inventoryDetailTitle.textContent = item ? 'ПОЗИЦИЯ СКЛАДА' : 'НОВАЯ ПОЗИЦИЯ';
-      }
-      syncInventoryForm(inventoryFormRefs({ mobile: false }), item);
-      syncInventoryForm(inventoryFormRefs({ mobile: true }), item);
-      renderInventoryQuickState();
-    }
-
-    function renderInventory() {
-      renderInventoryItems();
-      renderInventoryForm();
-      renderInventoryMovements();
-      renderMobileInventoryMovements();
-    }
-
-    function upsertInventoryItem(item) {
-      if (!item?.id) return;
-      const items = Array.isArray(state.inventoryItems) ? state.inventoryItems.slice() : [];
-      const index = items.findIndex((entry) => inventoryItemId(entry) === inventoryItemId(item));
-      if (index >= 0) items[index] = item;
-      else items.unshift(item);
-      state.inventoryItems = items;
-      state.inventoryLoaded = true;
-    }
-
-    async function loadInventoryItems(openModal = false, { query = null } = {}) {
-      const requestedQuery = query === null ? String(state.inventoryQuery || '').trim() : String(query || '').trim();
-      try {
-        if (!state.inventoryLoaded) renderInventoryItems();
-        const data = requestedQuery
-          ? await api('/api/search_inventory_items', {
-            method: 'POST',
-            body: { query: requestedQuery, limit: 200 },
-          })
-          : await api('/api/list_inventory_items?limit=200');
-        state.inventoryItems = Array.isArray(data?.items) ? data.items : [];
-        state.inventoryLoaded = true;
-        if (state.inventoryActiveId && !inventoryItemById(state.inventoryActiveId)) {
-          state.inventoryActiveId = '';
-        }
-        if (!state.inventoryActiveId && state.inventoryItems.length) {
-          state.inventoryActiveId = inventoryItemId(state.inventoryItems[0]);
-        }
-        if (state.repairOrderInventorySelectedId && !inventoryItemById(state.repairOrderInventorySelectedId)) {
-          state.repairOrderInventorySelectedId = '';
-        }
-        if (!state.repairOrderInventorySelectedId && state.inventoryItems.length) {
-          state.repairOrderInventorySelectedId = inventoryItemId(state.inventoryItems[0]);
-        }
-        renderInventory();
-        maybeOpenModal(els.inventoryModal, openModal);
-        return data;
-      } catch (error) {
-        state.inventoryLoaded = false;
-        renderInventory();
-        maybeOpenModal(els.inventoryModal, openModal);
-        inventoryStatus(error.message, true);
-        setStatus(error.message, true);
-        return null;
-      }
-    }
-
-    async function loadInventoryMovements({ force = false } = {}) {
-      if (state.inventoryMovementsLoading) return null;
-      if (state.inventoryMovementsLoaded && !force) {
-        renderInventoryMovements();
-        renderMobileInventoryMovements();
-        return { movements: state.inventoryMovements };
-      }
-      state.inventoryMovementsLoading = true;
-      renderInventoryMovements();
-      renderMobileInventoryMovements();
-      try {
-        const data = await api('/api/list_inventory_movements?limit=200');
-        state.inventoryMovements = Array.isArray(data?.movements) ? data.movements : [];
-        state.inventoryMovementsLoaded = true;
-        renderInventoryMovements();
-        renderMobileInventoryMovements();
-        return data;
-      } catch (error) {
-        state.inventoryMovementsLoaded = false;
-        inventoryStatus(error.message, true);
-        setStatus(error.message, true);
-        renderInventoryMovements();
-        renderMobileInventoryMovements();
-        return null;
-      } finally {
-        state.inventoryMovementsLoading = false;
-        renderInventoryMovements();
-        renderMobileInventoryMovements();
-      }
-    }
-
-    function invalidateInventoryMovements() {
-      state.inventoryMovementsLoaded = false;
-      if (state.inventoryView === 'movements' || (state.mobileLite && state.mobileView === 'inventory')) {
-        loadInventoryMovements({ force: true });
-      } else {
-        renderInventoryMovements();
-        renderMobileInventoryMovements();
-      }
-    }
-
-    function openInventoryModal() {
-      maybeOpenModal(els.inventoryModal, true);
-      renderInventory();
-      loadInventoryItems(false);
-      if (state.inventoryView === 'movements') loadInventoryMovements();
-    }
-
-    function selectInventoryItem(itemId) {
-      const normalizedId = String(itemId || '').trim();
-      state.inventoryActiveId = normalizedId;
-      if (normalizedId) state.repairOrderInventorySelectedId = normalizedId;
-      renderInventory();
-      if (state.mobileLite && state.mobileView === 'inventory') loadInventoryMovements();
-    }
-
-    function resetInventoryForm() {
-      state.inventoryActiveId = '';
-      renderInventory();
-      inventoryFormRefs().name?.focus({ preventScroll: true });
-    }
-
-    function setInventoryView(view) {
-      state.inventoryView = view === 'movements' ? 'movements' : 'positions';
-      renderInventory();
-      if (state.inventoryView === 'movements') loadInventoryMovements();
-    }
-
-    function handleInventoryStockFilterChange() {
-      state.inventoryStockFilter = String(els.inventoryStockFilter?.value || 'all');
-      renderInventoryItems();
-    }
-
-    function handleInventoryFormInput() {
-      renderInventoryQuickState();
-    }
-
-    function inventoryPayloadFromForm() {
-      const refs = inventoryFormRefs();
-      const itemId = String(state.inventoryActiveId || '').trim();
-      const payload = {
-        name: String(refs.name?.value || '').trim(),
-        catalog_number: String(refs.catalog?.value || '').trim(),
-        unit: String(refs.unit?.value || 'шт').trim() || 'шт',
-        cost_price: String(refs.costPrice?.value || '0').trim(),
-        sale_price: String(refs.salePrice?.value || '0').trim(),
-        actor_name: state.actor,
-        source: 'ui',
-      };
-      if (itemId) payload.item_id = itemId;
-      else payload.quantity = String(refs.quantity?.value || '0').trim();
-      return payload;
-    }
-
-    async function saveInventoryItem() {
-      if (state.inventorySaving) return;
-      const payload = inventoryPayloadFromForm();
-      if (!payload.name) {
-        inventoryStatus('УКАЖИТЕ НАЗВАНИЕ ПОЗИЦИИ.', true);
-        return;
-      }
-      state.inventorySaving = true;
-      renderInventoryForm();
-      try {
-        const data = await api('/api/save_inventory_item', { method: 'POST', body: payload });
-        if (data?.item) {
-          upsertInventoryItem(data.item);
-          state.inventoryActiveId = inventoryItemId(data.item);
-          state.repairOrderInventorySelectedId = inventoryItemId(data.item);
-        }
-        if (data?.movement) invalidateInventoryMovements();
-        await loadInventoryItems(false, { query: state.inventoryQuery });
-        inventoryStatus(data?.meta?.created ? 'ПОЗИЦИЯ ДОБАВЛЕНА.' : 'ПОЗИЦИЯ СОХРАНЕНА.', false);
-      } catch (error) {
-        inventoryStatus(error.message, true);
-        setStatus(error.message, true);
-      } finally {
-        state.inventorySaving = false;
-        renderInventory();
-      }
-    }
-
-    async function replenishInventoryItem() {
-      if (state.inventorySaving) return;
-      const item = activeInventoryItem();
-      if (!item?.id) return inventoryStatus('ВЫБЕРИТЕ ПОЗИЦИЮ ДЛЯ ПОПОЛНЕНИЯ.', true);
-      const refs = inventoryFormRefs();
-      const quantity = String(refs.replenishQuantity?.value || '').trim();
-      const parsed = repairOrderParseNumber(quantity);
-      if (parsed === null || parsed <= 0) {
-        refs.replenishQuantity?.focus({ preventScroll: true });
-        return inventoryStatus('УКАЖИТЕ КОЛИЧЕСТВО БОЛЬШЕ НУЛЯ.', true);
-      }
-      state.inventorySaving = true;
-      renderInventoryForm();
-      try {
-        const data = await api('/api/replenish_inventory_item', {
-          method: 'POST',
-          body: {
-            item_id: item.id,
-            quantity,
-            cost_price: String(refs.costPrice?.value || '').trim(),
-            sale_price: String(refs.salePrice?.value || '').trim(),
-            actor_name: state.actor,
-            source: 'ui',
-          },
-        });
-        if (data?.item) {
-          upsertInventoryItem(data.item);
-          state.inventoryActiveId = inventoryItemId(data.item);
-          state.repairOrderInventorySelectedId = inventoryItemId(data.item);
-        }
-        invalidateInventoryMovements();
-        await loadInventoryItems(false, { query: state.inventoryQuery });
-        inventoryStatus('ОСТАТОК ПОПОЛНЕН.', false);
-      } catch (error) {
-        inventoryStatus(error.message, true);
-        setStatus(error.message, true);
-      } finally {
-        state.inventorySaving = false;
-        renderInventory();
-      }
-    }
-
-    function handleInventorySearchInput() {
-      state.inventoryQuery = String(els.inventorySearchInput?.value || '').trim();
-      if (state.inventorySearchTimer) window.clearTimeout(state.inventorySearchTimer);
-      state.inventorySearchTimer = window.setTimeout(() => {
-        state.inventorySearchTimer = null;
-        loadInventoryItems(false, { query: state.inventoryQuery });
-      }, 250);
-    }
-
-    function handleInventoryItemsClick(event) {
-      const button = event.target instanceof HTMLElement ? event.target.closest('[data-inventory-item-id]') : null;
-      if (!button || !els.inventoryItemsList?.contains(button)) return;
-      selectInventoryItem(button.getAttribute('data-inventory-item-id'));
-    }
-
-    function renderMobileInventory() {
-      if (!els.mobileInventoryItemsList) return;
-      const items = (Array.isArray(state.inventoryItems) ? state.inventoryItems : [])
-        .filter((item) => inventorySearchMatches(item, state.inventoryQuery));
-      if (els.mobileInventorySearchInput && els.mobileInventorySearchInput.value !== state.inventoryQuery) {
-        els.mobileInventorySearchInput.value = state.inventoryQuery;
-      }
-      els.mobileInventoryItemsList.innerHTML = !state.inventoryLoaded && !items.length
-        ? '<div class="mobile-empty">СКЛАД ЗАГРУЖАЕТСЯ...</div>'
-        : (items.length
-          ? items.map((item) => inventoryRowHtml(item, { mobile: true })).join('')
-          : '<div class="mobile-empty">ПОЗИЦИЙ ПОКА НЕТ.</div>');
-      renderInventoryForm();
-      renderMobileInventoryMovements();
-    }
-
-    function handleMobileInventorySearchInput() {
-      state.inventoryQuery = String(els.mobileInventorySearchInput?.value || '').trim();
-      if (state.mobileInventorySearchTimer) window.clearTimeout(state.mobileInventorySearchTimer);
-      state.mobileInventorySearchTimer = window.setTimeout(() => {
-        state.mobileInventorySearchTimer = null;
-        loadInventoryItems(false, { query: state.inventoryQuery });
-      }, 250);
-    }
-
-    function handleMobileInventoryItemsClick(event) {
-      const button = event.target instanceof HTMLElement ? event.target.closest('[data-mobile-inventory-item-id]') : null;
-      if (!button || !els.mobileInventoryItemsList?.contains(button)) return;
-      selectInventoryItem(button.getAttribute('data-mobile-inventory-item-id'));
-    }
-
-    function repairOrderMaterialRowElements() {
-      return Array.from(els.repairOrderMaterialsBody?.querySelectorAll('tr[data-repair-order-row="materials"]') || []);
-    }
-
-    function repairOrderInventoryRememberedRowIndex() {
-      const parsed = finiteNumber(state.repairOrderInventoryRowIndex, -1);
-      const rows = repairOrderMaterialRowElements();
-      return Number.isInteger(parsed) && parsed >= 0 && parsed < rows.length ? parsed : -1;
-    }
-
-    function rememberRepairOrderInventoryRow(event) {
-      const row = event?.target instanceof HTMLElement ? event.target.closest('tr[data-repair-order-row="materials"]') : null;
-      if (!row || !els.repairOrderMaterialsBody?.contains(row)) return;
-      const rows = repairOrderMaterialRowElements();
-      const index = rows.indexOf(row);
-      if (index < 0) return;
-      state.repairOrderInventoryRowIndex = String(index);
-      const rowData = readRepairOrderRowElement(row);
-      if (rowData.inventory_item_id) state.repairOrderInventorySelectedId = rowData.inventory_item_id;
-      renderRepairOrderInventoryPanel();
-    }
-
-    function repairOrderInventorySelectedRow() {
-      const rows = repairOrderMaterialRowElements();
-      if (!rows.length) return null;
-      const rememberedIndex = repairOrderInventoryRememberedRowIndex();
-      if (rememberedIndex >= 0) return rows[rememberedIndex];
-      const activeRow = document.activeElement instanceof HTMLElement
-        ? document.activeElement.closest('tr[data-repair-order-row="materials"]')
-        : null;
-      if (activeRow && els.repairOrderMaterialsBody?.contains(activeRow)) return activeRow;
-      const selectedItemId = String(state.repairOrderInventorySelectedId || '').trim();
-      if (selectedItemId) {
-        const linked = rows.find((row) => {
-          const rowData = readRepairOrderRowElement(row);
-          return rowData.inventory_item_id === selectedItemId && rowData.inventory_movement_id;
-        });
-        if (linked) return linked;
-      }
-      if (rows.length === 1 && !repairOrderRowHasAnyData(readRepairOrderRowElement(rows[0]))) return rows[0];
-      return null;
-    }
-
-    function repairOrderInventorySelectedMovementId() {
-      const selectedRow = repairOrderInventorySelectedRow();
-      const selectedData = selectedRow ? readRepairOrderRowElement(selectedRow) : null;
-      if (selectedData?.inventory_movement_id) return selectedData.inventory_movement_id;
-      const selectedItemId = String(state.repairOrderInventorySelectedId || '').trim();
-      if (!selectedItemId) return '';
-      const linked = repairOrderMaterialRowElements().find((row) => {
-        const rowData = readRepairOrderRowElement(row);
-        return rowData.inventory_item_id === selectedItemId && rowData.inventory_movement_id;
-      });
-      return linked ? readRepairOrderRowElement(linked).inventory_movement_id : '';
-    }
-
-    function repairOrderInventoryTargetRowIndex() {
-      const rows = repairOrderMaterialRowElements();
-      const rememberedIndex = repairOrderInventoryRememberedRowIndex();
-      if (rememberedIndex >= 0) return rememberedIndex;
-      const selectedRow = repairOrderInventorySelectedRow();
-      if (selectedRow) {
-        const index = rows.indexOf(selectedRow);
-        if (index >= 0) return index;
-      }
-      if (rows.length === 1 && !repairOrderRowHasAnyData(readRepairOrderRowElement(rows[0]))) return 0;
-      return rows.length;
-    }
-
-    function selectedRepairOrderInventoryItem() {
-      return inventoryItemById(state.repairOrderInventorySelectedId) || activeInventoryItem();
-    }
-
-    function repairOrderInventoryQuantity() {
-      const raw = String(els.repairOrderInventoryQuantityInput?.value || '').trim();
-      const parsed = repairOrderParseNumber(raw);
-      return parsed !== null && parsed > 0 ? { raw, parsed } : null;
-    }
-
-    function repairOrderInventoryResults() {
-      const query = String(state.repairOrderInventoryQuery || '').trim();
-      return (Array.isArray(state.inventoryItems) ? state.inventoryItems : [])
-        .filter((item) => inventorySearchMatches(item, query))
-        .slice(0, 80);
-    }
-
-    function repairOrderInventoryRowFromItem(item, quantity) {
-      const salePrice = repairOrderParseNumber(item?.sale_price ?? 0) ?? 0;
-      return normalizeRepairOrderRow({
-        name: item?.name || '',
-        catalog_number: item?.catalog_number || '',
-        quantity: quantity.raw,
-        cost_price: item?.cost_price || '0',
-        price: item?.sale_price || '0',
-        total: repairOrderNumberToRaw(repairOrderRoundMoney(quantity.parsed * salePrice)),
-        inventory_item_id: '',
-        inventory_movement_id: '',
-        inventory_unit: '',
-      });
-    }
-
-    function setRepairOrderMaterialRow(rowData, targetIndex) {
-      const rows = readRepairOrderRows('materials');
-      let index = finiteNumber(targetIndex, rows.length);
-      if (!Number.isInteger(index) || index < 0) index = rows.length;
-      if (index > rows.length) index = rows.length;
-      if (index === rows.length) rows.push(rowData);
-      else rows[index] = normalizeRepairOrderRow({ ...rows[index], ...rowData });
-      renderRepairOrderRows('materials', rows);
-      state.repairOrderInventoryRowIndex = String(Math.max(0, Math.min(index, rows.length - 1)));
-    }
-
-    function fillRepairOrderInventoryRow() {
-      const item = selectedRepairOrderInventoryItem();
-      if (!item?.id) return inventoryStatus('ВЫБЕРИТЕ ПОЗИЦИЮ СКЛАДА.', true);
-      const quantity = repairOrderInventoryQuantity();
-      if (!quantity) {
-        els.repairOrderInventoryQuantityInput?.focus({ preventScroll: true });
-        return inventoryStatus('УКАЖИТЕ КОЛИЧЕСТВО БОЛЬШЕ НУЛЯ.', true);
-      }
-      setRepairOrderMaterialRow(repairOrderInventoryRowFromItem(item, quantity), repairOrderInventoryTargetRowIndex());
-      syncRepairOrderTotals();
-      renderRepairOrderInventoryPanel();
-      inventoryStatus('СТРОКА МАТЕРИАЛА ЗАПОЛНЕНА БЕЗ СПИСАНИЯ.', false);
-    }
-
-    async function writeOffInventoryItem() {
-      const item = selectedRepairOrderInventoryItem();
-      if (!item?.id) return inventoryStatus('ВЫБЕРИТЕ ПОЗИЦИЮ СКЛАДА.', true);
-      const quantity = repairOrderInventoryQuantity();
-      if (!quantity) {
-        els.repairOrderInventoryQuantityInput?.focus({ preventScroll: true });
-        return inventoryStatus('УКАЖИТЕ КОЛИЧЕСТВО БОЛЬШЕ НУЛЯ.', true);
-      }
-      const available = inventoryItemQuantityNumber(item);
-      if (quantity.parsed > available) {
-        els.repairOrderInventoryQuantityInput?.focus({ preventScroll: true });
-        renderRepairOrderInventoryPanel();
-        return inventoryStatus('НЕЛЬЗЯ СПИСАТЬ БОЛЬШЕ ОСТАТКА: ' + inventoryDisplayQuantity(item) + '.', true);
-      }
-      const cardId = await requireRepairOrderCardId();
-      if (!cardId) return;
-      const rowIndex = repairOrderInventoryTargetRowIndex();
-      try {
-        if (els.repairOrderInventoryIssueButton) els.repairOrderInventoryIssueButton.disabled = true;
-        const data = await api('/api/write_off_inventory_item', {
-          method: 'POST',
-          body: {
-            item_id: item.id,
-            card_id: cardId,
-            quantity: quantity.raw,
-            row_index: rowIndex,
-            actor_name: state.actor,
-            source: 'ui',
-          },
-        });
-        if (data?.item) {
-          upsertInventoryItem(data.item);
-          state.inventoryActiveId = inventoryItemId(data.item);
-          state.repairOrderInventorySelectedId = inventoryItemId(data.item);
-        }
-        state.repairOrderInventoryRowIndex = String(data?.meta?.row_index ?? rowIndex);
-        if (data?.card || data?.repair_order) {
-          const updatedCard = repairOrderResponseCard(data, data?.repair_order || readRepairOrderFromForm());
-          applyRepairOrderCardUpdate(updatedCard, data?.repair_order || {});
-          await refreshRepairOrdersListAfterMutation();
-        }
-        await loadInventoryItems(false, { query: state.repairOrderInventoryQuery || state.inventoryQuery });
-        invalidateInventoryMovements();
-        inventoryStatus('МАТЕРИАЛ СПИСАН СО СКЛАДА.', false);
-        setStatus('МАТЕРИАЛ СПИСАН СО СКЛАДА.', false);
-      } catch (error) {
-        inventoryStatus(error.message, true);
-        setStatus(error.message, true);
-      } finally {
-        renderRepairOrderInventoryPanel();
-      }
-    }
-
-    async function returnInventoryMovement() {
-      const movementId = repairOrderInventorySelectedMovementId();
-      if (!movementId) return inventoryStatus('В СТРОКЕ НЕТ СКЛАДСКОГО СПИСАНИЯ.', true);
-      const cardId = await requireRepairOrderCardId();
-      if (!cardId) return;
-      try {
-        if (els.repairOrderInventoryReturnButton) els.repairOrderInventoryReturnButton.disabled = true;
-        const data = await api('/api/return_inventory_movement', {
-          method: 'POST',
-          body: {
-            movement_id: movementId,
-            card_id: cardId,
-            actor_name: state.actor,
-            source: 'ui',
-          },
-        });
-        if (data?.item) {
-          upsertInventoryItem(data.item);
-          state.inventoryActiveId = inventoryItemId(data.item);
-          state.repairOrderInventorySelectedId = inventoryItemId(data.item);
-        }
-        if (data?.card || data?.repair_order) {
-          const updatedCard = repairOrderResponseCard(data, data?.repair_order || readRepairOrderFromForm());
-          applyRepairOrderCardUpdate(updatedCard, data?.repair_order || {});
-          await refreshRepairOrdersListAfterMutation();
-        }
-        await loadInventoryItems(false, { query: state.repairOrderInventoryQuery || state.inventoryQuery });
-        invalidateInventoryMovements();
-        inventoryStatus('СПИСАНИЕ ВОЗВРАЩЕНО НА СКЛАД.', false);
-        setStatus('СПИСАНИЕ ВОЗВРАЩЕНО НА СКЛАД.', false);
-      } catch (error) {
-        inventoryStatus(error.message, true);
-        setStatus(error.message, true);
-      } finally {
-        renderRepairOrderInventoryPanel();
-      }
-    }
-
-    function renderRepairOrderInventoryPanel() {
-      const panel = els.repairOrderInventoryPanel;
-      const isOpen = Boolean(state.repairOrderInventoryOpen);
-      const materialsCard = els.repairOrderMaterialsBody?.closest('.repair-order-table-card');
-      materialsCard?.classList.toggle('is-inventory-open', isOpen);
-      if (els.repairOrderInventoryToggleButton) {
-        els.repairOrderInventoryToggleButton.classList.toggle('is-active', isOpen);
-        els.repairOrderInventoryToggleButton.setAttribute('aria-pressed', isOpen ? 'true' : 'false');
-      }
-      if (!panel) return;
-      panel.hidden = !isOpen;
-      if (!isOpen) return;
-      if (els.repairOrderInventorySearchInput && els.repairOrderInventorySearchInput.value !== state.repairOrderInventoryQuery) {
-        els.repairOrderInventorySearchInput.value = state.repairOrderInventoryQuery;
-      }
-      const items = repairOrderInventoryResults();
-      if (els.repairOrderInventoryResults) {
-        els.repairOrderInventoryResults.innerHTML = !state.inventoryLoaded && !items.length
-          ? '<div class="cashboxes-empty">ЗАГРУЖАЮ СКЛАД...</div>'
-          : (items.length
-            ? items.map((item) => inventoryRowHtml(item, { panel: true })).join('')
-            : '<div class="cashboxes-empty">НИЧЕГО НЕ НАЙДЕНО.</div>');
-      }
-      const selected = selectedRepairOrderInventoryItem();
-      if (els.repairOrderInventorySelected) {
-        els.repairOrderInventorySelected.innerHTML = selected
-          ? '<div class="inventory-row__top"><span class="inventory-row__name">' + escapeHtml(selected.name || 'Позиция') + '</span><strong class="inventory-row__qty">' + escapeHtml(inventoryDisplayQuantity(selected)) + '</strong></div>'
-            + '<div class="inventory-row__meta">' + escapeHtml(inventoryItemMeta(selected)) + '</div>'
-          : '<div class="cashboxes-empty">ВЫБЕРИТЕ ПОЗИЦИЮ.</div>';
-      }
-      if (els.repairOrderInventoryQuantityInput && selected && !String(els.repairOrderInventoryQuantityInput.value || '').trim()) {
-        els.repairOrderInventoryQuantityInput.value = '1';
-      }
-      const hasQuantity = Boolean(repairOrderInventoryQuantity());
-      const requestedQuantity = repairOrderInventoryQuantity();
-      if (els.repairOrderInventoryStock) {
-        const stockText = selected ? ('ОСТАТОК: ' + inventoryDisplayQuantity(selected)) : 'ОСТАТОК: НЕ ВЫБРАНО';
-        const overLimit = selected && requestedQuantity && requestedQuantity.parsed > inventoryItemQuantityNumber(selected);
-        els.repairOrderInventoryStock.textContent = overLimit
-          ? stockText + ' · НЕДОСТАТОЧНО ДЛЯ СПИСАНИЯ'
-          : stockText;
-        els.repairOrderInventoryStock.dataset.tone = overLimit ? 'error' : 'normal';
-      }
-      const hasMovement = Boolean(repairOrderInventorySelectedMovementId());
-      if (els.repairOrderInventoryFillButton) els.repairOrderInventoryFillButton.disabled = !selected || !hasQuantity;
-      if (els.repairOrderInventoryIssueButton) els.repairOrderInventoryIssueButton.disabled = !selected || !hasQuantity;
-      if (els.repairOrderInventoryReturnButton) els.repairOrderInventoryReturnButton.disabled = !hasMovement;
-    }
-
-    function toggleRepairOrderInventoryPanel() {
-      state.repairOrderInventoryOpen = !state.repairOrderInventoryOpen;
-      renderRepairOrderInventoryPanel();
-      if (state.repairOrderInventoryOpen) {
-        if (!state.inventoryLoaded) loadInventoryItems(false, { query: state.repairOrderInventoryQuery });
-        window.setTimeout(() => els.repairOrderInventorySearchInput?.focus({ preventScroll: true }), 0);
-      }
-    }
-
-    function selectRepairOrderInventoryItem(itemId) {
-      const normalizedId = String(itemId || '').trim();
-      state.repairOrderInventorySelectedId = normalizedId;
-      if (normalizedId) state.inventoryActiveId = normalizedId;
-      if (els.repairOrderInventoryQuantityInput && !String(els.repairOrderInventoryQuantityInput.value || '').trim()) {
-        els.repairOrderInventoryQuantityInput.value = '1';
-      }
-      renderRepairOrderInventoryPanel();
-    }
-
-    function handleRepairOrderInventorySearchInput() {
-      state.repairOrderInventoryQuery = String(els.repairOrderInventorySearchInput?.value || '').trim();
-      renderRepairOrderInventoryPanel();
-      if (state.inventorySearchTimer) window.clearTimeout(state.inventorySearchTimer);
-      state.inventorySearchTimer = window.setTimeout(() => {
-        state.inventorySearchTimer = null;
-        loadInventoryItems(false, { query: state.repairOrderInventoryQuery });
-      }, 250);
-    }
-
-    function handleRepairOrderInventoryResultsClick(event) {
-      const button = event.target instanceof HTMLElement ? event.target.closest('[data-repair-order-inventory-item-id]') : null;
-      if (!button || !els.repairOrderInventoryResults?.contains(button)) return;
-      selectRepairOrderInventoryItem(button.getAttribute('data-repair-order-inventory-item-id'));
-    }
+    // @include inventory_workspace.js
 
     function cashboxFormatMinorAmount(value) {
       const amount = finiteNumber(value);

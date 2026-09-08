@@ -212,6 +212,7 @@ PRINT_BASE_STYLES = """
   .doc-bank-table__label { color: var(--paper-soft); font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; }
   .doc-bank-table__value { line-height: 1.25; margin-top: 2px; word-break: break-word; }
   .doc-bank-table__value strong { font-size: 11px; }
+  .doc-bank-table__account { white-space: nowrap; word-break: normal; font-variant-numeric: tabular-nums; }
   .doc-checkbox-row { display: flex; gap: 18px; align-items: center; font-weight: 700; }
   .doc-checkbox { display: inline-block; width: 12px; height: 12px; border: 1px solid var(--paper-line-strong); margin-right: 6px; vertical-align: -2px; }
   .doc-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
@@ -248,7 +249,7 @@ PRINT_BASE_STYLES = """
   .doc-section--warranty .doc-terms__list {
     gap: 1px;
   }
-  .doc-section__title { margin: 0 0 6px; font-size: 13px; font-weight: 700; }
+  .doc-section__title { margin: 0 0 6px; font-size: 13px; font-weight: 700; break-after: avoid; page-break-after: avoid; }
   .doc-note { border: 1px solid var(--paper-line); border-radius: 9px; padding: 9px 11px; min-height: 54px; white-space: normal; line-height: 1.5; background: #fcfcfc; }
   .doc-terms {
     border: 1px solid rgba(0, 0, 0, 0.09);
@@ -293,7 +294,8 @@ PRINT_BASE_STYLES = """
   .doc-totals__row:last-child { border-bottom: 0; }
   .doc-totals__row > span:last-child { text-align: right; }
   .doc-totals__row--grand { font-size: 14px; font-weight: 700; background: rgba(0, 0, 0, 0.03); }
-  .doc-totals-table { width: min(460px, 100%); margin-left: auto; margin-top: 10px; border-collapse: collapse; }
+  .doc-totals-table { width: min(460px, 100%); margin-left: auto; margin-top: 10px; border-collapse: collapse; break-inside: avoid; page-break-inside: avoid; }
+  .doc-invoice-final { break-inside: avoid; page-break-inside: avoid; }
   .doc-totals-table td {
     border: 1px solid var(--paper-line);
     padding: 8px 11px;
@@ -1094,6 +1096,10 @@ PRINT_BASE_STYLES = """
       box-shadow: none;
       border: 0;
     }
+    .document-page + .document-page {
+      break-before: page;
+      page-break-before: always;
+    }
     .completion-act-page.document-page {
       page: completion-act-page;
       width: auto;
@@ -1415,20 +1421,20 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
   </div>
   <table class="doc-bank-table">
     <colgroup>
-      <col style="width: 34%">
+      <col style="width: 30%">
       <col style="width: 24%">
       <col style="width: 20%">
-      <col style="width: 22%">
+      <col style="width: 26%">
     </colgroup>
     <tr>
       <td colspan="2"><div class="doc-bank-table__label">Банк получателя</div><div class="doc-bank-table__value"><strong>{{service.bank_name}}</strong></div></td>
       <td><div class="doc-bank-table__label">БИК</div><div class="doc-bank-table__value"><strong>{{service.bik}}</strong></div></td>
-      <td><div class="doc-bank-table__label">Сч. №</div><div class="doc-bank-table__value"><strong>{{service.correspondent_account}}</strong></div></td>
+      <td><div class="doc-bank-table__label">Сч. №</div><div class="doc-bank-table__value doc-bank-table__account"><strong>{{service.correspondent_account}}</strong></div></td>
     </tr>
     <tr>
       <td><div class="doc-bank-table__label">ИНН</div><div class="doc-bank-table__value"><strong>{{service.inn}}</strong></div></td>
       <td><div class="doc-bank-table__label">КПП</div><div class="doc-bank-table__value"><strong>{{service.kpp}}</strong></div></td>
-      <td colspan="2"><div class="doc-bank-table__label">Сч. №</div><div class="doc-bank-table__value"><strong>{{service.settlement_account}}</strong></div></td>
+      <td colspan="2"><div class="doc-bank-table__label">Сч. №</div><div class="doc-bank-table__value doc-bank-table__account"><strong>{{service.settlement_account}}</strong></div></td>
     </tr>
     <tr>
       <td colspan="4"><div class="doc-bank-table__label">Получатель</div><div class="doc-bank-table__value"><strong>{{service.legal_name}}</strong></div></td>
@@ -1480,10 +1486,10 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
     {{#client.has_requisites}}
     <table class="doc-bank-table">
       <colgroup>
-        <col style="width: 34%">
+        <col style="width: 30%">
         <col style="width: 24%">
         <col style="width: 20%">
-        <col style="width: 22%">
+        <col style="width: 26%">
       </colgroup>
       <tr>
         <td colspan="2"><div class="doc-bank-table__label">Покупатель</div><div class="doc-bank-table__value"><strong>{{client.invoice_name_display}}</strong></div></td>
@@ -1493,10 +1499,10 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
       <tr>
         <td colspan="2"><div class="doc-bank-table__label">Банк</div><div class="doc-bank-table__value"><strong>{{client.bank_name}}</strong></div></td>
         <td><div class="doc-bank-table__label">БИК</div><div class="doc-bank-table__value"><strong>{{client.bik}}</strong></div></td>
-        <td><div class="doc-bank-table__label">Сч. №</div><div class="doc-bank-table__value"><strong>{{client.checking_account}}</strong></div></td>
+        <td><div class="doc-bank-table__label">Сч. №</div><div class="doc-bank-table__value doc-bank-table__account"><strong>{{client.checking_account}}</strong></div></td>
       </tr>
       <tr>
-        <td><div class="doc-bank-table__label">К/с</div><div class="doc-bank-table__value"><strong>{{client.correspondent_account}}</strong></div></td>
+        <td><div class="doc-bank-table__label">К/с</div><div class="doc-bank-table__value doc-bank-table__account"><strong>{{client.correspondent_account}}</strong></div></td>
         <td colspan="3"><div class="doc-bank-table__label">Юр. адрес</div><div class="doc-bank-table__value"><strong>{{client.legal_address}}</strong></div></td>
       </tr>
       <tr>
@@ -1521,7 +1527,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
     <h2 class="doc-section__title">Назначение платежа</h2>
     <div class="doc-note">{{service.payment_purpose}}</div>
   </section>
-  <table class="doc-totals-table">
+  <div class="doc-invoice-final"><table class="doc-totals-table">
     <tr><td>Итого</td><td>{{invoice.subtotal_display}}</td></tr>
     {{#invoice.has_vat}}<tr><td>В том числе {{invoice.tax_label}}</td><td>{{invoice.vat_display}}</td></tr>{{/invoice.has_vat}}
     {{^invoice.has_vat}}<tr><td>Налоговый режим</td><td>{{invoice.tax_label}}</td></tr>{{/invoice.has_vat}}
@@ -1545,7 +1551,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
         </td>
       </tr>
     </table>
-  </section>
+  </section></div>
 </div>
             """,
         ),

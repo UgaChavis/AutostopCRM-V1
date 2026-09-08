@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import html
 import json
 import math
 import os
@@ -31,9 +30,15 @@ from ..storage.file_lock import ProcessFileLock
 from ..storage.limited_io import read_bytes_limited
 from . import document_policy
 from . import repair_order_future_v2 as future_v2
-from .defaults import BUILTIN_PRINT_DOCUMENTS, PRINT_BASE_STYLES, builtin_template_records
+from .defaults import BUILTIN_PRINT_DOCUMENTS, builtin_template_records
 from .document_guard import export_document_meta, invoice_guard
 from .document_money import DocumentMoneyError, build_canonical_document_money
+from .document_rendering import (
+    PAGE_BREAK_MARKER,
+    combined_document_html,
+    preview_document_payload,
+    wrap_document_html,
+)
 from .errors import PrintModuleError
 from .formatting import (
     _RU_MONTHS_GENITIVE,
@@ -86,7 +91,6 @@ COMPLETION_ACT_FORMS_MAX_RECORDS = 8192
 COMPLETION_ACT_FEED_RECONCILE_BATCH = 16
 PRINT_BRAND_LOGO_MAX_BYTES = 512 * 1024
 PRINT_TEMPLATE_CONTENT_MAX_CHARS = 200_000
-_PAGE_BREAK_MARKER = "<!-- AUTOSTOPCRM_PAGE_BREAK -->"
 _REGULATED_LANDSCAPE_DOCUMENT_TYPES = {"invoice_factura", "upd"}
 _SENTENCE_SPLIT_RE = re.compile(r"[\n\r]+|(?<=[.!?])\s+")
 _UNSAFE_FILE_NAME_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
@@ -1505,29 +1509,20 @@ class PrintModuleService:
         order = repair_order or card.repair_order
         settings = self._merged_settings(print_settings)
         selected_ids = self._normalized_document_ids(selected_document_ids)
-        selected_templates = self._normalized_template_selection_map(selected_template_ids)
-        normalized_overrides = self._normalized_template_override_map(template_overrides)
         resolved_active = self._resolved_active_document_id(active_document_id, selected_ids)
-        documents_payload: list[dict[str, Any]] = []
-        for document_id in selected_ids:
-            document = self._document_definition(document_id)
-            template = self._resolve_template(
-                document_type=document_id,
-                template_id=selected_templates.get(document_id, ""),
+        documents_payload = [
+            preview_document_payload(payload, settings=settings)
+            for payload in self._render_document_batch(
+                card,
+                order,
+                selected_ids,
+                client=client,
                 settings=settings,
+                selected_template_ids=selected_template_ids,
+                template_overrides=template_overrides,
+                document_overrides=document_overrides,
             )
-            documents_payload.append(
-                self._preview_document_payload(
-                    card,
-                    order,
-                    document,
-                    template,
-                    client=client,
-                    settings=settings,
-                    template_overrides=normalized_overrides,
-                    document_overrides=document_overrides,
-                )
-            )
+        ]
         return {
             "card_id": card.id,
             "heading": card.heading(),
@@ -1554,26 +1549,17 @@ class PrintModuleService:
         order = repair_order or card.repair_order
         settings = self._merged_settings(print_settings)
         selected_ids = self._normalized_document_ids(selected_document_ids)
-        selected_templates = self._normalized_template_selection_map(selected_template_ids)
-        normalized_overrides = self._normalized_template_override_map(template_overrides)
-        document_payloads = [
-            self._rendered_document_payload(
-                card,
-                order,
-                self._document_definition(document_id),
-                self._resolve_template(
-                    document_type=document_id,
-                    template_id=selected_templates.get(document_id, ""),
-                    settings=settings,
-                ),
-                client=client,
-                settings=settings,
-                template_overrides=normalized_overrides,
-                document_overrides=document_overrides,
-            )
-            for document_id in selected_ids
-        ]
-        combined_html = self._combined_document_html(document_payloads)
+        document_payloads = self._render_document_batch(
+            card,
+            order,
+            selected_ids,
+            client=client,
+            settings=settings,
+            selected_template_ids=selected_template_ids,
+            template_overrides=template_overrides,
+            document_overrides=document_overrides,
+        )
+        combined_html = combined_document_html(document_payloads)
         render_orientation = _print_render_orientation(settings, selected_ids)
         try:
             pdf_bytes = render_html_to_pdf_bytes(
@@ -1622,26 +1608,17 @@ class PrintModuleService:
                 "Не выбран принтер. Сначала выберите принтер или экспортируйте PDF.",
             )
         selected_ids = self._normalized_document_ids(selected_document_ids)
-        selected_templates = self._normalized_template_selection_map(selected_template_ids)
-        normalized_overrides = self._normalized_template_override_map(template_overrides)
-        document_payloads = [
-            self._rendered_document_payload(
-                card,
-                order,
-                self._document_definition(document_id),
-                self._resolve_template(
-                    document_type=document_id,
-                    template_id=selected_templates.get(document_id, ""),
-                    settings=settings,
-                ),
-                client=client,
-                settings=settings,
-                template_overrides=normalized_overrides,
-                document_overrides=document_overrides,
-            )
-            for document_id in selected_ids
-        ]
-        combined_html = self._combined_document_html(document_payloads)
+        document_payloads = self._render_document_batch(
+            card,
+            order,
+            selected_ids,
+            client=client,
+            settings=settings,
+            selected_template_ids=selected_template_ids,
+            template_overrides=template_overrides,
+            document_overrides=document_overrides,
+        )
+        combined_html = combined_document_html(document_payloads)
         render_orientation = _print_render_orientation(settings, selected_ids)
         try:
             print_html(
@@ -1810,47 +1787,37 @@ class PrintModuleService:
             "template_locked": document_policy.is_template_locked(document.id),
         }
 
-    def _preview_document_payload(
+    def _render_document_batch(
         self,
         card: Card,
         order: RepairOrder,
-        document: PrintDocumentDefinition,
-        template: PrintTemplateRecord,
+        selected_ids: list[str],
         *,
         client: ClientProfile | None,
         settings: PrintModuleSettings,
+        selected_template_ids: dict[str, str] | None,
         template_overrides: dict[str, str] | None,
         document_overrides: dict[str, Any] | None,
-    ) -> dict[str, Any]:
-        rendered = self._rendered_document_payload(
-            card,
-            order,
-            document,
-            template,
-            client=client,
-            settings=settings,
-            template_overrides=template_overrides,
-            document_overrides=document_overrides,
-        )
-        preview_pages = self._preview_pages(rendered["document_html"], document=document)
-        return {
-            "id": document.id,
-            "label": document.label,
-            "template": rendered["template"].to_dict(
-                is_default=(
-                    settings.default_template_ids.get(document.id) == rendered["template"].id
-                )
-            ),
-            "warnings": rendered["warnings"],
-            "missing_fields": rendered["missing_fields"],
-            "computed_totals": rendered["computed_totals"],
-            "computed_items": rendered["computed_items"],
-            "page_count": len(preview_pages),
-            "pages": [
-                {"number": index + 1, "html": page_html}
-                for index, page_html in enumerate(preview_pages)
-            ],
-        }
+    ) -> list[dict[str, Any]]:
+        selected_templates = self._normalized_template_selection_map(selected_template_ids)
+        normalized_overrides = self._normalized_template_override_map(template_overrides)
+        return [
+            self._rendered_document_payload(
+                card,
+                order,
+                self._document_definition(document_id),
+                self._resolve_template(
+                    document_type=document_id,
+                    template_id=selected_templates.get(document_id, ""),
+                    settings=settings,
+                ),
+                client=client,
+                settings=settings,
+                template_overrides=normalized_overrides,
+                document_overrides=document_overrides,
+            )
+            for document_id in selected_ids
+        ]
 
     def _rendered_document_payload(
         self,
@@ -1894,7 +1861,7 @@ class PrintModuleService:
         return {
             "document": document,
             "template": effective_template,
-            "document_html": self._wrap_document_html(fragment, title=document.label),
+            "document_html": wrap_document_html(fragment, title=document.label),
             "warnings": context["meta"]["warnings"],
             "missing_fields": context["meta"]["missing_fields"],
             "computed_totals": (
@@ -1914,48 +1881,6 @@ class PrintModuleService:
             ),
             "document_guard": invoice_guard(document.id, context),
         }
-
-    def _combined_document_html(self, payloads: list[dict[str, Any]]) -> str:
-        bodies: list[str] = []
-        for payload in payloads:
-            body = self._extract_document_shell_content(payload["document_html"]).replace(
-                _PAGE_BREAK_MARKER, ""
-            )
-            bodies.append(body)
-        return self._wrap_document_html("\n".join(bodies), title="Печать документов AutoStop CRM")
-
-    def _wrap_document_html(self, body_html: str, *, title: str) -> str:
-        return (
-            '<!doctype html><html lang="ru"><head><meta charset="utf-8">'
-            '<meta name="viewport" content="width=device-width, initial-scale=1">'
-            f"<title>{html.escape(title)}</title>"
-            f"<style>{PRINT_BASE_STYLES}</style>"
-            '</head><body><div class="document-shell">'
-            f"{body_html}"
-            "</div></body></html>"
-        )
-
-    def _extract_body(self, document_html: str) -> str:
-        match = re.search(r"<body[^>]*>(.*)</body>", document_html, flags=re.IGNORECASE | re.DOTALL)
-        if not match:
-            return document_html
-        return match.group(1)
-
-    def _extract_document_shell_content(self, document_html: str) -> str:
-        body = self._extract_body(document_html)
-        match = re.search(
-            r'^\s*<div class="document-shell">(.*)</div>\s*$',
-            body,
-            flags=re.IGNORECASE | re.DOTALL,
-        )
-        return match.group(1) if match else body
-
-    def _preview_pages(self, document_html: str, *, document: PrintDocumentDefinition) -> list[str]:
-        body_html = self._extract_document_shell_content(document_html)
-        chunks = [chunk.strip() for chunk in body_html.split(_PAGE_BREAK_MARKER) if chunk.strip()]
-        if not chunks:
-            chunks = [body_html]
-        return [self._wrap_document_html(chunk, title=document.label) for chunk in chunks]
 
     def _document_definition(self, document_id: str) -> PrintDocumentDefinition:
         normalized = _normalize_document_type(document_id)
@@ -3258,7 +3183,7 @@ class PrintModuleService:
                 "page_number": index + 1,
                 "page_count": page_count,
                 "page_break_before": index > 0,
-                "page_break_marker": _PAGE_BREAK_MARKER if index > 0 else "",
+                "page_break_marker": PAGE_BREAK_MARKER if index > 0 else "",
                 "is_first": index == 0,
                 "is_final": index == page_count - 1,
                 "items": chunk,

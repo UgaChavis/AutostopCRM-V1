@@ -2,18 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-from importlib import resources
 
 from ..printing.web_module import (
     PRINTING_WEB_MODULE_HTML,
     PRINTING_WEB_MODULE_SCRIPT,
     PRINTING_WEB_MODULE_STYLE,
 )
-
-
-def _read_source_chunk(name: str) -> str:
-    return resources.files(__package__).joinpath("source", name).read_text(encoding="utf-8")
-
+from .module_assets import _read_source_chunk, build_board_module_assets, read_board_source
 
 BOARD_WEB_APP_CONTRACT_TEXT = "".join(
     [
@@ -22,7 +17,7 @@ BOARD_WEB_APP_CONTRACT_TEXT = "".join(
         PRINTING_WEB_MODULE_STYLE,
         _read_source_chunk("post_printing_styles_and_body.html"),
         PRINTING_WEB_MODULE_HTML,
-        _read_source_chunk("app_main_before_printing.js"),
+        read_board_source("app_main_before_printing.js"),
         _read_source_chunk("cashbox_transactions.js"),
         _read_source_chunk("cashbox_transfer.js"),
         _read_source_chunk("cash_journal.js"),
@@ -47,13 +42,20 @@ def _fingerprinted_path(kind: str, content: str) -> str:
     return f"/assets/board.{digest}.{kind}"
 
 
+(_RUNTIME_DOCUMENT, BOARD_WEB_APP_MODULES, BOARD_WEB_APP_MODULE_MANIFEST) = (
+    build_board_module_assets(
+        BOARD_WEB_APP_CONTRACT_TEXT, PRINTING_WEB_MODULE_SCRIPT, _fingerprinted_path
+    )
+)
+
+
 (
     _BOARD_HEAD,
     BOARD_WEB_APP_CSS,
     _BOARD_MARKUP,
     BOARD_WEB_APP_JS,
     _BOARD_TAIL,
-) = _split_board_document(BOARD_WEB_APP_CONTRACT_TEXT)
+) = _split_board_document(_RUNTIME_DOCUMENT)
 
 BOARD_WEB_APP_CSS_PATH = _fingerprinted_path("css", BOARD_WEB_APP_CSS)
 BOARD_WEB_APP_JS_PATH = _fingerprinted_path("js", BOARD_WEB_APP_JS)

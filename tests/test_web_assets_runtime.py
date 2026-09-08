@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 import tempfile
 import textwrap
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
 SOURCE_PATH = (
     ROOT / "src" / "minimal_kanban" / "web_app_assets" / "source" / "app_main_before_printing.js"
 )
@@ -34,7 +37,9 @@ def _optional_source_section(source: str, start_marker: str, end_marker: str) ->
 class WebAssetsRuntimeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.source = SOURCE_PATH.read_text(encoding="utf-8")
+        from minimal_kanban.web_app_assets.assembler import read_board_source
+
+        cls.source = read_board_source("app_main_before_printing.js")
         cls.after_source = AFTER_SOURCE_PATH.read_text(encoding="utf-8")
 
     def _run_node(self, body: str) -> None:
@@ -520,6 +525,11 @@ class WebAssetsRuntimeTests(unittest.TestCase):
               unreadSeenInFlight: new Set(['card-1']),
               viewerStateGeneration: 0,
               archiveCards: [{{ id: 'archived-1' }}],
+              clients: [{{ id: 'old-client' }}],
+              clientsLoaded: true,
+              clientsActiveId: 'old-client',
+              clientsActiveProfile: {{ client: {{ id: 'old-client' }} }},
+              clientsRequestSeq: 8,
               archiveLoaded: true,
               archiveLoading: Promise.resolve(),
               employees: [{{ id: 'employee-1' }}],
@@ -588,6 +598,11 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             assert.equal(state.unreadSeenDeferredTimers.size, 0, 'logout must clear deferred seen timers');
             assert.equal(state.unreadSeenInFlight.size, 0, 'logout must clear seen requests');
             assert.equal(state.viewerStateGeneration, 1, 'logout must invalidate stale async work');
+            assert.deepEqual(state.clients, []);
+            assert.equal(state.clientsLoaded, false);
+            assert.equal(state.clientsActiveId, '');
+            assert.equal(state.clientsActiveProfile, null);
+            assert.equal(state.clientsRequestSeq, 9);
             assert.equal(state.employeesWorkspaceLoadGeneration, 5);
             assert.deepEqual(state.employees, []);
             assert.equal(state.employeesLoadedMonth, '');

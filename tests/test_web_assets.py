@@ -67,7 +67,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("<style>", BOARD_WEB_APP_SHELL_HTML)
         self.assertNotIn("  <script>\n", BOARD_WEB_APP_SHELL_HTML)
         self.assertGreater(len(BOARD_WEB_APP_CSS), 100_000)
-        self.assertGreater(len(BOARD_WEB_APP_JS), 1_000_000)
+        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 1_191_218 * 0.75)
 
     def test_web_assets_are_loaded_from_packaged_source_chunks(self) -> None:
         source_dir = ROOT / "src" / "minimal_kanban" / "web_app_assets" / "source"
@@ -198,7 +198,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("--column-tint: #1e1924;", BOARD_WEB_APP_HTML)
         self.assertIn("opacity: 0.8;", BOARD_WEB_APP_HTML)
         self.assertNotIn("column__personal-filter", BOARD_WEB_APP_HTML)
-        self.assertIn("+ extraColumnHtml + addColumnButtonHtml", BOARD_WEB_APP_HTML)
+        self.assertIn("html: () => renderExtraBoardColumnHtml(snapshot)", BOARD_WEB_APP_HTML)
         self.assertIn("if (column.dataset.virtualColumn)", BOARD_WEB_APP_HTML)
         self.assertIn("function boardCardElementsById(cardId)", BOARD_WEB_APP_HTML)
         self.assertIn('data-mobile-virtual-column="extra"', BOARD_WEB_APP_HTML)
@@ -5713,14 +5713,16 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("async function createColumnFromBoard()", BOARD_WEB_APP_HTML)
         self.assertIn("function closeNamedModal(closeKey)", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "async function loadModalData(path, { method = 'GET', body = null, openModal = false, modalEl = null, onSuccess, onError } = {})",
+            "async function loadModalData(path, { method = 'GET', body = null, openModal = false, modalEl = null, onSuccess, onError, isCurrent = () => true } = {})",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
             "async function reloadOperatorAdminUsers({ openModal = false } = {})",
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn("loadGptWall = async function(openModal = false)", BOARD_WEB_APP_HTML)
+        self.assertEqual(
+            BOARD_WEB_APP_HTML.count("async function loadGptWall(openModal = false)"), 1
+        )
         self.assertIn("renderCompactArchiveRows(cards)", BOARD_WEB_APP_HTML)
         self.assertIn("renderRepairOrderListRows(items)", BOARD_WEB_APP_HTML)
         self.assertIn("repairOrdersMetaText = function(items, meta)", BOARD_WEB_APP_HTML)
@@ -5808,7 +5810,7 @@ class WebAssetsTests(unittest.TestCase):
 
     def test_web_assets_do_not_keep_duplicate_active_function_names(self) -> None:
         named_functions = re.findall(
-            r"(?:^|\n)\s*(?:function\s+([A-Za-z_$][\w$]*)\s*\(|([A-Za-z_$][\w$]*)\s*=\s*function\s*\()",
+            r"(?:^|\n)\s*(?:(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(|([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?function\s*\()",
             BOARD_WEB_APP_HTML,
         )
         counts: dict[str, int] = {}

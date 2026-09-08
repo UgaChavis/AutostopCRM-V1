@@ -17,6 +17,7 @@ from minimal_kanban.web_assets import (
     BOARD_WEB_APP_CSS,
     BOARD_WEB_APP_HTML,
     BOARD_WEB_APP_JS,
+    BOARD_WEB_APP_MODULES,
     DISPLAY_DASHBOARD_HTML,
     MODULE_MAP_HTML,
 )
@@ -37,6 +38,7 @@ class CrmParityInventoryQualityTests(unittest.TestCase):
                 BOARD_WEB_APP_HTML,
                 BOARD_WEB_APP_CSS,
                 BOARD_WEB_APP_JS,
+                *BOARD_WEB_APP_MODULES.values(),
                 DISPLAY_DASHBOARD_HTML,
                 MODULE_MAP_HTML,
             )

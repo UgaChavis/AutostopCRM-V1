@@ -5,35 +5,17 @@ import os
 import sys
 import tempfile
 import unittest
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from PySide6.QtWidgets import QApplication, QFrame, QPushButton
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from PySide6.QtWidgets import QApplication, QPushButton
-
-from minimal_kanban.services.card_service import CardService
 from minimal_kanban.settings_service import SettingsService
 from minimal_kanban.settings_store import SettingsStore
-from minimal_kanban.storage.json_store import JsonStore
-from minimal_kanban.texts import (
-    API_LABEL_PREFIX,
-    APP_DISPLAY_NAME,
-    BUTTON_HELP,
-    BUTTON_NEW_CARD,
-    BUTTON_NEW_COLUMN,
-    CARD_STATUS_TOOLTIP_TEMPLATE,
-    COLUMN_LABELS_RU,
-    STATUS_LABELS_RU,
-    TOOLTIP_SETTINGS,
-)
+from minimal_kanban.texts import APP_DISPLAY_NAME, TOOLTIP_SETTINGS
 from minimal_kanban.ui.main_window import MainWindow
 
 
@@ -44,247 +26,132 @@ class MainWindowSmokeTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
-        state_file = Path(self.temp_dir.name) / "state.json"
-        settings_file = Path(self.temp_dir.name) / "settings.json"
-        logger = logging.getLogger(f"test.ui.{self._testMethodName}")
-        logger.handlers.clear()
+        self.addCleanup(self.temp_dir.cleanup)
+        logger = logging.getLogger(self.id())
         logger.addHandler(logging.NullHandler())
         logger.propagate = False
-        store = JsonStore(state_file=state_file, logger=logger)
-        settings_store = SettingsStore(settings_file=settings_file, logger=logger)
-        self.settings_service = SettingsService(settings_store, logger)
-        self.service = CardService(store, logger)
-        self.service.set_onboarding_seen(True)
-        self.window = MainWindow(self.service, "http://127.0.0.1:41731", self.settings_service)
+        store = SettingsStore(Path(self.temp_dir.name) / "settings.json", logger)
+        self.settings_service = SettingsService(store, logger)
+        self.browser_open = self.enterContext(
+            patch("minimal_kanban.ui.main_window.webbrowser.open")
+        )
+        self.scheduled = self.enterContext(patch("minimal_kanban.ui.main_window.QTimer.singleShot"))
+        self.connector_files = self.enterContext(
+            patch("minimal_kanban.ui.main_window.write_connector_files")
+        )
+        self.clipboard = Mock()
+        self.enterContext(
+            patch(
+                "minimal_kanban.ui.main_window.QGuiApplication.clipboard",
+                return_value=self.clipboard,
+            )
+        )
+        self.window = MainWindow(
+            "http://127.0.0.1:41731", "http://192.0.2.1:41731", self.settings_service
+        )
 
     def tearDown(self) -> None:
+        if self.window._settings_window is not None:
+            self.window._settings_window.close()
         self.window.close()
-        self.temp_dir.cleanup()
 
-    def test_main_texts_are_localized(self) -> None:
+    def test_host_texts_are_localized_and_settings_are_available(self) -> None:
         self.assertIn(APP_DISPLAY_NAME, self.window.windowTitle())
-        self.assertEqual(self.window.help_button.text(), BUTTON_HELP)
-        self.assertEqual(self.window.new_card_button.text(), BUTTON_NEW_CARD)
-        self.assertEqual(self.window.new_column_button.text(), BUTTON_NEW_COLUMN)
         self.assertEqual(self.window.settings_button.toolTip(), TOOLTIP_SETTINGS)
-        self.assertEqual(self.window.api_label.text(), f"{API_LABEL_PREFIX} http://127.0.0.1:41731")
-        self.assertEqual(self.window.columns["inbox"].title_label.text(), COLUMN_LABELS_RU["inbox"])
-        self.assertGreater(len(self.window.columns["inbox"].empty_label.text()), 0)
-        self.assertEqual(self.window.local_state_value_label.text(), "АКТИВЕН")
-        self.assertEqual(self.window.access_state_value_label.text(), "ГОТОВО")
-        self.assertEqual(self.window.mcp_state_value_label.text(), "ОЖИДАНИЕ")
+        self.assertIn("Сервер активен", self.window.status_label.text())
         self.assertEqual(self.window.mcp_value_label.text(), "")
+        self.assertFalse(self.window.mcp_open_button.isEnabled())
         self.assertIn("Откройте доску", self.window.compact_hint_label.text())
-        self.assertNotIn("Open the board", self.window.compact_hint_label.text())
+        self.assertFalse(hasattr(self.window, "_card_widgets"))
+        self.assertFalse(hasattr(self.window, "_service"))
 
-    def test_board_updates_after_creating_card(self) -> None:
-        self.service.create_card(
-            {"title": "Карточка из теста", "deadline": {"days": 0, "hours": 2}}
-        )
-        self.window.refresh_board(force=True)
-        self.assertEqual(self.window.columns["inbox"].count_label.text(), "1")
-        self.assertEqual(self.window.cards_total_value_label.text(), "1")
+    def test_only_actual_launcher_panels_are_constructed(self) -> None:
+        panels = self.window.findChildren(QFrame)
+        self.assertFalse(any(panel.objectName() == "SummaryCard" for panel in panels))
+        self.assertEqual(sum(panel.objectName() == "Panel" for panel in panels), 1)
         self.assertEqual(
-            self.window.columns_total_value_label.text(), str(len(self.window.columns))
-        )
-
-    def test_card_renders_readable_preview_and_has_no_old_buttons(self) -> None:
-        base = datetime(2026, 3, 23, 12, 0, 0, tzinfo=UTC)
-        long_title = (
-            "Очень длинный заголовок карточки для проверки новой читаемой двухстрочной шапки"
-        )
-        long_description = "\n".join(
-            [
-                "Первая строка описания карточки.",
-                "Вторая строка описания карточки.",
-                "Третья строка описания карточки.",
-                "Четвертая строка описания карточки.",
-                "Пятая строка описания карточки.",
-                "Шестая строка описания карточки.",
-                "Седьмая строка описания карточки.",
-                "Восьмая строка описания карточки.",
-                "Девятая строка описания карточки.",
-                "Десятая строка описания карточки.",
-                "Одиннадцатая строка описания карточки.",
-            ]
-        )
-        with (
-            patch("minimal_kanban.services.card_service.utc_now", return_value=base),
-            patch(
-                "minimal_kanban.services.card_service.utc_now_iso", return_value=base.isoformat()
-            ),
-            patch("minimal_kanban.models.utc_now", return_value=base),
-        ):
-            self.service.create_card(
-                {
-                    "title": long_title,
-                    "description": long_description,
-                    "deadline": {"seconds": 5},
-                }
-            )
-            self.window.refresh_board(force=True)
-
-        widget = next(iter(self.window._card_widgets.values()))
-        description_line_height = widget.description_label.fontMetrics().lineSpacing()
-
-        self.assertTrue(widget.title_label.wordWrap())
-        self.assertNotEqual(widget.title_label.text(), long_title)
-        self.assertGreaterEqual(widget.minimumHeight(), 200)
-        self.assertGreaterEqual(
-            widget.description_label.maximumHeight(), description_line_height * 8
-        )
-        self.assertGreaterEqual(
-            widget.description_label.minimumHeight(), description_line_height * 5
-        )
-        self.assertIn("0д 00:00:", widget.timer_label.text())
-        self.assertTrue(widget.deadline_label.text().startswith("до "))
-        self.assertEqual(len(widget.findChildren(QPushButton)), 0)
-
-        warning_time = base + timedelta(seconds=4)
-        with patch("minimal_kanban.models.utc_now", return_value=warning_time):
-            self.window.refresh_board(force=True)
-        widget = next(iter(self.window._card_widgets.values()))
-        expected_tooltip = CARD_STATUS_TOOLTIP_TEMPLATE.format(label=STATUS_LABELS_RU["warning"])
-        self.assertEqual(widget.indicator_badge.toolTip(), expected_tooltip)
-
-        expired_time = base + timedelta(seconds=6)
-        with patch("minimal_kanban.models.utc_now", return_value=expired_time):
-            self.window.refresh_board(force=True)
-        widget = next(iter(self.window._card_widgets.values()))
-        self.assertEqual(widget.property("status"), "expired")
-
-    def test_card_heat_properties_follow_deadline_buckets(self) -> None:
-        base = datetime(2026, 3, 23, 12, 0, 0, tzinfo=UTC)
-        with (
-            patch("minimal_kanban.services.card_service.utc_now", return_value=base),
-            patch(
-                "minimal_kanban.services.card_service.utc_now_iso", return_value=base.isoformat()
-            ),
-            patch("minimal_kanban.models.utc_now", return_value=base),
-        ):
-            self.service.create_card({"title": "Цветовой шаг", "deadline": {"seconds": 5}})
-            self.window.refresh_board(force=True)
-
-        widget = next(iter(self.window._card_widgets.values()))
-        self.assertEqual(widget.property("deadlineBucket"), 0)
-        self.assertEqual(widget.property("deadlineStep"), 0)
-        self.assertTrue(str(widget.property("deadlineHeatColor")).startswith("#"))
-
-        warning_time = base + timedelta(seconds=4)
-        with patch("minimal_kanban.models.utc_now", return_value=warning_time):
-            self.window.refresh_board(force=True)
-        widget = next(iter(self.window._card_widgets.values()))
-        self.assertEqual(widget.property("deadlineBucket"), 16)
-        self.assertEqual(widget.property("deadlineStep"), 80)
-
-        expired_time = base + timedelta(seconds=6)
-        with patch("minimal_kanban.models.utc_now", return_value=expired_time):
-            self.window.refresh_board(force=True)
-        widget = next(iter(self.window._card_widgets.values()))
-        self.assertEqual(widget.property("status"), "expired")
-        self.assertEqual(widget.property("deadlineBucket"), 20)
-        self.assertEqual(widget.property("deadlineStep"), 100)
-
-    def test_card_widget_falls_back_for_invalid_deadline_heat_values(self) -> None:
-        self.service.create_card({"title": "Повреждённый прогресс", "deadline": {"hours": 1}})
-        columns = self.service.list_columns()["columns"]
-        card = dict(self.service.get_cards({"include_archived": False})["cards"][0])
-        card["deadline_progress_bucket"] = float("inf")
-        card["deadline_progress_step_percent"] = True
-
-        self.window.refresh_board(force=True, columns=columns, cards=[card])
-
-        widget = next(iter(self.window._card_widgets.values()))
-        self.assertEqual(widget.property("deadlineBucket"), 0)
-        self.assertEqual(widget.property("deadlineStep"), 0)
-
-    def test_dynamic_column_is_rendered(self) -> None:
-        column = self.service.create_column({"label": "Блокеры"})["column"]
-        self.service.create_card(
+            {button.text() for button in self.window.findChildren(QPushButton)},
             {
-                "title": "Карточка в новом столбце",
-                "column": column["id"],
-                "deadline": {"days": 0, "hours": 6},
-            }
+                "Открыть доску",
+                "Настройки GPT / MCP",
+                "Подключить к ChatGPT",
+                "Открыть",
+                "Копировать",
+            },
         )
-        self.window.refresh_board(force=True)
 
-        self.assertIn(column["id"], self.window.columns)
-        self.assertEqual(self.window.columns[column["id"]].title_label.text(), "Блокеры")
-        self.assertEqual(self.window.columns[column["id"]].count_label.text(), "1")
+    def test_startup_opens_browser_once_after_scheduled_delay(self) -> None:
+        self.scheduled.assert_called_once_with(700, self.window._open_once_after_start)
+        self.browser_open.assert_not_called()
+        self.window._open_once_after_start()
+        self.window._open_once_after_start()
+        self.browser_open.assert_called_once_with("http://127.0.0.1:41731")
 
-    def test_refresh_board_does_not_mutate_or_duplicate_incoming_cards(self) -> None:
-        self.service.create_card(
-            {
-                "title": "Основная карточка",
-                "column": "inbox",
-                "deadline": {"days": 0, "hours": 6},
-            }
+    def test_open_board_button_uses_local_http_server(self) -> None:
+        button = next(
+            item for item in self.window.findChildren(QPushButton) if item.text() == "Открыть доску"
         )
-        columns = self.service.list_columns()["columns"]
-        card = dict(self.service.get_cards({"include_archived": False})["cards"][0])
-        card["column"] = "missing-column"
-        duplicate = {**card, "title": "Повтор с тем же id"}
+        button.click()
+        self.browser_open.assert_called_once_with("http://127.0.0.1:41731")
+        self.assertIn("Доска открыта", self.window.status_label.text())
 
-        self.window.refresh_board(force=True, columns=columns, cards=[card, duplicate])
+    def test_copy_network_address_uses_configured_network_host(self) -> None:
+        self.window.copy_network_url()
+        self.clipboard.setText.assert_called_once_with("http://192.0.2.1:41731")
+        self.assertIn("скопирован", self.window.status_label.text())
 
-        self.assertEqual(card["column"], "missing-column")
-        self.assertEqual(self.window.cards_total_value_label.text(), "1")
-        self.assertEqual(self.window.columns["inbox"].count_label.text(), "1")
-        self.assertEqual(
-            self.window._card_widgets[card["id"]].title_label.toolTip(), "Основная карточка"
-        )
+    def test_invalid_url_is_not_opened(self) -> None:
+        self.window._open_url("file:///private.txt", success_message="opened")
+        self.browser_open.assert_not_called()
+        self.assertIn("HTTP(S)", self.window.status_label.text())
+
+    def test_real_settings_dialog_uses_host_settings(self) -> None:
+        dialog = self.window.build_settings_window()
+        self.assertIs(dialog._settings_service, self.settings_service)
+        self.assertIs(dialog.parent(), self.window)
+        self.assertIs(self.window._settings_window, dialog)
 
     def test_access_link_updates_when_public_board_url_is_saved(self) -> None:
-        settings = self.settings_service.load()
-        saved = self.settings_service.save(
-            settings.__class__.from_dict(
-                {
-                    **settings.to_dict(),
-                    "local_api": {
-                        **settings.local_api.to_dict(),
-                        "local_api_base_url_override": "https://board.example/api",
-                        "local_api_auth_mode": "bearer",
-                        "local_api_bearer_token": "board-secret",
-                    },
-                }
-            )
+        saved = self.settings_service.update_section(
+            "local_api",
+            {
+                "local_api_base_url_override": "https://board.example/api",
+                "local_api_auth_mode": "bearer",
+                "local_api_bearer_token": "synthetic-test-token",
+            },
+            persist=True,
         )
-
         self.window._on_settings_saved(saved)
-
-        self.assertEqual(
-            self.window.access_value_label.text(), "https://board.example?access_token=board-secret"
+        self.window.copy_access_url()
+        self.clipboard.setText.assert_called_once_with(
+            "https://board.example?access_token=synthetic-test-token"
         )
-        self.assertTrue(self.window.access_open_button.isEnabled())
-        self.assertTrue(self.window.access_copy_button.isEnabled())
-        self.assertEqual(self.window.access_state_value_label.text(), "ГОТОВО")
+        self.window.open_access_board()
+        self.browser_open.assert_called_once_with(
+            "https://board.example?access_token=synthetic-test-token"
+        )
 
     def test_mcp_url_updates_when_public_mcp_url_is_saved(self) -> None:
-        settings = self.settings_service.load()
-        saved = self.settings_service.save(
-            settings.__class__.from_dict(
-                {
-                    **settings.to_dict(),
-                    "general": {
-                        **settings.general.to_dict(),
-                        "integration_enabled": True,
-                    },
-                    "mcp": {
-                        **settings.mcp.to_dict(),
-                        "mcp_enabled": True,
-                        "public_https_base_url": "https://mcp.example",
-                    },
-                }
-            )
+        settings = self.settings_service.update_section("general", {"integration_enabled": True})
+        saved = self.settings_service.update_section(
+            "mcp",
+            {"mcp_enabled": True, "public_https_base_url": "https://mcp.example"},
+            settings=settings,
+            persist=True,
         )
-
         self.window._on_settings_saved(saved)
-
         self.assertEqual(self.window.mcp_value_label.text(), "https://mcp.example/mcp")
         self.assertTrue(self.window.mcp_open_button.isEnabled())
         self.assertTrue(self.window.mcp_copy_button.isEnabled())
-        self.assertEqual(self.window.mcp_state_value_label.text(), "ГОТОВО")
+        self.connector_files.assert_called_once()
+
+    def test_publication_failure_keeps_local_launcher_available(self) -> None:
+        self.window._publication_in_progress = True
+        self.window._on_publication_failed("synthetic failure")
+        self.assertFalse(self.window._publication_in_progress)
+        self.assertIn("synthetic failure", self.window.status_label.text())
+        self.window.open_local_board()
+        self.browser_open.assert_called_once_with("http://127.0.0.1:41731")
 
 
 if __name__ == "__main__":
