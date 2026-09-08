@@ -1,6 +1,6 @@
 # AutoStop CRM: Technical-Debt Backlog
 
-Current on 2026-09-08, branch `autostopcrm-v1`. This directory is a compact map
+Current on 2026-09-09, branch `autostopcrm-v1`. This directory is a compact map
 of active ratchet owners, not a prescribed work sequence. Use current code,
 tests, and audit scripts; choose the smallest useful evidence-backed slice.
 Completed work belongs in gates, not historical narratives.

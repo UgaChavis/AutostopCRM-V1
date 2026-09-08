@@ -110,6 +110,15 @@ SSH key. Node/npm, PowerShell 7, and local Docker are optional checks. GitHub
 CLI authentication may be a warning until a GitHub operation needs it; never
 store a GitHub token in the repository.
 
+SQLite comes from the Python/OS runtime, not the pip dependency pins. Before
+deployment or redistribution of a desktop build, verify that its SQLite includes
+the [upstream WAL-reset fix](https://sqlite.org/wal.html): version 3.51.3
+or newer, or a verified vendor backport (including 3.44.6 and 3.50.7). Check the
+actual linked library on Windows and in the container, not only the Python
+version. Ordinary regression tests do not establish protection against this rare
+concurrent-checkpoint fault. Keep runtime upgrades and before/after measurements
+as a controlled environment change; do not silently replace a machine-wide DLL.
+
 ## Release Checklist
 
 Documentation-only minimum:
@@ -200,7 +209,7 @@ GitHub Actions publishes the full coverage evidence.
 
 Regression suites `test_save_isolation`, `test_bundle_draft`,
 `test_storage_write_optimizations`, `test_serialization_snapshots`,
-`test_repair_order_artifact_cache`, and
+`test_repair_order_artifact_cache`, `test_change_feed_bulk_publish`, and
 `test_mcp_tool_execution` cover detached-write rejection, ordering/restart,
 archive and derived-file failures, and nonblocking MCP execution. A timeout
 does not cancel an already running synchronous write or authorize a retry.
