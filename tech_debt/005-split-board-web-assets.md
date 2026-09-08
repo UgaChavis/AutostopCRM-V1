@@ -16,6 +16,11 @@ measurements justify it. Existing chunks can support a smaller change without
 introducing another frontend toolchain; their number and extraction order are
 implementation choices.
 
+Board reconciliation renders only new or changed card bodies. Root-level position
+controls ordering, not presentation; other fields and virtual-column preferences
+remain part of the render signature. Keep node identity through ordering changes
+and test empty/nonempty column transitions alongside counts and controls.
+
 Preserve initialization order, shared state, one-time event binding, printing
 boundaries, asset fingerprints, session reset and offline desktop loading.
 Check modal focus/Escape, revisions, background freshness, timer cleanup and
