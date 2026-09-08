@@ -606,25 +606,22 @@ class ChangeFeedStore:
 
     @staticmethod
     def _apply_pending_source_changes(connection: sqlite3.Connection) -> None:
-        rows = connection.execute(
-            "SELECT source_type, source_id, operation, signature FROM pending_source_changes"
-        ).fetchall()
-        for row in rows:
-            key = (str(row["source_type"]), str(row["source_id"]))
-            if row["operation"] == "delete":
-                connection.execute(
-                    "DELETE FROM source_state WHERE source_type = ? AND source_id = ?", key
-                )
-            else:
-                connection.execute(
-                    """
-                    INSERT INTO source_state(source_type, source_id, signature)
-                    VALUES (?, ?, ?)
-                    ON CONFLICT(source_type, source_id) DO UPDATE SET
-                        signature = excluded.signature
-                    """,
-                    (key[0], key[1], row["signature"]),
-                )
+        connection.execute(
+            """
+            DELETE FROM source_state WHERE (source_type, source_id) IN (
+                SELECT source_type, source_id FROM pending_source_changes
+                WHERE operation = 'delete'
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO source_state(source_type, source_id, signature)
+            SELECT source_type, source_id, signature FROM pending_source_changes
+            WHERE operation = 'upsert'
+            ON CONFLICT(source_type, source_id) DO UPDATE SET signature = excluded.signature
+            """
+        )
         connection.execute("DELETE FROM pending_source_changes")
 
     @staticmethod
@@ -786,38 +783,28 @@ class ChangeFeedStore:
     def _apply_pending_entity_changes(
         connection: sqlite3.Connection, state_fingerprint: str
     ) -> None:
-        rows = connection.execute(
+        connection.execute(
             """
-            SELECT * FROM pending_entity_changes
-            WHERE state_fingerprint = ? ORDER BY entity_type, entity_id
+            DELETE FROM entity_state WHERE (entity_type, entity_id) IN (
+                SELECT entity_type, entity_id FROM pending_entity_changes
+                WHERE state_fingerprint = ? AND operation = 'delete'
+            )
             """,
             (state_fingerprint,),
-        ).fetchall()
-        for row in rows:
-            key = (str(row["entity_type"]), str(row["entity_id"]))
-            if row["operation"] == "delete":
-                connection.execute(
-                    "DELETE FROM entity_state WHERE entity_type = ? AND entity_id = ?", key
-                )
-                continue
-            connection.execute(
-                """
-                INSERT INTO entity_state(
-                    entity_type, entity_id, digest, routing_digest, lifecycle
-                ) VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(entity_type, entity_id) DO UPDATE SET
-                    digest = excluded.digest,
-                    routing_digest = excluded.routing_digest,
-                    lifecycle = excluded.lifecycle
-                """,
-                (
-                    key[0],
-                    key[1],
-                    row["digest"],
-                    row["routing_digest"],
-                    row["lifecycle"],
-                ),
-            )
+        )
+        connection.execute(
+            """
+            INSERT INTO entity_state(entity_type, entity_id, digest, routing_digest, lifecycle)
+            SELECT entity_type, entity_id, digest, routing_digest, lifecycle
+            FROM pending_entity_changes
+            WHERE state_fingerprint = ? AND operation = 'upsert'
+            ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+                digest = excluded.digest,
+                routing_digest = excluded.routing_digest,
+                lifecycle = excluded.lifecycle
+            """,
+            (state_fingerprint,),
+        )
         connection.execute("DELETE FROM pending_entity_changes")
 
     @staticmethod
@@ -1230,13 +1217,41 @@ class ChangeFeedStore:
             if pending_fingerprint != state_fingerprint:
                 raise RuntimeError("Change-feed state fingerprint does not match staged outbox.")
             rows = connection.execute(
-                "SELECT * FROM pending_events WHERE state_fingerprint = ? ORDER BY ordinal",
+                "SELECT source_event_id FROM pending_events WHERE state_fingerprint = ?",
                 (state_fingerprint,),
             ).fetchall()
-            published = 0
-            for row in rows:
-                if self._publish_event(connection, row) is not None:
-                    published += 1
+            high_water = int(self._metadata(connection, "high_water"))
+            # Filter seen identities (including compacted NULL sequences) before
+            # numbering, so the existing transaction allocates a gapless ordinal batch.
+            published = connection.execute(
+                """
+                INSERT INTO events(
+                    sequence, source_event_id, occurred_at, action, entity_type,
+                    entity_id, change_type, tombstone, correlation_ref, idempotency_ref, producer
+                )
+                SELECT ? + ROW_NUMBER() OVER (ORDER BY pending.ordinal),
+                    pending.source_event_id, pending.occurred_at, pending.action,
+                    pending.entity_type, pending.entity_id, pending.change_type,
+                    pending.tombstone, pending.correlation_ref, pending.idempotency_ref,
+                    pending.producer
+                FROM pending_events AS pending
+                WHERE pending.state_fingerprint = ? AND NOT EXISTS (
+                    SELECT 1 FROM seen_sources WHERE source_event_id = pending.source_event_id
+                )
+                ORDER BY pending.ordinal
+                """,
+                (high_water, state_fingerprint),
+            ).rowcount
+            if published:
+                connection.execute(
+                    """
+                    INSERT INTO seen_sources(source_event_id, sequence)
+                    SELECT source_event_id, sequence FROM events
+                    WHERE sequence > ? AND sequence <= ? ORDER BY sequence
+                    """,
+                    (high_water, high_water + published),
+                )
+                self._set_metadata(connection, "high_water", high_water + published)
             self._apply_pending_entity_changes(connection, state_fingerprint)
             self._apply_pending_source_changes(connection)
             connection.execute("DELETE FROM pending_events")
@@ -1251,7 +1266,7 @@ class ChangeFeedStore:
             if cached_seen is not None:
                 known = cached_seen[1] | {str(row["source_event_id"]) for row in rows}
                 self._seen_baseline_cache = (
-                    (state_fingerprint, self._metadata(connection, "high_water")),
+                    (state_fingerprint, str(high_water + published)),
                     known,
                 )
             return published
