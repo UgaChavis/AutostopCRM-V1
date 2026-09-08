@@ -503,6 +503,9 @@ class ChangeFeedStore:
     ) -> dict[tuple[str, str], ProjectedEntity]:
         projected: dict[tuple[str, str], ProjectedEntity] = {}
         for source_type, source_id in sources:
+            # ':' and ';' are adjacent ASCII bytes. This binary range is an
+            # exact namespace prefix without LIKE's '_' wildcard/case folding.
+            child_bounds = (f"{source_id}:", f"{source_id};")
             if source_type == "card":
                 rows = connection.execute(
                     """
@@ -514,11 +517,13 @@ class ChangeFeedStore:
                     ) OR (
                         entity_type IN (
                             'repair_order_work', 'repair_order_material',
-                            'repair_order_payment', 'attachment'
-                        ) AND entity_id LIKE ?
+                            'repair_order_payment', 'repair_order_cycle',
+                            'repair_order_payroll_posting', 'attachment'
+                        ) AND entity_id >= ? COLLATE BINARY
+                          AND entity_id < ? COLLATE BINARY
                     )
                     """,
-                    (source_id, f"{source_id}:%"),
+                    (source_id, *child_bounds),
                 ).fetchall()
             elif source_type == "client":
                 rows = connection.execute(
@@ -526,9 +531,13 @@ class ChangeFeedStore:
                     SELECT entity_type, entity_id, digest, routing_digest, lifecycle
                     FROM entity_state
                     WHERE (entity_type = 'client' AND entity_id = ?)
-                       OR (entity_type = 'client_vehicle' AND entity_id LIKE ?)
+                       OR (
+                           entity_type = 'client_vehicle'
+                           AND entity_id >= ? COLLATE BINARY
+                           AND entity_id < ? COLLATE BINARY
+                       )
                     """,
-                    (source_id, f"{source_id}:%"),
+                    (source_id, *child_bounds),
                 ).fetchall()
             else:
                 rows = connection.execute(
@@ -686,6 +695,7 @@ class ChangeFeedStore:
         ordinal: int,
         incremental: bool = True,
         source_signatures: Mapping[tuple[str, str], str] | None = None,
+        card_projection_cache: dict | None = None,
     ) -> int:
         previous_sources = self._source_state(connection)
         current_sources = (
@@ -703,7 +713,9 @@ class ChangeFeedStore:
             changed_sources.update(self._audit_source_keys(audit_covered_entities))
             if changed_sources:
                 previous = self._entity_state_for_sources(connection, changed_sources)
-                current = project_crm_state(state, sources=changed_sources)
+                current = project_crm_state(
+                    state, sources=changed_sources, card_cache=card_projection_cache
+                )
             else:
                 previous = {}
                 current = {}
@@ -1107,6 +1119,7 @@ class ChangeFeedStore:
         | Callable[[], Mapping[tuple[str, str], str]]
         | None = None,
         on_unchanged: Callable[[], None] | None = None,
+        card_projection_cache: dict | None = None,
     ) -> int:
         """Durably stage unseen compact events before the CRM state replace."""
 
@@ -1147,6 +1160,7 @@ class ChangeFeedStore:
                     audit_covered_entities=covered,
                     ordinal=ordinal,
                     source_signatures=source_signatures,
+                    card_projection_cache=card_projection_cache,
                 )
             else:
                 connection.execute("DELETE FROM pending_entity_changes")

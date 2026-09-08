@@ -81,6 +81,7 @@ from ..repair_order import (
     normalize_repair_order_tags,
     repair_order_payment_method_from_cashbox_name,
     repair_order_payment_method_from_payments,
+    repair_order_payment_method_label,
 )
 from ..storage.audit_archive import (
     AUDIT_ARCHIVE_DIR_NAME,
@@ -140,7 +141,7 @@ from .ready_column import (
     READY_COLUMN_LABEL,
     ensure_ready_column,
 )
-from .repair_order_artifacts import RepairOrderArtifactsMixin, publish_text
+from .repair_order_artifacts import RepairOrderArtifactsMixin
 from .repair_order_number_audit import build_repair_order_number_audit
 from .repair_order_text_renderer import render_bounded_repair_order_text
 from .snapshot_service import SnapshotService
@@ -708,13 +709,7 @@ class CardService(
     def set_card_board_summary(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._read_bundle_for_update(
-                "columns",
-                "cashboxes",
-                "cash_transactions",
-                "inventory_items",
-                card_id=payload.get("card_id", ""),
-            )
+            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
             cards = bundle["cards"]
             events = bundle["events"]
             card = self._find_card(cards, payload.get("card_id"))
@@ -764,13 +759,7 @@ class CardService(
             return self._set_card_ai_autofill_with_agent_control(payload)
         with self._lock:
             payload = payload or {}
-            bundle = self._read_bundle_for_update(
-                "columns",
-                "cashboxes",
-                "cash_transactions",
-                "inventory_items",
-                card_id=payload.get("card_id", ""),
-            )
+            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
             cards = bundle["cards"]
             events = bundle["events"]
             columns = bundle["columns"]
@@ -836,13 +825,7 @@ class CardService(
     def cleanup_card_content(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._read_bundle_for_update(
-                "columns",
-                "cashboxes",
-                "cash_transactions",
-                "inventory_items",
-                card_id=payload.get("card_id", ""),
-            )
+            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
             cards = bundle["cards"]
             events = bundle["events"]
             columns = bundle["columns"]
@@ -926,13 +909,7 @@ class CardService(
             return self._run_full_card_enrichment_with_agent_control(payload)
         with self._lock:
             payload = payload or {}
-            bundle = self._read_bundle_for_update(
-                "columns",
-                "cashboxes",
-                "cash_transactions",
-                "inventory_items",
-                card_id=payload.get("card_id", ""),
-            )
+            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
             cards = bundle["cards"]
             events = bundle["events"]
             columns = bundle["columns"]
@@ -975,13 +952,7 @@ class CardService(
     def _set_card_ai_autofill_with_agent_control(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._read_bundle_for_update(
-                "columns",
-                "cashboxes",
-                "cash_transactions",
-                "inventory_items",
-                card_id=payload.get("card_id", ""),
-            )
+            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
             cards = bundle["cards"]
             events = bundle["events"]
             columns = bundle["columns"]
@@ -1122,13 +1093,7 @@ class CardService(
     def _run_full_card_enrichment_with_agent_control(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._read_bundle_for_update(
-                "columns",
-                "cashboxes",
-                "cash_transactions",
-                "inventory_items",
-                card_id=payload.get("card_id", ""),
-            )
+            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
             cards = bundle["cards"]
             events = bundle["events"]
             columns = bundle["columns"]
@@ -1224,13 +1189,7 @@ class CardService(
     def mark_card_seen(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._read_bundle_for_update(
-                "columns",
-                "cashboxes",
-                "cash_transactions",
-                "inventory_items",
-                card_id=payload.get("card_id", ""),
-            )
+            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
             cards = bundle["cards"]
             events = bundle["events"]
             columns = bundle["columns"]
@@ -1472,9 +1431,7 @@ class CardService(
             sort_dir = self._validated_repair_order_sort_direction(payload.get("sort_dir"))
             compact = self._validated_optional_bool(payload, "compact", default=False)
             redact_private = self._validated_optional_bool(payload, "redact_private", default=False)
-            bundle = self._read_bundle_for_update(
-                "cards", "columns", "cashboxes", "cash_transactions", "inventory_items"
-            )
+            bundle = self._read_bundle_for_update()
             cards = bundle["cards"]
             if self._synchronize_repair_order_numbers(cards):
                 self._save_bundle(
@@ -2592,13 +2549,7 @@ class CardService(
             create_if_missing = self._validated_optional_bool(
                 payload, "create_if_missing", default=True
             )
-            bundle = self._read_bundle_for_update(
-                "columns",
-                "cashboxes",
-                "cash_transactions",
-                "inventory_items",
-                card_id=payload.get("card_id", ""),
-            )
+            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
             cards = bundle["cards"]
             events = bundle["events"]
             columns = bundle["columns"]
@@ -2675,13 +2626,7 @@ class CardService(
         with self._lock:
             payload = payload or {}
             patch = self._validated_repair_order_patch(payload.get("repair_order"))
-            bundle = self._read_bundle_for_update(
-                "columns",
-                "cashboxes",
-                "cash_transactions",
-                "inventory_items",
-                card_id=payload.get("card_id", ""),
-            )
+            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
             cards = bundle["cards"]
             events = bundle["events"]
             columns = bundle["columns"]
@@ -2713,20 +2658,7 @@ class CardService(
                     status_code=409,
                     details={"fields": [key for key in ("status", "closed_at") if key in patch]},
                 )
-            expected_updated_at = normalize_text(
-                payload.get("expected_updated_at"), default="", limit=80
-            )
-            if expected_updated_at and expected_updated_at != card.updated_at:
-                self._fail(
-                    "card_update_conflict",
-                    "Карточка уже изменена другим оператором. Обновите карточку и повторите правку.",
-                    status_code=409,
-                    details={
-                        "card_id": card.id,
-                        "expected_updated_at": expected_updated_at,
-                        "current_updated_at": card.updated_at,
-                    },
-                )
+            self._ensure_card_expected_updated_at(card, payload)
             expected_cashbox_id = normalize_text(
                 payload.get("expected_cashbox_id"), default="", limit=128
             )
@@ -3076,13 +3008,7 @@ class CardService(
     def reopen_repair_order(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._read_bundle_for_update(
-                "columns",
-                "cashboxes",
-                "cash_transactions",
-                "inventory_items",
-                card_id=payload.get("card_id", ""),
-            )
+            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
             cards = bundle["cards"]
             columns = bundle["columns"]
             events = bundle["events"]
@@ -3270,13 +3196,7 @@ class CardService(
         with self._lock:
             payload = payload or {}
             rows = self._validated_repair_order_rows(payload.get("rows"), field_name="rows")
-            bundle = self._read_bundle_for_update(
-                "columns",
-                "cashboxes",
-                "cash_transactions",
-                "inventory_items",
-                card_id=payload.get("card_id", ""),
-            )
+            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
             cards = bundle["cards"]
             events = bundle["events"]
             columns = bundle["columns"]
@@ -3338,13 +3258,7 @@ class CardService(
             status = self._validated_repair_order_status(
                 payload.get("status"), default=REPAIR_ORDER_STATUS_OPEN
             )
-            bundle = self._read_bundle_for_update(
-                "columns",
-                "cashboxes",
-                "cash_transactions",
-                "inventory_items",
-                card_id=payload.get("card_id", ""),
-            )
+            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
             cards = bundle["cards"]
             events = bundle["events"]
             columns = bundle["columns"]
@@ -3389,22 +3303,9 @@ class CardService(
                     status_code=409,
                     details={"card_id": card.id, "requested_status": status},
                 )
-            expected_updated_at = normalize_text(
-                payload.get("expected_updated_at"), default="", limit=80
-            )
             if status == REPAIR_ORDER_STATUS_CLOSED and card.repair_order.active_correction:
                 self._ensure_repair_order_revision(card, payload)
-            if expected_updated_at and expected_updated_at != card.updated_at:
-                self._fail(
-                    "card_update_conflict",
-                    "Карточка уже изменена другим оператором. Обновите карточку и повторите правку.",
-                    status_code=409,
-                    details={
-                        "card_id": card.id,
-                        "expected_updated_at": expected_updated_at,
-                        "current_updated_at": card.updated_at,
-                    },
-                )
+            self._ensure_card_expected_updated_at(card, payload)
             self._ensure_repair_order_can_change_status(card, status)
             actor_name, source = self._audit_identity(payload, default_source="api")
             next_payload = card.repair_order.to_storage_dict()
@@ -3483,9 +3384,7 @@ class CardService(
         operator_payload: dict[str, Any] | None = None,
     ) -> tuple[Path | bytes, str]:
         with self._lock:
-            bundle = self._read_bundle_for_update(
-                "columns", "cashboxes", "cash_transactions", "inventory_items", card_id=card_id
-            )
+            bundle = self._read_bundle_for_update()
             if self._synchronize_repair_order_numbers(bundle["cards"]):
                 self._save_bundle(
                     bundle,
@@ -3518,13 +3417,7 @@ class CardService(
     def get_repair_order_text(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._read_bundle_for_update(
-                "columns",
-                "cashboxes",
-                "cash_transactions",
-                "inventory_items",
-                card_id=payload.get("card_id", ""),
-            )
+            bundle = self._read_bundle_for_update()
             if self._synchronize_repair_order_numbers(bundle["cards"]):
                 self._save_bundle(
                     bundle,
@@ -4070,13 +3963,7 @@ class CardService(
                     self._fail(
                         exc.code, exc.message, status_code=exc.status_code, details=exc.details
                     )
-            bundle = self._read_bundle_for_update(
-                "columns",
-                "cashboxes",
-                "cash_transactions",
-                "inventory_items",
-                card_id=payload.get("card_id", ""),
-            )
+            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
             card = self._find_card(bundle["cards"], payload.get("card_id"))
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="ui")
@@ -4369,20 +4256,7 @@ class CardService(
             events = bundle["events"]
             card = self._find_card(cards, payload.get("card_id"))
             self._ensure_not_archived(card)
-            expected_updated_at = normalize_text(
-                payload.get("expected_updated_at"), default="", limit=80
-            )
-            if expected_updated_at and expected_updated_at != card.updated_at:
-                self._fail(
-                    "card_update_conflict",
-                    "Карточка уже изменена другим оператором. Обновите карточку и повторите правку.",
-                    status_code=409,
-                    details={
-                        "card_id": card.id,
-                        "expected_updated_at": expected_updated_at,
-                        "current_updated_at": card.updated_at,
-                    },
-                )
+            self._ensure_card_expected_updated_at(card, payload)
             response_mode = self._validated_response_mode(payload, default="full")
             actor_name, source = self._audit_identity(payload, default_source="api")
             ready_column_id, ready_column_changed = self._ensure_ready_column_for_bundle(
@@ -4591,13 +4465,7 @@ class CardService(
 
     def autofill_repair_order(self, payload: dict) -> dict:
         with self._lock:
-            bundle = self._read_bundle_for_update(
-                "columns",
-                "cashboxes",
-                "cash_transactions",
-                "inventory_items",
-                card_id=payload.get("card_id", ""),
-            )
+            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
             cards = bundle["cards"]
             events = bundle["events"]
             columns = bundle["columns"]
@@ -4652,13 +4520,7 @@ class CardService(
 
     def start_card_timer(self, payload: dict) -> dict:
         with self._lock:
-            bundle = self._read_bundle_for_update(
-                "columns",
-                "cashboxes",
-                "cash_transactions",
-                "inventory_items",
-                card_id=payload.get("card_id", ""),
-            )
+            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
             cards = bundle["cards"]
             events = bundle["events"]
             card = self._find_card(cards, payload.get("card_id"))
@@ -4721,13 +4583,7 @@ class CardService(
 
     def stop_card_timer(self, payload: dict) -> dict:
         with self._lock:
-            bundle = self._read_bundle_for_update(
-                "columns",
-                "cashboxes",
-                "cash_transactions",
-                "inventory_items",
-                card_id=payload.get("card_id", ""),
-            )
+            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
             cards = bundle["cards"]
             events = bundle["events"]
             card = self._find_card(cards, payload.get("card_id"))
@@ -4770,13 +4626,7 @@ class CardService(
 
     def set_card_indicator(self, payload: dict) -> dict:
         with self._lock:
-            bundle = self._read_bundle_for_update(
-                "columns",
-                "cashboxes",
-                "cash_transactions",
-                "inventory_items",
-                card_id=payload.get("card_id", ""),
-            )
+            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
             cards = bundle["cards"]
             events = bundle["events"]
             card = self._find_card(cards, payload.get("card_id"))
@@ -4847,8 +4697,6 @@ class CardService(
             bundle = self._read_bundle_for_update(
                 "columns",
                 "cashboxes",
-                "cash_transactions",
-                "inventory_items",
                 card_id=payload.get("card_id", ""),
             )
             cards = bundle["cards"]
@@ -4956,13 +4804,7 @@ class CardService(
 
     def archive_card(self, payload: dict) -> dict:
         with self._lock:
-            bundle = self._read_bundle_for_update(
-                "columns",
-                "cashboxes",
-                "cash_transactions",
-                "inventory_items",
-                card_id=payload.get("card_id", ""),
-            )
+            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
             cards = bundle["cards"]
             events = bundle["events"]
             card = self._find_card(cards, payload.get("card_id"))
@@ -5187,13 +5029,7 @@ class CardService(
 
     def restore_card(self, payload: dict) -> dict:
         with self._lock:
-            bundle = self._read_bundle_for_update(
-                "columns",
-                "cashboxes",
-                "cash_transactions",
-                "inventory_items",
-                card_id=payload.get("card_id", ""),
-            )
+            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
             cards = bundle["cards"]
             columns = bundle["columns"]
             events = bundle["events"]
@@ -6063,6 +5899,11 @@ class CardService(
         for char in text:
             result.append(_SEARCH_CYRILLIC_TO_LATIN.get(char, char))
         return " ".join("".join(result).split())
+
+    def _read_card_bundle_for_update(self, card_id) -> BundleDraft:
+        return self._read_bundle_for_update(
+            "columns", "cashboxes", "cash_transactions", "inventory_items", card_id=card_id
+        )
 
     def _read_bundle_for_update(self, *domains: str, card_id=None, client_id=None) -> BundleDraft:
         source, signature = self._store.read_bundle_with_signature()
@@ -9558,7 +9399,7 @@ class CardService(
             "vin": order.vin,
             "mileage": order.mileage,
             "payment_method": order.payment_method,
-            "payment_method_label": order.to_dict()["payment_method_label"],
+            "payment_method_label": repair_order_payment_method_label(order.payment_method),
             "prepayment": order.prepayment_amount() if order.payments else order.prepayment,
             "prepayment_display": order.prepayment_amount(),
             "paid_total": paid_total,
@@ -9580,19 +9421,6 @@ class CardService(
             "file_name": path.name,
             "file_path": str(path),
         }
-
-    def _ensure_repair_order_text_file(self, card: Card, *, force: bool = False) -> Path:
-        path = self._repair_order_text_path(card)
-        content = self._render_repair_order_text(card, path)
-        if not force and path.exists():
-            try:
-                if self._read_repair_order_text_file(path) == content:
-                    return path
-            except (OSError, ServiceError):
-                pass
-        publish_text(path, content)
-        self._cleanup_repair_order_text_files(card, keep_path=path)
-        return path
 
     def _render_repair_order_text(self, card: Card, path: Path) -> str:
         return render_bounded_repair_order_text(

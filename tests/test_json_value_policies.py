@@ -1,3 +1,4 @@
+import math
 import sys
 import unittest
 from pathlib import Path
@@ -64,6 +65,64 @@ class JsonValuePolicyTests(unittest.TestCase):
         converted = json_safe_storage_value(value)
         converted["items"][0]["nested"] = 5
         self.assertEqual(value["items"][0]["nested"], 3)
+
+    def test_iterative_conversion_matches_previous_recursive_policy(self):
+        def previous(value, depth, nonfinite, drop_none_keys):
+            if depth <= 0:
+                return str(value)
+            if value is None or isinstance(value, (str, bool, int)):
+                return value
+            if isinstance(value, float):
+                return value if math.isfinite(value) else nonfinite
+            if isinstance(value, dict):
+                return {
+                    str(key): previous(item, depth - 1, nonfinite, drop_none_keys)
+                    for key, item in value.items()
+                    if key is not None or not drop_none_keys
+                }
+            if isinstance(value, (list, tuple, set)):
+                return [previous(item, depth - 1, nonfinite, drop_none_keys) for item in value]
+            return str(value)
+
+        values = [
+            None,
+            True,
+            42,
+            "text",
+            float("nan"),
+            Path("example"),
+            {1: {"nested": [1, None]}, "1": ["last collision"], None: float("inf")},
+            (1, {"rows": [{"deep": [False, 3.25]}]}),
+            {"a", "b"},
+        ]
+        circular = {"self": None}
+        circular["self"] = circular
+        values.append(circular)
+        for value in values:
+            for depth in (0, 1, 2, 4, 8, 12):
+                for nonfinite, drop_none_keys in ((None, True), (0.0, True), (None, False)):
+                    with self.subTest(
+                        value_type=type(value).__name__,
+                        depth=depth,
+                        policy=(nonfinite, drop_none_keys),
+                    ):
+                        expected = previous(value, depth, nonfinite, drop_none_keys)
+                        actual = json_safe_value(
+                            value, depth=depth, nonfinite=nonfinite, drop_none_keys=drop_none_keys
+                        )
+                        self.assertEqual(actual, expected)
+                        if isinstance(expected, dict):
+                            self.assertEqual(list(actual), list(expected))
+
+    def test_full_state_depth_is_iterative_and_preserves_leaf_types(self):
+        value = 17
+        for _ in range(512):
+            value = {"child": value}
+        converted = json_safe_storage_value(value, depth=513)
+        for _ in range(512):
+            converted = converted["child"]
+        self.assertEqual(converted, 17)
+        self.assertIs(type(converted), int)
 
 
 if __name__ == "__main__":

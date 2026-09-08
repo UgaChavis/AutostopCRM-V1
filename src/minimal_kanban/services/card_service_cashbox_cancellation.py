@@ -50,18 +50,7 @@ class CardServiceCashboxCancellationMixin:
                     },
                 )
             cashbox = self._find_cashbox(cashboxes, transaction.cashbox_id)
-            expected_cashbox_updated_at = normalize_text(
-                payload.get("expected_cashbox_updated_at"),
-                default="",
-                limit=80,
-            )
-            if expected_cashbox_updated_at and cashbox.updated_at != expected_cashbox_updated_at:
-                self._fail(
-                    "cashbox_update_conflict",
-                    "Касса уже изменилась. Обновите данные и повторите действие.",
-                    status_code=409,
-                    details={"cashbox_id": cashbox.id},
-                )
+            self._ensure_cashbox_expected_updated_at(cashbox, payload)
             reason = self._validated_cash_cancellation_reason(payload)
             attestation_run_id = normalize_text(
                 payload.get("attestation_run_id"),

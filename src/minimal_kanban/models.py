@@ -7,6 +7,7 @@ import os
 import re
 import uuid
 from collections.abc import Collection
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -2029,7 +2030,7 @@ class Card:
                 "vehicle_profile_compact": self.vehicle_profile.to_compact_dict(),
                 "repair_order": self.repair_order.to_dict(),
                 "attachments": [attachment.to_dict() for attachment in attachments],
-                "ai_autofill_log": list(self.ai_autofill_log),
+                "ai_autofill_log": deepcopy(self.ai_autofill_log),
             }
         )
         return payload
@@ -2068,7 +2069,7 @@ class Card:
             "last_ai_run_at": self.last_ai_run_at,
             "ai_run_count": self.ai_run_count,
             "last_card_fingerprint": self.last_card_fingerprint,
-            "ai_autofill_log": list(self.ai_autofill_log),
+            "ai_autofill_log": deepcopy(self.ai_autofill_log),
         }
 
     @classmethod

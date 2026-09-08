@@ -4,7 +4,7 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from typing import Any
 
@@ -346,6 +346,7 @@ def project_crm_state(
     state: Mapping[str, Any] | object,
     *,
     sources: set[SourceKey] | None = None,
+    card_cache: dict | None = None,
 ) -> dict[tuple[str, str], ProjectedEntity]:
     """Project all durable state entities to technical ids and irreversible digests."""
 
@@ -361,7 +362,14 @@ def project_crm_state(
     )
     if sources is None or any(source_type == "card" for source_type, _source_id in sources):
         for card in _items(source.get("cards")):
-            _project_card(projected, card, sources=sources)
+            if card_cache is None:
+                _project_card(projected, card, sources=sources)
+            else:
+                _project_cached_card(projected, card, sources=sources, cache=card_cache)
+    if card_cache is not None:
+        live_ids = {_technical_id(card.get("id")) for card in _items(source.get("cards"))}
+        for card_id in card_cache.keys() - live_ids:
+            del card_cache[card_id]
     if sources is None or any(source_type == "client" for source_type, _source_id in sources):
         for client in _items(source.get("clients")):
             _project_client(projected, client, sources=sources)
@@ -404,6 +412,37 @@ def project_crm_state(
     )
     _project_settings(projected, _mapping(source.get("settings")), sources=sources)
     return projected
+
+
+def _project_cached_card(projected: dict, card: dict, *, sources: set | None, cache: dict) -> None:
+    """Cache only immutable JsonStore payloads, retaining their strong references."""
+    card_id = _technical_id(card.get("id"))
+    if not card_id or not _selected(sources, "card", card_id):
+        return
+    cached = cache.get(card_id)
+    previous, entities = cached if cached is not None else ({}, {})
+    if (
+        cached is not None
+        and previous.keys() == card.keys()
+        and all(
+            previous[key] is value
+            for key, value in card.items()
+            if key not in {"column", "position"}
+        )
+    ):
+        entities = dict(entities)
+        key = ("card", card_id)
+        entities[key] = replace(
+            entities[key],
+            routing_digest=_digest(
+                {"column": card.get("column"), "position": card.get("position")}
+            ),
+        )
+    else:
+        entities = {}
+        _project_card(entities, card, sources=None)
+    cache[card_id] = (card, entities)
+    projected.update(entities)
 
 
 def cached_crm_source_signatures(state: Mapping[str, Any], cache: dict) -> dict[SourceKey, str]:

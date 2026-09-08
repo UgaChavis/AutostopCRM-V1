@@ -644,18 +644,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="api")
             cashbox = self._find_cashbox(cashboxes, payload.get("cashbox_id"))
-            expected_cashbox_updated_at = normalize_text(
-                payload.get("expected_cashbox_updated_at"),
-                default="",
-                limit=80,
-            )
-            if expected_cashbox_updated_at and cashbox.updated_at != expected_cashbox_updated_at:
-                self._fail(
-                    "cashbox_update_conflict",
-                    "Касса уже изменилась. Обновите данные и повторите действие.",
-                    status_code=409,
-                    details={"cashbox_id": cashbox.id},
-                )
+            expected_cashbox_updated_at = self._ensure_cashbox_expected_updated_at(cashbox, payload)
             related_transactions = self._cashbox_transactions(transactions, cashbox.id)
             expected_transaction_ids = payload.get("expected_transaction_ids")
             if expected_transaction_ids is not None:
@@ -1041,35 +1030,8 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             actor_name, source = self._audit_identity(payload, default_source="ui")
             settings = bundle["settings"]
             employees = self._employees_from_settings(settings)
-            employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
-            if not employee_id:
-                self._fail(
-                    "validation_error",
-                    "Нужно передать employee_id.",
-                    details={"field": "employee_id"},
-                )
-            employee = next((item for item in employees if item["id"] == employee_id), None)
-            if employee is None:
-                self._fail(
-                    "not_found",
-                    "Сотрудник не найден.",
-                    status_code=404,
-                    details={"employee_id": employee_id},
-                )
-            expected_employee_updated_at = normalize_text(
-                payload.get("expected_employee_updated_at"),
-                default="",
-                limit=80,
-            )
-            if expected_employee_updated_at and str(employee.get("updated_at") or "") != (
-                expected_employee_updated_at
-            ):
-                self._fail(
-                    "employee_update_conflict",
-                    "Сотрудник уже изменился. Обновите данные и повторите действие.",
-                    status_code=409,
-                    details={"employee_id": employee_id},
-                )
+            employee_id, employee = self._required_employee(employees, payload.get("employee_id"))
+            self._ensure_employee_expected_updated_at(employee, payload)
             kind = self._normalize_salary_transaction_kind(
                 payload.get("transaction_kind") or payload.get("kind")
             )
@@ -1090,18 +1052,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     "Для выплат зарплаты нужно выбрать кассу.",
                     details={"field": "cashbox_id"},
                 )
-            expected_cashbox_updated_at = normalize_text(
-                payload.get("expected_cashbox_updated_at"),
-                default="",
-                limit=80,
-            )
-            if expected_cashbox_updated_at and cashbox.updated_at != expected_cashbox_updated_at:
-                self._fail(
-                    "cashbox_update_conflict",
-                    "Касса уже изменилась. Обновите данные и повторите действие.",
-                    status_code=409,
-                    details={"cashbox_id": cashbox.id},
-                )
+            self._ensure_cashbox_expected_updated_at(cashbox, payload)
             note_prefix = "Выплата зарплаты" if kind == "salary_payout" else "Аванс"
             note = self._validated_cash_transaction_note(
                 payload.get("note") or f"{note_prefix}: {employee['name']}",
@@ -1176,35 +1127,8 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="ui")
             employees = self._employees_from_settings(settings)
-            employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
-            if not employee_id:
-                self._fail(
-                    "validation_error",
-                    "Нужно передать employee_id.",
-                    details={"field": "employee_id"},
-                )
-            employee = next((item for item in employees if item["id"] == employee_id), None)
-            if employee is None:
-                self._fail(
-                    "not_found",
-                    "Сотрудник не найден.",
-                    status_code=404,
-                    details={"employee_id": employee_id},
-                )
-            expected_employee_updated_at = normalize_text(
-                payload.get("expected_employee_updated_at"),
-                default="",
-                limit=80,
-            )
-            if expected_employee_updated_at and str(employee.get("updated_at") or "") != (
-                expected_employee_updated_at
-            ):
-                self._fail(
-                    "employee_update_conflict",
-                    "Сотрудник уже изменился. Обновите данные и повторите действие.",
-                    status_code=409,
-                    details={"employee_id": employee_id},
-                )
+            employee_id, employee = self._required_employee(employees, payload.get("employee_id"))
+            self._ensure_employee_expected_updated_at(employee, payload)
             if not employee.get("is_active", True):
                 self._fail(
                     "validation_error",
@@ -1304,18 +1228,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             settings = bundle["settings"]
             actor_name, source = self._audit_identity(payload, default_source="ui")
             cashbox = self._find_cashbox(cashboxes, payload.get("cashbox_id"))
-            expected_cashbox_updated_at = normalize_text(
-                payload.get("expected_cashbox_updated_at"),
-                default="",
-                limit=80,
-            )
-            if expected_cashbox_updated_at and cashbox.updated_at != expected_cashbox_updated_at:
-                self._fail(
-                    "cashbox_update_conflict",
-                    "Касса уже изменилась. Обновите данные и повторите действие.",
-                    status_code=409,
-                    details={"cashbox_id": cashbox.id},
-                )
+            self._ensure_cashbox_expected_updated_at(cashbox, payload)
             related_transactions = self._cashbox_transactions(transactions, cashbox.id)
             if not related_transactions:
                 self._fail(
@@ -2973,6 +2886,17 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
         payload = cashbox.to_dict()
         payload["statistics"] = self._cashbox_statistics(cashbox, transactions)
         return payload
+
+    def _ensure_cashbox_expected_updated_at(self, cashbox: CashBox, payload: dict) -> str:
+        expected = normalize_text(payload.get("expected_cashbox_updated_at"), default="", limit=80)
+        if expected and cashbox.updated_at != expected:
+            self._fail(
+                "cashbox_update_conflict",
+                "Касса уже изменилась. Обновите данные и повторите действие.",
+                status_code=409,
+                details={"cashbox_id": cashbox.id},
+            )
+        return expected
 
     def _ordered_cashboxes(
         self,

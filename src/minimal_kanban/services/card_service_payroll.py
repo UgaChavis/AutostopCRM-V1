@@ -1221,21 +1221,7 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
             salary_balance_resets = self._employee_salary_balance_resets_from_settings(
                 bundle["settings"], employees_by_id=employees_by_id
             )
-            employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
-            if not employee_id:
-                self._fail(
-                    "validation_error",
-                    "Нужно передать employee_id.",
-                    details={"field": "employee_id"},
-                )
-            employee = next((item for item in employees if item["id"] == employee_id), None)
-            if employee is None:
-                self._fail(
-                    "not_found",
-                    "Сотрудник не найден.",
-                    status_code=404,
-                    details={"employee_id": employee_id},
-                )
+            employee_id, employee = self._required_employee(employees, payload.get("employee_id"))
             period_start, period_end, period_days, period_mode, generated_at = (
                 self._employee_salary_reconciliation_period(
                     payload,
@@ -2099,21 +2085,7 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
             actor_name, source = self._audit_identity(payload, default_source="api")
             settings = dict(bundle["settings"])
             employees = self._employees_from_settings(settings)
-            employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
-            if not employee_id:
-                self._fail(
-                    "validation_error",
-                    "Нужно передать employee_id.",
-                    details={"field": "employee_id"},
-                )
-            target = next((item for item in employees if item["id"] == employee_id), None)
-            if target is None:
-                self._fail(
-                    "not_found",
-                    "Сотрудник не найден.",
-                    status_code=404,
-                    details={"employee_id": employee_id},
-                )
+            employee_id, target = self._required_employee(employees, payload.get("employee_id"))
             now_iso = model_helpers.utc_now_iso()
             next_is_active = not bool(target.get("is_active"))
             target["active_periods"] = employee_active_periods_after_state_change(
@@ -2154,21 +2126,7 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
             actor_name, source = self._audit_identity(payload, default_source="api")
             settings = dict(bundle["settings"])
             employees = self._employees_from_settings(settings)
-            employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
-            if not employee_id:
-                self._fail(
-                    "validation_error",
-                    "Нужно передать employee_id.",
-                    details={"field": "employee_id"},
-                )
-            target = next((item for item in employees if item["id"] == employee_id), None)
-            if target is None:
-                self._fail(
-                    "not_found",
-                    "Сотрудник не найден.",
-                    status_code=404,
-                    details={"employee_id": employee_id},
-                )
+            employee_id, target = self._required_employee(employees, payload.get("employee_id"))
             expected_updated_at = normalize_text(
                 payload.get("expected_updated_at"),
                 default="",
@@ -3414,6 +3372,36 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
                 created_at=created_at,
             )
         return employee
+
+    def _required_employee(
+        self, employees: list[dict[str, Any]], value: Any
+    ) -> tuple[str, dict[str, Any]]:
+        employee_id = normalize_text(value, default="", limit=64)
+        if not employee_id:
+            self._fail(
+                "validation_error",
+                "Нужно передать employee_id.",
+                details={"field": "employee_id"},
+            )
+        employee = next((item for item in employees if item["id"] == employee_id), None)
+        if employee is None:
+            self._fail(
+                "not_found",
+                "Сотрудник не найден.",
+                status_code=404,
+                details={"employee_id": employee_id},
+            )
+        return employee_id, employee
+
+    def _ensure_employee_expected_updated_at(self, employee: dict[str, Any], payload: dict) -> None:
+        expected = normalize_text(payload.get("expected_employee_updated_at"), default="", limit=80)
+        if expected and str(employee.get("updated_at") or "") != expected:
+            self._fail(
+                "employee_update_conflict",
+                "Сотрудник уже изменился. Обновите данные и повторите действие.",
+                status_code=409,
+                details={"employee_id": employee["id"]},
+            )
 
     def _employees_from_settings(self, settings: dict[str, Any]) -> list[dict[str, Any]]:
         raw_items = settings.get(EMPLOYEES_SETTING_KEY)

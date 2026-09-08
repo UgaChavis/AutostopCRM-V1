@@ -282,8 +282,6 @@ class CardServiceClientsMixin:
                         "vehicle_created": create_vehicle_from_card,
                     },
                 )
-                if self._card_has_repair_order(card):
-                    self._ensure_repair_order_text_file(card, force=True)
             if clients_changed and not changed:
                 self._append_event(
                     events,

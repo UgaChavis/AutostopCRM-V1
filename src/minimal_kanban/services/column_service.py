@@ -7,7 +7,7 @@ from typing import Any
 
 from ..models import COLUMN_LABEL_LIMIT, Column
 from ..storage.json_store import JsonStore
-from .ready_column import READY_COLUMN_LABEL, ensure_ready_column
+from .ready_column import READY_COLUMN_LABEL, _next_column_id, ensure_ready_column
 
 
 class ColumnService:
@@ -365,10 +365,4 @@ class ColumnService:
         return label
 
     def _next_column_id(self, columns: list[Column]) -> str:
-        existing_ids = {column.id for column in columns}
-        index = 1
-        while True:
-            column_id = f"column_{index}"
-            if column_id not in existing_ids:
-                return column_id
-            index += 1
+        return _next_column_id(columns)

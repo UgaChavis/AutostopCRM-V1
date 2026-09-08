@@ -134,6 +134,93 @@ class SaveIsolationTests(unittest.TestCase):
         )
         return card_id
 
+    def test_repair_order_read_reuses_unchanged_cards_without_writing(self):
+        card_id = self.create_order()
+        source = self.store.read_bundle()
+        synchronize = self.service._synchronize_repair_order_numbers
+
+        def check_cards(cards):
+            self.assertEqual(len(cards), len(source["cards"]))
+            for card, original in zip(cards, source["cards"], strict=True):
+                self.assertIs(card, original)
+            return synchronize(cards)
+
+        with (
+            patch.object(
+                self.service, "_synchronize_repair_order_numbers", side_effect=check_cards
+            ),
+            patch.object(
+                self.service, "_save_bundle", side_effect=AssertionError("unexpected save")
+            ),
+        ):
+            result = self.service.list_repair_orders({"compact": True})
+        self.assertEqual(result["repair_orders"][0]["card_id"], card_id)
+
+    def test_rejected_client_link_keeps_order_files_and_success_publishes_new_details(self):
+        card_id = self.create_order()
+        client_id = self.service.create_client({"display_name": "New client"})["client"]["id"]
+        before = self.order_files()
+        state_before = (self.root / "state.json").read_bytes()
+        payload = {
+            "card_id": card_id,
+            "client_id": client_id,
+            "sync_fields": True,
+            "overwrite_card_fields": True,
+        }
+        with patch.object(self.service, "_save_bundle", side_effect=OSError("rejected")):
+            with self.assertRaises(OSError):
+                self.service.link_card_to_client(payload)
+        self.assertEqual(self.order_files(), before)
+        self.assertEqual((self.root / "state.json").read_bytes(), state_before)
+        self.service.link_card_to_client(payload)
+        self.assertNotEqual(self.order_files(), before)
+        self.assertTrue(any(b"New client" in content for content in self.order_files().values()))
+        self.assertEqual(
+            next(card for card in self.persisted()["cards"] if card.id == card_id).client_id,
+            client_id,
+        )
+
+    def test_failed_legacy_order_number_assignment_preserves_retained_order(self):
+        self.create_order()
+        original = self.store.read_bundle()["cards"][0]
+        # A retained legacy model can still need a missing number assigned on read.
+        original.repair_order.number = ""
+        before = (self.root / "state.json").read_bytes()
+        with patch.object(self.service, "_save_bundle", side_effect=OSError("injected")):
+            with self.assertRaises(OSError):
+                self.service.list_repair_orders()
+        self.assertEqual(original.repair_order.number, "")
+        self.assertEqual((self.root / "state.json").read_bytes(), before)
+
+    def test_move_reuses_unmodified_ledger_and_stock_objects(self):
+        card_id = self.create_order()
+        cashbox_id = self.service.create_cashbox({"name": "Synthetic cash"})["cashbox"]["id"]
+        self.service.create_cash_transaction(
+            {"cashbox_id": cashbox_id, "direction": "income", "amount": "20", "note": "Unrelated"}
+        )
+        self.service.save_inventory_item({"name": "Synthetic stock", "quantity": "10"})
+        source = self.store.read_bundle()
+        save = self.service._save_bundle
+
+        def check_draft(bundle, **kwargs):
+            for domain in ("cash_transactions", "inventory_items"):
+                self.assertIsNot(bundle[domain], source[domain])
+                for item, original in zip(bundle[domain], source[domain], strict=True):
+                    self.assertIs(item, original)
+            return save(bundle, **kwargs)
+
+        ready_id = next(
+            column["id"]
+            for column in self.service.list_columns()["columns"]
+            if column["label"] == "Готовые автомобили"
+        )
+        with patch.object(self.service, "_save_bundle", side_effect=check_draft):
+            self.service.move_card({"card_id": card_id, "column": ready_id})
+        persisted = self.persisted()
+        self.assertEqual(persisted["cards"][0].repair_order.status, "ready")
+        for domain in ("cash_transactions", "inventory_items"):
+            self.assertEqual(persisted[domain], source[domain])
+
     def test_rejected_heavy_edit_never_appends_audit_details(self):
         card_id = self.create("Original")
         archives = self.audit_files()

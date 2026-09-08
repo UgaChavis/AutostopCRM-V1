@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
@@ -825,7 +826,7 @@ class RepairOrder:
             "tags": [tag.to_dict() for tag in self.tags],
             "works": [row.to_dict() for row in self.works],
             "materials": [row.to_dict() for row in self.materials],
-            "active_correction": dict(self.active_correction),
+            "active_correction": deepcopy(self.active_correction),
             "correction_active": bool(self.active_correction),
             "cycle_count": len(self.cycles),
             "payment_summary": self.payment_summary_amounts(),
@@ -867,9 +868,9 @@ class RepairOrder:
             "tags": [tag.to_dict() for tag in self.tags],
             "works": [row.to_dict() for row in self.works],
             "materials": [row.to_dict() for row in self.materials],
-            "cycles": [dict(item) for item in self.cycles],
-            "payroll_postings": [dict(item) for item in self.payroll_postings],
-            "active_correction": dict(self.active_correction),
+            "cycles": deepcopy(self.cycles),
+            "payroll_postings": deepcopy(self.payroll_postings),
+            "active_correction": deepcopy(self.active_correction),
         }
 
     def works_total_amount(self) -> str:

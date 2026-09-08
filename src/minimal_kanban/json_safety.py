@@ -58,28 +58,33 @@ def find_mapping(value: Any, key: str, expected: Any, *, depth: int = 0) -> dict
 
 def json_safe_value(value: Any, *, depth: int = 8, nonfinite=None, drop_none_keys=True) -> Any:
     """Bound and sanitize JSON without mixing API and persisted-number policies."""
-    if depth <= 0:
-        return str(value)
-    if value is None or isinstance(value, (str, bool, int)):
-        return value
-    if isinstance(value, float):
-        return value if math.isfinite(value) else nonfinite
-    if isinstance(value, dict):
-        return {
-            str(key): json_safe_value(
-                item, depth=depth - 1, nonfinite=nonfinite, drop_none_keys=drop_none_keys
+    result = [None]
+    pending = [(value, depth, result, 0)]
+    while pending:
+        item, remaining, parent, key = pending.pop()
+        if remaining <= 0:
+            parent[key] = str(item)
+        elif item is None or isinstance(item, (str, bool, int)):
+            parent[key] = item
+        elif isinstance(item, float):
+            parent[key] = item if math.isfinite(item) else nonfinite
+        elif isinstance(item, dict):
+            parent[key] = target = {}
+            pending.extend(
+                (child, remaining - 1, target, str(child_key))
+                for child_key, child in reversed(list(item.items()))
+                if child_key is not None or not drop_none_keys
             )
-            for key, item in value.items()
-            if key is not None or not drop_none_keys
-        }
-    if isinstance(value, (list, tuple, set)):
-        return [
-            json_safe_value(
-                item, depth=depth - 1, nonfinite=nonfinite, drop_none_keys=drop_none_keys
+        elif isinstance(item, (list, tuple, set)):
+            items = list(item)
+            parent[key] = target = [None] * len(items)
+            pending.extend(
+                (child, remaining - 1, target, index)
+                for index, child in reversed(list(enumerate(items)))
             )
-            for item in value
-        ]
-    return str(value)
+        else:
+            parent[key] = str(item)
+    return result[0]
 
 
 def json_safe_storage_value(value: Any, *, depth: int = 8) -> Any:

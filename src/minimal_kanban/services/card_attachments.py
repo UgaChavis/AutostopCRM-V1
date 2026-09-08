@@ -156,13 +156,7 @@ _ATTACHMENT_XML_READ_MAX_BYTES = 5_000_000
 class CardAttachmentsMixin:
     def add_card_attachment(self, payload: dict) -> dict:
         with self._lock:
-            bundle = self._read_bundle_for_update(
-                "columns",
-                "cashboxes",
-                "cash_transactions",
-                "inventory_items",
-                card_id=payload.get("card_id", ""),
-            )
+            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
             cards = bundle["cards"]
             events = bundle["events"]
             card = self._find_card(cards, payload.get("card_id"))
@@ -221,13 +215,7 @@ class CardAttachmentsMixin:
 
     def remove_card_attachment(self, payload: dict) -> dict:
         with self._lock:
-            bundle = self._read_bundle_for_update(
-                "columns",
-                "cashboxes",
-                "cash_transactions",
-                "inventory_items",
-                card_id=payload.get("card_id", ""),
-            )
+            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
             cards = bundle["cards"]
             events = bundle["events"]
             card = self._find_card(cards, payload.get("card_id"))
@@ -283,9 +271,7 @@ class CardAttachmentsMixin:
 
     def get_attachment_download(self, card_id: str, attachment_id: str) -> tuple[Path, Attachment]:
         with self._lock:
-            bundle = self._read_bundle_for_update(
-                "columns", "cashboxes", "cash_transactions", "inventory_items", card_id=card_id
-            )
+            bundle = self._read_card_bundle_for_update(card_id)
             card = self._find_card(bundle["cards"], card_id)
             attachment = self._find_attachment(card, attachment_id)
             if attachment.removed:
@@ -339,13 +325,7 @@ class CardAttachmentsMixin:
     def get_card_attachment(self, payload: dict | None = None) -> dict:
         payload = dict(payload or {})
         with self._lock:
-            bundle = self._read_bundle_for_update(
-                "columns",
-                "cashboxes",
-                "cash_transactions",
-                "inventory_items",
-                card_id=payload.get("card_id", ""),
-            )
+            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
             card = self._find_card(bundle["cards"], payload.get("card_id"))
             attachment = self._find_attachment(card, payload.get("attachment_id"))
             if attachment.removed:
@@ -403,13 +383,7 @@ class CardAttachmentsMixin:
             include_base64 = True
 
         with self._lock:
-            bundle = self._read_bundle_for_update(
-                "columns",
-                "cashboxes",
-                "cash_transactions",
-                "inventory_items",
-                card_id=payload.get("card_id", ""),
-            )
+            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
             card = self._find_card(bundle["cards"], payload.get("card_id"))
             attachment = self._find_attachment(card, payload.get("attachment_id"))
             if attachment.removed:

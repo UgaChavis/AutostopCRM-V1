@@ -5,19 +5,20 @@ import logging
 import sys
 import tempfile
 import unittest
-from copy import deepcopy
+from copy import copy, deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from minimal_kanban.models import AuditEvent, Card, parse_datetime
+from minimal_kanban.models import AuditEvent, Card, CardTag, parse_datetime
 from minimal_kanban.storage.change_feed_projection import (
     cached_crm_source_signatures,
     project_crm_source_signatures,
+    project_crm_state,
 )
-from minimal_kanban.storage.json_store import JsonStore, StateWriteConflictError
+from minimal_kanban.storage.json_store import JsonStore, StateWriteConflictError, _serialized_state
 
 
 class StorageWriteOptimizationTests(unittest.TestCase):
@@ -29,6 +30,95 @@ class StorageWriteOptimizationTests(unittest.TestCase):
         logger.addHandler(logging.NullHandler())
         logger.propagate = False
         self.store = JsonStore(self.state_file, logger)
+
+    def seed_cards(self):
+        bundle = self.store.read_bundle()
+        cards = [
+            Card.from_dict({"id": str(index), "title": f"Card {index}", "position": index})
+            for index in range(2)
+        ]
+        self.store.write_cached_bundle(bundle, **{**bundle, "cards": cards})
+        return self.store.read_bundle()
+
+    def test_routing_only_shallow_copies_reuse_normalized_content_and_survive_restart(self):
+        bundle = self.seed_cards()
+        originals = list(bundle["cards"])
+        cards = [copy(card) for card in originals]
+        cards[0].position, cards[1].position = 1, 0
+        with patch.object(
+            Card, "from_dict", side_effect=AssertionError("unnecessary normalization")
+        ):
+            self.store.write_cached_bundle(bundle, **{**bundle, "cards": cards})
+        self.assertEqual([card.position for card in originals], [0, 1])
+        reloaded = JsonStore(self.state_file).read_bundle()["cards"]
+        self.assertEqual({card.id: card.position for card in reloaded}, {"0": 1, "1": 0})
+        self.assertEqual(
+            {card.id: card.updated_at for card in reloaded},
+            {card.id: card.updated_at for card in originals},
+        )
+
+    def test_routing_shortcut_rejects_content_replacement_and_invalid_position(self):
+        original = self.seed_cards()["cards"][0]
+        for name, value in (
+            ("title", "Changed"),
+            ("position", True),
+            ("position", -1),
+            ("position", 1_000_001),
+        ):
+            with self.subTest(field=name, value=value):
+                card = copy(original)
+                setattr(card, name, value)
+                self.assertIsNone(self.store._routing_only_card_payload(card))
+        self.assertIsNone(self.store._routing_only_card_payload(deepcopy(original)))
+        original.is_unread = not original.is_unread
+        self.assertIsNone(self.store._routing_only_card_payload(copy(original)))
+
+    def test_card_projection_cache_matches_full_projection_and_invalidates_replacements(self):
+        bundle = self.seed_cards()
+        state = self.store._state_from_bundle(bundle)
+        cache = {}
+        self.assertEqual(project_crm_state(state, card_cache=cache), project_crm_state(state))
+        moved = {
+            **state,
+            "cards": [{**card, "position": 1 - card["position"]} for card in state["cards"]],
+        }
+        expected = project_crm_state(moved)
+        with patch(
+            "minimal_kanban.storage.change_feed_projection._project_card",
+            side_effect=AssertionError("unnecessary reprojection"),
+        ):
+            self.assertEqual(project_crm_state(moved, card_cache=cache), expected)
+        replaced = deepcopy(moved)
+        replaced["cards"][0]["title"] = "External replacement with unchanged revision"
+        self.assertEqual(project_crm_state(replaced, card_cache=cache), project_crm_state(replaced))
+        replaced = {**replaced, "cards": []}
+        self.assertEqual(project_crm_state(replaced, card_cache=cache), project_crm_state(replaced))
+        self.assertEqual(cache, {})
+
+    def test_shallow_copy_nested_mutation_is_not_mistaken_for_routing_only(self):
+        bundle = self.seed_cards()
+        card = copy(bundle["cards"][0])
+        card.position = 1
+        card.tags.append(CardTag(label="Changed through shared branch"))
+        self.assertIsNone(self.store._routing_only_card_payload(card))
+        self.store.write_cached_bundle(bundle, **{**bundle, "cards": [card, bundle["cards"][1]]})
+        reloaded = JsonStore(self.state_file).read_bundle()["cards"]
+        self.assertEqual(next(item for item in reloaded if item.id == card.id).tags, card.tags)
+
+    def test_failed_cached_write_discards_projection_cache(self):
+        bundle = self.seed_cards()
+        self.assertTrue(self.store._card_projection_cache)
+        card = deepcopy(bundle["cards"][0])
+        card.title = "Rejected"
+        before = self.state_file.read_bytes()
+        with patch.object(Path, "replace", side_effect=OSError("injected")):
+            with self.assertRaises(OSError):
+                self.store.write_cached_bundle(
+                    bundle, **{**bundle, "cards": [card, bundle["cards"][1]]}
+                )
+        self.assertFalse(self.store._card_projection_cache)
+        self.assertEqual(self.state_file.read_bytes(), before)
+        self.assertEqual(JsonStore(self.state_file).read_bundle()["cards"][0].title, "Card 0")
 
     def test_noop_write_skips_source_projection_but_changed_state_calls_it(self) -> None:
         bundle = self.store.read_bundle()
@@ -232,6 +322,24 @@ class StorageWriteOptimizationTests(unittest.TestCase):
             self.assertEqual(parse.call_count, len({stamp for _, stamp in stamps}))
         self.assertTrue(changed)
         self.assertEqual([event.id for event in retained], ["a", "b", "later"])
+
+    def test_full_state_depth_limit_preserves_valid_data_and_rejects_excess_before_write(self):
+        nested = 17
+        for _ in range(512):
+            nested = {"child": nested}
+        for fast in (False, True):
+            with self.subTest(fast=fast):
+                safe, payload, _ = _serialized_state(nested, fast_serializer=fast)
+                decoded = json.loads(payload)
+                for _ in range(512):
+                    safe = safe["child"]
+                    decoded = decoded["child"]
+                self.assertIs(type(safe), int)
+                self.assertEqual((safe, decoded), (17, 17))
+        previous = self.state_file.read_bytes()
+        with self.assertRaisesRegex(ValueError, "too deeply nested"):
+            self.store._write_state({"excess": nested})
+        self.assertEqual(self.state_file.read_bytes(), previous)
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ import math
 import shutil
 import time
 from copy import copy, deepcopy
+from dataclasses import fields
 from datetime import timedelta
 from logging import Logger
 from pathlib import Path
@@ -15,13 +16,14 @@ from uuid import uuid4
 import orjson
 
 from ..config import get_app_data_dir, get_state_file
+from ..json_safety import DEFAULT_JSON_MAX_DEPTH, reject_deeply_nested_json
 from ..json_safety import json_safe_storage_value as _json_safe_value
-from ..json_safety import reject_deeply_nested_json
 from ..models import (
     ARCHIVED_CARD_RETENTION_LIMIT,
     AUDIT_EVENT_RETENTION_DAYS,
     AUDIT_EVENT_RETENTION_LIMIT,
     DEFAULT_COLUMN_IDS,
+    POSITION_MAX_VALUE,
     AuditEvent,
     Card,
     CashBox,
@@ -45,6 +47,9 @@ from .limited_io import read_bytes_limited, read_text_limited
 SLOW_STORAGE_OPERATION_MS = 250.0
 _JSON_SAFE_MAX_DEPTH = 8
 JSON_STORE_STATE_MAX_BYTES = 100 * 1024 * 1024
+_CARD_CONTENT_FIELDS = tuple(
+    field.name for field in fields(Card) if field.name not in {"column", "position"}
+)
 
 
 def default_columns() -> list[Column]:
@@ -59,6 +64,11 @@ def _json_safe_dict(value: Any) -> dict[str, Any]:
     return safe if isinstance(safe, dict) else {}
 
 
+def _json_safe_state(state: dict[str, Any]) -> dict[str, Any]:
+    reject_deeply_nested_json(state, message="state file JSON is too deeply nested")
+    return _json_safe_value(state, depth=DEFAULT_JSON_MAX_DEPTH + 1)
+
+
 def _serialized_state(
     state: dict[str, Any],
     *,
@@ -66,7 +76,7 @@ def _serialized_state(
     fast_serializer: bool = False,
     trusted_safe: bool = False,
 ) -> tuple[dict[str, Any], bytes, str]:
-    safe_state = state if already_safe else _json_safe_dict(state)
+    safe_state = state if already_safe else _json_safe_state(state)
     if fast_serializer and (trusted_safe or _supports_fast_state_serialization(safe_state)):
         try:
             payload = orjson.dumps(safe_state)
@@ -178,6 +188,7 @@ class JsonStore:
         self._trusted_event_objects: set[int] = set()
         self._storage_dict_cache: dict[str, dict[int, tuple[Any, Any, dict[str, Any]]]] = {}
         self._source_signature_cache: dict = {}
+        self._card_projection_cache: dict = {}
         get_app_data_dir().mkdir(parents=True, exist_ok=True)
         self._state_file.parent.mkdir(parents=True, exist_ok=True)
         if not self._state_file.exists():
@@ -214,7 +225,7 @@ class JsonStore:
         self._reconcile_change_feed_state_locked(state)
 
     def _reconcile_change_feed_state_locked(self, state: dict[str, Any]) -> None:
-        safe_state = _json_safe_dict(state)
+        safe_state = _json_safe_state(state)
         fingerprint = self._state_file_fingerprint()
         self._change_feed_store.reconcile_state(
             fingerprint,
@@ -648,6 +659,7 @@ class JsonStore:
         trusted_cards = [
             card
             if self._trusted_card_versions.get(card.id) == (id(card), card.updated_at)
+            or self._routing_only_card_payload(card) is not None
             else Card.from_dict(
                 card.to_storage_dict(),
                 valid_columns=valid_column_ids,
@@ -758,6 +770,36 @@ class JsonStore:
             "settings": normalized_settings,
         }
 
+    def _routing_only_card_payload(self, card: Card) -> dict[str, Any] | None:
+        """Reuse normalized content only for a shallow, ordering-only copy."""
+        trusted = self._trusted_card_versions.get(card.id)
+        cached = self._storage_dict_cache.get("cards", {}).get(trusted[0]) if trusted else None
+        if (
+            cached is None
+            or type(card.position) is not int
+            or not 0 <= card.position <= POSITION_MAX_VALUE
+        ):
+            return None
+        original, version, payload = cached
+        if version != self._card_storage_version(original) or not all(
+            getattr(card, name) is getattr(original, name) for name in _CARD_CONTENT_FIELDS
+        ):
+            return None
+        reordered = {**payload, "column": card.column, "position": card.position}
+        # A shallow copy shares mutable branches: identity alone cannot prove
+        # that a caller did not edit a tag/order/profile through those aliases.
+        return reordered if card.to_storage_dict() == reordered else None
+
+    @staticmethod
+    def _card_storage_version(card: Card) -> tuple:
+        return (
+            card.updated_at,
+            card.column,
+            card.position,
+            card.is_unread,
+            tuple(sorted(card.seen_by_users.items())),
+        )
+
     def _storage_payloads(
         self,
         name: str,
@@ -769,13 +811,7 @@ class JsonStore:
         payloads: list[dict[str, Any]] = []
         for item in values:
             if isinstance(item, Card):
-                version = (
-                    item.updated_at,
-                    item.column,
-                    item.position,
-                    item.is_unread,
-                    tuple(sorted(item.seen_by_users.items())),
-                )
+                version = self._card_storage_version(item)
             else:
                 version = getattr(item, "updated_at", None)
             if version is None:
@@ -786,7 +822,9 @@ class JsonStore:
             if cached is not None and cached[0] is item and cached[1] == version:
                 payload = cached[2]
             else:
-                payload = converter(item)
+                payload = self._routing_only_card_payload(item) if isinstance(item, Card) else None
+                if payload is None:
+                    payload = converter(item)
                 cached = (item, version, payload)
             current[item_id] = cached
             payloads.append(payload)
@@ -957,6 +995,7 @@ class JsonStore:
                 state=safe_state,
                 source_signatures=source_signatures,
                 on_unchanged=mark_unchanged,
+                card_projection_cache=self._card_projection_cache if trusted_safe else None,
             )
         except ChangeFeedPendingWriteError:
             unchanged = False
@@ -1049,6 +1088,7 @@ class JsonStore:
         return hashlib.sha256(payload).hexdigest()
 
     def _invalidate_read_cache(self) -> None:
+        self._card_projection_cache.clear()
         self._read_cache_signature = None
         self._read_cache_bundle = None
         self._trusted_card_versions.clear()
