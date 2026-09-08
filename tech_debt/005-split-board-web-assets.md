@@ -3,6 +3,10 @@
 The startup bundle retains board/cards, clients, navigation, polling and modal
 state. Payroll, stock, printing and cash-journal panels have versioned lazy
 bundles. The assembler/loader and Windows package share that asset contract.
+On a cold employees or inventory open, read-only data requests overlap module
+loading. Prepared results wait for the module and current request/session scope;
+concurrent opens reuse the pending invocation. No heavy panel is prefetched at
+startup. Keep first-open latency and failure/retry coverage with this boundary.
 Review asynchronous work at its operator/request/editor boundary, including
 success, errors, cleanup and debounce/loading invalidation. Multi-request writes
 must check ownership before each follow-up request; an obsolete response is not
