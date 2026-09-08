@@ -3,7 +3,8 @@
   "ui_sources": [
     "src/minimal_kanban/web_app_assets/source/*.js",
     "src/minimal_kanban/web_app_assets/source/*.html",
-    "src/minimal_kanban/printing/web_module.py"
+    "src/minimal_kanban/printing/web_module.py",
+    "src/minimal_kanban/printing/web_async_context.py"
   ],
   "http_route_sources": [
     "src/minimal_kanban/api/server.py",

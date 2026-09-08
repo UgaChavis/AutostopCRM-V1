@@ -50,6 +50,18 @@ class CrmParityInventoryQualityTests(unittest.TestCase):
         self.assertEqual(set(), assembled_routes - set(source_routes))
         self.assertEqual(set(), set(source_routes) - assembled_routes)
 
+    def test_extracted_printing_routes_keep_their_real_source_locations(self) -> None:
+        source = ROOT / "src/minimal_kanban/printing/web_async_context.py"
+        fragment_routes = crm_capability_parity._route_locations(source)
+        source_routes, issues = crm_capability_parity.discover_ui_routes(self.manifest)
+
+        self.assertEqual([], issues)
+        self.assertIn("/api/print_repair_order_documents", fragment_routes)
+        for route, locations in fragment_routes.items():
+            with self.subTest(route=route):
+                self.assertTrue(locations)
+                self.assertTrue(set(locations).issubset(source_routes.get(route, [])))
+
     def test_server_only_health_text_and_print_alias_have_exact_gateway_coverage(self) -> None:
         rows = {row["route"]: row for row in self.inventory["matrix"]}
 
