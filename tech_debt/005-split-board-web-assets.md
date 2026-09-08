@@ -3,6 +3,11 @@
 The startup bundle retains board/cards, clients, navigation, polling and modal
 state. Payroll, stock, printing and cash-journal panels have versioned lazy
 bundles. The assembler/loader and Windows package share that asset contract.
+Client, card, stock, payroll and journal requests retain operator/request/editor
+ownership across success, errors and final cleanup. Multi-request writes must
+check ownership before each follow-up request; an obsolete response is not a
+reason to repeat a write using the current operator. Keep debounce and loading
+state invalidation with that ownership boundary.
 Continue separating board/session responsibilities only when it simplifies
 behavior; startup bytes and first-panel latency must be measured together.
 

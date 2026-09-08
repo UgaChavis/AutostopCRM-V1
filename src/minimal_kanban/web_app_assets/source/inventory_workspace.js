@@ -335,7 +335,19 @@
       state.inventoryLoaded = true;
     }
 
+    function inventoryAsyncContext(key, scope = () => true) {
+      const requests = state.inventoryRequests || (state.inventoryRequests = {});
+      const token = {};
+      const generation = state.viewerStateGeneration;
+      const session = state.operatorSessionToken;
+      requests[key] = token;
+      const owns = () => state.inventoryRequests === requests && requests[key] === token
+        && state.viewerStateGeneration === generation && state.operatorSessionToken === session;
+      return { owns, isCurrent: () => owns() && scope() };
+    }
+
     async function loadInventoryItems(openModal = false, { query = null } = {}) {
+      const context = inventoryAsyncContext('items');
       const requestedQuery = query === null ? String(state.inventoryQuery || '').trim() : String(query || '').trim();
       try {
         if (!state.inventoryLoaded) renderInventoryItems();
@@ -345,6 +357,7 @@
             body: { query: requestedQuery, limit: 200 },
           })
           : await api('/api/list_inventory_items?limit=200');
+        if (!context.isCurrent()) return null;
         state.inventoryItems = Array.isArray(data?.items) ? data.items : [];
         state.inventoryLoaded = true;
         if (state.inventoryActiveId && !inventoryItemById(state.inventoryActiveId)) {
@@ -363,6 +376,7 @@
         maybeOpenModal(els.inventoryModal, openModal);
         return data;
       } catch (error) {
+        if (!context.isCurrent()) return null;
         state.inventoryLoaded = false;
         renderInventory();
         maybeOpenModal(els.inventoryModal, openModal);
@@ -379,17 +393,20 @@
         renderMobileInventoryMovements();
         return { movements: state.inventoryMovements };
       }
+      const context = inventoryAsyncContext('movements');
       state.inventoryMovementsLoading = true;
       renderInventoryMovements();
       renderMobileInventoryMovements();
       try {
         const data = await api('/api/list_inventory_movements?limit=200');
+        if (!context.isCurrent()) return null;
         state.inventoryMovements = Array.isArray(data?.movements) ? data.movements : [];
         state.inventoryMovementsLoaded = true;
         renderInventoryMovements();
         renderMobileInventoryMovements();
         return data;
       } catch (error) {
+        if (!context.isCurrent()) return null;
         state.inventoryMovementsLoaded = false;
         inventoryStatus(error.message, true);
         setStatus(error.message, true);
@@ -397,13 +414,17 @@
         renderMobileInventoryMovements();
         return null;
       } finally {
-        state.inventoryMovementsLoading = false;
-        renderInventoryMovements();
-        renderMobileInventoryMovements();
+        if (context.owns()) {
+          state.inventoryMovementsLoading = false;
+          renderInventoryMovements();
+          renderMobileInventoryMovements();
+        }
       }
     }
 
     function invalidateInventoryMovements() {
+      inventoryAsyncContext('movements');
+      state.inventoryMovementsLoading = false;
       state.inventoryMovementsLoaded = false;
       if (state.inventoryView === 'movements' || (state.mobileLite && state.mobileView === 'inventory')) {
         loadInventoryMovements({ force: true });
@@ -473,24 +494,32 @@
         inventoryStatus('УКАЖИТЕ НАЗВАНИЕ ПОЗИЦИИ.', true);
         return;
       }
+      let activeId = String(state.inventoryActiveId || '');
+      const context = inventoryAsyncContext('save', () => String(state.inventoryActiveId || '') === activeId);
       state.inventorySaving = true;
       renderInventoryForm();
       try {
         const data = await api('/api/save_inventory_item', { method: 'POST', body: payload });
+        if (!context.isCurrent()) return;
         if (data?.item) {
           upsertInventoryItem(data.item);
           state.inventoryActiveId = inventoryItemId(data.item);
           state.repairOrderInventorySelectedId = inventoryItemId(data.item);
+          activeId = state.inventoryActiveId;
         }
         if (data?.movement) invalidateInventoryMovements();
         await loadInventoryItems(false, { query: state.inventoryQuery });
+        if (!context.isCurrent()) return;
         inventoryStatus(data?.meta?.created ? 'ПОЗИЦИЯ ДОБАВЛЕНА.' : 'ПОЗИЦИЯ СОХРАНЕНА.', false);
       } catch (error) {
+        if (!context.isCurrent()) return;
         inventoryStatus(error.message, true);
         setStatus(error.message, true);
       } finally {
-        state.inventorySaving = false;
-        renderInventory();
+        if (context.owns()) {
+          state.inventorySaving = false;
+          renderInventory();
+        }
       }
     }
 
@@ -505,6 +534,7 @@
         refs.replenishQuantity?.focus({ preventScroll: true });
         return inventoryStatus('УКАЖИТЕ КОЛИЧЕСТВО БОЛЬШЕ НУЛЯ.', true);
       }
+      const context = inventoryAsyncContext('save', () => String(state.inventoryActiveId || '') === String(item.id));
       state.inventorySaving = true;
       renderInventoryForm();
       try {
@@ -519,6 +549,7 @@
             source: 'ui',
           },
         });
+        if (!context.isCurrent()) return;
         if (data?.item) {
           upsertInventoryItem(data.item);
           state.inventoryActiveId = inventoryItemId(data.item);
@@ -526,20 +557,27 @@
         }
         invalidateInventoryMovements();
         await loadInventoryItems(false, { query: state.inventoryQuery });
+        if (!context.isCurrent()) return;
         inventoryStatus('ОСТАТОК ПОПОЛНЕН.', false);
       } catch (error) {
+        if (!context.isCurrent()) return;
         inventoryStatus(error.message, true);
         setStatus(error.message, true);
       } finally {
-        state.inventorySaving = false;
-        renderInventory();
+        if (context.owns()) {
+          state.inventorySaving = false;
+          renderInventory();
+        }
       }
     }
 
     function handleInventorySearchInput() {
       state.inventoryQuery = String(els.inventorySearchInput?.value || '').trim();
+      inventoryAsyncContext('items');
+      const context = inventoryAsyncContext('search');
       if (state.inventorySearchTimer) window.clearTimeout(state.inventorySearchTimer);
       state.inventorySearchTimer = window.setTimeout(() => {
+        if (!context.isCurrent()) return;
         state.inventorySearchTimer = null;
         loadInventoryItems(false, { query: state.inventoryQuery });
       }, 250);
@@ -569,8 +607,11 @@
 
     function handleMobileInventorySearchInput() {
       state.inventoryQuery = String(els.mobileInventorySearchInput?.value || '').trim();
+      inventoryAsyncContext('items');
+      const context = inventoryAsyncContext('search');
       if (state.mobileInventorySearchTimer) window.clearTimeout(state.mobileInventorySearchTimer);
       state.mobileInventorySearchTimer = window.setTimeout(() => {
+        if (!context.isCurrent()) return;
         state.mobileInventorySearchTimer = null;
         loadInventoryItems(false, { query: state.inventoryQuery });
       }, 250);
@@ -708,6 +749,63 @@
       inventoryStatus('СТРОКА МАТЕРИАЛА ЗАПОЛНЕНА БЕЗ СПИСАНИЯ.', false);
     }
 
+    async function mutateInventoryMaterial(path, payload, message) {
+      if (state.inventoryMaterialSaving) return;
+      const cardContext = captureCardEditingContext();
+      let expectedCardId = String(state.editingId || '');
+      let selectedId = state.repairOrderInventorySelectedId;
+      let selectedRow = state.repairOrderInventoryRowIndex;
+      const context = inventoryAsyncContext('material', () => cardContext()
+        && String(state.editingId || '') === expectedCardId
+        && state.repairOrderInventorySelectedId === selectedId && state.repairOrderInventoryRowIndex === selectedRow);
+      const actorName = state.actor;
+      state.inventoryMaterialSaving = true;
+      renderRepairOrderInventoryPanel();
+      try {
+        const cardId = await requireRepairOrderCardId();
+        if (!cardId || !context.owns() || !cardContext() || (expectedCardId && cardId !== expectedCardId)) return;
+        expectedCardId = String(cardId);
+        if (!context.isCurrent()) return;
+        const data = await api(path, {
+          method: 'POST',
+          body: { ...payload, card_id: cardId, actor_name: actorName, source: 'ui' },
+        });
+        if (!context.isCurrent()) return;
+        if (data?.item) {
+          upsertInventoryItem(data.item);
+          state.inventoryActiveId = inventoryItemId(data.item);
+          state.repairOrderInventorySelectedId = inventoryItemId(data.item);
+        }
+        if (Object.prototype.hasOwnProperty.call(payload, 'row_index')) {
+          state.repairOrderInventoryRowIndex = String(data?.meta?.row_index ?? payload.row_index);
+        }
+        if (data?.card || data?.repair_order) {
+          const updatedCard = repairOrderResponseCard(data, data?.repair_order || readRepairOrderFromForm());
+          applyRepairOrderCardUpdate(updatedCard, data?.repair_order || {});
+        }
+        selectedId = state.repairOrderInventorySelectedId;
+        selectedRow = state.repairOrderInventoryRowIndex;
+        if (data?.card || data?.repair_order) {
+          await refreshRepairOrdersListAfterMutation();
+          if (!context.isCurrent()) return;
+        }
+        await loadInventoryItems(false, { query: state.repairOrderInventoryQuery || state.inventoryQuery });
+        if (!context.isCurrent()) return;
+        invalidateInventoryMovements();
+        inventoryStatus(message, false);
+        setStatus(message, false);
+      } catch (error) {
+        if (!context.isCurrent()) return;
+        inventoryStatus(error.message, true);
+        setStatus(error.message, true);
+      } finally {
+        if (context.owns()) {
+          state.inventoryMaterialSaving = false;
+          if (cardContext()) renderRepairOrderInventoryPanel();
+        }
+      }
+    }
+
     async function writeOffInventoryItem() {
       const item = selectedRepairOrderInventoryItem();
       if (!item?.id) return inventoryStatus('ВЫБЕРИТЕ ПОЗИЦИЮ СКЛАДА.', true);
@@ -722,81 +820,17 @@
         renderRepairOrderInventoryPanel();
         return inventoryStatus('НЕЛЬЗЯ СПИСАТЬ БОЛЬШЕ ОСТАТКА: ' + inventoryDisplayQuantity(item) + '.', true);
       }
-      const cardId = await requireRepairOrderCardId();
-      if (!cardId) return;
-      const rowIndex = repairOrderInventoryTargetRowIndex();
-      try {
-        if (els.repairOrderInventoryIssueButton) els.repairOrderInventoryIssueButton.disabled = true;
-        const data = await api('/api/write_off_inventory_item', {
-          method: 'POST',
-          body: {
-            item_id: item.id,
-            card_id: cardId,
-            quantity: quantity.raw,
-            row_index: rowIndex,
-            actor_name: state.actor,
-            source: 'ui',
-          },
-        });
-        if (data?.item) {
-          upsertInventoryItem(data.item);
-          state.inventoryActiveId = inventoryItemId(data.item);
-          state.repairOrderInventorySelectedId = inventoryItemId(data.item);
-        }
-        state.repairOrderInventoryRowIndex = String(data?.meta?.row_index ?? rowIndex);
-        if (data?.card || data?.repair_order) {
-          const updatedCard = repairOrderResponseCard(data, data?.repair_order || readRepairOrderFromForm());
-          applyRepairOrderCardUpdate(updatedCard, data?.repair_order || {});
-          await refreshRepairOrdersListAfterMutation();
-        }
-        await loadInventoryItems(false, { query: state.repairOrderInventoryQuery || state.inventoryQuery });
-        invalidateInventoryMovements();
-        inventoryStatus('МАТЕРИАЛ СПИСАН СО СКЛАДА.', false);
-        setStatus('МАТЕРИАЛ СПИСАН СО СКЛАДА.', false);
-      } catch (error) {
-        inventoryStatus(error.message, true);
-        setStatus(error.message, true);
-      } finally {
-        renderRepairOrderInventoryPanel();
-      }
+      return mutateInventoryMaterial('/api/write_off_inventory_item', {
+        item_id: item.id, quantity: quantity.raw, row_index: repairOrderInventoryTargetRowIndex(),
+      }, 'МАТЕРИАЛ СПИСАН СО СКЛАДА.');
     }
 
     async function returnInventoryMovement() {
       const movementId = repairOrderInventorySelectedMovementId();
       if (!movementId) return inventoryStatus('В СТРОКЕ НЕТ СКЛАДСКОГО СПИСАНИЯ.', true);
-      const cardId = await requireRepairOrderCardId();
-      if (!cardId) return;
-      try {
-        if (els.repairOrderInventoryReturnButton) els.repairOrderInventoryReturnButton.disabled = true;
-        const data = await api('/api/return_inventory_movement', {
-          method: 'POST',
-          body: {
-            movement_id: movementId,
-            card_id: cardId,
-            actor_name: state.actor,
-            source: 'ui',
-          },
-        });
-        if (data?.item) {
-          upsertInventoryItem(data.item);
-          state.inventoryActiveId = inventoryItemId(data.item);
-          state.repairOrderInventorySelectedId = inventoryItemId(data.item);
-        }
-        if (data?.card || data?.repair_order) {
-          const updatedCard = repairOrderResponseCard(data, data?.repair_order || readRepairOrderFromForm());
-          applyRepairOrderCardUpdate(updatedCard, data?.repair_order || {});
-          await refreshRepairOrdersListAfterMutation();
-        }
-        await loadInventoryItems(false, { query: state.repairOrderInventoryQuery || state.inventoryQuery });
-        invalidateInventoryMovements();
-        inventoryStatus('СПИСАНИЕ ВОЗВРАЩЕНО НА СКЛАД.', false);
-        setStatus('СПИСАНИЕ ВОЗВРАЩЕНО НА СКЛАД.', false);
-      } catch (error) {
-        inventoryStatus(error.message, true);
-        setStatus(error.message, true);
-      } finally {
-        renderRepairOrderInventoryPanel();
-      }
+      return mutateInventoryMaterial('/api/return_inventory_movement', {
+        movement_id: movementId,
+      }, 'СПИСАНИЕ ВОЗВРАЩЕНО НА СКЛАД.');
     }
 
     function renderRepairOrderInventoryPanel() {
@@ -844,8 +878,8 @@
       }
       const hasMovement = Boolean(repairOrderInventorySelectedMovementId());
       if (els.repairOrderInventoryFillButton) els.repairOrderInventoryFillButton.disabled = !selected || !hasQuantity;
-      if (els.repairOrderInventoryIssueButton) els.repairOrderInventoryIssueButton.disabled = !selected || !hasQuantity;
-      if (els.repairOrderInventoryReturnButton) els.repairOrderInventoryReturnButton.disabled = !hasMovement;
+      if (els.repairOrderInventoryIssueButton) els.repairOrderInventoryIssueButton.disabled = Boolean(state.inventoryMaterialSaving) || !selected || !hasQuantity;
+      if (els.repairOrderInventoryReturnButton) els.repairOrderInventoryReturnButton.disabled = Boolean(state.inventoryMaterialSaving) || !hasMovement;
     }
 
     function toggleRepairOrderInventoryPanel() {
@@ -853,7 +887,10 @@
       renderRepairOrderInventoryPanel();
       if (state.repairOrderInventoryOpen) {
         if (!state.inventoryLoaded) loadInventoryItems(false, { query: state.repairOrderInventoryQuery });
-        window.setTimeout(() => els.repairOrderInventorySearchInput?.focus({ preventScroll: true }), 0);
+        const isCurrent = captureCardEditingContext();
+        window.setTimeout(() => {
+          if (isCurrent() && state.repairOrderInventoryOpen) els.repairOrderInventorySearchInput?.focus({ preventScroll: true });
+        }, 0);
       }
     }
 
@@ -869,9 +906,12 @@
 
     function handleRepairOrderInventorySearchInput() {
       state.repairOrderInventoryQuery = String(els.repairOrderInventorySearchInput?.value || '').trim();
+      inventoryAsyncContext('items');
+      const context = inventoryAsyncContext('search', captureCardEditingContext());
       renderRepairOrderInventoryPanel();
       if (state.inventorySearchTimer) window.clearTimeout(state.inventorySearchTimer);
       state.inventorySearchTimer = window.setTimeout(() => {
+        if (!context.isCurrent()) return;
         state.inventorySearchTimer = null;
         loadInventoryItems(false, { query: state.repairOrderInventoryQuery });
       }, 250);

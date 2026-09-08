@@ -173,15 +173,21 @@
         return;
       }
       state.payrollMonth = month;
+      const context = employeeAsyncContext('mobileEmployeesRequest');
       state.mobileEmployeesLoading = true;
       renderMobileEmployeesPanel();
+      const loading = loadEmployeesWorkspaceData(month);
+      const generation = state.employeesWorkspaceLoadGeneration;
+      const isCurrent = () => context() && generation === state.employeesWorkspaceLoadGeneration;
       try {
-        await loadEmployeesWorkspaceData(month);
+        await loading;
       } catch (error) {
-        setStatus(error.message, true);
+        if (isCurrent()) setStatus(error.message, true);
       } finally {
-        state.mobileEmployeesLoading = false;
-        renderMobileEmployeesPanel();
+        if (isCurrent()) {
+          state.mobileEmployeesLoading = false;
+          renderMobileEmployeesPanel();
+        }
       }
     }
 

@@ -862,6 +862,15 @@
       if (state.editingId && !state.activeCardIsFull) return setStatus('ДОЖДИТЕСЬ ЗАГРУЗКИ КАРТОЧКИ.', true);
       const payload = currentCardPayload();
       if (!payload.title) return setStatus(CARD_TITLE_REQUIRED_MESSAGE, true);
+      const request = {};
+      const generation = state.viewerStateGeneration;
+      const session = state.operatorSessionToken;
+      const editingContext = captureCardEditingContext();
+      let editingId = state.editingId;
+      state.cardSaveRequest = request;
+      const owns = () => state.cardSaveRequest === request && state.viewerStateGeneration === generation
+        && state.operatorSessionToken === session;
+      const isCurrent = () => owns() && editingContext() && state.editingId === editingId;
       clearCardOpenSideEffectTimer();
       const deferredSeenCardId = cancelDeferredCardSeen(state.editingId) ? state.editingId : '';
       state.cardSaveInFlight = true;
@@ -872,10 +881,12 @@
       const savePromise = perfMeasureAsync('saveCard', async () => {
         try {
           const data = await persistCardPayload(payload);
+          if (!isCurrent() || !data) return false;
           const savedCard = data?.card || null;
           saveChanged = data?.meta?.changed === true;
           if (savedCard) {
             applySavedCardLocalPatch(savedCard);
+            editingId = state.editingId;
           } else {
             rememberCardModalCleanState(payload);
           }
@@ -883,18 +894,21 @@
           setStatus('КАРТОЧКА СОХРАНЕНА.', false);
           return true;
         } catch (error) {
-          setStatus(error.message, true);
+          if (isCurrent()) setStatus(error.message, true);
           return false;
         } finally {
-          const shouldCloseAfterSave = saveSucceeded && els.cardModal?.classList.contains('is-open');
-          state.cardSaveInFlight = false;
-          state.cardSavePromise = null;
-          state.cardCloseAfterSave = false;
-          if (els.saveCardButton) els.saveCardButton.disabled = false;
-          syncCardSaveDirtyState();
-          if (shouldCloseAfterSave) closeCardModal({ force: true });
-          if (deferredSeenCardId && (!saveSucceeded || !saveChanged)) {
-            deferCardSeen(deferredSeenCardId, { force: true });
+          if (owns()) {
+            const current = isCurrent();
+            const shouldCloseAfterSave = current && saveSucceeded && els.cardModal?.classList.contains('is-open');
+            state.cardSaveInFlight = false;
+            state.cardSavePromise = null;
+            state.cardCloseAfterSave = false;
+            if (els.saveCardButton) els.saveCardButton.disabled = false;
+            syncCardSaveDirtyState();
+            if (shouldCloseAfterSave) closeCardModal({ force: true });
+            if (current && deferredSeenCardId && (!saveSucceeded || !saveChanged)) {
+              deferCardSeen(deferredSeenCardId, { force: true });
+            }
           }
         }
       });

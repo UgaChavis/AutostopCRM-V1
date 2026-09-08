@@ -1,3 +1,9 @@
+from .web_async_context import (
+    PRINTING_ASYNC_CONTEXT_SCRIPT,
+    PRINTING_BROWSER_LIFECYCLE_SCRIPT,
+    PRINTING_JOB_SCRIPT,
+)
+
 PRINTING_WEB_MODULE_STYLE = r"""
     #repairOrderPrintModal {
       z-index: 16;
@@ -1069,10 +1075,10 @@ _PRINTING_SCRIPT_PART1 = r"""
       if (printTemplatePreviewTimer) {
         window.clearTimeout(printTemplatePreviewTimer);
       }
-      printTemplatePreviewTimer = window.setTimeout(() => {
+      printTemplatePreviewTimer = scheduleCurrentPrintOperation(() => {
         printTemplatePreviewTimer = null;
         previewCurrentPrintTemplate();
-      }, 220);
+      }, 220, { template: true });
     }
 
     function syncPrintTemplateSourceFromVisualEditor() {
@@ -1728,16 +1734,17 @@ _PRINTING_SCRIPT_PART2 = r"""
       if (Array.isArray(preview?.missing_fields) && preview.missing_fields.length) warnings.push('Проверьте поля: ' + preview.missing_fields.join(', '));
       printEls.warnings.textContent = warnings.join(' · ');
       printEls.previewFrame.srcdoc = page?.html || '<!doctype html><html lang="ru"><body style="font-family: Segoe UI, sans-serif; padding: 32px; color: #444">Выберите документ для предпросмотра.</body></html>';
-      window.setTimeout(repairOrderPrintResetPreviewScroll, 0);
+      scheduleCurrentPrintOperation(repairOrderPrintResetPreviewScroll, 0);
       printEls.footerMeta.textContent = preview ? ('Документ: ' + (activeDoc?.label || activeId) + '. Страниц: ' + previewPageCount + '.') : 'PDF генерируется из шаблона и текущих данных заказ-наряда.';
       applyRepairOrderPrintZoom();
     }
 
     async function refreshRepairOrderPrintPreview(extra = {}, options = {}) {
+      const operation = capturePrintOperation('refreshRepairOrderPrintPreview', { selection: true });
       if (!repairOrderPrintState.workspace) return null;
       const requestToken = ++repairOrderPrintState.previewToken;
       try {
-        const data = await api('/api/preview_repair_order_print_documents', {
+        const data = await operation.request('/api/preview_repair_order_print_documents', {
           method: 'POST',
           body: repairOrderPrintRequestPayload(extra),
         });
@@ -1748,6 +1755,7 @@ _PRINTING_SCRIPT_PART2 = r"""
         renderRepairOrderPrintPreview();
         return data;
       } catch (error) {
+        if (!operation.current() || error?.code === 'stale_print_operation') return;
         if (requestToken !== repairOrderPrintState.previewToken) return null;
         setStatus(error.message, true);
         if (options?.throwOnError) throw error;
@@ -1764,11 +1772,14 @@ _PRINTING_SCRIPT_PART2 = r"""
     }
 
     async function loadRepairOrderPrintWorkspace({ openModal = false, preserveSelection = false } = {}) {
+      invalidatePrintWorkspaceContext();
       repairOrderPrintState.mode = 'card';
       syncRepairOrderPrintMode();
-      const cardId = await requireRepairOrderCardId();
-      if (!cardId) return null;
-      const data = await api('/api/get_repair_order_print_workspace', {
+      let operation = capturePrintOperation('', { card: false });
+      const cardId = await operation.wait(requireRepairOrderCardId());
+      if (!cardId || cardId !== completionActActiveCardId()) return null;
+      operation = capturePrintOperation();
+      const data = await operation.request('/api/get_repair_order_print_workspace', {
         method: 'POST',
         body: {
           card_id: cardId,
@@ -1778,19 +1789,21 @@ _PRINTING_SCRIPT_PART2 = r"""
       });
       applyRepairOrderPrintWorkspace(data, { preserveSelection });
       if (openModal) printEls.modal.classList.add('is-open');
-      await refreshRepairOrderPrintPreview();
+      await operation.wait(refreshRepairOrderPrintPreview());
       return data;
     }
 
     async function openManualDocumentPrintWorkspace() {
+      invalidatePrintWorkspaceContext();
+      repairOrderPrintState.mode = 'manual';
+      const operation = capturePrintOperation();
       try {
-        repairOrderPrintState.mode = 'manual';
         if (!repairOrderPrintState.manualDocument) {
           repairOrderPrintState.manualDocument = blankManualPrintDocument();
           applyManualPrintDocumentToInputs(repairOrderPrintState.manualDocument);
         }
         syncRepairOrderPrintMode();
-        const data = await api('/api/get_repair_order_print_workspace', {
+        const data = await operation.request('/api/get_repair_order_print_workspace', {
           method: 'POST',
           body: repairOrderPrintRequestPayload({
             document_without_card: true,
@@ -1804,20 +1817,23 @@ _PRINTING_SCRIPT_PART2 = r"""
         renderRepairOrderPrintDocuments();
         renderRepairOrderPrintTemplateSelect();
         printEls.modal.classList.add('is-open');
-        await refreshRepairOrderPrintPreview({
+        await operation.wait(refreshRepairOrderPrintPreview({
           document_without_card: true,
           selected_document_ids: repairOrderPrintState.selectedDocumentIds,
           active_document_id: repairOrderPrintState.activeDocumentId,
-        });
+        }));
       } catch (error) {
+        if (!operation.current() || error?.code === 'stale_print_operation') return;
         setStatus(error.message, true);
       }
     }
 
     async function openRepairOrderPrintWorkspace() {
+      const operation = capturePrintOperation('', { card: false, workspace: false, mode: false });
       try {
-        await loadRepairOrderPrintWorkspace({ openModal: true, preserveSelection: Boolean(repairOrderPrintState.workspace) });
+        await operation.wait(loadRepairOrderPrintWorkspace({ openModal: true, preserveSelection: Boolean(repairOrderPrintState.workspace) }));
       } catch (error) {
+        if (!operation.current() || error?.code === 'stale_print_operation') return;
         setStatus(error.message, true);
       }
     }
@@ -1827,11 +1843,14 @@ _PRINTING_SCRIPT_PART2 = r"""
         printEls.completionActModal?.classList.contains('is-open') &&
         !closeCompletionActEditor()
       ) return;
+      invalidatePrintWorkspaceContext();
       printEls.modal.classList.remove('is-open');
+      cancelPendingRepairOrderPrintPreview();
     }
 
     async function loadInspectionSheetForm() {
-      const data = await api('/api/get_inspection_sheet_form', {
+      const operation = capturePrintOperation('loadInspectionSheetForm', { inspection: true });
+      const data = await operation.request('/api/get_inspection_sheet_form', {
         method: 'POST',
         body: repairOrderPrintRequestPayload({
           selected_document_ids: ['inspection_sheet'],
@@ -1843,19 +1862,21 @@ _PRINTING_SCRIPT_PART2 = r"""
     }
 
     async function openInspectionSheetForm() {
+      invalidatePrintInspectionContext();
+      const operation = capturePrintOperation('', { inspection: true });
       repairOrderPrintState.selectedDocumentIds = ['inspection_sheet'];
       repairOrderPrintState.activeDocumentId = 'inspection_sheet';
       renderRepairOrderPrintDocuments();
       renderRepairOrderPrintTemplateSelect();
       if (!repairOrderPrintState.previewByDocument?.inspection_sheet) {
-        await refreshRepairOrderPrintPreview({
+        await operation.wait(refreshRepairOrderPrintPreview({
           selected_document_ids: ['inspection_sheet'],
           active_document_id: 'inspection_sheet',
-        });
+        }));
       } else {
         renderRepairOrderPrintPreview();
       }
-      await loadInspectionSheetForm();
+      await operation.wait(loadInspectionSheetForm());
       if (printEls.inspectionSheetFooterMeta) {
         printEls.inspectionSheetFooterMeta.textContent = 'После применения предпросмотр и печать будут использовать заполненную ведомость.';
       }
@@ -1869,11 +1890,13 @@ _PRINTING_SCRIPT_PART2 = r"""
     }
 
     function closeInspectionSheetForm() {
+      invalidatePrintInspectionContext();
       printEls.inspectionSheetModal?.classList.remove('is-open');
     }
 
     async function saveInspectionSheetFormDraft({ closeAfter = false } = {}) {
-      const data = await api('/api/save_inspection_sheet_form', {
+      const operation = capturePrintOperation('', { inspection: true });
+      const data = await operation.request('/api/save_inspection_sheet_form', {
         method: 'POST',
         body: repairOrderPrintRequestPayload({
           selected_document_ids: ['inspection_sheet'],
@@ -1883,10 +1906,10 @@ _PRINTING_SCRIPT_PART2 = r"""
         }),
       });
       applyInspectionSheetFormToInputs(data?.form || blankInspectionSheetForm());
-      await refreshRepairOrderPrintPreview({
+      await operation.wait(refreshRepairOrderPrintPreview({
         selected_document_ids: ['inspection_sheet'],
         active_document_id: 'inspection_sheet',
-      });
+      }));
       if (printEls.inspectionSheetFooterMeta) {
         printEls.inspectionSheetFooterMeta.textContent = 'Ведомость сохранена и применена к предпросмотру.';
       }
@@ -1896,9 +1919,10 @@ _PRINTING_SCRIPT_PART2 = r"""
     }
 
     async function autofillInspectionSheetFormDraft() {
+      const operation = capturePrintOperation('', { inspection: true });
       if (printEls.inspectionSheetAutofillButton) printEls.inspectionSheetAutofillButton.disabled = true;
       try {
-        const data = await api('/api/autofill_inspection_sheet_form', {
+        const data = await operation.request('/api/autofill_inspection_sheet_form', {
           method: 'POST',
           body: repairOrderPrintRequestPayload({
             selected_document_ids: ['inspection_sheet'],
@@ -1906,10 +1930,10 @@ _PRINTING_SCRIPT_PART2 = r"""
           }),
         });
         applyInspectionSheetFormToInputs(data?.form || blankInspectionSheetForm());
-        await refreshRepairOrderPrintPreview({
+        await operation.wait(refreshRepairOrderPrintPreview({
           selected_document_ids: ['inspection_sheet'],
           active_document_id: 'inspection_sheet',
-        });
+        }));
         const notes = Array.isArray(data?.autofill?.confidence_notes) ? data.autofill.confidence_notes : [];
         if (printEls.inspectionSheetFooterMeta) {
           printEls.inspectionSheetFooterMeta.textContent = notes.length
@@ -1918,11 +1942,13 @@ _PRINTING_SCRIPT_PART2 = r"""
         }
         setStatus('Ведомость автозаполнена.', false);
       } catch (error) {
+        if (!operation.current() || error?.code === 'stale_print_operation') return;
         if (printEls.inspectionSheetFooterMeta) {
           printEls.inspectionSheetFooterMeta.textContent = error.message || 'Не удалось автозаполнить ведомость.';
         }
         setStatus(error.message, true);
       } finally {
+        if (!operation.current()) return;
         if (printEls.inspectionSheetAutofillButton) printEls.inspectionSheetAutofillButton.disabled = false;
       }
     }
@@ -2203,7 +2229,7 @@ _PRINTING_SCRIPT_PART2 = r"""
       const current = repairOrderPrintState.completionAct;
       const cardId = String(current.cardId || '').trim();
       if (!cardId) return null;
-      return { generation: current.generation, cardId };
+      return { generation: current.generation, cardId, viewerGeneration: state.viewerStateGeneration, workspaceGeneration: printWorkspaceGeneration };
     }
 
     function resetCompletionActEditorSessionData() {
@@ -2265,6 +2291,8 @@ _PRINTING_SCRIPT_PART2 = r"""
       }
       return Boolean(
         session &&
+        session.viewerGeneration === state.viewerStateGeneration &&
+        session.workspaceGeneration === printWorkspaceGeneration &&
         session.generation === current.generation &&
         session.cardId === current.cardId &&
         session.cardId === activeCardId &&
@@ -2393,7 +2421,7 @@ _PRINTING_SCRIPT_PART2 = r"""
       printEls.completionActMobilePreviewButton?.classList.toggle('is-active', !dataActive);
       printEls.completionActMobileDataButton?.setAttribute('aria-pressed', dataActive ? 'true' : 'false');
       printEls.completionActMobilePreviewButton?.setAttribute('aria-pressed', dataActive ? 'false' : 'true');
-      if (!dataActive) window.setTimeout(applyCompletionActPreviewScale, 0);
+      if (!dataActive) scheduleCurrentPrintOperation(applyCompletionActPreviewScale, 0);
     }
 
     function markCompletionActDirty(path = '') {
@@ -2440,17 +2468,18 @@ _PRINTING_SCRIPT_PART2 = r"""
       if (printEls.completionActPreviewMeta) printEls.completionActPreviewMeta.textContent = 'Страница ' + String(pageIndex + 1) + ' / ' + String(Math.max(1, pages.length));
       if (printEls.completionActPrevPageButton) printEls.completionActPrevPageButton.disabled = !pages.length || pageIndex <= 0;
       if (printEls.completionActNextPageButton) printEls.completionActNextPageButton.disabled = !pages.length || pageIndex >= maxIndex;
-      window.setTimeout(applyCompletionActPreviewScale, 0);
+      scheduleCurrentPrintOperation(applyCompletionActPreviewScale, 0);
     }
 
     async function refreshCompletionActPreview(options = {}) {
+      const operation = capturePrintOperation();
       const session = options?.session || completionActEditorSessionSnapshot();
       if (!repairOrderPrintState.workspace || !completionActEditorSessionIsCurrent(session)) return null;
       const token = ++repairOrderPrintState.completionAct.previewToken;
       const form = readCompletionActFormFromInputs();
       repairOrderPrintState.completionAct.form = cloneCompletionActValue(form);
       try {
-        const data = await api('/api/preview_repair_order_print_documents', {
+        const data = await operation.request('/api/preview_repair_order_print_documents', {
           method: 'POST',
           body: repairOrderPrintRequestPayload({
             card_id: session.cardId,
@@ -2476,6 +2505,7 @@ _PRINTING_SCRIPT_PART2 = r"""
         renderRepairOrderPrintPreview();
         return preview;
       } catch (error) {
+        if (!operation.current() || error?.code === 'stale_print_operation') return;
         if (!completionActEditorSessionIsCurrent(session)) return null;
         if (token !== repairOrderPrintState.completionAct.previewToken && !options?.requireCurrent) return null;
         if (printEls.completionActFooterMeta) printEls.completionActFooterMeta.textContent = error.message || 'Не удалось построить предпросмотр.';
@@ -2490,15 +2520,17 @@ _PRINTING_SCRIPT_PART2 = r"""
 
     function scheduleCompletionActPreview() {
       if (completionActPreviewTimer) window.clearTimeout(completionActPreviewTimer);
-      completionActPreviewTimer = window.setTimeout(() => {
+      completionActPreviewTimer = scheduleCurrentPrintOperation(() => {
         completionActPreviewTimer = null;
         refreshCompletionActPreview().catch(() => {});
       }, 320);
     }
 
     async function openCompletionActEditor(returnFocus = null) {
-      const cardId = await requireRepairOrderCardId();
+      let operation = capturePrintOperation('', { card: false });
+      const cardId = await operation.wait(requireRepairOrderCardId());
       if (!cardId || cardId !== completionActActiveCardId()) return;
+      operation = capturePrintOperation();
       const session = beginCompletionActEditorSession(cardId, returnFocus);
       if (!session) return;
       repairOrderPrintState.selectedDocumentIds = ['completion_act'];
@@ -2510,16 +2542,17 @@ _PRINTING_SCRIPT_PART2 = r"""
       printEls.completionActModal?.classList.add('is-open');
       if (printEls.completionActMeta) printEls.completionActMeta.textContent = 'Загрузка данных из заказ-наряда...';
       try {
-        const data = await api('/api/get_completion_act_form', {
+        const data = await operation.request('/api/get_completion_act_form', {
           method: 'POST',
           body: completionActEndpointPayload({}, session.cardId),
         });
         if (!completionActEditorSessionIsCurrent(session)) return;
         if (!applyCompletionActResponse(data, { session })) return;
-        await refreshCompletionActPreview({ session });
+        await operation.wait(refreshCompletionActPreview({ session }));
         if (!completionActEditorSessionIsCurrent(session)) return;
         printEls.completionActForm?.querySelector('[data-completion-act-field]')?.focus();
       } catch (error) {
+        if (!operation.current() || error?.code === 'stale_print_operation') return;
         if (!completionActEditorSessionIsCurrent(session)) return;
         if (printEls.completionActMeta) printEls.completionActMeta.textContent = error.message || 'Не удалось загрузить акт.';
         setStatus(error.message, true);
@@ -2527,12 +2560,14 @@ _PRINTING_SCRIPT_PART2 = r"""
     }
 
     function closeCompletionActEditor() {
+      const operation = capturePrintOperation();
       const session = completionActEditorSessionSnapshot();
       if (!completionActEditorSessionIsCurrent(session)) return true;
       if (repairOrderPrintState.completionAct.dirty && !window.confirm('Закрыть редактор без сохранения? Несохранённые изменения будут отменены.')) return false;
       const returnFocus = repairOrderPrintState.completionAct.returnFocus;
       invalidateCompletionActEditorSession({ hideModal: true });
       const restoreEditorTriggerFocus = () => {
+        if (!operation.current()) return;
         const target = returnFocus?.isConnected
           ? returnFocus
           : printEls.documents?.querySelector('[data-completion-act-editor-open]');
@@ -2540,19 +2575,20 @@ _PRINTING_SCRIPT_PART2 = r"""
       };
       refreshRepairOrderPrintPreview({ selected_document_ids: ['completion_act'], active_document_id: 'completion_act' })
         .catch(() => {})
-        .finally(() => window.setTimeout(restoreEditorTriggerFocus, 0));
-      window.setTimeout(restoreEditorTriggerFocus, 0);
+        .finally(() => scheduleCurrentPrintOperation(restoreEditorTriggerFocus, 0));
+      scheduleCurrentPrintOperation(restoreEditorTriggerFocus, 0);
       return true;
     }
 
     async function saveCompletionActDraft() {
+      const operation = capturePrintOperation();
       const session = completionActEditorSessionSnapshot();
       if (!completionActEditorSessionIsCurrent(session)) return;
       if (printEls.completionActSaveButton) printEls.completionActSaveButton.disabled = true;
       const form = readCompletionActFormFromInputs();
       const editRevision = repairOrderPrintState.completionAct.editRevision;
       try {
-        const data = await api('/api/save_completion_act_form', {
+        const data = await operation.request('/api/save_completion_act_form', {
           method: 'POST',
           body: completionActEndpointPayload(
             {
@@ -2574,7 +2610,7 @@ _PRINTING_SCRIPT_PART2 = r"""
           preserveCurrentEdits: hasNewerEdits,
           savedForm: form,
         })) return;
-        await refreshCompletionActPreview({ session });
+        await operation.wait(refreshCompletionActPreview({ session }));
         if (!completionActEditorSessionIsCurrent(session)) return;
         setStatus(
           hasNewerEdits
@@ -2583,10 +2619,12 @@ _PRINTING_SCRIPT_PART2 = r"""
           false
         );
       } catch (error) {
+        if (!operation.current() || error?.code === 'stale_print_operation') return;
         if (!completionActEditorSessionIsCurrent(session)) return;
         if (printEls.completionActFooterMeta) printEls.completionActFooterMeta.textContent = error.message || 'Не удалось сохранить черновик.';
         setStatus(error.message, true);
       } finally {
+        if (!operation.current()) return;
         if (completionActEditorSessionIsCurrent(session) && printEls.completionActSaveButton) {
           printEls.completionActSaveButton.disabled = false;
         }
@@ -2594,13 +2632,14 @@ _PRINTING_SCRIPT_PART2 = r"""
     }
 
     async function resetCompletionActDraft() {
+      const operation = capturePrintOperation();
       if (!window.confirm('Сбросить ручные изменения акта и заново взять данные из CRM?')) return;
       const session = completionActEditorSessionSnapshot();
       if (!completionActEditorSessionIsCurrent(session)) return;
       if (printEls.completionActResetButton) printEls.completionActResetButton.disabled = true;
       const editRevision = repairOrderPrintState.completionAct.editRevision;
       try {
-        const data = await api('/api/reset_completion_act_form', {
+        const data = await operation.request('/api/reset_completion_act_form', {
           method: 'POST',
           body: completionActEndpointPayload(
             {
@@ -2617,7 +2656,7 @@ _PRINTING_SCRIPT_PART2 = r"""
           session,
           preserveCurrentEdits: hasNewerEdits,
         })) return;
-        await refreshCompletionActPreview({ session });
+        await operation.wait(refreshCompletionActPreview({ session }));
         if (!completionActEditorSessionIsCurrent(session)) return;
         setStatus(
           hasNewerEdits
@@ -2626,10 +2665,12 @@ _PRINTING_SCRIPT_PART2 = r"""
           false
         );
       } catch (error) {
+        if (!operation.current() || error?.code === 'stale_print_operation') return;
         if (!completionActEditorSessionIsCurrent(session)) return;
         if (printEls.completionActFooterMeta) printEls.completionActFooterMeta.textContent = error.message || 'Не удалось сбросить черновик.';
         setStatus(error.message, true);
       } finally {
+        if (!operation.current()) return;
         if (completionActEditorSessionIsCurrent(session) && printEls.completionActResetButton) {
           printEls.completionActResetButton.disabled = false;
         }
@@ -2637,6 +2678,7 @@ _PRINTING_SCRIPT_PART2 = r"""
     }
 
     async function exportCompletionActPdf() {
+      const operation = capturePrintOperation();
       const session = completionActEditorSessionSnapshot();
       if (!completionActEditorSessionIsCurrent(session)) return;
       if (printEls.completionActExportButton) printEls.completionActExportButton.disabled = true;
@@ -2644,12 +2686,12 @@ _PRINTING_SCRIPT_PART2 = r"""
         cancelPendingCompletionActPreview();
         const form = readCompletionActFormFromInputs();
         const editRevision = repairOrderPrintState.completionAct.editRevision;
-        const preview = await refreshCompletionActPreview({ requireCurrent: true, session });
+        const preview = await operation.wait(refreshCompletionActPreview({ requireCurrent: true, session }));
         if (!preview) throw new Error('Не удалось обновить акт перед созданием PDF.');
         if (repairOrderPrintState.completionAct.editRevision !== editRevision) {
           throw new Error('Данные акта изменились во время подготовки PDF. Повторите действие.');
         }
-        const data = await api('/api/export_repair_order_print_pdf', {
+        const data = await operation.request('/api/export_repair_order_print_pdf', {
           method: 'POST',
           body: repairOrderPrintRequestPayload({
             card_id: session.cardId,
@@ -2665,10 +2707,12 @@ _PRINTING_SCRIPT_PART2 = r"""
         triggerBlobDownload(base64ToBlob(data?.content_base64 || '', 'application/pdf'), data?.file_name || 'completion-act.pdf');
         setStatus('PDF акта подготовлен.', false);
       } catch (error) {
+        if (!operation.current() || error?.code === 'stale_print_operation') return;
         if (!completionActEditorSessionIsCurrent(session)) return;
         if (printEls.completionActFooterMeta) printEls.completionActFooterMeta.textContent = error.message || 'Не удалось подготовить PDF.';
         setStatus(error.message, true);
       } finally {
+        if (!operation.current()) return;
         if (completionActEditorSessionIsCurrent(session) && printEls.completionActExportButton) {
           printEls.completionActExportButton.disabled = false;
         }
@@ -2676,25 +2720,28 @@ _PRINTING_SCRIPT_PART2 = r"""
     }
 
     async function printCompletionAct() {
+      const operation = capturePrintOperation();
       const session = completionActEditorSessionSnapshot();
       if (!completionActEditorSessionIsCurrent(session)) return;
       if (printEls.completionActPrintButton) printEls.completionActPrintButton.disabled = true;
       try {
         cancelPendingCompletionActPreview();
         const editRevision = repairOrderPrintState.completionAct.editRevision;
-        const preview = await refreshCompletionActPreview({ requireCurrent: true, session });
+        const preview = await operation.wait(refreshCompletionActPreview({ requireCurrent: true, session }));
         if (!preview) throw new Error('Не удалось обновить акт перед печатью.');
         if (!completionActEditorSessionIsCurrent(session)) return;
         if (repairOrderPrintState.completionAct.editRevision !== editRevision) {
           throw new Error('Данные акта изменились во время подготовки печати. Повторите действие.');
         }
-        await runCompletionActBrowserPrint(preview);
+        await operation.wait(runCompletionActBrowserPrint(preview));
         setStatus('Открыто системное окно печати акта.', false);
       } catch (error) {
+        if (!operation.current() || error?.code === 'stale_print_operation') return;
         if (!completionActEditorSessionIsCurrent(session)) return;
         if (printEls.completionActFooterMeta) printEls.completionActFooterMeta.textContent = error.message || 'Не удалось открыть печать.';
         setStatus(error.message, true);
       } finally {
+        if (!operation.current()) return;
         if (completionActEditorSessionIsCurrent(session) && printEls.completionActPrintButton) {
           printEls.completionActPrintButton.disabled = false;
         }
@@ -2789,72 +2836,12 @@ _PRINTING_SCRIPT_PART3 = r"""
         : '<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>AutoStop CRM Print</title></head><body>' + body + '</body></html>';
     }
 
-    function runBrowserPrintHtml(printableHtml) {
-      return new Promise((resolve, reject) => {
-        const frame = document.createElement('iframe');
-        let settled = false;
-        let printStarted = false;
-        const cleanup = () => window.setTimeout(() => frame.remove(), 1500);
-        frame.style.position = 'fixed';
-        frame.style.right = '-12000px';
-        frame.style.bottom = '0';
-        frame.style.width = '1px';
-        frame.style.height = '1px';
-        frame.style.border = '0';
-        frame.setAttribute('aria-hidden', 'true');
-        frame.setAttribute('sandbox', 'allow-same-origin allow-modals');
-        frame.onload = () => {
-          if (printStarted) return;
-          printStarted = true;
-          frame.onload = null;
-          window.setTimeout(() => {
-            try {
-              const win = frame.contentWindow;
-              if (!win) throw new Error('Не удалось открыть системное окно печати.');
-              win.onafterprint = () => {
-                if (settled) return;
-                settled = true;
-                cleanup();
-                resolve();
-              };
-              win.focus();
-              win.print();
-              window.setTimeout(() => {
-                if (settled) return;
-                settled = true;
-                cleanup();
-                resolve();
-              }, 1200);
-            } catch (error) {
-              if (settled) return;
-              settled = true;
-              cleanup();
-              reject(error);
-            }
-          }, 120);
-        };
-        document.body.appendChild(frame);
-        const doc = frame.contentDocument;
-        if (!doc) {
-          cleanup();
-          reject(new Error('Не удалось подготовить документ для печати.'));
-          return;
-        }
-        doc.open();
-        doc.write(printableHtml);
-        doc.close();
-      });
-    }
+"""
 
-    function runRepairOrderBrowserPrint() {
-      const selectedIds = repairOrderPrintSelectedIds();
-      if (selectedIds.length === 1 && selectedIds[0] === 'completion_act') {
-        const preview = repairOrderPrintState.previewByDocument?.completion_act;
-        const pages = Array.isArray(preview?.pages) ? preview.pages : [];
-        return runBrowserPrintHtml(completionActCombinedHtml(pages));
-      }
-      return runBrowserPrintHtml(repairOrderPrintCombinedHtml());
-    }
+_PRINTING_SCRIPT_PART3 += (
+    PRINTING_BROWSER_LIFECYCLE_SCRIPT
+    + r"""
+
 
     function completionActCombinedHtml(pages) {
       const parser = new DOMParser();
@@ -2888,52 +2875,31 @@ _PRINTING_SCRIPT_PART3 = r"""
     }
 
     async function exportRepairOrderPrintPdf() {
+      const operation = capturePrintOperation('', { selection: true });
       try {
-        const data = await api('/api/export_repair_order_print_pdf', {
+        const data = await operation.request('/api/export_repair_order_print_pdf', {
           method: 'POST',
           body: repairOrderPrintRequestPayload(),
         });
         triggerBlobDownload(base64ToBlob(data?.content_base64 || '', 'application/pdf'), data?.file_name || 'autostopcrm-print.pdf');
         setStatus('PDF подготовлен.', false);
       } catch (error) {
+        if (!operation.current() || error?.code === 'stale_print_operation') return;
         setStatus(error.message, true);
       }
     }
 
-    async function runRepairOrderPrintJob() {
-      if (repairOrderPrintState.isPrintRunning) return;
-      repairOrderPrintState.isPrintRunning = true;
-      if (printEls.printButton) printEls.printButton.disabled = true;
-      try {
-        cancelPendingRepairOrderPrintPreview();
-        const refreshed = await refreshRepairOrderPrintPreview({}, { throwOnError: true });
-        const selectedIds = repairOrderPrintSelectedIds();
-        if (!refreshed || selectedIds.some((documentId) => !repairOrderPrintState.previewByDocument?.[documentId])) {
-          throw new Error('Не удалось обновить документ перед печатью.');
-        }
-        await runRepairOrderBrowserPrint();
-        setStatus('Открыто системное окно печати браузера.', false);
-      } catch (error) {
-        try {
-          const printerName = printEls.printerSelect?.value || '';
-          if (!printerName) throw error;
-          const fallback = await api('/api/print_repair_order_documents', {
-            method: 'POST',
-            body: repairOrderPrintRequestPayload({ printer_name: printerName }),
-          });
-          setStatus('Браузерная печать не открылась. Документ отправлен на серверный принтер: ' + (fallback?.printer_name || printerName) + '.', false);
-        } catch (fallbackError) {
-          setStatus((fallbackError && fallbackError.message) || (error && error.message) || 'Не удалось запустить печать.', true);
-        }
-      } finally {
-        repairOrderPrintState.isPrintRunning = false;
-        syncRepairOrderPrintPrinterState();
-      }
-    }
+"""
+)
+
+_PRINTING_SCRIPT_PART3 += (
+    PRINTING_JOB_SCRIPT
+    + r"""
 
     async function saveRepairOrderPrintSettings() {
+      const operation = capturePrintOperation();
       try {
-        const data = await api('/api/save_print_module_settings', {
+        const data = await operation.request('/api/save_print_module_settings', {
           method: 'POST',
           body: { source: 'ui', print_settings: repairOrderPrintSettingsPayload() },
         });
@@ -2944,6 +2910,7 @@ _PRINTING_SCRIPT_PART3 = r"""
         syncRepairOrderPrintPrinterState();
         setStatus('Настройки печати сохранены.', false);
       } catch (error) {
+        if (!operation.current() || error?.code === 'stale_print_operation') return;
         setStatus(error.message, true);
       }
     }
@@ -2979,7 +2946,7 @@ _PRINTING_SCRIPT_PART3 = r"""
       if (manualPrintPreviewTimer) {
         window.clearTimeout(manualPrintPreviewTimer);
       }
-      manualPrintPreviewTimer = window.setTimeout(() => {
+      manualPrintPreviewTimer = scheduleCurrentPrintOperation(() => {
         manualPrintPreviewTimer = null;
         refreshRepairOrderPrintPreview();
       }, 320);
@@ -2990,7 +2957,7 @@ _PRINTING_SCRIPT_PART3 = r"""
       if (regulatedPrintPreviewTimer) {
         window.clearTimeout(regulatedPrintPreviewTimer);
       }
-      regulatedPrintPreviewTimer = window.setTimeout(() => {
+      regulatedPrintPreviewTimer = scheduleCurrentPrintOperation(() => {
         regulatedPrintPreviewTimer = null;
         refreshRepairOrderPrintPreview();
       }, 320);
@@ -3047,6 +3014,7 @@ _PRINTING_SCRIPT_PART3 = r"""
     }
 
     function openPrintTemplateEditor() {
+      invalidatePrintTemplateContext();
       const activeDocument = repairOrderPrintDocumentMap()[repairOrderPrintActiveDocument()] || null;
       repairOrderPrintState.templateEditor.documentType = activeDocument?.template_locked ? 'repair_order' : (activeDocument?.id || 'repair_order');
       repairOrderPrintState.templateEditor.templateId = repairOrderPrintSelectedTemplateId(repairOrderPrintState.templateEditor.documentType);
@@ -3056,15 +3024,20 @@ _PRINTING_SCRIPT_PART3 = r"""
     }
 
     function closePrintTemplateEditor() {
+      invalidatePrintTemplateContext();
+      if (printTemplatePreviewTimer) window.clearTimeout(printTemplatePreviewTimer);
+      printTemplatePreviewTimer = null;
       printEls.templateModal.classList.remove('is-open');
     }
 
     function selectPrintTemplateRecord(templateId) {
+      invalidatePrintTemplateContext();
       repairOrderPrintState.templateEditor.templateId = templateId;
       renderPrintTemplateList();
     }
 
     async function previewCurrentPrintTemplate() {
+      const operation = capturePrintOperation('previewCurrentPrintTemplate', { template: true });
       const documentType = repairOrderPrintState.templateEditor.documentType || 'repair_order';
       const draftContent = readPrintTemplateEditorContent();
       if (printEls.templatePreviewMeta) {
@@ -3077,7 +3050,7 @@ _PRINTING_SCRIPT_PART3 = r"""
         );
       }
       try {
-        const data = await api('/api/preview_repair_order_print_documents', {
+        const data = await operation.request('/api/preview_repair_order_print_documents', {
           method: 'POST',
           body: repairOrderPrintRequestPayload({
             selected_document_ids: [documentType],
@@ -3098,6 +3071,7 @@ _PRINTING_SCRIPT_PART3 = r"""
         );
         printEls.templatePreviewMeta.textContent = 'Предпросмотр недоступен.';
       } catch (error) {
+        if (!operation.current() || error?.code === 'stale_print_operation') return;
         const message = error.message || 'Не удалось построить предпросмотр шаблона.';
         printEls.templatePreviewFrame.srcdoc = buildPrintTemplateEditorFallbackHtml(
           'Предпросмотр шаблона',
@@ -3109,11 +3083,12 @@ _PRINTING_SCRIPT_PART3 = r"""
     }
 
     async function saveCurrentPrintTemplate() {
+      const operation = capturePrintOperation('', { template: true });
       const documentType = repairOrderPrintState.templateEditor.documentType || 'repair_order';
       const current = repairOrderPrintCurrentTemplateRecord();
       const saveTargetId = current && !current.is_builtin ? current.id : '';
       try {
-        const data = await api('/api/save_print_template', {
+        const data = await operation.request('/api/save_print_template', {
           method: 'POST',
           body: { source: 'ui', document_type: documentType, template_id: saveTargetId, name: printEls.templateName?.value || '', content: readPrintTemplateEditorContent() },
         });
@@ -3123,29 +3098,33 @@ _PRINTING_SCRIPT_PART3 = r"""
         renderPrintTemplateList();
         renderRepairOrderPrintDocuments();
         renderRepairOrderPrintTemplateSelect();
-        await refreshRepairOrderPrintPreview();
+        await operation.wait(refreshRepairOrderPrintPreview());
         setStatus('Шаблон сохранен.', false);
       } catch (error) {
+        if (!operation.current() || error?.code === 'stale_print_operation') return;
         setStatus(error.message, true);
       }
     }
 
     async function duplicateCurrentPrintTemplate() {
+      const operation = capturePrintOperation('', { template: true });
       const current = repairOrderPrintCurrentTemplateRecord();
       if (!current?.id) return;
       try {
-        const data = await api('/api/duplicate_print_template', { method: 'POST', body: { source: 'ui', template_id: current.id } });
+        const data = await operation.request('/api/duplicate_print_template', { method: 'POST', body: { source: 'ui', template_id: current.id } });
         const documentType = current.document_type || repairOrderPrintState.templateEditor.documentType || 'repair_order';
         repairOrderPrintState.workspace.templates[documentType] = data?.templates || [];
         repairOrderPrintState.templateEditor.templateId = data?.template?.id || '';
         renderPrintTemplateList();
         setStatus('Шаблон продублирован.', false);
       } catch (error) {
+        if (!operation.current() || error?.code === 'stale_print_operation') return;
         setStatus(error.message, true);
       }
     }
 
     async function deleteCurrentPrintTemplate() {
+      const operation = capturePrintOperation('', { template: true });
       const current = repairOrderPrintCurrentTemplateRecord();
       if (!current?.id || current.is_builtin) {
         setStatus('Встроенный шаблон удалить нельзя.', true);
@@ -3153,39 +3132,43 @@ _PRINTING_SCRIPT_PART3 = r"""
       }
       if (!window.confirm('Удалить выбранный шаблон?')) return;
       try {
-        const data = await api('/api/delete_print_template', { method: 'POST', body: { source: 'ui', template_id: current.id } });
+        const data = await operation.request('/api/delete_print_template', { method: 'POST', body: { source: 'ui', template_id: current.id } });
         const documentType = data?.document_type || repairOrderPrintState.templateEditor.documentType || 'repair_order';
         repairOrderPrintState.workspace.templates[documentType] = data?.templates || [];
         repairOrderPrintState.templateEditor.templateId = repairOrderPrintTemplatesFor(documentType)[0]?.id || '';
         renderPrintTemplateList();
         renderRepairOrderPrintDocuments();
         renderRepairOrderPrintTemplateSelect();
-        await refreshRepairOrderPrintPreview();
+        await operation.wait(refreshRepairOrderPrintPreview());
         setStatus('Шаблон удален.', false);
       } catch (error) {
+        if (!operation.current() || error?.code === 'stale_print_operation') return;
         setStatus(error.message, true);
       }
     }
 
     async function setCurrentPrintTemplateDefault() {
+      const operation = capturePrintOperation('', { template: true });
       const current = repairOrderPrintCurrentTemplateRecord();
       const documentType = repairOrderPrintState.templateEditor.documentType || 'repair_order';
       if (!current?.id) return;
       try {
-        const data = await api('/api/set_default_print_template', { method: 'POST', body: { source: 'ui', document_type: documentType, template_id: current.id } });
+        const data = await operation.request('/api/set_default_print_template', { method: 'POST', body: { source: 'ui', document_type: documentType, template_id: current.id } });
         repairOrderPrintState.workspace.templates[documentType] = data?.templates || [];
         repairOrderPrintState.selectedTemplateIds[documentType] = current.id;
         renderPrintTemplateList();
         renderRepairOrderPrintDocuments();
         renderRepairOrderPrintTemplateSelect();
-        await refreshRepairOrderPrintPreview();
+        await operation.wait(refreshRepairOrderPrintPreview());
         setStatus('Шаблон по умолчанию обновлен.', false);
       } catch (error) {
+        if (!operation.current() || error?.code === 'stale_print_operation') return;
         setStatus(error.message, true);
       }
     }
 
     function createNewPrintTemplateDraft() {
+      invalidatePrintTemplateContext();
       repairOrderPrintState.templateEditor.templateId = '';
       printEls.templateName.value = '';
       loadPrintTemplateEditorContent('');
@@ -3197,6 +3180,7 @@ _PRINTING_SCRIPT_PART3 = r"""
     function handlePrintTemplateUpload() { printEls.templateUploadInput?.click(); }
 
     async function handlePrintTemplateUploadChange(event) {
+      const operation = capturePrintOperation('templateUpload', { template: true });
       const input = event.target;
       if (!(input instanceof HTMLInputElement) || !input.files?.length) return;
       const file = input.files[0];
@@ -3206,11 +3190,13 @@ _PRINTING_SCRIPT_PART3 = r"""
           return;
         }
         printEls.templateName.value = (file.name || 'uploaded-template').replace(/\.[^.]+$/, '');
-        loadPrintTemplateEditorContent(await file.text());
+        loadPrintTemplateEditorContent(await operation.wait(file.text()));
         repairOrderPrintState.templateEditor.templateId = '';
       } catch (_) {
+        if (!operation.current() || _?.code === 'stale_print_operation') return;
         setStatus('Не удалось прочитать файл шаблона.', true);
       } finally {
+        if (!operation.current()) return;
         input.value = '';
       }
     }
@@ -3224,6 +3210,7 @@ _PRINTING_SCRIPT_PART3 = r"""
     }
 
     function handlePrintTemplateDocumentTypeChange() {
+      invalidatePrintTemplateContext();
       repairOrderPrintState.templateEditor.documentType = printEls.templateDocumentType?.value || 'repair_order';
       repairOrderPrintState.templateEditor.templateId = repairOrderPrintSelectedTemplateId(repairOrderPrintState.templateEditor.documentType);
       renderPrintTemplateList();
@@ -3360,8 +3347,12 @@ _PRINTING_SCRIPT_PART3 = r"""
       execPrintTemplateEditorCommand(commandButton.dataset.printTemplateCommand || '', commandButton.dataset.printTemplateValue || '');
     });
 """
+)
 
 
 PRINTING_WEB_MODULE_SCRIPT = (
-    _PRINTING_SCRIPT_PART1 + _PRINTING_SCRIPT_PART2 + _PRINTING_SCRIPT_PART3
+    PRINTING_ASYNC_CONTEXT_SCRIPT
+    + _PRINTING_SCRIPT_PART1
+    + _PRINTING_SCRIPT_PART2
+    + _PRINTING_SCRIPT_PART3
 )

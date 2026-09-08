@@ -2333,6 +2333,32 @@
     function resetViewerScopedState() {
       state.viewerStateGeneration += 1;
       if (typeof resetBoardModules === 'function') resetBoardModules();
+      for (const key of ['inventorySearchTimer', 'mobileInventorySearchTimer']) {
+        if (state[key]) window.clearTimeout(state[key]);
+        state[key] = null;
+      }
+      Object.assign(state, {
+        inventoryRequests: null, inventoryItems: [], inventoryLoaded: false, inventoryQuery: '',
+        inventoryActiveId: '', inventoryView: 'positions', inventoryStockFilter: 'all',
+        inventoryMovements: [], inventoryMovementsLoaded: false, inventoryMovementsLoading: false,
+        inventorySaving: false, inventoryMaterialSaving: false, repairOrderInventoryOpen: false,
+        repairOrderInventoryQuery: '', repairOrderInventorySelectedId: '', repairOrderInventoryRowIndex: '',
+        cashboxJournalData: null, cashJournalOpenRequest: null, cashJournalDownloadRequest: null,
+        cardSaveRequest: null, cardSaveInFlight: false, cardSavePromise: null, cardCloseAfterSave: false,
+      });
+      if (els.saveCardButton) els.saveCardButton.disabled = false;
+      for (const key of [
+        'inventorySearchInput', 'mobileInventorySearchInput', 'repairOrderInventorySearchInput',
+        'inventoryNameInput', 'inventoryCatalogInput', 'inventoryQuantityInput', 'inventoryCostPriceInput',
+        'inventorySalePriceInput', 'inventoryReplenishQuantityInput', 'mobileInventoryNameInput',
+        'mobileInventoryCatalogInput', 'mobileInventoryQuantityInput', 'mobileInventoryCostPriceInput',
+        'mobileInventorySalePriceInput', 'mobileInventoryReplenishQuantityInput',
+      ]) if (els[key]) els[key].value = '';
+      for (const key of [
+        'inventoryTableBody', 'inventoryMovementsBody', 'mobileInventoryItemsList', 'mobileInventoryRecentMovements',
+        'repairOrderInventoryResults', 'repairOrderInventorySelected', 'inventoryStatusLine',
+        'mobileInventoryStatusLine', 'repairOrderInventoryStatus', 'cashboxJournalText',
+      ]) if (els[key]) els[key].textContent = '';
       state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
       state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
       if (state.clientsSearchTimer) window.clearTimeout(state.clientsSearchTimer);
@@ -2383,6 +2409,9 @@
       state.employeeSalaryReport = null;
       state.employeeSalaryResetPending = false;
       state.employeeSalaryResetIntent = null;
+      for (const key of ['employeeSalaryActionConfirmButton', 'employeeSalaryAdvanceConfirmButton', 'employeeShiftAccrualConfirmButton']) {
+        if (els[key]) els[key].disabled = false;
+      }
       state.fullCardCache.clear();
       state.cardFetchInFlight.clear();
       state.cardSeenSuppressions.clear();
@@ -2496,6 +2525,9 @@
     }
 
     function clearEmployeesCashboxesModuleState() {
+      for (const key of ['employeeSalaryActionConfirmButton', 'employeeSalaryAdvanceConfirmButton', 'employeeShiftAccrualConfirmButton']) {
+        if (els[key]) els[key].disabled = false;
+      }
       if (typeof abortCashboxesLoad === 'function') abortCashboxesLoad();
       if (typeof clearCashboxNotificationHighlights === 'function') clearCashboxNotificationHighlights();
       state.cashboxes = [];
@@ -10221,9 +10253,23 @@
       };
     }
 
+    function captureCardEditingContext() {
+      const generation = state.viewerStateGeneration;
+      const session = state.operatorSessionToken;
+      const hydration = state.cardHydrationSeq;
+      const editing = state.cardEditingGeneration || 0;
+      const repairOrder = state.repairOrderContextGeneration || 0;
+      return () => state.viewerStateGeneration === generation && state.operatorSessionToken === session
+        && state.cardHydrationSeq === hydration && (state.cardEditingGeneration || 0) === editing
+        && (state.repairOrderContextGeneration || 0) === repairOrder;
+    }
+
     async function ensureRepairOrderCard() {
       if (state.editingId && state.activeCard?.id) return state.activeCard;
       if (state.editingId) return { id: state.editingId, repair_order: state.activeCard?.repair_order || {} };
+      const editingContext = captureCardEditingContext();
+      let editingId = state.editingId;
+      const isCurrent = () => editingContext() && state.editingId === editingId;
       const payload = currentCardPayload();
       if (!payload.title) {
         const repairOrder = readRepairOrderFromForm();
@@ -10236,14 +10282,16 @@
         return null;
       }
       const data = await persistCardPayload(payload);
+      if (!isCurrent()) return null;
       const savedCard = data?.card || null;
       if (!savedCard?.id) {
         setStatus(repairOrderCardRequiredMessage(), true);
         return null;
       }
       applyCardModalState(savedCard);
+      editingId = state.editingId;
       await refreshSnapshot(true);
-      return savedCard;
+      return isCurrent() ? savedCard : null;
     }
 
     async function requireRepairOrderCardId() {
@@ -10895,6 +10943,8 @@
     }
 
     async function openRepairOrderModal({ preloadedRepairOrderData = null } = {}) {
+      state.repairOrderContextGeneration = (state.repairOrderContextGeneration || 0) + 1;
+      const isCurrent = captureCardEditingContext();
       let order = repairOrderCardDraft(state.activeCard, preloadedRepairOrderData?.repair_order || state.activeCard?.repair_order || {});
       const cardId = String(state.activeCard?.id || state.editingId || '').trim();
       if (!state.repairOrderParentLayer && els.cardModal.classList.contains('is-open')) {
@@ -10919,6 +10969,7 @@
         : Promise.resolve(null);
 
       const [employeesResult, repairOrderResult] = await Promise.allSettled([employeesRequest, repairOrderRequest]);
+      if (!isCurrent()) return;
       if (employeesResult.status === 'rejected' && employeesResult.reason) {
         setStatus(employeesResult.reason.message || String(employeesResult.reason), true);
       }
@@ -10936,6 +10987,9 @@
     }
 
     function closeRepairOrderModal() {
+      state.repairOrderContextGeneration = (state.repairOrderContextGeneration || 0) + 1;
+      if (state.inventoryRequests) state.inventoryRequests.material = null;
+      state.inventoryMaterialSaving = false;
       const parentLayer = String(state.repairOrderParentLayer || '').trim();
       closeRepairOrderWorkSalaryPopover();
       closeRepairOrderPaymentsModal();
@@ -10948,9 +11002,11 @@
     }
 
     async function addRepairOrderRow(section) {
+      const isCurrent = captureCardEditingContext();
       if (section === 'materials') {
         await loadEmployeesReference();
       }
+      if (!isCurrent()) return;
       const body = repairOrderRowsBody(section);
       const rowIndex = body.querySelectorAll('tr[data-repair-order-row]').length;
       const defaults = section === 'materials' ? operatorDefaultMaterialExecutor() : {};
@@ -11276,6 +11332,8 @@
     }
 
     function resetCardModalState() {
+      state.cardEditingGeneration = (state.cardEditingGeneration || 0) + 1;
+      state.cardSaveRequest = null;
       state.activeCard = null;
       state.activeCardIsFull = false;
       state.editingId = null;
@@ -11314,21 +11372,27 @@
     }
 
     async function persistCardPayload(payload) {
+      const isCurrent = captureCardEditingContext();
+      const editingId = state.editingId;
+      const clientId = state.pendingCardClientId;
+      const clientVehicleId = state.pendingCardClientVehicleId || '';
+      const createVehicle = Boolean(state.pendingCreateClientVehicleFromCard);
       let data;
       if (state.editingId) {
         data = await api('/api/update_card', { method: 'POST', body: { card_id: state.editingId, ...payload } });
       } else {
         data = await api('/api/create_card', { method: 'POST', body: payload });
       }
-      const cardId = data?.card?.id || state.editingId || '';
-      if (cardId && state.pendingCardClientId && data?.card?.client_id !== state.pendingCardClientId) {
+      if (!isCurrent() || state.editingId !== editingId) return null;
+      const cardId = data?.card?.id || editingId || '';
+      if (cardId && clientId && data?.card?.client_id !== clientId) {
         return api('/api/link_card_to_client', {
           method: 'POST',
           body: {
             card_id: cardId,
-            client_id: state.pendingCardClientId,
-            client_vehicle_id: state.pendingCardClientVehicleId || '',
-            create_vehicle_from_card: Boolean(state.pendingCreateClientVehicleFromCard),
+            client_id: clientId,
+            client_vehicle_id: clientVehicleId,
+            create_vehicle_from_card: createVehicle,
             sync_vehicle_fields: true,
             sync_fields: true,
             overwrite_card_fields: false,
@@ -12849,6 +12913,7 @@
     }
 
     function openCardModal(card, { descriptionLoading = false, cardIsFull = true, preserveTab = false } = {}) {
+      state.cardEditingGeneration = (state.cardEditingGeneration || 0) + 1;
       applyCardModalState(card, { descriptionLoading, cardIsFull, preserveLazyPanels: preserveTab });
       if (!preserveTab) setTab('overview');
       else loadActiveCardTab(state.currentTab);

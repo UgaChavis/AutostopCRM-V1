@@ -8,6 +8,11 @@ invoice, invoice-factura, UPD and completion act share the backend's values.
 export and print use the same prepared-document batch. Context calculation and
 draft persistence still need smaller independently testable boundaries.
 
+Browser request ownership and the cancellable print-frame lifecycle live in
+`web_async_context.py`. Each asynchronous continuation retains its operator,
+card/workspace and request context, including failures and server-print fallback.
+Changing context must never submit a follow-up write using the new operator.
+
 Preserve VAT modes, cent balancing, manual documents, draft versions/source
 fingerprints, idempotency, reset tombstones and legacy draft recovery. Validate
 filesystem limits and renderer failure cleanup. Backup/restore consumes drafts.

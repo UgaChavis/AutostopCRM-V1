@@ -688,7 +688,18 @@
       event.currentTarget?.click?.();
     }
 
+    function cashJournalAsyncContext(key) {
+      const generation = state.viewerStateGeneration;
+      const session = state.operatorSessionToken;
+      const accessRevision = state.employeesCashboxesAccessRevision;
+      const token = {};
+      state[key] = token;
+      return () => state[key] === token && state.viewerStateGeneration === generation
+        && state.operatorSessionToken === session && state.employeesCashboxesAccessRevision === accessRevision;
+    }
+
     async function openCashJournalModal() {
+      const isCurrent = cashJournalAsyncContext('cashJournalOpenRequest');
       state.cashboxJournalFilters = cashJournalDefaultFilters();
       state.cashboxJournalVisibleRowLimit = CASH_JOURNAL_RENDER_BATCH_SIZE;
       syncCashJournalModeButtons();
@@ -696,27 +707,34 @@
       maybeOpenModal(els.cashboxJournalModal, true);
       try {
         const data = await loadCashJournalData();
+        if (!isCurrent()) return;
         state.cashboxJournalData = data;
         els.cashboxJournalText.innerHTML = renderCashJournal(data);
       } catch (error) {
+        if (!isCurrent()) return;
         els.cashboxJournalText.innerHTML = '<div class="cashbox-journal-empty">' + escapeHtml(String(error?.message || 'НЕ УДАЛОСЬ ЗАГРУЗИТЬ ЖУРНАЛ.')) + '</div>';
         setStatus(String(error?.message || 'НЕ УДАЛОСЬ ЗАГРУЗИТЬ ЖУРНАЛ.'), true);
       }
     }
 
     function closeCashJournalModal() {
+      state.cashJournalOpenRequest = null;
+      state.cashJournalDownloadRequest = null;
       popModal('cashbox-journal');
     }
 
     async function downloadCashJournal() {
+      const isCurrent = cashJournalAsyncContext('cashJournalDownloadRequest');
       try {
         const data = await loadCashJournalData({ includeMarkdown: true });
+        if (!isCurrent()) return;
         const text = String(data?.markdown || data?.text || 'ЗА ВЫБРАННЫЙ ПЕРИОД ДВИЖЕНИЙ НЕТ.');
         const blob = new Blob([text.trim() + '\n'], { type: 'text/markdown;charset=utf-8' });
         const fileName = 'cash-journal-' + new Date().toISOString().slice(0, 10) + '.md';
         triggerBlobDownload(blob, fileName);
         setStatus('ЖУРНАЛ СКАЧАН.', false);
       } catch (error) {
+        if (!isCurrent()) return;
         setStatus(String(error?.message || 'НЕ УДАЛОСЬ СКАЧАТЬ ЖУРНАЛ.'), true);
       }
     }

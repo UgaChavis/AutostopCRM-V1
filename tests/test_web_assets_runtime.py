@@ -94,10 +94,16 @@ class WebAssetsRuntimeTests(unittest.TestCase):
         """)
 
     def test_repair_order_open_applies_server_form_once_after_loading(self) -> None:
+        editing_context = _source_section(
+            self.source,
+            "function captureCardEditingContext()",
+            "async function ensureRepairOrderCard()",
+        )
         opener = _source_section(
             self.source, "async function openRepairOrderModal(", "function closeRepairOrderModal()"
         )
         self._run_node(f"""
+        {editing_context}
             const assert = require('node:assert/strict');
             const initial = {{ number: 'initial' }};
             const latest = {{ number: 'server' }};
@@ -234,6 +240,11 @@ class WebAssetsRuntimeTests(unittest.TestCase):
         """)
 
     def test_save_cancels_pending_seen_write_and_requeues_only_when_needed(self) -> None:
+        editing_context = _source_section(
+            self.source,
+            "function captureCardEditingContext()",
+            "async function ensureRepairOrderCard()",
+        )
         seen_timer_helpers = _source_section(
             self.source,
             "function cancelDeferredCardSeen(cardId)",
@@ -286,6 +297,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             function rememberCardModalCleanState() {{}}
             function closeCardModal() {{}}
             {seen_timer_helpers}
+            {editing_context}
             async function markCardSeen() {{}}
             {save_card}
 
@@ -1321,6 +1333,9 @@ class WebAssetsRuntimeTests(unittest.TestCase):
         )
 
     def test_employee_salary_reset_permission_payload_and_double_click_guard(self) -> None:
+        async_helpers = _source_section(
+            self.source, "function employeeAsyncContext(", "const EMPLOYEE_INCENTIVE_DEFINITIONS ="
+        )
         permission_helper = _source_section(
             self.source,
             "function operatorHasPermission(permission)",
@@ -1376,12 +1391,15 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             }}
             async function loadEmployeesReference() {{ employeesReloads += 1; }}
             async function loadPayrollReport() {{ payrollReloads += 1; }}
+            function currentPayrollMonthValue() {{ return '2026-08'; }}
+            function applyEmployeesReferenceData() {{}}
             function renderEmployeesWorkspace() {{ workspaceRenders += 1; }}
             async function loadEmployeeSalarySheet() {{
               throw new Error('conflict reload is not expected in this scenario');
             }}
 
             {permission_helper}
+            {async_helpers}
             {reset_flow}
 
             (async () => {{
@@ -1528,6 +1546,9 @@ class WebAssetsRuntimeTests(unittest.TestCase):
         )
 
     def test_employee_salary_reset_retry_reuses_key_and_conflict_reloads_snapshot(self) -> None:
+        async_helpers = _source_section(
+            self.source, "function employeeAsyncContext(", "const EMPLOYEE_INCENTIVE_DEFINITIONS ="
+        )
         permission_helper = _source_section(
             self.source,
             "function operatorHasPermission(permission)",
@@ -1594,6 +1615,8 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             }}
             async function loadEmployeesReference() {{}}
             async function loadPayrollReport() {{}}
+            function currentPayrollMonthValue() {{ return '2026-08'; }}
+            function applyEmployeesReferenceData() {{}}
             async function loadEmployeeSalarySheet(employeeId, options) {{
               reloads.push({{ employeeId, options }});
               state.employeeSalarySheet = {{
@@ -1601,9 +1624,11 @@ class WebAssetsRuntimeTests(unittest.TestCase):
                 balance_revision: 'salary-revision-3',
                 balance_display: '75,00 ₽',
               }};
+              return state.employeeSalarySheet;
             }}
 
             {permission_helper}
+            {async_helpers}
             {reset_flow}
 
             (async () => {{

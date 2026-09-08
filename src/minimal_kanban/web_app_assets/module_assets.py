@@ -81,6 +81,7 @@ def _module_script(group: str, source: str) -> str:
         reset = """
     const initialPrintState = JSON.parse(JSON.stringify(repairOrderPrintState));
     function resetViewer() {
+      resetPrintAsyncContext();
       [printTemplatePreviewTimer, manualPrintPreviewTimer, regulatedPrintPreviewTimer, completionActPreviewTimer].forEach((timer) => window.clearTimeout(timer));
       Object.assign(repairOrderPrintState, JSON.parse(JSON.stringify(initialPrintState)));
       [printEls.modal, printEls.templateModal, printEls.inspectionSheetModal, printEls.completionActModal].forEach((modal) => modal?.classList.remove('is-open'));

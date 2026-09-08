@@ -1633,7 +1633,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("function handleEmployeesVisibilityFilterClick(event)", BOARD_WEB_APP_HTML)
         self.assertIn("function confirmDiscardEmployeeChanges()", BOARD_WEB_APP_HTML)
         self.assertIn("function openEmployeeSalaryModal(", BOARD_WEB_APP_HTML)
-        self.assertIn("function ensureEmployeeSalaryCashboxes()", BOARD_WEB_APP_HTML)
+        self.assertIn("function ensureEmployeeSalaryCashboxes(", BOARD_WEB_APP_HTML)
         self.assertIn("cashbox_id: cashboxId,", BOARD_WEB_APP_HTML)
         self.assertIn("function loadEmployeeSalarySheet(", BOARD_WEB_APP_HTML)
         self.assertIn("function renderEmployeeSalaryModal()", BOARD_WEB_APP_HTML)
@@ -1646,17 +1646,22 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("state.employeesLoadedMonth = '';", salary_handler)
         self.assertLess(
             salary_handler.index("state.employeesLoadedMonth = '';"),
-            salary_handler.index("await loadEmployeesReference();"),
+            salary_handler.index("await refreshEmployeePayroll(isCurrent)"),
         )
         self.assertIn("function handleEmployeeShiftAccrualConfirm()", BOARD_WEB_APP_HTML)
         self.assertIn("'/api/create_employee_shift_accrual'", BOARD_WEB_APP_HTML)
         self.assertIn("note: 'Выплата за смены за текущую неделю'", BOARD_WEB_APP_HTML)
-        self.assertIn("await loadEmployeesReference();", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "await loadEmployeesReference({ month: isCurrent.month, apply: false });",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("<th>ТИП</th>", BOARD_WEB_APP_HTML)
         self.assertIn("employeesLoadedMonth: ''", BOARD_WEB_APP_HTML)
         self.assertIn("employeesReferencePromise: null", BOARD_WEB_APP_HTML)
         self.assertIn("state.employeesLoadedMonth = month;", BOARD_WEB_APP_HTML)
-        self.assertIn("await loadPayrollReport();", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "await loadPayrollReport({ month: isCurrent.month, apply: false });", BOARD_WEB_APP_HTML
+        )
         self.assertIn("renderEmployeesWorkspace();", BOARD_WEB_APP_HTML)
         shift_handler = BOARD_WEB_APP_HTML[
             BOARD_WEB_APP_HTML.index(
@@ -1665,7 +1670,9 @@ class WebAssetsTests(unittest.TestCase):
         ]
         self.assertLess(
             shift_handler.index("renderEmployeesWorkspace();"),
-            shift_handler.index("await loadPayrollReport();"),
+            shift_handler.index(
+                "await loadPayrollReport({ month: isCurrent.month, apply: false });"
+            ),
         )
         self.assertIn(
             "employee.balance_total ?? summary?.balance_total ?? summary?.total_salary",
@@ -2479,7 +2486,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("applyCardModalState(savedCard", save_fragment)
         self.assertIn("rememberCardModalCleanState(payload);", save_fragment)
         self.assertIn(
-            "const shouldCloseAfterSave = saveSucceeded && els.cardModal?.classList.contains('is-open');",
+            "const shouldCloseAfterSave = current && saveSucceeded && els.cardModal?.classList.contains('is-open');",
             save_fragment,
         )
         self.assertIn("state.cardSavePromise = savePromise;", save_fragment)
@@ -3082,7 +3089,7 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("'/api/link_card_to_client'", BOARD_WEB_APP_HTML)
         self.assertIn("'/api/search_clients?query='", BOARD_WEB_APP_HTML)
-        self.assertIn("client_vehicle_id: state.pendingCardClientVehicleId", BOARD_WEB_APP_HTML)
+        self.assertIn("client_vehicle_id: clientVehicleId", BOARD_WEB_APP_HTML)
 
     def test_vehicle_panel_uses_larger_readable_typography(self) -> None:
         self.assertIn(".vehicle-panel__summary {", BOARD_WEB_APP_HTML)
@@ -4214,7 +4221,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function runRepairOrderBrowserPrint()", BOARD_WEB_APP_HTML)
         self.assertIn("isPrintRunning: false,", BOARD_WEB_APP_HTML)
         self.assertIn("let printStarted = false;", BOARD_WEB_APP_HTML)
-        self.assertIn("if (printStarted) return;", BOARD_WEB_APP_HTML)
+        self.assertIn("if (printStarted || settled) return;", BOARD_WEB_APP_HTML)
         self.assertIn("frame.onload = null;", BOARD_WEB_APP_HTML)
         self.assertIn(
             "frame.setAttribute('sandbox', 'allow-same-origin allow-modals');", BOARD_WEB_APP_HTML
@@ -4387,41 +4394,28 @@ class WebAssetsTests(unittest.TestCase):
         completion_export = BOARD_WEB_APP_HTML.split("async function exportCompletionActPdf()", 1)[
             1
         ].split("async function printCompletionAct()", 1)[0]
-        self.assertIn("cancelPendingCompletionActPreview();", completion_export)
-        self.assertIn(
-            "await refreshCompletionActPreview({ requireCurrent: true, session })",
-            completion_export,
-        )
-        self.assertIn("const editRevision =", completion_export)
         self.assertIn("card_id: session.cardId", completion_export)
-        self.assertIn(
-            "repairOrderPrintState.completionAct.editRevision !== editRevision",
-            completion_export,
-        )
-        self.assertIn("if (!preview) throw new Error", completion_export)
-        self.assertLess(
-            completion_export.index("cancelPendingCompletionActPreview();"),
-            completion_export.index("await refreshCompletionActPreview"),
-        )
         completion_print = BOARD_WEB_APP_HTML.split("async function printCompletionAct()", 1)[
             1
         ].split("function handleCompletionActFormInput(event)", 1)[0]
-        self.assertIn("cancelPendingCompletionActPreview();", completion_print)
         self.assertIn(
-            "await refreshCompletionActPreview({ requireCurrent: true, session })",
-            completion_print,
+            "await operation.wait(runCompletionActBrowserPrint(preview));", completion_print
         )
-        self.assertIn("const editRevision =", completion_print)
-        self.assertIn(
-            "repairOrderPrintState.completionAct.editRevision !== editRevision",
-            completion_print,
-        )
-        self.assertIn("if (!preview) throw new Error", completion_print)
-        self.assertIn("await runCompletionActBrowserPrint(preview);", completion_print)
-        self.assertLess(
-            completion_print.index("cancelPendingCompletionActPreview();"),
-            completion_print.index("await refreshCompletionActPreview"),
-        )
+        for operation_source in (completion_export, completion_print):
+            self.assertIn("const editRevision =", operation_source)
+            self.assertIn("if (!preview) throw new Error", operation_source)
+            self.assertIn(
+                "repairOrderPrintState.completionAct.editRevision !== editRevision",
+                operation_source,
+            )
+            self.assertIn(
+                "await operation.wait(refreshCompletionActPreview({ requireCurrent: true, session }))",
+                operation_source,
+            )
+            self.assertLess(
+                operation_source.index("cancelPendingCompletionActPreview();"),
+                operation_source.index("await operation.wait(refreshCompletionActPreview"),
+            )
         save_completion = BOARD_WEB_APP_HTML.split("async function saveCompletionActDraft()", 1)[
             1
         ].split("async function resetCompletionActDraft()", 1)[0]
@@ -4463,12 +4457,12 @@ class WebAssetsTests(unittest.TestCase):
         ].split("async function saveRepairOrderPrintSettings()", 1)[0]
         self.assertIn("cancelPendingRepairOrderPrintPreview();", main_print_job)
         self.assertIn(
-            "await refreshRepairOrderPrintPreview({}, { throwOnError: true })",
+            "await operation.wait(refreshRepairOrderPrintPreview({}, { throwOnError: true }))",
             main_print_job,
         )
         self.assertLess(
-            main_print_job.index("await refreshRepairOrderPrintPreview"),
-            main_print_job.index("await runRepairOrderBrowserPrint()"),
+            main_print_job.index("await operation.wait(refreshRepairOrderPrintPreview"),
+            main_print_job.index("await operation.wait(runRepairOrderBrowserPrint()"),
         )
         self.assertIn("function cancelPendingRepairOrderPrintPreview()", BOARD_WEB_APP_HTML)
         cancel_all_helper = BOARD_WEB_APP_HTML.split(
