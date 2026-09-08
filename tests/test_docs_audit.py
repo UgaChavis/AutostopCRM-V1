@@ -24,6 +24,16 @@ def load_docs_audit_module():
     return module
 
 
+def isolate_skill_option_audit(module):
+    """Keep skill routing real; these tree-wide stages have dedicated coverage."""
+    return patch.multiple(
+        module,
+        _scan_retired_candidate_issues=lambda _root: [],
+        _check_mcp_guide_gateway_surface=lambda _root: [],
+        _check_script_instruction_text=lambda _root: [],
+    )
+
+
 class DocsAuditTests(unittest.TestCase):
     def test_docs_audit_passes_current_tree(self) -> None:
         module = load_docs_audit_module()
@@ -713,7 +723,10 @@ class DocsAuditTests(unittest.TestCase):
         module = load_docs_audit_module()
         skill_paths = (Path("autostopcrm-maintain"),)
 
-        with patch.object(module, "_scan_user_skill_doc_issues", return_value=[]) as skill_audit:
+        with (
+            isolate_skill_option_audit(module),
+            patch.object(module, "_scan_user_skill_doc_issues", return_value=[]) as skill_audit,
+        ):
             module.audit(ROOT)
             skill_audit.assert_not_called()
             module.audit(ROOT, include_skills=True, skill_paths=skill_paths)
@@ -746,7 +759,10 @@ class DocsAuditTests(unittest.TestCase):
             selected = Path(temp_dir) / "custom-packages" / "autostopcrm-maintain"
             selected.mkdir(parents=True)
             (selected / "SKILL.md").write_text("CRM guidance\n", encoding="utf-8")
-            with patch.dict(module.os.environ, {"CODEX_HOME": str(Path(temp_dir) / "unused")}):
+            with (
+                isolate_skill_option_audit(module),
+                patch.dict(module.os.environ, {"CODEX_HOME": str(Path(temp_dir) / "unused")}),
+            ):
                 self.assertEqual(
                     [],
                     module.audit(
@@ -762,11 +778,12 @@ class DocsAuditTests(unittest.TestCase):
     def test_skill_paths_fail_closed_without_complete_opt_in(self) -> None:
         module = load_docs_audit_module()
 
-        missing_paths = module.audit(ROOT, include_skills=True)
-        missing_flag = module.audit(
-            ROOT,
-            skill_paths=(Path("autostopcrm-maintain"),),
-        )
+        with isolate_skill_option_audit(module):
+            missing_paths = module.audit(ROOT, include_skills=True)
+            missing_flag = module.audit(
+                ROOT,
+                skill_paths=(Path("autostopcrm-maintain"),),
+            )
 
         self.assertIn("skill_paths_required", {issue.code for issue in missing_paths})
         self.assertIn(

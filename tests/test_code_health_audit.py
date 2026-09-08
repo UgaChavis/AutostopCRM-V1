@@ -317,12 +317,58 @@ class CodeHealthAuditTests(unittest.TestCase):
     def test_json_and_text_reports_expose_current_max_and_delta_stably(self) -> None:
         module = load_code_health_audit_module()
 
-        first = module.build_report(ROOT)
-        second = module.build_report(ROOT)
+        reports = []
+        for names in (("zulu", "alpha"), ("alpha", "zulu")):
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_root = Path(temp_dir)
+                task_root = temp_root / "tech_debt"
+                task_root.mkdir()
+                (task_root / "001-owner.md").write_text("# Owner\n", encoding="utf-8")
+                module_budgets = {}
+                class_budgets = {}
+                function_budgets = {}
+                complexity_budgets = {}
+                for name in names:
+                    relative_path = f"src/minimal_kanban/{name}.py"
+                    path = temp_root / relative_path
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(
+                        f"class {name.title()}:\n"
+                        "    def run(self, value):\n"
+                        "        if value:\n"
+                        "            return 1\n"
+                        "        return 0\n",
+                        encoding="utf-8",
+                    )
+                    class_target = f"{relative_path}:{name.title()}"
+                    function_target = f"{class_target}.run"
+                    module_budgets[relative_path] = module.RatchetBudget(
+                        "fixture module", 6, 6, "001"
+                    )
+                    class_budgets[class_target] = module.RatchetBudget("fixture class", 5, 5, "001")
+                    function_budgets[function_target] = module.RatchetBudget(
+                        "fixture function", 4, 4, "001"
+                    )
+                    complexity_budgets[function_target] = module.RatchetBudget(
+                        "fixture complexity", 2, 2, "001"
+                    )
+                with patch.multiple(
+                    module,
+                    ALLOWED_LARGE_MODULES=module_budgets,
+                    ALLOWED_LARGE_CLASSES=class_budgets,
+                    ALLOWED_LARGE_FUNCTIONS=function_budgets,
+                    COMPLEXITY_RATCHETS=complexity_budgets,
+                    EXPECTED_SIZE_EXEMPTION_COUNT=6,
+                ):
+                    reports.append(module.build_report(temp_root))
+
+        first, second = reports
         first_json = json.dumps(first, ensure_ascii=False, allow_nan=False)
         second_json = json.dumps(second, ensure_ascii=False, allow_nan=False)
         first_text = module.render_text(first)
 
+        self.assertTrue(first["ok"])
+        self.assertEqual([], first["issues"])
         self.assertEqual(first_json, second_json)
         self.assertEqual(first_text, module.render_text(second))
         self.assertIn("current=", first_text)
@@ -331,6 +377,25 @@ class CodeHealthAuditTests(unittest.TestCase):
         self.assertTrue(
             all({"current", "max_allowed", "delta"} <= set(entry) for entry in first["ratchets"])
         )
+        self.assertEqual(8, len(first["ratchets"]))
+        self.assertEqual(
+            {
+                ("module_lines", 5, 6, -1),
+                ("class_lines", 5, 5, 0),
+                ("function_lines", 4, 4, 0),
+                ("branch_complexity", 2, 2, 0),
+            },
+            {
+                (entry["metric"], entry["current"], entry["max_allowed"], entry["delta"])
+                for entry in first["ratchets"]
+            },
+        )
+        self.assertEqual(
+            sorted(first["ratchets"], key=lambda entry: (entry["metric"], entry["target"])),
+            first["ratchets"],
+        )
+        inventory_paths = [entry["path"] for entry in first["inventory"]]
+        self.assertEqual(sorted(inventory_paths), inventory_paths)
 
     def test_untracked_files_are_opt_in_for_server_local_safety(self) -> None:
         module = load_code_health_audit_module()
