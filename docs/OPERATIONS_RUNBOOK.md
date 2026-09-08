@@ -198,12 +198,36 @@ large module, class, and function. Branch-coverage floors live in
 `scripts/coverage_baseline.json`; do not lower them to make a change pass.
 GitHub Actions publishes the full coverage evidence.
 
-Regression suites `test_save_isolation`, `test_bundle_draft`, and
+Regression suites `test_save_isolation`, `test_bundle_draft`,
+`test_storage_write_optimizations`, `test_serialization_snapshots`,
+`test_repair_order_artifact_cache`, and
 `test_mcp_tool_execution` cover detached-write rejection, ordering/restart,
 archive and derived-file failures, and nonblocking MCP execution. A timeout
 does not cancel an already running synchronous write or authorize a retry.
 After an atomic state replace, deferred cleanup/readback failures are logged;
-the durable change-feed stage remains available for reconciliation.
+an unpublished durable change-feed stage remains available for reconciliation.
+
+A byte-identical save can retain the existing state file and its timestamp only
+after SQL confirms the exact committed fingerprint with no pending outbox, and
+a fresh file signature still matches the validated state and feed signatures.
+Zero new feed events alone do not establish a no-op. Pending recovery, missing
+files and external changes keep their normal verification/write paths.
+
+Ordering-only shallow card copies may reuse normalized content and projection
+digests only while all other fields retain the validated source references and
+their serialized content matches the independent cached snapshot. Nested payloads
+must not alias mutable models. Content changes, invalid positions, external reload and failed writes
+must use normal validation/invalidation. The ordering and change-feed events are
+still persisted; neighbouring cards do not acquire artificial user revisions.
+Full-state serialization and feed reconciliation preserve native nested order
+history within the existing 512-level state JSON limit; the shorter embedded
+audit/settings sanitization policy is not applied to the entire state document.
+
+Derived order text uses LF when published; existing equivalent CRLF files need
+no rewrite. A bounded verification cache checks both document inputs and file
+identity/size/timestamps before skipping regeneration. Missing or changed files
+are verified again; this cache is not a tamper-detection mechanism. Client linking,
+like other order changes, publishes these derivatives only after state commit.
 
 Before the release-sized browser profile, run
 `.\scripts\toolchain_doctor.ps1 -SkipServer`. `--profile full` fails before

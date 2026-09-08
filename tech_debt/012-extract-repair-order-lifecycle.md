@@ -11,6 +11,12 @@ when extracting further behavior: rejected changes must not alter retained read
 models, audit archives or files, and post-commit derivative failure is not a
 failed financial transaction.
 
+The shared `_read_card_bundle_for_update` defines the repeated four-domain
+mutation-copy policy once; read-only order text/list paths use narrower drafts.
+Verified text files are reused only while document inputs and file metadata
+match. Snapshot serializers detach nested history; change-feed selection covers
+cycles and payroll postings with exact case-sensitive parent prefixes.
+
 Keep immutable unique numbers, payment/cash/inventory identities, deterministic
 feed/audit order, current JsonStore atomicity and exactly-once payroll
 reversal/reposting. Preserve create_if_missing, archived restoration, business

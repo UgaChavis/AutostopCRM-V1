@@ -53,13 +53,13 @@ ALLOWED_LARGE_MODULES = {
         "raw readback verifier split target", 1441, 1441, "009"
     ),
     "src/minimal_kanban/services/card_service.py": RatchetBudget(
-        "domain facade split target", 10318, 10318, "012"
+        "domain facade split target", 10146, 10146, "012"
     ),
     "src/minimal_kanban/services/card_service_finance.py": RatchetBudget(
-        "finance domain split target", 3027, 3027, "019"
+        "finance domain split target", 2951, 2951, "019"
     ),
     "src/minimal_kanban/services/card_service_payroll.py": RatchetBudget(
-        "payroll domain split target", 4309, 4309, "013"
+        "payroll domain split target", 4297, 4297, "013"
     ),
     "src/minimal_kanban/services/snapshot_service.py": RatchetBudget(
         "snapshot serialization split target", 2820, 2820, "018"
@@ -74,7 +74,7 @@ ALLOWED_LARGE_MODULES = {
         "print rendering workflow split target", 4044, 4044, "014"
     ),
     "src/minimal_kanban/printing/web_module.py": RatchetBudget(
-        "embedded print UI asset split target", 3367, 3367, "021"
+        "embedded print UI asset split target", 3358, 3358, "021"
     ),
     "tests/test_service.py": RatchetBudget(
         "legacy broad service coverage pending domain split", 12768, 12768, "003"
@@ -86,7 +86,7 @@ ALLOWED_LARGE_MODULES = {
         "Gateway contract coverage pending family split", 4400, 4400, "003"
     ),
     "tests/test_web_assets.py": RatchetBudget(
-        "web asset contract coverage pending chunk split", 5950, 5950, "003"
+        "web asset contract coverage pending chunk split", 5944, 5944, "003"
     ),
 }
 
@@ -95,13 +95,13 @@ ALLOWED_LARGE_CLASSES = {
         "print rendering and draft-store split target", 2751, 2751, "014"
     ),
     "src/minimal_kanban/services/card_service.py:CardService": RatchetBudget(
-        "domain facade split target", 9934, 9934, "012"
+        "domain facade split target", 9761, 9761, "012"
     ),
     "src/minimal_kanban/services/card_service_payroll.py:CardServicePayrollMixin": RatchetBudget(
-        "payroll domain split target", 4107, 4107, "013"
+        "payroll domain split target", 4095, 4095, "013"
     ),
     "src/minimal_kanban/services/card_service_finance.py:CardServiceFinanceMixin": RatchetBudget(
-        "finance domain split target", 2980, 2980, "019"
+        "finance domain split target", 2904, 2904, "019"
     ),
     "src/minimal_kanban/services/snapshot_service.py:SnapshotService": RatchetBudget(
         "snapshot serialization split target", 2527, 2527, "018"
@@ -116,7 +116,7 @@ ALLOWED_LARGE_CLASSES = {
         "legacy broad service coverage pending domain split", 12550, 12550, "003"
     ),
     "tests/test_web_assets.py:WebAssetsTests": RatchetBudget(
-        "web asset contract coverage pending chunk split", 5892, 5892, "003"
+        "web asset contract coverage pending chunk split", 5886, 5886, "003"
     ),
 }
 
@@ -155,7 +155,7 @@ COMPLEXITY_RATCHETS = {
         "Gateway workflow branch complexity split target", 54, 54, "009"
     ),
     "src/minimal_kanban/services/card_service.py:CardService.update_card": RatchetBudget(
-        "card update branch complexity split target", 28, 28, "012"
+        "card update branch complexity split target", 27, 27, "012"
     ),
 }
 
