@@ -144,7 +144,6 @@
       cardTimerTickHandle: null,
       cardInitialPayloadKey: '',
       cardDescriptionLoading: false,
-      cardHydratingId: '',
       cardHydrationSeq: 0,
       fullCardCache: new Map(),
       cardFetchInFlight: new Map(),
@@ -2438,7 +2437,6 @@
       state.mobileCardJournalPayload = null;
       state.mobileCardJournalLoadedFor = '';
       state.cardHydrationSeq += 1;
-      state.cardHydratingId = '';
       state.boardViewportPrimed = false;
       els.board?.replaceChildren();
       if (els.mobileBoardColumns) els.mobileBoardColumns.textContent = 'ДОСКА ЗАГРУЖАЕТСЯ...';
@@ -11343,7 +11341,6 @@
       state.cardCloseAfterSave = false;
       state.cardInitialPayloadKey = '';
       state.cardDescriptionLoading = false;
-      state.cardHydratingId = '';
       state.cardJournalLoadedFor = '';
       state.cardJournalLimit = CARD_JOURNAL_INITIAL_LIMIT;
       state.cardFilesRenderedFor = '';
@@ -12235,7 +12232,6 @@
         let openedFromCache = false;
         const hydrationSeq = state.cardHydrationSeq + 1;
         state.cardHydrationSeq = hydrationSeq;
-        state.cardHydratingId = normalizedCardId;
         if (openCardModalEl && cachedFullCard) {
           if (closeModalEl) popModal(modalKeyForElement(closeModalEl));
           openCardModal(cachedFullCard, { cardIsFull: true });
@@ -12261,7 +12257,6 @@
           ) {
             setCardDescriptionLoading(true, 'Не удалось загрузить описание.');
           }
-          if (state.cardHydratingId === normalizedCardId) state.cardHydratingId = '';
           throw error;
         }
         if (!fullCard || !isCurrent()) return null;
@@ -12271,7 +12266,6 @@
             || (
               !cachedFullCard
               && els.cardModal?.classList.contains('is-open')
-              && state.cardHydrationSeq === hydrationSeq
               && state.editingId === normalizedCardId
             );
           if (shouldHydrateOpenModal) {
@@ -12280,7 +12274,6 @@
         } else {
           applyCardModalState(fullCard, { cardIsFull: true });
         }
-        if (state.cardHydratingId === normalizedCardId) state.cardHydratingId = '';
         recordCardOpenSideEffects(normalizedCardId);
         if (openRepairOrder) {
           state.repairOrderParentLayer = String(repairOrderParentLayer || (openCardModalEl ? 'card' : '')).trim();

@@ -45,7 +45,7 @@ class CardWorkspaceContextTests(unittest.TestCase):
 const assert = require('node:assert/strict');
 const state = {
   viewerStateGeneration: 1, operatorSessionToken: 'synthetic-session-a',
-  cardHydrationSeq: 0, cardEditingGeneration: 0, cardHydratingId: '',
+  cardHydrationSeq: 0, cardEditingGeneration: 0,
   repairOrderContextGeneration: 0, modalStack: [],
   fullCardCache: new Map(), cardFetchInFlight: new Map(),
   editingId: null, activeCard: null, cardDescriptionLoading: false,
@@ -110,7 +110,7 @@ function visibleState() {
     editor: els.cardDescriptionEditor.textContent,
     editable: els.cardDescriptionEditor.contentEditable,
     saveDisabled: els.saveCardButton.disabled, toolbarDisabled: toolbarButton.disabled,
-    loading: state.cardDescriptionLoading, hydrating: state.cardHydratingId,
+    loading: state.cardDescriptionLoading,
     statuses: statuses.slice(), rendered: rendered.slice(), modalOpen,
     activeCard: state.activeCard, clientId: state.pendingCardClientId,
     parent: state.repairOrderParentLayer, repairOrderOpens,
@@ -149,7 +149,6 @@ state.fullCardCache.clear();
 state.cardFetchInFlight.clear();
 state.activeCard = null;
 state.editingId = null;
-state.cardHydratingId = '';
 const current = openCardWorkspace('same');
 assert.equal(requests.length, 2);
 if (currentCompleted) {
@@ -213,17 +212,14 @@ assert.equal(obsoleteResult, null);
 const old = openCardWorkspace('a');
 const current = openCardWorkspace('b');
 assert.equal(state.cardEditingGeneration, 0);
-assert.equal(state.cardHydratingId, 'b');
 requests[0].resolve({card: full('a')});
 assert.equal(await old, null);
-assert.equal(state.cardHydratingId, 'b');
 assert.equal(rendered.length, 0);
 assert.deepEqual(sideEffects, []);
 requests[1].resolve({card: full('b')});
 assert.deepEqual(await current, full('b'));
 assert.equal(rendered.length, 1);
 assert.equal(state.editingId, 'b');
-assert.equal(state.cardHydratingId, '');
 assert.deepEqual(sideEffects, ['b']);
 """)
 
@@ -234,7 +230,6 @@ const old = openCardWorkspace('a');
 state.cardEditingGeneration += 1;
 state.editingId = null;
 state.activeCard = null;
-state.cardHydratingId = '';
 modalOpen = false;
 const before = visibleState();
 requests[0].resolve({card: full('a')});
@@ -251,7 +246,6 @@ const current = openCardWorkspace('a');
 const error = new Error('current-error');
 requests[0].reject(error);
 await assert.rejects(current, candidate => candidate === error);
-assert.equal(state.cardHydratingId, '');
 assert.equal(state.cardDescriptionLoading, true);
 assert.equal(els.cardDescriptionEditor.textContent, 'Не удалось загрузить описание.');
 assert.equal(els.saveCardButton.disabled, true);
@@ -272,7 +266,6 @@ prepareCached('a');
 assert.deepEqual(await openCardWorkspace('a'), full('a'));
 assert.equal(rendered.length, 1);
 assert.equal(requests.length, 0);
-assert.equal(state.cardHydratingId, '');
 assert.equal(els.saveCardButton.disabled, false);
 assert.deepEqual(sideEffects, ['a']);
 """)
@@ -289,7 +282,6 @@ assert.deepEqual(await current, full('a'));
 assert.equal(rendered.length, 2);
 assert.equal(rendered[1].cardIsFull, true);
 assert.equal(rendered[1].preserveTab, true);
-assert.equal(state.cardHydratingId, '');
 assert.equal(els.cardDescription.value, 'full-a');
 assert.equal(els.saveCardButton.disabled, false);
 assert.deepEqual(sideEffects, ['a']);

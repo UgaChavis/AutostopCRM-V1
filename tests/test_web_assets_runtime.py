@@ -81,7 +81,6 @@ class WebAssetsRuntimeTests(unittest.TestCase):
               assert.equal(await openCardWorkspace('card'), card);
               assert.equal(rendered.length, 1);
               assert.equal(fetches, 0);
-              assert.equal(state.cardHydratingId, '');
               useCache = false;
               rendered.length = 0;
               assert.equal(await openCardWorkspace('card'), card);
@@ -571,7 +570,6 @@ class WebAssetsRuntimeTests(unittest.TestCase):
               mobileCardJournalPayload: {{ entries: [] }},
               mobileCardJournalLoadedFor: 'card-1',
               cardHydrationSeq: 3,
-              cardHydratingId: 'card-1',
               cardOpenSideEffectTimer: 13,
               cardOpenSideEffectCardId: 'card-1',
             }};
@@ -720,7 +718,6 @@ class WebAssetsRuntimeTests(unittest.TestCase):
               mobileCardJournalPayload: null,
               mobileCardJournalLoadedFor: '',
               cardHydrationSeq: 0,
-              cardHydratingId: '',
               boardViewportPrimed: false,
               employees: [],
               employeesLoadedMonth: '',
@@ -950,7 +947,6 @@ class WebAssetsRuntimeTests(unittest.TestCase):
               mobileCardJournalPayload: null,
               mobileCardJournalLoadedFor: '',
               cardHydrationSeq: 0,
-              cardHydratingId: '',
               boardViewportPrimed: false,
               employees: [],
               employeesLoadedMonth: '',
