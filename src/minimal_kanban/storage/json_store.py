@@ -787,7 +787,8 @@ class JsonStore:
                 payload = cached[2]
             else:
                 payload = converter(item)
-            current[item_id] = (item, version, payload)
+                cached = (item, version, payload)
+            current[item_id] = cached
             payloads.append(payload)
         self._storage_dict_cache[name] = current
         return payloads
@@ -939,7 +940,7 @@ class JsonStore:
         record_timing("serialize", serialize_ms)
         feed_prepare_started_at = time.perf_counter()
         source_signatures = (
-            cached_crm_source_signatures(safe_state, self._source_signature_cache)
+            (lambda: cached_crm_source_signatures(safe_state, self._source_signature_cache))
             if trusted_safe
             else None
         )
@@ -1586,16 +1587,20 @@ class JsonStore:
     def _apply_event_retention(self, events: list[AuditEvent]) -> tuple[list[AuditEvent], bool]:
         window_start = utc_now() - timedelta(days=AUDIT_EVENT_RETENTION_DAYS)
         retained_events: list[AuditEvent] = []
+        timestamps = {}
         changed = False
         for event in events:
-            timestamp = parse_datetime(event.timestamp)
+            key = str(event.timestamp or "")
+            if key not in timestamps:
+                timestamps[key] = parse_datetime(event.timestamp)
+            timestamp = timestamps[key]
             if timestamp is None or timestamp < window_start:
                 changed = True
                 continue
             retained_events.append(event)
         retained_events.sort(
             key=lambda item: (
-                parse_datetime(item.timestamp) or utc_now(),
+                timestamps[str(item.timestamp or "")],
                 item.id,
             )
         )

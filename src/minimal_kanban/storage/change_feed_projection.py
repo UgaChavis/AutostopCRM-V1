@@ -427,12 +427,14 @@ def cached_crm_source_signatures(state: Mapping[str, Any], cache: dict) -> dict[
         "inventory_movements",
     ):
         pending = []
+        previous_items = cache.get(name, {})
+        retained_items = retained[name] = {}
         for item in _items(state.get(name)):
-            key = (name, str(item.get("id", "")))
-            old = cache.get(key)
+            identity = id(item)
+            old = previous_items.get(identity)
             if old is not None and old[0] is item:
-                signatures.update(old[1])
-                retained[key] = old
+                signatures[old[1]] = old[2]
+                retained_items[identity] = old
             else:
                 pending.append(item)
         subset[name] = pending
@@ -453,7 +455,7 @@ def cached_crm_source_signatures(state: Mapping[str, Any], cache: dict) -> dict[
             entity_id = str(item.get("id", ""))
             key = (entity_type, entity_id)
             if entity_id and key in fresh:
-                retained[(name, entity_id)] = (item, {key: fresh[key]})
+                retained[name][id(item)] = (item, key, fresh[key])
     cache.clear()
     cache.update(retained)
     return signatures

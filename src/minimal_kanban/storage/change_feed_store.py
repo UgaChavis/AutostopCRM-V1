@@ -8,7 +8,7 @@ import os
 import re
 import secrets
 import sqlite3
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -418,9 +418,10 @@ class ChangeFeedStore:
         for raw_event in events:
             if not isinstance(raw_event, Mapping):
                 continue
-            source_event_id = _bounded_text(
-                raw_event.get("id"), limit=CHANGE_FEED_EVENT_ID_MAX_LENGTH
-            )
+            raw_id = raw_event.get("id")
+            if isinstance(raw_id, str) and raw_id in known:
+                continue
+            source_event_id = _bounded_text(raw_id, limit=CHANGE_FEED_EVENT_ID_MAX_LENGTH)
             if not source_event_id or source_event_id in known or source_event_id in pending_ids:
                 continue
             event = compact_change_event(raw_event)
@@ -1102,7 +1103,9 @@ class ChangeFeedStore:
         events: object,
         *,
         state: object | None = None,
-        source_signatures: Mapping[tuple[str, str], str] | None = None,
+        source_signatures: Mapping[tuple[str, str], str]
+        | Callable[[], Mapping[tuple[str, str], str]]
+        | None = None,
     ) -> int:
         """Durably stage unseen compact events before the CRM state replace."""
 
@@ -1132,6 +1135,8 @@ class ChangeFeedStore:
                 compacted=compacted,
             )
             if state is not None:
+                if callable(source_signatures):
+                    source_signatures = source_signatures()
                 ordinal = self._stage_entity_changes(
                     connection,
                     state_fingerprint=fingerprint,

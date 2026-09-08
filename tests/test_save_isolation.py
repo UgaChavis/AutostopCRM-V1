@@ -218,7 +218,7 @@ class SaveIsolationTests(unittest.TestCase):
         self.assertEqual(
             cached_crm_source_signatures(changed, cache), project_crm_source_signatures(changed)
         )
-        self.assertNotIn(("cards", state["cards"][0]["id"]), cache)
+        self.assertFalse(cache["cards"])
 
 
 if __name__ == "__main__":
