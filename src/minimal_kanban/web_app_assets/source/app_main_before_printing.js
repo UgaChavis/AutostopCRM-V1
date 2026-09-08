@@ -12772,7 +12772,7 @@
       const renameTitle = isReadyColumn ? 'Системную колонку готовых автомобилей нельзя переименовать' : 'Переименовать столбец';
       const deleteAttrs = isDeleteBlocked ? ' disabled' : '';
       const renameAttrs = isReadyColumn ? ' disabled data-system-column="ready"' : '';
-      return '<section class="column" style="' + toneStyle + '" data-column-id="' + escapeHtml(column.id) + '" draggable="true"><div class="column__head" data-drag-column-handle="1"><div class="column__title">' + escapeHtml(column.label) + '</div><div class="column__head-actions"><button class="btn btn--ghost column__rename" type="button" data-rename-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" title="' + escapeHtml(renameTitle) + '" aria-label="' + escapeHtml(renameTitle) + '"' + renameAttrs + '>&#9998;</button><button class="btn btn--ghost column__delete" type="button" data-delete-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" data-card-count="' + cards.length + '" title="' + escapeHtml(deleteTitle) + '" aria-label="' + escapeHtml(deleteTitle) + '"' + deleteAttrs + '>&times;</button><div class="column__count">' + cards.length + '</div></div></div><div class="column__cards">' + (cards.length ? cards.map(renderBoardCardHtml).join('') : '') + '</div><button class="btn" type="button" data-create-in="' + escapeHtml(column.id) + '">+ КАРТОЧКА</button></section>';
+      return '<section class="column" style="' + toneStyle + '" data-column-id="' + escapeHtml(column.id) + '" draggable="true"><div class="column__head" data-drag-column-handle="1"><div class="column__title">' + escapeHtml(column.label) + '</div><div class="column__head-actions"><button class="btn btn--ghost column__rename" type="button" data-rename-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" title="' + escapeHtml(renameTitle) + '" aria-label="' + escapeHtml(renameTitle) + '"' + renameAttrs + '>&#9998;</button><button class="btn btn--ghost column__delete" type="button" data-delete-column="' + escapeHtml(column.id) + '" data-column-label="' + escapeHtml(column.label) + '" data-card-count="' + cards.length + '" title="' + escapeHtml(deleteTitle) + '" aria-label="' + escapeHtml(deleteTitle) + '"' + deleteAttrs + '>&times;</button><div class="column__count">' + cards.length + '</div></div></div><div class="column__cards"></div><button class="btn" type="button" data-create-in="' + escapeHtml(column.id) + '">+ КАРТОЧКА</button></section>';
     }
 
     function renderExtraBoardColumnHtml(snapshot) {
@@ -12791,22 +12791,31 @@
       const toggleLabel = isDetached ? 'ВЕРНУТЬ' : 'ОТКРЕПИТЬ';
       return '<section class="column column--virtual' + detachedClass + '" data-virtual-column="extra" draggable="false" aria-label="ЛИЧНАЯ ДОПОЛНИТЕЛЬНАЯ КОЛОНКА"' + detachedStyle + '>'
         + '<div class="column__head"><div class="column__title">ДОП. КОЛОНКА</div><div class="column__head-actions">' + moveButton + '<button class="btn btn--ghost column--virtual__control" type="button" data-extra-column-detach-toggle="true">' + toggleLabel + '</button><div class="column__count">' + cards.length + '</div></div></div>'
-        + '<div class="column__cards">' + (cards.length ? cards.map((card) => renderBoardCardHtml(card, { virtual: true })).join('') : emptyHtml) + '</div>'
+        + '<div class="column__cards">' + (cards.length ? '' : emptyHtml) + '</div>'
       + '</section>';
     }
 
     function reconcileBoardCards(currentList, nextList, cards, variant = '') {
       if (!(state.boardRenderedCards instanceof WeakMap)) state.boardRenderedCards = new WeakMap();
-      const models = new Map(cards.map((card) => [String(card.id), JSON.stringify([variant, card])]));
       const previous = new Map(Array.from(currentList.children).map((node) => [node.dataset.cardId, node]));
-      const desired = Array.from(nextList.children).map((nextNode) => {
-        const cardId = nextNode.dataset.cardId;
-        const oldNode = previous.get(cardId);
-        const signature = models.get(cardId);
-        const node = signature && oldNode && state.boardRenderedCards.get(oldNode) === signature ? oldNode : nextNode;
-        if (signature) state.boardRenderedCards.set(node, signature);
+      const models = cards.map((card) => {
+        // Only the root position controls ordering rather than card presentation.
+        const { position, ...presentation } = card;
+        const signature = JSON.stringify([variant, presentation]);
+        const node = previous.get(String(card.id));
+        return { card, signature, node: node && state.boardRenderedCards.get(node) === signature ? node : null };
+      });
+      const changed = models.filter((model) => !model.node);
+      if (changed.length) {
+        const template = document.createElement('template');
+        template.innerHTML = changed.map(({ card }) => renderBoardCardHtml(card, { virtual: Boolean(variant) })).join('');
+        Array.from(template.content.children).forEach((node, index) => { changed[index].node = node; });
+      }
+      const desired = models.map(({ node, signature }) => {
+        state.boardRenderedCards.set(node, signature);
         return node;
       });
+      if (!cards.length) desired.push(...Array.from(nextList.children).filter((node) => !node.dataset.cardId));
       const retained = new Set(desired);
       Array.from(currentList.children).forEach((node) => { if (!retained.has(node)) node.remove(); });
       desired.forEach((node, index) => {

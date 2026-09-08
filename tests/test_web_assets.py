@@ -3121,7 +3121,6 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("--deadline-heat-glow:", BOARD_WEB_APP_HTML)
         self.assertIn("data-deadline-bucket", BOARD_WEB_APP_HTML)
         self.assertIn("data-deadline-step", BOARD_WEB_APP_HTML)
-        self.assertIn("cards.map(renderBoardCardHtml).join('')", BOARD_WEB_APP_HTML)
 
     def test_cards_stack_vehicle_above_short_essence(self) -> None:
         self.assertIn(".card__heading {", BOARD_WEB_APP_HTML)
@@ -3144,7 +3143,9 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("function renderBoardCardHtml(card)", BOARD_WEB_APP_HTML)
-        self.assertIn("cards.map(renderBoardCardHtml).join('')", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "renderBoardCardHtml(card, { virtual: Boolean(variant) })", BOARD_WEB_APP_HTML
+        )
 
     def test_card_timer_panel_uses_compact_stepper_fields(self) -> None:
         self.assertIn('<div class="panel-title">ТАЙМЕР</div>', BOARD_WEB_APP_HTML)
@@ -3215,10 +3216,7 @@ class WebAssetsTests(unittest.TestCase):
 
     def test_empty_board_columns_render_without_placeholder_text(self) -> None:
         self.assertNotIn("ЗДЕСЬ ПОКА ПУСТО.", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            "cards.length ? cards.map(renderBoardCardHtml).join('') : ''",
-            BOARD_WEB_APP_HTML,
-        )
+        self.assertIn('<div class="column__cards"></div>', BOARD_WEB_APP_HTML)
 
     def test_board_card_preview_keeps_signal_lamp_without_timer_value(self) -> None:
         self.assertIn(

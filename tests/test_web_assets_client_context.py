@@ -85,36 +85,139 @@ assert.doesNotMatch(els.operatorActivityList.innerHTML, /Opened/);
 """
         )
 
-    def test_board_reconciliation_preserves_unchanged_nodes_and_reorders(self) -> None:
-        source = SOURCE.read_text(encoding="utf-8")
+    def test_board_position_only_update_keeps_previously_rendered_nodes(self) -> None:
         reconcile = section(
-            source, "    function reconcileBoardCards(", "    function reconcileBoardSection("
+            SOURCE.read_text(encoding="utf-8"),
+            "    function reconcileBoardCards(",
+            "    function reconcileBoardSection(",
+        )
+        self.run_node(
+            """
+const assert=require('node:assert/strict');const state={};
+function list(){const parent={children:[],insertBefore(node){node.remove();this.children.push(node);node.parent=this;}};parent.children=[{dataset:{cardId:'a'},parent,remove(){this.parent.children=this.parent.children.filter(node=>node!==this);}}];return parent;}
+const current=list();const document={createElement(){return {content:list(),set innerHTML(_html){this.content=list();}};}};
+function renderBoardCardHtml(){return '<article data-card-id="a"></article>';}
+"""
+            + reconcile
+            + """
+reconcileBoardCards(current,current,[{id:'a',title:'stable',position:0}]);
+const before=current.children[0];
+reconcileBoardCards(current,list(),[{id:'a',title:'stable',position:9}]);
+assert.equal(current.children[0],before,'position is ordering, not card presentation');
+"""
+        )
+
+    def test_board_reconciliation_preserves_unchanged_nodes_and_reorders(self) -> None:
+        reconcile = section(
+            SOURCE.read_text(encoding="utf-8"),
+            "    function reconcileBoardCards(",
+            "    function reconcileBoardSection(",
         )
         self.run_node(
             """
 const assert = require('node:assert/strict');
 const state = {};
+const renders=[];
+let parses=0;
 function list(ids) {
   const parent={children:[], insertBefore(node,before){node.remove(); const index=before ? this.children.indexOf(before) : this.children.length; this.children.splice(index,0,node); node.parent=this;}};
-  parent.children=ids.map(id=>({dataset:{cardId:id},parent,remove(){const index=this.parent.children.indexOf(this);if(index>=0)this.parent.children.splice(index,1);}}));
+  parent.children=ids.map(id=>({dataset:id ? {cardId:id} : {},parent,remove(){const index=this.parent.children.indexOf(this);if(index>=0)this.parent.children.splice(index,1);}}));
   return parent;
 }
+function renderBoardCardHtml(card, {virtual=false}={}) {renders.push({id:card.id,virtual});return '<article data-card-id="'+card.id+'"></article>';}
+const document={createElement(){return {content:list([]),set innerHTML(html){parses++;this.content=list(Array.from(html.matchAll(/data-card-id="([^"]+)"/g),match=>match[1]));}};}};
 """
             + reconcile
             + """
-const current=list(['a','b','c']);
-let models=[{id:'a',value:1},{id:'b',value:1},{id:'c',value:1}];
-reconcileBoardCards(current,current,models);
+const current=list([]);
+let models=[{id:'a',value:1,position:0},{id:'b',value:1,position:1},{id:'c',value:1,position:2}];
+reconcileBoardCards(current,list([]),models);
+assert.deepEqual(renders.map(item=>item.id),['a','b','c']);assert.equal(parses,1);renders.length=0;
 const [a,b,c]=current.children;
-reconcileBoardCards(current,list(['a','b','c']),[{id:'a',value:1},{id:'b',value:2},{id:'c',value:1}]);
+reconcileBoardCards(current,list([]),models);
+assert.deepEqual(renders,[]);assert.equal(parses,1);assert.deepEqual(current.children,[a,b,c]);
+models=[{id:'a',value:1,position:0},{id:'b',value:2,position:1},{id:'c',value:1,position:2}];
+reconcileBoardCards(current,list([]),models);
+assert.deepEqual(renders.map(item=>item.id),['b']);assert.equal(parses,2);renders.length=0;
 assert.equal(current.children[0],a); assert.notEqual(current.children[1],b); assert.equal(current.children[2],c);
 const replacement=current.children[1];
-reconcileBoardCards(current,list(['c','b','d']),[{id:'c',value:1},{id:'b',value:2},{id:'d',value:1}]);
+reconcileBoardCards(current,list([]),[{id:'c',value:1,position:0},{id:'b',value:2,position:1},{id:'a',value:1,position:2}]);
+assert.deepEqual(renders,[]);assert.equal(parses,2);assert.deepEqual(current.children,[c,replacement,a]);
+reconcileBoardCards(current,list([]),[{id:'c',value:1,position:0},{id:'b',value:2,position:1},{id:'d',value:1,position:2}]);
+assert.deepEqual(renders.map(item=>item.id),['d']);renders.length=0;
 assert.deepEqual(current.children.map(node=>node.dataset.cardId),['c','b','d']);
 assert.equal(current.children[0],c);assert.equal(current.children[1],replacement);
+reconcileBoardCards(current,list([]),[{id:'c',value:1,column:'new',position:0}]);
+assert.deepEqual(renders.map(item=>item.id),['c']);renders.length=0;
 const virtual=current.children[0];
-reconcileBoardCards(current,list(['c']),[{id:'c',value:1}],'changed-filter');
+reconcileBoardCards(current,list([]),[{id:'c',value:1,column:'new',position:0}],'changed-filter');
+assert.deepEqual(renders,[{id:'c',virtual:true}]);renders.length=0;
 assert.notEqual(current.children[0],virtual);
+const empty=list([null]);reconcileBoardCards(current,empty,[],'changed-filter');
+assert.equal(current.children.length,1);assert.equal(current.children[0].dataset.cardId,undefined);
+reconcileBoardCards(current,list([null]),[],'changed-filter');assert.equal(current.children.length,1);assert.deepEqual(renders,[]);
+reconcileBoardCards(current,list([]),[{id:'a',value:1,position:0}],'changed-filter');
+assert.equal(current.children.length,1);assert.equal(current.children[0].dataset.cardId,'a');
+const beforeNested=current.children[0];renders.length=0;
+reconcileBoardCards(current,list([]),[{id:'a',value:1,position:0,nested:{position:1}}],'changed-filter');
+assert.notEqual(current.children[0],beforeNested);assert.equal(renders.length,1);
+const nestedOne=current.children[0];renders.length=0;
+reconcileBoardCards(current,list([]),[{id:'a',value:1,position:0,nested:{position:2}}],'changed-filter');
+assert.notEqual(current.children[0],nestedOne);assert.equal(renders.length,1);
+"""
+        )
+
+    def test_board_skeleton_preserves_controls_and_only_virtual_empty_placeholder(self) -> None:
+        renderers = section(
+            SOURCE.read_text(encoding="utf-8"),
+            "    function renderBoardColumnHtml(",
+            "    function reconcileBoardCards(",
+        )
+        self.run_node(
+            """
+const assert=require('node:assert/strict');const state={mobileLite:false,boardScale:1};
+const COLUMN_TONES=[{tint:'t',head:'h',edge:'e',empty:'x'}],READY_COLUMN_LABEL='ready';
+const column={id:'one',label:'regular'},snapshot={columns:[column]};let cards=[{id:'a'},{id:'b'}];
+function sortedCardsForBoardColumn(){return cards;}function extraBoardColumnCards(){return cards;}
+function extraBoardColumnPreferences(){return {is_detached:false};}
+function normalizeBoardScale(){return 1;}function escapeHtml(value){return String(value);}
+function renderBoardCardHtml(){throw new Error('skeleton must not render card HTML');}
+"""
+            + renderers
+            + """
+let html=renderBoardColumnHtml(column,0,snapshot);
+assert.ok(html.includes('<div class="column__cards"></div>'));assert.match(html,/data-card-count="2"/);
+assert.match(html,/disabled/);assert.match(html,/data-create-in="one"/);
+html=renderExtraBoardColumnHtml(snapshot);assert.doesNotMatch(html,/<article|class="empty"/);
+cards=[];html=renderBoardColumnHtml(column,0,snapshot);assert.doesNotMatch(html,/class="empty"/);
+assert.match(html,/disabled/,'last column deletion remains blocked');
+html=renderBoardColumnHtml({id:'ready',label:'ready'},0,{columns:[column,{id:'ready'}]});
+assert.match(html,/disabled data-system-column="ready"/);
+html=renderExtraBoardColumnHtml(snapshot);assert.equal((html.match(/class="empty"/g)||[]).length,1);
+"""
+        )
+
+    def test_actual_card_renderer_does_not_depend_on_root_position(self) -> None:
+        source = SOURCE.read_text(encoding="utf-8")
+        after = SOURCE.with_name("app_main_after_printing.js").read_text(encoding="utf-8")
+        definitions = section(
+            source, "    function cardTimerState(", "    function timerVisualState("
+        )
+        definitions += section(
+            after, "    function buildCardHeadingHtml(", "    function refreshVehiclePanel("
+        )
+        self.run_node(
+            """
+const assert=require('node:assert/strict');Date.now=()=>0;const CARD_TAG_LIMIT=3;
+function finiteNumber(value){return Number(value)||0;}function finiteNonNegativeNumber(value){return Math.max(0,Number(value)||0);}
+function escapeHtml(value){return String(value);}function stripDescriptionFormatting(value){return value;}
+function normalizeDraftTags(tags){return tags||[];}function extraBoardColumnPreferences(){return {filter:{tag_label:'x',tag_color:'green'}};}
+"""
+            + definitions
+            + """
+const card={id:'one',position:1,column:'inbox',title:'Title',vehicle:'Car',description_preview:'Text',timer_state:'running',deadline_timestamp:'1970-01-01T01:00:00Z',is_unread:true,tag_items:[{label:'x',color:'green'}]};
+for(const virtual of [false,true])assert.equal(renderBoardCardHtml(card,{virtual}),renderBoardCardHtml({...card,position:9},{virtual}));
+assert.notEqual(renderBoardCardHtml(card),renderBoardCardHtml({...card,title:'Changed'}));
 """
         )
 
