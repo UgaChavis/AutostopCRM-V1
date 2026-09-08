@@ -243,6 +243,13 @@ Before the release-sized browser profile, run
 creating temp runtime state when Chromium, Qt PDF, `pdfinfo`, or `pdftotext` is
 missing. The mandatory `--profile core` does not require the PDF toolchain.
 
+Set `AUTOSTOP_BROWSER_SMOKE_SCREENSHOT_DIR` to a new owned, ignored directory
+for each smoke run, then restore the caller's environment. Timer and dashboard
+screenshots and completion-act artifacts use that directory. When unset or blank,
+the timer screenshot remains disabled, the dashboard uses `output/playwright`,
+and completion-act artifacts use the temporary runtime's `playwright` directory.
+`tests/test_browser_smoke_artifacts.py` checks the resolver and all three callers.
+
 ### Desktop Build and Release
 
 - `scripts/build_app.ps1` creates a fresh staged PyInstaller build and

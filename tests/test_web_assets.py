@@ -4549,9 +4549,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("resetCardModalState();", BOARD_WEB_APP_HTML)
         self.assertIn("const data = await api('/api/get_repair_order'", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "await openRepairOrderModal({ preloadedRepairOrderData: data });",
+            "const opening = openRepairOrderModal({ preloadedRepairOrderData: data });",
             BOARD_WEB_APP_HTML,
         )
+        self.assertIn("await opening;", BOARD_WEB_APP_HTML)
         self.assertNotIn(
             "await openCardWorkspace(cardId, { closeModalEl: els.repairOrdersModal, openRepairOrder: true });",
             BOARD_WEB_APP_HTML,

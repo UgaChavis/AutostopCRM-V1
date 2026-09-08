@@ -12245,10 +12245,14 @@
           openCardModal(cachedCard, { descriptionLoading: true, cardIsFull: false });
           openedFromCache = true;
         }
+        const editingGeneration = state.cardEditingGeneration;
+        const isCurrent = () => state.viewerStateGeneration === viewerStateGeneration
+          && state.cardHydrationSeq === hydrationSeq && state.cardEditingGeneration === editingGeneration;
         let fullCard;
         try {
           fullCard = cachedFullCard || await fetchFullCard(normalizedCardId, cachedCard?.updated_at || '');
         } catch (error) {
+          if (!isCurrent()) return null;
           if (
             openCardModalEl
             && openedFromCache
@@ -12260,7 +12264,7 @@
           if (state.cardHydratingId === normalizedCardId) state.cardHydratingId = '';
           throw error;
         }
-        if (!fullCard || viewerStateGeneration !== state.viewerStateGeneration) return null;
+        if (!fullCard || !isCurrent()) return null;
         if (openCardModalEl) {
           if (!openedFromCache && closeModalEl) popModal(modalKeyForElement(closeModalEl));
           const shouldHydrateOpenModal = !openedFromCache
@@ -12287,9 +12291,14 @@
     }
 
     async function openRepairOrderCard(cardId, { parentLayer = 'repair-orders' } = {}) {
+      const normalizedCardId = String(cardId || '').trim();
+      if (!normalizedCardId) return;
+      state.cardHydrationSeq += 1;
+      let editingContext = captureCardEditingContext();
+      const parentEntry = (state.modalStack || []).find((entry) => entry?.key === String(parentLayer || 'repair-orders').trim());
+      const isCurrent = () => editingContext()
+        && (!parentEntry || (state.modalStack || []).includes(parentEntry));
       try {
-        const normalizedCardId = String(cardId || '').trim();
-        if (!normalizedCardId) return;
         const data = await api('/api/get_repair_order', {
           method: 'POST',
           body: {
@@ -12299,14 +12308,18 @@
             create_if_missing: true,
           },
         });
+        if (!isCurrent()) return;
         const updatedCard = repairOrderResponseCard(data, data?.repair_order || {});
         state.activeCard = updatedCard;
         state.editingId = updatedCard?.id || normalizedCardId;
         state.pendingCardClientId = updatedCard?.client_id || '';
         state.repairOrderParentLayer = String(parentLayer || 'repair-orders').trim();
-        await openRepairOrderModal({ preloadedRepairOrderData: data });
+        const opening = openRepairOrderModal({ preloadedRepairOrderData: data });
+        // Opening synchronously advances its own repair-order context before awaiting.
+        editingContext = captureCardEditingContext();
+        await opening;
       } catch (error) {
-        setStatus(error.message, true);
+        if (isCurrent()) setStatus(error.message, true);
       }
     }
 

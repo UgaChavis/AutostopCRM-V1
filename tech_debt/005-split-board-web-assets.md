@@ -3,11 +3,19 @@
 The startup bundle retains board/cards, clients, navigation, polling and modal
 state. Payroll, stock, printing and cash-journal panels have versioned lazy
 bundles. The assembler/loader and Windows package share that asset contract.
-Client, card, stock, payroll and journal requests retain operator/request/editor
-ownership across success, errors and final cleanup. Multi-request writes must
-check ownership before each follow-up request; an obsolete response is not a
-reason to repeat a write using the current operator. Keep debounce and loading
-state invalidation with that ownership boundary.
+Review asynchronous work at its operator/request/editor boundary, including
+success, errors, cleanup and debounce/loading invalidation. Multi-request writes
+must check ownership before each follow-up request; an obsolete response is not
+a reason to repeat a write using the current operator.
+
+`openCardWorkspace` captures viewer, hydration and editor generations after its
+initial cached open. Stale success and errors stop before changing UI or scheduling
+side effects; `tests/test_card_workspace_context.py` covers these races and the
+normal cached/uncached opening paths.
+Direct repair-order opening shares hydration ownership and also checks the
+originating modal entry. Closing and reopening that parent cannot revive an old
+response; an already submitted creation request is never retried for this reason.
+
 Continue separating board/session responsibilities only when it simplifies
 behavior; startup bytes and first-panel latency must be measured together.
 
