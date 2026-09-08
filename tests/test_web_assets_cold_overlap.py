@@ -16,8 +16,12 @@ function fixture(name = 'payroll', canManage = true) {
   const state = {viewerStateGeneration:1,operatorSessionToken:'A',editingId:'a',
     employeesCashboxesAccessRevision:0,employeesWorkspaceLoadGeneration:0,
     payrollMonth:'2026-09',employeesLoadedMonth:'',employees:[],
-    inventoryLoaded:false,inventoryItems:[],inventoryQuery:'',inventoryView:'items'};
-  const els = {employeesMonthInput:{value:''},employeesModal:{querySelector:()=>null},inventoryModal:{}};
+    inventoryLoaded:false,inventoryItems:[],inventoryQuery:'',inventoryView:'items',modalStack:[]};
+  const workspace={inert:false}, classes=new Set();
+  const inventoryModal={id:'inventoryModal',querySelector:()=>workspace,
+    classList:{add:name=>classes.add(name),remove:name=>classes.delete(name),contains:name=>classes.has(name)}};
+  const els = {employeesMonthInput:{value:''},employeesModal:{querySelector:()=>null},inventoryModal,
+    inventoryStatusLine:{textContent:'',dataset:{}}};
   let canView = true;
   const context = vm.createContext({state,els,console,window:{},HTMLElement:class {},
     BOARD_MODULE_MANIFEST:{payroll:'/payroll.js',inventory:'/inventory.js'},
@@ -27,11 +31,18 @@ function fixture(name = 'payroll', canManage = true) {
     api(path,options) {let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b});
       requests.push({path,options,resolve,reject});return promise;},
     setStatus:message=>statuses.push(message),inventoryStatus:()=>{},
-    pushModal:()=>renders.push('open-payroll'),maybeOpenModal:(_,open)=>{if(open)renders.push('open-inventory');},
+    modalKeyForElement:()=> 'inventory',modalOpenerSelector:()=> '#inventoryButton',
+    modalElementForKey:()=>inventoryModal,restoreModalFocus:()=>renders.push('restore-focus'),
   });
   for(const file of ['module_loader.js','employees_reference.js','inventory_reference.js']) {
     if(fs.existsSync(source+file)) vm.runInContext(fs.readFileSync(source+file,'utf8'),context);
   }
+  const modalSource=fs.readFileSync(source+'app_main_before_printing.js','utf8');
+  for(const name of ['pushModal','popModal','maybeOpenModal']) {
+    vm.runInContext(modalSource.match(new RegExp('^    function '+name+'\\(.*?^    }','ms'))[0],context);
+  }
+  const push=context.pushModal;
+  context.pushModal=(key,...args)=>{if(key==='inventory')push(key,...args);renders.push('open-'+(key==='employees'?'payroll':key));};
   const method = name === 'payroll' ? 'openEmployeesModal' : 'openInventoryModal';
   function finishModule() {
     vm.runInContext(fs.readFileSync(source+(name==='payroll'?'payroll_workspace.js':'inventory_workspace.js'),'utf8'),context);
@@ -43,7 +54,7 @@ function fixture(name = 'payroll', canManage = true) {
     context.window.registerBoardModule(name,()=>({[method]:context[method]}));scripts.at(-1).onload();
   }
   function reply(marker='ready') {for(const request of requests) request.resolve({employees:[{id:marker}],items:[{id:marker}],marker});}
-  return {context,state,els,requests,scripts,renders,statuses,finishModule,reply,
+  return {context,state,els,workspace,requests,scripts,renders,statuses,finishModule,reply,
     invoke:()=>context.invokeBoardModule(name,method,[]),deny:()=>{canView=false;}};
 }
 """
@@ -61,6 +72,7 @@ class ColdModuleOverlapTests(unittest.TestCase):
             + "\n})().then(()=>clearTimeout(watchdog),error=>{clearTimeout(watchdog);console.error(error);process.exitCode=1});",
             cwd=ROOT,
             text=True,
+            encoding="utf-8",
             capture_output=True,
             timeout=10,
         )
@@ -72,7 +84,8 @@ for(const name of ['payroll','inventory']) for(const dataFirst of [true,false]) 
   const f=fixture(name);assert.equal(f.requests.length,0);assert.equal(f.scripts.length,0);
   const pending=f.invoke();assert.equal(f.requests.length,name==='payroll'?2:1,'reads must start before script completion');
   assert.equal(f.invoke(),pending,'cold invocation must be deduplicated');assert.equal(f.scripts.length,1);
-  if(dataFirst){f.reply();await tick();assert.equal(f.renders.length,0);assert.equal(f.state.employees.length,0);assert.equal(f.state.inventoryItems.length,0);}
+  const earlyRenders=f.renders.length;
+  if(dataFirst){f.reply();await tick();assert.equal(f.renders.length,earlyRenders);assert.equal(f.state.employees.length,0);assert.equal(f.state.inventoryItems.length,0);}
   f.finishModule();await tick();
   if(!dataFirst){assert.equal(f.invoke(),pending,'factory-ready/data-pending invocation must still be deduplicated');f.reply();}
   await pending;assert.equal(f.requests.length,name==='payroll'?2:1);
@@ -86,7 +99,7 @@ for(const name of ['payroll','inventory']) for(const dataFirst of [true,false]) 
     def test_cold_viewer_access_month_and_request_changes_do_not_apply_or_open(self) -> None:
         self.run_node(r"""
 for(const name of ['payroll','inventory']) for(const change of ['viewer','session','request',...(name==='payroll'?['access','month']:[])]) {
-  const f=fixture(name),pending=f.invoke();assert.ok(f.requests.length);
+  const f=fixture(name),pending=f.invoke();assert.ok(f.requests.length);const initialRenders=f.renders.length;
   if(change==='viewer')f.state.viewerStateGeneration++;
   if(change==='session')f.state.operatorSessionToken='B';
   if(change==='access')f.state.employeesCashboxesAccessRevision++;
@@ -97,7 +110,7 @@ for(const name of ['payroll','inventory']) for(const change of ['viewer','sessio
   }
   f.reply('stale');f.finishModule();await pending;
   assert.equal(f.state.employees.length,0,name+': stale employees');assert.equal(f.state.inventoryItems.length,0,name+': stale inventory');
-  assert.equal(f.renders.length,0,name+': stale open/render');assert.equal(f.statuses.length,0,name+': stale status');
+  assert.equal(f.renders.length,initialRenders,name+': stale open/render');assert.equal(f.statuses.length,0,name+': stale status');
 }
 """)
 
@@ -151,8 +164,54 @@ for(const name of ['payroll','inventory']) for(const reject of [true,false]) {
     def test_script_failure_still_observes_late_data_rejection(self) -> None:
         self.run_node(r"""
 for(const name of ['payroll','inventory']) {
-  const f=fixture(name),pending=f.invoke();f.scripts[0].onerror();await pending;
+  const f=fixture(name),pending=f.invoke(),initialRenders=f.renders.length;f.scripts[0].onerror();await pending;
   for(const request of f.requests)request.reject(new Error('late read failure'));
-  await tick();assert.equal(f.renders.length,0);assert.equal(f.state.employeesReferencePromise ?? null,null);
+  await tick();assert.equal(f.renders.length,initialRenders);assert.equal(f.state.employeesReferencePromise ?? null,null);
+}
+""")
+
+    def test_inventory_shell_opens_once_and_blocks_actions_but_not_close(self) -> None:
+        self.run_node(r"""
+const f=fixture('inventory'),pending=f.invoke();
+assert.equal(f.renders.filter(value=>value==='open-inventory').length,1,'shell must open before module');
+assert.equal(f.workspace.inert,true,'uninitialized controls must not enqueue lazy writes');
+assert.match(f.els.inventoryStatusLine.textContent,/ЗАГРУЖАЮ/);
+if(!f.workspace.inert)f.context.invokeBoardModule('inventory','saveInventoryItem',[]);
+assert.equal(f.requests.length,1);assert.equal(f.invoke(),pending);
+f.finishModule();await tick();assert.equal(f.workspace.inert,true,'data-pending shell remains inert');
+f.reply();await pending;assert.equal(f.workspace.inert,false);assert.equal(f.els.inventoryStatusLine.textContent,'');
+assert.equal(f.renders.filter(value=>value==='open-inventory').length,1);
+assert.equal(f.renders.filter(value=>value==='inventory').length,1,'cold shell renders populated workspace once');
+assert.equal(f.renders.includes('restore-focus'),false);
+""")
+
+    def test_inventory_close_and_reopen_before_factory_preserve_the_new_invocation(self) -> None:
+        self.run_node(r"""
+for(const reopen of [false,true]) for(const reject of [false,true]) {
+ const f=fixture('inventory'),old=f.invoke(),entry=f.state.modalStack[0];
+ assert.ok(entry);f.context.popModal('inventory');assert.equal(f.state.modalStack.length,0);
+ const current=reopen?f.invoke():null,afterCloseRenders=f.renders.length;
+ if(reopen){assert.notEqual(current,old);assert.notEqual(f.state.modalStack[0],entry);assert.equal(f.requests.length,2);}
+ f.finishModule();if(reject)f.requests[0].reject(new Error('old A'));else f.requests[0].resolve({items:[{id:'A'}]});
+ await old;await tick();assert.equal(f.renders.length,afterCloseRenders);assert.equal(f.statuses.length,0);
+ if(reopen){assert.equal(f.invoke(),current,'old finally deleted new invocation');assert.equal(f.workspace.inert,true);
+   f.requests[1].resolve({items:[{id:'B'}]});await current;assert.equal(f.state.inventoryItems[0].id,'B');assert.equal(f.workspace.inert,false);}
+ else {assert.equal(f.els.inventoryModal.classList.contains('is-open'),false);assert.equal(f.state.inventoryItems.length,0);}
+}
+""")
+
+    def test_inventory_late_data_and_script_failure_keep_close_retry_usable(self) -> None:
+        self.run_node(r"""
+const f=fixture('inventory'),failed=f.invoke();f.scripts[0].onerror();await failed;
+assert.equal(f.workspace.inert,true);assert.match(f.els.inventoryStatusLine.textContent,/Повторите открытие/);
+f.context.popModal('inventory');const retry=f.invoke();assert.equal(f.requests.length,2);
+f.requests[0].reject(new Error('old script read'));f.finishModule();f.requests[1].resolve({items:[{id:'retry'}]});
+await retry;assert.equal(f.workspace.inert,false);assert.equal(f.state.inventoryItems[0].id,'retry');
+for(const reject of [false,true]) {
+ const late=fixture('inventory'),old=late.invoke();late.finishModule();await tick();late.context.popModal('inventory');
+ const newer=late.invoke();assert.equal(late.workspace.inert,false,'warm reopen clears closed shell inert');
+ late.requests[1].resolve({items:[{id:'new'}]});await newer;const count=late.renders.length;
+ if(reject)late.requests[0].reject(new Error('old data'));else late.requests[0].resolve({items:[{id:'old'}]});
+ await old;assert.equal(late.state.inventoryItems[0].id,'new');assert.equal(late.renders.length,count);
 }
 """)

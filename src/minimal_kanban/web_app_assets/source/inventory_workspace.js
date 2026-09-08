@@ -323,7 +323,6 @@
     function renderInventory() {
       renderInventoryItems();
       renderInventoryForm();
-      renderInventoryMovements();
       renderMobileInventoryMovements();
     }
 
@@ -340,7 +339,7 @@
     async function loadInventoryItems(openModal = false, { query = null, prepared = null } = {}) {
       const context = prepared || inventoryAsyncContext('items');
       try {
-        if (!state.inventoryLoaded) renderInventoryItems();
+        if (!state.inventoryLoaded && !prepared) renderInventoryItems();
         const data = await (prepared?.promise || readInventoryItems(query));
         if (!context.isCurrent()) return null;
         state.inventoryItems = Array.isArray(data?.items) ? data.items : [];
@@ -387,16 +386,12 @@
         if (!context.isCurrent()) return null;
         state.inventoryMovements = Array.isArray(data?.movements) ? data.movements : [];
         state.inventoryMovementsLoaded = true;
-        renderInventoryMovements();
-        renderMobileInventoryMovements();
         return data;
       } catch (error) {
         if (!context.isCurrent()) return null;
         state.inventoryMovementsLoaded = false;
         inventoryStatus(error.message, true);
         setStatus(error.message, true);
-        renderInventoryMovements();
-        renderMobileInventoryMovements();
         return null;
       } finally {
         if (context.owns()) {
@@ -420,12 +415,16 @@
     }
 
     function openInventoryModal(prepared = null) {
-      if (prepared?.promise && !prepared.isCurrent()) return;
-      maybeOpenModal(els.inventoryModal, true);
-      renderInventory();
-      const loading = loadInventoryItems(false, { prepared: prepared?.promise ? prepared : null });
+      const ready = prepared?.promise ? prepared : null;
+      if (ready && !ready.isCurrent()) return;
+      if (!ready) {
+        maybeOpenModal(els.inventoryModal, true);
+        els.inventoryModal.querySelector('.inventory-workspace').inert = false;
+        renderInventory();
+      }
+      const loading = loadInventoryItems(false, { prepared: ready });
       if (state.inventoryView === 'movements') loadInventoryMovements();
-      return loading;
+      return ready ? loading.finally(ready.finish) : loading;
     }
 
     function selectInventoryItem(itemId) {

@@ -7,6 +7,10 @@ On a cold employees or inventory open, read-only data requests overlap module
 loading. Prepared results wait for the module and current request/session scope;
 concurrent opens reuse the pending invocation. No heavy panel is prefetched at
 startup. Keep first-open latency and failure/retry coverage with this boundary.
+The cold inventory shell opens immediately with its workspace inert until ready;
+Close/Escape remain available. Prepared reads own the exact modal entry, so a
+closed or replaced shell cannot be reopened by an old response. Script failure
+keeps uninitialized controls inert and permits an explicit close/open retry.
 Review asynchronous work at its operator/request/editor boundary, including
 success, errors, cleanup and debounce/loading invalidation. Multi-request writes
 must check ownership before each follow-up request; an obsolete response is not

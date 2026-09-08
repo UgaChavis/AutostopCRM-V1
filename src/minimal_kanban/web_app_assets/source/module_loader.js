@@ -72,12 +72,13 @@
       try { argumentKey = JSON.stringify(args); } catch (_) { /* Event objects can contain cycles. */ }
       const invocationKey = JSON.stringify([method, generation, session, cardId, month,
         payrollOpen ? state.employeesCashboxesAccessRevision : null, argumentKey]);
-      if (currentRecord.invocations.has(invocationKey)) return currentRecord.invocations.get(invocationKey);
+      const previous = currentRecord.invocations.get(invocationKey);
+      if (previous && (!previous.isCurrent || previous.isCurrent())) return previous;
       if (record?.exports) return record.exports[method](...args);
       let prepared = null;
       if (payrollOpen && operatorCanViewEmployees()) prepared = prepareEmployeesWorkspaceData(month, pending);
       if (name === 'inventory' && method === 'openInventoryModal') {
-        prepared = { ...inventoryAsyncContext('items'), promise: readInventoryItems() };
+        prepared = prepareInventoryModal();
       }
       // A script failure or invalidated viewer may leave the prepared read without a consumer.
       prepared?.promise.catch(() => {});
@@ -88,9 +89,15 @@
         return module[method](...(prepared ? [prepared] : args));
       }).catch((error) => {
         if (generation === state.viewerStateGeneration && session === state.operatorSessionToken
-          && (!prepared || prepared.isCurrent())) setStatus(error.message, true);
+          && (!prepared || prepared.isCurrent())) {
+          prepared?.onLoadError?.(error);
+          setStatus(error.message, true);
+        }
         return false;
-      }).finally(() => { currentRecord.invocations.delete(invocationKey); });
+      }).finally(() => {
+        if (currentRecord.invocations.get(invocationKey) === invocation) currentRecord.invocations.delete(invocationKey);
+      });
+      invocation.isCurrent = prepared?.isCurrent;
       currentRecord.invocations.set(invocationKey, invocation);
       return invocation;
     }

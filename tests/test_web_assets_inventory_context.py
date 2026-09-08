@@ -92,6 +92,17 @@ assert.equal(modalCalls.length,renders);assert.deepEqual(statuses,[]);
 """,
         )
 
+    def test_full_inventory_render_updates_movements_only_once(self) -> None:
+        self.run_node(
+            functions("inventory_workspace.js", "renderInventory", "renderInventoryItems"),
+            """
+function inventoryFilteredItems(){return [];} function renderInventoryWorkspace(){}
+function renderMobileInventory(){}
+let movements=0;renderInventoryMovements=()=>movements++;
+renderInventory();assert.equal(movements,1,'full inventory render duplicated the same movement DOM');
+""",
+        )
+
     def test_inventory_movement_stale_finally_does_not_clear_new_loading(self) -> None:
         self.run_node(
             self.inventory_functions("loadInventoryMovements"),
@@ -103,6 +114,28 @@ calls[0].reject(new Error(''));await old;
 assert.equal(state.inventoryMovementsLoading,true);assert.deepEqual(statuses,[]);
 calls[1].resolve({movements:[{id:'B'}]});await current;
 assert.equal(state.inventoryMovementsLoading,false);assert.equal(state.inventoryMovements[0].id,'B');
+""",
+        )
+
+    def test_inventory_movement_completion_renders_each_surface_once(self) -> None:
+        self.run_node(
+            self.inventory_functions("loadInventoryMovements"),
+            """
+for(const rejected of [false,true]) {
+ state.inventoryMovements=[];state.inventoryMovementsLoaded=false;statuses.length=0;
+ const renders=[];
+ renderInventoryMovements=()=>renders.push(['desktop',state.inventoryMovementsLoading]);
+ renderMobileInventoryMovements=()=>renders.push(['mobile',state.inventoryMovementsLoading]);
+ const pending=loadInventoryMovements();
+ assert.deepEqual(renders,[['desktop',true],['mobile',true]]);
+ if(rejected)calls.at(-1).reject(new Error('current failure'));
+ else calls.at(-1).resolve({movements:[{id:'current'}]});
+ await pending;
+ assert.deepEqual(renders,[['desktop',true],['mobile',true],['desktop',false],['mobile',false]]);
+ assert.equal(state.inventoryMovementsLoaded,!rejected);
+ assert.deepEqual(state.inventoryMovements,rejected?[]:[{id:'current'}]);
+ assert.equal(statuses.length,rejected?2:0);
+}
 """,
         )
 
