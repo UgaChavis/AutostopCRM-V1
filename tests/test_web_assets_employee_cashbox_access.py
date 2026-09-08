@@ -63,7 +63,7 @@ class EmployeeCashboxAccessWebAssetTests(unittest.TestCase):
         self.assertIn("clearEmployeesCashboxesModuleState();", permission_helpers)
 
         employees_desktop = _asset_section(
-            "function openEmployeesModal()", "async function saveEmployee()"
+            "function openEmployeesModal(", "async function saveEmployee()"
         )
         self.assertIn("if (!requireEmployeesViewAccess()) return;", employees_desktop)
         cashboxes_desktop = _asset_section(
@@ -209,12 +209,14 @@ class EmployeeCashboxAccessWebAssetTests(unittest.TestCase):
         self.assertIn("const actions = readOnly", rows)
 
         loader = _asset_section(
-            "async function loadEmployeesWorkspaceData(month)",
+            "function prepareEmployeesWorkspaceData(",
             "function refreshRepairOrderEmployeeSelects()",
         )
-        self.assertIn("if (!operatorCanAccessEmployeesCashboxes())", loader)
+        self.assertIn("const canManage = operatorCanAccessEmployeesCashboxes();", loader)
         self.assertIn("loadEmployeesReference({ month: requestedMonth, apply: false })", loader)
-        self.assertIn("state.payrollReport = null;", loader)
+        self.assertIn(
+            "canManage ? loadPayrollReport({ month: requestedMonth, apply: false }) : null", loader
+        )
 
         mobile = _asset_section(
             "function renderMobileEmployeesList()", "function renderMobileArchiveRows("

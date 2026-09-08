@@ -1545,56 +1545,16 @@
 
     // @include employees_reference.js
 
-    async function loadEmployeesWorkspaceData(month) {
-      const viewerStateGeneration = state.viewerStateGeneration;
-      const requestedMonth = String(month || state.payrollMonth || currentPayrollMonthValue()).trim();
-      state.payrollMonth = requestedMonth;
-      const loadGeneration = state.employeesWorkspaceLoadGeneration + 1;
-      state.employeesWorkspaceLoadGeneration = loadGeneration;
-      if (!operatorCanAccessEmployeesCashboxes()) {
-        const employeesData = await loadEmployeesReference({ month: requestedMonth, apply: false });
-        const isCurrent = viewerStateGeneration === state.viewerStateGeneration
-          && loadGeneration === state.employeesWorkspaceLoadGeneration
-          && requestedMonth === state.payrollMonth;
-        if (!isCurrent) return { applied: false, generation: loadGeneration, month: requestedMonth };
-        applyEmployeesReferenceData(employeesData, requestedMonth);
-        state.payrollReport = null;
-        state.payrollReportMonth = '';
-        return { applied: true, generation: loadGeneration, month: requestedMonth };
-      }
-      let employeesData;
-      let payrollReport;
-      try {
-        [employeesData, payrollReport] = await Promise.all([
-          loadEmployeesReference({ month: requestedMonth, apply: false }),
-          loadPayrollReport({ month: requestedMonth, apply: false }),
-        ]);
-      } catch (error) {
-        const isStale = viewerStateGeneration !== state.viewerStateGeneration
-          || loadGeneration !== state.employeesWorkspaceLoadGeneration
-          || requestedMonth !== state.payrollMonth;
-        if (isStale) return { applied: false, generation: loadGeneration, month: requestedMonth };
-        throw error;
-      }
-      const isCurrent = viewerStateGeneration === state.viewerStateGeneration
-        && loadGeneration === state.employeesWorkspaceLoadGeneration
-        && requestedMonth === state.payrollMonth;
-      if (!isCurrent) return { applied: false, generation: loadGeneration, month: requestedMonth };
-      applyEmployeesReferenceData(employeesData, requestedMonth);
-      state.payrollReport = payrollReport;
-      state.payrollReportMonth = requestedMonth;
-      return { applied: true, generation: loadGeneration, month: requestedMonth };
-    }
-
     function refreshRepairOrderEmployeeSelects() {
       if (!els.repairOrderModal?.classList.contains('is-open')) return;
       renderRepairOrderRows('works', readRepairOrderRows('works'));
     }
 
-    async function loadEmployeesWorkspace(openModal = false) {
+    async function loadEmployeesWorkspace(openModal = false, prepared = null) {
       const month = els.employeesMonthInput?.value || state.payrollMonth || currentPayrollMonthValue();
-      const loadResult = await loadEmployeesWorkspaceData(month);
-      if (!loadResult.applied) return loadResult;
+      const loading = prepared || prepareEmployeesWorkspaceData(month);
+      const loadResult = await loading.promise;
+      if (!loadResult.applied || !loading.isCurrent()) return loadResult;
       renderEmployeesWorkspace();
       refreshRepairOrderEmployeeSelects();
       if (openModal) {
@@ -1632,7 +1592,8 @@
       }
     }
 
-    function openEmployeesModal() {
+    function openEmployeesModal(prepared = null) {
+      if (prepared?.promise && !prepared.isCurrent()) return;
       if (!requireEmployeesViewAccess()) return;
       ensureEmployeesUi();
       hydrateEmployeesUiRefs();
@@ -1650,7 +1611,8 @@
         dialog.scrollTop = 0;
         dialog.scrollLeft = 0;
       }
-      loadEmployeesWorkspace(true).catch((error) => setStatus(error.message, true));
+      return loadEmployeesWorkspace(true, prepared?.promise ? prepared : null)
+        .catch((error) => setStatus(error.message, true));
     }
 
     async function saveEmployee() {

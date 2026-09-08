@@ -66,8 +66,10 @@ function applyRepairOrderCardUpdate() {} function readRepairOrderFromForm() {ret
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def inventory_functions(self, *names: str) -> str:
-        return functions("app_main_before_printing.js", "captureCardEditingContext") + functions(
-            "inventory_workspace.js", "inventoryAsyncContext", "mutateInventoryMaterial", *names
+        return (
+            functions("app_main_before_printing.js", "captureCardEditingContext")
+            + functions("inventory_reference.js", "inventoryAsyncContext", "readInventoryItems")
+            + functions("inventory_workspace.js", "mutateInventoryMaterial", *names)
         )
 
     def test_inventory_read_latest_request_and_viewer_own_success_and_error(self) -> None:

@@ -1625,7 +1625,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn('id="employeesSearchInput"', BOARD_WEB_APP_HTML)
         self.assertNotIn('id="employeesVisibilityFilters"', BOARD_WEB_APP_HTML)
         self.assertNotIn('id="employeesListMeta"', BOARD_WEB_APP_HTML)
-        self.assertIn("function openEmployeesModal()", BOARD_WEB_APP_HTML)
+        self.assertIn("function openEmployeesModal(", BOARD_WEB_APP_HTML)
         self.assertIn("function saveEmployee()", BOARD_WEB_APP_HTML)
         self.assertIn("function deleteEmployee()", BOARD_WEB_APP_HTML)
         self.assertIn("function filteredEmployeesList()", BOARD_WEB_APP_HTML)
@@ -2023,7 +2023,7 @@ class WebAssetsTests(unittest.TestCase):
         add_handler = BOARD_WEB_APP_HTML[
             BOARD_WEB_APP_HTML.index(
                 "async function addEmployeeFromForm()"
-            ) : BOARD_WEB_APP_HTML.index("function openEmployeesModal()")
+            ) : BOARD_WEB_APP_HTML.index("function openEmployeesModal(")
         ]
         self.assertIn(
             "if (state.employeeCreateMode && employeeFormHasUnsavedChanges())",

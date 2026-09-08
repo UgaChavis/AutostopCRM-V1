@@ -59,22 +59,36 @@
 
     function invokeBoardModule(name, method, args, passive = false) {
       const record = boardModuleRecords.get(name);
-      if (record?.exports) return record.exports[method](...args);
+      if (record?.exports && (!record.invocations.size || passive)) return record.exports[method](...args);
       if (passive) return true;
       const generation = state.viewerStateGeneration;
+      const session = state.operatorSessionToken;
       const cardId = state.editingId;
+      const payrollOpen = name === 'payroll' && method === 'openEmployeesModal';
+      const month = payrollOpen ? (els.employeesMonthInput?.value || state.payrollMonth || currentPayrollMonthValue()) : '';
       const pending = ensureBoardModule(name);
       const currentRecord = boardModuleRecords.get(name);
       let argumentKey = '';
       try { argumentKey = JSON.stringify(args); } catch (_) { /* Event objects can contain cycles. */ }
-      const invocationKey = method + ':' + generation + ':' + String(cardId || '') + ':' + argumentKey;
+      const invocationKey = JSON.stringify([method, generation, session, cardId, month,
+        payrollOpen ? state.employeesCashboxesAccessRevision : null, argumentKey]);
       if (currentRecord.invocations.has(invocationKey)) return currentRecord.invocations.get(invocationKey);
+      if (record?.exports) return record.exports[method](...args);
+      let prepared = null;
+      if (payrollOpen && operatorCanViewEmployees()) prepared = prepareEmployeesWorkspaceData(month, pending);
+      if (name === 'inventory' && method === 'openInventoryModal') {
+        prepared = { ...inventoryAsyncContext('items'), promise: readInventoryItems() };
+      }
+      // A script failure or invalidated viewer may leave the prepared read without a consumer.
+      prepared?.promise.catch(() => {});
       const invocation = pending.then((module) => {
-        if (generation !== state.viewerStateGeneration) return false;
+        if (generation !== state.viewerStateGeneration || session !== state.operatorSessionToken) return false;
+        if (prepared && !prepared.isCurrent()) return false;
         if (name === 'printing' && cardId !== state.editingId) return false;
-        return module[method](...args);
+        return module[method](...(prepared ? [prepared] : args));
       }).catch((error) => {
-        if (generation === state.viewerStateGeneration) setStatus(error.message, true);
+        if (generation === state.viewerStateGeneration && session === state.operatorSessionToken
+          && (!prepared || prepared.isCurrent())) setStatus(error.message, true);
         return false;
       }).finally(() => { currentRecord.invocations.delete(invocationKey); });
       currentRecord.invocations.set(invocationKey, invocation);

@@ -20,6 +20,17 @@ from minimal_kanban.web_app_assets.assembler import (  # noqa: E402
 
 
 class BoardModuleAssetsTests(unittest.TestCase):
+    def test_cold_overlap_keeps_only_read_helpers_eager(self) -> None:
+        for group, helper, lazy_entry in (
+            ("payroll", "prepareEmployeesWorkspaceData", "renderEmployeesWorkspace"),
+            ("inventory", "readInventoryItems", "renderInventory"),
+        ):
+            module = BOARD_WEB_APP_MODULES[BOARD_WEB_APP_MODULE_MANIFEST[group]]
+            self.assertEqual(BOARD_WEB_APP_JS.count(f"function {helper}("), 1)
+            self.assertNotIn(f"function {helper}(", module)
+            self.assertIn(f"function {lazy_entry}(", module)
+            self.assertNotIn(f"function {lazy_entry}(", BOARD_WEB_APP_JS)
+
     def test_optional_modules_are_hashed_served_compressed_and_not_in_startup(self) -> None:
         from minimal_kanban.api.server import _board_asset_bytes, _board_asset_gzip_bytes
 

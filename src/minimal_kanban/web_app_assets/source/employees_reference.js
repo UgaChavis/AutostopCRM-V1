@@ -11,6 +11,7 @@
 
     async function loadEmployeesReference({ month: requestedMonth = '', apply = true } = {}) {
       const viewerStateGeneration = state.viewerStateGeneration;
+      const session = state.operatorSessionToken;
       const accessRevision = state.employeesCashboxesAccessRevision;
       const month = String(requestedMonth || state.payrollMonth || currentPayrollMonthValue()).trim();
       if (state.employeesLoadedMonth === month && Array.isArray(state.employees)) {
@@ -21,6 +22,8 @@
         state.employeesReferencePromise
         && state.employeesReferencePromise.month === month
         && state.employeesReferencePromise.viewerStateGeneration === viewerStateGeneration
+        && state.employeesReferencePromise.session === session
+        && state.employeesReferencePromise.accessRevision === accessRevision
       ) {
         request = state.employeesReferencePromise.promise;
       } else {
@@ -30,11 +33,12 @@
               state.employeesReferencePromise = null;
             }
           });
-        state.employeesReferencePromise = { month, viewerStateGeneration, promise: request };
+        state.employeesReferencePromise = { month, viewerStateGeneration, session, accessRevision, promise: request };
       }
       const data = await request;
       if (
         viewerStateGeneration !== state.viewerStateGeneration
+        || session !== state.operatorSessionToken
         || accessRevision !== state.employeesCashboxesAccessRevision
       ) return data;
       const activeMonth = state.payrollMonth || currentPayrollMonthValue();
@@ -53,4 +57,37 @@
         state.payrollReportMonth = month;
       }
       return report;
+    }
+
+    function prepareEmployeesWorkspaceData(month, moduleReady) {
+      const viewer = state.viewerStateGeneration;
+      const session = state.operatorSessionToken;
+      const access = state.employeesCashboxesAccessRevision;
+      const requestedMonth = String(month || state.payrollMonth || currentPayrollMonthValue()).trim();
+      state.payrollMonth = requestedMonth;
+      const generation = ++state.employeesWorkspaceLoadGeneration;
+      const isCurrent = () => viewer === state.viewerStateGeneration && session === state.operatorSessionToken
+        && access === state.employeesCashboxesAccessRevision
+        && generation === state.employeesWorkspaceLoadGeneration && requestedMonth === state.payrollMonth;
+      const result = { applied: false, generation, month: requestedMonth };
+      const canManage = operatorCanAccessEmployeesCashboxes();
+      const promise = Promise.all([
+        loadEmployeesReference({ month: requestedMonth, apply: false }),
+        canManage ? loadPayrollReport({ month: requestedMonth, apply: false }) : null,
+        moduleReady,
+      ]).then(([employeesData, payrollReport]) => {
+        if (!isCurrent()) return result;
+        applyEmployeesReferenceData(employeesData, requestedMonth);
+        state.payrollReport = payrollReport;
+        state.payrollReportMonth = canManage ? requestedMonth : '';
+        return { ...result, applied: true };
+      }, (error) => {
+        if (!isCurrent()) return result;
+        throw error;
+      });
+      return { isCurrent, promise };
+    }
+
+    async function loadEmployeesWorkspaceData(month) {
+      return prepareEmployeesWorkspaceData(month).promise;
     }
