@@ -7,7 +7,6 @@ import math
 import re
 import time
 import uuid
-from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from logging import Logger
@@ -98,7 +97,7 @@ from ..vehicle_profile import (
     VehicleProfile,
     normalize_license_plate,
 )
-from .bundle_draft import BundleDraft, DraftCards, DraftEvents, detach_card
+from .bundle_draft import BundleDraft, DraftEvents, detach_card
 from .card_attachments import _ALLOWED_ATTACHMENT_EXTENSIONS as _ALLOWED_ATTACHMENT_EXTENSIONS
 from .card_attachments import _ALLOWED_ATTACHMENT_TYPES_LABEL as _ALLOWED_ATTACHMENT_TYPES_LABEL
 from .card_attachments import _ATTACHMENT_BASE64_DEFAULT_BYTES as _ATTACHMENT_BASE64_DEFAULT_BYTES
@@ -117,6 +116,7 @@ from .card_attachments import _ATTACHMENT_TYPE_SPECS as _ATTACHMENT_TYPE_SPECS
 from .card_attachments import _ATTACHMENT_XML_READ_MAX_BYTES as _ATTACHMENT_XML_READ_MAX_BYTES
 from .card_attachments import _OLE_MAGIC as _OLE_MAGIC
 from .card_attachments import CardAttachmentsMixin
+from .card_service_bulk import CardServiceBulkMixin
 from .card_service_clients import CardServiceClientsMixin
 from .card_service_dashboard import (
     DISPLAY_DASHBOARD_MESSAGE_KEY,
@@ -386,6 +386,7 @@ def _json_dumps(
 class CardService(
     CardAttachmentsMixin,
     RepairOrderArtifactsMixin,
+    CardServiceBulkMixin,
     CardServiceFinanceMixin,
     CardServiceInventoryMixin,
     CardServiceClientsMixin,
@@ -726,18 +727,13 @@ class CardService(
                     events=events,
                 )
             column_labels = self._column_labels(bundle["columns"])
-            card_payload = (
-                self._manager_card_item(
-                    card, column_labels, now=utc_now(), viewer_username=actor_name
-                )
-                if response_mode == "compact"
-                else self._serialize_card(
-                    card,
-                    events,
-                    column_labels=column_labels,
-                    include_removed_attachments=True,
-                    viewer_username=actor_name,
-                )
+            card_payload = self._response_card(
+                card,
+                events,
+                column_labels,
+                actor_name,
+                response_mode,
+                include_removed_attachments=True,
             )
             return {
                 "card": card_payload,
@@ -4433,18 +4429,13 @@ class CardService(
                 source,
             )
             column_labels = self._column_labels(bundle["columns"])
-            card_payload = (
-                self._manager_card_item(
-                    card, column_labels, now=utc_now(), viewer_username=actor_name
-                )
-                if response_mode == "compact"
-                else self._serialize_card(
-                    card,
-                    events,
-                    column_labels=column_labels,
-                    include_removed_attachments=True,
-                    viewer_username=actor_name,
-                )
+            card_payload = self._response_card(
+                card,
+                events,
+                column_labels,
+                actor_name,
+                response_mode,
+                include_removed_attachments=True,
             )
             return {
                 "card": card_payload,
@@ -4660,17 +4651,8 @@ class CardService(
                 source,
             )
             column_labels = self._column_labels(bundle["columns"])
-            card_payload = (
-                self._manager_card_item(
-                    card, column_labels, now=utc_now(), viewer_username=actor_name
-                )
-                if response_mode == "compact"
-                else self._serialize_card(
-                    card,
-                    events,
-                    column_labels=column_labels,
-                    viewer_username=actor_name,
-                )
+            card_payload = self._response_card(
+                card, events, column_labels, actor_name, response_mode
             )
             return {
                 "card": card_payload,
@@ -4845,204 +4827,6 @@ class CardService(
                     column_labels=self._column_labels(bundle["columns"]),
                     viewer_username=actor_name,
                 )
-            }
-
-    def bulk_move_cards(self, payload: dict) -> dict:
-        with self._lock:
-            bundle = self._read_bundle_for_update(
-                "cards", "columns", "cashboxes", "cash_transactions", "inventory_items"
-            )
-            cards = bundle["cards"]
-            columns = bundle["columns"]
-            events = bundle["events"]
-            actor_name, source = self._audit_identity(payload, default_source="api")
-            response_mode = self._validated_response_mode(payload, default="full")
-            ready_column_id, ready_column_changed = self._ensure_ready_column_for_bundle(
-                bundle, actor_name=actor_name, source=source
-            )
-            next_column = self._validated_column(payload.get("column"), columns)
-            raw_card_ids = payload.get("card_ids")
-            if not isinstance(raw_card_ids, list) or not raw_card_ids:
-                self._fail(
-                    "validation_error",
-                    "Нужно передать непустой список card_ids для пакетного переноса.",
-                    details={"field": "card_ids"},
-                )
-
-            seen_ids: set[str] = set()
-            normalized_card_ids: list[str] = []
-            for raw_id in raw_card_ids:
-                card_id = normalize_text(raw_id, default="", limit=128)
-                if not card_id:
-                    self._fail(
-                        "validation_error",
-                        "Список card_ids содержит пустое значение.",
-                        details={"field": "card_ids"},
-                    )
-                if card_id in seen_ids:
-                    continue
-                seen_ids.add(card_id)
-                normalized_card_ids.append(card_id)
-
-            moved_results: list[dict[str, Any]] = []
-            unchanged_results: list[dict[str, Any]] = []
-            errors: list[dict] = []
-            warnings: list[dict] = []
-            changed_any = False
-            column_labels = self._column_labels(columns)
-
-            for card_id in normalized_card_ids:
-                try:
-                    source_card = self._find_card(cards, card_id)
-                    self._ensure_not_archived(source_card)
-                    previous_column = source_card.column
-                    candidate_cards = DraftCards(cards, cards)
-                    card = Card.from_dict(source_card.to_storage_dict())
-                    candidate_cards[cards.index(source_card)] = card
-                    candidate_events = DraftEvents(events)
-                    candidate_bundle = dict(bundle)
-                    candidate_bundle["cards"] = candidate_cards
-                    candidate_bundle["events"] = candidate_events
-
-                    # Moving into or out of the ready column can touch nested repair-order,
-                    # cash and payroll state. Keep those branches detached until every
-                    # validation for this card has succeeded, so one rejected item cannot
-                    # leak mutations into successful siblings in the same bulk request.
-                    detached_ready_state = bool(
-                        self._card_has_repair_order(card)
-                        and (previous_column == ready_column_id or next_column == ready_column_id)
-                    )
-                    if detached_ready_state:
-                        for domain in ("cashboxes", "cash_transactions", "settings"):
-                            candidate_bundle[domain] = deepcopy(bundle[domain])
-
-                    changed = False
-                    if card.column != next_column:
-                        previous_position = card.position
-                        self._reposition_card(candidate_cards, card, target_column=next_column)
-                        self._touch_card(card, actor_name)
-                        self._append_event(
-                            candidate_events,
-                            actor_name=actor_name,
-                            source=source,
-                            action="card_moved",
-                            message=f"{actor_name} переместил карточку",
-                            card_id=card.id,
-                            details={
-                                "before_column": previous_column,
-                                "after_column": next_column,
-                                "before_position": previous_position,
-                                "after_position": card.position,
-                                "before_card_id": None,
-                            },
-                        )
-                        changed = True
-                    ready_state_changed, ready_warnings = self._apply_ready_column_side_effects(
-                        card,
-                        candidate_cards,
-                        candidate_events,
-                        actor_name,
-                        source,
-                        before_column=previous_column,
-                        after_column=card.column,
-                        ready_column_id=ready_column_id,
-                        bundle=candidate_bundle,
-                    )
-                    if ready_state_changed and not changed:
-                        self._touch_card(card, actor_name)
-                    if ready_state_changed:
-                        changed = True
-                    warnings.extend({"card_id": card.id, **warning} for warning in ready_warnings)
-                    result_item = {
-                        "card_id": card.id,
-                        "bulk_move": {
-                            "before_column": previous_column,
-                            "after_column": next_column,
-                            "changed": changed,
-                        },
-                    }
-                    cards[:] = candidate_cards
-                    events[:] = candidate_events
-                    if detached_ready_state:
-                        bundle["cashboxes"][:] = candidate_bundle["cashboxes"]
-                        bundle["cash_transactions"][:] = candidate_bundle["cash_transactions"]
-                        bundle["settings"].clear()
-                        bundle["settings"].update(candidate_bundle["settings"])
-                    if changed:
-                        changed_any = True
-                        moved_results.append(result_item)
-                    else:
-                        unchanged_results.append(result_item)
-                except ServiceError as exc:
-                    errors.append(
-                        {
-                            "card_id": card_id,
-                            "code": exc.code,
-                            "message": exc.message,
-                            "details": exc.details,
-                        }
-                    )
-
-            failed_card_ids = {item["card_id"] for item in errors}
-            numbering_changed = self._synchronize_repair_order_numbers(
-                cards, exclude_card_ids=failed_card_ids
-            )
-            serialized_at = utc_now()
-
-            def serialize_result(item: dict[str, Any]) -> dict[str, Any]:
-                final_card = self._find_card(cards, item["card_id"])
-                serialized = (
-                    self._manager_card_item(
-                        final_card,
-                        column_labels,
-                        now=serialized_at,
-                        viewer_username=actor_name,
-                    )
-                    if response_mode == "compact"
-                    else self._serialize_card(
-                        final_card,
-                        events,
-                        column_labels=column_labels,
-                        viewer_username=actor_name,
-                    )
-                )
-                serialized["bulk_move"] = item["bulk_move"]
-                return serialized
-
-            moved_cards = [serialize_result(item) for item in moved_results]
-            unchanged_cards = [serialize_result(item) for item in unchanged_results]
-            if changed_any or ready_column_changed or numbering_changed:
-                self._save_bundle(bundle, columns=columns, cards=cards, events=events)
-
-            self._logger.info(
-                "bulk_move_cards count=%s moved=%s unchanged=%s errors=%s column=%s actor=%s source=%s",
-                len(normalized_card_ids),
-                len(moved_cards),
-                len(unchanged_cards),
-                len(errors),
-                next_column,
-                actor_name,
-                source,
-            )
-            return {
-                "column": next_column,
-                "moved_cards": moved_cards,
-                "unchanged_cards": unchanged_cards,
-                "errors": errors,
-                "meta": {
-                    "requested": len(normalized_card_ids),
-                    "moved": len(moved_cards),
-                    "unchanged": len(unchanged_cards),
-                    "errors": len(errors),
-                    "partial_failure": bool(errors),
-                    "warnings": warnings,
-                    "response_mode": response_mode,
-                    "verification": {
-                        "target_column": next_column,
-                        "moved_card_ids": [card["id"] for card in moved_cards],
-                        "errors": len(errors),
-                    },
-                },
             }
 
     def mark_card_ready(self, payload: dict | None = None) -> dict:
@@ -5406,6 +5190,29 @@ class CardService(
                 )
         payload["column_label"] = (column_labels or {}).get(card.column, card.column)
         return payload
+
+    def _response_card(
+        self,
+        card: Card,
+        events: list[AuditEvent],
+        column_labels: dict[str, str],
+        actor_name: str,
+        response_mode: str,
+        *,
+        include_removed_attachments: bool = False,
+        now: datetime | None = None,
+    ) -> dict:
+        if response_mode == "compact":
+            return self._manager_card_item(
+                card, column_labels, now=now or utc_now(), viewer_username=actor_name
+            )
+        return self._serialize_card(
+            card,
+            events,
+            column_labels=column_labels,
+            include_removed_attachments=include_removed_attachments,
+            viewer_username=actor_name,
+        )
 
     def _serialize_sticky(self, sticky: StickyNote) -> dict:
         return sticky.to_dict()
@@ -6065,16 +5872,7 @@ class CardService(
         action: str,
     ) -> dict:
         column_labels = self._column_labels(bundle["columns"])
-        card_payload = (
-            self._manager_card_item(card, column_labels, now=utc_now(), viewer_username=actor_name)
-            if response_mode == "compact"
-            else self._serialize_card(
-                card,
-                events,
-                column_labels=column_labels,
-                viewer_username=actor_name,
-            )
-        )
+        card_payload = self._response_card(card, events, column_labels, actor_name, response_mode)
         return {
             "card": card_payload,
             "meta": {
