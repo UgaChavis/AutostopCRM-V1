@@ -155,3 +155,36 @@ class BulkMoveAtomicityTests(CardServiceCase):
         self.assertEqual(failed_after, failed_before)
         self.assertEqual(failed_after["repair_order"]["number"], "")
         self.assertEqual(successful_after.column, ready_column_id)
+
+    def test_bulk_move_cards_all_failed_does_not_number_an_unrelated_order(self) -> None:
+        unrelated = self.service.create_card(
+            {"vehicle": "UNRELATED", "title": "Existing order", "deadline": {"hours": 2}}
+        )
+        injected = self.store.read_bundle()
+        unrelated_model = next(
+            card for card in injected["cards"] if card.id == unrelated["card"]["id"]
+        )
+        unrelated_model.repair_order = RepairOrder.from_dict(
+            {"client": "Unrelated client", "status": "open", "number": ""}
+        )
+        self._write_bundle(injected)
+        before = self.store.read_bundle()
+
+        result = self.service.bulk_move_cards(
+            {
+                "card_ids": ["missing-card"],
+                "column": "in_progress",
+                "actor_name": "BULK TEST",
+                "source": "api",
+            }
+        )
+
+        self.assertEqual(result["meta"]["moved"], 0)
+        self.assertEqual(result["meta"]["errors"], 1)
+        self.assertEqual(result["errors"][0]["code"], "not_found")
+        after = self.store.read_bundle()
+        self.assertEqual(
+            self._stored_card(after, unrelated["card"]["id"]),
+            self._stored_card(before, unrelated["card"]["id"]),
+        )
+        self.assertEqual(len(after["events"]), len(before["events"]))

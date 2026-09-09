@@ -132,8 +132,10 @@ class CardServiceBulkMixin:
                         }
                     )
 
-            numbering_changed = self._synchronize_repair_order_numbers(
-                cards, exclude_card_ids={item["card_id"] for item in errors}
+            moved_card_ids = {item[0] for item in moved_results}
+            numbering_changed = bool(moved_card_ids) and self._synchronize_repair_order_numbers(
+                cards,
+                exclude_card_ids={card.id for card in cards if card.id not in moved_card_ids},
             )
             serialized_at = utc_now()
             cards_by_id = {card.id: card for card in cards}
