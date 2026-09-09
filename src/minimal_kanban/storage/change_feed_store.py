@@ -1341,27 +1341,27 @@ class ChangeFeedStore:
             "high_water": int(ChangeFeedStore._metadata(connection, "high_water")),
         }
 
-    def _secret(self) -> bytes:
-        with self._connection() as connection:
-            encoded = self._metadata(connection, "cursor_secret")
+    @classmethod
+    def _secret(cls, connection: sqlite3.Connection) -> bytes:
+        encoded = cls._metadata(connection, "cursor_secret")
         try:
             return base64.urlsafe_b64decode(encoded.encode("ascii"))
         except (ValueError, UnicodeEncodeError) as exc:
             raise RuntimeError("Change-feed cursor secret is corrupted.") from exc
 
-    def _encode_token(self, payload: Mapping[str, Any]) -> str:
+    @staticmethod
+    def _encode_token(payload: Mapping[str, Any], *, secret: bytes) -> str:
         raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         body = base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
         signature = (
-            base64.urlsafe_b64encode(
-                hmac.digest(self._secret(), body.encode("ascii"), hashlib.sha256)[:18]
-            )
+            base64.urlsafe_b64encode(hmac.digest(secret, body.encode("ascii"), hashlib.sha256)[:18])
             .rstrip(b"=")
             .decode("ascii")
         )
         return f"{body}.{signature}"
 
-    def _decode_token(self, token: object, *, kind: str) -> dict[str, Any]:
+    @staticmethod
+    def _decode_token(token: object, *, kind: str, secret: bytes) -> dict[str, Any]:
         raw_token = str(token or "").strip()
         code = "invalid_cursor" if kind == "page" else "invalid_ack"
         if not raw_token or len(raw_token) > CHANGE_FEED_TOKEN_MAX_LENGTH:
@@ -1370,7 +1370,7 @@ class ChangeFeedStore:
             body, supplied_signature = raw_token.split(".", 1)
             expected_signature = (
                 base64.urlsafe_b64encode(
-                    hmac.digest(self._secret(), body.encode("ascii"), hashlib.sha256)[:18]
+                    hmac.digest(secret, body.encode("ascii"), hashlib.sha256)[:18]
                 )
                 .rstrip(b"=")
                 .decode("ascii")
@@ -1453,8 +1453,13 @@ class ChangeFeedStore:
             raise ChangeFeedProtocolError(
                 "invalid_limit", f"limit must be between 1 and {CHANGE_FEED_PAGE_MAX}.", 400
             )
-        decoded = self._decode_token(cursor, kind="page") if cursor is not None else None
         with self._transaction(immediate=True) as connection:
+            secret = self._secret(connection)
+            decoded = (
+                self._decode_token(cursor, kind="page", secret=secret)
+                if cursor is not None
+                else None
+            )
             generation = self._metadata(connection, "generation")
             acked_sequence = self._ensure_consumer(connection, consumer)
             high_water = int(self._metadata(connection, "high_water"))
@@ -1533,7 +1538,8 @@ class ChangeFeedStore:
                         "after": after_sequence,
                         "window": window_high_water,
                         "limit": limit,
-                    }
+                    },
+                    secret=secret,
                 )
                 ack_token = self._encode_token(
                     {
@@ -1543,7 +1549,8 @@ class ChangeFeedStore:
                         "start": events[0]["sequence"],
                         "through": through_sequence,
                         "window": window_high_water,
-                    }
+                    },
+                    secret=secret,
                 )
                 if not caught_up:
                     next_cursor = self._encode_token(
@@ -1554,7 +1561,8 @@ class ChangeFeedStore:
                             "after": through_sequence,
                             "window": window_high_water,
                             "limit": limit,
-                        }
+                        },
+                        secret=secret,
                     )
             return {
                 "generation": generation,
@@ -1573,8 +1581,9 @@ class ChangeFeedStore:
 
     def acknowledge(self, consumer_id: object, ack_token: object) -> dict[str, Any]:
         consumer = _validated_consumer_id(consumer_id)
-        decoded = self._decode_token(ack_token, kind="ack")
         with self._transaction(immediate=True) as connection:
+            secret = self._secret(connection)
+            decoded = self._decode_token(ack_token, kind="ack", secret=secret)
             generation = self._metadata(connection, "generation")
             token_generation = str(decoded.get("generation") or "")
             if not hmac.compare_digest(token_generation, generation):

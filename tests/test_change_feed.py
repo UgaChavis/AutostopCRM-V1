@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -25,6 +26,7 @@ from minimal_kanban.services.change_feed_service import ChangeFeedService  # noq
 from minimal_kanban.services.errors import ServiceError  # noqa: E402
 from minimal_kanban.storage.change_feed_store import (  # noqa: E402
     CHANGE_FEED_PAGE_MAX,
+    ChangeFeedProtocolError,
     ChangeFeedStore,
 )
 from minimal_kanban.storage.json_store import JsonStore  # noqa: E402
@@ -370,6 +372,69 @@ class ChangeFeedDeliveryContractTests(ChangeFeedTestCase):
         self.assertTrue(final_ack["delivery_complete"])
         next_delivery = self.feed.read({"consumer_id": "owner"})
         self.assertEqual(["event-3"], [event["event_id"] for event in next_delivery["events"]])
+
+    def test_tokens_share_one_connection_and_observe_a_restored_secret(self) -> None:
+        self.append_event("event-1")
+        self.append_event("event-2")
+        store = self.store.change_feed_store
+        connect_modes: list[bool] = []
+        original_connect = store._connect
+
+        def traced_connect(*, durable: bool = True):
+            connect_modes.append(durable)
+            return original_connect(durable=durable)
+
+        with patch.object(store, "_connect", side_effect=traced_connect):
+            first = store.read_page("owner", limit=1)
+            self.assertEqual([True], connect_modes)
+
+            replay = store.read_page("owner", cursor=first["replay_cursor"], limit=25)
+            self.assertEqual([True, True], connect_modes)
+            self.assertEqual(first, replay)
+
+            second = store.read_page("owner", cursor=first["next_cursor"], limit=1)
+            self.assertEqual([True, True, True], connect_modes)
+            first_ack = store.acknowledge("owner", first["ack"])
+            self.assertEqual([True, True, True, True], connect_modes)
+
+        self.assertEqual([1], [event["sequence"] for event in first["events"]])
+        self.assertEqual([2], [event["sequence"] for event in second["events"]])
+        self.assertFalse(first_ack["delivery_complete"])
+
+        restored_secret = base64.urlsafe_b64encode(b"restored-change-feed-secret-0001").decode(
+            "ascii"
+        )
+        with store._transaction(immediate=True) as connection:
+            store._set_metadata(connection, "cursor_secret", restored_secret)
+
+        connect_modes.clear()
+        with patch.object(store, "_connect", side_effect=traced_connect):
+            with self.assertRaises(ChangeFeedProtocolError) as stale_ack:
+                store.acknowledge("owner", second["ack"])
+            self.assertEqual("invalid_ack", stale_ack.exception.code)
+            self.assertEqual([True], connect_modes)
+
+            refreshed = store.read_page("owner", limit=1)
+            self.assertEqual([True, True], connect_modes)
+        self.assertEqual([2], [event["sequence"] for event in refreshed["events"]])
+        self.assertNotEqual(second["ack"], refreshed["ack"])
+
+        restarted = ChangeFeedStore(store.path)
+        restarted_connect_modes: list[bool] = []
+        restarted_connect = restarted._connect
+
+        def traced_restarted_connect(*, durable: bool = True):
+            restarted_connect_modes.append(durable)
+            return restarted_connect(durable=durable)
+
+        with patch.object(restarted, "_connect", side_effect=traced_restarted_connect):
+            restarted_replay = restarted.read_page(
+                "owner", cursor=refreshed["replay_cursor"], limit=25
+            )
+            final_ack = restarted.acknowledge("owner", refreshed["ack"])
+        self.assertEqual([True, True], restarted_connect_modes)
+        self.assertEqual(refreshed, restarted_replay)
+        self.assertTrue(final_ack["delivery_complete"])
 
     def test_ack_is_ordered_idempotent_and_final_page_closes_delivery(self) -> None:
         self.append_event("event-1")
