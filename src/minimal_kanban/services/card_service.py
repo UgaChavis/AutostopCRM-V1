@@ -1433,7 +1433,10 @@ class CardService(
                 self._save_bundle(
                     bundle, columns=bundle["columns"], cards=cards, events=bundle["events"]
                 )
-            self._cleanup_repair_orders_directory(cards)
+            try:
+                self._cleanup_repair_orders_directory(cards)
+            except Exception:
+                self._logger.exception("repair_order_directory_cleanup_failed")
             ranked_cards = [
                 card
                 for card in sorted(cards, key=self._repair_order_sort_key, reverse=True)

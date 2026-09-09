@@ -192,6 +192,26 @@ class SaveIsolationTests(unittest.TestCase):
         self.assertEqual(original.repair_order.number, "")
         self.assertEqual((self.root / "state.json").read_bytes(), before)
 
+    def test_legacy_order_number_commit_survives_directory_cleanup_failure(self):
+        card_id = self.create_order()
+        original = self.store.read_bundle()["cards"][0]
+        original.repair_order.number = ""
+
+        with (
+            patch.object(
+                self.service,
+                "_cleanup_repair_orders_directory",
+                side_effect=PermissionError("directory cleanup denied"),
+            ),
+            patch.object(self.service._logger, "exception") as log_exception,
+        ):
+            listed = self.service.list_repair_orders({"card_id": card_id})
+
+        persisted = next(card for card in self.persisted()["cards"] if card.id == card_id)
+        self.assertEqual(listed["repair_orders"][0]["number"], persisted.repair_order.number)
+        self.assertTrue(persisted.repair_order.number)
+        log_exception.assert_called_once_with("repair_order_directory_cleanup_failed")
+
     def test_move_reuses_unmodified_ledger_and_stock_objects(self):
         card_id = self.create_order()
         cashbox_id = self.service.create_cashbox({"name": "Synthetic cash"})["cashbox"]["id"]
