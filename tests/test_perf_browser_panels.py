@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -252,12 +253,16 @@ class PerfBrowserPanelsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sample["request_count"], 1)
         self.assertEqual(sample["payload_bytes"], 13)
         self.assertEqual(sample["server_timing"], ["app;dur=3, leak"])
-        self.assertEqual(
-            [item["path"] for item in sample["network_responses"]],
-            ["/api/render_repair_order"],
-        )
+        self.assertEqual(sample["network_paths"], ["/api/render_repair_order"])
+        self.assertEqual(sample["network_resource_types"], [""])
+        self.assertEqual(sample["network_started_phases"], ["action"])
+        self.assertEqual(sample["network_bytes"], [13])
         self.assertNotIn("cannot leak", repr(sample))
         self.assertNotIn("secret-header", repr(sample))
+        encoded = self.module.perf.serialize_report({"series": [{"rows": [{"samples": [sample]}]}]})
+        serialized_sample = json.loads(encoded)["series"][0]["rows"][0]["samples"][0]
+        self.assertEqual(serialized_sample["network_paths"], ["/api/render_repair_order"])
+        self.assertIsInstance(serialized_sample["network_response_headers_ms"], list)
 
     def test_summary_retains_individual_samples_for_independent_p95(self) -> None:
         samples = [{"duration_ms": n, "js_decoded_bytes": 1024} for n in range(1, 21)]

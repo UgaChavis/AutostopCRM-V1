@@ -294,6 +294,22 @@ def safe_network_response(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def safe_network_metrics(records: list[dict[str, Any]]) -> dict[str, list[Any]]:
+    """Use parallel primitive arrays so bounded report serialization stays structured."""
+    safe_records = [safe_network_response(record) for record in records]
+    return {
+        "network_paths": [record["path"] for record in safe_records],
+        "network_resource_types": [record["resource_type"] for record in safe_records],
+        "network_started_phases": [record["started_phase"] for record in safe_records],
+        "network_response_phases": [record["response_phase"] for record in safe_records],
+        "network_finish_phases": [record["finish_phase"] for record in safe_records],
+        "network_response_headers_ms": [record["response_headers_ms"] for record in safe_records],
+        "network_finished_ms": [record["finished_ms"] for record in safe_records],
+        "network_bytes": [record["bytes"] for record in safe_records],
+        "network_statuses": [record["status"] for record in safe_records],
+    }
+
+
 async def sample_action(
     page: Any,
     scenario: str,
@@ -325,6 +341,15 @@ async def sample_action(
         for item in responses[response_start:]
         if activity is None or item.get("started_phase") == "action"
     ]
+    network_metrics = safe_network_metrics(
+        [
+            item
+            for item in activity.network_responses[network_start:]
+            if item.get("started_phase") == "action"
+        ]
+        if activity is not None
+        else []
+    )
     sample = {
         "duration_ms": row["p50_ms"],
         "request_count": (
@@ -344,15 +369,7 @@ async def sample_action(
             if activity is not None
             else row["server_timing"]
         ),
-        "network_responses": (
-            [
-                safe_network_response(item)
-                for item in activity.network_responses[network_start:]
-                if item.get("started_phase") == "action"
-            ]
-            if activity is not None
-            else []
-        ),
+        **network_metrics,
         **row["resources"],
     }
     sample.update(
