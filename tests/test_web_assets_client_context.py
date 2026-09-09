@@ -309,6 +309,7 @@ const state = {fullCardCache:new Map(),cardFetchInFlight:new Map(),viewerStateGe
 let fetches=0;
 async function api() {fetches++; return {card:{id:'archive',updated_at:'new'}};}
 function applyCardSeenSuppression(card) {return card;}
+function repairOrderNeedsVerification() {return false;}
 """
             + cache
             + """
