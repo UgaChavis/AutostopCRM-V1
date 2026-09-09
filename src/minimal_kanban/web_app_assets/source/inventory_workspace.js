@@ -557,16 +557,20 @@
       }
     }
 
-    function handleInventorySearchInput() {
-      state.inventoryQuery = String(els.inventorySearchInput?.value || '').trim();
+    function scheduleInventorySearch(input, timerKey) {
+      state.inventoryQuery = String(input?.value || '').trim();
       inventoryAsyncContext('items');
       const context = inventoryAsyncContext('search');
-      if (state.inventorySearchTimer) window.clearTimeout(state.inventorySearchTimer);
-      state.inventorySearchTimer = window.setTimeout(() => {
+      if (state[timerKey]) window.clearTimeout(state[timerKey]);
+      state[timerKey] = window.setTimeout(() => {
         if (!context.isCurrent()) return;
-        state.inventorySearchTimer = null;
+        state[timerKey] = null;
         loadInventoryItems(false, { query: state.inventoryQuery });
       }, 250);
+    }
+
+    function handleInventorySearchInput() {
+      scheduleInventorySearch(els.inventorySearchInput, 'inventorySearchTimer');
     }
 
     function handleInventoryItemsClick(event) {
@@ -592,15 +596,7 @@
     }
 
     function handleMobileInventorySearchInput() {
-      state.inventoryQuery = String(els.mobileInventorySearchInput?.value || '').trim();
-      inventoryAsyncContext('items');
-      const context = inventoryAsyncContext('search');
-      if (state.mobileInventorySearchTimer) window.clearTimeout(state.mobileInventorySearchTimer);
-      state.mobileInventorySearchTimer = window.setTimeout(() => {
-        if (!context.isCurrent()) return;
-        state.mobileInventorySearchTimer = null;
-        loadInventoryItems(false, { query: state.inventoryQuery });
-      }, 250);
+      scheduleInventorySearch(els.mobileInventorySearchInput, 'mobileInventorySearchTimer');
     }
 
     function handleMobileInventoryItemsClick(event) {

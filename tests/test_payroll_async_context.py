@@ -42,7 +42,6 @@ function fixture() {
   }
   Object.assign(context, {
     renderEmployeeSalaryModal:()=>renders.push('salary'),
-    renderEmployeeSalaryReportModal:()=>renders.push('report'),
     renderEmployeesWorkspace:()=>renders.push('workspace'),
     renderMobileEmployeesPanel:()=>renders.push('mobile'),
     refreshRepairOrderEmployeeSelects:()=>renders.push('selects'),
@@ -107,19 +106,16 @@ for (const [name,steps] of Object.entries(handlers)) {
 }
 """)
 
-    def test_sheet_and_report_reject_older_same_employee_requests_and_months(self) -> None:
+    def test_sheet_rejects_older_same_employee_requests_and_months(self) -> None:
         self.run_node(r"""
-for(const name of ['loadEmployeeSalarySheet','loadEmployeeSalaryReport']) {
-  const f=fixture(), first=f.context[name]('a',{openModal:true}), second=f.context[name]('a',{openModal:true});
-  f.requests[1].resolve({marker:'new'}); await second;
-  f.requests[0].resolve({marker:'old'}); await first;
-  const key=name==='loadEmployeeSalarySheet'?'employeeSalarySheet':'employeeSalaryReport';
-  assert.equal(f.state[key].marker,'new',name+': same-ID stale response');
-}
-const f=fixture(), report=f.context.loadEmployeeSalaryReport('a');
-f.state.payrollMonth='2026-10'; f.els.employeesMonthInput.value='2026-10';
-f.requests[0].resolve({marker:'old-month'}); await report;
-assert.equal(f.state.employeeSalaryReport,null,'report from an older month applied');
+const f=fixture(), first=f.context.loadEmployeeSalarySheet('a',{openModal:true}), second=f.context.loadEmployeeSalarySheet('a',{openModal:true});
+f.requests[1].resolve({marker:'new'}); await second;
+f.requests[0].resolve({marker:'old'}); await first;
+assert.equal(f.state.employeeSalarySheet.marker,'new','same-ID stale response');
+const g=fixture(), originalSheet=g.state.employeeSalarySheet, sheet=g.context.loadEmployeeSalarySheet('a');
+g.state.payrollMonth='2026-10'; g.els.employeesMonthInput.value='2026-10';
+g.requests[0].resolve({marker:'old-month'}); await sheet;
+assert.equal(g.state.employeeSalarySheet,originalSheet,'sheet from an older month applied');
 """)
 
     def test_salary_dialog_load_errors_and_deferred_focus_do_not_cross_viewers(self) -> None:

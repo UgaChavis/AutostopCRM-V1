@@ -919,69 +919,8 @@
       closeEmployeeSalaryDialog();
     }
 
-    function selectedEmployeeSalaryReportRecord() {
-      return (Array.isArray(state.employees) ? state.employees : []).find((item) => item.id === state.activeEmployeeSalaryReportId) || null;
-    }
-
     function selectedEmployeeSalaryReconciliationReportRecord() {
       return (Array.isArray(state.employees) ? state.employees : []).find((item) => item.id === state.activeEmployeeSalaryReconciliationReportId) || null;
-    }
-
-    function currentEmployeeSalaryReportMonth() {
-      const value = String(els.employeesMonthInput?.value || state.payrollMonth || currentPayrollMonthValue()).trim();
-      return /^\d{4}-\d{2}$/.test(value) ? value : currentPayrollMonthValue();
-    }
-
-    function renderEmployeeSalaryReportModal() {
-      const report = state.employeeSalaryReport;
-      const employee = selectedEmployeeSalaryReportRecord();
-      if (!els.employeeSalaryReportModal) return;
-      if (els.employeeSalaryReportTitle) {
-        els.employeeSalaryReportTitle.textContent = employee ? String(employee.name || 'СОТРУДНИК').toUpperCase() : 'СОТРУДНИК';
-      }
-      if (els.employeeSalaryReportMeta) {
-        if (!report) {
-          els.employeeSalaryReportMeta.textContent = 'ЗАГРУЗКА ОТЧЁТА...';
-        } else {
-          const periodLabel = String(report?.period?.label || report?.meta?.month || currentEmployeeSalaryReportMonth()).trim();
-          const orderCount = finiteNonNegativeNumber(report?.totals?.repair_order_count);
-          const workCount = finiteNonNegativeNumber(report?.totals?.work_count);
-          const materialCount = finiteNonNegativeNumber(report?.totals?.material_count);
-          els.employeeSalaryReportMeta.textContent = 'ПЕРИОД: ' + periodLabel + ' · ЗН: ' + String(orderCount) + ' · РАБОТ: ' + String(workCount) + ' · МАТ.: ' + String(materialCount);
-        }
-      }
-      if (els.employeeSalaryReportText) {
-        els.employeeSalaryReportText.textContent = report ? String(report.text || report.markdown || 'ОТЧЁТ ПУСТ.') : 'ЗАГРУЗКА...';
-      }
-    }
-
-    async function loadEmployeeSalaryReport(employeeId, { openModal = false } = {}) {
-      const requestedId = String(employeeId || '').trim();
-      if (!requestedId) return null;
-      const month = currentEmployeeSalaryReportMonth();
-      state.activeEmployeeSalaryReportId = requestedId;
-      const isCurrent = employeeAsyncContext('employeeSalaryReportRequest', 'activeEmployeeSalaryReportId');
-      state.employeeSalaryReport = null;
-      renderEmployeeSalaryReportModal();
-      maybeOpenModal(els.employeeSalaryReportModal, openModal);
-      try {
-        const data = await api('/api/get_employee_salary_report?employee_id=' + encodeURIComponent(requestedId) + '&month=' + encodeURIComponent(month));
-        if (!isCurrent() || month !== currentEmployeeSalaryReportMonth()) return null;
-        state.employeeSalaryReport = data || null;
-        renderEmployeeSalaryReportModal();
-        return data;
-      } catch (error) {
-        if (isCurrent() && month === currentEmployeeSalaryReportMonth()) throw error;
-        return null;
-      }
-    }
-
-    function closeEmployeeSalaryReportModal() {
-      state.employeeSalaryReportRequest = null;
-      popModal('employee-salary-report');
-      state.activeEmployeeSalaryReportId = '';
-      state.employeeSalaryReport = null;
-      renderEmployeeSalaryReportModal();
     }
 
     function renderEmployeeSalaryReconciliationPeriodDialog() {
@@ -1022,24 +961,6 @@
       }
       const opened = await openEmployeeSalaryReport(requestedId);
       if (opened) closeEmployeeSalaryReconciliationPeriodDialog();
-    }
-
-    async function downloadEmployeeSalaryReport() {
-      const report = state.employeeSalaryReport;
-      if (!report) return;
-      try {
-        const markdown = String(report.markdown || report.text || '').trim();
-        if (!markdown) {
-          setStatus('ОТЧЕТ ПУСТ.', true);
-          return;
-        }
-        const fileName = String(report.file_name || 'employee-accrual-report.md').replace(/\.txt$/i, '.md');
-        const blob = new Blob([markdown + '\n'], { type: 'text/markdown;charset=utf-8' });
-        triggerBlobDownload(blob, fileName);
-        setStatus('ОТЧЁТ СКАЧАН.', false);
-      } catch (error) {
-        setStatus(String(error?.message || 'НЕ УДАЛОСЬ СКАЧАТЬ ОТЧЁТ.'), true);
-      }
     }
 
     async function loadEmployeeSalaryReconciliation(employeeId) {
@@ -1686,9 +1607,6 @@
           state.activeEmployeeSalaryId = '';
           state.employeeSalarySheet = null;
           closeEmployeeSalaryModal();
-        }
-        if (String(state.activeEmployeeSalaryReportId || '') === String(employee.id || '')) {
-          closeEmployeeSalaryReportModal();
         }
         renderEmployeesWorkspace();
         refreshRepairOrderEmployeeSelects();

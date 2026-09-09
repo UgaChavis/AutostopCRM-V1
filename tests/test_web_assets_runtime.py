@@ -112,9 +112,12 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             function repairOrderCardDraft(_card, order) {{ return order; }}
             function pushModal() {{}}
             function applyRepairOrderToForm(order) {{ forms.push(order.number); }}
+            function syncRepairOrderEditingState() {{}}
+            function syncRepairOrderCloseButtonState() {{}}
             async function loadEmployeesReference() {{ return {{ employees: [] }}; }}
             async function api() {{ return {{ repair_order: latest }}; }}
             function repairOrderResponseCard(data) {{ return {{ id: 'card', repair_order: data.repair_order }}; }}
+            function clearRepairOrderVerificationPending() {{}}
             function applyRepairOrderCardUpdate(card) {{
               state.activeCard = card;
               applyRepairOrderToForm(card.repair_order);
@@ -287,6 +290,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             function setStatus() {{}}
             function clearCardOpenSideEffectTimer() {{}}
             function syncCardSaveDirtyState() {{}}
+            function syncCardFilesMutationState() {{}}
             function perfMeasureAsync(_name, callback) {{ return callback(); }}
             async function persistCardPayload() {{
               if (failSave) throw new Error('SAVE FAILED');
@@ -344,6 +348,9 @@ class WebAssetsRuntimeTests(unittest.TestCase):
               }},
               activeCardIsFull: true,
               mobileCard: null,
+              archiveMutationRequest: null,
+              cardFilesMutationRequest: null,
+              cardSaveInFlight: false,
             }};
             const classes = new Set();
             const els = {{
@@ -362,6 +369,9 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             function repairOrderIsEmptyForArchive() {{ return false; }}
             function normalizeRepairOrderStatus(value) {{ return String(value || '').toLowerCase(); }}
             function repairOrderIsFullyPaid(order) {{ return order?.is_fully_paid === true; }}
+            function repairOrderPaymentNeedsVerification() {{ return false; }}
+            let repairOrderVerificationPending = false;
+            function repairOrderNeedsVerification() {{ return repairOrderVerificationPending; }}
             function repairOrderCardDraft(card, order) {{ return order || card?.repair_order || {{}}; }}
             function applyRepairOrderToForm() {{}}
             function refreshRepairOrderEntry() {{}}
@@ -380,6 +390,19 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             assert.equal(state.activeCard.description, 'Несокращённое описание');
             assert.equal(state.activeCardIsFull, true);
             assert.equal(patchedCard.id, 'card-1');
+
+            for (const lock of ['archiveMutationRequest', 'cardFilesMutationRequest', 'cardSaveInFlight']) {{
+              state[lock] = true;
+              syncCardArchiveAction();
+              assert.equal(els.archiveAction.disabled, true, lock + ' must disable archive');
+              state[lock] = lock === 'cardSaveInFlight' ? false : null;
+            }}
+            repairOrderVerificationPending = true;
+            syncCardArchiveAction();
+            assert.equal(els.archiveAction.disabled, true, 'pending repair-order verification must disable archive');
+            repairOrderVerificationPending = false;
+            syncCardArchiveAction();
+            assert.equal(els.archiveAction.disabled, false);
 
             applyRepairOrderCardUpdate({{
               id: 'card-1',
@@ -500,6 +523,11 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             "function resetViewerScopedState()",
             "function clearOperatorSession(",
         )
+        clear_employees_cashboxes = _source_section(
+            self.source,
+            "function clearEmployeesCashboxesModuleState()",
+            "function syncEmployeesCashboxesAccessUi(",
+        )
         clear_session = _source_section(
             self.source,
             "function clearOperatorSession(",
@@ -516,6 +544,8 @@ class WebAssetsRuntimeTests(unittest.TestCase):
 
             (() => {{
             const clearedTimers = [];
+            const closedModals = [];
+            const CARD_JOURNAL_INITIAL_LIMIT = 50;
             global.window = {{
               clearTimeout(timerId) {{ clearedTimers.push(timerId); }},
               setTimeout,
@@ -535,6 +565,11 @@ class WebAssetsRuntimeTests(unittest.TestCase):
               unreadSeenDeferredTimers: new Map([['card-1', 12]]),
               unreadSeenInFlight: new Set(['card-1']),
               viewerStateGeneration: 0,
+              mobileCardContextGeneration: 4,
+              mobileCardOpenRequest: {{}},
+              mobileCardSaveRequest: {{}},
+              mobileCardFilesRequest: {{}},
+              mobileCardJournalRequest: {{}},
               archiveCards: [{{ id: 'archived-1' }}],
               clients: [{{ id: 'old-client' }}],
               clientsLoaded: true,
@@ -558,17 +593,39 @@ class WebAssetsRuntimeTests(unittest.TestCase):
               payrollReport: {{ meta: {{ month: '2026-01' }} }},
               payrollReportMonth: '2026-01',
               activeEmployeeSalaryId: 'employee-1',
-              activeEmployeeSalaryReportId: 'report-1',
               activeEmployeeSalaryReconciliationReportId: 'reconciliation-1',
               employeeSalarySheet: {{ employee_id: 'employee-1' }},
-              employeeSalaryReport: {{ employee_id: 'employee-1' }},
               activeCard: {{ id: 'card-1' }},
               activeCardIsFull: true,
               editingId: 'card-1',
               mobileCard: {{ id: 'card-1' }},
               mobileCardId: 'card-1',
+              mobileCardCreating: true,
+              mobileCardLoading: true,
+              mobileCardSaving: true,
+              mobileCardFilesBusy: true,
               mobileCardJournalPayload: {{ entries: [] }},
               mobileCardJournalLoadedFor: 'card-1',
+              mobileCardJournalLimit: 999,
+              mobileCardJournalLoading: true,
+              mobileRepairOrderContextGeneration: 7,
+              mobileRepairOrderOpenRequest: {{}},
+              mobileRepairOrderSaveRequest: {{}},
+              mobileRepairOrderCardId: 'repair-card-1',
+              mobileRepairOrderCard: {{ id: 'repair-card-1' }},
+              mobileRepairOrderTab: 'works',
+              mobileRepairOrderLoading: true,
+              mobileRepairOrderSaving: true,
+              repairOrdersLoadTimer: 14,
+              repairOrdersRequestSeq: 9,
+              repairOrdersItems: [{{ card_id: 'repair-card-1' }}],
+              repairOrdersMetaState: {{ status: 'open' }},
+              repairOrdersSearchLoading: true,
+              modalStack: [
+                {{ key: 'repair-orders' }},
+                {{ key: 'repair-order', parentKey: 'repair-orders' }},
+                {{ key: 'operator-profile' }},
+              ],
               cardHydrationSeq: 3,
               cardOpenSideEffectTimer: 13,
               cardOpenSideEffectCardId: 'card-1',
@@ -576,6 +633,13 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             const els = {{
               board: {{ replaceChildren() {{}} }},
               mobileBoardColumns: {{ textContent: '' }},
+              repairOrdersModal: {{ classList: {{ remove(name) {{ closedModals.push(['list', name]); }} }} }},
+              repairOrderModal: {{ classList: {{ remove(name) {{ closedModals.push(['detail', name]); }} }} }},
+              repairOrderPaymentsModal: {{ classList: {{ remove(name) {{ closedModals.push(['payments', name]); }} }} }},
+              repairOrdersList: {{ textContent: 'PRIVATE OLD ROW' }},
+              repairOrdersMeta: {{ textContent: 'PRIVATE OLD META' }},
+              mobileRepairOrdersList: {{ textContent: 'PRIVATE OLD MOBILE ROW' }},
+              repairOrdersSearchInput: {{ value: 'private client' }},
               identityInput: {{ value: 'SECOND', focus() {{}} }},
               identityPassword: {{ value: 'secret', focus() {{}}, select() {{}} }},
               identityModal: {{ classList: {{ contains() {{ return false; }} }} }},
@@ -593,7 +657,15 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             function popModal() {{}}
             function setStatus() {{}}
             function openOperatorLoginModal() {{}}
+            function clearBoardSearchState() {{}}
+            function clearDisplayDashboardImageDrafts() {{}}
+            function resetCardModalState() {{
+              state.activeCard = null;
+              state.activeCardIsFull = false;
+              state.editingId = null;
+            }}
 
+            {clear_employees_cashboxes}
             {reset_helper}
             {clear_session}
 
@@ -608,6 +680,40 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             assert.equal(state.unreadSeenDeferredTimers.size, 0, 'logout must clear deferred seen timers');
             assert.equal(state.unreadSeenInFlight.size, 0, 'logout must clear seen requests');
             assert.equal(state.viewerStateGeneration, 1, 'logout must invalidate stale async work');
+            assert.equal(state.mobileCardContextGeneration, 5);
+            assert.equal(state.mobileCardOpenRequest, null);
+            assert.equal(state.mobileCardSaveRequest, null);
+            assert.equal(state.mobileCardFilesRequest, null);
+            assert.equal(state.mobileCardJournalRequest, null);
+            assert.equal(state.mobileCardId, '');
+            assert.equal(state.mobileCard, null);
+            assert.equal(state.mobileCardCreating, false);
+            assert.equal(state.mobileCardLoading, false);
+            assert.equal(state.mobileCardSaving, false);
+            assert.equal(state.mobileCardFilesBusy, false);
+            assert.equal(state.mobileCardJournalLimit, CARD_JOURNAL_INITIAL_LIMIT);
+            assert.equal(state.mobileCardJournalLoading, false);
+            assert.equal(state.mobileRepairOrderContextGeneration, 8);
+            assert.equal(state.mobileRepairOrderOpenRequest, null);
+            assert.equal(state.mobileRepairOrderSaveRequest, null);
+            assert.equal(state.mobileRepairOrderCardId, '');
+            assert.equal(state.mobileRepairOrderCard, null);
+            assert.equal(state.mobileRepairOrderTab, 'client');
+            assert.equal(state.mobileRepairOrderLoading, false);
+            assert.equal(state.mobileRepairOrderSaving, false);
+            assert.equal(state.repairOrdersRequestSeq, 10);
+            assert.deepEqual(state.repairOrdersItems, []);
+            assert.equal(state.repairOrdersMetaState, null);
+            assert.equal(state.repairOrdersSearchLoading, false);
+            assert.deepEqual(state.modalStack, [{{ key: 'operator-profile' }}]);
+            assert.equal(els.repairOrdersList.textContent, '');
+            assert.equal(els.repairOrdersMeta.textContent, '');
+            assert.equal(els.mobileRepairOrdersList.textContent, '');
+            assert.equal(els.repairOrdersSearchInput.value, '');
+            assert.deepEqual(
+              new Set(closedModals.map((item) => item.join(':'))),
+              new Set(['list:is-open', 'detail:is-open', 'payments:is-open']),
+            );
             assert.deepEqual(state.clients, []);
             assert.equal(state.clientsLoaded, false);
             assert.equal(state.clientsActiveId, '');
@@ -623,11 +729,9 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             assert.equal(state.payrollReport, null);
             assert.equal(state.payrollReportMonth, '');
             assert.equal(state.activeEmployeeSalaryId, '');
-            assert.equal(state.activeEmployeeSalaryReportId, '');
             assert.equal(state.activeEmployeeSalaryReconciliationReportId, '');
             assert.equal(state.employeeSalarySheet, null);
-            assert.equal(state.employeeSalaryReport, null);
-            assert.deepEqual(new Set(clearedTimers), new Set([11, 12, 13]));
+            assert.deepEqual(new Set(clearedTimers), new Set([11, 12, 13, 14]));
             }})();
 
             (async () => {{
@@ -686,6 +790,11 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             "function resetViewerScopedState()",
             "function clearOperatorSession(",
         )
+        clear_employees_cashboxes = _source_section(
+            self.source,
+            "function clearEmployeesCashboxesModuleState()",
+            "function syncEmployeesCashboxesAccessUi(",
+        )
         archive_loader = _source_section(
             self.source,
             "async function loadArchive(",
@@ -694,6 +803,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
         self._run_node(
             f"""
             const assert = require('node:assert/strict');
+            const CARD_JOURNAL_INITIAL_LIMIT = 50;
 
             global.window = {{ clearTimeout, setTimeout }};
             const state = {{
@@ -730,10 +840,8 @@ class WebAssetsRuntimeTests(unittest.TestCase):
               payrollReport: null,
               payrollReportMonth: '',
               activeEmployeeSalaryId: '',
-              activeEmployeeSalaryReportId: '',
               activeEmployeeSalaryReconciliationReportId: '',
               employeeSalarySheet: null,
-              employeeSalaryReport: null,
             }};
             const els = {{
               board: {{ replaceChildren() {{}} }},
@@ -761,7 +869,11 @@ class WebAssetsRuntimeTests(unittest.TestCase):
               requests.push({{ url, promise, resolve, reject }});
               return promise;
             }}
+            function clearBoardSearchState() {{}}
+            function clearDisplayDashboardImageDrafts() {{}}
+            function resetCardModalState() {{}}
 
+            {clear_employees_cashboxes}
             {reset_helper}
             {archive_loader}
 
@@ -915,6 +1027,11 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             "function resetViewerScopedState()",
             "function clearOperatorSession(",
         )
+        clear_employees_cashboxes = _source_section(
+            self.source,
+            "function clearEmployeesCashboxesModuleState()",
+            "function syncEmployeesCashboxesAccessUi(",
+        )
         employee_loaders = _source_section(
             self.source,
             "function applyEmployeesReferenceData",
@@ -923,6 +1040,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
         self._run_node(
             f"""
             const assert = require('node:assert/strict');
+            const CARD_JOURNAL_INITIAL_LIMIT = 50;
 
             global.window = {{ clearTimeout, setTimeout }};
             const state = {{
@@ -959,10 +1077,8 @@ class WebAssetsRuntimeTests(unittest.TestCase):
               payrollReport: null,
               payrollReportMonth: '',
               activeEmployeeSalaryId: '',
-              activeEmployeeSalaryReportId: '',
               activeEmployeeSalaryReconciliationReportId: '',
               employeeSalarySheet: null,
-              employeeSalaryReport: null,
             }};
             const els = {{
               board: {{ replaceChildren() {{}} }},
@@ -982,7 +1098,11 @@ class WebAssetsRuntimeTests(unittest.TestCase):
               requests.push({{ url, promise, resolve, reject }});
               return promise;
             }}
+            function clearBoardSearchState() {{}}
+            function clearDisplayDashboardImageDrafts() {{}}
+            function resetCardModalState() {{}}
 
+            {clear_employees_cashboxes}
             {reset_helper}
             {employee_loaders}
 
@@ -1495,6 +1615,9 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             function setStatus(message, isError) {{ statuses.push({{ message, isError }}); }}
             async function refreshOperatorAdminSurfaces() {{}}
             function syncOperatorAdminSalaryResetPermission() {{}}
+            function captureViewerRequestContext() {{
+              return {{ actorName: 'ADMIN', isCurrent() {{ return true; }} }};
+            }}
 
             {save_flow}
 
@@ -1707,6 +1830,8 @@ class WebAssetsRuntimeTests(unittest.TestCase):
               return new Promise((resolve) => requestResolvers.push(resolve));
             }}
             function applyCardSeenSuppression(card) {{ return card; }}
+            function repairOrderPaymentNeedsVerification() {{ return false; }}
+            function repairOrderNeedsVerification() {{ return false; }}
             function cacheFullCard(card) {{
               state.fullCardCache.set(card.id, card);
               return card;

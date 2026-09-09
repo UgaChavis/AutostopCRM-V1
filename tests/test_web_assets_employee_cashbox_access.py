@@ -275,7 +275,7 @@ class EmployeeCashboxAccessWebAssetTests(unittest.TestCase):
         self.assertIn("return '';", balance)
         selector = _asset_section(
             "function renderMobileRepairOrderPaymentCashboxes(",
-            "async function ensureMobileRepairOrderPaymentCashboxes()",
+            "async function ensureMobileRepairOrderPaymentCashboxes(isCurrent = () => true)",
         )
         self.assertIn("const label = balance ? (name + ' · ' + balance) : name;", selector)
 

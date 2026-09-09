@@ -770,11 +770,6 @@
     document.addEventListener('error', handleAttachmentThumbnailError, true);
     els.repairOrdersList.addEventListener('click', handleRepairOrdersListClick);
     els.repairOrdersList.addEventListener('keydown', handleRepairOrdersListKeydown);
-    els.stickyModal.addEventListener('click', handleStickyModalOverlayClick);
-    els.repairOrderModal.addEventListener('click', handleRepairOrderModalOverlayClick);
-    els.operatorProfileModal.addEventListener('click', handleOperatorProfileModalOverlayClick);
-    els.operatorAdminModal.addEventListener('click', handleOperatorAdminModalOverlayClick);
-
     const CARD_VEHICLE_FIELD_LABEL = 'Марка / модель';
     const CARD_TITLE_FIELD_LABEL = 'Краткая суть';
     const CARD_TITLE_REQUIRED_MESSAGE = 'УКАЖИ КРАТКУЮ СУТЬ КАРТОЧКИ.';
@@ -859,6 +854,7 @@
 
     async function saveCard() {
       if (state.cardSaveInFlight) return state.cardSavePromise || false;
+      if (state.cardFilesMutationRequest) return setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ С ФАЙЛАМИ.', true);
       if (state.editingId && !state.activeCardIsFull) return setStatus('ДОЖДИТЕСЬ ЗАГРУЗКИ КАРТОЧКИ.', true);
       const payload = currentCardPayload();
       if (!payload.title) return setStatus(CARD_TITLE_REQUIRED_MESSAGE, true);
@@ -875,6 +871,7 @@
       const deferredSeenCardId = cancelDeferredCardSeen(state.editingId) ? state.editingId : '';
       state.cardSaveInFlight = true;
       if (els.saveCardButton) els.saveCardButton.disabled = true;
+      syncCardFilesMutationState();
       syncCardSaveDirtyState();
       let saveSucceeded = false;
       let saveChanged = false;
@@ -902,8 +899,7 @@
             const shouldCloseAfterSave = current && saveSucceeded && els.cardModal?.classList.contains('is-open');
             state.cardSaveInFlight = false;
             state.cardSavePromise = null;
-            state.cardCloseAfterSave = false;
-            if (els.saveCardButton) els.saveCardButton.disabled = false;
+            syncCardFilesMutationState();
             syncCardSaveDirtyState();
             if (shouldCloseAfterSave) closeCardModal({ force: true });
             if (current && deferredSeenCardId && (!saveSucceeded || !saveChanged)) {

@@ -2039,37 +2039,8 @@
     .employees-salary-dialog[hidden] {
       display: none;
     }
-    .dialog--salary-report {
-      width: min(1120px, 100%);
-    }
     .dialog--salary-report-period {
       width: min(460px, calc(100vw - 28px));
-    }
-    .employee-salary-report {
-      display: grid;
-      gap: 8px;
-      min-height: 0;
-    }
-    .employee-salary-report__meta {
-      color: rgba(231, 226, 193, 0.72);
-      font-size: 11px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-    .employee-salary-report__text {
-      margin: 0;
-      max-height: min(68vh, 720px);
-      overflow: auto;
-      padding: 14px 16px;
-      border: 1px solid rgba(164, 173, 138, 0.18);
-      background: rgba(8, 12, 10, 0.68);
-      color: var(--text);
-      font-family: var(--mono);
-      font-size: 13px;
-      line-height: 1.48;
-      font-variant-numeric: tabular-nums;
-      white-space: pre-wrap;
-      word-break: break-word;
     }
     @media (max-width: 1160px) {
       .employees-layout {
@@ -2089,10 +2060,6 @@
       .employees-card-actions {
         width: 100%;
         justify-content: space-between;
-      }
-      .employee-salary-report__text {
-        max-height: min(66vh, 680px);
-        padding: 12px;
       }
     }
     .dialog--clients {

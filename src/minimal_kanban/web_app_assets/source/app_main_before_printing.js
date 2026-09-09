@@ -10,7 +10,6 @@
     const CARD_CLIENT_SUGGESTION_LIMIT = 6;
     const BOARD_SEARCH_LIMIT = 16;
     const BOARD_SEARCH_DEBOUNCE_MS = 90;
-    const CASH_JOURNAL_FILTER_DEBOUNCE_MS = 80;
     const CASH_JOURNAL_RENDER_BATCH_SIZE = 250;
     const CASHBOX_TRANSACTION_PAGE_SIZE = 100;
     const CASHBOX_EXPENSE_NOTE_MIN_LENGTH = 10;
@@ -39,6 +38,8 @@
       operatorSessionToken: localStorage.getItem(OPERATOR_SESSION_STORAGE_KEY) || '',
       operatorProfile: null,
       operatorPermissionRefreshPromise: null,
+      operatorLoginRequest: null,
+      operatorAdminRequestSeq: 0,
       employeesCashboxesAccess: false,
       employeesReadAccess: false,
       employeesCashboxesAccessRevision: 0,
@@ -57,6 +58,9 @@
       },
       displayDashboardMessage: null,
       displayDashboardMessageSaving: false,
+      displayDashboardOpenRequest: null,
+      displayDashboardSaveRequest: null,
+      displayDashboardContextGeneration: 0,
       displayDashboardExistingImageIds: [],
       displayDashboardExistingImageUrls: new Map(),
       displayDashboardPendingImages: [],
@@ -84,6 +88,11 @@
         startY: 0,
       },
       mobileExpandedColumns: new Set(),
+      mobileCardContextGeneration: 0,
+      mobileCardOpenRequest: null,
+      mobileCardSaveRequest: null,
+      mobileCardFilesRequest: null,
+      mobileCardJournalRequest: null,
       mobileCardId: '',
       mobileCard: null,
       mobileCardTab: 'overview',
@@ -97,12 +106,17 @@
       mobileCardJournalLoading: false,
       mobileCashboxAction: '',
       mobileInventorySearchTimer: null,
+      mobileRepairOrderContextGeneration: 0,
+      mobileRepairOrderOpenRequest: null,
+      mobileRepairOrderSaveRequest: null,
       mobileRepairOrderCardId: '',
       mobileRepairOrderCard: null,
       mobileRepairOrderTab: 'client',
+      mobileRepairOrderLoading: false,
       mobileRepairOrderSaving: false,
       mobileMoreLoaded: false,
       mobileMoreLoading: false,
+      mobileMoreRequest: null,
       mobileMoreError: '',
       mobileMorePanel: '',
       mobileClientsLoading: false,
@@ -110,10 +124,14 @@
       mobileClientsSearchTimer: null,
       mobileEmployeesLoading: false,
       mobileArchiveLoading: false,
+      mobileArchiveRestoreRequest: null,
       mobileArchiveSearchTimer: null,
       mobileSharedFilesLoading: false,
+      mobileSharedFilesRequest: null,
       mobileSharedFileRenamingId: '',
       stickyDraft: null,
+      stickyMutationRequest: null,
+      stickyEditorGeneration: 0,
       stickyDrag: {
         active: false,
         pointerId: null,
@@ -129,16 +147,18 @@
       archiveQuery: '',
       archiveLoaded: false,
       archiveLoading: null,
+      archiveMutationRequest: null,
       lastSnapshotRevision: '',
       gptWall: null,
       gptWallView: 'board_content',
+      gptWallRequestSeq: 0,
       activeCard: null,
       activeCardIsFull: false,
       editingId: null,
       cardCreateColumnId: '',
       cardSaveInFlight: false,
       cardSavePromise: null,
-      cardCloseAfterSave: false,
+      cardFilesMutationRequest: null,
       cardTimerState: 'inactive',
       cardTimerSaving: false,
       cardTimerTickHandle: null,
@@ -148,19 +168,18 @@
       fullCardCache: new Map(),
       cardFetchInFlight: new Map(),
       cardJournalLoadedFor: '',
+      cardJournalRequest: null,
       cardJournalLimit: CARD_JOURNAL_INITIAL_LIMIT,
       cardFilesRenderedFor: '',
       cardOpenSideEffectTimer: null,
       cardOpenSideEffectCardId: '',
       currentTab: 'overview',
       vehicleProfileDraft: null,
-      vehicleProfileBaseline: null,
       draftTags: [],
       draftTagColor: 'green',
       pollHandle: null,
       refreshInFlight: null,
       viewerStateGeneration: 0,
-      backgroundSnapshotTimer: null,
       boardDragCardId: '',
       boardDragColumnId: '',
       boardDropColumnId: '',
@@ -178,11 +197,17 @@
       repairOrdersSortBy: 'number',
       repairOrdersSortDir: 'desc',
       repairOrdersLoadTimer: null,
+      repairOrdersRequestSeq: 0,
       repairOrdersItems: [],
       repairOrdersMetaState: null,
       repairOrderParentLayer: '',
       repairOrderSaveInFlight: false,
       repairOrderSavePromise: null,
+      repairOrderMutationRequest: null,
+      repairOrderOpenRequest: null,
+      repairOrderPaymentCashboxesRequest: null,
+      repairOrderLoading: false,
+      repairOrderWriteReady: false,
       repairOrderInitialPayloadKey: '',
       repairOrderWorkSalaryRow: null,
       modalStack: [],
@@ -214,12 +239,15 @@
       clientsMetaState: null,
       clientsDraftBaseline: '',
       clientVehicleEditor: null,
+      clientMutationRequest: null,
       sharedFiles: [],
       sharedFilesActiveId: '',
       sharedFilesStorage: null,
       sharedFilesClipboardId: '',
       sharedFilesContextPoint: null,
       sharedFilesDrag: null,
+      sharedFilesRequestSeq: 0,
+      sharedFilesMutationRequest: null,
       clientSuggestTimer: null,
       clientSuggestions: [],
       clientSuggestionProfiles: {},
@@ -276,10 +304,8 @@
       payrollReport: null,
       payrollReportMonth: '',
       activeEmployeeSalaryId: '',
-      activeEmployeeSalaryReportId: '',
       activeEmployeeSalaryReconciliationReportId: '',
       employeeSalarySheet: null,
-      employeeSalaryReport: null,
       employeeSalaryReconciliationPeriodMode: 'days',
       employeeSalaryReconciliationDays: '30',
       employeeSalaryReconciliationDateFrom: '',
@@ -299,6 +325,8 @@
       repairOrderPaymentsUiBound: false,
       repairOrderTags: [],
       repairOrderPayments: [],
+      repairOrderPaymentVerificationPending: '',
+      repairOrderWriteVerificationPending: '',
       repairOrderTagColor: 'green',
       aiCompactContextCache: { signature: '', packet: null },
       agentTaskId: '',
@@ -306,6 +334,10 @@
       cardCleanupPollTimer: null,
       cardCleanupState: 'idle',
       cardCleanupError: '',
+      cardEnrichmentRequest: null,
+      agentTaskContext: null,
+      cardClientMutationRequest: null,
+      cardTimerRequest: null,
       pendingCardClientId: '',
       clientSuggestionFocusIndex: -1,
       clientSuggestionQuery: '',
@@ -320,6 +352,46 @@
         error: '',
       },
     };
+
+    function buildBoardModuleSharedContext(name) {
+      if (name !== 'auxiliary') return {};
+      return {
+        ATTACHMENT_MIME_TO_EXTENSION,
+        DISPLAY_DASHBOARD_MAX_IMAGES,
+        SHARED_FILE_UPLOAD_MAX_SIZE_BYTES,
+        applyArchivedCardPatch,
+        archivedCardsTotal,
+        arrayBufferToBase64,
+        attachmentExtension,
+        attachmentMimeTypeFromExtension,
+        captureViewerRequestContext,
+        cardHeading,
+        clipboardAttachmentName,
+        columnLabelById,
+        downloadAttachment,
+        escapeHtml,
+        filteredArchiveCards,
+        finiteNonNegativeNumber,
+        finiteNumber,
+        formatBytes,
+        formatDate,
+        isModalOpen,
+        loadArchive,
+        maybeOpenModal,
+        normalizeAttachmentMimeType,
+        openMobileCardDetail,
+        popModal,
+        pushModal,
+        refreshSnapshot,
+        renderMobileMore,
+        renderMobileMoreModules,
+        requireOperatorSession,
+        setMobileView,
+        stripDescriptionFormatting,
+        syncMobileMorePanelChrome,
+        withAccessToken,
+      };
+    }
 
     const SNAPSHOT_POLL_INTERVAL_MS = 8000;
     const SNAPSHOT_POLL_MODAL_INTERVAL_MS = 15000;
@@ -361,18 +433,6 @@
     ];
     const CLIENT_PHONE_LIMIT = 3;
     const CLIENT_EMAIL_LIMIT = 3;
-    const VEHICLE_COMPLETION_LABELS = {
-      manually_entered: 'ручной ввод',
-      partially_autofilled: 'частично автозаполнено',
-      mostly_autofilled: 'почти заполнено',
-      verified: 'проверено',
-    };
-    const VEHICLE_COMPLETION_OPTIONS = [
-      { value: 'manually_entered', label: 'РУЧНОЙ ВВОД' },
-      { value: 'partially_autofilled', label: 'ЧАСТИЧНО АВТО' },
-      { value: 'mostly_autofilled', label: 'ПОЧТИ ЗАПОЛНЕНО' },
-      { value: 'verified', label: 'ПРОВЕРЕНО' },
-    ];
     const VEHICLE_FIELD_GROUPS = [
       {
         title: 'Идентификация',
@@ -404,17 +464,6 @@
       VEHICLE_FIELD_GROUPS.flatMap((group) => group.fields.map((field) => [field.name, field]))
     );
     const VEHICLE_PRIMARY_FIELDS = VEHICLE_FIELD_GROUPS.flatMap((group) => group.fields.map((field) => field.name));
-    const VEHICLE_META_FIELDS = [
-      'manual_fields',
-      'autofilled_fields',
-      'tentative_fields',
-      'field_sources',
-      'raw_input_text',
-      'raw_image_text',
-      'image_parse_status',
-      'warnings',
-    ];
-
     function ensureRepairOrderPaymentsUi() {
       const footerActions = document.querySelector('#repairOrderModal .repair-order-footer__actions');
       if (footerActions && !document.getElementById('repairOrderPaymentsButton')) {
@@ -454,14 +503,9 @@
         );
       }
     }
-    function ensureCashboxesUi() {
-      return;
-    }
-
     // @include employees_markup.js
 
     ensureRepairOrderPaymentsUi();
-    ensureCashboxesUi();
 
     const els = {
       boardScroll: document.querySelector('.board-scroll'),
@@ -653,7 +697,6 @@
       clientProfilePane: document.querySelector('.clients-profile-pane'),
       clientProfileTitle: document.getElementById('clientProfileTitle'),
       clientProfilePhone: document.getElementById('clientProfilePhone'),
-      clientDebtCard: document.getElementById('clientDebtCard'),
       clientDebtValue: document.getElementById('clientDebtValue'),
       clientTypeInput: document.getElementById('clientTypeInput'),
       clientLastNameInput: document.getElementById('clientLastNameInput'),
@@ -727,7 +770,6 @@
       employeesModal: document.getElementById('employeesModal'),
       employeeSalaryModal: document.getElementById('employeeSalaryModal'),
       employeeSalaryReconciliationPeriodModal: document.getElementById('employeeSalaryReconciliationPeriodModal'),
-      employeeSalaryReportModal: document.getElementById('employeeSalaryReportModal'),
       employeesList: document.getElementById('employeesList'),
       employeesCardMode: document.getElementById('employeesCardMode'),
       employeesProfilePanel: document.getElementById('employeesProfilePanel'),
@@ -790,10 +832,6 @@
       employeeSalaryAdvanceCommentInput: document.getElementById('employeeSalaryAdvanceCommentInput'),
       employeeSalaryAdvanceConfirmButton: document.getElementById('employeeSalaryAdvanceConfirmButton'),
       employeeSalaryAdvanceCancelButton: document.getElementById('employeeSalaryAdvanceCancelButton'),
-      employeeSalaryReportTitle: document.getElementById('employeeSalaryReportTitle'),
-      employeeSalaryReportMeta: document.getElementById('employeeSalaryReportMeta'),
-      employeeSalaryReportText: document.getElementById('employeeSalaryReportText'),
-      employeeSalaryReportDownloadButton: document.getElementById('employeeSalaryReportDownloadButton'),
       cashboxesList: document.getElementById('cashboxesList'),
       cashboxJournalButton: document.getElementById('cashboxJournalButton'),
       cashboxJournalLedgerButton: document.getElementById('cashboxJournalLedgerButton'),
@@ -947,7 +985,6 @@
       filePreviewMeta: document.getElementById('filePreviewMeta'),
       filePreviewStatus: document.getElementById('filePreviewStatus'),
       filePreviewImage: document.getElementById('filePreviewImage'),
-      filePreviewCloseButton: document.getElementById('filePreviewCloseButton'),
       logList: document.getElementById('logList'),
     };
 
@@ -1110,7 +1147,7 @@
       els.cardDescriptionToolbar?.querySelectorAll('[data-description-format]').forEach((button) => {
         button.disabled = false;
       });
-      if (els.saveCardButton && !state.cardSaveInFlight) els.saveCardButton.disabled = false;
+      if (els.saveCardButton && !state.cardSaveInFlight && !state.cardFilesMutationRequest) els.saveCardButton.disabled = false;
       syncCardDescriptionHeight();
     }
 
@@ -1139,7 +1176,7 @@
         els.cardDescriptionToolbar?.querySelectorAll('[data-description-format]').forEach((button) => {
           button.disabled = false;
         });
-        if (els.saveCardButton && !state.cardSaveInFlight) els.saveCardButton.disabled = false;
+        if (els.saveCardButton && !state.cardSaveInFlight && !state.cardFilesMutationRequest) els.saveCardButton.disabled = false;
       }
       syncCardDescriptionHeight();
     }
@@ -1266,7 +1303,6 @@
       els.employeesModal = document.getElementById('employeesModal');
       els.employeeSalaryModal = document.getElementById('employeeSalaryModal');
       els.employeeSalaryReconciliationPeriodModal = document.getElementById('employeeSalaryReconciliationPeriodModal');
-      els.employeeSalaryReportModal = document.getElementById('employeeSalaryReportModal');
       els.employeesList = document.getElementById('employeesList');
       els.employeesCardMode = document.getElementById('employeesCardMode');
       els.employeesProfilePanel = document.getElementById('employeesProfilePanel');
@@ -1329,10 +1365,6 @@
       els.employeeSalaryAdvanceCommentInput = document.getElementById('employeeSalaryAdvanceCommentInput');
       els.employeeSalaryAdvanceConfirmButton = document.getElementById('employeeSalaryAdvanceConfirmButton');
       els.employeeSalaryAdvanceCancelButton = document.getElementById('employeeSalaryAdvanceCancelButton');
-      els.employeeSalaryReportTitle = document.getElementById('employeeSalaryReportTitle');
-      els.employeeSalaryReportMeta = document.getElementById('employeeSalaryReportMeta');
-      els.employeeSalaryReportText = document.getElementById('employeeSalaryReportText');
-      els.employeeSalaryReportDownloadButton = document.getElementById('employeeSalaryReportDownloadButton');
     }
 
     function hydrateRepairOrderPaymentsUiRefs() {
@@ -1363,7 +1395,6 @@
           addRepairOrderPayment();
         }
       });
-      els.repairOrderPaymentsModal?.addEventListener('click', handleRepairOrderPaymentsModalOverlayClick);
       state.repairOrderPaymentsUiBound = true;
     }
 
@@ -1991,7 +2022,6 @@
       els.employeeSalaryModal?.addEventListener('change', handleEmployeeSalaryModalInput);
       els.employeeSalaryModal?.addEventListener('keydown', handleEmployeeSalaryModalKeydown);
       els.employeeSalaryModal?.addEventListener('click', handleEmployeeSalaryActionButtonsClick);
-      els.employeeSalaryReportDownloadButton?.addEventListener('click', downloadEmployeeSalaryReport);
       state.employeesUiBound = true;
     }
 
@@ -2211,10 +2241,19 @@
     }
 
     async function downloadAttachment(url) {
+      const viewerStateGeneration = state.viewerStateGeneration;
+      const operatorSessionToken = state.operatorSessionToken;
+      const apiToken = state.apiToken;
       const { response, blob } = await fetchAttachmentBlob(url, {
         networkErrorMessage: 'НЕ УДАЛОСЬ СКАЧАТЬ ФАЙЛ. ПРОВЕРЬ СЕТЬ И ДОСТУП К ДОСКЕ.',
       });
+      if (
+        state.viewerStateGeneration !== viewerStateGeneration
+        || state.operatorSessionToken !== operatorSessionToken
+        || state.apiToken !== apiToken
+      ) return false;
       triggerBlobDownload(blob, extractDownloadName(response, 'attachment.bin'));
+      return true;
     }
 
     function setOperatorLoginGateOpen(isOpen) {
@@ -2285,10 +2324,13 @@
     }
 
     function setOperatorLoginBusy(isBusy) {
-      if (!els.identitySave) return;
       const busy = Boolean(isBusy);
-      els.identitySave.disabled = busy;
-      els.identitySave.textContent = busy ? 'ВХОД...' : 'ВОЙТИ';
+      if (els.identitySave) {
+        els.identitySave.disabled = busy;
+        els.identitySave.textContent = busy ? 'ВХОД...' : 'ВОЙТИ';
+      }
+      if (els.identityInput) els.identityInput.disabled = busy;
+      if (els.identityPassword) els.identityPassword.disabled = busy;
     }
 
     function setOperatorSessionToken(token, { persist = true } = {}) {
@@ -2331,11 +2373,44 @@
 
     function resetViewerScopedState() {
       state.viewerStateGeneration += 1;
+      clearBoardSearchState({ keepCache: false });
+      clearDisplayDashboardImageDrafts();
       if (typeof resetBoardModules === 'function') resetBoardModules();
-      for (const key of ['inventorySearchTimer', 'mobileInventorySearchTimer']) {
+      for (const key of [
+        'inventorySearchTimer', 'mobileInventorySearchTimer', 'mobileArchiveSearchTimer',
+        'repairOrdersLoadTimer',
+      ]) {
         if (state[key]) window.clearTimeout(state[key]);
         state[key] = null;
       }
+      state.mobileCardContextGeneration = (state.mobileCardContextGeneration || 0) + 1;
+      state.mobileRepairOrderContextGeneration = (state.mobileRepairOrderContextGeneration || 0) + 1;
+      state.repairOrderContextGeneration = (state.repairOrderContextGeneration || 0) + 1;
+      state.displayDashboardContextGeneration = (state.displayDashboardContextGeneration || 0) + 1;
+      state.stickyEditorGeneration = (state.stickyEditorGeneration || 0) + 1;
+      state.repairOrdersRequestSeq = (state.repairOrdersRequestSeq || 0) + 1;
+      state.sharedFilesRequestSeq = (state.sharedFilesRequestSeq || 0) + 1;
+      state.gptWallRequestSeq = (state.gptWallRequestSeq || 0) + 1;
+      state.operatorAdminRequestSeq = (state.operatorAdminRequestSeq || 0) + 1;
+      const viewerModalKeys = new Set([
+        'card', 'card-client-create', 'archive', 'repair-orders', 'repair-order', 'repair-order-payments',
+        'clients', 'shared-files', 'cashboxes', 'inventory', 'cashbox-journal', 'cashbox-transfer',
+        'employees', 'employeeSalary', 'employee-salary-reconciliation-period',
+        'wall', 'settings', 'display-dashboard-message', 'sticky',
+      ]);
+      for (const key of [
+        'cardModal', 'cardClientCreateModal', 'archiveModal', 'repairOrdersModal', 'repairOrderModal',
+        'repairOrderPaymentsModal', 'clientsModal', 'sharedFilesModal', 'cashboxesModal', 'inventoryModal',
+        'cashboxJournalModal', 'cashboxTransferModal', 'employeesModal', 'employeeSalaryModal',
+        'employeeSalaryReconciliationPeriodModal', 'gptWallModal',
+        'boardSettingsModal', 'displayDashboardMessageModal', 'stickyModal',
+      ]) {
+        els[key]?.classList?.remove('is-open');
+      }
+      state.modalStack = (Array.isArray(state.modalStack) ? state.modalStack : [])
+        .filter((entry) => !viewerModalKeys.has(String(entry?.key || '').trim()));
+      if (els.displayDashboardMessageEditor) els.displayDashboardMessageEditor.innerHTML = '';
+      if (els.displayDashboardMessageMeta) els.displayDashboardMessageMeta.textContent = '';
       Object.assign(state, {
         inventoryRequests: null, inventoryItems: [], inventoryLoaded: false, inventoryQuery: '',
         inventoryActiveId: '', inventoryView: 'positions', inventoryStockFilter: 'all',
@@ -2343,11 +2418,47 @@
         inventorySaving: false, inventoryMaterialSaving: false, repairOrderInventoryOpen: false,
         repairOrderInventoryQuery: '', repairOrderInventorySelectedId: '', repairOrderInventoryRowIndex: '',
         cashboxJournalData: null, cashJournalOpenRequest: null, cashJournalDownloadRequest: null,
-        cardSaveRequest: null, cardSaveInFlight: false, cardSavePromise: null, cardCloseAfterSave: false,
+        cardSaveRequest: null, cardSaveInFlight: false, cardSavePromise: null,
+        cardFilesMutationRequest: null,
+        cardJournalRequest: null,
+        cardEnrichmentRequest: null, agentTaskContext: null,
+        agentTaskId: '', agentSyncedTaskId: '', cardClientMutationRequest: null,
+        cardTimerRequest: null, cardTimerSaving: false, operatorLoginRequest: null,
+        displayDashboardMessage: null, displayDashboardMessageSaving: false,
+        displayDashboardOpenRequest: null, displayDashboardSaveRequest: null,
+        displayDashboardSelectionRange: null,
+        stickyMutationRequest: null, stickyDraft: null,
+        operatorUsers: [], operatorPermissionEditorUsername: '', operatorEmployeeBindingUser: '',
+        operatorPermissionRefreshPromise: null,
+        mobileCardOpenRequest: null, mobileCardSaveRequest: null, mobileCardFilesRequest: null,
+        mobileCardJournalRequest: null, mobileCardCreating: false, mobileCardLoading: false,
+        mobileCardSaving: false, mobileCardFilesBusy: false,
+        mobileView: 'board', mobileMorePanel: '', mobileMoreLoaded: false, mobileMoreLoading: false,
+        mobileMoreRequest: null, mobileMoreError: '',
+        mobileArchiveLoading: false, mobileArchiveRestoreRequest: null,
+        archiveMutationRequest: null,
+        mobileSharedFilesLoading: false, mobileSharedFilesRequest: null, mobileSharedFileRenamingId: '',
+        mobileRepairOrderOpenRequest: null, mobileRepairOrderSaveRequest: null,
+        mobileRepairOrderCardId: '', mobileRepairOrderCard: null,
+        mobileRepairOrderTab: 'client', mobileRepairOrderLoading: false, mobileRepairOrderSaving: false,
+        repairOrderMutationRequest: null, repairOrderSaveInFlight: false, repairOrderSavePromise: null,
+        repairOrderOpenRequest: null, repairOrderPaymentCashboxesRequest: null,
+        repairOrderLoading: false, repairOrderWriteReady: false,
+        repairOrderPaymentVerificationPending: '',
+        repairOrderWriteVerificationPending: '',
+        repairOrdersFilter: 'open', repairOrdersQuery: '', repairOrdersRemoteQuery: '',
+        repairOrdersSearchField: 'summary', repairOrdersSortBy: 'number', repairOrdersSortDir: 'desc',
+        repairOrdersItems: [], repairOrdersMetaState: null, repairOrdersSearchLoading: false,
+        sharedFiles: [], sharedFilesActiveId: '', sharedFilesStorage: null,
+        sharedFilesClipboardId: '', sharedFilesContextPoint: null, sharedFilesDrag: null,
+        sharedFilesMutationRequest: null,
+        clientMutationRequest: null,
+        gptWall: null, gptWallView: 'board_content',
       });
       if (els.saveCardButton) els.saveCardButton.disabled = false;
       for (const key of [
         'inventorySearchInput', 'mobileInventorySearchInput', 'repairOrderInventorySearchInput',
+        'repairOrdersSearchInput', 'mobileArchiveSearchInput', 'mobileSharedFilesInput', 'sharedFilesInput',
         'inventoryNameInput', 'inventoryCatalogInput', 'inventoryQuantityInput', 'inventoryCostPriceInput',
         'inventorySalePriceInput', 'inventoryReplenishQuantityInput', 'mobileInventoryNameInput',
         'mobileInventoryCatalogInput', 'mobileInventoryQuantityInput', 'mobileInventoryCostPriceInput',
@@ -2357,7 +2468,12 @@
         'inventoryTableBody', 'inventoryMovementsBody', 'mobileInventoryItemsList', 'mobileInventoryRecentMovements',
         'repairOrderInventoryResults', 'repairOrderInventorySelected', 'inventoryStatusLine',
         'mobileInventoryStatusLine', 'repairOrderInventoryStatus', 'cashboxJournalText',
+        'repairOrdersList', 'repairOrdersMeta', 'mobileRepairOrdersList',
+        'mobileArchiveList', 'mobileArchiveMeta', 'mobileSharedFilesList', 'mobileSharedFilesMeta',
+        'sharedFilesDesktop', 'sharedFilesMeta', 'gptWallText', 'gptWallMeta',
+        'adminUsersList',
       ]) if (els[key]) els[key].textContent = '';
+      if (els.sharedFilesContextMenu) els.sharedFilesContextMenu.hidden = true;
       state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
       state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
       if (state.clientsSearchTimer) window.clearTimeout(state.clientsSearchTimer);
@@ -2389,28 +2505,10 @@
       state.lastSnapshotRevision = '';
       state.refreshInFlight = null;
       state.archiveCards = [];
+      state.archiveQuery = '';
       state.archiveLoaded = false;
       state.archiveLoading = null;
-      state.employeesWorkspaceLoadGeneration += 1;
-      state.employees = [];
-      state.employeesLoadedMonth = '';
-      state.employeesReferencePromise = null;
-      state.activeEmployeeId = '';
-      state.employeeCreateMode = false;
-      state.employeeFormBaseline = null;
-      state.payrollMonth = '';
-      state.payrollReport = null;
-      state.payrollReportMonth = '';
-      state.activeEmployeeSalaryId = '';
-      state.activeEmployeeSalaryReportId = '';
-      state.activeEmployeeSalaryReconciliationReportId = '';
-      state.employeeSalarySheet = null;
-      state.employeeSalaryReport = null;
-      state.employeeSalaryResetPending = false;
-      state.employeeSalaryResetIntent = null;
-      for (const key of ['employeeSalaryActionConfirmButton', 'employeeSalaryAdvanceConfirmButton', 'employeeShiftAccrualConfirmButton']) {
-        if (els[key]) els[key].disabled = false;
-      }
+      clearEmployeesCashboxesModuleState();
       state.fullCardCache.clear();
       state.cardFetchInFlight.clear();
       state.cardSeenSuppressions.clear();
@@ -2419,23 +2517,30 @@
       state.unreadSeenDeferredTimers.forEach((timerId) => window.clearTimeout(timerId));
       state.unreadSeenDeferredTimers.clear();
       state.unreadSeenInFlight.clear();
-      if (typeof clearCashboxNotificationHighlights === 'function') {
-        clearCashboxNotificationHighlights();
-      }
-      state.cashboxNotification = null;
-      state.cashboxNotificationRefreshPromise = null;
-      state.cashboxNotificationSeenPromise = null;
-      if (typeof renderCashboxNotificationIndicator === 'function') {
-        renderCashboxNotificationIndicator();
-      }
       clearCardOpenSideEffectTimer();
       state.activeCard = null;
       state.activeCardIsFull = false;
       state.editingId = null;
+      resetCardModalState();
+      for (const key of ['cardVehicle', 'cardTitle', 'cardDescription', 'tagInput']) {
+        if (els[key]) els[key].value = '';
+      }
+      els.cardDescriptionEditor?.replaceChildren();
+      els.vehicleProfileFields?.querySelectorAll('input, textarea, select').forEach((field) => { field.value = ''; });
+      els.cardClientCreateModal?.querySelectorAll('input, textarea, select').forEach((field) => { field.value = ''; });
+      for (const key of ['fileList', 'logList', 'tagList', 'tagSuggestions', 'clientSuggestions']) {
+        if (els[key]) els[key].textContent = '';
+      }
+      if (els.cardModalTitle) els.cardModalTitle.textContent = 'РАБОЧАЯ КАРТОЧКА';
       state.mobileCard = null;
       state.mobileCardId = '';
+      state.mobileCardTab = 'overview';
       state.mobileCardJournalPayload = null;
       state.mobileCardJournalLoadedFor = '';
+      state.mobileCardJournalLimit = CARD_JOURNAL_INITIAL_LIMIT;
+      state.mobileCardJournalLoading = false;
+      if (typeof clearMobileCardDetailDom === 'function') clearMobileCardDetailDom();
+      if (typeof clearMobileRepairOrderDetailDom === 'function') clearMobileRepairOrderDetailDom();
       state.cardHydrationSeq += 1;
       state.boardViewportPrimed = false;
       els.board?.replaceChildren();
@@ -2466,6 +2571,19 @@
       openOperatorLoginModal();
       setStatus('Нужен вход оператора.', true);
       return false;
+    }
+
+    function captureViewerRequestContext() {
+      const viewerStateGeneration = state.viewerStateGeneration;
+      const operatorSessionToken = state.operatorSessionToken;
+      return {
+        actorName: state.actor,
+        apiToken: state.apiToken,
+        operatorSessionToken,
+        viewerStateGeneration,
+        isCurrent: () => state.viewerStateGeneration === viewerStateGeneration
+          && state.operatorSessionToken === operatorSessionToken,
+      };
     }
 
     function operatorHasPermission(permission) {
@@ -2552,10 +2670,8 @@
       state.payrollReport = null;
       state.payrollReportMonth = '';
       state.activeEmployeeSalaryId = '';
-      state.activeEmployeeSalaryReportId = '';
       state.activeEmployeeSalaryReconciliationReportId = '';
       state.employeeSalarySheet = null;
-      state.employeeSalaryReport = null;
       state.employeeSalaryActionKind = '';
       state.employeeSalaryActionDraft = '';
       state.employeeSalaryAdvanceOpen = false;
@@ -2725,6 +2841,7 @@
     }
 
     async function loginOperator() {
+      if (state.operatorLoginRequest) return;
       const username = String(els.identityInput?.value || '').trim();
       const password = String(els.identityPassword?.value || '');
       if (!username || !password) {
@@ -2733,6 +2850,11 @@
         else els.identityPassword?.focus();
         return;
       }
+      const request = {};
+      const viewerStateGeneration = state.viewerStateGeneration;
+      state.operatorLoginRequest = request;
+      const isCurrent = () => state.operatorLoginRequest === request
+        && state.viewerStateGeneration === viewerStateGeneration;
       setOperatorLoginBusy(true);
       setOperatorLoginFeedback('Проверяю вход...');
       try {
@@ -2743,11 +2865,14 @@
             password,
           },
         });
+        if (!isCurrent()) return;
+        state.operatorLoginRequest = null;
         resetViewerScopedState();
         renderOperatorProfile(data, { openModal: true });
         await refreshSnapshot(true);
         if (state.snapshot) updateSnapshotStatusLine();
       } catch (error) {
+        if (!isCurrent()) return;
         const message = error.message || 'Не удалось выполнить вход.';
         setOperatorLoginFeedback(message, { tone: 'error' });
         setStatus(message, true);
@@ -2756,7 +2881,10 @@
           els.identityPassword.select();
         }
       } finally {
-        if (els.identityModal?.classList.contains('is-open')) setOperatorLoginBusy(false);
+        if (state.operatorLoginRequest === request) state.operatorLoginRequest = null;
+        if (!state.operatorLoginRequest && els.identityModal?.classList.contains('is-open')) {
+          setOperatorLoginBusy(false);
+        }
       }
     }
 
@@ -2881,12 +3009,15 @@
     }
 
     async function openOperatorEmployeeBinding(username) {
-      state.operatorEmployeeBindingUser = String(username || '').trim().toUpperCase();
+      const context = captureViewerRequestContext();
+      const normalizedUsername = String(username || '').trim().toUpperCase();
       try {
         await loadEmployeesReference();
+        if (!context.isCurrent()) return;
+        state.operatorEmployeeBindingUser = normalizedUsername;
         renderOperatorEmployeeBindingPanel();
       } catch (error) {
-        setStatus(error.message, true);
+        if (context.isCurrent()) setStatus(error.message, true);
       }
     }
 
@@ -2898,6 +3029,7 @@
     async function saveOperatorEmployeeBinding(employeeIdOverride = null) {
       const username = String(state.operatorEmployeeBindingUser || '').trim().toUpperCase();
       if (!username) return;
+      const context = captureViewerRequestContext();
       const employeeId = employeeIdOverride === null
         ? String(els.operatorUserEmployeeSelect?.value || '').trim()
         : String(employeeIdOverride || '').trim();
@@ -2910,15 +3042,16 @@
             source: 'ui',
           },
         });
+        if (!context.isCurrent()) return;
         setStatus(data?.meta?.bound ? 'СОТРУДНИК ПРИВЯЗАН.' : 'СОТРУДНИК ОТВЯЗАН.', false);
         closeOperatorEmployeeBinding();
         await refreshOperatorAdminSurfaces({
           openAdminModal: true,
           refreshProfile: String(state.actor || '').trim().toUpperCase() === username,
-          tabName: 'users',
+          viewerContext: context,
         });
       } catch (error) {
-        setStatus(error.message, true);
+        if (context.isCurrent()) setStatus(error.message, true);
       }
     }
 
@@ -3007,10 +3140,9 @@
       syncOperatorAdminSalaryResetPermission();
     }
 
-    function setOperatorAdminTab(tabName) {
-      const normalized = 'users';
-      els.operatorAdminUsersPanel?.classList.toggle('hidden', normalized !== 'users');
-      els.operatorAdminUsersPanel?.classList.toggle('is-active', normalized === 'users');
+    function setOperatorAdminTab() {
+      els.operatorAdminUsersPanel?.classList.toggle('hidden', false);
+      els.operatorAdminUsersPanel?.classList.toggle('is-active', true);
       syncOperatorAdminCloseButton();
     }
 
@@ -3043,7 +3175,6 @@
       employeesModal: 'employees',
       employeeSalaryModal: 'employeeSalary',
       employeeSalaryReconciliationPeriodModal: 'employee-salary-reconciliation-period',
-      employeeSalaryReportModal: 'employee-salary-report',
       gptWallModal: 'wall',
       boardSettingsModal: 'settings',
       displayDashboardMessageModal: 'display-dashboard-message',
@@ -3075,7 +3206,6 @@
         employees: els.employeesModal,
         employeeSalary: els.employeeSalaryModal,
         'employee-salary-reconciliation-period': els.employeeSalaryReconciliationPeriodModal,
-        'employee-salary-report': els.employeeSalaryReportModal,
         wall: els.gptWallModal,
         settings: els.boardSettingsModal,
         'display-dashboard-message': els.displayDashboardMessageModal,
@@ -3220,7 +3350,10 @@
           state.archiveCards = [];
           state.archiveLoaded = false;
         },
-        'repair-orders': () => popModal('repair-orders'),
+        'repair-orders': () => {
+          invalidateRepairOrdersRequests();
+          popModal('repair-orders');
+        },
         clients: () => {
           closeRepairOrderModal();
           popModal('clients');
@@ -3243,13 +3376,11 @@
           closeRepairOrderModal();
           closeEmployeeSalaryModal();
           closeEmployeeSalaryReconciliationPeriodDialog();
-          closeEmployeeSalaryReportModal();
           popModal('employees');
           return true;
         },
         employeeSalary: () => closeEmployeeSalaryModal(),
         'employee-salary-reconciliation-period': () => closeEmployeeSalaryReconciliationPeriodDialog(),
-        'employee-salary-report': () => closeEmployeeSalaryReportModal(),
         wall: () => popModal('wall'),
         settings: () => {
           if (isModalOpen('display-dashboard-message')) closeDisplayDashboardMessageEditor();
@@ -3306,16 +3437,16 @@
         .replace(/[\u0300-\u036f]/g, '');
     }
 
-    function normalizePhoneList(values) {
+    function normalizePhoneList(values, { preserveEmpty = false } = {}) {
       const rawItems = Array.isArray(values) ? values : [values];
       const phones = [];
       const seen = new Set();
       for (const raw of rawItems) {
         const phone = String(raw || '').replace(/\s+/g, ' ').trim();
-        if (!phone) continue;
+        if (!phone && !preserveEmpty) continue;
         const key = phone.replace(/\D+/g, '') || phone.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
+        if (key && seen.has(key)) continue;
+        if (key) seen.add(key);
         phones.push(phone);
         if (phones.length >= CLIENT_PHONE_LIMIT) break;
       }
@@ -3329,16 +3460,16 @@
       ]);
     }
 
-    function normalizeEmailList(values) {
+    function normalizeEmailList(values, { preserveEmpty = false } = {}) {
       const rawItems = Array.isArray(values) ? values : [values];
       const emails = [];
       const seen = new Set();
       for (const raw of rawItems) {
         const email = String(raw || '').replace(/\s+/g, '').trim();
-        if (!email) continue;
+        if (!email && !preserveEmpty) continue;
         const key = email.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
+        if (key && seen.has(key)) continue;
+        if (key) seen.add(key);
         emails.push(email);
         if (emails.length >= CLIENT_EMAIL_LIMIT) break;
       }
@@ -3492,17 +3623,7 @@
     function renderClientPhoneFields(values = ['']) {
       refreshClientPhoneRefs();
       if (!els.clientPhoneFields) return;
-      const rawItems = Array.isArray(values) ? values : [values];
-      const visible = [];
-      const seen = new Set();
-      for (const raw of rawItems) {
-        const phone = String(raw || '').replace(/\s+/g, ' ').trim();
-        const key = phone ? (phone.replace(/\D+/g, '') || phone.toLowerCase()) : '';
-        if (key && seen.has(key)) continue;
-        if (key) seen.add(key);
-        visible.push(phone);
-        if (visible.length >= CLIENT_PHONE_LIMIT) break;
-      }
+      const visible = normalizePhoneList(values, { preserveEmpty: true });
       if (!visible.length) visible.push('');
       els.clientPhoneFields.innerHTML = visible.map((phone, index) => {
         const inputId = index === 0 ? 'clientPhoneInput' : 'clientPhoneInput' + (index + 1);
@@ -3548,17 +3669,7 @@
     function renderClientEmailFields(values = ['']) {
       refreshClientEmailRefs();
       if (!els.clientEmailFields) return;
-      const rawItems = Array.isArray(values) ? values : [values];
-      const visible = [];
-      const seen = new Set();
-      for (const raw of rawItems) {
-        const email = String(raw || '').replace(/\s+/g, '').trim();
-        const key = email ? email.toLowerCase() : '';
-        if (key && seen.has(key)) continue;
-        if (key) seen.add(key);
-        visible.push(email);
-        if (visible.length >= CLIENT_EMAIL_LIMIT) break;
-      }
+      const visible = normalizeEmailList(values, { preserveEmpty: true });
       if (!visible.length) visible.push('');
       els.clientEmailFields.innerHTML = visible.map((email, index) => {
         const inputId = index === 0 ? 'clientEmailInput' : 'clientEmailInput' + (index + 1);
@@ -3882,6 +3993,32 @@
       };
     }
 
+    function beginClientMutation({ allowNew = false } = {}) {
+      if (state.clientMutationRequest) return null;
+      const clientId = String(state.clientsActiveId || '').trim();
+      if (!allowNew && !clientId) return null;
+      const request = {};
+      const context = captureViewerRequestContext();
+      const profileRequestSeq = state.clientsProfileRequestSeq || 0;
+      state.clientMutationRequest = request;
+      return {
+        request,
+        clientId,
+        actorName: context.actorName,
+        ownsRequest: () => state.clientMutationRequest === request && context.isCurrent(),
+        isCurrent: () => state.clientMutationRequest === request
+          && context.isCurrent()
+          && String(state.clientsActiveId || '').trim() === clientId
+          && (state.clientsProfileRequestSeq || 0) === profileRequestSeq,
+      };
+    }
+
+    function finishClientMutation(context) {
+      if (!context?.ownsRequest()) return false;
+      state.clientMutationRequest = null;
+      return true;
+    }
+
     async function saveClientVehicleFromEditor(key) {
       if (!state.clientsActiveId) {
         setStatus('СНАЧАЛА ВЫБЕРИТЕ ИЛИ СОХРАНИТЕ КЛИЕНТА.', true);
@@ -3900,13 +4037,23 @@
         sync_linked_cards: true,
       };
       if (currentVehicle?.id) body.client_vehicle_id = currentVehicle.id;
+      const context = beginClientMutation();
+      if (!context) return;
+      body.client_id = context.clientId;
       try {
         await api('/api/upsert_client_vehicle', { method: 'POST', body });
+        if (!context.isCurrent()) return;
         state.clientVehicleEditor = null;
-        await selectClient(state.clientsActiveId);
-        setStatus('АВТОМОБИЛЬ КЛИЕНТА СОХРАНЁН.', false);
+        const clientId = context.clientId;
+        finishClientMutation(context);
+        await selectClient(clientId);
+        if (context.ownsRequest() || String(state.clientsActiveId || '').trim() === clientId) {
+          setStatus('АВТОМОБИЛЬ КЛИЕНТА СОХРАНЁН.', false);
+        }
       } catch (error) {
-        setStatus(error.message, true);
+        if (context.isCurrent()) setStatus(error.message, true);
+      } finally {
+        finishClientMutation(context);
       }
     }
 
@@ -3919,20 +4066,29 @@
       }
       const title = String(vehicle.vehicle || vehicle.vin || vehicle.license_plate || 'автомобиль').trim();
       if (!window.confirm('Удалить автомобиль "' + title + '" из профиля клиента? Связанные карточки останутся, но связь с этим автомобилем будет снята.')) return;
+      const context = beginClientMutation();
+      if (!context) return;
       try {
         await api('/api/delete_client_vehicle', {
           method: 'POST',
           body: {
-            client_id: state.clientsActiveId,
+            client_id: context.clientId,
             client_vehicle_id: vehicle.id,
             unlink_cards: true,
           },
         });
+        if (!context.isCurrent()) return;
         state.clientVehicleEditor = null;
-        await selectClient(state.clientsActiveId);
-        setStatus('АВТОМОБИЛЬ КЛИЕНТА УДАЛЁН.', false);
+        const clientId = context.clientId;
+        finishClientMutation(context);
+        await selectClient(clientId);
+        if (String(state.clientsActiveId || '').trim() === clientId) {
+          setStatus('АВТОМОБИЛЬ КЛИЕНТА УДАЛЁН.', false);
+        }
       } catch (error) {
-        setStatus(error.message, true);
+        if (context.isCurrent()) setStatus(error.message, true);
+      } finally {
+        finishClientMutation(context);
       }
     }
 
@@ -3953,16 +4109,26 @@
       updateClientSaveButtonState();
       if (els.clientSaveButton?.disabled) return;
       const payload = readClientFormPayload();
+      const context = beginClientMutation({ allowNew: true });
+      if (!context) return;
+      const wasExisting = Boolean(context.clientId);
       try {
-        const data = state.clientsActiveId
-          ? await api('/api/update_client', { method: 'POST', body: { client_id: state.clientsActiveId, ...payload } })
+        const data = context.clientId
+          ? await api('/api/update_client', { method: 'POST', body: { client_id: context.clientId, ...payload } })
           : await api('/api/create_client', { method: 'POST', body: payload });
-        state.clientsActiveId = data?.client?.id || state.clientsActiveId;
-        setStatus(state.clientsActiveId ? 'КЛИЕНТ СОХРАНЕН.' : 'КЛИЕНТ СОЗДАН.', false);
+        if (!context.isCurrent()) return;
+        const savedClientId = String(data?.client?.id || context.clientId || '').trim();
+        finishClientMutation(context);
+        state.clientsActiveId = savedClientId;
+        setStatus(wasExisting ? 'КЛИЕНТ СОХРАНЕН.' : 'КЛИЕНТ СОЗДАН.', false);
         await loadClients({ openModal: false });
-        if (state.clientsActiveId) await selectClient(state.clientsActiveId);
+        if (savedClientId && String(state.clientsActiveId || '').trim() === savedClientId) {
+          await selectClient(savedClientId);
+        }
       } catch (error) {
-        setStatus(error.message, true);
+        if (context.isCurrent()) setStatus(error.message, true);
+      } finally {
+        finishClientMutation(context);
       }
     }
 
@@ -4312,49 +4478,66 @@
     }
 
     async function createClientForCard(profile, payload, { createVehicleFromCard = true } = {}) {
-      const sourceProfile = profile && typeof profile === 'object' ? profile : readVehicleProfileForm();
+      const context = beginCardScopedRequest('cardClientMutationRequest', { allowNew: true });
+      if (!context) return null;
+      const sourceProfile = cloneVehicleProfile(
+        profile && typeof profile === 'object' ? profile : readVehicleProfileForm(),
+      );
       const request = normalizedCardClientCreatePayload(payload);
       const displayName = String(request.display_name || '').trim();
       const phone = String(request.phone || '').trim();
       if (!displayName && !phone) {
         setStatus('УКАЖИТЕ ИМЯ ИЛИ ТЕЛЕФОН КЛИЕНТА.', true);
+        finishCardScopedRequest(context);
         return null;
       }
-      const created = await api('/api/create_client', {
-        method: 'POST',
-        body: request,
-      });
-      const client = created?.client || {};
-      const clientId = String(client.id || '').trim();
-      if (!clientId) throw new Error('КЛИЕНТ СОЗДАН БЕЗ ID.');
-      let clientVehicleId = '';
-      const shouldCreateVehicle = Boolean(createVehicleFromCard && profileHasVehicleIdentity(sourceProfile));
-      if (shouldCreateVehicle) {
-        if (state.editingId) {
-          const linked = await linkActiveCardToClient(clientId, { createVehicleFromCard: true });
-          clientVehicleId = linked?.card?.client_vehicle_id || '';
-        } else {
-          const upserted = await api('/api/upsert_client_vehicle', {
-            method: 'POST',
-            body: {
-              client_id: clientId,
-              vehicle: vehiclePayloadFromProfile(sourceProfile),
-              sync_linked_cards: true,
-            },
-          });
-          clientVehicleId = upserted?.vehicle?.id || '';
+      try {
+        const created = await api('/api/create_client', {
+          method: 'POST',
+          body: request,
+        });
+        if (!context.isCurrent()) return null;
+        const client = created?.client || {};
+        const clientId = String(client.id || '').trim();
+        if (!clientId) throw new Error('КЛИЕНТ СОЗДАН БЕЗ ID.');
+        let clientVehicleId = '';
+        const shouldCreateVehicle = Boolean(createVehicleFromCard && profileHasVehicleIdentity(sourceProfile));
+        if (shouldCreateVehicle) {
+          if (context.cardId) {
+            const linked = await linkActiveCardToClient(clientId, {
+              createVehicleFromCard: true,
+              context,
+            });
+            if (!context.isCurrent()) return null;
+            clientVehicleId = linked?.card?.client_vehicle_id || '';
+          } else {
+            const upserted = await api('/api/upsert_client_vehicle', {
+              method: 'POST',
+              body: {
+                client_id: clientId,
+                vehicle: vehiclePayloadFromProfile(sourceProfile),
+                sync_linked_cards: true,
+              },
+            });
+            if (!context.isCurrent()) return null;
+            clientVehicleId = upserted?.vehicle?.id || '';
+          }
+        } else if (context.cardId) {
+          await linkActiveCardToClient(clientId, { context });
+          if (!context.isCurrent()) return null;
         }
-      } else if (state.editingId) {
-        await linkActiveCardToClient(clientId);
+        state.pendingCardClientId = clientId;
+        state.pendingCardClientVehicleId = clientVehicleId;
+        state.pendingCreateClientVehicleFromCard = false;
+        hideClientSuggestions();
+        return { client, clientId, clientVehicleId, context };
+      } finally {
+        finishCardScopedRequest(context);
       }
-      state.pendingCardClientId = clientId;
-      state.pendingCardClientVehicleId = clientVehicleId;
-      state.pendingCreateClientVehicleFromCard = false;
-      hideClientSuggestions();
-      return { client, clientId, clientVehicleId };
     }
 
     async function createClientFromCardSuggestion() {
+      const isCurrent = captureCardEditingContext();
       const profile = readVehicleProfileForm();
       const displayName = String(profile.customer_name || '').trim();
       const phone = String(profile.customer_phone || '').trim();
@@ -4370,10 +4553,10 @@
           },
           { createVehicleFromCard: true },
         );
-        if (!created) return;
+        if (!created || !isCurrent()) return;
         setStatus(state.editingId ? 'КЛИЕНТ СОЗДАН И ПРИВЯЗАН К КАРТОЧКЕ.' : 'КЛИЕНТ СОЗДАН И БУДЕТ ПРИВЯЗАН ПОСЛЕ СОХРАНЕНИЯ КАРТОЧКИ.', false);
       } catch (error) {
-        setStatus(error.message, true);
+        if (isCurrent()) setStatus(error.message, true);
       }
     }
 
@@ -4502,12 +4685,15 @@
       applyVehicleProfileToForm(profile, { preserveStatus: true });
     }
 
-    async function loadClientSuggestionVehicles(clientId) {
+    async function loadClientSuggestionVehicles(clientId, operationContext = null) {
       const client = state.clientSuggestions.find((item) => item.id === clientId);
       if (!client) return;
       const viewerStateGeneration = state.viewerStateGeneration;
       const hydrationSeq = state.cardHydrationSeq;
-      const isCurrent = () => state.viewerStateGeneration === viewerStateGeneration && state.cardHydrationSeq === hydrationSeq && state.clientSuggestions.some((item) => item.id === clientId);
+      const isCurrent = () => state.viewerStateGeneration === viewerStateGeneration
+        && state.cardHydrationSeq === hydrationSeq
+        && (!operationContext || operationContext.isCurrent())
+        && state.clientSuggestions.some((item) => item.id === clientId);
       window.clearTimeout(state.clientSuggestTimer);
       state.clientSuggestTimer = null;
       try {
@@ -4532,8 +4718,9 @@
       }) || null;
     }
 
-    async function ensureStableClientSuggestionVehicle(clientId, vehicle) {
+    async function ensureStableClientSuggestionVehicle(clientId, vehicle, context = null) {
       if (!vehicle || String(vehicle?.id || '').trim()) return vehicle;
+      if (context && !context.isCurrent()) return null;
       const data = await api('/api/upsert_client_vehicle', {
         method: 'POST',
         body: {
@@ -4557,6 +4744,7 @@
           },
         },
       });
+      if (context && !context.isCurrent()) return null;
       const stableVehicle = data?.vehicle || vehicle;
       state.clientSuggestionProfiles = {
         ...(state.clientSuggestionProfiles || {}),
@@ -4583,26 +4771,38 @@
     async function chooseClientSuggestion(clientId, vehicleKey = '', { createNewVehicle = false } = {}) {
       const client = state.clientSuggestions.find((item) => item.id === clientId);
       if (!client) return;
-      if (vehicleKey && !state.clientSuggestionProfiles?.[clientId]) {
-        await loadClientSuggestionVehicles(clientId);
-      }
-      const vehicles = clientSuggestionVehicles(client);
-      let selectedVehicle = vehicleKey
-        ? findClientSuggestionVehicle(vehicles, vehicleKey)
-        : null;
-      if (selectedVehicle && !String(selectedVehicle?.id || '').trim()) {
-        selectedVehicle = await ensureStableClientSuggestionVehicle(clientId, selectedVehicle);
-      }
-      applyClientSuggestionToVehicleProfile(client, selectedVehicle, { createNewVehicle });
-      hideClientSuggestions();
-      if (state.editingId) {
-        await linkActiveCardToClient(clientId, {
-          clientVehicleId: selectedVehicle?.id || '',
-          createVehicleFromCard: createNewVehicle,
-        });
+      const context = beginCardScopedRequest('cardClientMutationRequest', { allowNew: true });
+      if (!context) return;
+      try {
+        if (vehicleKey && !state.clientSuggestionProfiles?.[clientId]) {
+          await loadClientSuggestionVehicles(clientId, context);
+          if (!context.isCurrent()) return;
+        }
+        const vehicles = clientSuggestionVehicles(client);
+        let selectedVehicle = vehicleKey
+          ? findClientSuggestionVehicle(vehicles, vehicleKey)
+          : null;
+        if (selectedVehicle && !String(selectedVehicle?.id || '').trim()) {
+          selectedVehicle = await ensureStableClientSuggestionVehicle(clientId, selectedVehicle, context);
+          if (!context.isCurrent()) return;
+        }
         applyClientSuggestionToVehicleProfile(client, selectedVehicle, { createNewVehicle });
-      } else {
-        setStatus(createNewVehicle ? 'КЛИЕНТ ВЫБРАН, АВТОМОБИЛЬ БУДЕТ ДОБАВЛЕН.' : 'КЛИЕНТ И АВТОМОБИЛЬ ВЫБРАНЫ ДЛЯ НОВОЙ КАРТОЧКИ.', false);
+        hideClientSuggestions();
+        if (context.cardId) {
+          await linkActiveCardToClient(clientId, {
+            clientVehicleId: selectedVehicle?.id || '',
+            createVehicleFromCard: createNewVehicle,
+            context,
+          });
+          if (!context.isCurrent()) return;
+          applyClientSuggestionToVehicleProfile(client, selectedVehicle, { createNewVehicle });
+        } else {
+          setStatus(createNewVehicle ? 'КЛИЕНТ ВЫБРАН, АВТОМОБИЛЬ БУДЕТ ДОБАВЛЕН.' : 'КЛИЕНТ И АВТОМОБИЛЬ ВЫБРАНЫ ДЛЯ НОВОЙ КАРТОЧКИ.', false);
+        }
+      } catch (error) {
+        if (context.isCurrent()) setStatus(error.message, true);
+      } finally {
+        finishCardScopedRequest(context);
       }
     }
 
@@ -4637,13 +4837,13 @@
       }
     }
 
-    async function linkActiveCardToClient(clientId, { clientVehicleId = '', createVehicleFromCard = false } = {}) {
-      if (!state.editingId || !clientId) return;
+    async function linkActiveCardToClient(clientId, { clientVehicleId = '', createVehicleFromCard = false, context = null } = {}) {
+      if (!context?.isCurrent() || !context.cardId || !clientId) return null;
       try {
         const data = await api('/api/link_card_to_client', {
           method: 'POST',
           body: {
-            card_id: state.editingId,
+            card_id: context.cardId,
             client_id: clientId,
             client_vehicle_id: clientVehicleId || '',
             create_vehicle_from_card: Boolean(createVehicleFromCard),
@@ -4652,12 +4852,17 @@
             overwrite_card_fields: false,
           },
         });
-        if (data?.card) applyCardModalState(data.card);
+        if (!context.isCurrent()) return null;
+        if (data?.card && String(data.card.id || '').trim() === context.cardId) {
+          applyCardModalState(data.card);
+        }
         hideClientSuggestions();
         setStatus('КАРТОЧКА СВЯЗАНА С КЛИЕНТОМ.', false);
         await refreshSnapshot(true);
+        if (!context.isCurrent()) return null;
         return data;
       } catch (error) {
+        if (!context.isCurrent()) return null;
         setStatus(error.message, true);
         throw error;
       }
@@ -4731,6 +4936,9 @@
         setStatus('ОТКРОЙ КАРТОЧКУ ДЛЯ AI-ОБОГАЩЕНИЯ.', true);
         return;
       }
+      const context = beginCardScopedRequest('cardEnrichmentRequest');
+      if (!context) return;
+      state.agentTaskContext = context;
       try {
         if (els.cardAgentButton instanceof HTMLElement) {
           state.cardCleanupState = 'running';
@@ -4740,13 +4948,14 @@
         const data = await api('/api/run_full_card_enrichment', {
           method: 'POST',
           body: {
-            card_id: cardId,
-            actor_name: state.actor,
+            card_id: context.cardId,
+            actor_name: context.actorName,
             prompt: String(card?.ai_autofill_prompt || '').trim(),
             context_packet: buildAiFullCardEnrichmentContextPacket(),
           },
         });
-        if (data?.card) {
+        if (!context.isCurrent()) return;
+        if (data?.card && String(data.card.id || '').trim() === context.cardId) {
           state.activeCard = data.card;
           if (els.cardModal?.classList.contains('is-open')) applyCardModalState(data.card);
         }
@@ -4765,54 +4974,74 @@
         renderCardCleanupIndicator();
         if (taskId) {
           state.agentTaskId = taskId;
-          scheduleCardCleanupPolling(1200);
+          scheduleCardCleanupPolling(1200, context);
+        } else {
+          state.agentTaskContext = null;
+          finishCardScopedRequest(context);
         }
       } catch (error) {
+        if (!context.isCurrent()) return;
         state.cardCleanupState = 'error';
         state.cardCleanupError = error.message;
         renderCardCleanupIndicator();
         setStatus(error.message, true);
+        state.agentTaskContext = null;
+        finishCardScopedRequest(context);
       }
     }
 
-    async function syncAgentTaskEffects(task) {
-      if (!task || task.status !== 'completed' || state.agentSyncedTaskId === task.id) return;
+    async function syncAgentTaskEffects(task, context = state.agentTaskContext) {
+      if (!context?.isCurrent() || !task || task.status !== 'completed' || state.agentSyncedTaskId === task.id) return;
       state.agentSyncedTaskId = task.id;
-      const context = task.metadata && typeof task.metadata === 'object' ? task.metadata.context : null;
-      const cardId = String(context?.card_id || '').trim();
       try {
         await refreshSnapshot(false);
       } catch (_) {}
-      if (cardId && state.editingId === cardId && els.cardModal?.classList.contains('is-open')) {
+      if (!context.isCurrent()) return;
+      if (context.cardId && els.cardModal?.classList.contains('is-open')) {
         try {
-          const data = await api('/api/get_card?card_id=' + encodeURIComponent(cardId));
-          if (data?.card) applyCardModalState(data.card);
+          const data = await api('/api/get_card?card_id=' + encodeURIComponent(context.cardId));
+          if (!context.isCurrent()) return;
+          if (data?.card && String(data.card.id || '').trim() === context.cardId) {
+            applyCardModalState(data.card);
+          }
         } catch (_) {}
       }
     }
 
-    async function reloadOperatorAdminUsers({ openModal = false } = {}) {
+    async function reloadOperatorAdminUsers({ openModal = false, isCurrent = () => true } = {}) {
       await loadEmployeesReference();
+      if (!isCurrent()) return null;
       return loadModalData('/api/list_operator_users', {
         openModal,
         modalEl: els.operatorAdminModal,
-        onSuccess: renderOperatorUsers,
+        isCurrent,
+        onSuccess: (data) => {
+          if (isCurrent()) renderOperatorUsers(data);
+        },
       });
     }
 
-    async function refreshOperatorAdminSurfaces({ openAdminModal = false, refreshProfile = false, tabName = 'users' } = {}) {
-      if (openAdminModal) {
-        setOperatorAdminTab(tabName);
-        pushModal('operator-admin', els.operatorAdminModal);
-      }
-      const tasks = [reloadOperatorAdminUsers()];
+    async function refreshOperatorAdminSurfaces({ openAdminModal = false, refreshProfile = false, viewerContext = null } = {}) {
+      const context = viewerContext || captureViewerRequestContext();
+      const requestSeq = (state.operatorAdminRequestSeq || 0) + 1;
+      state.operatorAdminRequestSeq = requestSeq;
+      const isCurrent = () => context.isCurrent() && state.operatorAdminRequestSeq === requestSeq;
+      const tasks = [reloadOperatorAdminUsers({ isCurrent })];
       if (refreshProfile) tasks.push(loadOperatorProfile(false));
       await Promise.all(tasks);
+      if (!isCurrent()) return false;
+      if (openAdminModal) {
+        setOperatorAdminTab();
+        pushModal('operator-admin', els.operatorAdminModal);
+      }
+      return true;
     }
 
     async function openOperatorUserReport(username) {
+      const context = captureViewerRequestContext();
       try {
         const data = await api('/api/get_operator_user_report?username=' + encodeURIComponent(username));
+        if (!context.isCurrent()) return;
         const text = String(data?.text || '').trim();
         if (!text) {
           setStatus('ОТЧЁТ ПУСТ.', true);
@@ -4820,7 +5049,7 @@
         }
         openTextBlobWindow(text, data?.file_name || ('operator-report-' + username + '.txt'));
       } catch (error) {
-        setStatus(error.message, true);
+        if (context.isCurrent()) setStatus(error.message, true);
       }
     }
 
@@ -4848,11 +5077,12 @@
 
     async function openOperatorAdminModal() {
       bindOperatorAdminPermissionUi();
-      setOperatorAdminTab('users');
+      setOperatorAdminTab();
       await refreshOperatorAdminSurfaces({ openAdminModal: true });
     }
 
     async function saveOperatorUser() {
+      const context = captureViewerRequestContext();
       try {
         const username = String(els.adminUserLogin.value || '').trim();
         const normalizedUsername = username.toUpperCase();
@@ -4886,6 +5116,7 @@
           method: 'POST',
           body: payload,
         });
+        if (!context.isCurrent()) return;
         state.operatorPermissionEditorUsername = '';
         els.adminUserLogin.value = '';
         els.adminUserPassword.value = '';
@@ -4894,19 +5125,21 @@
         if (els.adminUserEmployeesReadAccess) els.adminUserEmployeesReadAccess.checked = false;
         syncOperatorAdminSalaryResetPermission();
         setStatus((data?.meta?.created ? 'Пользователь создан.' : 'Пользователь обновлён.') + ' ' + (data?.user?.username || ''), false);
-        await refreshOperatorAdminSurfaces({ openAdminModal: true, refreshProfile: true, tabName: 'users' });
+        await refreshOperatorAdminSurfaces({ openAdminModal: true, refreshProfile: true, viewerContext: context });
       } catch (error) {
-        setStatus(error.message, true);
+        if (context.isCurrent()) setStatus(error.message, true);
       }
     }
 
     async function deleteOperatorUser(username) {
       if (!window.confirm('Удалить пользователя ' + username + '?')) return;
+      const context = captureViewerRequestContext();
       try {
         await api('/api/delete_operator_user', { method: 'POST', body: { username } });
-        await refreshOperatorAdminSurfaces({ openAdminModal: true, tabName: 'users' });
+        if (!context.isCurrent()) return;
+        await refreshOperatorAdminSurfaces({ openAdminModal: true, viewerContext: context });
       } catch (error) {
-        setStatus(error.message, true);
+        if (context.isCurrent()) setStatus(error.message, true);
       }
     }
 
@@ -5096,6 +5329,36 @@
       setMobileCardTab(button.getAttribute('data-mobile-card-tab'));
     }
 
+    function clearMobileCardDetailDom() {
+      els.mobileCardDetail?.querySelectorAll('[data-mobile-card-field], [data-mobile-vehicle-field]').forEach((field) => {
+        field.value = '';
+      });
+      if (els.mobileCardColumnSelect) {
+        els.mobileCardColumnSelect.replaceChildren();
+        els.mobileCardColumnSelect.value = '';
+      }
+      if (els.mobileCardFileInput) els.mobileCardFileInput.value = '';
+      for (const key of ['mobileCardDeadlineDays', 'mobileCardDeadlineHours']) {
+        if (els[key]) els[key].value = '';
+      }
+      for (const key of [
+        'mobileCardTitleLine', 'mobileCardDeadlinePreview', 'mobileCardFiles', 'mobileCardFileMeta',
+        'mobileCardJournal', 'mobileCardJournalMeta',
+      ]) if (els[key]) els[key].textContent = '';
+      if (els.mobileCardSaveButton) els.mobileCardSaveButton.disabled = true;
+      if (els.mobileCardJournalRefreshButton) els.mobileCardJournalRefreshButton.disabled = true;
+    }
+
+    function syncMobileCardEditorBusyState() {
+      const busy = Boolean(state.mobileCardLoading || state.mobileCardSaving);
+      els.mobileCardDetail?.querySelectorAll('[data-mobile-card-field], [data-mobile-vehicle-field]').forEach((field) => {
+        field.disabled = busy;
+      });
+      for (const key of ['mobileCardColumnSelect', 'mobileCardDeadlineDays', 'mobileCardDeadlineHours']) {
+        if (els[key]) els[key].disabled = busy;
+      }
+    }
+
     function renderMobileCardDetail() {
       if (!els.mobileCardDetail) return;
       const detailOpen = state.mobileCardCreating || Boolean(state.mobileCardId);
@@ -5103,7 +5366,10 @@
       boardPanel?.classList.toggle('is-card-detail-open', detailOpen);
       els.mobileCardDetail.hidden = !detailOpen;
       if (els.mobileBoardColumns) els.mobileBoardColumns.hidden = detailOpen;
-      if (!detailOpen) return;
+      if (!detailOpen) {
+        clearMobileCardDetailDom();
+        return;
+      }
       renderMobileCardTabs();
       const card = currentMobileCard() || {};
       const titleText = mobileCardTitle(card);
@@ -5126,9 +5392,11 @@
       renderMobileCardVehicleProfile(card);
       renderMobileCardFiles(card);
       renderMobileCardJournal();
+      syncMobileCardEditorBusyState();
       if (els.mobileCardSaveButton) {
-        els.mobileCardSaveButton.disabled = state.mobileCardSaving || state.mobileCardLoading;
-        els.mobileCardSaveButton.textContent = state.mobileCardSaving || state.mobileCardLoading ? '...' : 'СОХР.';
+        const busy = state.mobileCardSaving || state.mobileCardLoading || state.mobileCardFilesBusy;
+        els.mobileCardSaveButton.disabled = busy;
+        els.mobileCardSaveButton.textContent = busy ? '...' : 'СОХР.';
       }
     }
 
@@ -5261,7 +5529,7 @@
         if (item?.created_at) metaParts.push(formatDate(item.created_at));
         if (item?.size_bytes !== undefined) metaParts.push(formatBytes(item.size_bytes ?? 0));
         const metaText = metaParts.join(' · ') || 'ФАЙЛ КАРТОЧКИ';
-        const removeDisabledAttr = state.mobileCardFilesBusy ? ' disabled' : '';
+        const removeDisabledAttr = state.mobileCardFilesBusy || state.mobileCardSaving ? ' disabled' : '';
         const downloadUrl = withAccessToken(mobileCardAttachmentDownloadPath(cardId, attachmentId));
         const downloadControl = existsOnDisk
           ? '<a class="mobile-action mobile-action--ghost" href="' + escapeHtml(downloadUrl) + '" data-mobile-card-file-id="' + escapeHtml(attachmentId) + '">СКАЧАТЬ</a>'
@@ -5283,7 +5551,8 @@
     function renderMobileCardFiles(card) {
       if (!els.mobileCardFiles) return;
       const attachments = Array.isArray(card?.attachments) ? card.attachments.filter((item) => !item?.removed) : [];
-      const canUpload = Boolean(card?.id) && !state.mobileCardLoading && !state.mobileCardFilesBusy;
+      const canUpload = Boolean(card?.id) && !state.mobileCardLoading
+        && !state.mobileCardSaving && !state.mobileCardFilesBusy;
       els.mobileCardFiles.innerHTML = mobileCardAttachmentRows(card || {});
       if (els.mobileCardFileMeta) {
         els.mobileCardFileMeta.textContent = state.mobileCardFilesBusy
@@ -5314,11 +5583,12 @@
       return card;
     }
 
-    async function refreshMobileCardFiles() {
-      const cardId = String(state.mobileCardId || '').trim();
+    async function refreshMobileCardFiles(context = captureMobileCardContext()) {
+      const cardId = String(context?.cardId || '').trim();
       if (!cardId) return null;
       state.fullCardCache.delete(cardId);
       const data = await api('/api/get_card?card_id=' + encodeURIComponent(cardId));
+      if (!context.isCurrent()) return null;
       const card = data?.card || currentMobileCard();
       const updatedCard = applyMobileCardFromFullCard(card, cardId);
       renderMobileCardFiles(updatedCard || currentMobileCard() || {});
@@ -5329,85 +5599,142 @@
       const cardId = String(state.mobileCardId || '').trim();
       if (!cardId) return setStatus('СНАЧАЛА СОХРАНИТЕ КАРТОЧКУ.', true);
       if (state.mobileCardLoading) return setStatus('ДОЖДИТЕСЬ ЗАГРУЗКИ КАРТОЧКИ.', true);
-      if (state.mobileCardFilesBusy) return;
+      if (state.mobileCardSaving || state.mobileCardFilesBusy) return;
       els.mobileCardFileInput?.click();
     }
 
     async function uploadMobileCardFiles() {
       const cardId = String(state.mobileCardId || '').trim();
       const selectedFiles = Array.from(els.mobileCardFileInput?.files || []).filter(Boolean);
-      if (!selectedFiles.length) return;
+      if (!selectedFiles.length || state.mobileCardSaving || state.mobileCardFilesBusy) return;
       if (!cardId) {
         if (els.mobileCardFileInput) els.mobileCardFileInput.value = '';
         return setStatus('СНАЧАЛА СОХРАНИТЕ КАРТОЧКУ.', true);
       }
+      const context = captureMobileCardContext();
+      const filesRequest = {};
+      state.mobileCardFilesRequest = filesRequest;
+      const isCurrent = () => state.mobileCardFilesRequest === filesRequest && context.isCurrent();
       state.mobileCardFilesBusy = true;
       renderMobileCardFiles(currentMobileCard() || {});
+      let attemptedWrites = 0;
+      let completedWrites = 0;
       try {
         const normalizedFiles = selectedFiles.map((file) => normalizeUploadableAttachmentFile(file));
         for (const file of normalizedFiles) {
           const buffer = await file.arrayBuffer();
+          if (!isCurrent()) return null;
           const base64 = arrayBufferToBase64(buffer);
+          attemptedWrites += 1;
           await api('/api/add_card_attachment', {
             method: 'POST',
             body: {
               card_id: cardId,
-              actor_name: state.actor,
+              actor_name: context.actorName,
               source: 'ui',
               file_name: file.name,
               mime_type: normalizeAttachmentMimeType(file.type) || attachmentMimeTypeFromExtension(attachmentExtension(file.name)) || 'application/octet-stream',
               content_base64: base64,
             },
           });
+          if (!isCurrent()) return null;
+          completedWrites += 1;
         }
-        await refreshMobileCardFiles();
+        await refreshMobileCardFiles({ cardId, isCurrent });
+        if (!isCurrent()) return null;
         await refreshSnapshot(true);
+        if (!isCurrent()) return null;
         setStatus(normalizedFiles.length > 1 ? 'ФАЙЛЫ ЗАГРУЖЕНЫ.' : 'ФАЙЛ ЗАГРУЖЕН.', false);
+        return normalizedFiles.length;
       } catch (error) {
-        setStatus(error.message, true);
+        if (!isCurrent()) return null;
+        let reconciled = false;
+        if (attemptedWrites) {
+          try {
+            reconciled = Boolean(await refreshMobileCardFiles({ cardId, isCurrent }));
+            if (isCurrent()) await refreshSnapshot(true);
+          } catch (_) {
+            reconciled = false;
+          }
+        }
+        if (!isCurrent()) return null;
+        const progress = completedWrites
+          ? (' СОХРАНЕНО: ' + completedWrites + ' ИЗ ' + selectedFiles.length + '.')
+          : '';
+        const retryWarning = attemptedWrites
+          ? (reconciled
+            ? ' СПИСОК ОБНОВЛЕН; ПОВТОРЯЙТЕ ТОЛЬКО ОТСУТСТВУЮЩИЕ ФАЙЛЫ.'
+            : ' ПРОВЕРЬТЕ СПИСОК ПЕРЕД ПОВТОРНОЙ ЗАГРУЗКОЙ.')
+          : '';
+        setStatus(error.message + progress + retryWarning, true);
+        return null;
       } finally {
-        state.mobileCardFilesBusy = false;
-        if (els.mobileCardFileInput) els.mobileCardFileInput.value = '';
-        renderMobileCardFiles(currentMobileCard() || {});
+        if (state.mobileCardFilesRequest === filesRequest && context.isCurrent()) {
+          state.mobileCardFilesRequest = null;
+          state.mobileCardFilesBusy = false;
+          if (els.mobileCardFileInput) els.mobileCardFileInput.value = '';
+          renderMobileCardFiles(currentMobileCard() || {});
+        }
       }
     }
 
     async function removeMobileCardFile(attachmentId) {
       const cardId = String(state.mobileCardId || '').trim();
       const normalizedAttachmentId = String(attachmentId || '').trim();
-      if (!cardId || !normalizedAttachmentId || state.mobileCardFilesBusy) return;
+      if (!cardId || !normalizedAttachmentId || state.mobileCardSaving || state.mobileCardFilesBusy) return;
+      const context = captureMobileCardContext();
+      const filesRequest = {};
+      state.mobileCardFilesRequest = filesRequest;
+      const isCurrent = () => state.mobileCardFilesRequest === filesRequest && context.isCurrent();
       state.mobileCardFilesBusy = true;
       renderMobileCardFiles(currentMobileCard() || {});
       try {
         await api('/api/remove_card_attachment', {
           method: 'POST',
-          body: { card_id: cardId, attachment_id: normalizedAttachmentId, actor_name: state.actor, source: 'ui' },
+          body: { card_id: cardId, attachment_id: normalizedAttachmentId, actor_name: context.actorName, source: 'ui' },
         });
-        await refreshMobileCardFiles();
+        if (!isCurrent()) return null;
+        await refreshMobileCardFiles({ cardId, isCurrent });
+        if (!isCurrent()) return null;
         await refreshSnapshot(true);
+        if (!isCurrent()) return null;
         setStatus('ФАЙЛ УДАЛЁН.', false);
+        return true;
       } catch (error) {
-        setStatus(error.message, true);
+        if (!isCurrent()) return null;
+        let updatedCard = null;
+        try {
+          updatedCard = await refreshMobileCardFiles({ cardId, isCurrent });
+          if (isCurrent()) await refreshSnapshot(true);
+        } catch (_) {
+          updatedCard = null;
+        }
+        if (!isCurrent()) return null;
+        const attachmentStillPresent = Array.isArray(updatedCard?.attachments)
+          && updatedCard.attachments.some((item) => String(item?.id || '').trim() === normalizedAttachmentId && !item?.removed);
+        if (updatedCard && !attachmentStillPresent) {
+          setStatus('ФАЙЛ УДАЛЁН; РЕЗУЛЬТАТ ПОДТВЕРЖДЕН ПОВТОРНЫМ ЧТЕНИЕМ.', false);
+          return true;
+        }
+        setStatus(error.message + (updatedCard
+          ? ' СПИСОК ОБНОВЛЕН; ФАЙЛ ОСТАЛСЯ.'
+          : ' ПРОВЕРЬТЕ СПИСОК ПЕРЕД ПОВТОРНЫМ УДАЛЕНИЕМ.'), true);
+        return null;
       } finally {
-        state.mobileCardFilesBusy = false;
-        renderMobileCardFiles(currentMobileCard() || {});
+        if (state.mobileCardFilesRequest === filesRequest && context.isCurrent()) {
+          state.mobileCardFilesRequest = null;
+          state.mobileCardFilesBusy = false;
+          renderMobileCardFiles(currentMobileCard() || {});
+        }
       }
     }
 
     function resetMobileCardJournal() {
+      state.mobileCardJournalRequest = null;
       state.mobileCardJournalPayload = null;
       state.mobileCardJournalLoadedFor = '';
       state.mobileCardJournalLimit = CARD_JOURNAL_INITIAL_LIMIT;
       state.mobileCardJournalLoading = false;
-    }
-
-    function mobileCardJournalLoadKey(cardId, limit = state.mobileCardJournalLimit) {
-      return String(cardId || '').trim() + ':' + Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(1, finiteNumber(limit, CARD_JOURNAL_INITIAL_LIMIT)));
-    }
-
-    function mobileCardJournalRequestUrl(cardId, limit = state.mobileCardJournalLimit) {
-      const safeLimit = Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(1, finiteNumber(limit, CARD_JOURNAL_INITIAL_LIMIT)));
-      return '/api/get_card_log?card_id=' + encodeURIComponent(cardId) + '&compact=1&limit=' + safeLimit;
     }
 
     function mobileCardJournalEntryHtml(entry) {
@@ -5486,18 +5813,23 @@
         return null;
       }
       const normalizedLimit = Math.min(CARD_JOURNAL_MAX_LIMIT, Math.max(1, finiteNumber(limit, CARD_JOURNAL_INITIAL_LIMIT)));
-      const loadKey = mobileCardJournalLoadKey(cardId, normalizedLimit);
+      const loadKey = cardJournalLoadKey(cardId, normalizedLimit);
       if (!force && state.mobileCardJournalLoadedFor === loadKey) return state.mobileCardJournalPayload;
       state.mobileCardJournalLimit = normalizedLimit;
       state.mobileCardJournalLoading = true;
       renderMobileCardJournal();
+      const context = captureMobileCardContext();
+      const journalRequest = {};
+      state.mobileCardJournalRequest = journalRequest;
+      const isCurrent = () => state.mobileCardJournalRequest === journalRequest && context.isCurrent();
       try {
-        const data = await api(mobileCardJournalRequestUrl(cardId, normalizedLimit));
-        if (String(state.mobileCardId || '').trim() !== cardId) return data;
+        const data = await api(cardJournalRequestUrl(cardId, normalizedLimit));
+        if (!isCurrent()) return null;
         state.mobileCardJournalPayload = data || { entries: [], meta: {} };
         state.mobileCardJournalLoadedFor = loadKey;
         return state.mobileCardJournalPayload;
       } catch (error) {
+        if (!isCurrent()) return null;
         if (state.mobileCardJournalLoadedFor === loadKey) state.mobileCardJournalLoadedFor = '';
         state.mobileCardJournalPayload = {
           entries: [{
@@ -5512,8 +5844,11 @@
         setStatus(error.message, true);
         return state.mobileCardJournalPayload;
       } finally {
-        state.mobileCardJournalLoading = false;
-        renderMobileCardJournal();
+        if (state.mobileCardJournalRequest === journalRequest && context.isCurrent()) {
+          state.mobileCardJournalRequest = null;
+          state.mobileCardJournalLoading = false;
+          renderMobileCardJournal();
+        }
       }
     }
 
@@ -5537,6 +5872,7 @@
     }
 
     function closeMobileCardDetail() {
+      invalidateMobileCardContext();
       state.mobileCardId = '';
       state.mobileCard = null;
       state.mobileCardTab = 'overview';
@@ -5548,7 +5884,33 @@
       renderMobileShell();
     }
 
+    function invalidateMobileCardContext() {
+      state.mobileCardContextGeneration = (state.mobileCardContextGeneration || 0) + 1;
+      state.mobileCardOpenRequest = null;
+      state.mobileCardSaveRequest = null;
+      state.mobileCardFilesRequest = null;
+      state.mobileCardJournalRequest = null;
+    }
+
+    function captureMobileCardContext() {
+      const generation = state.mobileCardContextGeneration || 0;
+      const viewerStateGeneration = state.viewerStateGeneration;
+      const operatorSessionToken = state.operatorSessionToken;
+      const cardId = String(state.mobileCardId || '').trim();
+      const creating = Boolean(state.mobileCardCreating);
+      return {
+        actorName: state.actor,
+        cardId,
+        isCurrent: () => (state.mobileCardContextGeneration || 0) === generation
+          && state.viewerStateGeneration === viewerStateGeneration
+          && state.operatorSessionToken === operatorSessionToken
+          && String(state.mobileCardId || '').trim() === cardId
+          && Boolean(state.mobileCardCreating) === creating,
+      };
+    }
+
     function openMobileNewCard() {
+      invalidateMobileCardContext();
       state.mobileCardId = '';
       state.mobileCard = emptyMobileCardDraft();
       state.mobileCardTab = 'overview';
@@ -5569,16 +5931,25 @@
     async function openMobileCardDetail(cardId) {
       const normalizedCardId = String(cardId || '').trim();
       if (!normalizedCardId) return;
+      invalidateMobileCardContext();
       const snapshotCard = snapshotCardById(normalizedCardId);
       state.mobileCardId = normalizedCardId;
       state.mobileCard = snapshotCard || null;
       state.mobileCardTab = 'overview';
       state.mobileCardCreating = false;
       state.mobileCardLoading = true;
+      state.mobileCardSaving = false;
+      state.mobileCardFilesBusy = false;
       resetMobileCardJournal();
       renderMobileShell();
+      const context = captureMobileCardContext();
+      const openRequest = {};
+      state.mobileCardOpenRequest = openRequest;
+      const isCurrent = () => state.mobileCardOpenRequest === openRequest && context.isCurrent();
       try {
         const fullCard = await fetchFullCard(normalizedCardId, snapshotCard?.updated_at || '');
+        if (!isCurrent()) return null;
+        state.mobileCardOpenRequest = null;
         state.mobileCard = fullCard || snapshotCard || state.mobileCard;
         state.mobileCardId = state.mobileCard?.id || normalizedCardId;
         state.activeCard = state.mobileCard;
@@ -5591,10 +5962,14 @@
         renderMobileShell();
         loadMobileCardJournal({ force: true });
         setStatus('КАРТОЧКА ЗАГРУЖЕНА.', false);
+        return state.mobileCard;
       } catch (error) {
+        if (!isCurrent()) return null;
+        state.mobileCardOpenRequest = null;
         state.mobileCardLoading = false;
         renderMobileCardDetail();
         setStatus(error.message, true);
+        return null;
       }
     }
 
@@ -5603,9 +5978,16 @@
       const isNewCard = state.mobileCardCreating;
       if (state.mobileCardSaving || (!isNewCard && !cardId)) return;
       if (state.mobileCardLoading) return setStatus('ДОЖДИТЕСЬ ЗАГРУЗКИ КАРТОЧКИ.', true);
+      if (state.mobileCardFilesBusy) return setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ С ФАЙЛАМИ.', true);
       const payload = readMobileCardDraft();
       if (!payload.title) return setStatus(MOBILE_CARD_TITLE_REQUIRED_MESSAGE, true);
+      const context = captureMobileCardContext();
+      payload.actor_name = context.actorName;
+      const saveRequest = {};
+      state.mobileCardSaveRequest = saveRequest;
+      const isCurrent = () => state.mobileCardSaveRequest === saveRequest && context.isCurrent();
       state.mobileCardSaving = true;
+      syncMobileCardEditorBusyState();
       if (els.mobileCardSaveButton) {
         els.mobileCardSaveButton.disabled = true;
         els.mobileCardSaveButton.textContent = '...';
@@ -5626,7 +6008,10 @@
             },
           })
           : await api('/api/update_card', { method: 'POST', body: { card_id: cardId, ...payload } });
+        if (!isCurrent()) return null;
         const updatedCard = data?.card || { ...currentMobileCard(), ...payload, id: cardId };
+        state.mobileCardSaveRequest = null;
+        state.mobileCardSaving = false;
         state.mobileCard = updatedCard;
         state.mobileCardId = updatedCard?.id || cardId;
         state.mobileCardCreating = false;
@@ -5641,11 +6026,16 @@
         }
         renderMobileCardDetail();
         setStatus(isNewCard ? 'КАРТОЧКА СОЗДАНА.' : 'КАРТОЧКА СОХРАНЕНА.', false);
+        return updatedCard;
       } catch (error) {
-        setStatus(error.message, true);
+        if (isCurrent()) setStatus(error.message, true);
+        return null;
       } finally {
-        state.mobileCardSaving = false;
-        renderMobileCardDetail();
+        if (state.mobileCardSaveRequest === saveRequest && context.isCurrent()) {
+          state.mobileCardSaveRequest = null;
+          state.mobileCardSaving = false;
+          renderMobileCardDetail();
+        }
       }
     }
 
@@ -6046,21 +6436,21 @@
       }
     }
 
-    async function ensureMobileRepairOrderPaymentCashboxes() {
+    async function ensureMobileRepairOrderPaymentCashboxes(isCurrent = () => true) {
       if (state.cashboxesLoaded || !els.mobileRepairOrderPaymentCashbox) {
-        renderMobileRepairOrderPaymentCashboxes();
+        if (isCurrent()) renderMobileRepairOrderPaymentCashboxes();
         return;
       }
       if (typeof loadCashboxes !== 'function') {
-        renderMobileRepairOrderPaymentCashboxes();
+        if (isCurrent()) renderMobileRepairOrderPaymentCashboxes();
         return;
       }
       try {
         await loadCashboxes(false, { deferDetail: true });
       } catch (error) {
-        setStatus(error.message, true);
+        if (isCurrent()) setStatus(error.message, true);
       } finally {
-        renderMobileRepairOrderPaymentCashboxes();
+        if (isCurrent()) renderMobileRepairOrderPaymentCashboxes();
       }
     }
 
@@ -6206,14 +6596,39 @@
       setMobileRepairOrderTab(button.getAttribute('data-mobile-repair-order-tab'));
     }
 
+    function clearMobileRepairOrderDetailDom() {
+      els.mobileRepairOrderDetail?.querySelectorAll('input, textarea, select').forEach((field) => {
+        field.value = field === els.mobileRepairOrderStatusSelect ? 'open' : '';
+      });
+      for (const key of [
+        'mobileRepairOrderWorks', 'mobileRepairOrderMaterials',
+        'mobileRepairOrderPayments', 'mobileRepairOrderTotals',
+      ]) if (els[key]) els[key].textContent = '';
+      if (els.mobileRepairOrderNumber) els.mobileRepairOrderNumber.textContent = 'ЗАКАЗ-НАРЯД';
+      if (els.mobileRepairOrderStatus) els.mobileRepairOrderStatus.textContent = 'ОТКРЫТ';
+      if (els.mobileRepairOrderSaveButton) els.mobileRepairOrderSaveButton.disabled = true;
+      if (els.mobileRepairOrderAddPaymentButton) els.mobileRepairOrderAddPaymentButton.disabled = true;
+    }
+
+    function lockMobileRepairOrderEditor() {
+      els.mobileRepairOrderDetail?.querySelectorAll(
+        'input, textarea, select, [data-mobile-repair-order-add-row], [data-mobile-repair-order-remove-row], [data-mobile-repair-order-payment-remove], #mobileRepairOrderAddPaymentButton'
+      ).forEach((control) => { control.disabled = true; });
+    }
+
     function renderMobileRepairOrderDetail() {
       if (!els.mobileRepairOrderDetail) return;
       const detailOpen = Boolean(state.mobileRepairOrderCardId);
       els.mobileRepairOrderDetail.hidden = !detailOpen;
       if (els.mobileRepairOrdersList) els.mobileRepairOrdersList.hidden = detailOpen;
-      if (!detailOpen) return;
+      if (!detailOpen) {
+        clearMobileRepairOrderDetailDom();
+        return;
+      }
       renderMobileRepairOrderTabs();
       const order = currentMobileRepairOrderDraft();
+      const loading = Boolean(state.mobileRepairOrderLoading);
+      const busy = loading || state.mobileRepairOrderSaving || repairOrderNeedsVerification(state.mobileRepairOrderCardId);
       const closed = normalizeRepairOrderStatus(order.status) === 'closed';
       const correctionActive = Boolean(order.correction_active || Object.keys(order.active_correction || {}).length);
       if (els.mobileRepairOrderNumber) {
@@ -6224,7 +6639,7 @@
       }
       if (els.mobileRepairOrderStatusSelect) {
         els.mobileRepairOrderStatusSelect.value = normalizeRepairOrderStatus(order.status);
-        els.mobileRepairOrderStatusSelect.disabled = closed;
+        els.mobileRepairOrderStatusSelect.disabled = busy || closed;
       }
       els.mobileRepairOrderDetail.querySelectorAll('[data-mobile-repair-order-field]').forEach((field) => {
         const fieldName = field.getAttribute('data-mobile-repair-order-field');
@@ -6236,14 +6651,17 @@
       renderMobileRepairOrderTotals();
       els.mobileRepairOrderDetail.querySelectorAll('input, textarea, select').forEach((field) => {
         const paymentField = Boolean(field.closest('.mobile-repair-order-payments'));
-        field.disabled = closed || (correctionActive && paymentField);
+        field.disabled = busy || closed || (correctionActive && paymentField);
+      });
+      els.mobileRepairOrderDetail.querySelectorAll('[data-mobile-repair-order-add-row], [data-mobile-repair-order-remove-row]').forEach((button) => {
+        button.disabled = busy || closed;
       });
       els.mobileRepairOrderDetail.querySelectorAll('[data-mobile-repair-order-payment-remove], #mobileRepairOrderAddPaymentButton').forEach((button) => {
-        button.disabled = closed || correctionActive;
+        button.disabled = busy || closed || correctionActive;
       });
       if (els.mobileRepairOrderSaveButton) {
-        els.mobileRepairOrderSaveButton.disabled = state.mobileRepairOrderSaving;
-        els.mobileRepairOrderSaveButton.textContent = state.mobileRepairOrderSaving
+        els.mobileRepairOrderSaveButton.disabled = busy;
+        els.mobileRepairOrderSaveButton.textContent = busy
           ? '...'
           : (closed ? 'ВЕРНУТЬ' : 'СОХР.');
       }
@@ -6272,55 +6690,149 @@
     }
 
     function closeMobileRepairOrderDetail() {
+      if (state.mobileRepairOrderSaving) {
+        setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ С ЗАКАЗ-НАРЯДОМ.', false);
+        return false;
+      }
+      invalidateMobileRepairOrderContext();
       state.mobileRepairOrderCardId = '';
       state.mobileRepairOrderCard = null;
       state.mobileRepairOrderTab = 'client';
+      state.mobileRepairOrderLoading = false;
+      state.mobileRepairOrderSaving = false;
       renderMobileShell();
+      return true;
+    }
+
+    function invalidateMobileRepairOrderContext() {
+      state.mobileRepairOrderContextGeneration = (state.mobileRepairOrderContextGeneration || 0) + 1;
+      state.mobileRepairOrderOpenRequest = null;
+      state.mobileRepairOrderSaveRequest = null;
+    }
+
+    function captureMobileRepairOrderContext() {
+      const generation = state.mobileRepairOrderContextGeneration || 0;
+      const viewerStateGeneration = state.viewerStateGeneration;
+      const operatorSessionToken = state.operatorSessionToken;
+      const cardId = String(state.mobileRepairOrderCardId || '').trim();
+      return {
+        actorName: state.actor,
+        cardId,
+        isCurrent: () => (state.mobileRepairOrderContextGeneration || 0) === generation
+          && state.viewerStateGeneration === viewerStateGeneration
+          && state.operatorSessionToken === operatorSessionToken
+          && String(state.mobileRepairOrderCardId || '').trim() === cardId,
+      };
+    }
+
+    function repairOrderCardFromResponse(data, fallbackCard, cardId) {
+      if (data?.card) return data.card;
+      if (!data?.repair_order) return fallbackCard || null;
+      return {
+        ...(fallbackCard || {}),
+        id: String(fallbackCard?.id || cardId || '').trim(),
+        repair_order: data.repair_order,
+      };
+    }
+
+    function applyMobileRepairOrderCard(card, cardId, { persisted = false } = {}) {
+      if (!card) return null;
+      const resolvedCard = { ...card, id: String(card.id || cardId || '').trim() };
+      state.mobileRepairOrderCard = resolvedCard;
+      state.mobileRepairOrderCardId = resolvedCard.id;
+      state.activeCard = resolvedCard;
+      state.editingId = resolvedCard.id;
+      state.pendingCardClientId = resolvedCard.client_id || '';
+      cacheFullCard(resolvedCard);
+      if (persisted) {
+        applySavedCardLocalPatch(resolvedCard);
+        refreshRepairOrderEntry(resolvedCard);
+      }
+      return resolvedCard;
+    }
+
+    async function readRepairOrderAfterAmbiguousWrite(context, fallbackCard) {
+      try {
+        const data = await api('/api/get_repair_order', {
+          method: 'POST',
+          body: {
+            card_id: context.cardId,
+            actor_name: context.actorName,
+            source: 'ui',
+            create_if_missing: false,
+          },
+        });
+        if (!context.isCurrent() || (!data?.card && !data?.repair_order)) return null;
+        return repairOrderCardFromResponse(data, fallbackCard, context.cardId);
+      } catch (_) {
+        return null;
+      }
     }
 
     async function openMobileRepairOrderDetail(cardId) {
       const normalizedCardId = String(cardId || '').trim();
       if (!normalizedCardId) return;
+      invalidateMobileRepairOrderContext();
       state.mobileRepairOrderCardId = normalizedCardId;
       state.mobileRepairOrderCard = mobileRepairOrderSummaryCard(normalizedCardId);
       state.mobileRepairOrderTab = 'client';
+      state.mobileRepairOrderLoading = true;
+      state.mobileRepairOrderSaving = false;
       renderMobileShell();
+      const context = captureMobileRepairOrderContext();
+      const openRequest = {};
+      state.mobileRepairOrderOpenRequest = openRequest;
+      const isCurrent = () => state.mobileRepairOrderOpenRequest === openRequest && context.isCurrent();
       try {
         const data = await api('/api/get_repair_order', {
           method: 'POST',
           body: {
             card_id: normalizedCardId,
-            actor_name: state.actor,
+            actor_name: context.actorName,
             source: 'ui',
             create_if_missing: true,
           },
         });
-        const updatedCard = data?.card || {
-          ...state.mobileRepairOrderCard,
-          id: normalizedCardId,
-          repair_order: data?.repair_order || state.mobileRepairOrderCard?.repair_order || {},
-        };
-        state.mobileRepairOrderCard = updatedCard;
-        state.mobileRepairOrderCardId = updatedCard?.id || normalizedCardId;
-        state.activeCard = updatedCard;
-        state.editingId = updatedCard?.id || normalizedCardId;
-        state.pendingCardClientId = updatedCard?.client_id || '';
-        cacheFullCard(updatedCard);
-        await ensureMobileRepairOrderPaymentCashboxes();
+        if (!isCurrent()) return null;
+        const updatedCard = (data?.card || data?.repair_order)
+          ? repairOrderCardFromResponse(data, state.mobileRepairOrderCard, normalizedCardId)
+          : null;
+        if (!updatedCard) throw new Error('НЕ УДАЛОСЬ ПОЛУЧИТЬ АКТУАЛЬНЫЙ ЗАКАЗ-НАРЯД.');
+        await ensureMobileRepairOrderPaymentCashboxes(isCurrent);
+        if (!isCurrent()) return null;
+        clearRepairOrderVerificationPending(normalizedCardId);
+        applyMobileRepairOrderCard(updatedCard, normalizedCardId);
+        state.mobileRepairOrderOpenRequest = null;
+        state.mobileRepairOrderLoading = false;
         renderMobileShell();
         setStatus('ЗАКАЗ-НАРЯД ЗАГРУЖЕН.', false);
+        return updatedCard;
       } catch (error) {
+        if (!isCurrent()) return null;
         closeMobileRepairOrderDetail();
         setStatus(error.message, true);
+        return null;
       }
     }
 
     async function saveMobileRepairOrder() {
       const cardId = String(state.mobileRepairOrderCardId || '').trim();
       if (!cardId || state.mobileRepairOrderSaving) return;
+      if (state.mobileRepairOrderLoading || state.mobileRepairOrderOpenRequest) {
+        return setStatus('ДОЖДИТЕСЬ ЗАГРУЗКИ ЗАКАЗ-НАРЯДА.', true);
+      }
+      if (repairOrderNeedsVerification(cardId)) {
+        return setStatus(repairOrderVerificationMessage(cardId), true);
+      }
       const repairOrder = readMobileRepairOrderDraft();
       const currentOrder = currentMobileRepairOrderDraft();
+      const context = captureMobileRepairOrderContext();
+      const expectedUpdatedAt = state.mobileRepairOrderCard?.updated_at || '';
+      const saveRequest = {};
+      state.mobileRepairOrderSaveRequest = saveRequest;
+      const isCurrent = () => state.mobileRepairOrderSaveRequest === saveRequest && context.isCurrent();
       state.mobileRepairOrderSaving = true;
+      lockMobileRepairOrderEditor();
       if (els.mobileRepairOrderSaveButton) {
         els.mobileRepairOrderSaveButton.disabled = true;
         els.mobileRepairOrderSaveButton.textContent = '...';
@@ -6331,9 +6843,10 @@
             method: 'POST',
             body: {
               card_id: cardId,
-              expected_updated_at: state.mobileRepairOrderCard?.updated_at || '',
+              expected_updated_at: expectedUpdatedAt,
             },
           });
+          if (!isCurrent()) return null;
           const payrollTotal = (preview?.payroll_reversals || []).reduce((sum, item) => sum + Number(item.amount_minor || 0), 0) / 100;
           if (!window.confirm('Заказ будет временно исключён из выручки. Сторно зарплаты: ' + repairOrderFormatMoney(payrollTotal) + '. Продолжить?')) return;
           const reasonCode = String(window.prompt('Код причины исправления', 'other') || '').trim();
@@ -6342,23 +6855,46 @@
             setStatus('Нужно указать причину и пояснение.', true);
             return;
           }
-          const reopened = await api('/api/reopen_repair_order', {
-            method: 'POST',
-            body: {
-              card_id: cardId,
-              expected_updated_at: state.mobileRepairOrderCard?.updated_at || '',
-              reason_code: reasonCode,
-              reason_note: reasonNote,
-              idempotency_key: 'mobile-reopen-' + cardId + '-' + Date.now(),
-              actor_name: state.actor,
-              source: 'ui',
-            },
-          });
-          state.mobileRepairOrderCard = reopened?.card || state.mobileRepairOrderCard;
-          state.activeCard = state.mobileRepairOrderCard;
+          let reopenError = null;
+          let reopenedCard = null;
+          try {
+            const reopened = await api('/api/reopen_repair_order', {
+              method: 'POST',
+              body: {
+                card_id: cardId,
+                expected_updated_at: expectedUpdatedAt,
+                reason_code: reasonCode,
+                reason_note: reasonNote,
+                idempotency_key: 'mobile-reopen-' + cardId + '-' + Date.now(),
+                actor_name: context.actorName,
+                source: 'ui',
+              },
+            });
+            if (!isCurrent()) return null;
+            reopenedCard = repairOrderCardFromResponse(reopened, state.mobileRepairOrderCard, cardId);
+          } catch (error) {
+            if (!isCurrent()) return null;
+            reopenError = error;
+            reopenedCard = await readRepairOrderAfterAmbiguousWrite({ ...context, isCurrent }, state.mobileRepairOrderCard);
+            if (!isCurrent()) return null;
+          }
+          const appliedCard = applyMobileRepairOrderCard(reopenedCard || state.mobileRepairOrderCard, cardId, { persisted: Boolean(reopenedCard) });
+          await loadRepairOrders(false);
+          if (!isCurrent()) return null;
           renderMobileRepairOrderDetail();
-          setStatus('ЗАКАЗ-НАРЯД ОТКРЫТ ДЛЯ ИСПРАВЛЕНИЯ.', false);
-          return;
+          const reopenConfirmed = Boolean(reopenedCard)
+            && normalizeRepairOrderStatus(reopenedCard.repair_order?.status) !== 'closed';
+          if (reopenError && !reopenedCard) {
+            markRepairOrderWriteVerificationPending(cardId);
+            setStatus('РЕЗУЛЬТАТ ОТКРЫТИЯ ДЛЯ ИСПРАВЛЕНИЯ НЕ ОПРЕДЕЛЕН. НЕ ПОВТОРЯЙТЕ ОПЕРАЦИЮ; ЗАКРОЙТЕ И ОТКРОЙТЕ КАРТОЧКУ.', true);
+          } else if (reopenError && !reopenConfirmed) {
+            setStatus('ОТКРЫТИЕ ДЛЯ ИСПРАВЛЕНИЯ НЕ ПОДТВЕРЖДЕНО: ' + reopenError.message, true);
+          } else if (reopenError) {
+            setStatus('ЗАКАЗ-НАРЯД ОТКРЫТ; РЕЗУЛЬТАТ ПОДТВЕРЖДЕН ПОВТОРНЫМ ЧТЕНИЕМ.', false);
+          } else {
+            setStatus('ЗАКАЗ-НАРЯД ОТКРЫТ ДЛЯ ИСПРАВЛЕНИЯ.', false);
+          }
+          return appliedCard;
         }
         const requestedStatus = normalizeRepairOrderStatus(
           els.mobileRepairOrderStatusSelect?.value || repairOrder.status
@@ -6377,46 +6913,71 @@
           method: 'POST',
           body: {
             card_id: cardId,
-            actor_name: state.actor,
+            actor_name: context.actorName,
             source: 'ui',
-            expected_updated_at: state.mobileRepairOrderCard?.updated_at || '',
+            expected_updated_at: expectedUpdatedAt,
             repair_order: repairOrderPatch,
           },
         });
-        let updatedCard = data?.card || {
+        if (!isCurrent()) return null;
+        let updatedCard = repairOrderCardFromResponse(data, {
           ...state.mobileRepairOrderCard,
-          id: cardId,
-          repair_order: data?.repair_order || repairOrder,
-        };
-        if (requestedStatus === 'closed') {
-          const closedData = await api('/api/set_repair_order_status', {
-            method: 'POST',
-            body: {
-              card_id: cardId,
-              status: 'closed',
-              expected_updated_at: updatedCard?.updated_at || '',
-              idempotency_key: 'mobile-close-' + cardId + '-' + Date.now(),
-              actor_name: state.actor,
-              source: 'ui',
-            },
-          });
-          updatedCard = closedData?.card || updatedCard;
+          repair_order: repairOrder,
+        }, cardId);
+        applyMobileRepairOrderCard(updatedCard, cardId, { persisted: true });
+        const previousStatus = normalizeRepairOrderStatus(currentOrder.status);
+        let statusWriteError = null;
+        if (requestedStatus !== previousStatus) {
+          try {
+            const statusData = await api('/api/set_repair_order_status', {
+              method: 'POST',
+              body: {
+                card_id: cardId,
+                status: requestedStatus,
+                expected_updated_at: updatedCard?.updated_at || '',
+                ...(requestedStatus === 'closed'
+                  ? { idempotency_key: 'mobile-close-' + cardId + '-' + Date.now() }
+                  : {}),
+                actor_name: context.actorName,
+                source: 'ui',
+              },
+            });
+            if (!isCurrent()) return null;
+            updatedCard = repairOrderCardFromResponse(statusData, updatedCard, cardId);
+          } catch (error) {
+            if (!isCurrent()) return null;
+            statusWriteError = error;
+            const readback = await readRepairOrderAfterAmbiguousWrite({ ...context, isCurrent }, updatedCard);
+            if (!isCurrent()) return null;
+            if (readback) updatedCard = readback;
+            else markRepairOrderWriteVerificationPending(cardId);
+          }
         }
-        state.mobileRepairOrderCard = updatedCard;
-        state.mobileRepairOrderCardId = updatedCard?.id || cardId;
-        state.activeCard = updatedCard;
-        state.editingId = updatedCard?.id || cardId;
-        cacheFullCard(updatedCard);
-        applySavedCardLocalPatch(updatedCard);
-        refreshRepairOrderEntry(updatedCard);
+        applyMobileRepairOrderCard(updatedCard, cardId, { persisted: true });
         await loadRepairOrders(false);
+        if (!isCurrent()) return null;
         renderMobileRepairOrderDetail();
-        setStatus('ЗАКАЗ-НАРЯД СОХРАНЕН.', false);
+        const statusConfirmed = !repairOrderWriteNeedsVerification(cardId)
+          && normalizeRepairOrderStatus(updatedCard?.repair_order?.status) === requestedStatus;
+        if (statusWriteError && repairOrderWriteNeedsVerification(cardId)) {
+          setStatus('ПОЛЯ ЗАКАЗ-НАРЯДА СОХРАНЕНЫ, НО РЕЗУЛЬТАТ СМЕНЫ СТАТУСА НЕ ОПРЕДЕЛЕН. НЕ ПОВТОРЯЙТЕ ОПЕРАЦИЮ; ЗАКРОЙТЕ И ОТКРОЙТЕ КАРТОЧКУ.', true);
+        } else if (statusWriteError && !statusConfirmed) {
+          setStatus('ПОЛЯ ЗАКАЗ-НАРЯДА СОХРАНЕНЫ, НО СМЕНА СТАТУСА НЕ ПОДТВЕРЖДЕНА: ' + statusWriteError.message, true);
+        } else if (statusWriteError) {
+          setStatus('ЗАКАЗ-НАРЯД СОХРАНЕН; СТАТУС ПОДТВЕРЖДЕН ПОВТОРНЫМ ЧТЕНИЕМ.', false);
+        } else {
+          setStatus('ЗАКАЗ-НАРЯД СОХРАНЕН.', false);
+        }
+        return updatedCard;
       } catch (error) {
-        setStatus(error.message, true);
+        if (isCurrent()) setStatus(error.message, true);
+        return null;
       } finally {
-        state.mobileRepairOrderSaving = false;
-        renderMobileRepairOrderDetail();
+        if (state.mobileRepairOrderSaveRequest === saveRequest && context.isCurrent()) {
+          state.mobileRepairOrderSaveRequest = null;
+          state.mobileRepairOrderSaving = false;
+          renderMobileRepairOrderDetail();
+        }
       }
     }
 
@@ -6692,275 +7253,7 @@
 
     // @include employees_mobile.js
 
-    function renderMobileArchiveRows(cards) {
-      return cards.map((card) => {
-        const heading = cardHeading(card);
-        const compactDescription = stripDescriptionFormatting(card?.description || card?.description_preview || 'Описание не указано').replace(/\s+/g, ' ').trim();
-        const summary = compactDescription.length > 160 ? compactDescription.slice(0, 157) + '...' : compactDescription;
-        const metaParts = [
-          card?.updated_at ? ('АРХИВ: ' + formatDate(card.updated_at)) : '',
-          card?.column ? ('КОЛОНКА: ' + columnLabelById(card.column)) : '',
-        ].filter(Boolean);
-        return '<article class="mobile-archive-row" data-mobile-archive-card="' + escapeHtml(card?.id || '') + '">'
-          + '<div class="mobile-archive-row__top">'
-            + '<div class="mobile-archive-row__title">' + escapeHtml(heading) + '</div>'
-          + '</div>'
-          + '<div class="mobile-archive-row__summary">' + escapeHtml(summary || 'Описание не указано') + '</div>'
-          + '<div class="mobile-archive-row__meta">' + escapeHtml(metaParts.join(' · ') || 'АРХИВНАЯ КАРТОЧКА') + '</div>'
-          + '<div class="mobile-archive-row__actions">'
-            + '<button class="mobile-action mobile-action--primary" type="button" data-mobile-archive-restore="' + escapeHtml(card?.id || '') + '">ВЕРНУТЬ</button>'
-          + '</div>'
-        + '</article>';
-      }).join('');
-    }
-
-    function renderMobileArchivePanel() {
-      const isOpen = state.mobileMorePanel === 'archive';
-      if (els.mobileArchivePanel) els.mobileArchivePanel.hidden = !isOpen;
-      syncMobileMorePanelChrome();
-      if (!isOpen) return;
-      if (els.mobileArchiveSearchInput && els.mobileArchiveSearchInput.value !== String(state.archiveQuery || '')) {
-        els.mobileArchiveSearchInput.value = String(state.archiveQuery || '');
-      }
-      const total = archivedCardsTotal();
-      const cards = filteredArchiveCards();
-      if (els.mobileArchiveMeta) {
-        if (state.mobileArchiveLoading || state.archiveLoading) {
-          els.mobileArchiveMeta.textContent = 'ЗАГРУЗКА...';
-        } else if (String(state.archiveQuery || '').trim()) {
-          els.mobileArchiveMeta.textContent = 'НАЙДЕНО: ' + String(cards.length) + ' ИЗ ' + String(total);
-        } else {
-          els.mobileArchiveMeta.textContent = cards.length ? ('ПОКАЗАНО: ' + String(cards.length) + ' ИЗ ' + String(total)) : 'АРХИВНЫХ КАРТОЧЕК ПОКА НЕТ';
-        }
-      }
-      if (!els.mobileArchiveList) return;
-      if (state.mobileArchiveLoading && !cards.length) {
-        els.mobileArchiveList.innerHTML = '<div class="mobile-archive-empty">ЗАГРУЗКА АРХИВА...</div>';
-      } else if (!cards.length) {
-        els.mobileArchiveList.innerHTML = '<div class="mobile-archive-empty">ПО ДАННОМУ ПОИСКУ НИЧЕГО НЕ НАЙДЕНО.</div>';
-      } else {
-        els.mobileArchiveList.innerHTML = renderMobileArchiveRows(cards);
-      }
-    }
-
-    async function loadMobileArchive({ force = false } = {}) {
-      if (!force && state.archiveLoaded) {
-        renderMobileArchivePanel();
-        return;
-      }
-      state.mobileArchiveLoading = true;
-      renderMobileArchivePanel();
-      try {
-        await loadArchive(false, { force });
-      } finally {
-        state.mobileArchiveLoading = false;
-        renderMobileArchivePanel();
-        renderMobileMoreModules();
-      }
-    }
-
-    function openMobileArchivePanel() {
-      state.mobileMorePanel = 'archive';
-      renderMobileMore();
-      loadMobileArchive();
-    }
-
-    function handleMobileArchiveInput() {
-      state.archiveQuery = String(els.mobileArchiveSearchInput?.value || '').trim();
-      window.clearTimeout(state.mobileArchiveSearchTimer);
-      state.mobileArchiveSearchTimer = window.setTimeout(() => renderMobileArchivePanel(), 80);
-      renderMobileArchivePanel();
-    }
-
-    async function restoreMobileArchiveCard(cardId) {
-      const normalizedId = String(cardId || '').trim();
-      if (!normalizedId) return;
-      state.mobileArchiveLoading = true;
-      renderMobileArchivePanel();
-      try {
-        const data = await api('/api/restore_card', {
-          method: 'POST',
-          body: { card_id: normalizedId, actor_name: state.actor, source: 'ui' },
-        });
-        const restoredId = String(data?.card?.id || normalizedId).trim();
-        const patched = data?.card ? applyArchivedCardPatch(data.card) : false;
-        if (!patched) {
-          state.archiveCards = (Array.isArray(state.archiveCards) ? state.archiveCards : []).filter((card) => String(card?.id || '') !== normalizedId);
-          await refreshSnapshot(true);
-        }
-        await loadArchive(false, { force: true });
-        state.mobileArchiveLoading = false;
-        renderMobileArchivePanel();
-        renderMobileMoreModules();
-        setStatus('КАРТОЧКА ВОССТАНОВЛЕНА.', false);
-        if (restoredId) {
-          state.mobileMorePanel = '';
-          setMobileView('board');
-          await openMobileCardDetail(restoredId);
-        }
-      } catch (error) {
-        setStatus(error.message, true);
-      } finally {
-        state.mobileArchiveLoading = false;
-        renderMobileArchivePanel();
-        renderMobileMoreModules();
-      }
-    }
-
-    function handleMobileArchiveClick(event) {
-      const button = event.target instanceof HTMLElement ? event.target.closest('[data-mobile-archive-restore]') : null;
-      if (!button || !els.mobileArchivePanel?.contains(button)) return;
-      event.preventDefault();
-      restoreMobileArchiveCard(button.getAttribute('data-mobile-archive-restore'));
-    }
-
-    function mobileSharedFilesMetaText(files) {
-      const storage = state.sharedFilesStorage || {};
-      const total = Array.isArray(files) ? files.length : 0;
-      if (storage.limit_bytes) {
-        return formatBytes(storage.used_bytes ?? 0) + ' / ' + formatBytes(storage.limit_bytes ?? 0) + ' · ' + total + ' ФАЙЛ.';
-      }
-      return total ? (total + ' ФАЙЛ.') : 'ФАЙЛОВ ПОКА НЕТ';
-    }
-
-    function renderMobileSharedFilesRows(files) {
-      return files.map((file) => {
-        const fileId = String(file?.id || '').trim();
-        const isActive = fileId === String(state.sharedFilesActiveId || '');
-        const isRenaming = fileId === String(state.mobileSharedFileRenamingId || '');
-        const metaText = sharedFileMetaParts(file).join(' · ') || 'ФАЙЛ';
-        return '<article class="mobile-shared-file-row' + (isActive ? ' is-active' : '') + '" data-mobile-shared-file-id="' + escapeHtml(fileId) + '">'
-          + '<div class="mobile-shared-file-row__top">'
-            + '<div class="mobile-shared-file-row__name">' + escapeHtml(file?.original_name || 'Файл') + '</div>'
-            + '<div class="mobile-shared-file-row__kind">' + escapeHtml(sharedFileKindLabel(file)) + '</div>'
-          + '</div>'
-          + '<div class="mobile-shared-file-row__meta">' + escapeHtml(metaText) + '</div>'
-          + '<div class="mobile-shared-file-row__actions">'
-            + '<button class="mobile-action mobile-action--ghost" type="button" data-mobile-shared-file-action="open" data-mobile-shared-file-id="' + escapeHtml(fileId) + '">ОТКРЫТЬ</button>'
-            + '<button class="mobile-action mobile-action--ghost" type="button" data-mobile-shared-file-action="download" data-mobile-shared-file-id="' + escapeHtml(fileId) + '">СКАЧАТЬ</button>'
-            + '<button class="mobile-action mobile-action--ghost" type="button" data-mobile-shared-file-action="rename" data-mobile-shared-file-id="' + escapeHtml(fileId) + '">' + (isRenaming ? '...' : 'ПЕРЕИМ.') + '</button>'
-            + '<button class="mobile-action mobile-action--expense" type="button" data-mobile-shared-file-action="delete" data-mobile-shared-file-id="' + escapeHtml(fileId) + '">УДАЛИТЬ</button>'
-          + '</div>'
-        + '</article>';
-      }).join('');
-    }
-
-    function renderMobileSharedFilesPanel() {
-      const isOpen = state.mobileMorePanel === 'files';
-      if (els.mobileSharedFilesPanel) els.mobileSharedFilesPanel.hidden = !isOpen;
-      syncMobileMorePanelChrome();
-      if (!isOpen) return;
-      const files = Array.isArray(state.sharedFiles) ? state.sharedFiles : [];
-      if (els.mobileSharedFilesUploadButton) {
-        els.mobileSharedFilesUploadButton.disabled = Boolean(state.mobileSharedFilesLoading);
-        els.mobileSharedFilesUploadButton.textContent = state.mobileSharedFilesLoading ? '...' : 'ЗАГРУЗИТЬ';
-      }
-      if (els.mobileSharedFilesMeta) {
-        els.mobileSharedFilesMeta.textContent = state.mobileSharedFilesLoading ? 'ЗАГРУЗКА...' : mobileSharedFilesMetaText(files);
-      }
-      if (!els.mobileSharedFilesList) return;
-      if (state.mobileSharedFilesLoading && !files.length) {
-        els.mobileSharedFilesList.innerHTML = '<div class="mobile-shared-file-empty">ЗАГРУЗКА ФАЙЛОВ...</div>';
-      } else if (!files.length) {
-        els.mobileSharedFilesList.innerHTML = '<div class="mobile-shared-file-empty">ОБЩИХ ФАЙЛОВ ПОКА НЕТ.</div>';
-      } else {
-        els.mobileSharedFilesList.innerHTML = renderMobileSharedFilesRows(files);
-      }
-    }
-
-    async function loadMobileSharedFiles({ force = false } = {}) {
-      void force;
-      state.mobileSharedFilesLoading = true;
-      renderMobileSharedFilesPanel();
-      try {
-        await loadSharedFiles({ openModal: false });
-      } finally {
-        state.mobileSharedFilesLoading = false;
-        renderMobileSharedFilesPanel();
-        renderMobileMoreModules();
-      }
-    }
-
-    function openMobileSharedFilesPanel() {
-      state.mobileMorePanel = 'files';
-      renderMobileMore();
-      loadMobileSharedFiles();
-    }
-
-    function selectMobileSharedFile(fileId) {
-      const normalizedId = String(fileId || '').trim();
-      if (!normalizedId) return null;
-      selectSharedFile(normalizedId);
-      renderMobileSharedFilesPanel();
-      return sharedFileById(normalizedId);
-    }
-
-    function openMobileSharedFile(fileId) {
-      const file = selectMobileSharedFile(fileId);
-      if (!file) return;
-      window.open(sharedFileDownloadUrl(file, { inline: true }), '_blank', 'noopener');
-    }
-
-    async function downloadMobileSharedFile(fileId) {
-      const file = selectMobileSharedFile(fileId);
-      if (!file) return;
-      await downloadActiveSharedFile();
-      renderMobileSharedFilesPanel();
-    }
-
-    async function renameMobileSharedFile(fileId) {
-      const file = selectMobileSharedFile(fileId);
-      if (!file) return;
-      state.mobileSharedFileRenamingId = file.id;
-      renderMobileSharedFilesPanel();
-      try {
-        await renameActiveSharedFile();
-      } finally {
-        state.mobileSharedFileRenamingId = '';
-        renderMobileSharedFilesPanel();
-        renderMobileMoreModules();
-      }
-    }
-
-    async function deleteMobileSharedFile(fileId) {
-      const file = selectMobileSharedFile(fileId);
-      if (!file) return;
-      try {
-        await deleteActiveSharedFile();
-      } finally {
-        renderMobileSharedFilesPanel();
-        renderMobileMoreModules();
-      }
-    }
-
-    async function uploadMobileSharedFiles() {
-      const files = Array.from(els.mobileSharedFilesInput?.files || []).filter(Boolean);
-      if (!files.length) return;
-      state.mobileSharedFilesLoading = true;
-      renderMobileSharedFilesPanel();
-      try {
-        await uploadSharedFiles(files, { dropPoint: null });
-      } finally {
-        if (els.mobileSharedFilesInput) els.mobileSharedFilesInput.value = '';
-        state.mobileSharedFilesLoading = false;
-        renderMobileSharedFilesPanel();
-        renderMobileMoreModules();
-      }
-    }
-
-    function handleMobileSharedFilesClick(event) {
-      const button = event.target instanceof HTMLElement ? event.target.closest('[data-mobile-shared-file-action]') : null;
-      if (!button || !els.mobileSharedFilesPanel?.contains(button)) return;
-      event.preventDefault();
-      const action = String(button.getAttribute('data-mobile-shared-file-action') || '').trim();
-      const fileId = String(button.getAttribute('data-mobile-shared-file-id') || button.closest('[data-mobile-shared-file-id]')?.getAttribute('data-mobile-shared-file-id') || '').trim();
-      if (action === 'open') return openMobileSharedFile(fileId);
-      if (action === 'download') return downloadMobileSharedFile(fileId);
-      if (action === 'rename') return renameMobileSharedFile(fileId);
-      if (action === 'delete') return deleteMobileSharedFile(fileId);
-      return null;
-    }
-
+    // @include mobile_auxiliary_workspace.js
     function mobileMoreClientsTotal() {
       const metaTotal = finiteNumber(state.clientsMetaState?.total, NaN);
       if (Number.isFinite(metaTotal) && metaTotal >= 0) return metaTotal;
@@ -7042,6 +7335,13 @@
 
     async function loadMobileMoreModules({ force = false } = {}) {
       if (state.mobileMoreLoading) return;
+      const request = {};
+      state.mobileMoreRequest = request;
+      const viewerStateGeneration = state.viewerStateGeneration;
+      const operatorSessionToken = state.operatorSessionToken;
+      const isCurrent = () => state.mobileMoreRequest === request
+        && state.viewerStateGeneration === viewerStateGeneration
+        && state.operatorSessionToken === operatorSessionToken;
       state.mobileMoreLoading = true;
       state.mobileMoreError = '';
       renderMobileMoreModules();
@@ -7053,17 +7353,22 @@
         ];
         if (operatorCanViewEmployees()) tasks.push(loadEmployeesReference());
         const results = await Promise.allSettled(tasks);
+        if (!isCurrent()) return null;
         const failed = results.filter((item) => item.status === 'rejected');
         state.mobileMoreLoaded = true;
         if (failed.length) {
           state.mobileMoreError = 'НЕ ВСЕ МОДУЛИ ОБНОВИЛИСЬ.';
           setStatus(state.mobileMoreError, true);
         }
+        return results;
       } finally {
-        state.mobileMoreLoading = false;
-        renderMobileMoreModules();
-        renderMobileArchivePanel();
-        renderMobileSharedFilesPanel();
+        if (isCurrent()) {
+          state.mobileMoreRequest = null;
+          state.mobileMoreLoading = false;
+          renderMobileMoreModules();
+          renderMobileArchivePanel();
+          renderMobileSharedFilesPanel();
+        }
       }
     }
 
@@ -7449,7 +7754,7 @@
       setBoardSearchOpen(true);
     }
 
-    function clearBoardSearchState({ keepInput = false } = {}) {
+    function clearBoardSearchState({ keepInput = false, keepCache = true } = {}) {
       if (state.boardSearch.timer) window.clearTimeout(state.boardSearch.timer);
       state.boardSearch.timer = null;
       abortBoardSearchRequest();
@@ -7461,16 +7766,27 @@
       state.boardSearch.error = '';
       state.boardSearch.activeIndex = -1;
       state.boardSearch.open = false;
+      if (!keepCache) {
+        state.boardSearch.completedQuery = '';
+        state.boardSearch.completedResults = [];
+        state.boardSearch.completedMeta = null;
+        state.boardSearch.completedAt = 0;
+      }
       if (!keepInput && els.boardSearchInput) els.boardSearchInput.value = '';
       renderBoardSearchResults();
     }
 
     async function loadBoardSearch(query, requestSeq) {
+      const viewerStateGeneration = state.viewerStateGeneration;
+      const operatorSessionToken = state.operatorSessionToken;
+      const isCurrent = () => requestSeq === state.boardSearch.requestSeq
+        && viewerStateGeneration === state.viewerStateGeneration
+        && operatorSessionToken === state.operatorSessionToken;
       const controller = new AbortController();
       state.boardSearch.controller = controller;
       try {
         const data = await api('/api/search_cards?query=' + encodeURIComponent(query) + '&limit=' + BOARD_SEARCH_LIMIT, { signal: controller.signal });
-        if (requestSeq !== state.boardSearch.requestSeq) return;
+        if (!isCurrent()) return;
         state.boardSearch.results = Array.isArray(data?.cards) ? data.cards : [];
         state.boardSearch.meta = data?.meta || null;
         state.boardSearch.error = '';
@@ -7478,14 +7794,14 @@
         rememberBoardSearchCache(query);
       } catch (error) {
         if (error.name === 'AbortError') return;
-        if (requestSeq !== state.boardSearch.requestSeq) return;
+        if (!isCurrent()) return;
         state.boardSearch.results = [];
         state.boardSearch.meta = null;
         state.boardSearch.error = error.message || 'Не удалось выполнить поиск.';
         state.boardSearch.activeIndex = -1;
       } finally {
         if (state.boardSearch.controller === controller) state.boardSearch.controller = null;
-        if (requestSeq === state.boardSearch.requestSeq) {
+        if (isCurrent()) {
           state.boardSearch.loading = false;
           state.boardSearch.open = true;
           renderBoardSearchResults();
@@ -8015,6 +8331,44 @@
       syncCardSaveDirtyState();
     }
 
+    async function executeCardTimerAction(action, deadline = '') {
+      if (state.cardTimerSaving) return;
+      const context = beginCardScopedRequest('cardTimerRequest');
+      if (!context) return;
+      const starting = action === 'start';
+      state.cardTimerSaving = true;
+      renderCardTimerControls();
+      try {
+        const data = await api(starting ? '/api/start_card_timer' : '/api/stop_card_timer', {
+          method: 'POST',
+          body: {
+            card_id: context.cardId,
+            ...(starting ? { deadline } : {}),
+            expected_updated_at: context.expectedUpdatedAt,
+            actor_name: context.actorName,
+            source: 'ui',
+          },
+        });
+        if (!context.isCurrent()) return;
+        if (data?.card && String(data.card.id || '').trim() === context.cardId) {
+          applyCardTimerOperationResult(data.card);
+        }
+        setStatus(
+          starting
+            ? (data?.meta?.action === 'restarted' ? 'ТАЙМЕР ПЕРЕЗАПУЩЕН.' : 'ТАЙМЕР ЗАПУЩЕН.')
+            : 'ТАЙМЕР ОСТАНОВЛЕН.',
+          false,
+        );
+      } catch (error) {
+        if (context.isCurrent()) setStatus(error.message, true);
+      } finally {
+        if (finishCardScopedRequest(context)) {
+          state.cardTimerSaving = false;
+          renderCardTimerControls();
+        }
+      }
+    }
+
     async function startCardTimerFromPanel() {
       const deadline = deadlineInput();
       if (selectedTimerTotalSeconds() <= 0) {
@@ -8028,30 +8382,7 @@
         setStatus('ТАЙМЕР ЗАПУСТИТСЯ ПОСЛЕ СОХРАНЕНИЯ КАРТОЧКИ.', false);
         return;
       }
-      if (state.cardTimerSaving) return;
-      state.cardTimerSaving = true;
-      renderCardTimerControls();
-      try {
-        const data = await api('/api/start_card_timer', {
-          method: 'POST',
-          body: {
-            card_id: state.editingId,
-            deadline,
-            expected_updated_at: String(state.activeCard?.updated_at || ''),
-            actor_name: state.actor,
-            source: 'ui',
-          },
-        });
-        if (data?.card) {
-          applyCardTimerOperationResult(data.card);
-        }
-        setStatus(data?.meta?.action === 'restarted' ? 'ТАЙМЕР ПЕРЕЗАПУЩЕН.' : 'ТАЙМЕР ЗАПУЩЕН.', false);
-      } catch (error) {
-        setStatus(error.message, true);
-      } finally {
-        state.cardTimerSaving = false;
-        renderCardTimerControls();
-      }
+      return executeCardTimerAction('start', deadline);
     }
 
     async function stopCardTimerFromPanel() {
@@ -8062,29 +8393,7 @@
         setStatus('ЗАПУСК ТАЙМЕРА ОТМЕНЁН.', false);
         return;
       }
-      if (state.cardTimerSaving) return;
-      state.cardTimerSaving = true;
-      renderCardTimerControls();
-      try {
-        const data = await api('/api/stop_card_timer', {
-          method: 'POST',
-          body: {
-            card_id: state.editingId,
-            expected_updated_at: String(state.activeCard?.updated_at || ''),
-            actor_name: state.actor,
-            source: 'ui',
-          },
-        });
-        if (data?.card) {
-          applyCardTimerOperationResult(data.card);
-        }
-        setStatus('ТАЙМЕР ОСТАНОВЛЕН.', false);
-      } catch (error) {
-        setStatus(error.message, true);
-      } finally {
-        state.cardTimerSaving = false;
-        renderCardTimerControls();
-      }
+      return executeCardTimerAction('stop');
     }
 
     function clampSignalPart(kind, value) {
@@ -8355,10 +8664,6 @@
       return normalizeUiTags(items, fallbackColor, CARD_STORED_TAG_LIMIT);
     }
 
-    function normalizeSnapshotTags(items, fallbackColor = 'green') {
-      return normalizeUiTags(items, fallbackColor, CARD_STORED_TAG_LIMIT);
-    }
-
     function isSystemCardTag(tag) {
       return String(tag?.label ?? tag ?? '').trim().toUpperCase() === READY_CARD_TAG_LABEL;
     }
@@ -8452,7 +8757,7 @@
     function cardMatchesExtraBoardColumn(card) {
       if (!card || card.archived) return false;
       const filter = extraBoardColumnPreferences().filter;
-      return normalizeSnapshotTags(card.tag_items || card.tags || []).some((tag) =>
+      return normalizeDraftTags(card.tag_items || card.tags || []).some((tag) =>
         tag.label === filter.tag_label && tag.color === filter.tag_color
       );
     }
@@ -8465,7 +8770,7 @@
       const labels = new Set();
       (state.snapshot?.cards || []).forEach((card) => {
         if (card?.archived) return;
-        normalizeSnapshotTags(card.tag_items || card.tags || []).forEach((tag) => labels.add(tag.label));
+        normalizeDraftTags(card.tag_items || card.tags || []).forEach((tag) => labels.add(tag.label));
       });
       labels.add(extraBoardColumnPreferences().filter.tag_label);
       return Array.from(labels).sort((left, right) => left.localeCompare(right, 'ru'));
@@ -9081,17 +9386,7 @@
     function renderVehicleCustomerPhoneFields(values = ['']) {
       const container = document.getElementById('vehicleCustomerPhoneFields');
       if (!container) return;
-      const rawItems = Array.isArray(values) ? values : [values];
-      const visible = [];
-      const seen = new Set();
-      for (const raw of rawItems) {
-        const phone = String(raw || '').replace(/\s+/g, ' ').trim();
-        const key = phone ? (phone.replace(/\D+/g, '') || phone.toLowerCase()) : '';
-        if (key && seen.has(key)) continue;
-        if (key) seen.add(key);
-        visible.push(phone);
-        if (visible.length >= CLIENT_PHONE_LIMIT) break;
-      }
+      const visible = normalizePhoneList(values, { preserveEmpty: true });
       if (!visible.length) visible.push('');
       container.innerHTML = visible.map((phone, index) => {
         const inputId = index === 0 ? vehicleInputId('customer_phone') : vehicleInputId('customer_phone_' + (index + 1));
@@ -9252,17 +9547,7 @@
     function renderCardClientCreatePhoneFields(values = ['']) {
       const container = els.cardClientCreatePhoneFields || document.getElementById('cardClientCreatePhoneFields');
       if (!container) return;
-      const rawItems = Array.isArray(values) ? values : [values];
-      const visible = [];
-      const seen = new Set();
-      for (const raw of rawItems) {
-        const phone = String(raw || '').replace(/\s+/g, ' ').trim();
-        const key = phone ? (phone.replace(/\D+/g, '') || phone.toLowerCase()) : '';
-        if (key && seen.has(key)) continue;
-        if (key) seen.add(key);
-        visible.push(phone);
-        if (visible.length >= CLIENT_PHONE_LIMIT) break;
-      }
+      const visible = normalizePhoneList(values, { preserveEmpty: true });
       if (!visible.length) visible.push('');
       container.innerHTML = visible.map((phone, index) => {
         const inputId = index === 0 ? 'cardClientCreatePhoneInput' : 'cardClientCreatePhoneInput' + (index + 1);
@@ -9385,6 +9670,7 @@
 
     async function saveCardClientFromPopup() {
       if (state.cardClientCreateSaving) return;
+      const isCurrent = captureCardEditingContext();
       const payload = readCardClientCreatePayload();
       if (!payload) return;
       const profile = readVehicleProfileForm();
@@ -9392,13 +9678,13 @@
       setCardClientCreateSaving(true);
       try {
         const created = await createClientForCard(profile, payload, { createVehicleFromCard });
-        if (!created) return;
+        if (!created || !isCurrent()) return;
         closeCardClientCreateModal();
         setStatus(state.editingId ? 'КЛИЕНТ СОЗДАН И ПРИВЯЗАН К КАРТОЧКЕ.' : 'КЛИЕНТ СОЗДАН И БУДЕТ ПРИВЯЗАН ПОСЛЕ СОХРАНЕНИЯ КАРТОЧКИ.', false);
       } catch (error) {
-        setStatus(error.message, true);
+        if (isCurrent()) setStatus(error.message, true);
       } finally {
-        setCardClientCreateSaving(false);
+        if (isCurrent()) setCardClientCreateSaving(false);
       }
     }
 
@@ -9863,16 +10149,20 @@
       }
     }
 
-    async function ensureRepairOrderPaymentCashboxes() {
+    async function ensureRepairOrderPaymentCashboxes(context = null) {
+      const isCurrent = context?.isCurrent || (() => true);
       if (state.cashboxesLoaded && Array.isArray(state.cashboxes) && state.cashboxes.length) {
+        if (!isCurrent()) return null;
         renderRepairOrderPaymentCashboxOptions(els.repairOrderPaymentCashbox?.value || '');
-        return;
+        return { cashboxes: state.cashboxes };
       }
       const data = await api('/api/list_cashboxes?limit=200');
+      if (!isCurrent()) return null;
       state.cashboxes = Array.isArray(data?.cashboxes) ? data.cashboxes : [];
       state.cashboxesLoaded = true;
       state.cashboxesReferencesOnly = Boolean(data?.meta?.references_only);
       renderRepairOrderPaymentCashboxOptions(els.repairOrderPaymentCashbox?.value || '');
+      return data;
     }
 
     function repairOrderRowHasAnyData(row) {
@@ -10067,7 +10357,11 @@
 
     function syncCardArchiveAction(card = state.activeCard) {
       const currentCard = card || null;
-      const archiveAvailable = cardArchiveAvailability(currentCard);
+      const archiveAvailable = cardArchiveAvailability(currentCard)
+        && !state.archiveMutationRequest
+        && !state.cardFilesMutationRequest
+        && !state.cardSaveInFlight
+        && !repairOrderNeedsVerification(currentCard?.id || '');
       els.archiveAction.classList.toggle('hidden', !currentCard?.id || currentCard.archived);
       els.archiveAction.disabled = !archiveAvailable;
       els.archiveAction.dataset.archiveAvailable = archiveAvailable ? 'true' : 'false';
@@ -10169,10 +10463,17 @@
 
     function syncRepairOrderCloseButtonState(order = null) {
       const normalized = normalizeRepairOrder(order || readRepairOrderFromForm());
-      const closeAvailable = normalized.status === 'closed' || repairOrderIsFullyPaid(normalized);
+      const verificationPending = repairOrderNeedsVerification();
+      const writeBlocked = state.repairOrderLoading || state.repairOrderWriteReady === false;
+      const closeAvailable = !verificationPending && !writeBlocked
+        && (normalized.status === 'closed' || repairOrderIsFullyPaid(normalized));
       els.repairOrderCloseButton.disabled = !closeAvailable;
       els.repairOrderCloseButton.dataset.closeAvailable = closeAvailable ? 'true' : 'false';
-      els.repairOrderCloseButton.title = closeAvailable ? '' : repairOrderCloseBlockedMessage();
+      els.repairOrderCloseButton.title = closeAvailable
+        ? ''
+        : (verificationPending
+          ? repairOrderVerificationMessage()
+          : (writeBlocked ? 'Дождитесь актуальной версии заказ-наряда.' : repairOrderCloseBlockedMessage()));
     }
 
     function repairOrderCardDefaults(card) {
@@ -10262,6 +10563,102 @@
         && (state.repairOrderContextGeneration || 0) === repairOrder;
     }
 
+    function beginCardScopedRequest(stateKey, { allowNew = false } = {}) {
+      if (!stateKey || state[stateKey]) return null;
+      const cardId = String(state.editingId || state.activeCard?.id || '').trim();
+      if (!allowNew && !cardId) return null;
+      const request = {};
+      const viewerStateGeneration = state.viewerStateGeneration;
+      const operatorSessionToken = state.operatorSessionToken;
+      const cardEditingGeneration = state.cardEditingGeneration || 0;
+      const cardHydrationSeq = state.cardHydrationSeq;
+      state[stateKey] = request;
+      const ownsRequest = () => state[stateKey] === request
+        && state.viewerStateGeneration === viewerStateGeneration
+        && state.operatorSessionToken === operatorSessionToken;
+      return {
+        stateKey,
+        request,
+        cardId,
+        actorName: state.actor,
+        expectedUpdatedAt: String(state.activeCard?.updated_at || ''),
+        ownsRequest,
+        isCurrent: () => ownsRequest()
+          && (state.cardEditingGeneration || 0) === cardEditingGeneration
+          && state.cardHydrationSeq === cardHydrationSeq
+          && String(state.editingId || '').trim() === cardId
+          && String(state.activeCard?.id || '').trim() === cardId,
+      };
+    }
+
+    function finishCardScopedRequest(context) {
+      if (!context?.ownsRequest()) return false;
+      state[context.stateKey] = null;
+      return true;
+    }
+
+    function captureRepairOrderMutationContext(request, cardId = '') {
+      const viewerStateGeneration = state.viewerStateGeneration;
+      const operatorSessionToken = state.operatorSessionToken;
+      const repairOrderContextGeneration = state.repairOrderContextGeneration || 0;
+      const cardEditingGeneration = state.cardEditingGeneration || 0;
+      const cardHydrationSeq = state.cardHydrationSeq;
+      const normalizedCardId = String(cardId || '').trim();
+      return {
+        actorName: state.actor,
+        cardId: normalizedCardId,
+        expectedUpdatedAt: normalizedCardId && state.activeCard?.id === normalizedCardId
+          ? (state.activeCard.updated_at || '')
+          : '',
+        isCurrent: () => state.repairOrderMutationRequest === request
+          && state.viewerStateGeneration === viewerStateGeneration
+          && state.operatorSessionToken === operatorSessionToken
+          && (state.repairOrderContextGeneration || 0) === repairOrderContextGeneration
+          && (!normalizedCardId || (
+            String(state.activeCard?.id || state.editingId || '').trim() === normalizedCardId
+            && (state.cardEditingGeneration || 0) === cardEditingGeneration
+            && state.cardHydrationSeq === cardHydrationSeq
+          )),
+      };
+    }
+
+    function beginRepairOrderMutation(cardId = '') {
+      if (state.repairOrderLoading || state.repairOrderWriteReady === false) {
+        setStatus('ДОЖДИТЕСЬ АКТУАЛЬНОЙ ВЕРСИИ ЗАКАЗ-НАРЯДА.', true);
+        return null;
+      }
+      if (repairOrderNeedsVerification(cardId || state.activeCard?.id || state.editingId || '')) {
+        setStatus(repairOrderVerificationMessage(cardId), true);
+        return null;
+      }
+      if (state.repairOrderMutationRequest) return null;
+      state.repairOrderOpenRequest = null;
+      const request = {};
+      state.repairOrderMutationRequest = request;
+      state.repairOrderSaveInFlight = true;
+      const controls = [els.repairOrderModal, els.repairOrderPaymentsModal]
+        .flatMap((root) => Array.from(root?.querySelectorAll('input, textarea, select, button') || []))
+        .filter((control) => !control.matches('[data-close]'));
+      const disabledStates = controls.map((control) => [control, control.disabled]);
+      controls.forEach((control) => {
+        control.disabled = true;
+      });
+      return { request, context: captureRepairOrderMutationContext(request, cardId), disabledStates };
+    }
+
+    function finishRepairOrderMutation(mutation) {
+      if (!mutation || state.repairOrderMutationRequest !== mutation.request) return false;
+      state.repairOrderMutationRequest = null;
+      state.repairOrderSaveInFlight = false;
+      state.repairOrderSavePromise = null;
+      mutation.disabledStates.forEach(([control, disabled]) => { control.disabled = disabled; });
+      const order = readRepairOrderFromForm();
+      syncRepairOrderEditingState(order);
+      syncRepairOrderCloseButtonState(order);
+      syncRepairOrderSaveDirtyState();
+      return true;
+    }
+
     async function ensureRepairOrderCard() {
       if (state.editingId && state.activeCard?.id) return state.activeCard;
       if (state.editingId) return { id: state.editingId, repair_order: state.activeCard?.repair_order || {} };
@@ -10317,7 +10714,7 @@
       return nextOrder;
     }
 
-    function repairOrderRowInputHtml(fieldName, value, placeholder = '') {
+    function repairOrderRowInputHtml(fieldName, value) {
       const isNumeric = fieldName === 'quantity' || fieldName === 'cost_price' || fieldName === 'price';
       return '<input class="repair-order-table__input' + (isNumeric ? ' repair-order-table__input--num' : '') + '" type="text"' + (isNumeric ? ' inputmode="decimal"' : '') + ' data-repair-order-cell="' + escapeHtml(fieldName) + '" value="' + escapeHtml(value) + '">';
     }
@@ -10355,13 +10752,13 @@
       const totalValue = repairOrderResolvedRowTotalValue(normalized);
       const hasDisplayTotal = totalValue !== null || Boolean(normalized.total);
       const catalogCell = section === 'materials'
-        ? ('<td>' + repairOrderRowInputHtml('catalog_number', normalized.catalog_number, 'Артикул / OEM') + '</td>')
+        ? ('<td>' + repairOrderRowInputHtml('catalog_number', normalized.catalog_number) + '</td>')
         : '';
       const executorCell = section === 'works'
         ? '<td>' + repairOrderWorkExecutorCellHtml(normalized) + '</td>'
         : '';
       const materialCostCell = section === 'materials'
-        ? '<td class="repair-order-table__numeric">' + repairOrderRowInputHtml('cost_price', normalized.cost_price, '0') + '</td>'
+        ? '<td class="repair-order-table__numeric">' + repairOrderRowInputHtml('cost_price', normalized.cost_price) + '</td>'
         : '';
       const materialExecutorCell = section === 'materials'
         ? '<td><select class="repair-order-table__select" data-repair-order-cell="executor_id">' + repairOrderExecutorOptionsHtml(normalized.executor_id, normalized.executor_name) + '</select></td>'
@@ -10372,13 +10769,13 @@
           + '<input type="hidden" data-repair-order-row-field="inventory_unit" value="' + escapeHtml(normalized.inventory_unit) + '">'
         : '';
       return '<tr data-repair-order-row="' + escapeHtml(section) + '" data-repair-order-row-id="' + escapeHtml(normalized.id) + '" data-repair-order-total-raw="' + escapeHtml(normalized.total) + '" data-repair-order-work-executor-id="' + escapeHtml(normalized.work_executor_id_snapshot) + '" data-repair-order-work-executor-name="' + escapeHtml(normalized.work_executor_name_snapshot) + '" data-repair-order-work-quantity="' + escapeHtml(normalized.work_quantity_snapshot) + '" data-repair-order-work-price="' + escapeHtml(normalized.work_price_snapshot) + '" data-repair-order-work-total="' + escapeHtml(normalized.work_total_snapshot) + '" data-repair-order-salary-mode="' + escapeHtml(normalized.salary_mode_snapshot) + '" data-repair-order-base-salary="' + escapeHtml(normalized.base_salary_snapshot) + '" data-repair-order-work-percent="' + escapeHtml(normalized.work_percent_snapshot) + '" data-repair-order-salary-amount="' + escapeHtml(normalized.salary_amount) + '" data-repair-order-salary-accrued-at="' + escapeHtml(normalized.salary_accrued_at) + '" data-repair-order-work-salary-override-enabled="' + escapeHtml(normalized.work_salary_override_enabled) + '" data-repair-order-work-salary-guarantee="' + escapeHtml(normalized.work_salary_guarantee) + '" data-repair-order-work-salary-percent-override="' + escapeHtml(normalized.work_salary_percent_override) + '" data-repair-order-work-salary-cost-price="' + escapeHtml(normalized.work_salary_cost_price) + '" data-repair-order-work-salary-note="' + escapeHtml(normalized.work_salary_note) + '" data-repair-order-material-executor-id="' + escapeHtml(normalized.material_executor_id_snapshot) + '" data-repair-order-material-executor-name="' + escapeHtml(normalized.material_executor_name_snapshot) + '" data-repair-order-material-quantity="' + escapeHtml(normalized.material_quantity_snapshot) + '" data-repair-order-material-price="' + escapeHtml(normalized.material_price_snapshot) + '" data-repair-order-material-cost-price="' + escapeHtml(normalized.material_cost_price_snapshot) + '" data-repair-order-material-percent="' + escapeHtml(normalized.material_percent_snapshot) + '" data-repair-order-material-profit="' + escapeHtml(normalized.material_profit) + '" data-repair-order-material-salary-amount="' + escapeHtml(normalized.material_salary_amount) + '" data-repair-order-material-salary-accrued-at="' + escapeHtml(normalized.material_salary_accrued_at) + '">' +
-        '<td>' + inventoryHiddenFields + repairOrderRowInputHtml('name', normalized.name, 'Наименование') + '</td>' +
+        '<td>' + inventoryHiddenFields + repairOrderRowInputHtml('name', normalized.name) + '</td>' +
         materialExecutorCell +
         catalogCell +
         executorCell +
-        '<td class="repair-order-table__numeric">' + repairOrderRowInputHtml('quantity', normalized.quantity, '1') + '</td>' +
+        '<td class="repair-order-table__numeric">' + repairOrderRowInputHtml('quantity', normalized.quantity) + '</td>' +
         materialCostCell +
-        '<td class="repair-order-table__numeric">' + repairOrderRowInputHtml('price', normalized.price, '0') + '</td>' +
+        '<td class="repair-order-table__numeric">' + repairOrderRowInputHtml('price', normalized.price) + '</td>' +
         '<td class="repair-order-table__numeric"><div class="repair-order-cell-total" data-repair-order-row-total data-empty="' + (hasDisplayTotal ? 'false' : 'true') + '">' + escapeHtml(hasDisplayTotal ? repairOrderFormatRubles(totalValue ?? normalized.total) : '-') + '</div></td>' +
         '<td class="repair-order-table__action"><button class="btn btn--ghost repair-order-row-remove" type="button" data-remove-repair-order-row="' + escapeHtml(section) + '" data-row-index="' + escapeHtml(index) + '">&times;</button></td>' +
         '</tr>';
@@ -10445,15 +10842,9 @@
       return Array.from(body.querySelectorAll('tr[data-repair-order-row]')).map((row) => readRepairOrderRowElement(row)).filter(repairOrderRowHasAnyData);
     }
 
-    function repairOrderEmployeeById(employeeId) {
-      const normalizedId = String(employeeId || '').trim();
-      if (!normalizedId) return null;
-      return (Array.isArray(state.employees) ? state.employees : []).find((item) => String(item?.id || '').trim() === normalizedId) || null;
-    }
-
     function operatorDefaultMaterialExecutor() {
       const employeeId = String(state.operatorProfile?.user?.employee_id || '').trim();
-      const employee = repairOrderEmployeeById(employeeId);
+      const employee = operatorEmployeeById(employeeId);
       if (!employee || !employee.is_active) return {};
       return {
         executor_id: String(employee.id || '').trim(),
@@ -10465,7 +10856,7 @@
       const overrideEnabled = repairOrderNormalizeBool(rowData?.work_salary_override_enabled || '') === 'true';
       const rawOverridePercent = rowData?.work_salary_percent_override ?? '';
       if (overrideEnabled) return repairOrderNormalizePercentRaw(rawOverridePercent || '0') || '0';
-      const employee = repairOrderEmployeeById(rowData?.executor_id || '');
+      const employee = operatorEmployeeById(rowData?.executor_id || '');
       return repairOrderNormalizePercentRaw(employee?.work_percent || '');
     }
 
@@ -10690,6 +11081,7 @@
           + (latestText ? '<div class="repair-order-payments-subline">' + escapeHtml(latestText) + '</div>' : '');
       }
       if (els.repairOrderPaymentsList) {
+        const removeDisabled = state.repairOrderMutationRequest || repairOrderNeedsVerification() ? ' disabled' : '';
         els.repairOrderPaymentsList.innerHTML = payments.length ? payments.slice().reverse().map((item) => {
           const note = String(item?.note || '').trim() || 'Без комментария';
           const paidAt = String(item?.paid_at || '').trim() || 'Дата не указана';
@@ -10697,7 +11089,9 @@
           const actorName = String(item?.actor_name || '').trim() || 'Оператор не указан';
           const cashboxName = String(item?.cashbox_name || '').trim() || 'Касса не указана';
           const cashTransactionId = String(item?.cash_transaction_id || '').trim();
-          const paymentStatus = item?._saving
+          const paymentStatus = item?._uncertain
+            ? 'результат не подтвержден'
+            : item?._saving
             ? 'черновик'
             : (item?._error ? 'ошибка записи' : (cashTransactionId ? 'сохранено в кассу' : 'legacy без движения'));
           const serviceHint = cashTransactionId ? (' | CT ' + cashTransactionId.slice(0, 8)) : '';
@@ -10708,7 +11102,7 @@
               + '<div class="repair-order-payment-row__subline">' + escapeHtml('Когда: ' + paidAt + ' | Кем: ' + actorName + ' | Касса: ' + cashboxName + ' | ' + paymentStatus + serviceHint) + '</div>'
             + '</div>'
             + '<div class="repair-order-payment-row__amount">' + escapeHtml(repairOrderFormatMoney(item?.amount ?? 0)) + '</div>'
-            + '<button class="btn btn--ghost repair-order-payment-row__remove" type="button" data-remove-repair-order-payment="' + escapeHtml(item.id) + '" aria-label="Удалить оплату">&times;</button>'
+            + '<button class="btn btn--ghost repair-order-payment-row__remove" type="button" data-remove-repair-order-payment="' + escapeHtml(item.id) + '" aria-label="Удалить оплату"' + removeDisabled + '>&times;</button>'
             + '</div>';
         }).join('') : '<div class="cashboxes-empty">Оплат пока нет.</div>';
       }
@@ -10716,52 +11110,175 @@
     }
 
     async function openRepairOrderPaymentsModal() {
+      if (state.repairOrderPaymentCashboxesRequest) return;
+      if (state.repairOrderLoading || state.repairOrderWriteReady === false) {
+        setStatus('ДОЖДИТЕСЬ АКТУАЛЬНОЙ ВЕРСИИ ЗАКАЗ-НАРЯДА.', true);
+        return;
+      }
       ensureRepairOrderPaymentsModalUi();
       bindRepairOrderPaymentsUiEvents();
+      const request = {};
+      state.repairOrderPaymentCashboxesRequest = request;
+      const viewerStateGeneration = state.viewerStateGeneration;
+      const operatorSessionToken = state.operatorSessionToken;
+      const repairOrderContextGeneration = state.repairOrderContextGeneration || 0;
+      const cardEditingGeneration = state.cardEditingGeneration || 0;
+      const cardHydrationSeq = state.cardHydrationSeq;
+      const cardId = String(state.activeCard?.id || state.editingId || '').trim();
+      const workspaceCurrent = () => state.viewerStateGeneration === viewerStateGeneration
+        && state.operatorSessionToken === operatorSessionToken
+        && (state.repairOrderContextGeneration || 0) === repairOrderContextGeneration
+        && (state.cardEditingGeneration || 0) === cardEditingGeneration
+        && state.cardHydrationSeq === cardHydrationSeq
+        && String(state.activeCard?.id || state.editingId || '').trim() === cardId;
+      const context = {
+        isCurrent: () => state.repairOrderPaymentCashboxesRequest === request && workspaceCurrent(),
+      };
       try {
-        await ensureRepairOrderPaymentCashboxes();
+        const cashboxes = await ensureRepairOrderPaymentCashboxes(context);
+        if (!cashboxes || !context.isCurrent()) return;
+        renderRepairOrderPayments();
+        pushModal('repair-order-payments', els.repairOrderPaymentsModal, { parentKey: 'repair-order' });
+        window.setTimeout(() => {
+          if (workspaceCurrent() && els.repairOrderPaymentsModal?.classList?.contains('is-open')) {
+            els.repairOrderPaymentAmount?.focus();
+          }
+        }, 0);
       } catch (error) {
-        setStatus(error.message, true);
+        if (context.isCurrent()) setStatus(error.message, true);
+      } finally {
+        if (state.repairOrderPaymentCashboxesRequest === request) {
+          state.repairOrderPaymentCashboxesRequest = null;
+        }
       }
-      renderRepairOrderPayments();
-      pushModal('repair-order-payments', els.repairOrderPaymentsModal, { parentKey: 'repair-order' });
-      window.setTimeout(() => els.repairOrderPaymentAmount?.focus(), 0);
     }
 
     function closeRepairOrderPaymentsModal() {
+      state.repairOrderPaymentCashboxesRequest = null;
       popModal('repair-order-payments');
       if (els.repairOrderPaymentAmount) els.repairOrderPaymentAmount.value = '';
       if (els.repairOrderPaymentNote) els.repairOrderPaymentNote.value = '';
     }
 
+    function repairOrderPaymentNeedsVerification(cardId = state.activeCard?.id || state.editingId || '') {
+      const pendingCardId = String(state.repairOrderPaymentVerificationPending || '').trim();
+      const normalizedCardId = String(cardId || '').trim();
+      return Boolean(pendingCardId) && (pendingCardId === 'unknown' || pendingCardId === normalizedCardId);
+    }
+
+    function repairOrderWriteNeedsVerification(cardId = state.activeCard?.id || state.editingId || '') {
+      const pendingCardId = String(state.repairOrderWriteVerificationPending || '').trim();
+      const normalizedCardId = String(cardId || '').trim();
+      return Boolean(pendingCardId) && (pendingCardId === 'unknown' || pendingCardId === normalizedCardId);
+    }
+
+    function repairOrderNeedsVerification(cardId = state.activeCard?.id || state.editingId || '') {
+      return repairOrderPaymentNeedsVerification(cardId) || repairOrderWriteNeedsVerification(cardId);
+    }
+
+    function repairOrderPaymentVerificationMessage() {
+      return 'ИСХОД ПРЕДЫДУЩЕЙ ОПЕРАЦИИ С ОПЛАТОЙ НЕ ПОДТВЕРЖДЕН. НЕ ПОВТОРЯЙТЕ ЕЕ; ЗАКРОЙТЕ И ОТКРОЙТЕ КАРТОЧКУ.';
+    }
+
+    function repairOrderVerificationMessage(cardId = state.activeCard?.id || state.editingId || '') {
+      return repairOrderPaymentNeedsVerification(cardId)
+        ? repairOrderPaymentVerificationMessage()
+        : 'ИСХОД ПРЕДЫДУЩЕЙ ОПЕРАЦИИ С ЗАКАЗ-НАРЯДОМ НЕ ПОДТВЕРЖДЕН. НЕ ПОВТОРЯЙТЕ ЕЕ; ЗАКРОЙТЕ И ОТКРОЙТЕ КАРТОЧКУ.';
+    }
+
+    function markRepairOrderPaymentVerificationPending(cardId) {
+      const normalizedCardId = String(cardId || '').trim();
+      state.repairOrderPaymentVerificationPending = normalizedCardId || 'unknown';
+      if (normalizedCardId) state.fullCardCache?.delete(normalizedCardId);
+    }
+
+    function markRepairOrderWriteVerificationPending(cardId) {
+      const normalizedCardId = String(cardId || '').trim();
+      state.repairOrderWriteVerificationPending = normalizedCardId || 'unknown';
+      if (normalizedCardId) state.fullCardCache?.delete(normalizedCardId);
+    }
+
+    function clearRepairOrderPaymentVerificationPending(cardId) {
+      if (repairOrderPaymentNeedsVerification(cardId)) state.repairOrderPaymentVerificationPending = '';
+    }
+
+    function clearRepairOrderVerificationPending(cardId) {
+      clearRepairOrderPaymentVerificationPending(cardId);
+      if (repairOrderWriteNeedsVerification(cardId)) state.repairOrderWriteVerificationPending = '';
+    }
+
     async function deleteRepairOrderPayment(paymentId) {
       const normalizedPaymentId = String(paymentId || '').trim();
       if (!normalizedPaymentId) return;
+      if (repairOrderNeedsVerification()) {
+        setStatus(repairOrderVerificationMessage(), true);
+        return;
+      }
       const previousPayments = (state.repairOrderPayments || []).slice();
       const nextPayments = previousPayments.filter((item) => String(item?.id || '').trim() !== normalizedPaymentId);
       if (nextPayments.length === previousPayments.length) return;
+      const cardId = String(state.activeCard?.id || state.editingId || '').trim();
+      const mutation = beginRepairOrderMutation(cardId);
+      if (!mutation) return;
+      const { request, context } = mutation;
       state.repairOrderPayments = nextPayments;
       renderRepairOrderPayments();
       scheduleRepairOrderSaveDirtyStateSync();
       try {
-        const persisted = await persistRepairOrderRecord({ silent: true });
+        const persisted = await persistRepairOrderRecord({ silent: true, request });
         if (!persisted) {
-          state.repairOrderPayments = previousPayments;
-          renderRepairOrderPayments();
-          scheduleRepairOrderSaveDirtyStateSync();
+          if (context.isCurrent()) {
+            state.repairOrderPayments = previousPayments;
+            renderRepairOrderPayments();
+            scheduleRepairOrderSaveDirtyStateSync();
+          }
           return;
         }
         applyRepairOrderToForm(persisted.repairOrder);
         setStatus('Оплата удалена из заказ-наряда и кассы.', false);
       } catch (error) {
-        state.repairOrderPayments = previousPayments;
-        renderRepairOrderPayments();
-        scheduleRepairOrderSaveDirtyStateSync();
-        setStatus(String(error?.message || 'Не удалось удалить оплату из кассы.'), true);
+        if (!context.isCurrent()) return;
+        const resolvedCardId = cardId || String(state.activeCard?.id || state.editingId || '').trim();
+        const readContext = resolvedCardId === cardId
+          ? context
+          : captureRepairOrderMutationContext(request, resolvedCardId);
+        const readback = resolvedCardId
+          ? await readRepairOrderAfterAmbiguousWrite(readContext, state.activeCard)
+          : null;
+        if (!readContext.isCurrent()) return;
+        if (readback) applyRepairOrderCardUpdate(readback, readback.repair_order || {});
+        const confirmed = Boolean(readback) && !(readback.repair_order?.payments || [])
+          .some((item) => String(item?.id || '').trim() === normalizedPaymentId);
+        const knownUnchanged = Boolean(readback) && !confirmed;
+        if (!readback) {
+          markRepairOrderPaymentVerificationPending(resolvedCardId || cardId);
+          state.repairOrderPayments = previousPayments.map((item) => (
+            String(item?.id || '').trim() === normalizedPaymentId
+              ? { ...item, _saving: false, _uncertain: true }
+              : item
+          ));
+          renderRepairOrderPayments();
+          scheduleRepairOrderSaveDirtyStateSync();
+        }
+        setStatus(
+          confirmed
+            ? 'Оплата удалена; результат подтвержден повторным чтением.'
+            : (knownUnchanged
+              ? String(error?.message || 'Не удалось удалить оплату из кассы.')
+              : 'РЕЗУЛЬТАТ УДАЛЕНИЯ ОПЛАТЫ НЕ ОПРЕДЕЛЕН. НЕ ПОВТОРЯЙТЕ ОПЕРАЦИЮ; ЗАКРОЙТЕ И ОТКРОЙТЕ КАРТОЧКУ.'),
+          !confirmed,
+        );
+      } finally {
+        finishRepairOrderMutation(mutation);
       }
     }
 
     async function addRepairOrderPayment() {
+      if (state.repairOrderMutationRequest) return;
+      if (repairOrderNeedsVerification()) {
+        setStatus(repairOrderVerificationMessage(), true);
+        return;
+      }
       const amount = String(els.repairOrderPaymentAmount?.value || '').trim();
       const parsedAmount = repairOrderParseNumber(amount);
       const cashboxId = String(els.repairOrderPaymentCashbox?.value || '').trim();
@@ -10775,6 +11292,10 @@
         els.repairOrderPaymentCashbox?.focus();
         return;
       }
+      const cardId = String(state.activeCard?.id || state.editingId || '').trim();
+      const mutation = beginRepairOrderMutation(cardId);
+      if (!mutation) return;
+      const { request, context } = mutation;
       const selectedCashbox = selectedRepairOrderPaymentCashbox();
       const paymentMethod = repairOrderPaymentMethodFromCashboxName(selectedCashbox?.name || '', 'cash');
       const payment = normalizeRepairOrderPayment(
@@ -10784,7 +11305,7 @@
           paid_at: currentRepairOrderDateTime(),
           note: String(els.repairOrderPaymentNote?.value || '').trim(),
           payment_method: paymentMethod,
-          actor_name: state.actor || '',
+          actor_name: context.actorName || '',
           cashbox_id: cashboxId,
           cashbox_name: selectedCashbox?.name || '',
         },
@@ -10796,11 +11317,13 @@
       renderRepairOrderPayments();
       scheduleRepairOrderSaveDirtyStateSync();
       try {
-        const persisted = await persistRepairOrderRecord({ silent: true });
+        const persisted = await persistRepairOrderRecord({ silent: true, request });
         if (!persisted) {
-          state.repairOrderPayments = (state.repairOrderPayments || []).filter((item) => item.id !== payment.id);
-          renderRepairOrderPayments();
-          scheduleRepairOrderSaveDirtyStateSync();
+          if (context.isCurrent()) {
+            state.repairOrderPayments = (state.repairOrderPayments || []).filter((item) => item.id !== payment.id);
+            renderRepairOrderPayments();
+            scheduleRepairOrderSaveDirtyStateSync();
+          }
           return;
         }
         applyRepairOrderToForm(persisted.repairOrder);
@@ -10808,12 +11331,37 @@
         if (els.repairOrderPaymentNote) els.repairOrderPaymentNote.value = '';
         setStatus('Оплата сохранена в заказ-наряде и кассе.', false);
       } catch (error) {
-        state.repairOrderPayments = (state.repairOrderPayments || []).filter((item) => item.id !== payment.id);
-        renderRepairOrderPayments();
-        scheduleRepairOrderSaveDirtyStateSync();
-        setStatus(String(error?.message || 'Не удалось записать оплату в кассу.'), true);
+        if (!context.isCurrent()) return;
+        const resolvedCardId = cardId || String(state.activeCard?.id || state.editingId || '').trim();
+        const readContext = resolvedCardId === cardId
+          ? context
+          : captureRepairOrderMutationContext(request, resolvedCardId);
+        const readback = resolvedCardId
+          ? await readRepairOrderAfterAmbiguousWrite(readContext, state.activeCard)
+          : null;
+        if (!readContext.isCurrent()) return;
+        if (readback) applyRepairOrderCardUpdate(readback, readback.repair_order || {});
+        const confirmed = Boolean(readback) && (readback.repair_order?.payments || [])
+          .some((item) => String(item?.id || '').trim() === payment.id);
+        const knownUnchanged = Boolean(readback) && !confirmed;
+        if (!readback) {
+          markRepairOrderPaymentVerificationPending(resolvedCardId || cardId);
+          state.repairOrderPayments = (state.repairOrderPayments || []).map((item) => (
+            item.id === payment.id ? { ...item, _saving: false, _uncertain: true } : item
+          ));
+          renderRepairOrderPayments();
+          scheduleRepairOrderSaveDirtyStateSync();
+        }
+        setStatus(
+          confirmed
+            ? 'Оплата сохранена; результат подтвержден повторным чтением.'
+            : (knownUnchanged
+              ? String(error?.message || 'Не удалось записать оплату в кассу.')
+              : 'РЕЗУЛЬТАТ ЗАПИСИ ОПЛАТЫ НЕ ОПРЕДЕЛЕН. НЕ ПОВТОРЯЙТЕ ОПЕРАЦИЮ; ЗАКРОЙТЕ И ОТКРОЙТЕ КАРТОЧКУ.'),
+          !confirmed,
+        );
       } finally {
-        els.repairOrderPaymentAmount?.focus();
+        if (finishRepairOrderMutation(mutation)) els.repairOrderPaymentAmount?.focus();
       }
     }
 
@@ -10849,21 +11397,28 @@
     function syncRepairOrderEditingState(order) {
       const closed = normalizeRepairOrderStatus(order?.status) === 'closed';
       const correctionActive = Boolean(order?.correction_active || Object.keys(order?.active_correction || {}).length);
+      const busy = Boolean(state.repairOrderMutationRequest || state.repairOrderLoading)
+        || state.repairOrderWriteReady === false
+        || repairOrderNeedsVerification();
+      const paymentVerificationPending = repairOrderPaymentNeedsVerification();
       els.repairOrderModal?.querySelectorAll('input, textarea, select').forEach((control) => {
-        control.disabled = closed || (correctionActive && control.closest('.repair-order-payments-form'));
+        control.disabled = busy || closed || (correctionActive && control.closest('.repair-order-payments-form'));
       });
-      if (els.repairOrderSaveButton) els.repairOrderSaveButton.disabled = closed;
-      if (els.repairOrderAddWorkRowButton) els.repairOrderAddWorkRowButton.disabled = closed;
-      if (els.repairOrderAddMaterialRowButton) els.repairOrderAddMaterialRowButton.disabled = closed;
-      if (els.repairOrderTagAddButton) els.repairOrderTagAddButton.disabled = closed;
-      if (els.repairOrderPaymentAddButton) els.repairOrderPaymentAddButton.disabled = closed || correctionActive;
+      if (els.repairOrderSaveButton) els.repairOrderSaveButton.disabled = busy || closed;
+      if (els.repairOrderAddWorkRowButton) els.repairOrderAddWorkRowButton.disabled = busy || closed;
+      if (els.repairOrderAddMaterialRowButton) els.repairOrderAddMaterialRowButton.disabled = busy || closed;
+      if (els.repairOrderTagAddButton) els.repairOrderTagAddButton.disabled = busy || closed;
+      if (els.repairOrderPaymentAddButton) els.repairOrderPaymentAddButton.disabled = busy || closed || correctionActive || paymentVerificationPending;
+      els.repairOrderModal?.querySelectorAll(
+        '[data-add-repair-order-row], [data-remove-repair-order-row], [data-edit-repair-order-tag], [data-remove-repair-order-tag], [data-repair-order-work-salary-gear], [data-repair-order-work-salary-reset], [data-repair-order-work-salary-apply]'
+      ).forEach((button) => { button.disabled = busy || closed; });
       if (els.repairOrderPaymentsButton) {
         els.repairOrderPaymentsButton.title = correctionActive
           ? 'Платежи доступны только для просмотра во время корректировки.'
           : '';
       }
       els.repairOrderModal?.querySelectorAll('[data-remove-repair-order-payment]').forEach((button) => {
-        button.disabled = closed || correctionActive;
+        button.disabled = busy || closed || correctionActive || paymentVerificationPending;
       });
     }
 
@@ -10942,50 +11497,84 @@
 
     async function openRepairOrderModal({ preloadedRepairOrderData = null } = {}) {
       state.repairOrderContextGeneration = (state.repairOrderContextGeneration || 0) + 1;
-      const isCurrent = captureCardEditingContext();
+      const request = {};
+      state.repairOrderOpenRequest = request;
+      state.repairOrderLoading = true;
+      state.repairOrderWriteReady = false;
+      const editingContext = captureCardEditingContext();
       let order = repairOrderCardDraft(state.activeCard, preloadedRepairOrderData?.repair_order || state.activeCard?.repair_order || {});
       const cardId = String(state.activeCard?.id || state.editingId || '').trim();
+      const actorName = state.actor;
+      const isCurrent = () => state.repairOrderOpenRequest === request
+        && editingContext()
+        && (!cardId || String(state.activeCard?.id || state.editingId || '').trim() === cardId);
       if (!state.repairOrderParentLayer && els.cardModal.classList.contains('is-open')) {
         state.repairOrderParentLayer = 'card';
       }
       pushModal('repair-order', els.repairOrderModal, { parentKey: state.repairOrderParentLayer || '' });
       applyRepairOrderToForm(order);
+      try {
+        const employeesRequest = loadEmployeesReference();
+        const repairOrderRequest = preloadedRepairOrderData
+          ? Promise.resolve(preloadedRepairOrderData)
+          : cardId
+          ? api('/api/get_repair_order', {
+            method: 'POST',
+            body: {
+              card_id: cardId,
+              actor_name: actorName,
+              source: 'ui',
+              create_if_missing: true,
+            },
+          })
+          : Promise.resolve(null);
 
-      const employeesRequest = loadEmployeesReference();
-      const repairOrderRequest = preloadedRepairOrderData
-        ? Promise.resolve(preloadedRepairOrderData)
-        : cardId
-        ? api('/api/get_repair_order', {
-          method: 'POST',
-          body: {
-            card_id: cardId,
-            actor_name: state.actor,
-            source: 'ui',
-            create_if_missing: true,
-          },
-        })
-        : Promise.resolve(null);
-
-      const [employeesResult, repairOrderResult] = await Promise.allSettled([employeesRequest, repairOrderRequest]);
-      if (!isCurrent()) return;
-      if (employeesResult.status === 'rejected' && employeesResult.reason) {
-        setStatus(employeesResult.reason.message || String(employeesResult.reason), true);
-      }
-      if (cardId) {
-        if (repairOrderResult.status !== 'fulfilled' || !repairOrderResult.value) {
-          const error = repairOrderResult.status === 'rejected' ? repairOrderResult.reason : new Error('Не удалось загрузить заказ-наряд.');
-          setStatus(error.message || String(error), true);
-          return;
+        const [employeesResult, repairOrderResult] = await Promise.allSettled([employeesRequest, repairOrderRequest]);
+        if (!isCurrent()) return;
+        if (employeesResult.status === 'rejected' && employeesResult.reason) {
+          setStatus(employeesResult.reason.message || String(employeesResult.reason), true);
         }
-        const data = repairOrderResult.value;
-        const updatedCard = repairOrderResponseCard(data, order);
-        order = applyRepairOrderCardUpdate(updatedCard, data?.repair_order || order);
+        if (cardId) {
+          if (repairOrderResult.status !== 'fulfilled' || !repairOrderResult.value) {
+            const error = repairOrderResult.status === 'rejected' ? repairOrderResult.reason : new Error('Не удалось загрузить заказ-наряд.');
+            setStatus(error.message || String(error), true);
+            return;
+          }
+          const data = repairOrderResult.value;
+          const updatedCard = repairOrderResponseCard(data, order);
+          state.repairOrderWriteReady = true;
+          clearRepairOrderVerificationPending(cardId);
+          order = applyRepairOrderCardUpdate(updatedCard, data?.repair_order || order);
+        } else {
+          state.repairOrderWriteReady = true;
+          applyRepairOrderToForm(order);
+        }
+      } finally {
+        if (state.repairOrderOpenRequest === request) {
+          const current = isCurrent();
+          state.repairOrderOpenRequest = null;
+          state.repairOrderLoading = false;
+          if (current) {
+            syncRepairOrderEditingState(order);
+            syncRepairOrderCloseButtonState(order);
+          }
+        }
       }
-      if (!cardId) applyRepairOrderToForm(order);
     }
 
     function closeRepairOrderModal() {
+      if (state.repairOrderMutationRequest) {
+        setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ С ЗАКАЗ-НАРЯДОМ.', false);
+        return false;
+      }
       state.repairOrderContextGeneration = (state.repairOrderContextGeneration || 0) + 1;
+      state.repairOrderMutationRequest = null;
+      state.repairOrderOpenRequest = null;
+      state.repairOrderPaymentCashboxesRequest = null;
+      state.repairOrderLoading = false;
+      state.repairOrderWriteReady = false;
+      state.repairOrderSaveInFlight = false;
+      state.repairOrderSavePromise = null;
       if (state.inventoryRequests) state.inventoryRequests.material = null;
       state.inventoryMaterialSaving = false;
       const parentLayer = String(state.repairOrderParentLayer || '').trim();
@@ -10997,6 +11586,7 @@
       if (parentLayer === 'repair-orders') {
         resetCardModalState();
       }
+      return true;
     }
 
     async function addRepairOrderRow(section) {
@@ -11043,9 +11633,11 @@
       invalidateRepairOrdersListCache();
     }
 
-    async function persistRepairOrderRecord({ statusMessage = '', silent = false } = {}) {
+    async function persistRepairOrderRecord({ statusMessage = '', silent = false, request = null } = {}) {
+      const workspace = captureRepairOrderMutationContext(request);
       const cardId = await requireRepairOrderCardId();
-      if (!cardId) return null;
+      if (!cardId || !workspace.isCurrent()) return null;
+      const context = captureRepairOrderMutationContext(request, cardId);
       const repairOrder = readRepairOrderFromForm();
       const repairOrderPatch = { ...repairOrder };
       delete repairOrderPatch.status;
@@ -11061,39 +11653,40 @@
         method: 'POST',
         body: {
           card_id: cardId,
-          actor_name: state.actor,
+          actor_name: context.actorName,
           source: 'ui',
-          expected_updated_at: state.activeCard?.updated_at || '',
+          expected_updated_at: context.expectedUpdatedAt,
           repair_order: repairOrderPatch,
         },
       });
+      if (!context.isCurrent()) return null;
       const updatedCard = repairOrderResponseCard(data, repairOrder);
       const nextOrder = applyRepairOrderCardUpdate(updatedCard, data?.repair_order || repairOrder);
       await refreshRepairOrdersListAfterMutation();
+      if (!context.isCurrent()) return null;
       await refreshCashboxesAfterMoneyMutation({ deferDetail: true });
+      if (!context.isCurrent()) return null;
       if (!silent && statusMessage) setStatus(statusMessage, false);
-      return { cardId, repairOrder: nextOrder, card: updatedCard, data };
+      return { cardId, repairOrder: nextOrder, card: updatedCard, data, context };
     }
 
     saveRepairOrder = async function(printAfter = false) {
-      if (state.repairOrderSaveInFlight) return state.repairOrderSavePromise || false;
-      state.repairOrderSaveInFlight = true;
+      const mutation = beginRepairOrderMutation();
+      if (!mutation) return state.repairOrderSavePromise || false;
+      const { request, context: workspace } = mutation;
       if (els.repairOrderSaveButton) els.repairOrderSaveButton.disabled = true;
       syncRepairOrderSaveDirtyState();
       const savePromise = perfMeasureAsync('saveRepairOrder', async () => {
         try {
-          const persisted = await persistRepairOrderRecord({ statusMessage: 'Заказ-наряд сохранён.' });
+          const persisted = await persistRepairOrderRecord({ statusMessage: 'Заказ-наряд сохранён.', request });
           if (!persisted) return false;
           if (printAfter) setStatus('Печать будет добавлена позже. Заказ-наряд сохранён.', false);
           return true;
         } catch (error) {
-          setStatus(error.message, true);
+          if (workspace.isCurrent()) setStatus(error.message, true);
           return false;
         } finally {
-          state.repairOrderSaveInFlight = false;
-          state.repairOrderSavePromise = null;
-          if (els.repairOrderSaveButton) els.repairOrderSaveButton.disabled = false;
-          syncRepairOrderSaveDirtyState();
+          finishRepairOrderMutation(mutation);
         }
       });
       state.repairOrderSavePromise = savePromise;
@@ -11101,18 +11694,22 @@
     };
 
     async function toggleRepairOrderStatus() {
+      const currentOrder = readRepairOrderFromForm();
+      const currentStatus = currentOrder.status;
+      const cardId = String(state.activeCard?.id || state.editingId || '').trim();
+      const mutation = beginRepairOrderMutation(cardId);
+      if (!mutation) return;
+      const { request, context } = mutation;
       try {
-        const currentOrder = readRepairOrderFromForm();
-        const currentStatus = currentOrder.status;
         if (currentStatus === 'closed') {
-          const cardId = String(state.activeCard?.id || state.editingId || '').trim();
           const preview = await api('/api/preview_repair_order_reopen', {
             method: 'POST',
             body: {
               card_id: cardId,
-              expected_updated_at: state.activeCard?.updated_at || '',
+              expected_updated_at: context.expectedUpdatedAt,
             },
           });
+          if (!context.isCurrent()) return;
           const payrollTotal = (preview?.payroll_reversals || []).reduce((sum, item) => sum + Number(item.amount_minor || 0), 0) / 100;
           if (!window.confirm('Заказ будет временно исключён из выручки. Зарплатные начисления к сторно: ' + repairOrderFormatMoney(payrollTotal) + '. Продолжить?')) return;
           const reasonCode = String(window.prompt('Код причины: executor_error, work_error, material_error, amount_error или other', 'other') || '').trim();
@@ -11121,25 +11718,48 @@
             setStatus('Нужно указать причину и пояснение.', true);
             return;
           }
-          const data = await api('/api/reopen_repair_order', {
-            method: 'POST',
-            body: {
-              card_id: cardId,
-              expected_updated_at: state.activeCard?.updated_at || '',
-              reason_code: reasonCode,
-              reason_note: reasonNote,
-              idempotency_key: 'ui-reopen-' + cardId + '-' + Date.now(),
-              actor_name: state.actor,
-              source: 'ui',
-            },
-          });
-          const updatedCard = repairOrderResponseCard(data, currentOrder);
-          applyRepairOrderCardUpdate(updatedCard, data?.repair_order || currentOrder);
+          if (!context.isCurrent()) return;
+          let reopenError = null;
+          let updatedCard = null;
+          try {
+            const data = await api('/api/reopen_repair_order', {
+              method: 'POST',
+              body: {
+                card_id: cardId,
+                expected_updated_at: context.expectedUpdatedAt,
+                reason_code: reasonCode,
+                reason_note: reasonNote,
+                idempotency_key: 'ui-reopen-' + cardId + '-' + Date.now(),
+                actor_name: context.actorName,
+                source: 'ui',
+              },
+            });
+            if (!context.isCurrent()) return;
+            updatedCard = repairOrderCardFromResponse(data, state.activeCard, cardId);
+          } catch (error) {
+            if (!context.isCurrent()) return;
+            reopenError = error;
+            updatedCard = await readRepairOrderAfterAmbiguousWrite(context, state.activeCard);
+            if (!context.isCurrent()) return;
+          }
+          if (updatedCard) applyRepairOrderCardUpdate(updatedCard, updatedCard.repair_order || currentOrder);
           await loadRepairOrders(false);
-          setStatus('Заказ-наряд открыт для исправления.', false);
+          if (!context.isCurrent()) return;
+          const reopenConfirmed = Boolean(updatedCard)
+            && normalizeRepairOrderStatus(updatedCard.repair_order?.status) !== 'closed';
+          if (reopenError && !updatedCard) {
+            markRepairOrderWriteVerificationPending(cardId);
+            setStatus('РЕЗУЛЬТАТ ОТКРЫТИЯ ДЛЯ ИСПРАВЛЕНИЯ НЕ ОПРЕДЕЛЕН. НЕ ПОВТОРЯЙТЕ ОПЕРАЦИЮ; ЗАКРОЙТЕ И ОТКРОЙТЕ КАРТОЧКУ.', true);
+          } else if (reopenError && !reopenConfirmed) {
+            setStatus('Открытие для исправления не подтверждено: ' + reopenError.message, true);
+          } else if (reopenError) {
+            setStatus('Заказ-наряд открыт; результат подтвержден повторным чтением.', false);
+          } else {
+            setStatus('Заказ-наряд открыт для исправления.', false);
+          }
           return;
         }
-        const persisted = await persistRepairOrderRecord({ silent: true });
+        const persisted = await persistRepairOrderRecord({ silent: true, request });
         if (!persisted) return;
         const nextStatus = 'closed';
         if (nextStatus === 'closed' && !repairOrderIsFullyPaid(currentOrder)) {
@@ -11147,25 +11767,47 @@
           return;
         }
         els.repairOrderCloseButton.disabled = true;
-        const data = await api('/api/set_repair_order_status', {
-          method: 'POST',
-          body: {
-            card_id: persisted.cardId,
-            status: nextStatus,
-            expected_updated_at: persisted.card?.updated_at || '',
-            idempotency_key: 'ui-close-' + persisted.cardId + '-' + Date.now(),
-            actor_name: state.actor,
-            source: 'ui',
-          },
-        });
-        const updatedCard = repairOrderResponseCard(data, persisted.repairOrder);
-        applyRepairOrderCardUpdate(updatedCard, data?.repair_order || persisted.repairOrder);
+        let statusError = null;
+        let updatedCard = null;
+        try {
+          const data = await api('/api/set_repair_order_status', {
+            method: 'POST',
+            body: {
+              card_id: persisted.cardId,
+              status: nextStatus,
+              expected_updated_at: persisted.card?.updated_at || '',
+              idempotency_key: 'ui-close-' + persisted.cardId + '-' + Date.now(),
+              actor_name: persisted.context.actorName,
+              source: 'ui',
+            },
+          });
+          if (!persisted.context.isCurrent()) return;
+          updatedCard = repairOrderCardFromResponse(data, persisted.card, persisted.cardId);
+        } catch (error) {
+          if (!persisted.context.isCurrent()) return;
+          statusError = error;
+          updatedCard = await readRepairOrderAfterAmbiguousWrite(persisted.context, persisted.card);
+          if (!persisted.context.isCurrent()) return;
+        }
+        if (updatedCard) applyRepairOrderCardUpdate(updatedCard, updatedCard.repair_order || persisted.repairOrder);
         await loadRepairOrders(false);
-        setStatus('Заказ-наряд закрыт.', false);
+        if (!persisted.context.isCurrent()) return;
+        const statusConfirmed = Boolean(updatedCard)
+          && normalizeRepairOrderStatus(updatedCard.repair_order?.status) === nextStatus;
+        if (statusError && !updatedCard) {
+          markRepairOrderWriteVerificationPending(persisted.cardId);
+          setStatus('ПОЛЯ ЗАКАЗ-НАРЯДА СОХРАНЕНЫ, НО РЕЗУЛЬТАТ ЗАКРЫТИЯ НЕ ОПРЕДЕЛЕН. НЕ ПОВТОРЯЙТЕ ОПЕРАЦИЮ; ЗАКРОЙТЕ И ОТКРОЙТЕ КАРТОЧКУ.', true);
+        } else if (statusError && !statusConfirmed) {
+          setStatus('Поля заказ-наряда сохранены, но закрытие не подтверждено: ' + statusError.message, true);
+        } else if (statusError) {
+          setStatus('Заказ-наряд закрыт; результат подтвержден повторным чтением.', false);
+        } else {
+          setStatus('Заказ-наряд закрыт.', false);
+        }
       } catch (error) {
-        setStatus(error.message, true);
+        if (context.isCurrent()) setStatus(error.message, true);
       } finally {
-        syncRepairOrderCloseButtonState();
+        finishRepairOrderMutation(mutation);
       }
     }
 
@@ -11203,18 +11845,16 @@
       }
     }
 
-    function scheduleCardCleanupPolling(delay = 1500) {
+    function scheduleCardCleanupPolling(delay = 1500, context = state.agentTaskContext) {
       stopCardCleanupPolling();
-      if (!state.agentTaskId) return;
-      state.cardCleanupPollTimer = window.setTimeout(refreshCardCleanupState, delay);
+      if (!state.agentTaskId || !context?.isCurrent()) return;
+      state.cardCleanupPollTimer = window.setTimeout(() => refreshCardCleanupState(context), delay);
     }
 
-    async function refreshCardCleanupState() {
+    async function refreshCardCleanupState(context = state.agentTaskContext) {
       stopCardCleanupPolling();
-      const card = state.activeCard && typeof state.activeCard === 'object'
-        ? state.activeCard
-        : null;
-      const cardId = String(card?.id || '').trim();
+      if (!context?.isCurrent()) return;
+      const cardId = context.cardId;
       const taskId = String(state.agentTaskId || '').trim();
       if (!cardId || !taskId) {
         state.cardCleanupState = cardId ? 'idle' : 'idle';
@@ -11223,43 +11863,44 @@
       }
       try {
         const data = await api('/api/agent_tasks?limit=20');
+        if (!context.isCurrent()) return;
         const tasks = Array.isArray(data?.tasks) ? data.tasks : [];
-        const task = tasks.find((item) => String(item?.id || '').trim() === taskId)
-          || tasks.find((item) => {
-            const metadata = item?.metadata && typeof item.metadata === 'object' ? item.metadata : {};
-            const context = metadata.context && typeof metadata.context === 'object' ? metadata.context : {};
-            return String(metadata.purpose || '').trim().toLowerCase() === 'card_enrichment'
-              && String(context.card_id || '').trim() === cardId;
-          })
-          || null;
+        const task = tasks.find((item) => String(item?.id || '').trim() === taskId) || null;
         if (!task) {
           state.cardCleanupState = 'running';
           renderCardCleanupIndicator();
-          scheduleCardCleanupPolling(2500);
+          scheduleCardCleanupPolling(2500, context);
           return;
         }
         const status = String(task.status || '').trim().toLowerCase();
         if (status === 'pending' || status === 'running') {
           state.cardCleanupState = 'running';
           renderCardCleanupIndicator();
-          scheduleCardCleanupPolling(1500);
+          scheduleCardCleanupPolling(1500, context);
           return;
         }
         if (status === 'completed') {
+          await syncAgentTaskEffects(task, context);
+          if (!context.isCurrent()) return;
           state.cardCleanupState = 'idle';
           renderCardCleanupIndicator();
-          await syncAgentTaskEffects(task);
+          state.agentTaskId = '';
+          state.agentTaskContext = null;
+          finishCardScopedRequest(context);
           return;
         }
         state.cardCleanupState = 'error';
         state.cardCleanupError = task.error || task.result || task.summary || 'AI-обогащение завершилось с ошибкой.';
         renderCardCleanupIndicator();
-        await syncAgentTaskEffects(task);
+        state.agentTaskId = '';
+        state.agentTaskContext = null;
+        finishCardScopedRequest(context);
       } catch (error) {
+        if (!context.isCurrent()) return;
         state.cardCleanupState = 'error';
         state.cardCleanupError = error.message;
         renderCardCleanupIndicator();
-        scheduleCardCleanupPolling(6000);
+        scheduleCardCleanupPolling(6000, context);
       }
     }
 
@@ -11295,7 +11936,6 @@
       renderSignalPreview();
       syncCardArchiveAction(currentCard);
       els.restoreAction.classList.toggle('hidden', !currentCard?.id || !currentCard.archived);
-      state.vehicleProfileBaseline = cloneVehicleProfile(currentCard?.vehicle_profile || {});
       applyVehicleProfileToForm(currentCard?.vehicle_profile || emptyVehicleProfile());
       hideClientSuggestions();
       if (currentCard?.id && !currentCard?.client_id) scheduleClientSuggestionsForCard();
@@ -11332,21 +11972,29 @@
     function resetCardModalState() {
       state.cardEditingGeneration = (state.cardEditingGeneration || 0) + 1;
       state.cardSaveRequest = null;
+      state.cardFilesMutationRequest = null;
+      state.archiveMutationRequest = null;
+      state.repairOrderMutationRequest = null;
+      state.repairOrderOpenRequest = null;
+      state.repairOrderPaymentCashboxesRequest = null;
+      state.repairOrderLoading = false;
+      state.repairOrderWriteReady = false;
+      state.repairOrderSaveInFlight = false;
+      state.repairOrderSavePromise = null;
       state.activeCard = null;
       state.activeCardIsFull = false;
       state.editingId = null;
       state.cardCreateColumnId = '';
       state.cardSaveInFlight = false;
       state.cardSavePromise = null;
-      state.cardCloseAfterSave = false;
       state.cardInitialPayloadKey = '';
       state.cardDescriptionLoading = false;
       state.cardJournalLoadedFor = '';
+      state.cardJournalRequest = null;
       state.cardJournalLimit = CARD_JOURNAL_INITIAL_LIMIT;
       state.cardFilesRenderedFor = '';
       clearCardOpenSideEffectTimer();
       state.vehicleProfileDraft = null;
-      state.vehicleProfileBaseline = null;
       state.pendingCardClientId = '';
       state.pendingCardClientVehicleId = '';
       state.pendingCreateClientVehicleFromCard = false;
@@ -11358,6 +12006,12 @@
       state.cardTimerSaving = false;
       state.cardCleanupState = 'idle';
       state.cardCleanupError = '';
+      state.cardEnrichmentRequest = null;
+      state.agentTaskContext = null;
+      state.agentTaskId = '';
+      state.agentSyncedTaskId = '';
+      state.cardClientMutationRequest = null;
+      state.cardTimerRequest = null;
       stopCardCleanupPolling();
       refreshRepairOrderEntry(null);
       syncCardSaveDirtyState();
@@ -11502,16 +12156,71 @@
     }
 
     function syncFileDropzone(card = state.activeCard) {
-      const canUpload = Boolean(card?.id || state.editingId);
+      const hasSavedCard = Boolean(card?.id || state.editingId);
+      const busy = Boolean(state.cardFilesMutationRequest || state.cardSaveInFlight);
+      const canUpload = hasSavedCard && !busy;
       els.fileDropzone.classList.toggle('is-disabled', !canUpload);
       els.fileDropzone.classList.remove('is-active');
       els.fileDropzone.setAttribute('aria-disabled', canUpload ? 'false' : 'true');
       els.fileDropzone.setAttribute('contenteditable', canUpload ? 'plaintext-only' : 'false');
-      els.fileDropzone.dataset.title = canUpload ? 'ПЕРЕНЕСИТЕ ИЛИ ВСТАВЬТЕ ФАЙЛ' : 'СНАЧАЛА СОХРАНИТЕ КАРТОЧКУ';
+      els.fileDropzone.dataset.title = canUpload
+        ? 'ПЕРЕНЕСИТЕ ИЛИ ВСТАВЬТЕ ФАЙЛ'
+        : (hasSavedCard ? 'ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ' : 'СНАЧАЛА СОХРАНИТЕ КАРТОЧКУ');
       els.fileDropzone.dataset.hint = canUpload
         ? 'Ctrl+V, правый клик -> Вставить, drag-and-drop или клик для выбора. PNG, JPG, JPEG, WEBP, GIF, TXT, PDF, Word, Excel.'
-        : 'Без сохранённой карточки вложения не принимаются.';
+        : (hasSavedCard ? 'Файлы и карточка изменяются последовательно.' : 'Без сохранённой карточки вложения не принимаются.');
       els.fileDropzone.textContent = '';
+    }
+
+    function syncCardFilesMutationState() {
+      const busy = Boolean(state.cardFilesMutationRequest);
+      if (els.saveCardButton) {
+        els.saveCardButton.disabled = busy || state.cardSaveInFlight || state.cardDescriptionLoading;
+      }
+      if (els.uploadButton) els.uploadButton.disabled = busy || state.cardSaveInFlight || !state.editingId;
+      if (els.fileInput) els.fileInput.disabled = busy || state.cardSaveInFlight || !state.editingId;
+      els.fileList?.querySelectorAll('[data-remove-file]').forEach((button) => {
+        button.disabled = busy || state.cardSaveInFlight;
+      });
+      syncFileDropzone(state.activeCard);
+      syncCardArchiveAction(state.activeCard);
+    }
+
+    function beginCardFilesMutation({ attachmentId = '' } = {}) {
+      if (state.cardFilesMutationRequest || state.cardSaveInFlight) return null;
+      const cardId = String(state.editingId || '').trim();
+      if (!cardId) return null;
+      const request = {};
+      const viewerStateGeneration = state.viewerStateGeneration;
+      const operatorSessionToken = state.operatorSessionToken;
+      const cardEditingGeneration = state.cardEditingGeneration || 0;
+      const cardHydrationSeq = state.cardHydrationSeq;
+      state.cardFilesMutationRequest = request;
+      const ownsRequest = () => state.cardFilesMutationRequest === request
+        && state.viewerStateGeneration === viewerStateGeneration
+        && state.operatorSessionToken === operatorSessionToken;
+      const context = {
+        request,
+        actorName: state.actor,
+        cardId,
+        attachmentId: String(attachmentId || '').trim(),
+        inputValue: String(els.fileInput?.value || ''),
+        ownsRequest,
+        isCurrent: () => ownsRequest()
+          && (state.cardEditingGeneration || 0) === cardEditingGeneration
+          && state.cardHydrationSeq === cardHydrationSeq
+          && String(state.editingId || '').trim() === cardId
+          && String(state.activeCard?.id || '').trim() === cardId,
+      };
+      syncCardFilesMutationState();
+      return context;
+    }
+
+    function finishCardFilesMutation(context) {
+      if (!context?.ownsRequest()) return false;
+      state.cardFilesMutationRequest = null;
+      syncCardFilesMutationState();
+      return true;
     }
 
     function attachmentDownloadPath(cardId, attachmentId) {
@@ -11731,6 +12440,7 @@
       if (card?.id) {
         state.cardFilesRenderedFor = String(card.id || '') + '|' + String(card.updated_at || '');
       }
+      syncCardFilesMutationState();
       perfEnd(perfToken, { card_id: card?.id || '', attachments: attachments.length });
     }
 
@@ -11765,9 +12475,13 @@
       return false;
     }
 
-    async function refreshActiveCardFiles() {
-      if (!state.editingId) return null;
-      const data = await api('/api/get_card?card_id=' + encodeURIComponent(state.editingId));
+    async function refreshActiveCardFiles(context = null) {
+      const cardId = String(context?.cardId || state.editingId || '').trim();
+      if (!cardId) return null;
+      const editingContext = context ? null : captureCardEditingContext();
+      const isCurrent = context?.isCurrent || (() => editingContext() && String(state.editingId || '').trim() === cardId);
+      const data = await api('/api/get_card?card_id=' + encodeURIComponent(cardId));
+      if (!isCurrent()) return null;
       state.activeCard = data.card;
       state.activeCardIsFull = true;
       cacheFullCard(data.card);
@@ -11776,13 +12490,54 @@
     }
 
     async function removeActiveCardAttachment(attachmentId) {
-      await api('/api/remove_card_attachment', {
-        method: 'POST',
-        body: { card_id: state.editingId, attachment_id: attachmentId, actor_name: state.actor, source: 'ui' },
-      });
-      await refreshActiveCardFiles();
-      state.cardJournalLoadedFor = '';
-      await refreshSnapshot(true);
+      const normalizedAttachmentId = String(attachmentId || '').trim();
+      if (!normalizedAttachmentId) return null;
+      if (state.cardSaveInFlight) {
+        setStatus('ДОЖДИТЕСЬ СОХРАНЕНИЯ КАРТОЧКИ.', true);
+        return null;
+      }
+      const context = beginCardFilesMutation({ attachmentId: normalizedAttachmentId });
+      if (!context) return null;
+      try {
+        await api('/api/remove_card_attachment', {
+          method: 'POST',
+          body: {
+            card_id: context.cardId,
+            attachment_id: normalizedAttachmentId,
+            actor_name: context.actorName,
+            source: 'ui',
+          },
+        });
+        if (!context.isCurrent()) return null;
+        const card = await refreshActiveCardFiles(context);
+        if (!card || !context.isCurrent()) return null;
+        state.cardJournalLoadedFor = '';
+        setStatus('ФАЙЛ УДАЛЕН.', false);
+        await refreshSnapshot(true);
+        return card;
+      } catch (error) {
+        if (!context.ownsRequest()) return null;
+        let readback = null;
+        try {
+          readback = await refreshActiveCardFiles(context);
+        } catch (_) {
+          readback = null;
+        }
+        if (!context.isCurrent()) return null;
+        const confirmed = Boolean(readback) && !findCardAttachment(readback, normalizedAttachmentId);
+        const knownUnchanged = Boolean(readback) && Boolean(findCardAttachment(readback, normalizedAttachmentId));
+        setStatus(
+          confirmed
+            ? 'ФАЙЛ УДАЛЕН; РЕЗУЛЬТАТ ПОДТВЕРЖДЕН ПОВТОРНЫМ ЧТЕНИЕМ.'
+            : (knownUnchanged
+              ? String(error?.message || 'НЕ УДАЛОСЬ УДАЛИТЬ ФАЙЛ.')
+              : 'РЕЗУЛЬТАТ УДАЛЕНИЯ НЕ ОПРЕДЕЛЕН. НЕ ПОВТОРЯЙТЕ ОПЕРАЦИЮ ДО ОБНОВЛЕНИЯ КАРТОЧКИ.'),
+          !confirmed,
+        );
+        return confirmed ? readback : null;
+      } finally {
+        finishCardFilesMutation(context);
+      }
     }
 
     function formatJournalDayLabel(value) {
@@ -12326,7 +13081,7 @@
       if (els.repairOrdersClosedTab) els.repairOrdersClosedTab.classList.toggle('is-active', isClosed);
       if (els.repairOrdersModal) els.repairOrdersModal.dataset.repairOrdersFilter = normalizedFilter;
       if (repairOrdersDialog) repairOrdersDialog.dataset.repairOrdersFilter = normalizedFilter;
-      syncRepairOrdersLayout(normalizedFilter);
+      syncRepairOrdersLayout();
     }
 
     function repairOrdersIsClosedView(status = state.repairOrdersFilter) {
@@ -12364,12 +13119,11 @@
         + '</div>';
     }
 
-    function repairOrdersColumnsValue(status = state.repairOrdersFilter) {
-      repairOrdersIsClosedView(status);
+    function repairOrdersColumnsValue() {
       return 'minmax(35px, 46px) minmax(67px, 79px) minmax(100px, 116px) minmax(136px, 168px) minmax(147px, 179px) minmax(138px, 168px) minmax(501px, 4.666fr) minmax(82px, 96px) minmax(82px, 96px)';
     }
 
-    function repairOrdersTableHeadHtml(status = state.repairOrdersFilter) {
+    function repairOrdersTableHeadHtml() {
       return repairOrdersTableHeadSearchableHtml('№', 'number')
         + repairOrdersTableHeadSearchableHtml('Даты', 'date')
         + '<div>Оплата</div>'
@@ -12380,12 +13134,12 @@
         + '<div class="repair-orders-table-head__sum">Внесено</div>'
         + '<div class="repair-orders-table-head__sum">Сумма</div>';
     }
-    function syncRepairOrdersLayout(status = state.repairOrdersFilter) {
+    function syncRepairOrdersLayout() {
       if (els.repairOrdersModal) {
-        els.repairOrdersModal.style.setProperty('--repair-orders-columns', repairOrdersColumnsValue(status));
+        els.repairOrdersModal.style.setProperty('--repair-orders-columns', repairOrdersColumnsValue());
       }
       if (els.repairOrdersTableHead) {
-        els.repairOrdersTableHead.innerHTML = repairOrdersTableHeadHtml(status);
+        els.repairOrdersTableHead.innerHTML = repairOrdersTableHeadHtml();
       }
     }
 
@@ -12425,6 +13179,10 @@
       params.set('sort_dir', normalizeRepairOrdersSortDir(state.repairOrdersSortDir));
       if (state.repairOrdersRemoteQuery) params.set('query', state.repairOrdersRemoteQuery);
       return '/api/list_repair_orders?' + params.toString();
+    }
+
+    function invalidateRepairOrdersRequests() {
+      state.repairOrdersRequestSeq = (state.repairOrdersRequestSeq || 0) + 1;
     }
 
     async function setRepairOrdersFilter(status, { openModal = false } = {}) {
@@ -12480,11 +13238,19 @@
     }
 
     async function loadGptWall(openModal = false) {
-      await loadModalData('/api/get_gpt_wall', {
+      const requestSeq = (state.gptWallRequestSeq || 0) + 1;
+      state.gptWallRequestSeq = requestSeq;
+      const viewerStateGeneration = state.viewerStateGeneration;
+      const operatorSessionToken = state.operatorSessionToken;
+      const isCurrent = () => state.gptWallRequestSeq === requestSeq
+        && state.viewerStateGeneration === viewerStateGeneration
+        && state.operatorSessionToken === operatorSessionToken;
+      return loadModalData('/api/get_gpt_wall', {
         method: 'POST',
         body: { include_archived: true, event_limit: 100 },
         openModal,
         modalEl: els.gptWallModal,
+        isCurrent,
         onSuccess: renderGptWall,
         onError: (error) => {
           setModalTextError(els.gptWallMeta, els.gptWallText, 'ОШИБКА ЗАГРУЗКИ СЛОЯ GPT.', error.message);
@@ -12600,11 +13366,6 @@
       renderMobileShell();
     }
 
-    // СПИСОК: ДАТА / АВТО / СУТЬ / СУММА
-    repairOrdersMetaText = function(items, meta) {
-      return '';
-    };
-
     renderRepairOrderListRows = function(items) {
       const isClosedView = repairOrdersIsClosedView();
       return items.map((item) => {
@@ -12671,9 +13432,17 @@
 
     loadRepairOrders = async function(openModal = false) {
       state.repairOrdersRemoteQuery = '';
-      await loadModalData(repairOrdersRequestPath(), {
+      const requestSeq = (state.repairOrdersRequestSeq || 0) + 1;
+      state.repairOrdersRequestSeq = requestSeq;
+      const viewerStateGeneration = state.viewerStateGeneration;
+      const operatorSessionToken = state.operatorSessionToken;
+      const isCurrent = () => state.repairOrdersRequestSeq === requestSeq
+        && state.viewerStateGeneration === viewerStateGeneration
+        && state.operatorSessionToken === operatorSessionToken;
+      return loadModalData(repairOrdersRequestPath(), {
         openModal,
         modalEl: els.repairOrdersModal,
+        isCurrent,
         onSuccess: renderRepairOrders,
         onError: (error) => {
           setModalListError(
@@ -12941,8 +13710,15 @@
     }
 
     function closeCardModal({ force = false } = {}) {
+      if (state.repairOrderMutationRequest) {
+        setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ С ЗАКАЗ-НАРЯДОМ.', false);
+        return false;
+      }
+      if (state.cardFilesMutationRequest) {
+        setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ С ФАЙЛАМИ.', false);
+        return false;
+      }
       if (state.cardSaveInFlight) {
-        state.cardCloseAfterSave = true;
         setStatus('СОХРАНЯЮ КАРТОЧКУ. ЗАКРОЮ ПОСЛЕ СОХРАНЕНИЯ.', false);
         return false;
       }
@@ -13116,6 +13892,7 @@
     function cachedFullCardForSnapshot(card) {
       const cardId = String(card?.id || '').trim();
       if (!cardId) return null;
+      if (repairOrderNeedsVerification(cardId)) return null;
       const cachedCard = state.fullCardCache.get(cardId);
       if (!cachedCard) return null;
       const expectedUpdatedAt = String(card?.updated_at || '').trim();
@@ -13128,8 +13905,12 @@
       if (!normalizedCardId) return null;
       const cachedCard = state.fullCardCache.get(normalizedCardId);
       const normalizedExpectedUpdatedAt = String(expectedUpdatedAt || '').trim();
-      if (cachedCard && normalizedExpectedUpdatedAt && String(cachedCard.updated_at || '').trim() === normalizedExpectedUpdatedAt) return cacheFullCard(cachedCard);
-      const pending = state.cardFetchInFlight.get(normalizedCardId);
+      if (!repairOrderNeedsVerification(normalizedCardId)
+        && cachedCard && normalizedExpectedUpdatedAt
+        && String(cachedCard.updated_at || '').trim() === normalizedExpectedUpdatedAt) return cacheFullCard(cachedCard);
+      const pending = repairOrderNeedsVerification(normalizedCardId)
+        ? null
+        : state.cardFetchInFlight.get(normalizedCardId);
       const viewerStateGeneration = state.viewerStateGeneration;
       if (pending) {
         if (pending.expectedUpdatedAt === normalizedExpectedUpdatedAt) return pending;
@@ -13536,7 +14317,6 @@
         'cashbox-transfer',
         'employees',
         'employeeSalary',
-        'employee-salary-report',
         'wall',
         'settings',
         'sticky',
@@ -13601,11 +14381,22 @@
     function loadActiveCardTab(tabName) {
       const cardId = String(state.activeCard?.id || '').trim();
       if (tabName === 'files') {
+        if (state.cardJournalRequest) {
+          state.cardJournalRequest = null;
+          state.cardJournalLoadedFor = '';
+        }
         renderActiveCardFiles();
         return;
       }
-      if (tabName !== 'journal') return;
+      if (tabName !== 'journal') {
+        if (state.cardJournalRequest) {
+          state.cardJournalRequest = null;
+          state.cardJournalLoadedFor = '';
+        }
+        return;
+      }
       if (!cardId) {
+        state.cardJournalRequest = null;
         renderLogs([]);
         return;
       }
@@ -13620,11 +14411,29 @@
     async function loadLogs(cardId, limit = state.cardJournalLimit) {
       const perfToken = perfStart('loadLogs');
       const loadKey = cardJournalLoadKey(cardId, limit);
+      const request = {};
+      state.cardJournalRequest = request;
+      const viewerStateGeneration = state.viewerStateGeneration;
+      const operatorSessionToken = state.operatorSessionToken;
+      const cardEditingGeneration = state.cardEditingGeneration || 0;
+      const cardHydrationSeq = state.cardHydrationSeq;
+      const normalizedCardId = String(cardId || '').trim();
+      const isCurrent = () => state.cardJournalRequest === request
+        && state.viewerStateGeneration === viewerStateGeneration
+        && state.operatorSessionToken === operatorSessionToken
+        && (state.cardEditingGeneration || 0) === cardEditingGeneration
+        && state.cardHydrationSeq === cardHydrationSeq
+        && state.currentTab === 'journal'
+        && String(state.activeCard?.id || '').trim() === normalizedCardId
+        && state.cardJournalLoadedFor === loadKey;
       try {
         const data = await api(cardJournalRequestUrl(cardId, limit));
+        if (!isCurrent()) return null;
         renderLogs(data);
+        return data;
       } catch (error) {
-        if (state.cardJournalLoadedFor === loadKey) state.cardJournalLoadedFor = '';
+        if (!isCurrent()) return null;
+        state.cardJournalLoadedFor = '';
         renderLogs({
           events: [{
             message: error.message,
@@ -13640,6 +14449,7 @@
           },
         });
       } finally {
+        if (state.cardJournalRequest === request) state.cardJournalRequest = null;
         perfEnd(perfToken, { card_id: cardId || '', limit: limit || CARD_JOURNAL_INITIAL_LIMIT });
       }
     }
@@ -13804,13 +14614,59 @@
       }
     }
 
+    function beginArchiveMutation(cardId, { requireActiveCard = false } = {}) {
+      if (state.archiveMutationRequest) return null;
+      const normalizedCardId = String(cardId || '').trim();
+      if (!normalizedCardId) return null;
+      const request = {};
+      const viewerStateGeneration = state.viewerStateGeneration;
+      const operatorSessionToken = state.operatorSessionToken;
+      const cardEditingGeneration = state.cardEditingGeneration || 0;
+      const cardHydrationSeq = state.cardHydrationSeq;
+      state.archiveMutationRequest = request;
+      const ownsRequest = () => state.archiveMutationRequest === request
+        && state.viewerStateGeneration === viewerStateGeneration
+        && state.operatorSessionToken === operatorSessionToken;
+      const cardWorkspaceCurrent = () => ownsRequest()
+        && String(state.editingId || '').trim() === normalizedCardId
+        && (state.cardEditingGeneration || 0) === cardEditingGeneration
+        && state.cardHydrationSeq === cardHydrationSeq;
+      return {
+        request,
+        actorName: state.actor,
+        cardId: normalizedCardId,
+        ownsRequest,
+        cardWorkspaceCurrent,
+        isCurrent: () => requireActiveCard
+          ? cardWorkspaceCurrent() && String(state.activeCard?.id || '').trim() === normalizedCardId
+          : ownsRequest(),
+      };
+    }
+
+    function finishArchiveMutation(context) {
+      if (!context?.ownsRequest()) return false;
+      state.archiveMutationRequest = null;
+      syncCardArchiveAction();
+      return true;
+    }
+
     async function restoreCard(cardId) {
+      const context = beginArchiveMutation(cardId);
+      if (!context) return null;
       try {
-        const data = await api('/api/restore_card', { method: 'POST', body: { card_id: cardId, actor_name: state.actor, source: 'ui' } });
-        if (data?.card && applyArchivedCardPatch(data.card)) return;
+        const data = await api('/api/restore_card', {
+          method: 'POST',
+          body: { card_id: context.cardId, actor_name: context.actorName, source: 'ui' },
+        });
+        if (!context.ownsRequest()) return null;
+        if (data?.card && applyArchivedCardPatch(data.card)) return data.card;
         await refreshSnapshot(true);
+        return context.ownsRequest() ? (data?.card || true) : null;
       } catch (error) {
-        setStatus(error.message, true);
+        if (context.ownsRequest()) setStatus(error.message, true);
+        return null;
+      } finally {
+        finishArchiveMutation(context);
       }
     }
 
@@ -13975,304 +14831,7 @@
       popup.focus();
     }
 
-    function normalizedDisplayDashboardMessage(value) {
-      const source = value && typeof value === 'object' ? value : {};
-      return {
-        schema_version: String(source.schema_version || 'display_dashboard_message.v1'),
-        body_html: String(source.body_html || ''),
-        image_file_ids: Array.isArray(source.image_file_ids)
-          ? Array.from(new Set(source.image_file_ids.map((item) => String(item || '').trim()).filter(Boolean))).slice(0, DISPLAY_DASHBOARD_MAX_IMAGES)
-          : [],
-        updated_at: String(source.updated_at || ''),
-        updated_by: String(source.updated_by || ''),
-        revision: String(source.revision || ''),
-      };
-    }
-
-    function displayDashboardEditorAuthHeaders() {
-      const headers = {};
-      if (state.apiToken) headers.Authorization = 'Bearer ' + state.apiToken;
-      if (state.operatorSessionToken) headers['X-Operator-Session'] = state.operatorSessionToken;
-      return headers;
-    }
-
-    function clearDisplayDashboardImageDrafts() {
-      state.displayDashboardPendingImages.forEach((item) => {
-        if (item?.url) URL.revokeObjectURL(item.url);
-      });
-      state.displayDashboardPendingImages = [];
-      state.displayDashboardExistingImageUrls.forEach((url) => URL.revokeObjectURL(url));
-      state.displayDashboardExistingImageUrls.clear();
-      state.displayDashboardExistingImageIds = [];
-      if (els.displayDashboardImageInput) els.displayDashboardImageInput.value = '';
-      if (els.displayDashboardMessageImages) els.displayDashboardMessageImages.innerHTML = '';
-    }
-
-    function closeDisplayDashboardMessageEditor() {
-      clearDisplayDashboardImageDrafts();
-      state.displayDashboardSelectionRange = null;
-      if (els.displayDashboardEmojiPalette) els.displayDashboardEmojiPalette.hidden = true;
-      if (els.displayDashboardEmojiButton) els.displayDashboardEmojiButton.setAttribute('aria-expanded', 'false');
-      popModal('display-dashboard-message');
-    }
-
-    function appendDisplayDashboardImagePreview({ url, key, existing }) {
-      if (!url || !els.displayDashboardMessageImages) return;
-      const card = document.createElement('div');
-      card.className = 'display-dashboard-editor__image';
-      const image = document.createElement('img');
-      image.src = url;
-      image.alt = 'Фото к сообщению';
-      const removeButton = document.createElement('button');
-      removeButton.type = 'button';
-      removeButton.textContent = '×';
-      removeButton.title = 'Убрать фото';
-      removeButton.setAttribute('aria-label', 'Убрать фото');
-      removeButton.dataset.dashboardImageRemove = key;
-      removeButton.dataset.dashboardImageExisting = existing ? 'true' : 'false';
-      card.append(image, removeButton);
-      els.displayDashboardMessageImages.appendChild(card);
-    }
-
-    function renderDisplayDashboardImageDrafts() {
-      if (!els.displayDashboardMessageImages) return;
-      els.displayDashboardMessageImages.innerHTML = '';
-      state.displayDashboardExistingImageIds.forEach((fileId) => {
-        const url = state.displayDashboardExistingImageUrls.get(fileId);
-        if (url) appendDisplayDashboardImagePreview({ url, key: fileId, existing: true });
-      });
-      state.displayDashboardPendingImages.forEach((item) => {
-        appendDisplayDashboardImagePreview({ url: item.url, key: item.key, existing: false });
-      });
-      const total = state.displayDashboardExistingImageIds.length + state.displayDashboardPendingImages.length;
-      if (els.displayDashboardMessageMeta && state.displayDashboardMessage) {
-        const updatedAt = formatDate(state.displayDashboardMessage.updated_at);
-        els.displayDashboardMessageMeta.textContent = [
-          updatedAt ? ('ОБНОВЛЕНО ' + updatedAt) : 'НОВОЕ СООБЩЕНИЕ',
-          state.displayDashboardMessage.updated_by,
-          'ФОТО: ' + total + '/' + DISPLAY_DASHBOARD_MAX_IMAGES,
-        ].filter(Boolean).join(' · ');
-      }
-    }
-
-    async function loadDisplayDashboardExistingImages(imageIds, revision) {
-      const loaded = await Promise.all(imageIds.map(async (fileId) => {
-        try {
-          const response = await fetch(
-            '/api/shared_file?file_id=' + encodeURIComponent(fileId) + '&disposition=inline',
-            { headers: displayDashboardEditorAuthHeaders(), cache: 'no-store' },
-          );
-          if (!response.ok) return null;
-          const blob = await response.blob();
-          if (!String(blob.type || '').toLowerCase().startsWith('image/')) return null;
-          return { fileId, url: URL.createObjectURL(blob) };
-        } catch (_error) {
-          return null;
-        }
-      }));
-      if (
-        !isModalOpen('display-dashboard-message')
-        || state.displayDashboardMessage?.revision !== revision
-      ) {
-        loaded.filter(Boolean).forEach((item) => URL.revokeObjectURL(item.url));
-        return;
-      }
-      loaded.filter(Boolean).forEach((item) => {
-        state.displayDashboardExistingImageUrls.set(item.fileId, item.url);
-      });
-      renderDisplayDashboardImageDrafts();
-    }
-
-    async function openDisplayDashboardMessageEditor() {
-      if (!requireOperatorSession()) return;
-      try {
-        const data = await api('/api/get_display_dashboard');
-        const message = normalizedDisplayDashboardMessage(data?.message_board);
-        clearDisplayDashboardImageDrafts();
-        state.displayDashboardMessage = message;
-        state.displayDashboardExistingImageIds = message.image_file_ids.slice();
-        if (els.displayDashboardMessageEditor) {
-          els.displayDashboardMessageEditor.innerHTML = message.body_html;
-        }
-        if (els.displayDashboardMessageSaveButton) els.displayDashboardMessageSaveButton.disabled = false;
-        state.displayDashboardSelectionRange = null;
-        if (els.displayDashboardEmojiPalette) els.displayDashboardEmojiPalette.hidden = true;
-        if (els.displayDashboardEmojiButton) els.displayDashboardEmojiButton.setAttribute('aria-expanded', 'false');
-        pushModal('display-dashboard-message', els.displayDashboardMessageModal, { parentKey: 'settings' });
-        renderDisplayDashboardImageDrafts();
-        void loadDisplayDashboardExistingImages(message.image_file_ids, message.revision);
-        requestAnimationFrame(() => els.displayDashboardMessageEditor?.focus({ preventScroll: true }));
-      } catch (error) {
-        setStatus(error.message, true);
-      }
-    }
-
-    function rememberDisplayDashboardSelection() {
-      const selection = window.getSelection();
-      if (!selection?.rangeCount || !els.displayDashboardMessageEditor) return;
-      const range = selection.getRangeAt(0);
-      const container = range.commonAncestorContainer;
-      if (!els.displayDashboardMessageEditor.contains(
-        container.nodeType === Node.ELEMENT_NODE ? container : container.parentElement,
-      )) return;
-      state.displayDashboardSelectionRange = range.cloneRange();
-    }
-
-    function restoreDisplayDashboardSelection() {
-      const range = state.displayDashboardSelectionRange;
-      if (!(range instanceof Range)) return;
-      const selection = window.getSelection();
-      selection?.removeAllRanges();
-      selection?.addRange(range);
-    }
-
-    function applyDisplayDashboardFormat(command, value = null) {
-      if (!els.displayDashboardMessageEditor) return;
-      els.displayDashboardMessageEditor.focus({ preventScroll: true });
-      restoreDisplayDashboardSelection();
-      document.execCommand(command, false, value);
-      rememberDisplayDashboardSelection();
-    }
-
-    function handleDisplayDashboardToolbarClick(event) {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      const formatButton = target.closest('[data-dashboard-format]');
-      if (formatButton instanceof HTMLElement) {
-        applyDisplayDashboardFormat(String(formatButton.dataset.dashboardFormat || ''));
-        return;
-      }
-      const emojiButton = target.closest('[data-dashboard-emoji]');
-      if (emojiButton instanceof HTMLElement) {
-        applyDisplayDashboardFormat('insertText', String(emojiButton.dataset.dashboardEmoji || ''));
-      }
-    }
-
-    function handleDisplayDashboardFontSize() {
-      applyDisplayDashboardFormat('fontSize', String(els.displayDashboardFontSize?.value || '3'));
-    }
-
-    function toggleDisplayDashboardEmojiPalette() {
-      if (!els.displayDashboardEmojiPalette) return;
-      els.displayDashboardEmojiPalette.hidden = !els.displayDashboardEmojiPalette.hidden;
-      els.displayDashboardEmojiButton?.setAttribute(
-        'aria-expanded',
-        els.displayDashboardEmojiPalette.hidden ? 'false' : 'true',
-      );
-    }
-
-    function addDisplayDashboardImages(files) {
-      const selected = Array.from(files || []).filter((file) =>
-        String(file?.type || '').toLowerCase().startsWith('image/')
-      );
-      if (!selected.length) {
-        setStatus('ВЫБЕРИТЕ ИЗОБРАЖЕНИЕ JPG, PNG, WEBP ИЛИ GIF.', true);
-        return;
-      }
-      const available = Math.max(
-        0,
-        DISPLAY_DASHBOARD_MAX_IMAGES
-          - state.displayDashboardExistingImageIds.length
-          - state.displayDashboardPendingImages.length,
-      );
-      if (selected.length > available) {
-        setStatus('НА ДОСКЕ МОЖЕТ БЫТЬ НЕ БОЛЬШЕ 8 ФОТО.', true);
-      }
-      selected.slice(0, available).forEach((file) => {
-        if (file.size > SHARED_FILE_UPLOAD_MAX_SIZE_BYTES) {
-          setStatus('ФОТО СЛИШКОМ БОЛЬШОЕ. ЛИМИТ: 25 МБ.', true);
-          return;
-        }
-        state.displayDashboardPendingImages.push({
-          key: crypto.randomUUID(),
-          file,
-          url: URL.createObjectURL(file),
-        });
-      });
-      if (els.displayDashboardImageInput) els.displayDashboardImageInput.value = '';
-      renderDisplayDashboardImageDrafts();
-    }
-
-    function removeDisplayDashboardImage(event) {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      const button = target.closest('[data-dashboard-image-remove]');
-      if (!(button instanceof HTMLElement)) return;
-      const key = String(button.dataset.dashboardImageRemove || '');
-      if (button.dataset.dashboardImageExisting === 'true') {
-        state.displayDashboardExistingImageIds = state.displayDashboardExistingImageIds
-          .filter((fileId) => fileId !== key);
-        const url = state.displayDashboardExistingImageUrls.get(key);
-        if (url) URL.revokeObjectURL(url);
-        state.displayDashboardExistingImageUrls.delete(key);
-      } else {
-        const removed = state.displayDashboardPendingImages.find((item) => item.key === key);
-        if (removed?.url) URL.revokeObjectURL(removed.url);
-        state.displayDashboardPendingImages = state.displayDashboardPendingImages
-          .filter((item) => item.key !== key);
-      }
-      renderDisplayDashboardImageDrafts();
-    }
-
-    async function uploadDisplayDashboardImage(file, index) {
-      const buffer = await file.arrayBuffer();
-      const fileName = String(file.name || ('dashboard-image-' + (index + 1) + '.jpg')).slice(0, 240);
-      const uploaded = await api('/api/upload_shared_file', {
-        method: 'POST',
-        body: {
-          actor_name: state.actor,
-          source: 'ui',
-          file_name: fileName,
-          mime_type: String(file.type || 'image/jpeg'),
-          content_base64: arrayBufferToBase64(buffer),
-          x: 0,
-          y: 0,
-        },
-      });
-      const fileId = String(uploaded?.file?.id || '').trim();
-      if (!fileId) throw new Error('НЕ УДАЛОСЬ СОХРАНИТЬ ИЗОБРАЖЕНИЕ.');
-      return fileId;
-    }
-
-    async function saveDisplayDashboardMessage() {
-      if (state.displayDashboardMessageSaving || !state.displayDashboardMessage) return;
-      state.displayDashboardMessageSaving = true;
-      if (els.displayDashboardMessageSaveButton) els.displayDashboardMessageSaveButton.disabled = true;
-      try {
-        const uploadedIds = [];
-        for (let index = 0; index < state.displayDashboardPendingImages.length; index += 1) {
-          uploadedIds.push(await uploadDisplayDashboardImage(
-            state.displayDashboardPendingImages[index].file,
-            index,
-          ));
-        }
-        const imageFileIds = state.displayDashboardExistingImageIds.concat(uploadedIds);
-        const data = await api('/api/update_board_settings', {
-          method: 'POST',
-          body: {
-            actor_name: state.actor,
-            source: 'ui',
-            expected_revision: state.displayDashboardMessage.revision,
-            display_dashboard_message: {
-              body_html: String(els.displayDashboardMessageEditor?.innerHTML || ''),
-              image_file_ids: imageFileIds,
-            },
-          },
-        });
-        state.displayDashboardMessage = normalizedDisplayDashboardMessage(
-          data?.meta?.display_dashboard_message || data?.settings?.display_dashboard_message,
-        );
-        if (state.snapshot && data?.settings) state.snapshot.settings = data.settings;
-        closeDisplayDashboardMessageEditor();
-        setStatus('ДОСКА МЕХАНИКОВ ОБНОВЛЕНА.', false);
-      } catch (error) {
-        setStatus(error.message, true);
-      } finally {
-        state.displayDashboardMessageSaving = false;
-        if (els.displayDashboardMessageSaveButton) els.displayDashboardMessageSaveButton.disabled = false;
-      }
-    }
-
+    // @include display_dashboard_workspace.js
     function handleBoardScaleInput() {
       zoomBoardTo(Number(els.boardScaleInput.value) / 100);
     }
@@ -14372,10 +14931,6 @@
       if (source === 'ui') return 'ручное';
       if (source === 'mcp') return 'mcp';
       return source ? source : 'система';
-    }
-
-    function syncCashboxFiltersUi() {
-      return;
     }
 
     function resetCashboxDragState() {
@@ -14700,7 +15255,6 @@
         els.cashboxIncomeButton.disabled = true;
         els.cashboxTransferButton.disabled = true;
         els.cashboxExpenseButton.disabled = true;
-        syncCashboxFiltersUi();
         els.cashboxTransactions.innerHTML = '<div class="cashboxes-empty">НЕТ ДАННЫХ.</div>';
         closeCashboxCancelPopover();
         renderMobileShell();
@@ -14711,7 +15265,6 @@
       els.cashboxIncomeButton.disabled = false;
       els.cashboxTransferButton.disabled = (Array.isArray(state.cashboxes) ? state.cashboxes.length : 0) < 2;
       els.cashboxExpenseButton.disabled = false;
-      syncCashboxFiltersUi();
       renderCashboxTransactions();
       if (state.cashboxCancelTransactionId && !cashboxTransactionById(state.cashboxCancelTransactionId)) {
         closeCashboxCancelPopover();
@@ -15032,15 +15585,33 @@
     }
 
     async function archiveActiveCard() {
-      if (!state.editingId) return;
+      const cardId = String(state.editingId || '').trim();
+      if (!cardId) return;
+      if (state.cardSaveInFlight || state.cardFilesMutationRequest || repairOrderNeedsVerification(cardId)) {
+        setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИЙ С КАРТОЧКОЙ.', true);
+        return;
+      }
+      const context = beginArchiveMutation(cardId, { requireActiveCard: true });
+      if (!context) return;
+      syncCardArchiveAction();
       try {
-        const data = await api('/api/archive_card', { method: 'POST', body: { card_id: state.editingId, actor_name: state.actor, source: 'ui' } });
-        closeCardModal({ force: true });
-        if (data?.card && applyArchivedCardPatch(data.card)) return;
-        await refreshSnapshot(true);
+        const data = await api('/api/archive_card', {
+          method: 'POST',
+          body: { card_id: context.cardId, actor_name: context.actorName, source: 'ui' },
+        });
+        if (!context.isCurrent()) return;
+        const applied = Boolean(data?.card && applyArchivedCardPatch(data.card));
+        if (!applied) await refreshSnapshot(true);
+        if (context.cardWorkspaceCurrent()) {
+          finishArchiveMutation(context);
+          closeCardModal({ force: true });
+        }
       } catch (error) {
+        if (!context.isCurrent()) return;
         const message = String(error?.message || '').trim();
         setStatus(archiveBlockedMessage(message), true);
+      } finally {
+        finishArchiveMutation(context);
       }
     }
 
@@ -15053,12 +15624,17 @@
     }
 
     async function restoreActiveCard() {
-      if (!state.editingId) return;
-      await restoreCard(state.editingId);
-      closeCardModal({ force: true });
+      const cardId = String(state.editingId || '').trim();
+      if (!cardId) return;
+      const isCurrent = captureCardEditingContext();
+      const restored = await restoreCard(cardId);
+      if (restored && isCurrent() && String(state.editingId || '').trim() === cardId) {
+        closeCardModal({ force: true });
+      }
     }
 
     function openStickyModal(sticky = null) {
+      state.stickyEditorGeneration = (state.stickyEditorGeneration || 0) + 1;
       const existing = sticky || null;
       state.stickyDraft = existing;
       els.stickyModalTitle.textContent = existing ? ('СТИКЕР / ' + String(existing.id).slice(0, 8).toUpperCase()) : 'НОВЫЙ СТИКЕР';
@@ -15071,20 +15647,11 @@
     }
 
     function closeStickyModal() {
+      state.stickyEditorGeneration = (state.stickyEditorGeneration || 0) + 1;
+      if (state.stickyMutationRequest?.editor) state.stickyMutationRequest = null;
+      if (els.saveStickyButton) els.saveStickyButton.disabled = false;
       popModal('sticky');
       state.stickyDraft = null;
-    }
-
-    function handleStickyModalOverlayClick(event) {
-      return;
-    }
-
-    function handleRepairOrderModalOverlayClick(event) {
-      return;
-    }
-
-    function handleRepairOrderPaymentsModalOverlayClick(event) {
-      return;
     }
 
     function handleEmployeesModalOverlayClick(event) {
@@ -15116,14 +15683,6 @@
       }
     }
 
-    function handleOperatorProfileModalOverlayClick(event) {
-      return;
-    }
-
-    function handleOperatorAdminModalOverlayClick(event) {
-      return;
-    }
-
     function buildStickyPayload() {
       const draft = stickyPayload();
       const deadline = stickyDeadlineInput();
@@ -15137,37 +15696,76 @@
       };
     }
 
+    function beginStickyMutation({ editor = false } = {}) {
+      if (state.stickyMutationRequest) return null;
+      const viewerContext = captureViewerRequestContext();
+      const editorGeneration = state.stickyEditorGeneration || 0;
+      const request = { editor };
+      state.stickyMutationRequest = request;
+      return {
+        request,
+        actorName: viewerContext.actorName,
+        ownsRequest: () => state.stickyMutationRequest === request && viewerContext.isCurrent(),
+        isCurrent: () => state.stickyMutationRequest === request
+          && viewerContext.isCurrent()
+          && (!editor || (
+            state.stickyEditorGeneration === editorGeneration
+            && isModalOpen('sticky')
+          )),
+      };
+    }
+
+    function finishStickyMutation(context) {
+      if (!context?.ownsRequest()) return false;
+      state.stickyMutationRequest = null;
+      return true;
+    }
+
     async function saveSticky() {
       const payload = buildStickyPayload();
       if (!payload.text) return setStatus('УКАЖИ ТЕКСТ СТИКЕРА.', true);
+      const context = beginStickyMutation({ editor: true });
+      if (!context) return;
+      if (els.saveStickyButton) els.saveStickyButton.disabled = true;
       try {
         let data = null;
         if (payload.sticky_id) {
-          data = await api('/api/update_sticky', { method: 'POST', body: { sticky_id: payload.sticky_id, text: payload.text, deadline: payload.deadline, actor_name: state.actor, source: 'ui' } });
+          data = await api('/api/update_sticky', { method: 'POST', body: { sticky_id: payload.sticky_id, text: payload.text, deadline: payload.deadline, actor_name: context.actorName, source: 'ui' } });
         } else {
-          data = await api('/api/create_sticky', { method: 'POST', body: { text: payload.text, x: payload.x, y: payload.y, deadline: payload.deadline, actor_name: state.actor, source: 'ui' } });
+          data = await api('/api/create_sticky', { method: 'POST', body: { text: payload.text, x: payload.x, y: payload.y, deadline: payload.deadline, actor_name: context.actorName, source: 'ui' } });
         }
-        closeStickyModal();
+        if (!context.isCurrent()) return;
         if (applyStickySnapshot(data?.stickies || [])) {
           setStatus('СТИКЕР СОХРАНЕН.', false);
+          closeStickyModal();
           return;
         }
         await refreshSnapshot(true);
+        if (context.isCurrent()) closeStickyModal();
       } catch (error) {
-        setStatus(error.message, true);
+        if (context.isCurrent()) setStatus(error.message, true);
+      } finally {
+        if (finishStickyMutation(context) && els.saveStickyButton) {
+          els.saveStickyButton.disabled = false;
+        }
       }
     }
 
     async function removeSticky(stickyId) {
+      const context = beginStickyMutation();
+      if (!context) return;
       try {
-        const data = await api('/api/delete_sticky', { method: 'POST', body: { sticky_id: stickyId, actor_name: state.actor, source: 'ui' } });
+        const data = await api('/api/delete_sticky', { method: 'POST', body: { sticky_id: stickyId, actor_name: context.actorName, source: 'ui' } });
+        if (!context.isCurrent()) return;
         if (applyStickySnapshot(data?.stickies || [])) {
           setStatus('СТИКЕР УДАЛЕН.', false);
           return;
         }
         await refreshSnapshot(true);
       } catch (error) {
-        setStatus(error.message, true);
+        if (context.isCurrent()) setStatus(error.message, true);
+      } finally {
+        finishStickyMutation(context);
       }
     }
 
@@ -15195,6 +15793,7 @@
     }
 
     function beginStickyDrag(event) {
+      if (state.stickyMutationRequest) return;
       if (event.button !== 0) return;
       if (!(event.target instanceof HTMLElement)) return;
       const sticky = event.target.closest('.sticky');
@@ -15255,35 +15854,84 @@
       const dy = event.clientY - drag.startClientY;
       const nextX = Math.max(0, Math.round(drag.startX + (dx / scale)));
       const nextY = Math.max(0, Math.round(drag.startY + (dy / scale)));
+      const context = beginStickyMutation();
+      if (!context) return;
       try {
-        const data = await api('/api/move_sticky', { method: 'POST', body: { sticky_id: drag.stickyId, x: nextX, y: nextY, actor_name: state.actor, source: 'ui' } });
+        const data = await api('/api/move_sticky', { method: 'POST', body: { sticky_id: drag.stickyId, x: nextX, y: nextY, actor_name: context.actorName, source: 'ui' } });
+        if (!context.isCurrent()) return;
         if (applyStickySnapshot(data?.stickies || [])) return;
         await refreshSnapshot(true);
       } catch (error) {
-        setStatus(error.message, true);
+        if (context.isCurrent()) setStatus(error.message, true);
+      } finally {
+        finishStickyMutation(context);
       }
     }
 
     async function uploadProvidedFiles(files) {
       const selectedFiles = Array.from(files || []).filter(Boolean);
-      if (!selectedFiles.length) return;
-      if (!requireSavedCardForFiles({ syncDropzone: true })) return;
+      if (!selectedFiles.length) return null;
+      if (!requireSavedCardForFiles({ syncDropzone: true })) return null;
+      if (state.cardSaveInFlight) {
+        setStatus('ДОЖДИТЕСЬ СОХРАНЕНИЯ КАРТОЧКИ.', true);
+        return null;
+      }
+      const context = beginCardFilesMutation();
+      if (!context) return null;
+      let attemptedWrites = 0;
+      let completedWrites = 0;
       try {
         const normalizedFiles = selectedFiles.map((file) => normalizeUploadableAttachmentFile(file));
         for (const file of normalizedFiles) {
+          if (!context.isCurrent()) return null;
           const buffer = await file.arrayBuffer();
+          if (!context.isCurrent()) return null;
           const base64 = arrayBufferToBase64(buffer);
-          await api('/api/add_card_attachment', { method: 'POST', body: { card_id: state.editingId, actor_name: state.actor, source: 'ui', file_name: file.name, mime_type: normalizeAttachmentMimeType(file.type) || attachmentMimeTypeFromExtension(attachmentExtension(file.name)) || 'application/octet-stream', content_base64: base64 } });
+          attemptedWrites += 1;
+          await api('/api/add_card_attachment', {
+            method: 'POST',
+            body: {
+              card_id: context.cardId,
+              actor_name: context.actorName,
+              source: 'ui',
+              file_name: file.name,
+              mime_type: normalizeAttachmentMimeType(file.type) || attachmentMimeTypeFromExtension(attachmentExtension(file.name)) || 'application/octet-stream',
+              content_base64: base64,
+            },
+          });
+          if (!context.isCurrent()) return null;
+          completedWrites += 1;
         }
-        await refreshActiveCardFiles();
+        const card = await refreshActiveCardFiles(context);
+        if (!card || !context.isCurrent()) return null;
         state.cardJournalLoadedFor = '';
         setStatus(normalizedFiles.length > 1 ? 'ФАЙЛЫ ЗАГРУЖЕНЫ.' : 'ФАЙЛ ЗАГРУЖЕН.', false);
         await refreshSnapshot(true);
+        return completedWrites;
       } catch (error) {
-        setStatus(error.message, true);
+        if (!context.ownsRequest()) return null;
+        let readback = null;
+        if (attemptedWrites) {
+          try {
+            readback = await refreshActiveCardFiles(context);
+          } catch (_) {
+            readback = null;
+          }
+        }
+        if (!context.isCurrent()) return null;
+        const progress = completedWrites ? (' СОХРАНЕНО: ' + completedWrites + ' ИЗ ' + selectedFiles.length + '.') : '';
+        const retryWarning = attemptedWrites
+          ? (readback
+            ? ' СПИСОК ОБНОВЛЕН; ПОВТОРЯЙТЕ ТОЛЬКО ОТСУТСТВУЮЩИЕ ФАЙЛЫ.'
+            : ' РЕЗУЛЬТАТ ПОСЛЕДНЕЙ ЗАПИСИ НЕ ОПРЕДЕЛЕН. НЕ ПОВТОРЯЙТЕ ЕЕ ДО ОБНОВЛЕНИЯ КАРТОЧКИ.')
+          : '';
+        setStatus(String(error?.message || 'НЕ УДАЛОСЬ ЗАГРУЗИТЬ ФАЙЛ.') + progress + retryWarning, true);
+        return null;
       } finally {
-        els.fileInput.value = '';
-        els.fileDropzone.classList.remove('is-active');
+        if (finishCardFilesMutation(context)) {
+          if (String(els.fileInput?.value || '') === context.inputValue) els.fileInput.value = '';
+          els.fileDropzone.classList.remove('is-active');
+        }
       }
     }
 
@@ -15291,637 +15939,7 @@
       return uploadProvidedFiles(els.fileInput.files);
     }
 
-    function sharedFileById(fileId) {
-      const normalizedId = String(fileId || '').trim();
-      return (state.sharedFiles || []).find((item) => item.id === normalizedId) || null;
-    }
-
-    function activeSharedFile() {
-      return sharedFileById(state.sharedFilesActiveId);
-    }
-
-    function sharedFileKindLabel(file) {
-      const extension = String(file?.extension || '').replace('.', '').toUpperCase();
-      if (!extension) return 'FILE';
-      if (['JPG', 'JPEG', 'PNG', 'WEBP', 'GIF'].includes(extension)) return 'IMG';
-      if (extension.length > 5) return extension.slice(0, 5);
-      return extension;
-    }
-
-    function sharedFileDownloadUrl(file, { inline = false } = {}) {
-      if (!file?.id) return '#';
-      const path = '/api/shared_file?file_id=' + encodeURIComponent(file.id) + (inline ? '&disposition=inline' : '');
-      return withAccessToken(path);
-    }
-
-    function sharedFileMetaParts(file) {
-      return [
-        sharedFileKindLabel(file),
-        formatBytes(file?.size_bytes ?? 0),
-        file?.updated_at ? formatDate(file.updated_at) : '',
-      ].filter(Boolean);
-    }
-
-    function updateSharedFilesActions() {
-      const hasActive = Boolean(activeSharedFile());
-      [
-        els.sharedFilesOpenButton,
-        els.sharedFilesDownloadButton,
-        els.sharedFilesRenameButton,
-        els.sharedFilesCopyButton,
-        els.sharedFilesDeleteButton,
-      ].forEach((button) => {
-        if (button) button.disabled = !hasActive;
-      });
-      if (els.sharedFilesPasteButton) {
-        els.sharedFilesPasteButton.disabled = !state.sharedFilesClipboardId;
-      }
-      const crmPasteButton = els.sharedFilesContextMenu?.querySelector('[data-shared-files-menu-action="paste-crm"]');
-      if (crmPasteButton instanceof HTMLButtonElement) {
-        crmPasteButton.disabled = !state.sharedFilesClipboardId;
-      }
-    }
-
-    function renderSharedFiles() {
-      const files = Array.isArray(state.sharedFiles) ? state.sharedFiles : [];
-      if (!els.sharedFilesDesktop) return;
-      const laidOutFiles = sharedFilesLayout(files);
-      if (!files.length) {
-        els.sharedFilesDesktop.innerHTML = '<div class="shared-files-empty">ФАЙЛОВ ПОКА НЕТ.</div>';
-      } else {
-        els.sharedFilesDesktop.innerHTML = laidOutFiles.map((file) => {
-          const x = finiteNonNegativeNumber(file.x);
-          const y = finiteNonNegativeNumber(file.y);
-          const activeClass = file.id === state.sharedFilesActiveId ? ' is-active' : '';
-          const name = String(file.original_name || 'Файл');
-          const metaParts = sharedFileMetaParts(file);
-          const metaText = metaParts.join(' · ');
-          return '<button class="shared-file-icon' + activeClass + '" type="button" data-shared-file-id="' + escapeHtml(file.id) + '" style="left:' + x + 'px; top:' + y + 'px" title="' + escapeHtml(name) + '" aria-label="Файл ' + escapeHtml(name + (metaText ? '. ' + metaText : '')) + '">'
-            + '<span class="shared-file-icon__glyph">' + escapeHtml(sharedFileKindLabel(file)) + '</span>'
-            + '<span class="shared-file-icon__name">' + escapeHtml(name) + '</span>'
-            + '<span class="shared-file-icon__meta">' + metaParts.map((item) => '<span class="shared-file-icon__meta-chip">' + escapeHtml(item) + '</span>').join('') + '</span>'
-            + '</button>';
-        }).join('');
-      }
-      const storage = state.sharedFilesStorage || {};
-      if (els.sharedFilesMeta) {
-        els.sharedFilesMeta.textContent = formatBytes(storage.used_bytes ?? 0) + ' / ' + formatBytes(storage.limit_bytes ?? 0) + ' · ' + files.length + ' ФАЙЛ.';
-      }
-      updateSharedFilesActions();
-    }
-
-    function updateSharedFilesSelection() {
-      if (!els.sharedFilesDesktop) return;
-      const activeId = String(state.sharedFilesActiveId || '').trim();
-      for (const icon of els.sharedFilesDesktop.querySelectorAll('[data-shared-file-id]')) {
-        if (!(icon instanceof HTMLElement)) continue;
-        icon.classList.toggle('is-active', String(icon.dataset.sharedFileId || '') === activeId);
-      }
-    }
-
-    async function loadSharedFiles({ openModal = false } = {}) {
-      try {
-        const data = await api('/api/list_shared_files');
-        state.sharedFiles = Array.isArray(data?.files) ? data.files : [];
-        state.sharedFilesStorage = data?.storage || null;
-        if (state.sharedFilesActiveId && !sharedFileById(state.sharedFilesActiveId)) {
-          state.sharedFilesActiveId = '';
-        }
-        renderSharedFiles();
-        maybeOpenModal(els.sharedFilesModal, openModal);
-      } catch (error) {
-        if (els.sharedFilesMeta) els.sharedFilesMeta.textContent = error.message;
-        maybeOpenModal(els.sharedFilesModal, openModal);
-        setStatus(error.message, true);
-      }
-    }
-
-    async function openSharedFilesModal() {
-      await loadSharedFiles({ openModal: true });
-      els.sharedFilesDesktop?.focus?.({ preventScroll: true });
-    }
-
-    function selectSharedFile(fileId) {
-      state.sharedFilesActiveId = String(fileId || '').trim();
-      updateSharedFilesSelection();
-      updateSharedFilesActions();
-    }
-
-    function normalizeSharedFilesDropPoint(point) {
-      const x = finiteNumber(point?.x, NaN);
-      const y = finiteNumber(point?.y, NaN);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-      return { x: Math.max(0, Math.round(x)), y: Math.max(0, Math.round(y)) };
-    }
-
-    function sharedFilesDropPointFromEvent(event) {
-      if (!els.sharedFilesDesktop) return null;
-      const rect = els.sharedFilesDesktop.getBoundingClientRect();
-      return normalizeSharedFilesDropPoint({
-        x: event.clientX - rect.left + els.sharedFilesDesktop.scrollLeft,
-        y: event.clientY - rect.top + els.sharedFilesDesktop.scrollTop,
-      });
-    }
-
-    function sharedFilesUploadPoint(index, baseIndex, dropPoint) {
-      const point = normalizeSharedFilesDropPoint(dropPoint);
-      if (!point) {
-        return sharedFilesGridPointFromSlot(baseIndex + index);
-      }
-      return sharedFilesGridPointFromSlot(sharedFilesGridSlotFromPoint(point.x, point.y) + index);
-    }
-
-    function sharedFilesGridSlotFromPoint(x, y) {
-      const col = Math.max(0, Math.round((finiteNumber(x) - 24) / 116));
-      const row = Math.max(0, Math.round((finiteNumber(y) - 24) / 126));
-      return row * 7 + col;
-    }
-
-    function sharedFilesGridPointFromSlot(slot) {
-      const index = Math.max(0, Math.floor(finiteNumber(slot)));
-      return {
-        x: 24 + (index % 7) * 116,
-        y: 24 + Math.floor(index / 7) * 126,
-      };
-    }
-
-    function sharedFilesSnapPointToGrid(x, y) {
-      return sharedFilesGridPointFromSlot(sharedFilesGridSlotFromPoint(x, y));
-    }
-
-    function sharedFilesLayout(files) {
-      const orderedFiles = Array.from(files || []).sort((left, right) => {
-        const leftSlot = sharedFilesStoredSlot(left);
-        const rightSlot = sharedFilesStoredSlot(right);
-        if (leftSlot !== rightSlot) return leftSlot - rightSlot;
-        const leftTime = sharedFilesStableTime(left);
-        const rightTime = sharedFilesStableTime(right);
-        if (leftTime !== rightTime) return leftTime - rightTime;
-        return String(left?.id || '').localeCompare(String(right?.id || ''));
-      });
-      const occupied = new Set();
-      return orderedFiles.map((file, index) => {
-        const storedX = finiteNumber(file?.x, NaN);
-        const storedY = finiteNumber(file?.y, NaN);
-        const hasStoredPosition = Number.isFinite(storedX) && Number.isFinite(storedY);
-        let slot = hasStoredPosition ? sharedFilesGridSlotFromPoint(file.x, file.y) : index;
-        while (occupied.has(slot)) slot += 1;
-        occupied.add(slot);
-        const point = sharedFilesGridPointFromSlot(slot);
-        return {
-          ...file,
-          x: point.x,
-          y: point.y,
-          shared_files_layout_slot: slot,
-        };
-      });
-    }
-
-    function sharedFilesStoredSlot(file) {
-      if (!file) return Number.MAX_SAFE_INTEGER;
-      const x = finiteNumber(file.x, NaN);
-      const y = finiteNumber(file.y, NaN);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) return Number.MAX_SAFE_INTEGER;
-      return sharedFilesGridSlotFromPoint(x, y);
-    }
-
-    function sharedFilesStableTime(file) {
-      const createdAt = Date.parse(String(file?.created_at || ''));
-      if (Number.isFinite(createdAt)) return createdAt;
-      const updatedAt = Date.parse(String(file?.updated_at || ''));
-      if (Number.isFinite(updatedAt)) return updatedAt;
-      return 0;
-    }
-
-    function sharedFilesClipboardFileName(mimeType, index = 0) {
-      const normalizedMime = normalizeAttachmentMimeType(mimeType);
-      const extension = ATTACHMENT_MIME_TO_EXTENSION[normalizedMime] || '.bin';
-      const prefix = normalizedMime.startsWith('image/') ? 'clipboard-image' : 'clipboard-file';
-      return clipboardAttachmentName(index > 0 ? prefix + '-' + (index + 1) : prefix, extension);
-    }
-
-    function sharedFilesFileNameForUpload(file, index) {
-      const fileName = String(file?.name || '').trim();
-      return fileName || sharedFilesClipboardFileName(file?.type || '', index);
-    }
-
-    function sharedFilesClipboardTypeLooksFile(mimeType) {
-      const normalizedMime = normalizeAttachmentMimeType(mimeType);
-      if (!normalizedMime) return false;
-      return !normalizedMime.startsWith('text/');
-    }
-
-    async function readSharedFilesClipboardFiles() {
-      if (!navigator.clipboard?.read) {
-        throw new Error('БРАУЗЕР НЕ ДАЁТ ПРОЧИТАТЬ ФАЙЛ ИЗ БУФЕРА. ИСПОЛЬЗУЙТЕ CTRL+V ИЛИ ПЕРЕТАСКИВАНИЕ.');
-      }
-      const items = await navigator.clipboard.read();
-      const files = [];
-      for (const item of items || []) {
-        const types = Array.from(item.types || []);
-        for (const type of types) {
-          if (!sharedFilesClipboardTypeLooksFile(type)) continue;
-          const blob = await item.getType(type);
-          if (!blob || !blob.size) continue;
-          const mimeType = normalizeAttachmentMimeType(blob.type || type) || 'application/octet-stream';
-          files.push(new File([blob], sharedFilesClipboardFileName(mimeType, files.length), { type: mimeType, lastModified: Date.now() }));
-          break;
-        }
-      }
-      return files;
-    }
-
-    function filesFromSharedFilesPasteEvent(event) {
-      const clipboardData = event?.clipboardData;
-      const directFiles = Array.from(clipboardData?.files || []).filter(Boolean);
-      if (directFiles.length) return directFiles;
-      const files = [];
-      Array.from(clipboardData?.items || []).forEach((item) => {
-        if (item.kind !== 'file') return;
-        const file = item.getAsFile();
-        if (file) files.push(file);
-      });
-      return files;
-    }
-
-    function sharedFilesClipboardFallbackAllowed(error) {
-      const code = String(error?.code || '').trim();
-      return !code || code === 'clipboard_empty' || code === 'clipboard_unavailable';
-    }
-
-    async function pasteSharedFilesFromLocalClipboard(dropPoint) {
-      const point = normalizeSharedFilesDropPoint(dropPoint);
-      const pasted = await api('/api/paste_shared_files_from_clipboard', {
-        method: 'POST',
-        body: {
-          actor_name: state.actor,
-          source: 'ui',
-          x: point?.x ?? 24,
-          y: point?.y ?? 24,
-        },
-      });
-      const pastedFiles = Array.isArray(pasted?.files) ? pasted.files : [];
-      if (!pastedFiles.length) return false;
-      state.sharedFilesActiveId = pastedFiles[pastedFiles.length - 1]?.id || state.sharedFilesActiveId;
-      await loadSharedFiles();
-      setStatus(pastedFiles.length > 1 ? 'ФАЙЛЫ ВСТАВЛЕНЫ ИЗ БУФЕРА.' : 'ФАЙЛ ВСТАВЛЕН ИЗ БУФЕРА.', false);
-      return true;
-    }
-
-    async function pasteSharedFilesFromSystemClipboard() {
-      const dropPoint = state.sharedFilesContextPoint || null;
-      let localClipboardError = null;
-      try {
-        if (await pasteSharedFilesFromLocalClipboard(dropPoint)) {
-          hideSharedFilesContextMenu();
-          return;
-        }
-      } catch (error) {
-        localClipboardError = error;
-        if (!sharedFilesClipboardFallbackAllowed(error)) {
-          setStatus(error.message || 'НЕ УДАЛОСЬ ВСТАВИТЬ ФАЙЛ ИЗ БУФЕРА.', true);
-          return;
-        }
-      }
-      try {
-        const files = await readSharedFilesClipboardFiles();
-        if (!files.length) {
-          setStatus(localClipboardError?.message || 'В БУФЕРЕ НЕТ ФАЙЛА ДЛЯ ВСТАВКИ. ИСПОЛЬЗУЙТЕ CTRL+V ИЛИ ПЕРЕТАСКИВАНИЕ.', true);
-          return;
-        }
-        await uploadSharedFiles(files, { dropPoint });
-        hideSharedFilesContextMenu();
-      } catch (error) {
-        setStatus(localClipboardError?.message || error.message || 'НЕ УДАЛОСЬ ВСТАВИТЬ ФАЙЛ ИЗ БУФЕРА.', true);
-      }
-    }
-
-    async function handleSharedFilesPaste(event) {
-      if (!els.sharedFilesModal?.classList.contains('is-open')) return;
-      const files = filesFromSharedFilesPasteEvent(event);
-      if (!files.length) return;
-      event.preventDefault();
-      event.stopPropagation();
-      await uploadSharedFiles(files, { dropPoint: state.sharedFilesContextPoint || null });
-      hideSharedFilesContextMenu();
-    }
-
-    function hideSharedFilesContextMenu() {
-      if (els.sharedFilesContextMenu) {
-        els.sharedFilesContextMenu.hidden = true;
-        els.sharedFilesContextMenu.style.left = '';
-        els.sharedFilesContextMenu.style.top = '';
-      }
-      state.sharedFilesContextPoint = null;
-    }
-
-    function positionSharedFilesContextMenu(clientX, clientY) {
-      if (!els.sharedFilesContextMenu) return;
-      const padding = 8;
-      els.sharedFilesContextMenu.style.left = Math.max(padding, Math.round(clientX)) + 'px';
-      els.sharedFilesContextMenu.style.top = Math.max(padding, Math.round(clientY)) + 'px';
-      window.requestAnimationFrame(() => {
-        const rect = els.sharedFilesContextMenu.getBoundingClientRect();
-        const maxLeft = Math.max(padding, window.innerWidth - rect.width - padding);
-        const maxTop = Math.max(padding, window.innerHeight - rect.height - padding);
-        els.sharedFilesContextMenu.style.left = Math.min(Math.max(padding, Math.round(clientX)), maxLeft) + 'px';
-        els.sharedFilesContextMenu.style.top = Math.min(Math.max(padding, Math.round(clientY)), maxTop) + 'px';
-      });
-    }
-
-    function handleSharedFilesContextMenu(event) {
-      if (!els.sharedFilesDesktop?.contains(event.target)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const icon = event.target?.closest?.('[data-shared-file-id]');
-      if (icon instanceof HTMLElement) selectSharedFile(icon.dataset.sharedFileId);
-      state.sharedFilesContextPoint = sharedFilesDropPointFromEvent(event);
-      updateSharedFilesActions();
-      if (els.sharedFilesContextMenu) {
-        els.sharedFilesContextMenu.hidden = false;
-        positionSharedFilesContextMenu(event.clientX, event.clientY);
-      }
-      els.sharedFilesDesktop?.focus?.({ preventScroll: true });
-    }
-
-    async function handleSharedFilesContextMenuClick(event) {
-      const button = event.target?.closest?.('[data-shared-files-menu-action]');
-      if (!(button instanceof HTMLButtonElement) || button.disabled) return;
-      event.preventDefault();
-      const action = String(button.dataset.sharedFilesMenuAction || '').trim();
-      if (action === 'paste-clipboard') {
-        await pasteSharedFilesFromSystemClipboard();
-        return;
-      }
-      if (action === 'paste-crm') {
-        await pasteSharedFile({ dropPoint: state.sharedFilesContextPoint || null });
-        hideSharedFilesContextMenu();
-        return;
-      }
-      if (action === 'upload') {
-        hideSharedFilesContextMenu();
-        els.sharedFilesInput?.click();
-      }
-    }
-
-    function handleSharedFilesDocumentClick(event) {
-      if (!els.sharedFilesContextMenu || els.sharedFilesContextMenu.hidden) return;
-      if (els.sharedFilesContextMenu.contains(event.target)) return;
-      hideSharedFilesContextMenu();
-    }
-
-    function handleSharedFilesGlobalKeydown(event) {
-      if (event.key === 'Escape') hideSharedFilesContextMenu();
-    }
-
-    function handleSharedFilesDragOver(event) {
-      const types = Array.from(event.dataTransfer?.types || []);
-      if (!types.includes('Files')) return;
-      event.preventDefault();
-      event.dataTransfer.dropEffect = 'copy';
-      els.sharedFilesDesktop?.classList.add('is-drop-target');
-      els.sharedFilesDesktop?.focus?.({ preventScroll: true });
-    }
-
-    function handleSharedFilesDragLeave(event) {
-      if (!els.sharedFilesDesktop) return;
-      if (event.relatedTarget instanceof Node && els.sharedFilesDesktop.contains(event.relatedTarget)) return;
-      els.sharedFilesDesktop.classList.remove('is-drop-target');
-    }
-
-    async function handleSharedFilesDrop(event) {
-      const files = Array.from(event.dataTransfer?.files || []).filter(Boolean);
-      els.sharedFilesDesktop?.classList.remove('is-drop-target');
-      if (!files.length) return;
-      event.preventDefault();
-      event.stopPropagation();
-      hideSharedFilesContextMenu();
-      await uploadSharedFiles(files, { dropPoint: sharedFilesDropPointFromEvent(event) });
-    }
-
-    async function uploadSharedFiles(files, { dropPoint = null } = {}) {
-      const selectedFiles = Array.from(files || []).filter(Boolean);
-      if (!selectedFiles.length) return;
-      try {
-        const baseIndex = (state.sharedFiles || []).length;
-        const normalizedDropPoint = normalizeSharedFilesDropPoint(dropPoint);
-        for (let index = 0; index < selectedFiles.length; index += 1) {
-          const file = selectedFiles[index];
-          if (file.size > SHARED_FILE_UPLOAD_MAX_SIZE_BYTES) {
-            throw new Error('ФАЙЛ СЛИШКОМ БОЛЬШОЙ. ЛИМИТ: 25 МБ.');
-          }
-          const buffer = await file.arrayBuffer();
-          const fileName = sharedFilesFileNameForUpload(file, index);
-          const extension = attachmentExtension(fileName);
-          const mimeType = normalizeAttachmentMimeType(file.type) || attachmentMimeTypeFromExtension(extension) || 'application/octet-stream';
-          const point = sharedFilesUploadPoint(index, baseIndex, normalizedDropPoint);
-          const uploaded = await api('/api/upload_shared_file', {
-            method: 'POST',
-            body: {
-              actor_name: state.actor,
-              source: 'ui',
-              file_name: fileName,
-              mime_type: mimeType,
-              content_base64: arrayBufferToBase64(buffer),
-              x: point.x,
-              y: point.y,
-            },
-          });
-          if (uploaded?.file?.id) state.sharedFilesActiveId = uploaded.file.id;
-        }
-        await loadSharedFiles();
-        setStatus(selectedFiles.length > 1 ? 'ФАЙЛЫ ЗАГРУЖЕНЫ.' : 'ФАЙЛ ЗАГРУЖЕН.', false);
-      } catch (error) {
-        setStatus(error.message, true);
-      } finally {
-        if (els.sharedFilesInput) els.sharedFilesInput.value = '';
-      }
-    }
-
-    function openActiveSharedFile() {
-      const file = activeSharedFile();
-      if (!file) return;
-      window.open(sharedFileDownloadUrl(file, { inline: true }), '_blank', 'noopener');
-    }
-
-    async function downloadActiveSharedFile() {
-      const file = activeSharedFile();
-      if (!file) return;
-      try {
-        await downloadAttachment(sharedFileDownloadUrl(file));
-      } catch (error) {
-        setStatus(error.message, true);
-      }
-    }
-
-    async function renameActiveSharedFile() {
-      const file = activeSharedFile();
-      if (!file) return;
-      const nextName = window.prompt('Новое имя файла', file.original_name || '');
-      if (nextName === null) return;
-      const normalized = String(nextName || '').trim();
-      if (!normalized) return;
-      try {
-        const data = await api('/api/rename_shared_file', {
-          method: 'POST',
-          body: { file_id: file.id, file_name: normalized, actor_name: state.actor, source: 'ui' },
-        });
-        if (data?.file?.id) state.sharedFilesActiveId = data.file.id;
-        await loadSharedFiles();
-      } catch (error) {
-        setStatus(error.message, true);
-      }
-    }
-
-    async function copyActiveSharedFile() {
-      const file = activeSharedFile();
-      if (!file) return;
-      try {
-        const data = await api('/api/copy_shared_file', {
-          method: 'POST',
-          body: { file_id: file.id, actor_name: state.actor, source: 'ui' },
-        });
-        state.sharedFilesClipboardId = data?.clipboard?.source_id || file.id;
-        updateSharedFilesActions();
-        setStatus('ФАЙЛ СКОПИРОВАН.', false);
-      } catch (error) {
-        setStatus(error.message, true);
-      }
-    }
-
-    async function pasteSharedFile({ dropPoint = null } = {}) {
-      if (!state.sharedFilesClipboardId) return;
-      const source = sharedFileById(state.sharedFilesClipboardId);
-      const point = normalizeSharedFilesDropPoint(dropPoint);
-      const basePoint = point
-        ? point
-        : {
-            x: Math.max(24, finiteNumber(source?.x, 24) + 32),
-            y: Math.max(24, finiteNumber(source?.y, 24) + 32),
-          };
-      const snappedPoint = sharedFilesSnapPointToGrid(basePoint.x, basePoint.y);
-      try {
-        const data = await api('/api/paste_shared_file', {
-          method: 'POST',
-          body: {
-            source_id: state.sharedFilesClipboardId,
-            x: snappedPoint.x,
-            y: snappedPoint.y,
-            actor_name: state.actor,
-            source: 'ui',
-          },
-        });
-        if (data?.file?.id) state.sharedFilesActiveId = data.file.id;
-        await loadSharedFiles();
-      } catch (error) {
-        setStatus(error.message, true);
-      }
-    }
-
-    async function deleteActiveSharedFile() {
-      const file = activeSharedFile();
-      if (!file) return;
-      if (!window.confirm('Удалить файл "' + String(file.original_name || '').trim() + '"?')) return;
-      try {
-        await api('/api/delete_shared_file', {
-          method: 'POST',
-          body: { file_id: file.id, actor_name: state.actor, source: 'ui' },
-        });
-        if (state.sharedFilesClipboardId === file.id) state.sharedFilesClipboardId = '';
-        state.sharedFilesActiveId = '';
-        await loadSharedFiles();
-      } catch (error) {
-        setStatus(error.message, true);
-      }
-    }
-
-    function beginSharedFileDrag(event) {
-      const icon = event.target?.closest?.('[data-shared-file-id]');
-      if (!(icon instanceof HTMLElement) || event.button !== 0) return;
-      const fileId = String(icon.dataset.sharedFileId || '').trim();
-      if (!fileId) return;
-      hideSharedFilesContextMenu();
-      selectSharedFile(fileId);
-      const desktopRect = els.sharedFilesDesktop.getBoundingClientRect();
-      const iconRect = icon.getBoundingClientRect();
-      state.sharedFilesDrag = {
-        fileId,
-        pointerId: event.pointerId,
-        offsetX: event.clientX - iconRect.left,
-        offsetY: event.clientY - iconRect.top,
-        moved: false,
-      };
-      icon.classList.add('is-dragging');
-      icon.setPointerCapture?.(event.pointerId);
-      event.preventDefault();
-      void desktopRect;
-    }
-
-    function moveSharedFileDrag(event) {
-      const drag = state.sharedFilesDrag;
-      if (!drag || drag.pointerId !== event.pointerId) return;
-      const icon = els.sharedFilesDesktop?.querySelector('[data-shared-file-id="' + CSS.escape(drag.fileId) + '"]');
-      if (!(icon instanceof HTMLElement)) return;
-      const desktopRect = els.sharedFilesDesktop.getBoundingClientRect();
-      const nextX = Math.max(
-        0,
-        Math.round(event.clientX - desktopRect.left + els.sharedFilesDesktop.scrollLeft - drag.offsetX),
-      );
-      const nextY = Math.max(
-        0,
-        Math.round(event.clientY - desktopRect.top + els.sharedFilesDesktop.scrollTop - drag.offsetY),
-      );
-      const snappedPoint = sharedFilesSnapPointToGrid(nextX, nextY);
-      icon.style.left = snappedPoint.x + 'px';
-      icon.style.top = snappedPoint.y + 'px';
-      icon.dataset.dragX = String(snappedPoint.x);
-      icon.dataset.dragY = String(snappedPoint.y);
-      drag.moved = true;
-      event.preventDefault();
-    }
-
-    async function finishSharedFileDrag(event) {
-      const drag = state.sharedFilesDrag;
-      if (!drag || drag.pointerId !== event.pointerId) return;
-      state.sharedFilesDrag = null;
-      const icon = els.sharedFilesDesktop?.querySelector('[data-shared-file-id="' + CSS.escape(drag.fileId) + '"]');
-      if (icon instanceof HTMLElement) icon.classList.remove('is-dragging');
-      if (!(icon instanceof HTMLElement) || !drag.moved) return;
-      const x = finiteNonNegativeNumber(icon.dataset.dragX);
-      const y = finiteNonNegativeNumber(icon.dataset.dragY);
-      try {
-        const data = await api('/api/update_shared_file_position', {
-          method: 'POST',
-          body: { file_id: drag.fileId, x, y, actor_name: state.actor, source: 'ui' },
-        });
-        if (data?.file?.id) {
-          const file = sharedFileById(data.file.id);
-          if (file) {
-            file.x = data.file.x;
-            file.y = data.file.y;
-          }
-        }
-      } catch (error) {
-        setStatus(error.message, true);
-        await loadSharedFiles();
-      }
-    }
-
-    function handleSharedFilesDesktopClick(event) {
-      els.sharedFilesDesktop?.focus?.({ preventScroll: true });
-      hideSharedFilesContextMenu();
-      const icon = event.target?.closest?.('[data-shared-file-id]');
-      if (icon instanceof HTMLElement) selectSharedFile(icon.dataset.sharedFileId);
-    }
-
-    function handleSharedFilesDesktopDoubleClick(event) {
-      hideSharedFilesContextMenu();
-      const icon = event.target?.closest?.('[data-shared-file-id]');
-      if (!(icon instanceof HTMLElement)) return;
-      selectSharedFile(icon.dataset.sharedFileId);
-      openActiveSharedFile();
-    }
-
+    // @include shared_files_workspace.js
     async function addRepairOrderRowFromButton(section, event) {
       event.preventDefault();
       event.stopPropagation();

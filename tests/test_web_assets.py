@@ -92,7 +92,6 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn('<div class="brand__title">КАНБАН / ПУЛЬТ</div>', BOARD_WEB_APP_HTML)
 
     def test_inline_javascript_does_not_embed_raw_newline_in_string_literal(self) -> None:
-        self.assertIn("markdown + '\\n'", BOARD_WEB_APP_HTML)
         self.assertNotIn("markdown + '\n'", BOARD_WEB_APP_HTML)
 
     @unittest.skipUnless(
@@ -240,7 +239,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("const laidOutFiles = sharedFilesLayout(files);", BOARD_WEB_APP_HTML)
         self.assertIn("function updateSharedFilesSelection()", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "async function pasteSharedFilesFromLocalClipboard(dropPoint)", BOARD_WEB_APP_HTML
+            "async function pasteSharedFilesFromLocalClipboard(dropPoint, context)",
+            BOARD_WEB_APP_HTML,
         )
         self.assertIn("async function pasteSharedFilesFromSystemClipboard()", BOARD_WEB_APP_HTML)
         self.assertIn("function filesFromSharedFilesPasteEvent(event)", BOARD_WEB_APP_HTML)
@@ -958,9 +958,9 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function renderMobileCardFiles(card)", BOARD_WEB_APP_HTML)
         self.assertIn("async function uploadMobileCardFiles()", BOARD_WEB_APP_HTML)
         self.assertIn("async function removeMobileCardFile(attachmentId)", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            "const removeDisabledAttr = state.mobileCardFilesBusy ? ' disabled' : '';",
+        self.assertRegex(
             BOARD_WEB_APP_HTML,
+            r"const\s+removeDisabledAttr\s*=\s*state\.mobileCardFilesBusy\s*\|\|\s*state\.mobileCardSaving\s*\?\s*' disabled'\s*:\s*'';",
         )
         self.assertIn("'/api/add_card_attachment'", BOARD_WEB_APP_HTML)
         self.assertIn("'/api/remove_card_attachment'", BOARD_WEB_APP_HTML)
@@ -991,7 +991,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("mobileCardJournalLoading:", BOARD_WEB_APP_HTML)
         self.assertIn("data-mobile-card-journal-row", BOARD_WEB_APP_HTML)
         self.assertIn("data-mobile-card-journal-more", BOARD_WEB_APP_HTML)
-        self.assertIn("function mobileCardJournalRequestUrl(cardId", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const loadKey = cardJournalLoadKey(cardId, normalizedLimit);", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("api(cardJournalRequestUrl(cardId, normalizedLimit))", BOARD_WEB_APP_HTML)
         self.assertIn("function mobileCardJournalRows(payload)", BOARD_WEB_APP_HTML)
         self.assertIn("function renderMobileCardJournal()", BOARD_WEB_APP_HTML)
         self.assertIn("async function loadMobileCardJournal(", BOARD_WEB_APP_HTML)
@@ -1179,8 +1182,9 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function startCardTimerFromPanel()", BOARD_WEB_APP_HTML)
         self.assertIn("function stopCardTimerFromPanel()", BOARD_WEB_APP_HTML)
         self.assertIn("function applyCardTimerOperationResult(card)", BOARD_WEB_APP_HTML)
-        self.assertIn("api('/api/start_card_timer'", BOARD_WEB_APP_HTML)
-        self.assertIn("api('/api/stop_card_timer'", BOARD_WEB_APP_HTML)
+        self.assertIn("function executeCardTimerAction(action, deadline = '')", BOARD_WEB_APP_HTML)
+        self.assertIn("'/api/start_card_timer'", BOARD_WEB_APP_HTML)
+        self.assertIn("'/api/stop_card_timer'", BOARD_WEB_APP_HTML)
         self.assertIn(
             "timer_state: state.editingId ? '' : state.cardTimerState", BOARD_WEB_APP_HTML
         )
@@ -1494,7 +1498,6 @@ class WebAssetsTests(unittest.TestCase):
             "const createInTrigger = target.closest('[data-create-in]');", BOARD_WEB_APP_HTML
         )
         self.assertIn("async function handleAuxiliaryBoardClick(target, event)", BOARD_WEB_APP_HTML)
-        self.assertIn("function handleStickyModalOverlayClick(event)", BOARD_WEB_APP_HTML)
         self.assertIn("function applyStickySnapshot(stickies)", BOARD_WEB_APP_HTML)
         self.assertIn(
             "if (target === els.stickyDockButton || target.closest('#stickyDockButton')) {",
@@ -1503,18 +1506,16 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(
             "if (await handleAuxiliaryBoardClick(target, event)) return;", BOARD_WEB_APP_HTML
         )
-        self.assertIn(
-            "els.stickyModal.addEventListener('click', handleStickyModalOverlayClick);",
-            BOARD_WEB_APP_HTML,
-        )
         self.assertIn("if (applyStickySnapshot(data?.stickies || [])) {", BOARD_WEB_APP_HTML)
-        self.assertIn("function handleStickyModalOverlayClick(event)", BOARD_WEB_APP_HTML)
-        self.assertIn("function handleRepairOrderModalOverlayClick(event)", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            "function handleRepairOrderPaymentsModalOverlayClick(event)", BOARD_WEB_APP_HTML
-        )
-        self.assertIn("function handleOperatorProfileModalOverlayClick(event)", BOARD_WEB_APP_HTML)
-        self.assertIn("function handleOperatorAdminModalOverlayClick(event)", BOARD_WEB_APP_HTML)
+        self.assertIn("closeNamedModal(closeTrigger.dataset.close);", BOARD_WEB_APP_HTML)
+        for retired_overlay_handler in (
+            "handleStickyModalOverlayClick",
+            "handleRepairOrderModalOverlayClick",
+            "handleRepairOrderPaymentsModalOverlayClick",
+            "handleOperatorProfileModalOverlayClick",
+            "handleOperatorAdminModalOverlayClick",
+        ):
+            self.assertNotIn(retired_overlay_handler, BOARD_WEB_APP_HTML)
         self.assertNotIn(
             "if (event.target.classList.contains('modal')) closeStickyModal();", BOARD_WEB_APP_HTML
         )
@@ -1578,7 +1579,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("state.cardCleanupState = 'running';", BOARD_WEB_APP_HTML)
         self.assertIn("function stopCardCleanupPolling()", BOARD_WEB_APP_HTML)
         self.assertIn("function scheduleCardCleanupPolling(", BOARD_WEB_APP_HTML)
-        self.assertIn("async function refreshCardCleanupState()", BOARD_WEB_APP_HTML)
+        self.assertIn("async function refreshCardCleanupState(", BOARD_WEB_APP_HTML)
         self.assertNotIn("Явных изменений для карточки не найдено.", BOARD_WEB_APP_HTML)
 
     def test_employees_module_is_exposed_in_topbar_and_repair_order_rows(self) -> None:
@@ -1788,25 +1789,19 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("К ВЫПЛАТЕ", BOARD_WEB_APP_HTML)
         self.assertIn('id="employeeSalaryTitle"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeeSalarySummary"', BOARD_WEB_APP_HTML)
-        self.assertIn('id="employeeSalaryReportModal"', BOARD_WEB_APP_HTML)
-        self.assertIn('id="employeeSalaryReportTitle"', BOARD_WEB_APP_HTML)
-        self.assertIn('id="employeeSalaryReportText"', BOARD_WEB_APP_HTML)
-        self.assertIn("employee-salary-report__text", BOARD_WEB_APP_HTML)
-        self.assertIn('id="employeeSalaryReportDownloadButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeeSalaryReconciliationPeriodModal"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeeSalaryReconciliationPeriodTitle"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeeSalaryReconciliationOpenButton"', BOARD_WEB_APP_HTML)
         self.assertIn('id="employeeSalaryReconciliationCancelButton"', BOARD_WEB_APP_HTML)
-        self.assertIn("ОТЧЁТ ПО НАЧИСЛЕНИЯМ", BOARD_WEB_APP_HTML)
-        self.assertIn("ЗАГРУЗКА...", BOARD_WEB_APP_HTML)
-        self.assertIn("СКАЧАТЬ .MD", BOARD_WEB_APP_HTML)
-        self.assertIn("function currentEmployeeSalaryReportMonth()", BOARD_WEB_APP_HTML)
         self.assertIn("function openEmployeeSalaryReport(", BOARD_WEB_APP_HTML)
-        self.assertIn("function loadEmployeeSalaryReport(", BOARD_WEB_APP_HTML)
-        self.assertIn("&month=' + encodeURIComponent(month)", BOARD_WEB_APP_HTML)
-        self.assertIn("els.employeeSalaryReportText.textContent", BOARD_WEB_APP_HTML)
-        self.assertIn("function renderEmployeeSalaryReportModal()", BOARD_WEB_APP_HTML)
-        self.assertIn("function downloadEmployeeSalaryReport()", BOARD_WEB_APP_HTML)
+        for retired_salary_report_surface in (
+            'id="employeeSalaryReportModal"',
+            "function loadEmployeeSalaryReport(",
+            "function renderEmployeeSalaryReportModal()",
+            "function downloadEmployeeSalaryReport()",
+            "'/api/get_employee_salary_report?",
+        ):
+            self.assertNotIn(retired_salary_report_surface, BOARD_WEB_APP_HTML)
         self.assertIn("function loadEmployeeSalaryReconciliation(", BOARD_WEB_APP_HTML)
         self.assertNotIn("function employeeSalaryReconciliationPrintUrl(", BOARD_WEB_APP_HTML)
         self.assertIn("function employeeSalaryReconciliationApiPath(", BOARD_WEB_APP_HTML)
@@ -2082,7 +2077,7 @@ class WebAssetsTests(unittest.TestCase):
             ) : BOARD_WEB_APP_HTML.index("async function loadModalData(")
         ]
         self.assertIn("closeModalAndChildren(normalizedKey);", close_fragment)
-        self.assertIn("closeEmployeeSalaryReportModal();", close_fragment)
+        self.assertIn("closeEmployeeSalaryReconciliationPeriodDialog();", close_fragment)
         self.assertNotIn("agentTasksModal", BOARD_WEB_APP_HTML)
         self.assertIn("closeRepairOrderPaymentsModal();", close_fragment)
         self.assertIn("closeCashboxTransferModal();", close_fragment)
@@ -2244,9 +2239,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function repairOrderIsEmptyForArchive(order)", BOARD_WEB_APP_HTML)
         self.assertIn("function repairOrderMoneyHasValue(value)", BOARD_WEB_APP_HTML)
         self.assertIn("function repairOrderTextHasMeaning(value)", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            "const archiveAvailable = cardArchiveAvailability(currentCard);", BOARD_WEB_APP_HTML
-        )
+        self.assertIn("function syncCardArchiveAction(card = state.activeCard)", BOARD_WEB_APP_HTML)
         self.assertIn("els.archiveAction.disabled = !archiveAvailable;", BOARD_WEB_APP_HTML)
         self.assertIn("els.archiveAction.dataset.archiveAvailable", BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -2389,7 +2382,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("state.cardCreateColumnId = ''", BOARD_WEB_APP_HTML)
         self.assertIn("state.cardSaveInFlight = false", BOARD_WEB_APP_HTML)
         self.assertIn("cardSavePromise: null", BOARD_WEB_APP_HTML)
-        self.assertIn("cardCloseAfterSave: false", BOARD_WEB_APP_HTML)
+        self.assertNotIn("cardCloseAfterSave", BOARD_WEB_APP_HTML)
         self.assertIn(
             "if (state.cardSaveInFlight) return state.cardSavePromise || false;",
             BOARD_WEB_APP_HTML,
@@ -2430,7 +2423,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("mark_seen: false", BOARD_WEB_APP_HTML)
         self.assertIn("function loadActiveCardTab(tabName)", BOARD_WEB_APP_HTML)
         self.assertIn("if (tabName === 'files') {", BOARD_WEB_APP_HTML)
-        self.assertIn("if (tabName !== 'journal') return;", BOARD_WEB_APP_HTML)
+        self.assertIn("if (tabName !== 'journal') {", BOARD_WEB_APP_HTML)
         self.assertIn("renderActiveCardFiles();", BOARD_WEB_APP_HTML)
         self.assertIn("function cardJournalRequestUrl(cardId", BOARD_WEB_APP_HTML)
         self.assertIn("&compact=1&limit=' + safeLimit", BOARD_WEB_APP_HTML)
@@ -2478,7 +2471,6 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("#saveCardButton.is-dirty:not(:disabled) {", BOARD_WEB_APP_HTML)
         self.assertIn("Есть несохраненные изменения", BOARD_WEB_APP_HTML)
         self.assertIn("function closeCardModal({ force = false } = {})", BOARD_WEB_APP_HTML)
-        self.assertIn("state.cardCloseAfterSave = true;", BOARD_WEB_APP_HTML)
         self.assertIn("СОХРАНЯЮ КАРТОЧКУ. ЗАКРОЮ ПОСЛЕ СОХРАНЕНИЯ.", BOARD_WEB_APP_HTML)
         self.assertIn("const data = await persistCardPayload(payload);", BOARD_WEB_APP_HTML)
         self.assertIn("const savedCard = data?.card || null;", save_fragment)
@@ -2495,10 +2487,7 @@ class WebAssetsTests(unittest.TestCase):
             "setStatus('КАРТОЧКА СОХРАНЕНА.', false);\n          closeCardModal({ force: true });",
             save_fragment,
         )
-        self.assertIn(
-            "state.cardSaveInFlight = true;\n      if (els.saveCardButton) els.saveCardButton.disabled = true;\n      syncCardSaveDirtyState();",
-            BOARD_WEB_APP_HTML,
-        )
+        self.assertIn("syncCardFilesMutationState();", save_fragment)
         self.assertIn(
             "expected_updated_at: state.editingId ? String(state.activeCard?.updated_at || '') : undefined",
             BOARD_WEB_APP_HTML,
@@ -3029,7 +3018,7 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("async function openClientsModal()", BOARD_WEB_APP_HTML)
         self.assertIn("async function linkActiveCardToClient(clientId,", BOARD_WEB_APP_HTML)
-        self.assertIn("async function loadClientSuggestionVehicles(clientId)", BOARD_WEB_APP_HTML)
+        self.assertIn("async function loadClientSuggestionVehicles(", BOARD_WEB_APP_HTML)
         self.assertIn(
             "const fullProfileLoaded = Array.isArray(state.clientSuggestionProfiles?.[client?.id]?.vehicles);",
             BOARD_WEB_APP_HTML,
@@ -3078,13 +3067,11 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(
             "function findClientSuggestionVehicle(vehicles, vehicleKey = '')", BOARD_WEB_APP_HTML
         )
-        self.assertIn(
-            "async function ensureStableClientSuggestionVehicle(clientId, vehicle)",
-            BOARD_WEB_APP_HTML,
-        )
+        self.assertIn("async function ensureStableClientSuggestionVehicle(", BOARD_WEB_APP_HTML)
         self.assertIn("'/api/upsert_client_vehicle'", BOARD_WEB_APP_HTML)
+        self.assertIn("await loadClientSuggestionVehicles(clientId, context);", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "selectedVehicle = await ensureStableClientSuggestionVehicle(clientId, selectedVehicle);",
+            "selectedVehicle = await ensureStableClientSuggestionVehicle(clientId, selectedVehicle, context);",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("'/api/link_card_to_client'", BOARD_WEB_APP_HTML)
@@ -3445,7 +3432,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(
             "function requireSavedCardForFiles({ syncDropzone = false } = {})", BOARD_WEB_APP_HTML
         )
-        self.assertIn("async function refreshActiveCardFiles()", BOARD_WEB_APP_HTML)
+        self.assertIn("async function refreshActiveCardFiles(", BOARD_WEB_APP_HTML)
         self.assertIn("async function removeActiveCardAttachment(attachmentId)", BOARD_WEB_APP_HTML)
         self.assertIn("function collectClipboardAttachmentFiles(event)", BOARD_WEB_APP_HTML)
         self.assertIn("function clipboardAttachmentName(prefix, extension)", BOARD_WEB_APP_HTML)
@@ -3458,21 +3445,9 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function handleFileDropzoneDragEnter(event)", BOARD_WEB_APP_HTML)
         self.assertIn("async function handleFileDropzoneDrop(event)", BOARD_WEB_APP_HTML)
         self.assertIn("async function handleFileDropzonePaste(event)", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            "if (!requireSavedCardForFiles({ syncDropzone: true })) return;", BOARD_WEB_APP_HTML
-        )
-        self.assertIn("await refreshActiveCardFiles();", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            "await refreshActiveCardFiles();\n"
-            "      state.cardJournalLoadedFor = '';\n"
-            "      await refreshSnapshot(true);",
-            BOARD_WEB_APP_HTML,
-        )
-        self.assertIn(
-            "await refreshActiveCardFiles();\n"
-            "        state.cardJournalLoadedFor = '';\n"
-            "        setStatus(normalizedFiles.length > 1 ? 'ФАЙЛЫ ЗАГРУЖЕНЫ.' : 'ФАЙЛ ЗАГРУЖЕН.', false);",
-            BOARD_WEB_APP_HTML,
+        self.assertIn("requireSavedCardForFiles({ syncDropzone: true })", BOARD_WEB_APP_HTML)
+        self.assertGreaterEqual(
+            BOARD_WEB_APP_HTML.count("const card = await refreshActiveCardFiles(context);"), 2
         )
         self.assertIn(
             "await previewActiveCardAttachment(previewFileTarget.dataset.previewFile);",
@@ -3607,7 +3582,7 @@ class WebAssetsTests(unittest.TestCase):
             'class="operator-admin-secondary operator-admin-tab-panel is-active"',
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn("setOperatorAdminTab('users');", BOARD_WEB_APP_HTML)
+        self.assertIn("setOperatorAdminTab();", BOARD_WEB_APP_HTML)
         self.assertIn("refreshOperatorAdminSurfaces({ openAdminModal: true });", BOARD_WEB_APP_HTML)
         self.assertNotIn('id="operatorAdminTabs"', BOARD_WEB_APP_HTML)
         self.assertNotIn('data-operator-admin-tab="journal"', BOARD_WEB_APP_HTML)
@@ -3784,7 +3759,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("grid-auto-columns: 148px;", BOARD_WEB_APP_HTML)
         self.assertIn("min-height: 46px;", BOARD_WEB_APP_HTML)
         self.assertIn("justify-items: center;", BOARD_WEB_APP_HTML)
-        self.assertIn("Артикул / OEM", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "repairOrderRowInputHtml('catalog_number', normalized.catalog_number)",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn(".repair-order-table__input {", BOARD_WEB_APP_HTML)
         self.assertIn("font-size: 14.25px;", BOARD_WEB_APP_HTML)
         self.assertIn('[data-repair-order-cell="name"]', BOARD_WEB_APP_HTML)
@@ -3905,17 +3883,18 @@ class WebAssetsTests(unittest.TestCase):
             "const previousPayments = (state.repairOrderPayments || []).slice();",
             delete_payment_fragment,
         )
-        self.assertIn(
-            "const persisted = await persistRepairOrderRecord({ silent: true });",
-            delete_payment_fragment,
-        )
         self.assertIn("applyRepairOrderToForm(persisted.repairOrder);", delete_payment_fragment)
         self.assertIn("state.repairOrderPayments = previousPayments;", delete_payment_fragment)
         self.assertIn("сохранено в кассу", BOARD_WEB_APP_HTML)
         self.assertIn("legacy без движения", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            "const persisted = await persistRepairOrderRecord({ silent: true });",
-            BOARD_WEB_APP_HTML,
+        self.assertGreaterEqual(
+            len(
+                re.findall(
+                    r"persistRepairOrderRecord\(\{\s*silent:\s*true,\s*request\s*\}\)",
+                    BOARD_WEB_APP_HTML,
+                )
+            ),
+            2,
         )
         self.assertIn('data-repair-order-cell="catalog_number"', BOARD_WEB_APP_HTML)
         self.assertIn(".repair-order-total--subtotal {", BOARD_WEB_APP_HTML)
@@ -3987,7 +3966,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".repair-order-total--subtotal {", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-order-total--cashless-due {", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-order-total--cash-due {", BOARD_WEB_APP_HTML)
-        self.assertIn('aria-label="Удалить оплату">&times;</button>', BOARD_WEB_APP_HTML)
+        self.assertRegex(
+            BOARD_WEB_APP_HTML,
+            r"""aria-label="Удалить оплату"'\s*\+\s*removeDisabled\s*\+\s*'>&times;</button>""",
+        )
         self.assertIn('aria-label="Удалить метку">&times;</button>', BOARD_WEB_APP_HTML)
         self.assertIn("#repairOrderPaymentsModal {", BOARD_WEB_APP_HTML)
         self.assertIn(".dialog--repair-order-payments {", BOARD_WEB_APP_HTML)
@@ -4571,8 +4553,13 @@ class WebAssetsTests(unittest.TestCase):
             '#repairOrderCloseButton[data-close-available="true"]:focus-visible',
             BOARD_WEB_APP_HTML,
         )
+        self.assertIn("async function persistRepairOrderRecord(", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "async function persistRepairOrderRecord({ statusMessage = '', silent = false } = {})",
+            "const workspace = captureRepairOrderMutationContext(request);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "const context = captureRepairOrderMutationContext(request, cardId);",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("'/api/update_repair_order'", BOARD_WEB_APP_HTML)
@@ -4636,17 +4623,9 @@ class WebAssetsTests(unittest.TestCase):
             "async function setRepairOrdersFilter(status, { openModal = false } = {})",
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn("syncRepairOrdersLayout(normalizedFilter);", BOARD_WEB_APP_HTML)
-        repair_orders_meta_fragment = BOARD_WEB_APP_HTML[
-            BOARD_WEB_APP_HTML.index(
-                "repairOrdersMetaText = function(items, meta)"
-            ) : BOARD_WEB_APP_HTML.index("renderRepairOrderListRows = function(items)")
-        ]
-        self.assertIn("return '';", repair_orders_meta_fragment)
-        self.assertNotIn("ОТКРЫТЫЕ: ", repair_orders_meta_fragment)
-        self.assertNotIn("ГОТОВЫЕ: ", repair_orders_meta_fragment)
-        self.assertNotIn("АРХИВ: ", repair_orders_meta_fragment)
-        self.assertIn("repairOrdersIsClosedView(status)", BOARD_WEB_APP_HTML)
+        self.assertIn("syncRepairOrdersLayout();", BOARD_WEB_APP_HTML)
+        self.assertIn("els.repairOrdersMeta.textContent = '';", BOARD_WEB_APP_HTML)
+        self.assertNotIn("repairOrdersMetaText", BOARD_WEB_APP_HTML)
         self.assertIn("const phoneText = phone || '-';", BOARD_WEB_APP_HTML)
         self.assertIn("repairOrdersTableHeadSearchableHtml('Даты', 'date')", BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -4785,7 +4764,7 @@ class WebAssetsTests(unittest.TestCase):
             'class="btn btn--accent" id="cashboxTransferConfirmButton">ПЕРЕМЕСТИТЬ',
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn("function ensureCashboxesUi()", BOARD_WEB_APP_HTML)
+        self.assertNotIn("function ensureCashboxesUi()", BOARD_WEB_APP_HTML)
         self.assertIn("function openCashboxesModal()", BOARD_WEB_APP_HTML)
         self.assertIn("cashboxesLoadController: null", BOARD_WEB_APP_HTML)
         self.assertIn("function abortCashboxesLoad()", BOARD_WEB_APP_HTML)
@@ -5315,16 +5294,13 @@ class WebAssetsTests(unittest.TestCase):
             "async function loadModalData(path, { method = 'GET', body = null, openModal = false, modalEl = null, onSuccess, onError, isCurrent = () => true } = {})",
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn(
-            "async function reloadOperatorAdminUsers({ openModal = false } = {})",
-            BOARD_WEB_APP_HTML,
-        )
+        self.assertIn("async function reloadOperatorAdminUsers(", BOARD_WEB_APP_HTML)
         self.assertEqual(
             BOARD_WEB_APP_HTML.count("async function loadGptWall(openModal = false)"), 1
         )
         self.assertIn("renderCompactArchiveRows(cards)", BOARD_WEB_APP_HTML)
         self.assertIn("renderRepairOrderListRows(items)", BOARD_WEB_APP_HTML)
-        self.assertIn("repairOrdersMetaText = function(items, meta)", BOARD_WEB_APP_HTML)
+        self.assertNotIn("repairOrdersMetaText", BOARD_WEB_APP_HTML)
         self.assertIn("function gptWallMetaText(meta)", BOARD_WEB_APP_HTML)
         self.assertIn("function normalizeGptWallView(value)", BOARD_WEB_APP_HTML)
         self.assertIn("function buildReadableGptWallEvents(data)", BOARD_WEB_APP_HTML)
@@ -5403,9 +5379,6 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("if (!patched && data?.card) {", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            "if (data?.card && applyArchivedCardPatch(data.card)) return;", BOARD_WEB_APP_HTML
-        )
 
     def test_web_assets_do_not_keep_duplicate_active_function_names(self) -> None:
         named_functions = re.findall(
@@ -5422,9 +5395,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertEqual(BOARD_WEB_APP_HTML.count("function buildVehicleAutofillRawText()"), 0)
         self.assertEqual(BOARD_WEB_APP_HTML.count("function refreshVehiclePanel()"), 1)
         self.assertEqual(BOARD_WEB_APP_HTML.count("async function saveCard()"), 1)
-        self.assertEqual(
-            BOARD_WEB_APP_HTML.count("repairOrdersMetaText = function(items, meta)"), 1
-        )
+        self.assertEqual(BOARD_WEB_APP_HTML.count("repairOrdersMetaText"), 0)
         self.assertEqual(BOARD_WEB_APP_HTML.count("function renderRepairOrderRows(items)"), 0)
         self.assertEqual(
             BOARD_WEB_APP_HTML.count(

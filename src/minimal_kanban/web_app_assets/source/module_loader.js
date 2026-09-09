@@ -27,6 +27,9 @@
             if (!record.factory) throw new Error('Модуль не зарегистрирован: ' + name);
             record.exports = record.factory({
               state, els,
+              shared: typeof buildBoardModuleSharedContext === 'function'
+                ? buildBoardModuleSharedContext(name)
+                : {},
               api: async (...args) => {
                 const generation = state.viewerStateGeneration;
                 try {
@@ -66,8 +69,21 @@
       const cardId = state.editingId;
       const payrollOpen = name === 'payroll' && method === 'openEmployeesModal';
       const month = payrollOpen ? (els.employeesMonthInput?.value || state.payrollMonth || currentPayrollMonthValue()) : '';
+      const guardedAuxiliaryOpen = name === 'auxiliary' && [
+        'openDisplayDashboardMessageEditor', 'openMobileArchivePanel',
+        'openMobileSharedFilesPanel', 'openSharedFilesModal',
+      ].includes(method);
+      const settingsParent = method === 'openDisplayDashboardMessageEditor'
+        ? (state.modalStack || []).find((entry) => entry?.key === 'settings')
+        : null;
+      const mobileView = method.startsWith('openMobile') ? state.mobileView : null;
       const pending = ensureBoardModule(name);
       const currentRecord = boardModuleRecords.get(name);
+      const openIntent = guardedAuxiliaryOpen ? {} : null;
+      if (openIntent) currentRecord.openIntent = openIntent;
+      const intentIsCurrent = () => (!openIntent || currentRecord.openIntent === openIntent)
+        && (!settingsParent || (state.modalStack || []).includes(settingsParent))
+        && (mobileView === null || state.mobileView === mobileView);
       let argumentKey = '';
       try { argumentKey = JSON.stringify(args); } catch (_) { /* Event objects can contain cycles. */ }
       const invocationKey = JSON.stringify([method, generation, session, cardId, month,
@@ -83,12 +99,14 @@
       // A script failure or invalidated viewer may leave the prepared read without a consumer.
       prepared?.promise.catch(() => {});
       const invocation = pending.then((module) => {
-        if (generation !== state.viewerStateGeneration || session !== state.operatorSessionToken) return false;
+        if (generation !== state.viewerStateGeneration || session !== state.operatorSessionToken
+          || !intentIsCurrent()) return false;
         if (prepared && !prepared.isCurrent()) return false;
         if (name === 'printing' && cardId !== state.editingId) return false;
         return module[method](...(prepared ? [prepared] : args));
       }).catch((error) => {
         if (generation === state.viewerStateGeneration && session === state.operatorSessionToken
+          && intentIsCurrent()
           && (!prepared || prepared.isCurrent())) {
           prepared?.onLoadError?.(error);
           setStatus(error.message, true);
@@ -96,8 +114,9 @@
         return false;
       }).finally(() => {
         if (currentRecord.invocations.get(invocationKey) === invocation) currentRecord.invocations.delete(invocationKey);
+        if (currentRecord.openIntent === openIntent) currentRecord.openIntent = null;
       });
-      invocation.isCurrent = prepared?.isCurrent;
+      invocation.isCurrent = () => intentIsCurrent() && (!prepared || prepared.isCurrent());
       currentRecord.invocations.set(invocationKey, invocation);
       return invocation;
     }

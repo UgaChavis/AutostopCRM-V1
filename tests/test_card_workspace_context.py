@@ -334,16 +334,14 @@ class RepairOrderWorkspaceContractTests(unittest.TestCase):
         self.assertIn("minmax(239px, 2.223fr)", BOARD_WEB_APP_HTML)
         self.assertIn("minmax(72px, 84px)", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "function repairOrdersColumnsValue(status = state.repairOrdersFilter)",
+            "function repairOrdersColumnsValue()",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
-            "function repairOrdersTableHeadHtml(status = state.repairOrdersFilter)",
+            "function repairOrdersTableHeadHtml()",
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn(
-            "function syncRepairOrdersLayout(status = state.repairOrdersFilter)", BOARD_WEB_APP_HTML
-        )
+        self.assertIn("function syncRepairOrdersLayout()", BOARD_WEB_APP_HTML)
         self.assertIn("function normalizeRepairOrdersSearchField(value)", BOARD_WEB_APP_HTML)
         self.assertNotIn("function repairOrdersSearchFieldLabel(", BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -361,7 +359,6 @@ class RepairOrderWorkspaceContractTests(unittest.TestCase):
         self.assertIn(
             "if (normalized === 'license_plate') return 'поиск по госномеру';", BOARD_WEB_APP_HTML
         )
-        self.assertIn("СПИСОК: ДАТА / АВТО / СУТЬ / СУММА", BOARD_WEB_APP_HTML)
         self.assertIn("Даты", BOARD_WEB_APP_HTML)
         self.assertIn("Телефон", BOARD_WEB_APP_HTML)
         self.assertIn("Автомобиль", BOARD_WEB_APP_HTML)
@@ -475,6 +472,7 @@ const els = {
 function perfMeasureAsync(_name, callback) { return callback(); }
 function snapshotCardById(id) { return snapshots.get(id) || null; }
 function applyCardSeenSuppression(card) { return card; }
+function repairOrderNeedsVerification() { return false; }
 function syncCardDescriptionHeight() {}
 function applyCardModalState(card, options = {}) {
   state.activeCard = card;

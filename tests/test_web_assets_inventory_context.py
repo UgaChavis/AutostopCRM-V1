@@ -69,7 +69,12 @@ function applyRepairOrderCardUpdate() {} function readRepairOrderFromForm() {ret
         return (
             functions("app_main_before_printing.js", "captureCardEditingContext")
             + functions("inventory_reference.js", "inventoryAsyncContext", "readInventoryItems")
-            + functions("inventory_workspace.js", "mutateInventoryMaterial", *names)
+            + functions(
+                "inventory_workspace.js",
+                "mutateInventoryMaterial",
+                "scheduleInventorySearch",
+                *names,
+            )
         )
 
     def test_inventory_read_latest_request_and_viewer_own_success_and_error(self) -> None:
@@ -297,10 +302,17 @@ tasks[5].resolve({text:'old'});await staleDownload;assert.equal(downloads,0);
 
     def test_viewer_reset_clears_inventory_caches_inputs_timers_and_pending_controls(self) -> None:
         self.run_node(
-            functions("app_main_before_printing.js", "resetViewerScopedState"),
+            functions(
+                "app_main_before_printing.js",
+                "clearEmployeesCashboxesModuleState",
+                "resetViewerScopedState",
+            ),
             """
 const cleared=[];const window={clearTimeout(id){cleared.push(id);}};
 function clearCardOpenSideEffectTimer(){}
+function clearBoardSearchState(){}function clearDisplayDashboardImageDrafts(){}
+function resetCardModalState(){}
+const CARD_JOURNAL_INITIAL_LIMIT=50;
 for(const key of ['fullCardCache','cardFetchInFlight','cardSeenSuppressions','unreadHoverTimers','unreadSeenDeferredTimers','unreadSeenInFlight'])state[key]=new Map();
 state.inventorySearchTimer=10;state.mobileInventorySearchTimer=11;
 state.inventoryItems=[{id:'old'}];state.inventoryMovements=[{id:'old'}];
@@ -331,6 +343,7 @@ els.cardModal={classList:{contains(){return true;}}};
 let patches=0,closes=0,clean=0;
 function currentCardPayload(){return {title:'card'};}
 function clearCardOpenSideEffectTimer(){}function cancelDeferredCardSeen(){return false;}
+function syncCardFilesMutationState(){els.saveCardButton.disabled=Boolean(state.cardSaveInFlight||state.cardFilesMutationRequest);}
 function syncCardSaveDirtyState(){}function perfMeasureAsync(_name,callback){return callback();}
 function applySavedCardLocalPatch(){patches++;}function rememberCardModalCleanState(){clean++;}
 function closeCardModal(){closes++;}function deferCardSeen(){throw new Error('stale seen');}
@@ -339,13 +352,13 @@ for(const reject of [false,true]){
  state.viewerStateGeneration++;state.cardSaveInFlight=false;const current=saveCard();
  const index=tasks.length-2;
  if(reject)tasks[index].reject(new Error('old failure'));else tasks[index].resolve({card:{id:'old'}});
- assert.equal(await old,false);assert.equal(state.cardSaveInFlight,true);assert.equal(els.saveCardButton.disabled,true);
+ assert.equal(await old,false,'stale save result');assert.equal(state.cardSaveInFlight,true,'current save remains active');assert.equal(els.saveCardButton.disabled,true,'current save keeps button disabled');
  assert.equal(patches,0);assert.equal(closes,0);assert.equal(clean,0);assert.deepEqual(statuses,[]);
- tasks[index+1].resolve(null);assert.equal(await current,false);
- assert.equal(state.cardSaveInFlight,false);assert.equal(els.saveCardButton.disabled,false);
+ tasks[index+1].resolve(null);assert.equal(await current,false,'empty current result');
+ assert.equal(state.cardSaveInFlight,false,'current save releases state');assert.equal(els.saveCardButton.disabled,false,'current save releases button');
 }
 const valid=saveCard();tasks.at(-1).resolve({card:{id:'card-A'},meta:{changed:true}});
-assert.equal(await valid,true);assert.equal(patches,1);assert.equal(closes,1);
+assert.equal(await valid,true,'valid save result');assert.equal(patches,1);assert.equal(closes,1);
 """,
         )
 
