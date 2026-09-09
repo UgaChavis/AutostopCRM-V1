@@ -7,6 +7,7 @@ import math
 import re
 import time
 import uuid
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from logging import Logger
@@ -97,7 +98,7 @@ from ..vehicle_profile import (
     VehicleProfile,
     normalize_license_plate,
 )
-from .bundle_draft import BundleDraft, DraftEvents, detach_card
+from .bundle_draft import BundleDraft, DraftCards, DraftEvents, detach_card
 from .card_attachments import _ALLOWED_ATTACHMENT_EXTENSIONS as _ALLOWED_ATTACHMENT_EXTENSIONS
 from .card_attachments import _ALLOWED_ATTACHMENT_TYPES_LABEL as _ALLOWED_ATTACHMENT_TYPES_LABEL
 from .card_attachments import _ATTACHMENT_BASE64_DEFAULT_BYTES as _ATTACHMENT_BASE64_DEFAULT_BYTES
@@ -4884,8 +4885,8 @@ class CardService(
                 seen_ids.add(card_id)
                 normalized_card_ids.append(card_id)
 
-            moved_cards: list[dict] = []
-            unchanged_cards: list[dict] = []
+            moved_results: list[dict[str, Any]] = []
+            unchanged_results: list[dict[str, Any]] = []
             errors: list[dict] = []
             warnings: list[dict] = []
             changed_any = False
@@ -4893,16 +4894,36 @@ class CardService(
 
             for card_id in normalized_card_ids:
                 try:
-                    card = self._find_card(cards, card_id)
-                    self._ensure_not_archived(card)
-                    previous_column = card.column
+                    source_card = self._find_card(cards, card_id)
+                    self._ensure_not_archived(source_card)
+                    previous_column = source_card.column
+                    candidate_cards = DraftCards(cards, cards)
+                    card = Card.from_dict(source_card.to_storage_dict())
+                    candidate_cards[cards.index(source_card)] = card
+                    candidate_events = DraftEvents(events)
+                    candidate_bundle = dict(bundle)
+                    candidate_bundle["cards"] = candidate_cards
+                    candidate_bundle["events"] = candidate_events
+
+                    # Moving into or out of the ready column can touch nested repair-order,
+                    # cash and payroll state. Keep those branches detached until every
+                    # validation for this card has succeeded, so one rejected item cannot
+                    # leak mutations into successful siblings in the same bulk request.
+                    detached_ready_state = bool(
+                        self._card_has_repair_order(card)
+                        and (previous_column == ready_column_id or next_column == ready_column_id)
+                    )
+                    if detached_ready_state:
+                        for domain in ("cashboxes", "cash_transactions", "settings"):
+                            candidate_bundle[domain] = deepcopy(bundle[domain])
+
                     changed = False
                     if card.column != next_column:
                         previous_position = card.position
-                        self._reposition_card(cards, card, target_column=next_column)
+                        self._reposition_card(candidate_cards, card, target_column=next_column)
                         self._touch_card(card, actor_name)
                         self._append_event(
-                            events,
+                            candidate_events,
                             actor_name=actor_name,
                             source=source,
                             action="card_moved",
@@ -4917,48 +4938,42 @@ class CardService(
                             },
                         )
                         changed = True
-                        changed_any = True
                     ready_state_changed, ready_warnings = self._apply_ready_column_side_effects(
                         card,
-                        cards,
-                        events,
+                        candidate_cards,
+                        candidate_events,
                         actor_name,
                         source,
                         before_column=previous_column,
                         after_column=card.column,
                         ready_column_id=ready_column_id,
-                        bundle=bundle,
+                        bundle=candidate_bundle,
                     )
                     if ready_state_changed and not changed:
                         self._touch_card(card, actor_name)
                     if ready_state_changed:
                         changed = True
-                        changed_any = True
                     warnings.extend({"card_id": card.id, **warning} for warning in ready_warnings)
-                    serialized = (
-                        self._manager_card_item(
-                            card,
-                            column_labels,
-                            now=utc_now(),
-                            viewer_username=actor_name,
-                        )
-                        if response_mode == "compact"
-                        else self._serialize_card(
-                            card,
-                            events,
-                            column_labels=column_labels,
-                            viewer_username=actor_name,
-                        )
-                    )
-                    serialized["bulk_move"] = {
-                        "before_column": previous_column,
-                        "after_column": next_column,
-                        "changed": changed,
+                    result_item = {
+                        "card_id": card.id,
+                        "bulk_move": {
+                            "before_column": previous_column,
+                            "after_column": next_column,
+                            "changed": changed,
+                        },
                     }
+                    cards[:] = candidate_cards
+                    events[:] = candidate_events
+                    if detached_ready_state:
+                        bundle["cashboxes"][:] = candidate_bundle["cashboxes"]
+                        bundle["cash_transactions"][:] = candidate_bundle["cash_transactions"]
+                        bundle["settings"].clear()
+                        bundle["settings"].update(candidate_bundle["settings"])
                     if changed:
-                        moved_cards.append(serialized)
+                        changed_any = True
+                        moved_results.append(result_item)
                     else:
-                        unchanged_cards.append(serialized)
+                        unchanged_results.append(result_item)
                 except ServiceError as exc:
                     errors.append(
                         {
@@ -4969,7 +4984,34 @@ class CardService(
                         }
                     )
 
-            numbering_changed = self._synchronize_repair_order_numbers(cards)
+            failed_card_ids = {item["card_id"] for item in errors}
+            numbering_changed = self._synchronize_repair_order_numbers(
+                cards, exclude_card_ids=failed_card_ids
+            )
+            serialized_at = utc_now()
+
+            def serialize_result(item: dict[str, Any]) -> dict[str, Any]:
+                final_card = self._find_card(cards, item["card_id"])
+                serialized = (
+                    self._manager_card_item(
+                        final_card,
+                        column_labels,
+                        now=serialized_at,
+                        viewer_username=actor_name,
+                    )
+                    if response_mode == "compact"
+                    else self._serialize_card(
+                        final_card,
+                        events,
+                        column_labels=column_labels,
+                        viewer_username=actor_name,
+                    )
+                )
+                serialized["bulk_move"] = item["bulk_move"]
+                return serialized
+
+            moved_cards = [serialize_result(item) for item in moved_results]
+            unchanged_cards = [serialize_result(item) for item in unchanged_results]
             if changed_any or ready_column_changed or numbering_changed:
                 self._save_bundle(bundle, columns=columns, cards=cards, events=events)
 
@@ -9246,9 +9288,16 @@ class CardService(
             "minimum_seconds": minimum_seconds,
         }
 
-    def _synchronize_repair_order_numbers(self, cards: list[Card]) -> bool:
+    def _synchronize_repair_order_numbers(
+        self, cards: list[Card], *, exclude_card_ids: set[str] | None = None
+    ) -> bool:
+        excluded = exclude_card_ids or set()
         ordered_cards = sorted(
-            (card for card in cards if self._card_has_repair_order(card)),
+            (
+                card
+                for card in cards
+                if card.id not in excluded and self._card_has_repair_order(card)
+            ),
             key=lambda item: (str(item.created_at or ""), str(item.id or "")),
         )
         changed = False

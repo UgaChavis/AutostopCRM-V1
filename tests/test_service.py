@@ -12222,6 +12222,11 @@ class CardServiceTests(CardServiceCase):
         second_after = self.service.get_card({"card_id": second["card"]["id"]})["card"]
         self.assertEqual(first_after["column"], target_column)
         self.assertEqual(second_after["column"], target_column)
+        persisted_positions = {
+            card["id"]: card["position"] for card in self.service.get_cards()["cards"]
+        }
+        for card in moved["moved_cards"] + moved["unchanged_cards"]:
+            self.assertEqual(card["position"], persisted_positions[card["id"]])
 
         first_log = self.service.get_card_log({"card_id": first["card"]["id"]})["events"]
         self.assertTrue(any(event["action"] == "card_moved" for event in first_log))
@@ -12267,6 +12272,165 @@ class CardServiceTests(CardServiceCase):
                 if card["id"] in moved_ids
             )
         )
+
+    def test_bulk_move_cards_does_not_persist_a_failed_ready_transition(self) -> None:
+        numbered = self.service.create_card(
+            {"vehicle": "NUMBERED", "title": "Number owner", "deadline": {"hours": 2}}
+        )
+        numbered_order = self.service.update_card(
+            {
+                "card_id": numbered["card"]["id"],
+                "repair_order": {"client": "Number owner"},
+            }
+        )["card"]["repair_order"]
+        duplicate = self.service.create_card(
+            {"vehicle": "DUPLICATE", "title": "Rejected move", "deadline": {"hours": 2}}
+        )
+        successful = self.service.create_card(
+            {
+                "vehicle": "SUCCESS",
+                "title": "Successful sibling",
+                "column": "in_progress",
+                "deadline": {"hours": 2},
+            }
+        )
+
+        injected = self.store.read_bundle()
+        duplicate_model = next(
+            card for card in injected["cards"] if card.id == duplicate["card"]["id"]
+        )
+        duplicate_model.repair_order = RepairOrder.from_dict(
+            {
+                **numbered_order,
+                "client": "Duplicate number owner",
+                "status": "open",
+            }
+        )
+        self.store.write_bundle(
+            columns=injected["columns"],
+            cards=injected["cards"],
+            clients=injected["clients"],
+            stickies=injected["stickies"],
+            cashboxes=injected["cashboxes"],
+            cash_transactions=injected["cash_transactions"],
+            inventory_items=injected["inventory_items"],
+            inventory_movements=injected["inventory_movements"],
+            events=injected["events"],
+            settings=injected["settings"],
+        )
+        before = self.store.read_bundle()
+        ready_column_id = before["settings"]["ready_column_id"]
+        failed_before = next(
+            card for card in before["cards"] if card.id == duplicate["card"]["id"]
+        ).to_storage_dict()
+        numbered_before = next(
+            card for card in before["cards"] if card.id == numbered["card"]["id"]
+        ).to_storage_dict()
+        failed_events_before = [
+            event.to_dict()
+            for event in before["events"]
+            if event.card_id == duplicate["card"]["id"]
+        ]
+
+        result = self.service.bulk_move_cards(
+            {
+                "card_ids": [duplicate["card"]["id"], successful["card"]["id"]],
+                "column": ready_column_id,
+                "actor_name": "BULK TEST",
+                "source": "api",
+            }
+        )
+
+        self.assertEqual(result["meta"]["moved"], 1)
+        self.assertEqual(result["meta"]["errors"], 1)
+        self.assertEqual(result["errors"][0]["code"], "repair_order_number_duplicate")
+        after = self.store.read_bundle()
+        failed_after = next(
+            card for card in after["cards"] if card.id == duplicate["card"]["id"]
+        ).to_storage_dict()
+        numbered_after = next(
+            card for card in after["cards"] if card.id == numbered["card"]["id"]
+        ).to_storage_dict()
+        failed_events_after = [
+            event.to_dict() for event in after["events"] if event.card_id == duplicate["card"]["id"]
+        ]
+        successful_after = next(
+            card for card in after["cards"] if card.id == successful["card"]["id"]
+        )
+
+        self.assertEqual(failed_after, failed_before)
+        self.assertEqual(numbered_after, numbered_before)
+        self.assertEqual(failed_events_after, failed_events_before)
+        self.assertEqual(successful_after.column, ready_column_id)
+
+    def test_bulk_move_cards_does_not_number_a_failed_ready_transition(self) -> None:
+        failed = self.service.create_card(
+            {"vehicle": "FAILED", "title": "Missing cashbox", "deadline": {"hours": 2}}
+        )
+        successful = self.service.create_card(
+            {
+                "vehicle": "SUCCESS",
+                "title": "Successful sibling",
+                "column": "in_progress",
+                "deadline": {"hours": 2},
+            }
+        )
+        injected = self.store.read_bundle()
+        failed_model = next(card for card in injected["cards"] if card.id == failed["card"]["id"])
+        failed_model.repair_order = RepairOrder.from_dict(
+            {
+                "client": "Broken payment",
+                "status": "open",
+                "number": "",
+                "payments": [
+                    {
+                        "id": "payment-missing-cashbox",
+                        "amount": "100",
+                        "cashbox_id": "missing-cashbox",
+                        "payment_method": "cash",
+                    }
+                ],
+            }
+        )
+        self.store.write_bundle(
+            columns=injected["columns"],
+            cards=injected["cards"],
+            clients=injected["clients"],
+            stickies=injected["stickies"],
+            cashboxes=injected["cashboxes"],
+            cash_transactions=injected["cash_transactions"],
+            inventory_items=injected["inventory_items"],
+            inventory_movements=injected["inventory_movements"],
+            events=injected["events"],
+            settings=injected["settings"],
+        )
+        before = self.store.read_bundle()
+        ready_column_id = before["settings"]["ready_column_id"]
+        failed_before = next(
+            card for card in before["cards"] if card.id == failed["card"]["id"]
+        ).to_storage_dict()
+
+        result = self.service.bulk_move_cards(
+            {
+                "card_ids": [failed["card"]["id"], successful["card"]["id"]],
+                "column": ready_column_id,
+                "actor_name": "BULK TEST",
+                "source": "api",
+            }
+        )
+
+        self.assertEqual(result["meta"]["moved"], 1)
+        self.assertEqual(result["errors"][0]["code"], "not_found")
+        after = self.store.read_bundle()
+        failed_after = next(
+            card for card in after["cards"] if card.id == failed["card"]["id"]
+        ).to_storage_dict()
+        successful_after = next(
+            card for card in after["cards"] if card.id == successful["card"]["id"]
+        )
+        self.assertEqual(failed_after, failed_before)
+        self.assertEqual(failed_after["repair_order"]["number"], "")
+        self.assertEqual(successful_after.column, ready_column_id)
 
     def test_board_settings_are_exported_in_snapshot(self) -> None:
         snapshot = self.service.get_board_snapshot()
