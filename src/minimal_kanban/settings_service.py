@@ -13,6 +13,7 @@ import httpx
 from mcp import ClientSession
 
 from .connection_card import GPT_CONNECTOR_REQUIRED_TOOL_NAMES
+from .http_transport import urlopen_no_redirect as _urlopen_no_redirect
 from .mcp.client import BoardApiClient, BoardApiTransportError
 from .mcp.session_utils import managed_streamable_http_client
 from .models import utc_now_iso
@@ -53,18 +54,6 @@ def _safe_http_headers(headers: dict[str, str] | None) -> dict[str, str]:
             raise RuntimeError("Некорректный HTTP header для проверки подключения.")
         safe_headers[header_name] = header_value
     return safe_headers
-
-
-class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
-        return None
-
-
-_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
-
-
-def _urlopen_no_redirect(request: urllib.request.Request, *, timeout: int | float):
-    return _NO_REDIRECT_OPENER.open(request, timeout=timeout)
 
 
 @dataclass(slots=True, frozen=True)

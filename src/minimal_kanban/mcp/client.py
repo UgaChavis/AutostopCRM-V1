@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from logging import Logger
 
 from ..config import get_api_port, get_api_port_fallback_limit
+from ..http_transport import urlopen_no_redirect as _urlopen_no_redirect
 from .oauth_provider import OAUTH_AUDIT_ACTOR_HEADER, OAUTH_AUDIT_ASSERTION_HEADER
 
 
@@ -67,18 +68,6 @@ def _authorization_bearer_header(token: str | None) -> str | None:
 
 
 _MAX_API_RESPONSE_BYTES = 32 * 1024 * 1024
-
-
-class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
-        return None
-
-
-_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
-
-
-def _urlopen_no_redirect(request: urllib.request.Request, *, timeout: float):
-    return _NO_REDIRECT_OPENER.open(request, timeout=timeout)
 
 
 SUPPORTED_PRINT_DOCUMENT_TYPES = {

@@ -10,13 +10,13 @@ import subprocess
 import tempfile
 import time
 import urllib.error
-import urllib.request
 import uuid
 from dataclasses import dataclass
 from logging import Logger
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from .http_transport import urlopen_no_redirect as _urlopen_no_redirect
 from .settings_models import IntegrationSettings, build_http_url
 from .storage.limited_io import read_text_limited
 
@@ -36,18 +36,6 @@ _PROVIDER_PROCESS_NAMES = {
     "cloudflared": frozenset({"cloudflared", "cloudflared.exe"}),
     "ngrok": frozenset({"ngrok", "ngrok.exe"}),
 }
-
-
-class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
-        return None
-
-
-_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
-
-
-def _urlopen_no_redirect(url: str, *, timeout: float):
-    return _NO_REDIRECT_OPENER.open(url, timeout=timeout)
 
 
 def _reject_json_constant(value: str) -> None:
