@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import hashlib
 import sys
+import time
 import urllib.parse
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -16,6 +17,17 @@ import perf_workflows as perf
 PANELS = ("printing", "inventory", "payroll", "cash_journal")
 DESKTOP = {"width": 1440, "height": 960}
 MOBILE = {"width": 390, "height": 844}
+CARD_OPEN_SIDE_EFFECT_DELAY_MS = 700
+PREPARATION_QUIET_MS = 50
+PRINTING_PREPARATION_PATHS = frozenset(
+    {
+        "/api/get_card",
+        "/api/get_repair_order",
+        "/api/list_employees",
+        "/api/mark_card_seen",
+        "/api/open_card",
+    }
+)
 
 
 class MeasurementFailure(RuntimeError):
@@ -23,6 +35,101 @@ class MeasurementFailure(RuntimeError):
         super().__init__("browser measurement failed")
         self.scenario = scenario
         self.error_type = error_type
+
+
+def safe_path(url: str) -> str:
+    """Return only the URL path so benchmark artifacts cannot retain query secrets."""
+    try:
+        return urllib.parse.urlsplit(str(url or "")).path
+    except ValueError:
+        return ""
+
+
+class PageActivity:
+    """Attribute page requests to setup or the measured action without retaining URLs."""
+
+    def __init__(self, responses: list[dict[str, Any]], events: dict[str, int]) -> None:
+        self.responses = responses
+        self.events = events
+        self.phase = "setup"
+        self.inflight: dict[int, dict[str, Any]] = {}
+        self.network_responses: list[dict[str, Any]] = []
+
+    def set_phase(self, phase: str) -> None:
+        self.phase = phase
+
+    def request_started(self, request: Any) -> None:
+        self.inflight[id(request)] = {
+            "path": safe_path(request.url),
+            "resource_type": str(getattr(request, "resource_type", "") or ""),
+            "started_at": time.perf_counter(),
+            "started_phase": self.phase,
+        }
+
+    def response_received(self, response: Any) -> None:
+        request = response.request
+        info = self.inflight.get(id(request))
+        if info is None:
+            info = {
+                "path": safe_path(response.url),
+                "resource_type": str(getattr(request, "resource_type", "") or ""),
+                "started_at": time.perf_counter(),
+                "started_phase": "unknown",
+            }
+            self.inflight[id(request)] = info
+        now = time.perf_counter()
+        record = {
+            "path": info["path"],
+            "resource_type": info["resource_type"],
+            "started_phase": info["started_phase"],
+            "response_phase": self.phase,
+            "response_headers_ms": round((now - info["started_at"]) * 1000, 3),
+            "bytes": int(response.headers.get("content-length") or 0),
+            "server_timing": response.headers.get("server-timing") or "",
+            "status": int(response.status),
+        }
+        info["record"] = record
+        self.network_responses.append(record)
+        if info["path"].startswith("/api/"):
+            self.responses.append(record)
+        if response.status >= 400:
+            self.events["http_error_count"] += 1
+
+    def request_finished(self, request: Any, *, failed: bool = False) -> None:
+        info = self.inflight.pop(id(request), None)
+        if info is not None and info.get("record") is not None:
+            record = info["record"]
+            record["finish_phase"] = self.phase
+            record["finished_ms"] = round((time.perf_counter() - info["started_at"]) * 1000, 3)
+        if failed and request.failure not in perf.BENIGN_FAILED_REQUEST_CODES:
+            self.events["failed_request_count"] += 1
+
+    async def wait_for_paths_idle(
+        self,
+        page: Any,
+        paths: frozenset[str],
+        *,
+        timeout_ms: int = 10000,
+        quiet_ms: int = PREPARATION_QUIET_MS,
+    ) -> None:
+        deadline = time.perf_counter() + (timeout_ms / 1000)
+        quiet_started: float | None = None
+        while time.perf_counter() < deadline:
+            active_paths = {
+                item["path"] for item in self.inflight.values() if item["path"] in paths
+            }
+            now = time.perf_counter()
+            if not active_paths:
+                quiet_started = quiet_started or now
+                if (now - quiet_started) * 1000 >= quiet_ms:
+                    return
+            else:
+                quiet_started = None
+            await page.wait_for_timeout(min(25, quiet_ms))
+        active_paths = sorted(
+            {item["path"] for item in self.inflight.values() if item["path"] in paths}
+        )
+        raise TimeoutError(f"panel preparation requests did not settle: {', '.join(active_paths)}")
 
 
 def positive_count(value: str) -> int:
@@ -54,19 +161,34 @@ async def board_ready(page: Any, runtime: Any, *, mobile: bool = False) -> None:
     await page.wait_for_function("() => window.__AUTOSTOP_UI_BOUND__ === true")
 
 
-async def prepare_panel(page: Any, runtime: Any, panel: str) -> None:
+async def settle_printing_preparation(page: Any, activity: PageActivity) -> None:
+    # Hydration reads finish before the delayed open/seen side effects are allowed to fire.
+    await activity.wait_for_paths_idle(page, PRINTING_PREPARATION_PATHS)
+    await page.wait_for_timeout(CARD_OPEN_SIDE_EFFECT_DELAY_MS + PREPARATION_QUIET_MS)
+    await activity.wait_for_paths_idle(page, PRINTING_PREPARATION_PATHS)
+
+
+async def prepare_panel(
+    page: Any, runtime: Any, panel: str, *, activity: PageActivity | None = None
+) -> None:
     from browser_smoke_support import _wait_modal_open
 
+    if activity is not None:
+        activity.set_phase("preparation")
     if panel == "printing":
         await page.click(f'#board .card[data-card-id="{runtime.client_card_id}"]')
         await _wait_modal_open(page, "#cardModal")
         await page.click("#repairOrderButton")
         await _wait_modal_open(page, "#repairOrderModal")
         await page.wait_for_selector("#repairOrderWorksBody [data-repair-order-row]")
+        if activity is not None:
+            await settle_printing_preparation(page, activity)
     elif panel == "cash_journal":
         await page.click("#cashboxesButton")
         await _wait_modal_open(page, "#cashboxesModal")
         await page.wait_for_selector("#cashboxJournalButton")
+    if activity is not None:
+        activity.set_phase("ready")
 
 
 async def open_panel(page: Any, panel: str) -> None:
@@ -134,22 +256,17 @@ async def query_client(page: Any, runtime: Any, index: int) -> None:
     )
 
 
-def observe_page(page: Any, responses: list[dict[str, Any]], events: dict[str, int]) -> None:
-    def record_response(response: Any) -> None:
-        if urllib.parse.urlsplit(response.url).path.startswith("/api/"):
-            responses.append(
-                {
-                    "bytes": int(response.headers.get("content-length") or 0),
-                    "server_timing": response.headers.get("server-timing") or "",
-                }
-            )
-        if response.status >= 400:
-            events["http_error_count"] += 1
+def observe_page(
+    page: Any, responses: list[dict[str, Any]], events: dict[str, int]
+) -> PageActivity:
+    activity = PageActivity(responses, events)
 
     def increment(kind: str) -> None:
         events[kind] += 1
 
-    page.on("response", record_response)
+    page.on("request", activity.request_started)
+    page.on("response", activity.response_received)
+    page.on("requestfinished", activity.request_finished)
     page.on("pageerror", lambda _error: increment("page_error_count"))
     page.on(
         "console",
@@ -157,12 +274,24 @@ def observe_page(page: Any, responses: list[dict[str, Any]], events: dict[str, i
     )
     page.on(
         "requestfailed",
-        lambda request: (
-            increment("failed_request_count")
-            if request.failure not in perf.BENIGN_FAILED_REQUEST_CODES
-            else None
-        ),
+        lambda request: activity.request_finished(request, failed=True),
     )
+    return activity
+
+
+def safe_network_response(record: dict[str, Any]) -> dict[str, Any]:
+    """Keep request attribution useful while excluding URL queries and response headers."""
+    return {
+        "path": str(record.get("path") or ""),
+        "resource_type": str(record.get("resource_type") or ""),
+        "started_phase": str(record.get("started_phase") or "unknown"),
+        "response_phase": str(record.get("response_phase") or "unknown"),
+        "finish_phase": str(record.get("finish_phase") or "unknown"),
+        "response_headers_ms": float(record.get("response_headers_ms") or 0),
+        "finished_ms": float(record.get("finished_ms") or 0),
+        "bytes": int(record.get("bytes") or 0),
+        "status": int(record.get("status") or 0),
+    }
 
 
 async def sample_action(
@@ -170,18 +299,60 @@ async def sample_action(
     scenario: str,
     action: Callable[[int], Awaitable[None]],
     responses: list[dict[str, Any]],
+    *,
+    activity: PageActivity | None = None,
 ) -> dict[str, Any]:
+    response_start = len(responses)
+    network_start = len(activity.network_responses) if activity is not None else 0
+
+    async def attributed_action(index: int) -> None:
+        if activity is not None:
+            activity.set_phase("action")
+        try:
+            await action(index)
+        finally:
+            if activity is not None:
+                activity.set_phase("action_complete")
+
     row = await perf.measure_browser_action(
-        page, scenario=scenario, iterations=1, responses=responses, action=action
+        page, scenario=scenario, iterations=1, responses=responses, action=attributed_action
     )
     if row.get("failed"):
         # Never serialize browser exceptions: they may contain authenticated navigation URLs.
         raise MeasurementFailure(scenario, row["error_type"])
+    attributed_responses = [
+        item
+        for item in responses[response_start:]
+        if activity is None or item.get("started_phase") == "action"
+    ]
     sample = {
         "duration_ms": row["p50_ms"],
-        "request_count": row["request_count"],
-        "payload_bytes": row["payload_bytes"],
-        "server_timing": row["server_timing"],
+        "request_count": (
+            len(attributed_responses) if activity is not None else row["request_count"]
+        ),
+        "payload_bytes": (
+            sum(int(item.get("bytes") or 0) for item in attributed_responses)
+            if activity is not None
+            else row["payload_bytes"]
+        ),
+        "server_timing": (
+            [
+                safe_timing
+                for item in attributed_responses
+                if (safe_timing := perf._sanitize_server_timing(item.get("server_timing") or ""))
+            ]
+            if activity is not None
+            else row["server_timing"]
+        ),
+        "network_responses": (
+            [
+                safe_network_response(item)
+                for item in activity.network_responses[network_start:]
+                if item.get("started_phase") == "action"
+            ]
+            if activity is not None
+            else []
+        ),
         **row["resources"],
     }
     sample.update(
@@ -208,11 +379,11 @@ async def cold_sample(
     try:
         page = await context.new_page()
         responses: list[dict[str, Any]] = []
-        observe_page(page, responses, events)
+        activity = observe_page(page, responses, events)
         if not mobile:
             await board_ready(page, runtime)
             panel = scenario.rsplit(".", 1)[1]
-            await prepare_panel(page, runtime, panel)
+            await prepare_panel(page, runtime, panel, activity=activity)
 
         async def action(_index: int) -> None:
             if mobile:
@@ -220,7 +391,7 @@ async def cold_sample(
             else:
                 await open_panel(page, panel)
 
-        return await sample_action(page, scenario, action, responses)
+        return await sample_action(page, scenario, action, responses, activity=activity)
     finally:
         await perf.close_with_timeout(context.close())
 
@@ -228,7 +399,7 @@ async def cold_sample(
 def summarize(scenario: str, samples: list[dict[str, Any]]) -> dict[str, Any]:
     result = perf.summarize_samples(samples, scenario=scenario)
     result["samples"] = samples
-    result["api_request_scope"] = "action_page_only"
+    result["api_request_scope"] = "requests_started_during_action"
     return result
 
 
@@ -280,7 +451,7 @@ async def run_browser(args: argparse.Namespace) -> dict[str, Any]:
                     try:
                         page = await context.new_page()
                         responses: list[dict[str, Any]] = []
-                        observe_page(page, responses, events)
+                        activity = observe_page(page, responses, events)
                         await board_ready(page, runtime)
                         await page.click("#clientsButton")
                         await _wait_modal_open(page, "#clientsModal")
@@ -293,6 +464,7 @@ async def run_browser(args: argparse.Namespace) -> dict[str, Any]:
                                     "clients.query",
                                     lambda _unused, index=index: query_client(page, runtime, index),
                                     responses,
+                                    activity=activity,
                                 )
                             )
                         rows.append(summarize("clients.query", samples))
@@ -332,7 +504,7 @@ def main() -> int:
             report.update(scenario=error.scenario, error_type=error.error_type)
     report["environment"] = environment
     report["method"] = (
-        "fresh context per cold sample; authenticated session; unmodified polling; input-to-response-and-render query"
+        "fresh context per cold sample; authenticated session; unmodified polling; printing preparation side effects drained; requests attributed by start phase; input-to-response-and-render query"
     )
     print(perf.serialize_report(report))
     return 0 if report["ok"] else 1
