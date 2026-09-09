@@ -60,6 +60,35 @@
       return record.loading;
     }
 
+    function prepareRepairOrderPrintWorkspaceData() {
+      const cardId = String(state.editingId || '').trim();
+      if (!cardId) return null;
+      const viewer = state.viewerStateGeneration;
+      const session = state.operatorSessionToken;
+      const editing = state.cardEditingGeneration || 0;
+      const hydration = state.cardHydrationSeq || 0;
+      const isCurrent = () => viewer === state.viewerStateGeneration
+        && session === state.operatorSessionToken
+        && editing === (state.cardEditingGeneration || 0)
+        && hydration === (state.cardHydrationSeq || 0)
+        && cardId === String(state.editingId || '').trim()
+        && cardId === String(state.activeCard?.id || state.editingId || '').trim();
+      let promise = null;
+      try {
+        promise = Promise.resolve(api('/api/get_repair_order_print_workspace', {
+          method: 'POST',
+          body: {
+            card_id: cardId,
+            source: 'ui',
+            repair_order: readRepairOrderFromForm(),
+          },
+        }));
+      } catch (error) {
+        promise = Promise.reject(error);
+      }
+      return { cardId, isCurrent, promise };
+    }
+
     function invokeBoardModule(name, method, args, passive = false) {
       const mobilePanelOpen = [
         'openMobileArchivePanel', 'openMobileEmployeesPanel', 'openMobileSharedFilesPanel',
@@ -71,6 +100,9 @@
       const generation = state.viewerStateGeneration;
       const session = state.operatorSessionToken;
       const cardId = state.editingId;
+      const cardEditingGeneration = state.cardEditingGeneration || 0;
+      const cardHydrationSeq = state.cardHydrationSeq || 0;
+      const printingOpen = name === 'printing' && method === 'printRepairOrderDraft';
       const payrollOpen = name === 'payroll' && method === 'openEmployeesModal';
       const month = payrollOpen ? (els.employeesMonthInput?.value || state.payrollMonth || currentPayrollMonthValue()) : '';
       const guardedAuxiliaryOpen = name === 'auxiliary' && [
@@ -92,14 +124,22 @@
       let argumentKey = '';
       try { argumentKey = JSON.stringify(args); } catch (_) { /* Event objects can contain cycles. */ }
       const invocationKey = JSON.stringify([method, generation, session, cardId, month,
-        payrollOpen ? state.employeesCashboxesAccessRevision : null, argumentKey]);
+        payrollOpen ? state.employeesCashboxesAccessRevision : null,
+        printingOpen ? cardEditingGeneration : null,
+        printingOpen ? cardHydrationSeq : null,
+        argumentKey]);
       const previous = currentRecord.invocations.get(invocationKey);
       if (previous && (!previous.isCurrent || previous.isCurrent())) return previous;
       if (record?.exports) return record.exports[method](...args);
       let prepared = null;
-      if (payrollOpen && operatorCanViewEmployees()) prepared = prepareEmployeesWorkspaceData(month, pending);
+      if (payrollOpen && operatorCanViewEmployees()) {
+        prepared = prepareEmployeesWorkspaceData(month, pending, { useEmbeddedPayrollReport: true });
+      }
       if (name === 'inventory' && method === 'openInventoryModal') {
         prepared = prepareInventoryModal();
+      }
+      if (printingOpen && cardId) {
+        prepared = prepareRepairOrderPrintWorkspaceData();
       }
       // A script failure or invalidated viewer may leave the prepared read without a consumer.
       prepared?.promise.catch(() => {});
@@ -107,7 +147,11 @@
         if (generation !== state.viewerStateGeneration || session !== state.operatorSessionToken
           || !intentIsCurrent()) return false;
         if (prepared && !prepared.isCurrent()) return false;
-        if (name === 'printing' && cardId !== state.editingId) return false;
+        if (name === 'printing' && (
+          cardId !== state.editingId
+          || cardEditingGeneration !== (state.cardEditingGeneration || 0)
+          || cardHydrationSeq !== (state.cardHydrationSeq || 0)
+        )) return false;
         return module[method](...(prepared ? [prepared] : args));
       }).catch((error) => {
         if (generation === state.viewerStateGeneration && session === state.operatorSessionToken

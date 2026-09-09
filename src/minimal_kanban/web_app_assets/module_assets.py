@@ -122,7 +122,11 @@ def _module_script(group: str, source: str, public_names: set[str]) -> str:
     if group == "printing":
         source = source.replace(
             "printRepairOrderDraft = function() { return openRepairOrderPrintWorkspace(); };",
-            "function printRepairOrderDraft() { return openRepairOrderPrintWorkspace(); }",
+            "function printRepairOrderDraft(prepared = null) { "
+            "return openRepairOrderPrintWorkspace("
+            "typeof prepared?.isCurrent === 'function' && "
+            "typeof prepared?.promise?.then === 'function' ? prepared : null"
+            "); }",
         )
     exports = [name for name in _function_names(source) if name in public_names]
     reset = ""

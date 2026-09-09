@@ -278,6 +278,55 @@ function setStatus(message){statuses.push(message);}
 """
         )
 
+    def test_prepared_workspace_read_is_applied_only_for_its_current_card(self) -> None:
+        self.run_javascript(
+            """
+const assert=require('node:assert/strict');
+function deferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b});return {promise,resolve,reject};}
+const state={viewerStateGeneration:0,editingId:'A',activeCard:{id:'A'}};
+const repairOrderPrintState={workspace:null,mode:'card',selectedDocumentIds:[],activeDocumentId:''};
+const opened=[],applied=[],statuses=[],requests=[];let previews=0;
+const printEls={modal:{classList:{add:name=>opened.push(name)}}};
+function requireRepairOrderCardId(){return state.editingId;}
+function completionActActiveCardId(){return state.editingId;}
+function syncRepairOrderPrintMode(){}
+function readRepairOrderFromForm(){throw new Error('prepared path reread the form');}
+function api(path,options){requests.push({path,options});return Promise.resolve({unexpected:true});}
+function applyRepairOrderPrintWorkspace(data){applied.push(data);repairOrderPrintState.workspace=data;}
+function refreshRepairOrderPrintPreview(){previews++;return Promise.resolve({});}
+function setStatus(message,isError){statuses.push({message,isError});}
+"""
+            + PRINTING_ASYNC_CONTEXT_SCRIPT
+            + function_source("loadRepairOrderPrintWorkspace")
+            + function_source("openRepairOrderPrintWorkspace")
+            + """
+(async()=>{
+  let task=deferred(),current=true;
+  const prepared={cardId:'A',isCurrent:()=>current,promise:task.promise};
+  const opening=openRepairOrderPrintWorkspace(prepared);
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(requests.length,0);assert.equal(previews,0,'preview must wait for workspace data');
+  task.resolve({card_id:'A',documents:[{id:'repair_order'}]});await opening;
+  assert.equal(applied.length,1);assert.deepEqual(opened,['is-open']);assert.equal(previews,1);
+
+  task=deferred();current=true;
+  const stale={cardId:'A',isCurrent:()=>current,promise:task.promise};
+  const obsolete=openRepairOrderPrintWorkspace(stale);await new Promise(resolve=>setImmediate(resolve));
+  current=false;task.resolve({card_id:'A',private_marker:'stale'});await obsolete;
+  assert.equal(applied.length,1);assert.deepEqual(opened,['is-open']);assert.equal(previews,1);
+  assert.equal(statuses.length,0);
+
+  task=deferred();current=true;
+  const failed={cardId:'A',isCurrent:()=>current,promise:task.promise};
+  const rejected=openRepairOrderPrintWorkspace(failed);await new Promise(resolve=>setImmediate(resolve));
+  task.reject(new Error('workspace failed'));await rejected;
+  assert.equal(requests.length,0,'prepared error retried the workspace request');
+  assert.equal(applied.length,1);assert.equal(previews,1);assert.equal(statuses.length,1);
+  assert.match(statuses[0].message,/workspace failed/);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+"""
+        )
+
     def test_all_emitted_async_printing_requests_use_operation_guards(self) -> None:
         names = re.findall(r"^    async function (\w+)\(", PRINTING_WEB_MODULE_SCRIPT, re.MULTILINE)
         self.assertEqual(len(names), 23)

@@ -4193,7 +4193,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="printTemplateVisualEditorFrame"', BOARD_WEB_APP_HTML)
         self.assertIn('id="printTemplateTokenSelect"', BOARD_WEB_APP_HTML)
         self.assertIn('id="printTemplatePreviewFrame"', BOARD_WEB_APP_HTML)
-        self.assertIn("async function openRepairOrderPrintWorkspace()", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "async function openRepairOrderPrintWorkspace(prepared = null)",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("async function openManualDocumentPrintWorkspace()", BOARD_WEB_APP_HTML)
         self.assertIn("function blankManualPrintDocument()", BOARD_WEB_APP_HTML)
         self.assertIn("function manualPrintLocalDateValue()", BOARD_WEB_APP_HTML)

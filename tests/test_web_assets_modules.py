@@ -42,12 +42,49 @@ class BoardModuleAssetsTests(unittest.TestCase):
         for group, helper, lazy_entry in (
             ("payroll", "prepareEmployeesWorkspaceData", "renderEmployeesWorkspace"),
             ("inventory", "readInventoryItems", "renderInventory"),
+            ("printing", "prepareRepairOrderPrintWorkspaceData", "loadRepairOrderPrintWorkspace"),
         ):
             module = BOARD_WEB_APP_MODULES[BOARD_WEB_APP_MODULE_MANIFEST[group]]
             self.assertEqual(BOARD_WEB_APP_JS.count(f"function {helper}("), 1)
             self.assertNotIn(f"function {helper}(", module)
             self.assertIn(f"function {lazy_entry}(", module)
             self.assertNotIn(f"function {lazy_entry}(", BOARD_WEB_APP_JS)
+
+        printing_module = BOARD_WEB_APP_MODULES[BOARD_WEB_APP_MODULE_MANIFEST["printing"]]
+        self.assertIn(
+            "function printRepairOrderDraft(prepared = null) { return "
+            "openRepairOrderPrintWorkspace(typeof prepared?.isCurrent === 'function' && "
+            "typeof prepared?.promise?.then === 'function' ? prepared : null); }",
+            printing_module,
+        )
+        self.assertIn(
+            "function printRepairOrderDraft(...args) { return invokeBoardModule('printing', 'printRepairOrderDraft', args); }",
+            BOARD_WEB_APP_JS,
+        )
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required")
+    def test_printing_module_warm_click_ignores_dom_event_argument(self) -> None:
+        module = BOARD_WEB_APP_MODULES[BOARD_WEB_APP_MODULE_MANIFEST["printing"]]
+        match = re.search(
+            r"    function printRepairOrderDraft\(prepared = null\) \{.*?\}\n",
+            module,
+        )
+        self.assertIsNotNone(match)
+        script = f"""
+const assert = require('node:assert/strict');
+const calls = [];
+function openRepairOrderPrintWorkspace(prepared) {{ calls.push(prepared); return prepared; }}
+{match.group()}
+const clickEvent = {{type: 'click', target: {{}}}};
+assert.equal(printRepairOrderDraft(clickEvent), null);
+const prepared = {{cardId: 'card-A', isCurrent() {{ return true; }}, promise: Promise.resolve({{}})}};
+assert.equal(printRepairOrderDraft(prepared), prepared);
+assert.deepEqual(calls, [null, prepared]);
+"""
+        result = subprocess.run(
+            ["node"], input=script, text=True, capture_output=True, cwd=ROOT, timeout=15
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_optional_modules_are_hashed_served_compressed_and_not_in_startup(self) -> None:
         from minimal_kanban.api.server import _board_asset_bytes, _board_asset_gzip_bytes

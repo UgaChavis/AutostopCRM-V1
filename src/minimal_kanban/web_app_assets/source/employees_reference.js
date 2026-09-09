@@ -9,12 +9,12 @@
       }
     }
 
-    async function loadEmployeesReference({ month: requestedMonth = '', apply = true } = {}) {
+    async function loadEmployeesReference({ month: requestedMonth = '', apply = true, force = false } = {}) {
       const viewerStateGeneration = state.viewerStateGeneration;
       const session = state.operatorSessionToken;
       const accessRevision = state.employeesCashboxesAccessRevision;
       const month = String(requestedMonth || state.payrollMonth || currentPayrollMonthValue()).trim();
-      if (state.employeesLoadedMonth === month && Array.isArray(state.employees)) {
+      if (!force && state.employeesLoadedMonth === month && Array.isArray(state.employees)) {
         return { employees: state.employees, meta: { cached: true, month } };
       }
       let request = null;
@@ -59,7 +59,26 @@
       return report;
     }
 
-    function prepareEmployeesWorkspaceData(month, moduleReady) {
+    function payrollReportFromEmployeesData(data, requestedMonth) {
+      if (
+        data?.meta?.references_only
+        || String(data?.month || '') !== requestedMonth
+        || !data?.summary
+        || typeof data.summary !== 'object'
+        || !Array.isArray(data?.detail_rows)
+      ) return null;
+      return {
+        month: requestedMonth,
+        summary: data?.summary,
+        detail_rows: data?.detail_rows,
+      };
+    }
+
+    function prepareEmployeesWorkspaceData(
+      month,
+      moduleReady,
+      { useEmbeddedPayrollReport = false } = {},
+    ) {
       const viewer = state.viewerStateGeneration;
       const session = state.operatorSessionToken;
       const access = state.employeesCashboxesAccessRevision;
@@ -71,9 +90,23 @@
         && generation === state.employeesWorkspaceLoadGeneration && requestedMonth === state.payrollMonth;
       const result = { applied: false, generation, month: requestedMonth };
       const canManage = operatorCanAccessEmployeesCashboxes();
+      const employeesRequest = loadEmployeesReference({
+        month: requestedMonth,
+        apply: false,
+        force: canManage && useEmbeddedPayrollReport,
+      });
+      const payrollRequest = canManage
+        ? (useEmbeddedPayrollReport
+          ? employeesRequest.then((data) => {
+            const embeddedReport = payrollReportFromEmployeesData(data, requestedMonth);
+            if (embeddedReport || !isCurrent()) return embeddedReport;
+            return loadPayrollReport({ month: requestedMonth, apply: false });
+          })
+          : loadPayrollReport({ month: requestedMonth, apply: false }))
+        : null;
       const promise = Promise.all([
-        loadEmployeesReference({ month: requestedMonth, apply: false }),
-        canManage ? loadPayrollReport({ month: requestedMonth, apply: false }) : null,
+        employeesRequest,
+        payrollRequest,
         moduleReady,
       ]).then(([employeesData, payrollReport]) => {
         if (!isCurrent()) return result;

@@ -53,9 +53,15 @@ function fixture(name = 'payroll', canManage = true) {
     });
     context.window.registerBoardModule(name,()=>({[method]:context[method]}));scripts.at(-1).onload();
   }
-  function reply(marker='ready') {for(const request of requests) request.resolve({employees:[{id:marker}],items:[{id:marker}],marker});}
+  function employeePayload(marker='ready') {return {
+    employees:[{id:marker}],marker,month:'2026-09',
+    summary:{[marker]:{employee_id:marker}},detail_rows:[{employee_id:marker}],
+  };}
+  function reply(marker='ready') {for(const request of requests) request.resolve({
+    ...employeePayload(marker),items:[{id:marker}],
+  });}
   return {context,state,els,workspace,requests,scripts,renders,statuses,finishModule,reply,
-    invoke:()=>context.invokeBoardModule(name,method,[]),deny:()=>{canView=false;}};
+    employeePayload,invoke:()=>context.invokeBoardModule(name,method,[]),deny:()=>{canView=false;}};
 }
 """
 
@@ -82,18 +88,78 @@ class ColdModuleOverlapTests(unittest.TestCase):
         self.run_node(r"""
 for(const name of ['payroll','inventory']) for(const dataFirst of [true,false]) {
   const f=fixture(name);assert.equal(f.requests.length,0);assert.equal(f.scripts.length,0);
-  const pending=f.invoke();assert.equal(f.requests.length,name==='payroll'?2:1,'reads must start before script completion');
+  const pending=f.invoke();assert.equal(f.requests.length,1,'one read must start before script completion');
+  if(name==='payroll')assert.match(f.requests[0].path,/list_employees/);
   assert.equal(f.invoke(),pending,'cold invocation must be deduplicated');assert.equal(f.scripts.length,1);
   const earlyRenders=f.renders.length;
   if(dataFirst){f.reply();await tick();assert.equal(f.renders.length,earlyRenders);assert.equal(f.state.employees.length,0);assert.equal(f.state.inventoryItems.length,0);}
   f.finishModule();await tick();
   if(!dataFirst){assert.equal(f.invoke(),pending,'factory-ready/data-pending invocation must still be deduplicated');f.reply();}
-  await pending;assert.equal(f.requests.length,name==='payroll'?2:1);
+  await pending;assert.equal(f.requests.length,1);
   assert.equal(f.renders.filter(value=>value==='open-'+name).length,1);
   assert.equal((name==='payroll'?f.state.employees:f.state.inventoryItems)[0].id,'ready');
+  if(name==='payroll') {
+    assert.equal(f.state.payrollReport.month,'2026-09');
+    assert.equal(f.state.payrollReport.summary.ready.employee_id,'ready');
+    assert.equal(f.state.payrollReport.detail_rows[0].employee_id,'ready');
+  }
   const count=f.requests.length,warm=f.invoke();assert.equal(f.requests.length,count+1,'warm direct path performs its existing read');
+  if(name==='payroll')assert.match(f.requests.at(-1).path,/get_payroll_report/);
   f.reply();await warm;
 }
+""")
+
+    def test_cold_payroll_uses_fresh_embedded_report_even_with_cached_references(self) -> None:
+        self.run_node(r"""
+const f=fixture('payroll');
+f.state.employeesLoadedMonth='2026-09';f.state.employees=[{id:'cached'}];
+const pending=f.invoke();assert.equal(f.requests.length,1);
+assert.equal(f.requests[0].path,'/api/list_employees?month=2026-09');
+f.requests[0].resolve({employees:[{id:'fresh'}],month:'2026-09',
+  summary:{fresh:{employee_id:'fresh'}},detail_rows:[{employee_id:'fresh'}]});
+f.finishModule();await pending;
+assert.equal(f.state.employees[0].id,'fresh');
+assert.equal(f.state.payrollReport.summary.fresh.employee_id,'fresh');
+assert.equal(f.state.payrollReport.detail_rows[0].employee_id,'fresh');
+""")
+
+    def test_default_loader_used_by_mobile_keeps_separate_payroll_read(self) -> None:
+        self.run_node(r"""
+const f=fixture('payroll');
+assert.match(fs.readFileSync(source+'employees_mobile.js','utf8'),/loadEmployeesWorkspaceData\(month\)/);
+const pending=f.context.loadEmployeesWorkspaceData('2026-09');
+assert.deepEqual(f.requests.map(request=>request.path),[
+  '/api/list_employees?month=2026-09','/api/get_payroll_report?month=2026-09',
+]);
+f.reply('mobile');await pending;
+assert.equal(f.state.employees[0].id,'mobile');assert.equal(f.state.payrollReport.marker,'mobile');
+""")
+
+    def test_cold_invalid_embedded_report_falls_back_to_guarded_payroll_read(self) -> None:
+        self.run_node(r"""
+for(const invalid of [
+  {employees:[{id:'wrong-month'}],month:'2026-08',summary:{},detail_rows:[]},
+  {employees:[{id:'wrong-shape'}],month:'2026-09',summary:null,detail_rows:[]},
+  {employees:[{id:'wrong-details'}],month:'2026-09',summary:{},detail_rows:null},
+]) {
+  const f=fixture('payroll'),pending=f.invoke();f.requests[0].resolve(invalid);await tick();
+  assert.equal(f.requests.length,2);assert.equal(f.requests[1].path,'/api/get_payroll_report?month=2026-09');
+  f.requests[1].resolve({month:'2026-09',summary:{fallback:{}},detail_rows:[]});
+  f.finishModule();await pending;
+  assert.equal(f.state.employees[0].id,invalid.employees[0].id);
+  assert.ok(f.state.payrollReport.summary.fallback);assert.equal(f.statuses.length,0);
+}
+""")
+
+    def test_cold_reference_only_response_keeps_guarded_payroll_error_behavior(self) -> None:
+        self.run_node(r"""
+const f=fixture('payroll'),pending=f.invoke();
+f.requests[0].resolve({employees:[{id:'restricted'}],month:'2026-09',summary:{},detail_rows:[],
+  meta:{references_only:true}});await tick();
+assert.equal(f.requests.length,2);assert.equal(f.requests[1].path,'/api/get_payroll_report?month=2026-09');
+f.requests[1].reject(new Error('forbidden'));f.finishModule();await pending;
+assert.deepEqual(f.state.employees,[]);assert.equal(f.state.payrollReport ?? null,null);
+assert.equal(f.renders.length,0);assert.match(f.statuses[0],/forbidden/);
 """)
 
     def test_cold_viewer_access_month_and_request_changes_do_not_apply_or_open(self) -> None:
@@ -110,7 +176,25 @@ for(const name of ['payroll','inventory']) for(const change of ['viewer','sessio
   }
   f.reply('stale');f.finishModule();await pending;
   assert.equal(f.state.employees.length,0,name+': stale employees');assert.equal(f.state.inventoryItems.length,0,name+': stale inventory');
+  if(name==='payroll')assert.equal(f.state.payrollReport ?? null,null,name+': stale payroll');
   assert.equal(f.renders.length,initialRenders,name+': stale open/render');assert.equal(f.statuses.length,0,name+': stale status');
+}
+""")
+
+    def test_stale_invalid_embedded_report_does_not_start_fallback_in_new_context(self) -> None:
+        self.run_node(r"""
+for(const change of ['viewer','session','request','access','month']) {
+  const f=fixture('payroll'),pending=f.invoke();
+  if(change==='viewer')f.state.viewerStateGeneration++;
+  if(change==='session')f.state.operatorSessionToken='B';
+  if(change==='access')f.state.employeesCashboxesAccessRevision++;
+  if(change==='month')f.state.payrollMonth='2026-10';
+  if(change==='request')f.state.employeesWorkspaceLoadGeneration++;
+  f.requests[0].resolve({employees:[{id:'stale'}],month:'2026-08',summary:null,detail_rows:null});
+  await tick();assert.equal(f.requests.length,1,'stale fallback crossed '+change);
+  f.finishModule();await pending;
+  assert.deepEqual(f.state.employees,[]);assert.equal(f.state.payrollReport ?? null,null);
+  assert.equal(f.renders.length,0);assert.equal(f.statuses.length,0);
 }
 """)
 
@@ -122,7 +206,8 @@ for(const name of ['payroll','inventory']) for(const failure of ['data','script'
   else {f.scripts[0].onerror();f.reply();}
   await pending;await tick();assert.ok(f.statuses.length);
   const count=f.requests.length,retry=f.invoke();
-  assert.equal(f.requests.length-count,name==='payroll'?2:1,'retry must perform one fresh request set');
+  const expected = name==='payroll' && failure==='data' ? 2 : 1;
+  assert.equal(f.requests.length-count,expected,'retry must perform one fresh request set');
   if(failure==='script')f.finishModule();f.reply('retry');await retry;
   assert.equal((name==='payroll'?f.state.employees:f.state.inventoryItems)[0].id,'retry');
 }
@@ -151,10 +236,10 @@ for(const name of ['payroll','inventory']) for(const reject of [true,false]) {
   const f=fixture(name),old=f.invoke();f.finishModule();await tick();
   f.state.operatorSessionToken='B';const oldRequests=f.requests.slice(),offset=f.requests.length;
   const current=f.invoke();assert.equal(f.requests.length-offset,name==='payroll'?2:1);
-  for(const request of f.requests.slice(offset))request.resolve({employees:[{id:'B'}],items:[{id:'B'}]});
+  for(const request of f.requests.slice(offset))request.resolve({...f.employeePayload('B'),items:[{id:'B'}]});
   await current;const renders=f.renders.length,statuses=f.statuses.length;
   for(const request of oldRequests) {
-    if(reject)request.reject(new Error('old A error'));else request.resolve({employees:[{id:'A'}],items:[{id:'A'}]});
+    if(reject)request.reject(new Error('old A error'));else request.resolve({...f.employeePayload('A'),items:[{id:'A'}]});
   }
   await old;assert.equal((name==='payroll'?f.state.employees:f.state.inventoryItems)[0].id,'B');
   assert.equal(f.renders.length,renders);assert.equal(f.statuses.length,statuses);

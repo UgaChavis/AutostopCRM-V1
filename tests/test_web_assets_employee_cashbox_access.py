@@ -213,10 +213,10 @@ class EmployeeCashboxAccessWebAssetTests(unittest.TestCase):
             "function refreshRepairOrderEmployeeSelects()",
         )
         self.assertIn("const canManage = operatorCanAccessEmployeesCashboxes();", loader)
-        self.assertIn("loadEmployeesReference({ month: requestedMonth, apply: false })", loader)
-        self.assertIn(
-            "canManage ? loadPayrollReport({ month: requestedMonth, apply: false }) : null", loader
-        )
+        self.assertIn("const employeesRequest = loadEmployeesReference({", loader)
+        self.assertIn("force: canManage && useEmbeddedPayrollReport,", loader)
+        self.assertIn(": loadPayrollReport({ month: requestedMonth, apply: false }))", loader)
+        self.assertIn("const payrollRequest = canManage", loader)
 
         mobile = _asset_section(
             "function renderMobileEmployeesList()", "function renderMobileArchiveRows("

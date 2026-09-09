@@ -1771,7 +1771,7 @@ _PRINTING_SCRIPT_PART2 = r"""
       cancelPendingCompletionActPreview();
     }
 
-    async function loadRepairOrderPrintWorkspace({ openModal = false, preserveSelection = false } = {}) {
+    async function loadRepairOrderPrintWorkspace({ openModal = false, preserveSelection = false, prepared = null } = {}) {
       invalidatePrintWorkspaceContext();
       repairOrderPrintState.mode = 'card';
       syncRepairOrderPrintMode();
@@ -1779,14 +1779,18 @@ _PRINTING_SCRIPT_PART2 = r"""
       const cardId = await operation.wait(requireRepairOrderCardId());
       if (!cardId || cardId !== completionActActiveCardId()) return null;
       operation = capturePrintOperation();
-      const data = await operation.request('/api/get_repair_order_print_workspace', {
-        method: 'POST',
-        body: {
-          card_id: cardId,
-          source: 'ui',
-          repair_order: readRepairOrderFromForm(),
-        },
-      });
+      if (prepared && (prepared.cardId !== cardId || !prepared.isCurrent())) return null;
+      const data = prepared
+        ? await operation.wait(prepared.promise)
+        : await operation.request('/api/get_repair_order_print_workspace', {
+          method: 'POST',
+          body: {
+            card_id: cardId,
+            source: 'ui',
+            repair_order: readRepairOrderFromForm(),
+          },
+        });
+      if (prepared && !prepared.isCurrent()) return null;
       applyRepairOrderPrintWorkspace(data, { preserveSelection });
       if (openModal) printEls.modal.classList.add('is-open');
       await operation.wait(refreshRepairOrderPrintPreview());
@@ -1828,10 +1832,14 @@ _PRINTING_SCRIPT_PART2 = r"""
       }
     }
 
-    async function openRepairOrderPrintWorkspace() {
+    async function openRepairOrderPrintWorkspace(prepared = null) {
       const operation = capturePrintOperation('', { card: false, workspace: false, mode: false });
       try {
-        await operation.wait(loadRepairOrderPrintWorkspace({ openModal: true, preserveSelection: Boolean(repairOrderPrintState.workspace) }));
+        await operation.wait(loadRepairOrderPrintWorkspace({
+          openModal: true,
+          preserveSelection: Boolean(repairOrderPrintState.workspace),
+          prepared,
+        }));
       } catch (error) {
         if (!operation.current() || error?.code === 'stale_print_operation') return;
         setStatus(error.message, true);
