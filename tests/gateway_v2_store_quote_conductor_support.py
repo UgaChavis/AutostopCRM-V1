@@ -7,7 +7,6 @@ from typing import Any
 
 from minimal_kanban.mcp.store_gateway import (
     STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME,
-    _valid_store_quote_telegram_text,
 )
 
 
@@ -392,8 +391,3 @@ class StoreQuoteConductorCasesMixin:
                 if name == STORE_QUOTE_CONDUCTOR_CAPABILITY_NAME
             ],
         )
-
-    def test_telegram_text_validation_is_technical_only(self) -> None:
-        self.assertTrue(_valid_store_quote_telegram_text("Two sentences. No forced question."))
-        self.assertFalse(_valid_store_quote_telegram_text("line one\nline two"))
-        self.assertFalse(_valid_store_quote_telegram_text(""))

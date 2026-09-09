@@ -12,7 +12,6 @@ from ..json_safety import bounded_dict_list, bounded_text_list
 from ..json_safety import json_safe_value as _json_safe_value
 from ..mcp.client import BoardApiClient, BoardApiTransportError, discover_board_api
 from ..models import utc_now_iso
-from ..services.vehicle_profile_service import VehicleProfileService
 from ..vehicle_profile import VEHICLE_PRIMARY_FIELDS
 from .config import (
     get_agent_board_api_url,
@@ -144,7 +143,6 @@ class AgentRunner(AgentRunnerOutputMixin):
         self._max_tool_result_chars = max_tool_result_chars or get_agent_max_tool_result_chars()
         self._tools = AgentToolExecutor(board_api, actor_name=self._actor_name)
         self._policy = ToolPolicyEngine()
-        self._vehicle_profile_service = VehicleProfileService()
 
     def run_once(self) -> bool:
         task = self._storage.claim_next_task()

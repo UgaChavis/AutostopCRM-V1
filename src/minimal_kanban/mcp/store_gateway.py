@@ -1099,14 +1099,6 @@ def _normalized_text(value: Any) -> str:
     return str(value or "").strip()
 
 
-def _valid_store_quote_telegram_text(value: Any) -> bool:
-    """Check only bounded Telegram text safety and transport limits."""
-
-    if not isinstance(value, str) or not value or len(value) > 4_096:
-        return False
-    return not any(marker in value for marker in ("\r", "\n", "\x00"))
-
-
 def _normalized_optional_text(value: Any) -> str | None:
     normalized = _normalized_text(value)
     return normalized or None

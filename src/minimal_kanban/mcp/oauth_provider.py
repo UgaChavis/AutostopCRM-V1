@@ -728,11 +728,6 @@ class ProductionOAuthAuthorizationServerProvider(
                     self._write_state_unlocked(pruned)
                 return pruned
 
-    def _write_state(self, state: dict[str, object]) -> None:
-        with self._lock:
-            with self._process_lock.acquire():
-                self._write_state_unlocked(self._prune_state(state))
-
     def _read_state_unlocked(self) -> dict[str, object]:
         if not self._state_file.exists():
             return self._default_state()

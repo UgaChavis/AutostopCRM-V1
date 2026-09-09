@@ -361,7 +361,6 @@ _REPAIR_RECOMMENDATION_KEYWORDS = (
     "через",
 )
 _MOJIBAKE_HINT_CHARS = frozenset("РСЃЌљњўќџ °±²ієїґ†‡‰‹›€")
-GPT_WALL_TEXT_LINE_LIMIT = 3000
 REPAIR_ORDER_SORT_FIELDS = {"number", "opened_at", "closed_at"}
 REPAIR_ORDER_SORT_DIRECTIONS = {"asc", "desc"}
 REPAIR_ORDER_TEXT_FILE_MAX_BYTES = 1_000_000

@@ -45,7 +45,6 @@ from .file_lock import ProcessFileLock
 from .limited_io import read_bytes_limited, read_text_limited
 
 SLOW_STORAGE_OPERATION_MS = 250.0
-_JSON_SAFE_MAX_DEPTH = 8
 JSON_STORE_STATE_MAX_BYTES = 100 * 1024 * 1024
 _CARD_CONTENT_FIELDS = tuple(
     field.name for field in fields(Card) if field.name not in {"column", "position"}

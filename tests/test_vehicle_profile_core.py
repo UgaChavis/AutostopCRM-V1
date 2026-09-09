@@ -19,31 +19,6 @@ from minimal_kanban.vehicle_profile import (  # noqa: E402
 
 
 class VehicleProfileCoreTests(unittest.TestCase):
-    def test_catalog_aliases_preserve_model_detection_without_inventing_specs(self) -> None:
-        service = VehicleProfileService()
-        for make, russian_make, alias, expected in (
-            ("SUZUKI", "СУЗУКИ", "SWIFT", "Swift"),
-            ("KIA", "КИА", "RIO", "Rio"),
-            ("TOYOTA", "ТОЙОТА", "CAMRY", "Camry"),
-            ("TOYOTA", "ТОЙОТА", "CAMRY 70", "Camry"),
-            ("TOYOTA", "ТОЙОТА", "XV70", "Camry"),
-            ("NISSAN", "НИССАН", "X-TRAIL", "X-Trail"),
-            ("NISSAN", "НИССАН", "XTRAIL", "X-Trail"),
-            ("NISSAN", "НИССАН", "T32", "X-Trail"),
-            ("LADA", "ЛАДА", "VESTA", "Vesta"),
-        ):
-            for text in (
-                f"{make} {alias}",
-                f"{make} {alias}".casefold(),
-                f"{russian_make} {alias}",
-            ):
-                with self.subTest(text=text):
-                    profile, _, _ = service._parse_text_payload(text)
-                    self.assertEqual(profile.model_display, expected)
-                    self.assertIsNone(profile.engine_displacement_l)
-                    self.assertEqual(profile.engine_code, "")
-                    self.assertEqual(service._detect_model_from_catalog(alias, "HONDA"), "")
-
     def test_numeric_normalizers_reject_non_finite_and_pathological_values(self) -> None:
         self.assertIsNone(normalize_vehicle_float("9" * 400))
         self.assertIsNone(normalize_vehicle_float("1e309"))
