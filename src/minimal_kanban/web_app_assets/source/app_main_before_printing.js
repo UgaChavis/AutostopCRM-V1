@@ -3357,8 +3357,9 @@
           popModal('repair-orders');
         },
         clients: () => {
-          closeRepairOrderModal();
+          if (!closeRepairOrderModal()) return false;
           popModal('clients');
+          return true;
         },
         'shared-files': () => {
           hideSharedFilesContextMenu();
@@ -3375,7 +3376,7 @@
         'cashbox-transfer': () => closeCashboxTransferModal(),
         employees: () => {
           if (!confirmDiscardEmployeeChanges()) return false;
-          closeRepairOrderModal();
+          if (!closeRepairOrderModal()) return false;
           closeEmployeeSalaryModal();
           closeEmployeeSalaryReconciliationPeriodDialog();
           popModal('employees');
@@ -3390,10 +3391,7 @@
         },
         'display-dashboard-message': () => closeDisplayDashboardMessageEditor(),
         sticky: () => closeStickyModal(),
-        'repair-order': () => {
-          closeRepairOrderPaymentsModal();
-          closeRepairOrderModal();
-        },
+        'repair-order': () => closeRepairOrderModal(),
         'repair-order-payments': () => closeRepairOrderPaymentsModal(),
         'operator-profile': () => popModal('operator-profile'),
         'operator-admin': () => {
@@ -3403,8 +3401,9 @@
       };
       const closeAction = closeActions[normalizedKey];
       const result = typeof closeAction === 'function' ? closeAction() : null;
-      if (result === false) return;
+      if (result === false) return false;
       closeModalAndChildren(normalizedKey);
+      return true;
     }
 
     async function loadModalData(path, { method = 'GET', body = null, openModal = false, modalEl = null, onSuccess, onError, isCurrent = () => true } = {}) {

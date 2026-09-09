@@ -172,6 +172,37 @@ function closeCardModal(options){closedCards.push(options);}
             *names,
         )
 
+    def test_named_parent_close_preserves_busy_repair_order_workspace(self) -> None:
+        definitions = functions("closeNamedModal", "closeRepairOrderModal")
+        self.run_node(
+            definitions,
+            r"""
+let paymentCloses=0,salaryCloses=0,reconciliationCloses=0;
+const cascades=[];
+function closeRepairOrderPaymentsModal(){paymentCloses++;}
+function closeEmployeeSalaryModal(){salaryCloses++;}
+function closeEmployeeSalaryReconciliationPeriodDialog(){reconciliationCloses++;}
+function confirmDiscardEmployeeChanges(){return true;}
+function closeModalAndChildren(key){cascades.push(key);}
+function resetCardModalState(){}
+
+for(const key of ['repair-order','clients','employees']){
+  const request={key};state.repairOrderMutationRequest=request;
+  assert.equal(closeNamedModal(key),false,key+' ignored the busy repair-order guard');
+  assert.equal(state.repairOrderMutationRequest,request,key+' invalidated the active write');
+}
+assert.equal(paymentCloses,0,'busy parent close hid the payment child');
+assert.equal(salaryCloses,0);assert.equal(reconciliationCloses,0);
+assert.deepEqual(cascades,[],'busy parent close cascaded through the modal stack');
+assert.deepEqual(poppedModals,[],'busy parent close popped a workspace');
+
+state.repairOrderMutationRequest=null;state.repairOrderParentLayer='card';
+assert.equal(closeNamedModal('repair-order'),true);
+assert.equal(paymentCloses,1);assert.deepEqual(cascades,['repair-order']);
+assert.deepEqual(poppedModals,['repair-order']);
+""",
+        )
+
     def test_ambiguous_add_persists_pending_and_blocks_every_repeated_write(self) -> None:
         definitions = self.payment_functions(
             "deleteRepairOrderPayment",
