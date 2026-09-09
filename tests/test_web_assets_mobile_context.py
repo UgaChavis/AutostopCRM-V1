@@ -156,17 +156,21 @@ function loadMobileCardJournal(){}
 (async()=>{
   const saving=saveMobileCardDetail();
   assert.equal(calls.length,1);
-  closeMobileCardDetail();
-  state.mobileCardId='B'; state.mobileCard={id:'B',title:'current-B'};
+  assert.equal(closeMobileCardDetail(),false);
+  assert.equal(state.mobileCardId,'A');
+  assert.equal(state.mobileCardSaving,true);
   calls[0].resolve({card:{id:'A',title:'server-A'}}); await saving;
-  assert.equal(state.mobileCardId,'B');
-  assert.equal(state.mobileCard.title,'current-B');
-  assert.equal(statuses.some(item=>item.message==='КАРТОЧКА СОХРАНЕНА.'),false);
+  assert.equal(state.mobileCardId,'A');
+  assert.equal(state.mobileCard.title,'server-A');
+  assert.equal(state.mobileCardSaving,false);
+  assert.equal(statuses.some(item=>item.message==='КАРТОЧКА СОХРАНЕНА.'),true);
+  assert.equal(closeMobileCardDetail(),true);
+  assert.equal(state.mobileCardId,'');
 
   state.mobileCardContextGeneration++;
   state.mobileCardId='C'; state.mobileCard={id:'C',title:'current-C'};
   state.mobileCardLoading=false; state.mobileCardSaving=false;
-  const rejected=saveMobileCardDetail(); closeMobileCardDetail();
+  const rejected=saveMobileCardDetail(); invalidateMobileCardContext(); state.mobileCardSaving=false;
   calls[1].reject(new Error('obsolete save')); await rejected;
   assert.equal(statuses.some(item=>item.message==='obsolete save'),false);
   assert.equal(state.mobileCardSaving,false);
@@ -254,6 +258,11 @@ function setStatus(message,isError){statuses.push({message,isError});}
             "    function invalidateMobileCardContext()",
             "    function openMobileNewCard()",
         )
+        close = section(
+            source,
+            "    function closeMobileCardDetail()",
+            "    function invalidateMobileCardContext()",
+        )
         self.run_node(
             """
 const assert=require('node:assert/strict');
@@ -280,7 +289,10 @@ function applySavedCardLocalPatch(){}
 function refreshRepairOrderEntry(){}
 function refreshSnapshot(){throw new Error('stale upload must not refresh snapshot');}
 function setStatus(message,isError){statuses.push({message,isError});}
+function resetMobileCardJournal(){}
+function renderMobileShell(){}
 """
+            + close
             + context
             + files
             + """
@@ -291,6 +303,9 @@ function setStatus(message,isError){statuses.push({message,isError});}
   assert.equal(calls[0].path,'/api/add_card_attachment');
   assert.equal(calls[0].options.body.card_id,'A');
   assert.equal(calls[0].options.body.actor_name,'A');
+  assert.equal(closeMobileCardDetail(),false);
+  assert.equal(state.mobileCardId,'A');
+  assert.equal(state.mobileCardFilesBusy,true);
   invalidateMobileCardContext();
   state.mobileCardId='B'; state.mobileCard={id:'B'}; state.mobileCardFilesBusy=false;
   els.mobileCardFileInput.value='new-selection'; state.actor='B'; state.operatorSessionToken='session-B';
@@ -299,7 +314,8 @@ function setStatus(message,isError){statuses.push({message,isError});}
   assert.equal(state.mobileCardId,'B');
   assert.equal(state.mobileCardFilesBusy,false);
   assert.equal(els.mobileCardFileInput.value,'new-selection','stale finally cleared the replacement input');
-  assert.equal(statuses.length,0);
+  assert.equal(statuses.length,1);
+  assert.equal(statuses[0].isError,true);
 })().catch(error=>{console.error(error);process.exitCode=1;});
 """
         )

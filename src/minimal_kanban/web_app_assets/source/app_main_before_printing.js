@@ -119,6 +119,7 @@
       mobileMoreRequest: null,
       mobileMoreError: '',
       mobileMorePanel: '',
+      mobileMorePanelIntent: null,
       mobileClientsLoading: false,
       mobileClientProfileLoading: false,
       mobileClientsSearchTimer: null,
@@ -2433,7 +2434,8 @@
         mobileCardOpenRequest: null, mobileCardSaveRequest: null, mobileCardFilesRequest: null,
         mobileCardJournalRequest: null, mobileCardCreating: false, mobileCardLoading: false,
         mobileCardSaving: false, mobileCardFilesBusy: false,
-        mobileView: 'board', mobileMorePanel: '', mobileMoreLoaded: false, mobileMoreLoading: false,
+        mobileView: 'board', mobileMorePanel: '', mobileMorePanelIntent: null,
+        mobileMoreLoaded: false, mobileMoreLoading: false,
         mobileMoreRequest: null, mobileMoreError: '',
         mobileArchiveLoading: false, mobileArchiveRestoreRequest: null,
         archiveMutationRequest: null,
@@ -5872,6 +5874,10 @@
     }
 
     function closeMobileCardDetail() {
+      if (state.mobileCardSaving || state.mobileCardFilesBusy) {
+        setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ СОХРАНЕНИЯ ИЛИ ОПЕРАЦИИ С ФАЙЛАМИ.', true);
+        return false;
+      }
       invalidateMobileCardContext();
       state.mobileCardId = '';
       state.mobileCard = null;
@@ -5882,6 +5888,7 @@
       state.mobileCardFilesBusy = false;
       resetMobileCardJournal();
       renderMobileShell();
+      return true;
     }
 
     function invalidateMobileCardContext() {
@@ -7130,6 +7137,12 @@
         + '<section class="mobile-client-detail__section"><h4>Заказ-наряды</h4>' + ordersHtml + '</section>';
     }
 
+    function claimMobileMorePanelIntent() {
+      const intent = {};
+      state.mobileMorePanelIntent = intent;
+      return intent;
+    }
+
     function syncMobileMorePanelChrome() {
       const hasPanel = Boolean(String(state.mobileMorePanel || '').trim());
       if (els.mobileMoreGrid) els.mobileMoreGrid.hidden = hasPanel;
@@ -7211,12 +7224,14 @@
     }
 
     function openMobileClientsPanel() {
+      claimMobileMorePanelIntent();
       state.mobileMorePanel = 'clients';
       renderMobileMore();
       loadMobileClients();
     }
 
     function closeMobileMorePanel() {
+      claimMobileMorePanelIntent();
       if (state.mobileMorePanel === 'clients') {
         state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
         state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
@@ -7408,6 +7423,7 @@
     function setMobileView(view) {
       const requestedView = String(view || '').trim();
       if (requestedView === 'cashboxes' && !requireEmployeesCashboxesAccess()) return false;
+      claimMobileMorePanelIntent();
       state.mobileView = normalizeMobileView(view);
       renderMobileShell();
       if (state.mobileView === 'cashboxes') {

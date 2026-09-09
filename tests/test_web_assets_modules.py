@@ -297,7 +297,7 @@ const exported = auxiliaryFactory({{state, els, api, setStatus() {{}}, shared}})
             """
 const assert = require('node:assert/strict');
 const BOARD_MODULE_MANIFEST = {inventory:'/inventory.js',payroll:'/payroll.js',printing:'/printing.js',cash_journal:'/journal.js',auxiliary:'/auxiliary.js'};
-const state={viewerStateGeneration:0,editingId:'A',modalStack:[],mobileView:'more'}, els={};
+const state={viewerStateGeneration:0,editingId:'A',modalStack:[],mobileView:'more',mobileMorePanel:'',mobileMorePanelIntent:null}, els={};
 const scripts=[],statuses=[],calls=[];
 let initialized=0,resets=0;
 const window={};
@@ -305,6 +305,7 @@ const document={createElement(){return {remove(){this.removed=true;}};},head:{ap
 async function api(){return {};}
 function setStatus(message){statuses.push(message);}
 function buildBoardModuleSharedContext(){return {};}
+function claimMobileMorePanelIntent(){const intent={};state.mobileMorePanelIntent=intent;return intent;}
 function isModalOpen(key){return state.modalStack.some(entry=>entry.key===key);}
 """
             + loader
@@ -335,12 +336,74 @@ function isModalOpen(key){return state.modalStack.some(entry=>entry.key===key);}
   assert.equal(scripts.length,scriptCount,'passive auxiliary handler loaded the module');
   const firstSettings={key:'settings'};state.modalStack=[firstSettings];
   const staleEditor=invokeBoardModule('auxiliary','openDisplayDashboardMessageEditor',[]);
+  const staleArchive=invokeBoardModule('auxiliary','openMobileArchivePanel',[]);
+  state.mobileMorePanel='clients';state.mobileMorePanelIntent={};
   state.modalStack=[{key:'settings'}];
-  window.registerBoardModule('auxiliary',(context)=>{assert.deepEqual(context.shared,{});return {openDisplayDashboardMessageEditor:()=>calls.push('stale-editor'),openSharedFilesModal:()=>calls.push('auxiliary')};});scripts.at(-1).onload();
+  window.registerBoardModule('auxiliary',(context)=>{assert.deepEqual(context.shared,{});return {openDisplayDashboardMessageEditor:()=>calls.push('stale-editor'),openMobileArchivePanel:()=>calls.push('stale-archive'),openSharedFilesModal:()=>calls.push('auxiliary')};});scripts.at(-1).onload();
   await staleEditor;assert.equal(calls.includes('stale-editor'),false);
+  await staleArchive;assert.equal(calls.includes('stale-archive'),false);
   const auxiliary=invokeBoardModule('auxiliary','openSharedFilesModal',[]);
   await auxiliary;assert.equal(calls.includes('auxiliary'),true);
   console.log('module lifecycle verified');
+})().catch(error=>{console.error(error);process.exitCode=1;});
+"""
+        )
+        result = subprocess.run(
+            ["node"], input=script, text=True, capture_output=True, cwd=ROOT, timeout=15
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required")
+    def test_lazy_mobile_panels_keep_the_latest_navigation_intent(self) -> None:
+        loader = (ROOT / "src/minimal_kanban/web_app_assets/source/module_loader.js").read_text(
+            encoding="utf-8"
+        )
+        for signature in (
+            "function openMobileClientsPanel() {\n      claimMobileMorePanelIntent();",
+            "function closeMobileMorePanel() {\n      claimMobileMorePanelIntent();",
+            "function setMobileView(view) {",
+        ):
+            self.assertIn(signature, BOARD_WEB_APP_JS)
+        script = (
+            """
+const assert = require('node:assert/strict');
+const BOARD_MODULE_MANIFEST = {auxiliary:'/auxiliary.js',payroll:'/payroll.js',aba:'/aba.js'};
+const state={viewerStateGeneration:0,operatorSessionToken:'session-a',editingId:'',modalStack:[],mobileView:'more',mobileMorePanel:'',mobileMorePanelIntent:null};
+const els={},scripts=[],calls=[],window={};
+const document={createElement(){return {remove(){}};},head:{appendChild(script){scripts.push(script);}}};
+async function api(){return {};}
+function setStatus(){}
+function buildBoardModuleSharedContext(){return {};}
+function claimMobileMorePanelIntent(){const intent={};state.mobileMorePanelIntent=intent;return intent;}
+"""
+            + loader
+            + """
+(async()=>{
+  const staleArchive=invokeBoardModule('auxiliary','openMobileArchivePanel',[]);
+  claimMobileMorePanelIntent();state.mobileMorePanel='clients';
+  window.registerBoardModule('auxiliary',()=>({
+    openMobileArchivePanel:()=>{state.mobileMorePanel='archive';calls.push('archive');},
+    openMobileSharedFilesPanel:()=>{state.mobileMorePanel='files';calls.push('files');},
+  }));
+  scripts[0].onload();await staleArchive;
+  assert.equal(state.mobileMorePanel,'clients');assert.equal(calls.includes('archive'),false);
+
+  const staleEmployee=invokeBoardModule('payroll','openMobileEmployeesPanel',[]);
+  invokeBoardModule('auxiliary','openMobileSharedFilesPanel',[]);
+  window.registerBoardModule('payroll',()=>({
+    openMobileEmployeesPanel:()=>{state.mobileMorePanel='employees';calls.push('employees');},
+  }));
+  scripts[1].onload();await staleEmployee;
+  assert.equal(state.mobileMorePanel,'files');assert.equal(calls.includes('employees'),false);
+
+  const staleAba=invokeBoardModule('aba','openMobileArchivePanel',[]);
+  state.mobileView='inventory';claimMobileMorePanelIntent();
+  state.mobileView='more';claimMobileMorePanelIntent();
+  window.registerBoardModule('aba',()=>({
+    openMobileArchivePanel:()=>{state.mobileMorePanel='archive';calls.push('aba');},
+  }));
+  scripts[2].onload();await staleAba;
+  assert.equal(state.mobileMorePanel,'files');assert.equal(calls.includes('aba'),false);
 })().catch(error=>{console.error(error);process.exitCode=1;});
 """
         )

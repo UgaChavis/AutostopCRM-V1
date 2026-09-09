@@ -61,6 +61,10 @@
     }
 
     function invokeBoardModule(name, method, args, passive = false) {
+      const mobilePanelOpen = [
+        'openMobileArchivePanel', 'openMobileEmployeesPanel', 'openMobileSharedFilesPanel',
+      ].includes(method);
+      const mobilePanelIntent = mobilePanelOpen ? claimMobileMorePanelIntent() : null;
       const record = boardModuleRecords.get(name);
       if (record?.exports && (!record.invocations.size || passive)) return record.exports[method](...args);
       if (passive) return true;
@@ -83,7 +87,8 @@
       if (openIntent) currentRecord.openIntent = openIntent;
       const intentIsCurrent = () => (!openIntent || currentRecord.openIntent === openIntent)
         && (!settingsParent || (state.modalStack || []).includes(settingsParent))
-        && (mobileView === null || state.mobileView === mobileView);
+        && (mobileView === null || state.mobileView === mobileView)
+        && (!mobilePanelIntent || state.mobileMorePanelIntent === mobilePanelIntent);
       let argumentKey = '';
       try { argumentKey = JSON.stringify(args); } catch (_) { /* Event objects can contain cycles. */ }
       const invocationKey = JSON.stringify([method, generation, session, cardId, month,
