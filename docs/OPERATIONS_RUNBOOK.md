@@ -216,6 +216,12 @@ does not cancel an already running synchronous write or authorize a retry.
 After an atomic state replace, deferred cleanup/readback failures are logged;
 an unpublished durable change-feed stage remains available for reconciliation.
 
+Frontend ownership suites `test_card_workspace_context`,
+`test_web_assets_async_ownership_context`, `test_web_assets_client_context`,
+`test_web_assets_mobile_context`, and `test_web_assets_repair_order_payment_context`
+cover late responses, session changes, modal replacement, and attempted parent
+closure while a card, file, payment, or repair-order write is still pending.
+
 A byte-identical save can retain the existing state file and its timestamp only
 after SQL confirms the exact committed fingerprint with no pending outbox, and
 a fresh file signature still matches the validated state and feed signatures.

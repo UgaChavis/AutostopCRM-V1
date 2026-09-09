@@ -24,6 +24,13 @@ Direct repair-order opening shares hydration ownership and also checks the
 originating modal entry. Closing and reopening that parent cannot revive an old
 response; an already submitted creation request is never retried for this reason.
 
+Global mobile-more navigation owns one intent generation: opening Clients,
+returning Back, changing the active view, or choosing another destination
+invalidates any older lazy navigation before it can reopen Archive, Files, or
+Employees. Card Back and repair-order parent closure remain blocked while their
+workspace owns a save, file, payment, or order mutation, so an ambiguously
+completed request cannot be hidden and then repeated from a new editor context.
+
 Continue separating board/session responsibilities only when it simplifies
 behavior; startup bytes and first-panel latency must be measured together.
 

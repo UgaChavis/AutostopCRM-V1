@@ -38,8 +38,9 @@ Owner MCP client -> 24-tool Gateway v2 -> internal Store adapter -> Store API
   internal Store adapter. API, MCP, UI, and scripts use the same services.
 - `src/minimal_kanban/web_app_assets/source/` plus `assembler.py` own browser
   assets; `module_assets.py` owns versioned on-demand panel bundles. `main.py`
-  and `main_mcp.py` are desktop and API/MCP entrypoints. The Qt window hosts
-  the browser UI and integration settings, not a second native CRM board.
+  and `main_mcp.py` are desktop and API/MCP entrypoints. The Qt/PySide6 window
+  hosts the browser UI, integration settings, and printing runtime; it is not a
+  second native CRM board.
 - Detached service bundles prepare mutations before JsonStore commits them;
   derived repair-order text files are published after the authoritative save.
 
