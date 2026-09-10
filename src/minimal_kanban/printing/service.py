@@ -75,6 +75,7 @@ from .models import (
     PrintModuleSettings,
     PrintTemplateRecord,
 )
+from .mutation_lock import print_state_mutation_boundary, print_state_mutation_locked
 from .pdf import PdfRenderError, render_html_to_pdf_bytes
 from .printers import PrinterBackendError, list_printers, print_html
 from .template_engine import TemplateRenderError, render_template
@@ -111,6 +112,8 @@ _COMPLETION_ACT_ACCEPTANCE_TEXT = (
     "Вышеперечисленные работы (услуги) выполнены полностью и в срок. "
     "Заказчик претензий по объему, качеству и срокам оказания услуг не имеет."
 )
+_ActRecord = CompletionActDraftData | None
+_ActFormMap = dict[str, CompletionActDraftData]
 
 
 def _completion_act_checked_money(value: Decimal, *, field: str) -> Decimal:
@@ -1308,21 +1311,21 @@ class PrintModuleService:
         self._settings_path = self._root_dir / _SETTINGS_FILE_NAME
         self._templates_path = self._root_dir / _TEMPLATES_FILE_NAME
         self._inspection_sheet_forms_path = self._root_dir / _INSPECTION_SHEET_FORMS_FILE_NAME
-        # Keep the legacy path for one-time migration and rollback-compatible
-        # backups. New runtime records live in the sibling private directory.
         self._completion_act_forms_path = self._root_dir / _COMPLETION_ACT_FORMS_FILE_NAME
         self._completion_act_forms_dir = self._root_dir / _COMPLETION_ACT_FORMS_DIR_NAME
         self._completion_act_lock = threading.RLock()
         self._completion_act_feed_pending: set[str] = set()
-        self._completion_act_process_lock = ProcessFileLock(
-            self._completion_act_forms_path.with_suffix(".lock")
-        )
+        completion_lock_path = self._completion_act_forms_path.with_suffix(".lock")
+        self._completion_act_process_lock = ProcessFileLock(completion_lock_path)
+        self._print_state_lock = self._completion_act_lock
+        self._print_state_process_lock = self._completion_act_process_lock
         self._builtin_documents = {item.id: item for item in BUILTIN_PRINT_DOCUMENTS}
         self._builtin_templates = {item.id: item for item in builtin_template_records()}
         self._change_feed_store = change_feed_store
         self._logger = logger
-        self._migrate_legacy_completion_act_forms()
-        self._sync_change_feed(initialize=True)
+        with print_state_mutation_boundary(self):
+            self._migrate_legacy_completion_act_forms(process_locked=True)
+            self._sync_change_feed(initialize=True, act_lock_held=True)
 
     def manual_document_profile(
         self,
@@ -1637,6 +1640,7 @@ class PrintModuleService:
             "documents": [payload["document"].to_dict() for payload in document_payloads],
         }
 
+    @print_state_mutation_locked
     def save_template(
         self,
         *,
@@ -1680,17 +1684,13 @@ class PrintModuleService:
             templates.append(record)
         self._write_custom_templates(templates)
         settings = self._read_settings()
-        return {
-            "template": record.to_dict(
-                is_default=(
-                    settings.default_template_ids.get(normalized_document_type) == record.id
-                )
-            ),
-            "templates": self._template_payloads_for_document_type(
-                normalized_document_type, settings=settings
-            ),
-        }
+        templates = self._template_payloads_for_document_type(
+            normalized_document_type, settings=settings
+        )
+        is_default = settings.default_template_ids.get(normalized_document_type) == record.id
+        return {"template": record.to_dict(is_default=is_default), "templates": templates}
 
+    @print_state_mutation_locked
     def duplicate_template(self, *, template_id: str, name: str = "") -> dict[str, Any]:
         source = self._find_template(template_id)
         document_policy.require_template_unlocked(source.document_type)
@@ -1708,13 +1708,12 @@ class PrintModuleService:
         templates.append(duplicate)
         self._write_custom_templates(templates)
         settings = self._read_settings()
-        return {
-            "template": duplicate.to_dict(is_default=False),
-            "templates": self._template_payloads_for_document_type(
-                source.document_type, settings=settings
-            ),
-        }
+        templates = self._template_payloads_for_document_type(
+            source.document_type, settings=settings
+        )
+        return {"template": duplicate.to_dict(is_default=False), "templates": templates}
 
+    @print_state_mutation_locked
     def delete_template(self, *, template_id: str) -> dict[str, Any]:
         record = self._find_template(template_id)
         document_policy.require_template_unlocked(record.document_type)
@@ -1736,6 +1735,7 @@ class PrintModuleService:
             ),
         }
 
+    @print_state_mutation_locked
     def set_default_template(self, *, document_type: str, template_id: str) -> dict[str, Any]:
         normalized_document_type = _normalize_document_type(document_type)
         document_policy.require_template_unlocked(normalized_document_type)
@@ -1756,13 +1756,12 @@ class PrintModuleService:
             ),
         }
 
+    @print_state_mutation_locked
     def save_settings(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         settings = self._merged_settings(payload or {})
         self._write_settings(settings)
-        return {
-            "settings": settings.to_dict(),
-            "printers": list_printers(default_name=settings.default_printer),
-        }
+        printers = list_printers(default_name=settings.default_printer)
+        return {"settings": settings.to_dict(), "printers": printers}
 
     def _document_workspace_payload(
         self,
@@ -2680,8 +2679,8 @@ class PrintModuleService:
             except OSError as exc:
                 raise self._completion_act_store_corrupt() from exc
 
-    def _read_completion_act_record(self, cycle_key: str) -> CompletionActDraftData | None:
-        self._migrate_legacy_completion_act_forms()
+    def _read_completion_act_record(self, cycle_key: str, lock_held: bool = False) -> _ActRecord:
+        self._migrate_legacy_completion_act_forms(process_locked=lock_held)
         path = self._completion_act_record_path(cycle_key)
         if path.is_symlink():
             raise self._completion_act_store_corrupt()
@@ -2689,8 +2688,8 @@ class PrintModuleService:
             return None
         return self._read_completion_act_record_path(path, cycle_key=cycle_key)
 
-    def _read_completion_act_form_map(self) -> dict[str, CompletionActDraftData]:
-        self._migrate_legacy_completion_act_forms()
+    def _read_completion_act_form_map(self, lock_held: bool = False) -> _ActFormMap:
+        self._migrate_legacy_completion_act_forms(process_locked=lock_held)
         entries, _ = self._completion_act_store_inventory()
         normalized: dict[str, CompletionActDraftData] = {}
         for name, (path, _) in sorted(entries.items()):
@@ -3247,6 +3246,7 @@ class PrintModuleService:
             },
         }
 
+    @print_state_mutation_locked
     def save_inspection_sheet_form(
         self,
         card: Card,
@@ -3387,8 +3387,9 @@ class PrintModuleService:
         self._sync_change_feed()
 
     def reconcile_change_feed(self) -> None:
-        self._sync_change_feed()
-        self._reconcile_pending_completion_act_change_feed()
+        with print_state_mutation_boundary(self):
+            self._sync_change_feed()
+            self._reconcile_pending_completion_act_change_feed(lock_held=True)
 
     def _sync_completion_act_change_feed(self, record: CompletionActDraftData) -> None:
         if self._change_feed_store is None:
@@ -3418,7 +3419,7 @@ class PrintModuleService:
             with self._completion_act_lock:
                 self._completion_act_feed_pending.discard(record.cycle_key)
 
-    def _reconcile_pending_completion_act_change_feed(self) -> None:
+    def _reconcile_pending_completion_act_change_feed(self, *, lock_held: bool = False) -> None:
         if self._change_feed_store is None:
             return
         with self._completion_act_lock:
@@ -3427,7 +3428,7 @@ class PrintModuleService:
             ]
         for cycle_key in cycle_keys:
             try:
-                record = self._read_completion_act_record(cycle_key)
+                record = self._read_completion_act_record(cycle_key, lock_held=lock_held)
             except PrintModuleError as exc:  # pragma: no cover - corrupt store stays fail closed
                 if self._logger is not None:
                     self._logger.warning(
@@ -3442,14 +3443,13 @@ class PrintModuleService:
                 continue
             self._sync_completion_act_change_feed(record)
 
-    def _sync_change_feed(self, *, initialize: bool = False) -> None:
+    def _sync_change_feed(self, *, initialize: bool = False, act_lock_held: bool = False) -> None:
         if self._change_feed_store is None:
             return
-        completion_act_forms = (
-            {key: record.to_dict() for key, record in self._read_completion_act_form_map().items()}
-            if initialize
-            else {}
-        )
+        completion_act_forms = {}
+        if initialize:
+            records = self._read_completion_act_form_map(act_lock_held)
+            completion_act_forms = {key: record.to_dict() for key, record in records.items()}
         projected = project_print_module(
             settings=self._read_settings().to_dict(),
             templates=[item.to_dict() for item in self._read_custom_templates()],
