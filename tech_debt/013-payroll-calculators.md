@@ -9,6 +9,12 @@ Text presentation is isolated in `payroll_report_text.py`; monetary column
 projection is shared. Remaining work is calculation/ledger separation, not
 moving the same report text again.
 
+`list_employees` uses a balance-only projection of the shared ledger calculation.
+It preserves the same Decimal totals and legacy sources while skipping journal-row
+construction, sorting and revision hashing. The full employee ledger retains its
+rows and revision contract. `test_salary_balance_summary` owns equality across
+current and legacy accruals, payouts, advances and balance resets.
+
 Preserve minor units/Decimal, ROUND_HALF_UP, deterministic cent balancing and
 legacy normalization. Presentation rounding must not alter ledger values.
 Keep revision checks and posting/reversal behavior.

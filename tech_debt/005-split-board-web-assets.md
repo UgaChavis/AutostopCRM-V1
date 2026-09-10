@@ -3,10 +3,16 @@
 The startup bundle retains board/cards, clients, navigation, polling and modal
 state. Payroll, stock, printing and cash-journal panels have versioned lazy
 bundles. The assembler/loader and Windows package share that asset contract.
-On a cold employees or inventory open, read-only data requests overlap module
-loading. Prepared results wait for the module and current request/session scope;
-concurrent opens reuse the pending invocation. No heavy panel is prefetched at
-startup. Keep first-open latency and failure/retry coverage with this boundary.
+On a full-access desktop employees open, one fresh `list_employees` response
+supplies the embedded month summary and detail rows. A references-only, malformed
+or wrong-month response uses a guarded `get_payroll_report` fallback; mobile and
+explicit month changes retain their separate payroll read. Inventory and saved-card
+printing start their read-only preparation while the lazy module loads. Unsaved-card
+printing still saves first and does not start an early workspace request. Prepared
+results wait for exact viewer, session, request, card, editor and hydration
+ownership; concurrent opens reuse the pending invocation. No heavy panel is
+prefetched at startup. Keep first-open latency and failure/retry coverage with this
+boundary.
 The cold inventory shell opens immediately with its workspace inert until ready;
 Close/Escape remain available. Prepared reads own the exact modal entry, so a
 closed or replaced shell cannot be reopened by an old response. Script failure

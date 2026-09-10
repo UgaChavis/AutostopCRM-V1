@@ -215,12 +215,17 @@ archive and derived-file failures, and nonblocking MCP execution. A timeout
 does not cancel an already running synchronous write or authorize a retry.
 After an atomic state replace, deferred cleanup/readback failures are logged;
 an unpublished durable change-feed stage remains available for reconciliation.
+`test_salary_balance_summary` proves that the employee-list balance projection
+matches the full ledger without building journal rows or a revision.
 
 Frontend ownership suites `test_card_workspace_context`,
 `test_web_assets_async_ownership_context`, `test_web_assets_client_context`,
 `test_web_assets_mobile_context`, and `test_web_assets_repair_order_payment_context`
 cover late responses, session changes, modal replacement, and attempted parent
 closure while a card, file, payment, or repair-order write is still pending.
+`test_web_assets_cold_overlap`, `test_printing_cold_overlap`, and
+`test_printing_async_context` own the cold-panel overlap, retry and prepared-read
+boundaries.
 
 A byte-identical save can retain the existing state file and its timestamp only
 after SQL confirms the exact committed fingerprint with no pending outbox, and
@@ -319,6 +324,10 @@ cash-journal opens in fresh authenticated contexts, cold mobile startup and
 input-to-current-result client search. Keep this first-open latency separate
 from initial JavaScript savings; lazy loading must not hide a transferred delay.
 The comparison runner's `--panels` flag alternates these cold-panel series too.
+Printing setup waits for its preparatory card reads and delayed open/seen effects
+to become idle before timing starts. Network records belong to the phase in which
+the request started; response and finish phases remain separate so a setup request
+that completes during an action cannot be mistaken for action work.
 
 `scripts/benchmark_unit_suite.py --source-root <checkout> --output-dir output/unit-benchmark`
 records full discovery/run counts, duration, exact skip reasons and failure IDs.
@@ -506,6 +515,30 @@ normal deploys. Never dump `.env`, container
 `.Config.Env`, a full process environment, or credential-bearing config into a
 tool transcript. Report only allowlisted non-secret settings and boolean
 credential checks.
+
+## GitHub-Only Publication
+
+When the approved endpoint is the GitHub branch rather than a production rollout,
+start from a clean, fully verified candidate and fetch the exact lowercase ref:
+
+```powershell
+$candidateSha = (git rev-parse HEAD).Trim()
+git fetch --no-tags --refmap= origin refs/heads/autostopcrm-v1:refs/remotes/origin/crm-production-baseline
+$remoteSha = (git rev-parse refs/remotes/origin/crm-production-baseline).Trim()
+git merge-base --is-ancestor $remoteSha $candidateSha
+if ($LASTEXITCODE -ne 0) { throw "Candidate is not a fast-forward of autostopcrm-v1" }
+git push origin HEAD:autostopcrm-v1
+```
+
+Never force-push the production branch. Confirm that the exact remote ref equals
+`$candidateSha`, then find the `quality.yml` push run for that commit with
+`gh run list --branch autostopcrm-v1 --event push --commit $candidateSha`. Wait
+for it with `gh run watch --exit-status` and verify that the completed successful
+workflow reports the same `headSha`. A run for an older commit is not release
+evidence.
+
+This path does not authorize SSH, `deploy.sh`, a server fast-forward, or live
+smoke. A successful GitHub push and CI run are not a production rollout.
 
 ## Deploy
 
