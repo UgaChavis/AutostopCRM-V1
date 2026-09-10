@@ -944,10 +944,11 @@ def verify_startup_error_handling(executable: Path, appdata_root: Path) -> dict:
         base_url = f"http://127.0.0.1:{blocked_port}"
         try:
             status, response = send_request(base_url, "/api/health", method="GET")
+        except (OSError, urllib.error.URLError):
+            pass
+        else:
             if status == 200 and response.get("ok"):
                 raise VerificationError("Application unexpectedly started API on a blocked port.")
-        except Exception:
-            pass
 
         log_file = appdata_root / "Minimal Kanban" / "logs" / "minimal-kanban.log"
         _assert_startup_failure_logged(_wait_for_log_file(log_file, timeout_seconds=10))

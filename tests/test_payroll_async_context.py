@@ -21,6 +21,7 @@ function fixture() {
     employeeSalarySheet: {balance_minor:100,balance_revision:'r1'},
     employeeSalaryActionKind: 'salary_payout', employeeSalaryCashboxId: 'cash',
     employeeSalaryResetPending: false, employeeSalaryAdvanceOpen: true,
+    employeeMoneyMutationOperation: null, employeeEditOperation: null,
   };
   const els = new Proxy({}, {get(target,key) {
     return target[key] ||= {value: key.includes('Cashbox') ? 'cash' : key === 'employeesMonthInput' ? '2026-09' : '10',
@@ -59,8 +60,10 @@ const reply = {employee:{id:'a'},employees:[{id:'a',name:'Alice'},{id:'b',name:'
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function switchViewer(f) {
   f.state.viewerStateGeneration++; f.state.operatorSessionToken='B';
+  f.state.employeeMoneyMutationOperation=null; f.state.employeeEditOperation=null;
   f.state.employeeSalaryResetPending=true;
   for (const key of ['employeeSalaryActionConfirmButton','employeeSalaryAdvanceConfirmButton','employeeShiftAccrualConfirmButton']) f.els[key].disabled=true;
+  for (const key of ['employeeSaveButton','employeeDeleteButton']) f.els[key].disabled=true;
   f.state.employeeSalarySheet={marker:'B'}; f.state.employees=[{id:'b',name:'B'}];
   f.statuses.length=0; f.renders.length=0;
 }
@@ -73,9 +76,10 @@ class PayrollAsyncContextTests(unittest.TestCase):
         result = subprocess.run(
             ["node"],
             input=HARNESS
-            + "\n(async()=>{\n"
+            + "\nconst scenarioWatchdog=setTimeout(()=>{console.error('payroll async scenario timed out');process.exitCode=1;},5000);\n"
+            + "(async()=>{\n"
             + scenario
-            + "\n})().catch(error=>{console.error(error);process.exitCode=1;});",
+            + "\n})().then(()=>clearTimeout(scenarioWatchdog),error=>{clearTimeout(scenarioWatchdog);console.error(error);process.exitCode=1;});",
             text=True,
             capture_output=True,
             cwd=ROOT,
@@ -99,6 +103,7 @@ for (const [name,steps] of Object.entries(handlers)) {
     await pending;
     assert.equal(f.state.employeeSalaryResetPending,true,name+': cleared B pending');
     for(const key of ['employeeSalaryActionConfirmButton','employeeSalaryAdvanceConfirmButton','employeeShiftAccrualConfirmButton']) assert.equal(f.els[key].disabled,true,name+': cleared B button');
+    for(const key of ['employeeSaveButton','employeeDeleteButton']) assert.equal(f.els[key].disabled,true,name+': cleared B edit button');
     assert.equal(f.state.employeeSalarySheet.marker,'B',name+': overwrote B sheet');
     assert.equal(f.state.employees[0].name,'B',name+': overwrote B employees');
     assert.equal(f.statuses.length,0,name+': stale status'); assert.equal(f.renders.length,0,name+': stale render');
@@ -175,12 +180,124 @@ for(const change of [f=>f.state.operatorSessionToken='B',f=>f.state.employeesCas
   f.requests[0].resolve(reply); await pending;
   assert.equal(f.requests.length,1,'stale mutation launched follow-up reads'); assert.equal(f.statuses.length,0);
 }
-const f=fixture(), first=f.context.handleEmployeeSalaryActionConfirm(), second=f.context.handleEmployeeSalaryActionConfirm();
-f.requests[0].reject(new Error('older same-employee operation')); await first;
-assert.equal(f.els.employeeSalaryActionConfirmButton.disabled,true,'older finally cleared newer button');
-f.requests[1].reject(new Error('current operation')); await second;
-assert.equal(f.els.employeeSalaryActionConfirmButton.disabled,false); assert.deepEqual(f.statuses,['current operation']);
 """)
+
+    def test_money_mutations_are_single_flight_and_release_for_retry(self) -> None:
+        self.run_node(r"""
+for (const [name,button] of [
+  ['handleEmployeeSalaryActionConfirm','employeeSalaryActionConfirmButton'],
+  ['handleEmployeeSalaryAdvanceConfirm','employeeSalaryAdvanceConfirmButton'],
+  ['handleEmployeeShiftAccrualConfirm','employeeShiftAccrualConfirmButton'],
+]) {
+  const f=fixture();
+  const first=f.context[name]();
+  const duplicate=f.context[name]();
+  assert.equal(f.requests.length,1,name+': duplicate submit started a second write');
+  await duplicate;
+  assert.equal(f.els[button].disabled,true,name+': pending control was re-enabled');
+  f.requests[0].reject(new Error('first failure'));
+  await first;
+  assert.equal(f.state.employeeMoneyMutationOperation,null,name+': completed operation retained its single-flight token');
+  assert.equal(f.els[button].disabled,false,name+': completed operation did not release its control');
+  const retry=f.context[name]();
+  assert.equal(f.requests.length,2,name+': completed operation blocked a safe retry');
+  f.requests[1].reject(new Error('retry failure'));
+  await retry;
+}
+""")
+
+    def test_money_single_flight_spans_salary_and_shift_dialogs(self) -> None:
+        self.run_node(r"""
+const f=fixture();
+f.state.cashboxesLoaded=true; f.state.cashboxes=[{id:'cash',name:'Cash'}];
+const payout=f.context.handleEmployeeSalaryActionConfirm();
+await f.context.openEmployeeSalaryAdvanceDialog();
+f.els.employeeSalaryAdvanceAmountInput.value='10';
+const advance=f.context.handleEmployeeSalaryAdvanceConfirm();
+f.context.openEmployeeShiftAccrualDialog();
+f.els.employeeShiftAccrualAmountInput.value='10';
+const shift=f.context.handleEmployeeShiftAccrualConfirm();
+assert.equal(f.requests.filter(row=>row.options.method==='POST').length,1,'dialog switch bypassed money single-flight');
+await Promise.all([advance,shift]);
+for(const key of ['employeeSalaryActionConfirmButton','employeeSalaryAdvanceConfirmButton','employeeShiftAccrualConfirmButton']) {
+  assert.equal(f.els[key].disabled,true,key+': active money operation was not reflected in a newly opened dialog');
+}
+f.requests[0].reject(new Error('payout failed'));
+await payout;
+assert.equal(f.state.employeeMoneyMutationOperation,null);
+for(const key of ['employeeSalaryActionConfirmButton','employeeSalaryAdvanceConfirmButton','employeeShiftAccrualConfirmButton']) {
+  assert.equal(f.els[key].disabled,false,key+': released money operation left a switched dialog disabled');
+}
+""")
+
+    def test_employee_create_and_edit_writes_are_single_flight(self) -> None:
+        self.run_node(r"""
+const created=fixture(); created.state.employeeCreateMode=true; created.state.activeEmployeeId='';
+const firstCreate=created.context.saveEmployee();
+const duplicateCreate=created.context.saveEmployee();
+assert.equal(created.requests.filter(row=>row.options.method==='POST').length,1,'double create started two writes');
+await duplicateCreate;
+assert.equal(created.els.employeeSaveButton.disabled,true);
+created.requests[0].reject(new Error('create failed')); await firstCreate;
+assert.equal(created.state.employeeEditOperation,null);
+assert.equal(created.els.employeeSaveButton.disabled,false);
+const createRetry=created.context.saveEmployee();
+assert.equal(created.requests.filter(row=>row.options.method==='POST').length,2,'released create did not retry');
+created.requests[1].resolve({employee:{id:'new-employee'},employees:[{id:'new-employee',name:'Alice'}],created:true});
+await tick();
+assert.equal(created.requests[2].path,'/api/get_payroll_report?month=2026-09');
+created.requests[2].resolve({summary:[],detail_rows:[]});
+await createRetry;
+assert.equal(created.state.activeEmployeeId,'new-employee','successful create did not rebind its workspace');
+assert.equal(created.state.employeeEditOperation,null);
+
+const edited=fixture();
+const firstEdit=edited.context.saveEmployee();
+const collidingDelete=edited.context.deleteEmployee();
+assert.equal(edited.requests.filter(row=>row.options.method==='POST').length,1,'save/delete used separate write ownership');
+await collidingDelete;
+edited.requests[0].reject(new Error('edit failed')); await firstEdit;
+assert.equal(edited.state.employeeEditOperation,null);
+""")
+
+    def test_old_finally_cannot_release_new_viewer_mutation_tokens(self) -> None:
+        self.run_node(r"""
+const money=fixture();
+const oldMoney=money.context.handleEmployeeSalaryActionConfirm();
+const oldMoneyRequest=money.requests[0];
+switchViewer(money);
+const newMoney=money.context.handleEmployeeSalaryActionConfirm();
+assert.equal(money.requests.length,2);
+const newMoneyToken=money.state.employeeMoneyMutationOperation;
+oldMoneyRequest.reject(new Error('old viewer money failure')); await oldMoney;
+assert.equal(money.state.employeeMoneyMutationOperation,newMoneyToken,'old money finally released new viewer token');
+assert.equal(money.els.employeeSalaryActionConfirmButton.disabled,true,'old money finally changed new viewer controls');
+money.requests[1].reject(new Error('new viewer money failure')); await newMoney;
+assert.equal(money.state.employeeMoneyMutationOperation,null);
+
+const edit=fixture();
+const oldEdit=edit.context.saveEmployee();
+const oldEditRequest=edit.requests[0];
+switchViewer(edit);
+const newEdit=edit.context.saveEmployee();
+assert.equal(edit.requests.length,2);
+const newEditToken=edit.state.employeeEditOperation;
+oldEditRequest.reject(new Error('old viewer edit failure')); await oldEdit;
+assert.equal(edit.state.employeeEditOperation,newEditToken,'old edit finally released new viewer token');
+assert.equal(edit.els.employeeSaveButton.disabled,true,'old edit finally changed new viewer controls');
+edit.requests[1].reject(new Error('new viewer edit failure')); await newEdit;
+assert.equal(edit.state.employeeEditOperation,null);
+""")
+
+    def test_viewer_reset_explicitly_discards_employee_mutation_tokens(self) -> None:
+        source = (
+            ROOT / "src/minimal_kanban/web_app_assets/source/app_main_before_printing.js"
+        ).read_text(encoding="utf-8")
+        start = source.index("    function clearEmployeesCashboxesModuleState()")
+        end = source.index("    function syncEmployeesCashboxesAccessUi(", start)
+        reset = source[start:end]
+        self.assertIn("state.employeeMoneyMutationOperation = null;", reset)
+        self.assertIn("state.employeeEditOperation = null;", reset)
 
     def test_closed_or_superseded_salary_views_cannot_reopen_or_continue(self) -> None:
         self.run_node(r"""

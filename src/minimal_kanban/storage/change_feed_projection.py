@@ -533,6 +533,7 @@ def project_crm_source_signatures(state: Mapping[str, Any] | object) -> dict[Sou
         if not card_id:
             continue
         repair_order = _mapping(card.get("repair_order"))
+        attachments = _items(card.get("attachments"))
         signatures[("card", card_id)] = _source_digest(
             card.get("updated_at"),
             card.get("notification_updated_at"),
@@ -547,10 +548,20 @@ def project_crm_source_signatures(state: Mapping[str, Any] | object) -> dict[Sou
                 ),
                 cacheable=False,
             ),
-            len(_items(card.get("attachments"))),
+            _digest(
+                [
+                    {
+                        "content": _without(attachment, "removed"),
+                        "routing": {"index": index},
+                        "lifecycle": _lifecycle(attachment, removed_field="removed"),
+                    }
+                    for index, attachment in enumerate(attachments)
+                ]
+            ),
             len(_items(repair_order.get("works"))),
             len(_items(repair_order.get("materials"))),
             len(_items(repair_order.get("payments"))),
+            repair_order.get("number"),
             repair_order.get("status"),
         )
     for client in _items(source.get("clients")):

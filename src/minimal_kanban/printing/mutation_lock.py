@@ -9,7 +9,14 @@ from .errors import PrintModuleError
 
 
 @contextmanager
-def print_state_mutation_boundary(service: Any) -> Iterator[None]:
+def print_state_mutation_boundary(
+    service: Any,
+    *,
+    timeout_code: str = "print_state_lock_timeout",
+    timeout_message: str = (
+        "Данные печатного модуля временно заняты другим процессом; повторите действие."
+    ),
+) -> Iterator[None]:
     with service._print_state_lock:
         acquired = False
         try:
@@ -20,8 +27,8 @@ def print_state_mutation_boundary(service: Any) -> Iterator[None]:
             if acquired:
                 raise
             raise PrintModuleError(
-                "print_state_lock_timeout",
-                "Данные печатного модуля временно заняты другим процессом; повторите действие.",
+                timeout_code,
+                timeout_message,
                 status_code=503,
             ) from exc
 

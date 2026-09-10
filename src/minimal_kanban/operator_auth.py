@@ -9,7 +9,7 @@ import shutil
 import threading
 from contextlib import contextmanager
 from copy import deepcopy
-from datetime import timedelta
+from datetime import UTC, timedelta
 from logging import Logger
 from pathlib import Path
 from typing import Any
@@ -117,6 +117,24 @@ def _truthy_env(name: str) -> bool:
     return str(os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _next_user_updated_at(user: dict[str, Any] | None = None) -> str:
+    """Return a canonical revision newer than the current user revision.
+
+    Callers hold ``_locked_state`` so the timestamp follows persisted commit
+    order even when concurrent requests sampled the clock in another order.
+    The monotonic fallback also protects the browser's lexical revision guard
+    when the system clock moves backwards.
+    """
+
+    candidate = utc_now().astimezone(UTC)
+    current = parse_datetime((user or {}).get("updated_at"))
+    if current is not None:
+        current = current.astimezone(UTC)
+        if candidate <= current:
+            candidate = current + timedelta(microseconds=1)
+    return candidate.isoformat()
+
+
 def _reject_json_constant(value: str) -> None:
     raise ValueError(f"Unsupported JSON constant: {value}")
 
@@ -162,7 +180,7 @@ class OperatorAuthService:
                 and self._can_upgrade_default_admin_password(user, password, password_hash)
             ):
                 user["password_hash"] = _password_hash(password)
-                user["updated_at"] = utc_now_iso()
+                user["updated_at"] = _next_user_updated_at(user)
                 password_ok = True
             if user is None or not password_ok:
                 self._fail("unauthorized", "Неверный логин или пароль.", status_code=401)
@@ -325,12 +343,12 @@ class OperatorAuthService:
             if "permissions" in payload
             else None
         )
-        now_iso = utc_now_iso()
         with self._locked_state() as state:
             existing = self._find_user(state["users"], username)
             created = existing is None
             if created:
                 password = self._validated_password(payload.get("password"))
+                now_iso = _next_user_updated_at()
                 existing = {
                     "username": username,
                     "password_hash": _password_hash(password),
@@ -362,7 +380,7 @@ class OperatorAuthService:
                 existing["role"] = next_role
                 if requested_permissions is not None:
                     existing["permissions"] = requested_permissions
-                existing["updated_at"] = now_iso
+                existing["updated_at"] = _next_user_updated_at(existing)
                 existing["employee_id"] = normalize_text(
                     existing.get("employee_id"), default="", limit=64
                 )
@@ -421,7 +439,6 @@ class OperatorAuthService:
         username = self._validated_username(payload.get("username"))
         employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
         employee = self._employee_for_binding(employee_id) if employee_id else None
-        now_iso = utc_now_iso()
         with self._locked_state() as state:
             target = self._find_user(state["users"], username)
             if target is None:
@@ -449,7 +466,7 @@ class OperatorAuthService:
                         },
                     )
             target["employee_id"] = employee_id
-            target["updated_at"] = now_iso
+            target["updated_at"] = _next_user_updated_at(target)
             self._write_state(state)
             snapshot = deepcopy(target)
         self._record_activity_safe(
@@ -676,6 +693,8 @@ class OperatorAuthService:
             user = self._find_user(state["users"], username)
             if user is None:
                 return
+            action_at = utc_now_iso()
+            updated_at = _next_user_updated_at(user)
             if counter_key:
                 stats = user.setdefault("stats", {})
                 stats[counter_key] = min(
@@ -691,14 +710,14 @@ class OperatorAuthService:
             history = self._prune_action_history(user.get(ACTION_HISTORY_KEY))
             history.append(
                 {
-                    "timestamp": utc_now_iso(),
+                    "timestamp": action_at,
                     "action": str(action or "").strip() or "operator_action",
                     "message": str(message or "").strip() or "Действие оператора.",
                     "card_id": str(card_id or "").strip(),
                 }
             )
             user[ACTION_HISTORY_KEY] = self._prune_action_history(history)
-            user["updated_at"] = utc_now_iso()
+            user["updated_at"] = updated_at
             self._write_state(state)
 
     def _record_activity_safe(
@@ -1563,7 +1582,9 @@ class OperatorAuthService:
                     parse_datetime(item.get("updated_at"))
                     or parse_datetime(item.get("created_at"))
                     or utc_now()
-                ).isoformat(),
+                )
+                .astimezone(UTC)
+                .isoformat(),
                 "employee_id": employee_id,
                 "permissions": normalize_operator_permissions(item.get("permissions")),
                 "stats": {

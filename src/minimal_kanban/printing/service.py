@@ -79,6 +79,7 @@ from .mutation_lock import print_state_mutation_boundary, print_state_mutation_l
 from .pdf import PdfRenderError, render_html_to_pdf_bytes
 from .printers import PrinterBackendError, list_printers, print_html
 from .template_engine import TemplateRenderError, render_template
+from .template_mutation import delete_custom_template_state
 
 _SETTINGS_FILE_NAME = "settings.json"
 _TEMPLATES_FILE_NAME = "templates.json"
@@ -152,17 +153,13 @@ def _completion_act_quantity_display(value: Decimal | None) -> str:
 def _completion_act_mutation_locked(method: Any) -> Any:
     @wraps(method)
     def wrapped(self: PrintModuleService, *args: Any, **kwargs: Any) -> Any:
-        with self._completion_act_lock:
-            try:
-                with self._completion_act_process_lock.acquire():
-                    self._migrate_legacy_completion_act_forms(process_locked=True)
-                    return method(self, *args, **kwargs)
-            except TimeoutError as exc:
-                raise PrintModuleError(
-                    "completion_act_lock_timeout",
-                    "Черновик акта временно занят другим процессом; повторите действие.",
-                    status_code=503,
-                ) from exc
+        with print_state_mutation_boundary(
+            self,
+            timeout_code="completion_act_lock_timeout",
+            timeout_message="Черновик акта временно занят другим процессом; повторите действие.",
+        ):
+            self._migrate_legacy_completion_act_forms(process_locked=True)
+            return method(self, *args, **kwargs)
 
     return wrapped
 
@@ -1722,16 +1719,13 @@ class PrintModuleService:
                 "forbidden", "Встроенный шаблон нельзя удалить.", status_code=403
             )
         templates = [item for item in self._read_custom_templates() if item.id != template_id]
-        self._write_custom_templates(templates)
         settings = self._read_settings()
-        if settings.default_template_ids.get(record.document_type) == template_id:
-            settings.default_template_ids.pop(record.document_type, None)
-            self._write_settings(settings)
+        delete_custom_template_state(self, record=record, templates=templates, settings=settings)
         return {
             "deleted": True,
             "document_type": record.document_type,
             "templates": self._template_payloads_for_document_type(
-                record.document_type, settings=self._read_settings()
+                record.document_type, settings=settings
             ),
         }
 
@@ -1941,9 +1935,12 @@ class PrintModuleService:
         raw = _safe_json_read(self._settings_path, default={})
         return PrintModuleSettings.from_dict(raw)
 
-    def _write_settings(self, settings: PrintModuleSettings) -> None:
+    def _write_settings(
+        self, settings: PrintModuleSettings, *, sync_change_feed: bool = True
+    ) -> None:
         _safe_json_write(self._settings_path, settings.to_dict())
-        self._sync_change_feed()
+        if sync_change_feed:
+            self._sync_change_feed()
 
     def _read_custom_templates(self) -> list[PrintTemplateRecord]:
         raw = _safe_json_read(self._templates_path, default=[])
@@ -1964,10 +1961,13 @@ class PrintModuleService:
                 templates.append(record)
         return templates
 
-    def _write_custom_templates(self, records: list[PrintTemplateRecord]) -> None:
+    def _write_custom_templates(
+        self, records: list[PrintTemplateRecord], *, sync_change_feed: bool = True
+    ) -> None:
         payload = [record.to_dict() for record in records if not record.is_builtin]
         _safe_json_write(self._templates_path, payload)
-        self._sync_change_feed()
+        if sync_change_feed:
+            self._sync_change_feed()
 
     def _templates_by_document_type(
         self, *, settings: PrintModuleSettings
@@ -2623,16 +2623,15 @@ class PrintModuleService:
                     raise self._completion_act_store_corrupt()
                 return
             if not process_locked:
-                try:
-                    with self._completion_act_process_lock.acquire():
-                        self._migrate_legacy_completion_act_forms(process_locked=True)
-                    return
-                except TimeoutError as exc:
-                    raise PrintModuleError(
-                        "completion_act_lock_timeout",
-                        "Черновик акта временно занят другим процессом; повторите действие.",
-                        status_code=503,
-                    ) from exc
+                with print_state_mutation_boundary(
+                    self,
+                    timeout_code="completion_act_lock_timeout",
+                    timeout_message=(
+                        "Черновик акта временно занят другим процессом; повторите действие."
+                    ),
+                ):
+                    self._migrate_legacy_completion_act_forms(process_locked=True)
+                return
 
             legacy = self._read_legacy_completion_act_form_map()
             entries, total_bytes = self._completion_act_store_inventory()

@@ -548,6 +548,7 @@
     els.operatorAdminButton.addEventListener('click', openOperatorAdminModal);
     els.adminSaveUserButton.addEventListener('click', saveOperatorUser);
     els.adminUserLogin.addEventListener('input', () => {
+      claimOperatorUserEditorIntent();
       const normalizedUsername = String(els.adminUserLogin.value || '').trim().toUpperCase();
       if (
         state.operatorPermissionEditorUsername

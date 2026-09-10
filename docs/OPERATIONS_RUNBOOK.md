@@ -215,6 +215,12 @@ archive and derived-file failures, and nonblocking MCP execution. A timeout
 does not cancel an already running synchronous write or authorize a retry.
 After an atomic state replace, deferred cleanup/readback failures are logged;
 an unpublished durable change-feed stage remains available for reconciliation.
+Attachment metadata repair stages the canonical file before committing its new
+name, retains the legacy source until the committed target bytes are verified,
+and never removes a staged target after a rejected write because another process
+may already reference it. `test_column_delete_integrity` verifies that archived
+card references block column deletion with `column_not_empty` instead of reaching
+the storage integrity guard.
 `test_salary_balance_summary` proves that the employee-list balance projection
 matches the full ledger without building journal rows or a revision.
 `test_printing_state_lock` owns concurrent read-modify-write safety for custom
@@ -227,11 +233,21 @@ snapshot cannot overwrite a newer published entity. A lock acquisition timeout
 is a retryable 503; timeouts raised by the mutation itself retain their original
 meaning.
 
+Deleting an active default print template clears the settings reference before
+removing the template, defers change-feed publication until both files are
+coherent, and compensates a failed second write. A hard stop between writes may
+leave the template present but non-default; retrying the delete completes it.
+
 Frontend ownership suites `test_card_workspace_context`,
 `test_web_assets_async_ownership_context`, `test_web_assets_client_context`,
-`test_web_assets_mobile_context`, and `test_web_assets_repair_order_payment_context`
-cover late responses, session changes, modal replacement, and attempted parent
-closure while a card, file, payment, or repair-order write is still pending.
+`test_web_assets_mobile_context`, `test_web_assets_repair_order_payment_context`,
+`test_payroll_async_context`, and `test_operator_admin_async_context` cover late
+responses, session changes, modal replacement, duplicate money/user writes, and
+attempted parent closure while a card, file, payment, repair-order, payroll, or
+operator-admin write is still pending. Full admin close and logout invalidate
+pending editor intents and clear password and permission controls.
+Operator-user summaries use lock-scoped, monotonic UTC `updated_at` revisions,
+so the browser's stale-response guard follows commit order even after clock rollback.
 `test_web_assets_cold_overlap`, `test_printing_cold_overlap`, and
 `test_printing_async_context` own the cold-panel overlap, retry and prepared-read
 boundaries.

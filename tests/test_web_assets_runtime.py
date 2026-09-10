@@ -664,6 +664,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
               state.activeCardIsFull = false;
               state.editingId = null;
             }}
+            function resetOperatorAdminViewerState() {{}}
 
             {clear_employees_cashboxes}
             {reset_helper}
@@ -872,6 +873,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             function clearBoardSearchState() {{}}
             function clearDisplayDashboardImageDrafts() {{}}
             function resetCardModalState() {{}}
+            function resetOperatorAdminViewerState() {{}}
 
             {clear_employees_cashboxes}
             {reset_helper}
@@ -1101,6 +1103,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             function clearBoardSearchState() {{}}
             function clearDisplayDashboardImageDrafts() {{}}
             function resetCardModalState() {{}}
+            function resetOperatorAdminViewerState() {{}}
 
             {clear_employees_cashboxes}
             {reset_helper}
@@ -1578,6 +1581,11 @@ class WebAssetsRuntimeTests(unittest.TestCase):
         )
 
     def test_operator_password_save_preserves_permission_without_explicit_edit(self) -> None:
+        admin_context = _source_section(
+            self.source,
+            "function operatorEmployeeById(",
+            "function isOperatorEmployeeBindingOpen(",
+        )
         save_flow = _source_section(
             self.source,
             "async function saveOperatorUser()",
@@ -1588,6 +1596,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             const assert = require('node:assert/strict');
 
             const EMPLOYEES_CASHBOXES_ACCESS_PERMISSION = 'employees_cashboxes_access';
+            const EMPLOYEES_READ_ACCESS_PERMISSION = 'employees_read_access';
             const SALARY_BALANCE_RESET_PERMISSION = 'salary_balance_reset';
             const state = {{
               operatorUsers: [{{
@@ -1598,12 +1607,17 @@ class WebAssetsRuntimeTests(unittest.TestCase):
                 ],
               }}],
               operatorPermissionEditorUsername: '',
+              operatorUserEditorIntentGeneration: 0,
+              operatorUserSaveRequest: null,
+              employees: [],
             }};
             const els = {{
               adminUserLogin: {{ value: 'UGA' }},
               adminUserPassword: {{ value: 'new-password' }},
               adminUserEmployeesCashboxesAccess: {{ checked: false }},
+              adminUserEmployeesReadAccess: {{ checked: false }},
               adminUserSalaryBalanceReset: {{ checked: false }},
+              adminSaveUserButton: {{ disabled: false }},
             }};
             const requests = [];
             const statuses = [];
@@ -1615,10 +1629,13 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             function setStatus(message, isError) {{ statuses.push({{ message, isError }}); }}
             async function refreshOperatorAdminSurfaces() {{}}
             function syncOperatorAdminSalaryResetPermission() {{}}
+            function renderOperatorUsers(data) {{ state.operatorUsers = data.users; }}
+            function escapeHtml(value) {{ return String(value); }}
             function captureViewerRequestContext() {{
               return {{ actorName: 'ADMIN', isCurrent() {{ return true; }} }};
             }}
 
+            {admin_context}
             {save_flow}
 
             (async () => {{

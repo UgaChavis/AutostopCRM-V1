@@ -8,7 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "post_build_verification.py"
@@ -300,6 +300,29 @@ class PostBuildVerificationTests(unittest.TestCase):
 
         self.assertIn("failed_to_start_api", text)
         self.assertNotIn("older line\nolder line\nolder line", text)
+
+    def test_startup_error_verification_rejects_a_healthy_blocked_port(self) -> None:
+        process = Mock()
+        blocker = Mock()
+        with (
+            patch.object(self.module, "block_port", return_value=(blocker, 41739)),
+            patch.object(self.module, "launch_app", return_value=process),
+            patch.object(self.module, "_wait_for_process_return_code", return_value=1),
+            patch.object(self.module, "send_request", return_value=(200, {"ok": True})),
+            patch.object(self.module, "_wait_for_log_file") as wait_for_log,
+            patch.object(self.module, "stop_process"),
+            self.assertRaisesRegex(
+                self.module.VerificationError,
+                "unexpectedly started API on a blocked port",
+            ),
+        ):
+            self.module.verify_startup_error_handling(
+                Path("C:/fixture/app.exe"),
+                Path("C:/fixture/appdata"),
+            )
+
+        wait_for_log.assert_not_called()
+        blocker.close.assert_called_once_with()
 
 
 if __name__ == "__main__":

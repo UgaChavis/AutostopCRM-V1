@@ -312,6 +312,7 @@ const cleared=[];const window={clearTimeout(id){cleared.push(id);}};
 function clearCardOpenSideEffectTimer(){}
 function clearBoardSearchState(){}function clearDisplayDashboardImageDrafts(){}
 function resetCardModalState(){}
+function resetOperatorAdminViewerState(){}
 const CARD_JOURNAL_INITIAL_LIMIT=50;
 for(const key of ['fullCardCache','cardFetchInFlight','cardSeenSuppressions','unreadHoverTimers','unreadSeenDeferredTimers','unreadSeenInFlight'])state[key]=new Map();
 state.inventorySearchTimer=10;state.mobileInventorySearchTimer=11;
