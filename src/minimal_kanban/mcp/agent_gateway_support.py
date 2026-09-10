@@ -65,6 +65,9 @@ MANAGER_GATEWAY_DEPENDENCY_NAMES = frozenset(
         "download_store_quote_vin_photo",
         "store_owner_capabilities",
         "store_owner_api",
+        # Read-only VIN/OEM resolution is intentionally available only through
+        # the Manager raw-capability route; it is not a public CRM tool.
+        "resolve_vin_oem_parts",
     }
 )
 DIAGNOSTIC_TOOL_NAMES = frozenset(
