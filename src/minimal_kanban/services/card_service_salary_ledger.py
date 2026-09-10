@@ -793,7 +793,7 @@ class CardServiceSalaryLedgerMixin:
                 balance_revision=expected_balance_revision,
             )
 
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update()
             settings = dict(bundle["settings"])
             employees = self._employees_from_settings(settings)
             employees_by_id = {item["id"]: item for item in employees}

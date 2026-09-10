@@ -426,13 +426,13 @@ class CardService(
         )
         self._finance_read_core = FinanceReadCore(self)
         self._column_service = ColumnService(
-            store,
             logger,
             self._lock,
             audit_identity=lambda payload, default_source: self._audit_identity(
                 payload, default_source=default_source
             ),
             append_event=self._append_event,
+            read_bundle_for_update=self._read_bundle_for_update,
             save_bundle=self._save_bundle,
             validated_column=self._validated_column,
             fail=self._fail,
@@ -1250,7 +1250,7 @@ class CardService(
             payload = payload or {}
             actor_name, source = self._audit_identity(payload, default_source="ui")
             dry_run = payload.get("dry_run") is True
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update()
             previous_scale = self._normalized_stored_board_scale(
                 bundle["settings"].get("board_scale")
             )
@@ -1295,9 +1295,9 @@ class CardService(
             dashboard_message_changed = (
                 previous_dashboard_message["revision"] != dashboard_message["revision"]
             )
-            if (
-                scale_changed or board_control_changed or dashboard_message_changed
-            ) and not dry_run:
+            business_changed = scale_changed or board_control_changed or dashboard_message_changed
+            settings_repaired = settings != bundle["settings"]
+            if (business_changed or settings_repaired) and not dry_run:
                 events = bundle["events"]
                 if scale_changed:
                     self._append_event(
@@ -1334,17 +1334,11 @@ class CardService(
                             "html_length": len(dashboard_message["body_html"]),
                         },
                     )
-                self._store.write_bundle(
+                self._save_bundle(
+                    bundle,
                     columns=bundle["columns"],
                     cards=bundle["cards"],
                     events=events,
-                    settings=settings,
-                )
-            elif not dry_run:
-                self._store.write_bundle(
-                    columns=bundle["columns"],
-                    cards=bundle["cards"],
-                    events=bundle["events"],
                     settings=settings,
                 )
             return {
@@ -1356,9 +1350,7 @@ class CardService(
                     "previous_ai_board_control": previous_board_control,
                     "display_dashboard_message": dashboard_message,
                     "previous_display_dashboard_message": previous_dashboard_message,
-                    "changed": (
-                        scale_changed or board_control_changed or dashboard_message_changed
-                    ),
+                    "changed": business_changed,
                     "board_scale_changed": scale_changed,
                     "board_control_changed": board_control_changed,
                     "display_dashboard_message_changed": dashboard_message_changed,
@@ -5121,37 +5113,61 @@ class CardService(
 
     def set_onboarding_seen(self, value: bool) -> None:
         with self._lock:
-            self._store.set_setting("has_seen_onboarding", bool(value))
-
-    def ensure_demo_board(self) -> bool:
-        with self._lock:
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update()
+            next_value = bool(value)
+            if bundle["settings"].get("has_seen_onboarding") is next_value:
+                return
             settings = dict(bundle["settings"])
-            if settings.get("demo_seeded"):
-                return False
-            if self._should_seed_demo(bundle):
-                seeded = build_demo_board(settings)
-                self._store.write_bundle(
-                    columns=seeded["columns"],
-                    cards=seeded["cards"],
-                    stickies=seeded.get("stickies", []),
-                    events=seeded["events"],
-                    settings=seeded["settings"],
-                )
-                self._logger.info(
-                    "demo_board_seeded cards=%s columns=%s",
-                    len(seeded["cards"]),
-                    len(seeded["columns"]),
-                )
-                return True
-            settings["demo_seeded"] = True
-            self._store.write_bundle(
+            settings["has_seen_onboarding"] = next_value
+            self._save_bundle(
+                bundle,
                 columns=bundle["columns"],
                 cards=bundle["cards"],
-                stickies=bundle["stickies"],
                 events=bundle["events"],
                 settings=settings,
             )
+
+    def ensure_demo_board(self) -> bool:
+        with self._lock:
+            for attempt in range(2):
+                bundle = self._read_bundle_for_update()
+                settings = dict(bundle["settings"])
+                if settings.get("demo_seeded"):
+                    return False
+                should_seed = self._should_seed_demo(bundle)
+                if should_seed:
+                    next_bundle = build_demo_board(settings)
+                else:
+                    settings["demo_seeded"] = True
+                    next_bundle = {
+                        "columns": bundle["columns"],
+                        "cards": bundle["cards"],
+                        "stickies": bundle["stickies"],
+                        "events": bundle["events"],
+                        "settings": settings,
+                    }
+                try:
+                    self._store.write_bundle(
+                        columns=next_bundle["columns"],
+                        cards=next_bundle["cards"],
+                        stickies=next_bundle.get("stickies", []),
+                        events=next_bundle["events"],
+                        settings=next_bundle["settings"],
+                        expected_signature=bundle.signature,
+                    )
+                except StateWriteConflictError:
+                    if attempt == 0:
+                        continue
+                    self._logger.warning("demo_board_seed_skipped_after_repeated_conflict")
+                    return False
+                if should_seed:
+                    self._logger.info(
+                        "demo_board_seeded cards=%s columns=%s",
+                        len(next_bundle["cards"]),
+                        len(next_bundle["columns"]),
+                    )
+                    return True
+                return False
             return False
 
     def _serialize_card(

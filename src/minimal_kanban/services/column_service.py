@@ -6,28 +6,27 @@ from threading import RLock
 from typing import Any
 
 from ..models import COLUMN_LABEL_LIMIT, Column
-from ..storage.json_store import JsonStore
 from .ready_column import READY_COLUMN_LABEL, _next_column_id, ensure_ready_column
 
 
 class ColumnService:
     def __init__(
         self,
-        store: JsonStore,
         logger: Logger,
         lock: RLock,
         *,
         audit_identity: Callable[[dict, str], tuple[str, str]],
         append_event: Callable[..., None],
+        read_bundle_for_update: Callable[..., dict],
         save_bundle: Callable[..., None],
         validated_column: Callable[[Any, list[Column]], str],
         fail: Callable[..., None],
     ) -> None:
-        self._store = store
         self._logger = logger
         self._lock = lock
         self._audit_identity = audit_identity
         self._append_event = append_event
+        self._read_bundle_for_update = read_bundle_for_update
         self._save_bundle = save_bundle
         self._validated_column = validated_column
         self._fail = fail
@@ -35,7 +34,7 @@ class ColumnService:
     def list_columns(self, payload: dict | None = None) -> dict:
         with self._lock:
             _ = payload
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update("columns")
             columns = bundle["columns"]
             ready_column_id, changed = ensure_ready_column(columns, bundle["settings"])
             if changed:
@@ -55,7 +54,7 @@ class ColumnService:
 
     def create_column(self, payload: dict) -> dict:
         with self._lock:
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update("columns")
             columns = bundle["columns"]
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, "api")
@@ -88,7 +87,7 @@ class ColumnService:
 
     def rename_column(self, payload: dict) -> dict:
         with self._lock:
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update("columns")
             columns = bundle["columns"]
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, "api")
@@ -156,7 +155,7 @@ class ColumnService:
 
     def move_column(self, payload: dict) -> dict:
         with self._lock:
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update("columns")
             columns = bundle["columns"]
             cards = bundle["cards"]
             events = bundle["events"]
@@ -260,7 +259,7 @@ class ColumnService:
 
     def delete_column(self, payload: dict) -> dict:
         with self._lock:
-            bundle = self._store.read_bundle()
+            bundle = self._read_bundle_for_update("columns")
             columns = bundle["columns"]
             cards = bundle["cards"]
             events = bundle["events"]

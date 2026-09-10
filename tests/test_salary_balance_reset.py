@@ -364,6 +364,59 @@ class SalaryBalanceResetTests(unittest.TestCase):
             1,
         )
 
+    def test_failed_reset_does_not_leak_audit_event_into_a_later_save(self) -> None:
+        employee = self.service.save_employee(
+            {"name": "Синтетическая изоляция сбоя", "salary_mode": "none"}
+        )["employee"]
+        self.service.create_employee_shift_accrual(
+            {"employee_id": employee["id"], "amount_minor": 4200}
+        )
+        ledger = self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
+        retained = self.store.read_bundle()
+        event_ids_before = [event.id for event in retained["events"]]
+
+        with (
+            patch.object(
+                self.service,
+                "_prepare_repair_order_artifacts",
+                side_effect=OSError("injected before storage"),
+            ),
+            self.assertRaisesRegex(OSError, "injected before storage"),
+        ):
+            self.service.reset_employee_salary_balance(
+                {
+                    "employee_id": employee["id"],
+                    "expected_balance_minor": ledger["balance_minor"],
+                    "expected_balance_revision": ledger["balance_revision"],
+                    "idempotency_key": "salary-reset-failed-isolation",
+                    "_operator_session": {
+                        "username": "UGA",
+                        "permissions": [SALARY_BALANCE_RESET_PERMISSION],
+                    },
+                }
+            )
+
+        self.assertEqual([event.id for event in retained["events"]], event_ids_before)
+        self.assertFalse(
+            any(event.action == "employee_salary_balance_reset" for event in retained["events"])
+        )
+        self.assertEqual(
+            retained["settings"].get("employee_salary_balance_resets", []),
+            [],
+        )
+
+        self.service.create_employee_shift_accrual(
+            {"employee_id": employee["id"], "amount_minor": 100}
+        )
+        persisted = JsonStore(state_file=self.state_file, logger=self.logger).read_bundle()
+        self.assertFalse(
+            any(event.action == "employee_salary_balance_reset" for event in persisted["events"])
+        )
+        self.assertEqual(
+            persisted["settings"].get("employee_salary_balance_resets", []),
+            [],
+        )
+
     def test_employee_salary_balance_reset_history_fails_closed_when_duplicated(self) -> None:
         employee = self.service.save_employee(
             {"name": "Синтетическая повреждённая история", "salary_mode": "none"}
