@@ -1,11 +1,12 @@
-    function employeeAsyncContext(key, entityField = '') {
+    function employeeAsyncContext(key, entityField = '', { singleFlight = false } = {}) {
+      if (singleFlight && state[key]) return null;
       const token = {};
       const viewer = state.viewerStateGeneration;
       const session = state.operatorSessionToken;
       const access = state.employeesCashboxesAccessRevision;
       const month = state.payrollMonth || currentPayrollMonthValue();
-      const employee = entityField ? state[entityField] : '';
-      const salaryView = state.employeeSalaryViewGeneration;
+      let employee = entityField ? state[entityField] : '';
+      let salaryView = state.employeeSalaryViewGeneration;
       state[key] = token;
       const owns = () => state[key] === token
         && viewer === state.viewerStateGeneration && session === state.operatorSessionToken
@@ -15,7 +16,36 @@
       const isCurrent = () => owns() && month === (state.payrollMonth || currentPayrollMonthValue());
       isCurrent.owns = owns;
       isCurrent.month = month;
+      isCurrent.rebindEntity = () => {
+        employee = entityField ? state[entityField] : '';
+        salaryView = state.employeeSalaryViewGeneration;
+        return isCurrent;
+      };
+      isCurrent.release = () => {
+        if (state[key] !== token) return false;
+        state[key] = null;
+        return true;
+      };
       return isCurrent;
+    }
+
+    function syncEmployeeMoneyMutationControls() {
+      const pending = Boolean(state.employeeMoneyMutationOperation);
+      for (const key of [
+        'employeeSalaryActionConfirmButton',
+        'employeeSalaryAdvanceConfirmButton',
+        'employeeShiftAccrualConfirmButton',
+      ]) {
+        if (els[key]) els[key].disabled = pending;
+      }
+    }
+
+    function syncEmployeeEditMutationControls() {
+      const pending = Boolean(state.employeeEditOperation);
+      if (els.employeeSaveButton) els.employeeSaveButton.disabled = pending;
+      if (els.employeeDeleteButton) {
+        els.employeeDeleteButton.disabled = pending || !selectedEmployeeRecord();
+      }
     }
 
     async function refreshEmployeePayroll(isCurrent) {
@@ -280,9 +310,8 @@
       }
       state.employeeShiftAccrualOpen = true;
       state.employeeShiftAccrualDraft = '';
-      state.employeeShiftAccrualOperation = null;
       const isCurrent = employeeAsyncContext('employeeShiftAccrualDialogRequest', 'activeEmployeeId');
-      if (els.employeeShiftAccrualConfirmButton) els.employeeShiftAccrualConfirmButton.disabled = false;
+      syncEmployeeMoneyMutationControls();
       if (els.employeeShiftAccrualAmountInput) els.employeeShiftAccrualAmountInput.value = '';
       renderEmployeeShiftAccrualDialog();
       if (els.employeeShiftAccrualAmountInput) {
@@ -559,6 +588,7 @@
       }
       state.employeeFormBaseline = employeeComparableSnapshot(current);
       syncEmployeeSalaryModeUi();
+      syncEmployeeEditMutationControls();
     }
 
     function readEmployeeFormPayload() {
@@ -810,6 +840,7 @@
       }
       renderEmployeeSalaryActionDialog();
       renderEmployeeSalaryAdvanceDialog();
+      syncEmployeeMoneyMutationControls();
     }
 
     async function loadEmployeeSalarySheet(employeeId, { openModal = false } = {}) {
@@ -851,7 +882,7 @@
       state.employeeSalaryActionDraft = '';
       if (els.employeeSalaryAmountInput) els.employeeSalaryAmountInput.value = '';
       const isCurrent = employeeAsyncContext('employeeSalaryDialogRequest', 'activeEmployeeSalaryId');
-      if (els.employeeSalaryActionConfirmButton) els.employeeSalaryActionConfirmButton.disabled = false;
+      syncEmployeeMoneyMutationControls();
       try {
         await ensureEmployeeSalaryCashboxes(isCurrent);
       } catch (error) {
@@ -874,7 +905,7 @@
       if (els.employeeSalaryAdvanceAmountInput) els.employeeSalaryAdvanceAmountInput.value = '';
       if (els.employeeSalaryAdvanceCommentInput) els.employeeSalaryAdvanceCommentInput.value = '';
       const isCurrent = employeeAsyncContext('employeeSalaryDialogRequest', 'activeEmployeeSalaryId');
-      if (els.employeeSalaryAdvanceConfirmButton) els.employeeSalaryAdvanceConfirmButton.disabled = false;
+      syncEmployeeMoneyMutationControls();
       try {
         await ensureEmployeeSalaryCashboxes(isCurrent);
       } catch (error) {
@@ -1286,7 +1317,13 @@
         els.employeeSalaryCashboxSelect?.focus();
         return;
       }
-      const isCurrent = employeeAsyncContext('employeeSalaryActionOperation', 'activeEmployeeSalaryId');
+      const isCurrent = employeeAsyncContext(
+        'employeeMoneyMutationOperation',
+        'activeEmployeeSalaryId',
+        { singleFlight: true },
+      );
+      if (!isCurrent) return;
+      syncEmployeeMoneyMutationControls();
       try {
         if (els.employeeSalaryActionConfirmButton) els.employeeSalaryActionConfirmButton.disabled = true;
         await api('/api/create_employee_salary_transaction', {
@@ -1315,7 +1352,7 @@
       } catch (error) {
         if (isCurrent()) setStatus(error.message, true);
       } finally {
-        if (isCurrent.owns() && els.employeeSalaryActionConfirmButton) els.employeeSalaryActionConfirmButton.disabled = false;
+        if (isCurrent.release()) syncEmployeeMoneyMutationControls();
       }
     }
 
@@ -1337,7 +1374,13 @@
         els.employeeSalaryAdvanceCashboxSelect?.focus();
         return;
       }
-      const isCurrent = employeeAsyncContext('employeeSalaryAdvanceOperation', 'activeEmployeeSalaryId');
+      const isCurrent = employeeAsyncContext(
+        'employeeMoneyMutationOperation',
+        'activeEmployeeSalaryId',
+        { singleFlight: true },
+      );
+      if (!isCurrent) return;
+      syncEmployeeMoneyMutationControls();
       try {
         if (els.employeeSalaryAdvanceConfirmButton) els.employeeSalaryAdvanceConfirmButton.disabled = true;
         await api('/api/create_employee_salary_transaction', {
@@ -1368,7 +1411,7 @@
       } catch (error) {
         if (isCurrent()) setStatus(error.message, true);
       } finally {
-        if (isCurrent.owns() && els.employeeSalaryAdvanceConfirmButton) els.employeeSalaryAdvanceConfirmButton.disabled = false;
+        if (isCurrent.release()) syncEmployeeMoneyMutationControls();
       }
     }
 
@@ -1388,7 +1431,13 @@
         els.employeeShiftAccrualAmountInput?.focus();
         return;
       }
-      const isCurrent = employeeAsyncContext('employeeShiftAccrualOperation', 'activeEmployeeId');
+      const isCurrent = employeeAsyncContext(
+        'employeeMoneyMutationOperation',
+        'activeEmployeeId',
+        { singleFlight: true },
+      );
+      if (!isCurrent) return;
+      syncEmployeeMoneyMutationControls();
       try {
         if (els.employeeShiftAccrualConfirmButton) els.employeeShiftAccrualConfirmButton.disabled = true;
         await api('/api/create_employee_shift_accrual', {
@@ -1427,7 +1476,7 @@
       } catch (error) {
         if (isCurrent()) setStatus(error.message, true);
       } finally {
-        if (isCurrent.owns() && els.employeeShiftAccrualConfirmButton) els.employeeShiftAccrualConfirmButton.disabled = false;
+        if (isCurrent.release()) syncEmployeeMoneyMutationControls();
       }
     }
 
@@ -1544,7 +1593,13 @@
         setStatus('УКАЖИ ИМЯ СОТРУДНИКА.', true);
         return;
       }
-      let isCurrent = employeeAsyncContext('employeeEditOperation', 'activeEmployeeId');
+      const isCurrent = employeeAsyncContext(
+        'employeeEditOperation',
+        'activeEmployeeId',
+        { singleFlight: true },
+      );
+      if (!isCurrent) return;
+      syncEmployeeEditMutationControls();
       try {
         const data = await api('/api/save_employee', { method: 'POST', body: readEmployeeFormPayload() });
         if (!isCurrent()) return;
@@ -1552,7 +1607,7 @@
         state.employeesLoadedMonth = isCurrent.month;
         state.employeeCreateMode = false;
         state.activeEmployeeId = data?.employee?.id || state.activeEmployeeId;
-        isCurrent = employeeAsyncContext('employeeEditOperation', 'activeEmployeeId');
+        isCurrent.rebindEntity();
         const report = await loadPayrollReport({ month: isCurrent.month, apply: false });
         if (!isCurrent()) return;
         state.payrollReport = report;
@@ -1566,6 +1621,8 @@
         setStatus(data?.created ? 'СОТРУДНИК ДОБАВЛЕН.' : 'СОТРУДНИК СОХРАНЕН.', false);
       } catch (error) {
         if (isCurrent()) setStatus(error.message, true);
+      } finally {
+        if (isCurrent.release()) syncEmployeeEditMutationControls();
       }
     }
 
@@ -1578,7 +1635,13 @@
       }
       if (!confirmDiscardEmployeeChanges()) return;
       if (!window.confirm('Удалить сотрудника "' + String(employee.name || 'Сотрудник') + '"?')) return;
-      let isCurrent = employeeAsyncContext('employeeEditOperation', 'activeEmployeeId');
+      const isCurrent = employeeAsyncContext(
+        'employeeEditOperation',
+        'activeEmployeeId',
+        { singleFlight: true },
+      );
+      if (!isCurrent) return;
+      syncEmployeeEditMutationControls();
       try {
         const data = await api('/api/delete_employee', {
           method: 'POST',
@@ -1598,7 +1661,7 @@
         state.employeeShiftAccrualOpen = false;
         state.employeeShiftAccrualDraft = '';
         state.employeeCreateMode = !state.employees.length;
-        isCurrent = employeeAsyncContext('employeeEditOperation', 'activeEmployeeId');
+        isCurrent.rebindEntity();
         const report = await loadPayrollReport({ month: isCurrent.month, apply: false });
         if (!isCurrent()) return;
         state.payrollReport = report;
@@ -1613,6 +1676,8 @@
         setStatus('СОТРУДНИК УДАЛЕН.', false);
       } catch (error) {
         if (isCurrent()) setStatus(error.message, true);
+      } finally {
+        if (isCurrent.release()) syncEmployeeEditMutationControls();
       }
     }
 

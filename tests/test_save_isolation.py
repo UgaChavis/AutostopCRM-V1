@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import base64
 import logging
 import sys
 import tempfile
 import unittest
+from copy import deepcopy
 from pathlib import Path
 from unittest.mock import patch
 
@@ -134,6 +136,33 @@ class SaveIsolationTests(unittest.TestCase):
         )
         return card_id
 
+    def create_legacy_attachment(self, title):
+        card_id = self.create(title)
+        attachment = self.service.add_card_attachment(
+            {
+                "card_id": card_id,
+                "file_name": "note.txt",
+                "mime_type": "text/plain",
+                "content_base64": base64.b64encode(b"legacy attachment").decode("ascii"),
+            }
+        )["attachment"]
+        bundle = self.store.read_bundle()
+        legacy_cards = deepcopy(bundle["cards"])
+        legacy_attachment = next(
+            item
+            for card in legacy_cards
+            if card.id == card_id
+            for item in card.attachments
+            if item.id == attachment["id"]
+        )
+        legacy_attachment.file_name = "note"
+        target_path = self.root / "attachments" / card_id / attachment["stored_name"]
+        legacy_path = target_path.with_suffix(".bin")
+        target_path.rename(legacy_path)
+        legacy_attachment.stored_name = legacy_path.name
+        self.store.write_bundle(**{**bundle, "cards": legacy_cards})
+        return card_id, attachment, target_path, legacy_path
+
     def test_repair_order_read_reuses_unchanged_cards_without_writing(self):
         card_id = self.create_order()
         source = self.store.read_bundle()
@@ -211,6 +240,222 @@ class SaveIsolationTests(unittest.TestCase):
         self.assertEqual(listed["repair_orders"][0]["number"], persisted.repair_order.number)
         self.assertTrue(persisted.repair_order.number)
         log_exception.assert_called_once_with("repair_order_directory_cleanup_failed")
+
+    def test_legacy_order_number_commit_publishes_one_structural_feed_update(self):
+        card_id = self.create_order()
+        bundle = self.store.read_bundle()
+        legacy_cards = deepcopy(bundle["cards"])
+        next(card for card in legacy_cards if card.id == card_id).repair_order.number = ""
+        self.store.write_bundle(**{**bundle, "cards": legacy_cards})
+        before_rows = self.store.change_feed_store.raw_events_for_test()
+        before_high_water = before_rows[-1]["sequence"] if before_rows else 0
+
+        listed = self.service.list_repair_orders({"card_id": card_id})
+
+        persisted = next(card for card in self.persisted()["cards"] if card.id == card_id)
+        self.assertTrue(persisted.repair_order.number)
+        self.assertEqual(listed["repair_orders"][0]["number"], persisted.repair_order.number)
+        new_rows = [
+            row
+            for row in self.store.change_feed_store.raw_events_for_test()
+            if row["sequence"] > before_high_water
+        ]
+        self.assertEqual(
+            [("repair_order_updated", "repair_order", card_id, "update", "state_projection")],
+            [
+                (
+                    row["action"],
+                    row["entity_type"],
+                    row["entity_id"],
+                    row["change_type"],
+                    row["producer"],
+                )
+                for row in new_rows
+            ],
+        )
+
+        reopened = JsonStore(self.root / "state.json", self.logger)
+        reopened.reconcile_change_feed()
+        self.assertEqual(
+            self.store.change_feed_store.raw_events_for_test(),
+            reopened.change_feed_store.raw_events_for_test(),
+        )
+
+    def test_attachment_metadata_repair_is_isolated_and_publishes_one_feed_update(self):
+        card_id, attachment, target_path, legacy_path = self.create_legacy_attachment(
+            "Attachment metadata repair"
+        )
+        before_rows = self.store.change_feed_store.raw_events_for_test()
+        before_high_water = before_rows[-1]["sequence"] if before_rows else 0
+
+        with patch.object(self.service, "_save_bundle", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                self.service.get_card_attachment(
+                    {"card_id": card_id, "attachment_id": attachment["id"]}
+                )
+        retained = next(
+            item
+            for card in self.store.read_bundle()["cards"]
+            if card.id == card_id
+            for item in card.attachments
+            if item.id == attachment["id"]
+        )
+        self.assertEqual("note", retained.file_name)
+        self.assertEqual(legacy_path.name, retained.stored_name)
+        self.assertTrue(legacy_path.is_file())
+        self.assertTrue(target_path.is_file())
+        self.assertFalse(
+            [
+                row
+                for row in self.store.change_feed_store.raw_events_for_test()
+                if row["sequence"] > before_high_water
+            ]
+        )
+
+        restarted_store = JsonStore(self.root / "state.json", self.logger)
+        restarted_service = CardService(
+            restarted_store,
+            self.logger,
+            attachments_dir=self.root / "attachments",
+            repair_orders_dir=self.root / "repair-orders",
+        )
+        result = restarted_service.get_card_attachment(
+            {"card_id": card_id, "attachment_id": attachment["id"]}
+        )
+        self.assertEqual("note.txt", result["attachment"]["file_name"])
+        repaired = next(
+            item
+            for card in restarted_store.read_bundle()["cards"]
+            if card.id == card_id
+            for item in card.attachments
+            if item.id == attachment["id"]
+        )
+        self.assertEqual(target_path.name, repaired.stored_name)
+        self.assertTrue(target_path.is_file())
+        self.assertFalse(legacy_path.exists())
+        new_rows = [
+            row
+            for row in restarted_store.change_feed_store.raw_events_for_test()
+            if row["sequence"] > before_high_water
+        ]
+        self.assertEqual(
+            [("attachment_updated", "attachment", f"{card_id}:attachment:{attachment['id']}")],
+            [(row["action"], row["entity_type"], row["entity_id"]) for row in new_rows],
+        )
+        self.assertTrue(all(row["producer"] == "state_projection" for row in new_rows))
+
+        reopened = JsonStore(self.root / "state.json", self.logger)
+        reopened.reconcile_change_feed()
+        self.assertEqual(
+            restarted_store.change_feed_store.raw_events_for_test(),
+            reopened.change_feed_store.raw_events_for_test(),
+        )
+
+    def test_failed_attachment_repair_never_removes_target_committed_by_peer(self):
+        card_id, attachment, target_path, legacy_path = self.create_legacy_attachment(
+            "Concurrent attachment metadata repair"
+        )
+        before_rows = self.store.change_feed_store.raw_events_for_test()
+        before_high_water = before_rows[-1]["sequence"] if before_rows else 0
+        peer_store = JsonStore(self.root / "state.json", self.logger)
+        peer_service = CardService(
+            peer_store,
+            self.logger,
+            attachments_dir=self.root / "attachments",
+            repair_orders_dir=self.root / "repair-orders",
+        )
+        peer_committed = False
+        real_unlink = Path.unlink
+
+        def unlink_after_peer_commit(path, *args, **kwargs):
+            nonlocal peer_committed
+            if path == target_path and not peer_committed:
+                peer_committed = True
+                peer_service.get_card_attachment(
+                    {"card_id": card_id, "attachment_id": attachment["id"]}
+                )
+            return real_unlink(path, *args, **kwargs)
+
+        with (
+            patch.object(self.service, "_save_bundle", side_effect=OSError("disk full")),
+            patch.object(Path, "unlink", new=unlink_after_peer_commit),
+        ):
+            with self.assertRaises(OSError):
+                self.service.get_card_attachment(
+                    {"card_id": card_id, "attachment_id": attachment["id"]}
+                )
+        if not peer_committed:
+            peer_service.get_card_attachment(
+                {"card_id": card_id, "attachment_id": attachment["id"]}
+            )
+
+        persisted = next(
+            item
+            for card in peer_store.read_bundle()["cards"]
+            if card.id == card_id
+            for item in card.attachments
+            if item.id == attachment["id"]
+        )
+        self.assertEqual(target_path.name, persisted.stored_name)
+        self.assertTrue(target_path.is_file())
+        self.assertFalse(legacy_path.exists())
+        new_rows = [
+            row
+            for row in peer_store.change_feed_store.raw_events_for_test()
+            if row["sequence"] > before_high_water
+        ]
+        self.assertEqual(
+            [("attachment_updated", f"{card_id}:attachment:{attachment['id']}")],
+            [(row["action"], row["entity_id"]) for row in new_rows],
+        )
+
+        reopened_store = JsonStore(self.root / "state.json", self.logger)
+        reopened_service = CardService(
+            reopened_store,
+            self.logger,
+            attachments_dir=self.root / "attachments",
+            repair_orders_dir=self.root / "repair-orders",
+        )
+        downloaded_path, _ = reopened_service.get_attachment_download(card_id, attachment["id"])
+        self.assertEqual(target_path, downloaded_path)
+        self.assertEqual(b"legacy attachment", downloaded_path.read_bytes())
+
+    def test_attachment_repair_replaces_mismatched_target_before_commit(self):
+        card_id, attachment, target_path, legacy_path = self.create_legacy_attachment(
+            "Mismatched attachment repair target"
+        )
+        target_path.write_bytes(b"forged attachment")
+        save_bundle = self.service._save_bundle
+
+        def save_after_target_refresh(bundle, **kwargs):
+            self.assertEqual(b"legacy attachment", target_path.read_bytes())
+            return save_bundle(bundle, **kwargs)
+
+        with (
+            patch.object(
+                self.service,
+                "_save_bundle",
+                side_effect=save_after_target_refresh,
+            ),
+            patch.object(self.service, "_cleanup_runtime_artifacts_if_due"),
+        ):
+            downloaded_path, repaired = self.service.get_attachment_download(
+                card_id, attachment["id"]
+            )
+
+        self.assertEqual("note.txt", repaired.file_name)
+        self.assertEqual(target_path, downloaded_path)
+        self.assertEqual(b"legacy attachment", downloaded_path.read_bytes())
+        persisted = next(
+            item
+            for card in self.store.read_bundle()["cards"]
+            if card.id == card_id
+            for item in card.attachments
+            if item.id == attachment["id"]
+        )
+        self.assertEqual(target_path.name, persisted.stored_name)
+        self.assertEqual(b"legacy attachment", target_path.read_bytes())
+        self.assertFalse(legacy_path.exists())
 
     def test_move_reuses_unmodified_ledger_and_stock_objects(self):
         card_id = self.create_order()

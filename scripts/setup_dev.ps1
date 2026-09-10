@@ -18,13 +18,13 @@ if (-not (Test-Path $pythonExe)) {
 & $pythonExe -m pip install --upgrade pip
 if ($LASTEXITCODE -ne 0) { throw "Failed to upgrade pip." }
 
-& $pythonExe -m pip install -r $requirementsPath
-if ($LASTEXITCODE -ne 0) { throw "Failed to install runtime dependencies." }
-
-if (Test-Path $devRequirementsPath) {
-    & $pythonExe -m pip install -r $devRequirementsPath
-    if ($LASTEXITCODE -ne 0) { throw "Failed to install dev dependencies." }
+$installRequirementsPath = if (Test-Path $devRequirementsPath) {
+    $devRequirementsPath
+} else {
+    $requirementsPath
 }
+& $pythonExe -m pip install -r $installRequirementsPath
+if ($LASTEXITCODE -ne 0) { throw "Failed to install project dependencies." }
 
 if ($InstallGitHooks) {
     & $pythonExe -m pre_commit install

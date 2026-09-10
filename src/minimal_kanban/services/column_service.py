@@ -292,15 +292,17 @@ class ColumnService:
                     status_code=409,
                     details={"column_id": column_id},
                 )
-            bound_cards = [card for card in cards if card.column == column_id and not card.archived]
+            bound_cards = [card for card in cards if card.column == column_id]
             if bound_cards:
+                archived_cards_total = sum(1 for card in bound_cards if card.archived)
                 self._fail(
                     "column_not_empty",
-                    "Нельзя удалить непустой столбец. Сначала перенесите или архивируйте связанные карточки.",
+                    "Нельзя удалить непустой столбец. Сначала перенесите связанные карточки.",
                     status_code=409,
                     details={
                         "column_id": column_id,
                         "cards_total": len(bound_cards),
+                        "archived_cards_total": archived_cards_total,
                         "card_ids": [card.id for card in bound_cards[:10]],
                     },
                 )

@@ -63,6 +63,14 @@ class DeployScriptTests(unittest.TestCase):
             (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8"),
         )
 
+    def test_setup_dev_installs_the_full_dependency_graph_once(self) -> None:
+        script = (PROJECT_ROOT / "scripts" / "setup_dev.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("$installRequirementsPath = if (Test-Path $devRequirementsPath)", script)
+        self.assertIn("$devRequirementsPath\n} else {\n    $requirementsPath", script)
+        self.assertEqual(1, script.count("-m pip install -r"))
+        self.assertIn("-m pip install -r $installRequirementsPath", script)
+
     def test_ci_parallel_checks_have_a_fail_closed_aggregate(self) -> None:
         workflow = (PROJECT_ROOT / ".github/workflows/quality.yml").read_text(encoding="utf-8")
         self.assertIn("suite: [static, unit, browser-performance]", workflow)

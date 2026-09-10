@@ -40,6 +40,10 @@
       operatorPermissionRefreshPromise: null,
       operatorLoginRequest: null,
       operatorAdminRequestSeq: 0,
+      operatorEmployeeBindingIntentGeneration: 0,
+      operatorEmployeeBindingMutationRequest: null,
+      operatorUserEditorIntentGeneration: 0,
+      operatorUserSaveRequest: null,
       employeesCashboxesAccess: false,
       employeesReadAccess: false,
       employeesCashboxesAccessRevision: 0,
@@ -319,6 +323,8 @@
       employeeSalaryCashboxId: '',
       employeeSalaryResetPending: false,
       employeeSalaryResetIntent: null,
+      employeeMoneyMutationOperation: null,
+      employeeEditOperation: null,
       employeeShiftAccrualOpen: false,
       employeeShiftAccrualDraft: '',
       employeesUiBound: false,
@@ -2457,6 +2463,7 @@
         clientMutationRequest: null,
         gptWall: null, gptWallView: 'board_content',
       });
+      resetOperatorAdminViewerState();
       if (els.saveCardButton) els.saveCardButton.disabled = false;
       for (const key of [
         'inventorySearchInput', 'mobileInventorySearchInput', 'repairOrderInventorySearchInput',
@@ -2643,7 +2650,10 @@
     }
 
     function clearEmployeesCashboxesModuleState() {
-      for (const key of ['employeeSalaryActionConfirmButton', 'employeeSalaryAdvanceConfirmButton', 'employeeShiftAccrualConfirmButton']) {
+      for (const key of [
+        'employeeSalaryActionConfirmButton', 'employeeSalaryAdvanceConfirmButton',
+        'employeeShiftAccrualConfirmButton', 'employeeSaveButton', 'employeeDeleteButton',
+      ]) {
         if (els[key]) els[key].disabled = false;
       }
       if (typeof abortCashboxesLoad === 'function') abortCashboxesLoad();
@@ -2682,6 +2692,8 @@
       state.employeeSalaryCashboxId = '';
       state.employeeSalaryResetPending = false;
       state.employeeSalaryResetIntent = null;
+      state.employeeMoneyMutationOperation = null;
+      state.employeeEditOperation = null;
       state.employeeShiftAccrualOpen = false;
       state.employeeShiftAccrualDraft = '';
       state.mobileEmployeesLoading = false;
@@ -2916,55 +2928,7 @@
       }
     }
 
-    function operatorEmployeeById(employeeId) {
-      const normalizedId = String(employeeId || '').trim();
-      if (!normalizedId) return null;
-      return (Array.isArray(state.employees) ? state.employees : []).find((item) => String(item?.id || '').trim() === normalizedId) || null;
-    }
-
-    function operatorEmployeeBoundUsername(employeeId, exceptUsername = '') {
-      const normalizedId = String(employeeId || '').trim();
-      const normalizedUsername = String(exceptUsername || '').trim().toUpperCase();
-      if (!normalizedId) return '';
-      const user = (Array.isArray(state.operatorUsers) ? state.operatorUsers : []).find((item) => {
-        const username = String(item?.username || '').trim().toUpperCase();
-        return username && username !== normalizedUsername && String(item?.employee_id || '').trim() === normalizedId;
-      });
-      return user?.username || '';
-    }
-
-    function operatorUserEmployeeLabel(user) {
-      const employeeId = String(user?.employee_id || '').trim();
-      if (!employeeId) return 'СОТРУДНИК: НЕ ПРИВЯЗАН';
-      const employee = operatorEmployeeById(employeeId);
-      if (!employee) return 'СОТРУДНИК: НЕ НАЙДЕН';
-      return 'СОТРУДНИК: ' + (employee.name || 'Сотрудник') + (employee.is_active ? '' : ' (ВЫКЛЮЧЕН)');
-    }
-
-    function operatorUserEmployeeOptionsHtml(selectedId = '', username = '') {
-      const selected = String(selectedId || '').trim();
-      const normalizedUsername = String(username || '').trim().toUpperCase();
-      const employees = Array.isArray(state.employees) ? state.employees : [];
-      const rendered = new Set();
-      const options = ['<option value="">НЕ ПРИВЯЗАН</option>'];
-      employees.forEach((employee) => {
-        const employeeId = String(employee?.id || '').trim();
-        if (!employeeId || rendered.has(employeeId) || !employee?.is_active) return;
-        rendered.add(employeeId);
-        const boundUsername = operatorEmployeeBoundUsername(employeeId, normalizedUsername);
-        const disabled = boundUsername ? ' disabled' : '';
-        const suffix = boundUsername ? (' (' + boundUsername + ')') : '';
-        options.push(
-          '<option value="' + escapeHtml(employeeId) + '"' + (employeeId === selected ? ' selected' : '') + disabled + '>' + escapeHtml((employee.name || 'Сотрудник') + suffix) + '</option>'
-        );
-      });
-      if (selected && !rendered.has(selected)) {
-        const employee = operatorEmployeeById(selected);
-        const label = employee ? ((employee.name || 'Сотрудник') + ' (ВЫКЛЮЧЕН)') : 'СОТРУДНИК НЕ НАЙДЕН';
-        options.push('<option value="' + escapeHtml(selected) + '" selected disabled>' + escapeHtml(label) + '</option>');
-      }
-      return options.join('');
-    }
+    // @include operator_admin_context.js
 
     function isOperatorEmployeeBindingOpen() {
       return Boolean(String(state.operatorEmployeeBindingUser || '').trim());
@@ -3000,6 +2964,7 @@
       els.operatorUserEditorPanel?.classList.toggle('hidden', isOpen);
       els.operatorUsersListPanel?.classList.toggle('hidden', isOpen);
       syncOperatorAdminCloseButton();
+      syncOperatorEmployeeBindingMutationControls();
       if (!isOpen) return;
       if (els.operatorUserEmployeeBindingTitle) {
         els.operatorUserEmployeeBindingTitle.textContent = 'ПРИВЯЗКА СОТРУДНИКА / ' + username;
@@ -3013,17 +2978,26 @@
     async function openOperatorEmployeeBinding(username) {
       const context = captureViewerRequestContext();
       const normalizedUsername = String(username || '').trim().toUpperCase();
+      claimOperatorUserEditorIntent();
+      const intentGeneration = claimOperatorBindingIntent();
       try {
         await loadEmployeesReference();
-        if (!context.isCurrent()) return;
+        if (
+          !context.isCurrent()
+          || state.operatorEmployeeBindingIntentGeneration !== intentGeneration
+        ) return;
         state.operatorEmployeeBindingUser = normalizedUsername;
         renderOperatorEmployeeBindingPanel();
       } catch (error) {
-        if (context.isCurrent()) setStatus(error.message, true);
+        if (
+          context.isCurrent()
+          && state.operatorEmployeeBindingIntentGeneration === intentGeneration
+        ) setStatus(error.message, true);
       }
     }
 
     function closeOperatorEmployeeBinding() {
+      claimOperatorBindingIntent();
       state.operatorEmployeeBindingUser = '';
       renderOperatorEmployeeBindingPanel();
     }
@@ -3031,10 +3005,12 @@
     async function saveOperatorEmployeeBinding(employeeIdOverride = null) {
       const username = String(state.operatorEmployeeBindingUser || '').trim().toUpperCase();
       if (!username) return;
-      const context = captureViewerRequestContext();
+      const context = beginOperatorEmployeeBindingMutation(username);
+      if (!context) return;
       const employeeId = employeeIdOverride === null
         ? String(els.operatorUserEmployeeSelect?.value || '').trim()
         : String(employeeIdOverride || '').trim();
+      syncOperatorEmployeeBindingMutationControls();
       try {
         const data = await api('/api/set_operator_user_employee', {
           method: 'POST',
@@ -3044,16 +3020,21 @@
             source: 'ui',
           },
         });
-        if (!context.isCurrent()) return;
+        if (!context.viewer.isCurrent()) return;
+        const isCurrentIntent = context.isCurrent();
+        applyOperatorUserSummary(data?.user, { preserveBindingDraft: !isCurrentIntent });
+        if (!isCurrentIntent) return;
         setStatus(data?.meta?.bound ? 'СОТРУДНИК ПРИВЯЗАН.' : 'СОТРУДНИК ОТВЯЗАН.', false);
         closeOperatorEmployeeBinding();
         await refreshOperatorAdminSurfaces({
-          openAdminModal: true,
+          openAdminModal: false,
           refreshProfile: String(state.actor || '').trim().toUpperCase() === username,
-          viewerContext: context,
+          viewerContext: context.viewer,
         });
       } catch (error) {
         if (context.isCurrent()) setStatus(error.message, true);
+      } finally {
+        finishOperatorEmployeeBindingMutation(context);
       }
     }
 
@@ -3094,6 +3075,8 @@
         (item) => String(item?.username || '').trim().toUpperCase() === normalizedUsername
       );
       if (!user) return;
+      closeOperatorEmployeeBinding();
+      claimOperatorUserEditorIntent();
       state.operatorPermissionEditorUsername = normalizedUsername;
       els.adminUserLogin.value = String(user.username || '');
       els.adminUserPassword.value = '';
@@ -3108,6 +3091,7 @@
         els.adminUserSalaryBalanceReset.checked = permissions.includes(SALARY_BALANCE_RESET_PERMISSION);
       }
       syncOperatorAdminSalaryResetPermission();
+      syncOperatorUserSaveControl();
       els.operatorUserEditorPanel?.scrollIntoView({ block: 'nearest' });
       els.adminUserPassword?.focus();
     }
@@ -3135,8 +3119,14 @@
       if (state.operatorAdminPermissionUiBound) return;
       els.adminUserEmployeesCashboxesAccess?.addEventListener(
         'change',
-        syncOperatorAdminSalaryResetPermission,
+        () => {
+          claimOperatorUserEditorIntent();
+          syncOperatorAdminSalaryResetPermission();
+        },
       );
+      els.adminUserEmployeesReadAccess?.addEventListener('change', claimOperatorUserEditorIntent);
+      els.adminUserSalaryBalanceReset?.addEventListener('change', claimOperatorUserEditorIntent);
+      els.adminUserPassword?.addEventListener('input', claimOperatorUserEditorIntent);
       els.adminUserLogin?.addEventListener('input', syncOperatorAdminSalaryResetPermission);
       state.operatorAdminPermissionUiBound = true;
       syncOperatorAdminSalaryResetPermission();
@@ -3146,6 +3136,13 @@
       els.operatorAdminUsersPanel?.classList.toggle('hidden', false);
       els.operatorAdminUsersPanel?.classList.toggle('is-active', true);
       syncOperatorAdminCloseButton();
+    }
+
+    function closeOperatorAdminModal() {
+      state.operatorAdminRequestSeq = (state.operatorAdminRequestSeq || 0) + 1;
+      closeOperatorEmployeeBinding();
+      clearOperatorUserEditor();
+      popModal('operator-admin');
     }
 
     function openTextBlobWindow(text, fileName) {
@@ -3396,7 +3393,8 @@
         'operator-profile': () => popModal('operator-profile'),
         'operator-admin': () => {
           if (closeOperatorAdminChildView()) return false;
-          popModal('operator-admin');
+          closeOperatorAdminModal();
+          return true;
         },
       };
       const closeAction = closeActions[normalizedKey];
@@ -5083,7 +5081,9 @@
     }
 
     async function saveOperatorUser() {
-      const context = captureViewerRequestContext();
+      const context = beginOperatorUserSaveMutation();
+      if (!context) return;
+      syncOperatorUserSaveControl();
       try {
         const username = String(els.adminUserLogin.value || '').trim();
         const normalizedUsername = username.toUpperCase();
@@ -5117,18 +5117,21 @@
           method: 'POST',
           body: payload,
         });
-        if (!context.isCurrent()) return;
-        state.operatorPermissionEditorUsername = '';
-        els.adminUserLogin.value = '';
-        els.adminUserPassword.value = '';
-        if (els.adminUserSalaryBalanceReset) els.adminUserSalaryBalanceReset.checked = false;
-        if (els.adminUserEmployeesCashboxesAccess) els.adminUserEmployeesCashboxesAccess.checked = false;
-        if (els.adminUserEmployeesReadAccess) els.adminUserEmployeesReadAccess.checked = false;
-        syncOperatorAdminSalaryResetPermission();
+        if (!context.viewer.isCurrent()) return;
+        const isCurrentIntent = context.isCurrent();
+        applyOperatorUserSummary(data?.user, { preserveBindingDraft: !isCurrentIntent });
+        if (!isCurrentIntent) return;
+        clearOperatorUserEditor();
         setStatus((data?.meta?.created ? 'Пользователь создан.' : 'Пользователь обновлён.') + ' ' + (data?.user?.username || ''), false);
-        await refreshOperatorAdminSurfaces({ openAdminModal: true, refreshProfile: true, viewerContext: context });
+        await refreshOperatorAdminSurfaces({
+          openAdminModal: false,
+          refreshProfile: true,
+          viewerContext: context.viewer,
+        });
       } catch (error) {
         if (context.isCurrent()) setStatus(error.message, true);
+      } finally {
+        finishOperatorUserSaveMutation(context);
       }
     }
 
@@ -5138,7 +5141,7 @@
       try {
         await api('/api/delete_operator_user', { method: 'POST', body: { username } });
         if (!context.isCurrent()) return;
-        await refreshOperatorAdminSurfaces({ openAdminModal: true, viewerContext: context });
+        await refreshOperatorAdminSurfaces({ openAdminModal: false, viewerContext: context });
       } catch (error) {
         if (context.isCurrent()) setStatus(error.message, true);
       }

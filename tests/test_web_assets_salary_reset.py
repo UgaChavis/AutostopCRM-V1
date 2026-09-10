@@ -62,7 +62,12 @@ class SalaryBalanceResetWebAssetTests(unittest.TestCase):
         )
         self.assertNotIn("body: {\n            username:", permission_save)
         self.assertIn("body: payload,", permission_save)
-        self.assertIn("state.operatorPermissionEditorUsername = '';", permission_save)
+        self.assertIn("clearOperatorUserEditor();", permission_save)
+        editor_clear = _asset_section(
+            "function clearOperatorUserEditor(",
+            "function resetOperatorAdminViewerState(",
+        )
+        self.assertIn("state.operatorPermissionEditorUsername = '';", editor_clear)
 
         self.assertIn("els.adminUserLogin.addEventListener('input', () => {", BOARD_WEB_APP_HTML)
         self.assertIn(

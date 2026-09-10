@@ -516,6 +516,129 @@ class PrintingStateLockTests(unittest.TestCase):
 
         self.assertIs(raised.exception, body_timeout)
 
+    def test_completion_act_lock_timeout_is_reported_only_before_acquisition(self) -> None:
+        service = PrintModuleService(self.base_dir)
+        card = _card("completion-lock-timeout")
+        form = service.get_completion_act_form(card)["form"]
+        with (
+            patch.object(
+                service._completion_act_process_lock,
+                "acquire",
+                side_effect=TimeoutError("busy"),
+            ),
+            patch.object(service, "_write_completion_act_record") as write_record,
+            self.assertRaises(PrintModuleError) as raised,
+        ):
+            service.save_completion_act_form(
+                card,
+                form_data=form,
+                expected_version=0,
+                idempotency_key="completion-lock-timeout",
+            )
+
+        self.assertEqual(raised.exception.code, "completion_act_lock_timeout")
+        self.assertEqual(raised.exception.status_code, 503)
+        write_record.assert_not_called()
+
+    def test_completion_act_body_timeout_keeps_its_original_meaning(self) -> None:
+        service = PrintModuleService(self.base_dir)
+        card = _card("completion-body-timeout")
+        form = service.get_completion_act_form(card)["form"]
+        body_timeout = TimeoutError("writer timed out")
+        with (
+            patch.object(service, "_write_completion_act_record", side_effect=body_timeout),
+            self.assertRaises(TimeoutError) as raised,
+        ):
+            service.save_completion_act_form(
+                card,
+                form_data=form,
+                expected_version=0,
+                idempotency_key="completion-body-timeout",
+            )
+
+        self.assertIs(raised.exception, body_timeout)
+
+    def test_default_template_delete_compensates_a_failed_second_write(self) -> None:
+        feed = ChangeFeedStore(self.base_dir / "change_feed.sqlite3")
+        service = PrintModuleService(self.base_dir, change_feed_store=feed)
+        saved = service.save_template(
+            document_type="repair_order",
+            name="Шаблон с откатом",
+            content='<div class="document-page">rollback</div>',
+        )
+        template_id = saved["template"]["id"]
+        service.set_default_template(document_type="repair_order", template_id=template_id)
+        events_before_failure = feed.raw_events_for_test()
+
+        with (
+            patch.object(
+                service,
+                "_write_custom_templates",
+                side_effect=OSError("template write failed"),
+            ),
+            self.assertRaisesRegex(OSError, "template write failed"),
+        ):
+            service.delete_template(template_id=template_id)
+
+        self.assertEqual(feed.raw_events_for_test(), events_before_failure)
+        self.assertEqual(service._read_settings().default_template_ids["repair_order"], template_id)
+        self.assertIn(template_id, {item.id for item in service._read_custom_templates()})
+
+        deleted = service.delete_template(template_id=template_id)
+        self.assertTrue(deleted["deleted"])
+        self.assertNotIn("repair_order", service._read_settings().default_template_ids)
+        self.assertNotIn(template_id, {item.id for item in service._read_custom_templates()})
+        final_events = feed.raw_events_for_test()[len(events_before_failure) :]
+        self.assertEqual(
+            [
+                (event["entity_type"], event["entity_id"], event["change_type"], event["tombstone"])
+                for event in final_events
+            ],
+            [
+                ("print_settings", "print-module", "update", False),
+                ("print_template", template_id, "delete", True),
+            ],
+        )
+
+    def test_default_template_delete_accepts_a_committed_second_write(self) -> None:
+        feed = ChangeFeedStore(self.base_dir / "change_feed.sqlite3")
+        service = PrintModuleService(self.base_dir, change_feed_store=feed)
+        saved = service.save_template(
+            document_type="repair_order",
+            name="Шаблон с подтверждением записи",
+            content='<div class="document-page">committed</div>',
+        )
+        template_id = saved["template"]["id"]
+        service.set_default_template(document_type="repair_order", template_id=template_id)
+        events_before_delete = feed.raw_events_for_test()
+        original_write = service._write_custom_templates
+
+        def committed_then_failed(records: list[Any], *, sync_change_feed: bool = True) -> None:
+            original_write(records, sync_change_feed=sync_change_feed)
+            raise OSError("late template write failure")
+
+        with patch.object(
+            service,
+            "_write_custom_templates",
+            side_effect=committed_then_failed,
+        ):
+            deleted = service.delete_template(template_id=template_id)
+
+        self.assertTrue(deleted["deleted"])
+        self.assertNotIn("repair_order", service._read_settings().default_template_ids)
+        self.assertNotIn(template_id, {item.id for item in service._read_custom_templates()})
+        final_events = feed.raw_events_for_test()[len(events_before_delete) :]
+        self.assertEqual(
+            [
+                (event["entity_type"], event["entity_id"], event["change_type"], event["tombstone"])
+                for event in final_events
+            ],
+            [
+                ("print_settings", "print-module", "update", False),
+                ("print_template", template_id, "delete", True),
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

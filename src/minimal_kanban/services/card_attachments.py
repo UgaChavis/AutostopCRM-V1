@@ -11,6 +11,7 @@ import time
 import uuid
 import xml.etree.ElementTree as ET
 import zipfile
+from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path, PurePath
 from typing import Any
@@ -153,6 +154,14 @@ _ATTACHMENT_BASE64_ENCODED_MAX_CHARS = ((MAX_ATTACHMENT_SIZE_BYTES + 2) // 3) * 
 _ATTACHMENT_XML_READ_MAX_BYTES = 5_000_000
 
 
+@dataclass(frozen=True, slots=True)
+class _AttachmentFileRepair:
+    source_path: Path
+    target_path: Path
+    expected_size: int
+    expected_sha256: str
+
+
 class CardAttachmentsMixin:
     def add_card_attachment(self, payload: dict) -> dict:
         with self._lock:
@@ -282,15 +291,12 @@ class CardAttachmentsMixin:
                     details={"attachment_id": attachment.id},
                 )
             attachment_path = self._require_attachment_file(card.id, attachment)
-            attachment_path, repaired = self._repair_attachment_metadata(
+            attachment_path, repaired, file_repair = self._repair_attachment_metadata(
                 card.id, attachment, attachment_path
             )
             if repaired:
-                self._save_bundle(
-                    bundle,
-                    columns=bundle["columns"],
-                    cards=bundle["cards"],
-                    events=bundle["events"],
+                self._save_attachment_metadata_repair(
+                    bundle, card_id=card.id, file_repair=file_repair
                 )
             return attachment_path, attachment
 
@@ -336,15 +342,12 @@ class CardAttachmentsMixin:
                     details={"attachment_id": attachment.id},
                 )
             attachment_path = self._require_attachment_file(card.id, attachment)
-            attachment_path, repaired = self._repair_attachment_metadata(
+            attachment_path, repaired, file_repair = self._repair_attachment_metadata(
                 card.id, attachment, attachment_path
             )
             if repaired:
-                self._save_bundle(
-                    bundle,
-                    columns=bundle["columns"],
-                    cards=bundle["cards"],
-                    events=bundle["events"],
+                self._save_attachment_metadata_repair(
+                    bundle, card_id=card.id, file_repair=file_repair
                 )
             return {
                 "card": self._serialize_card(
@@ -394,15 +397,12 @@ class CardAttachmentsMixin:
                     details={"attachment_id": attachment.id},
                 )
             attachment_path = self._require_attachment_file(card.id, attachment)
-            attachment_path, repaired = self._repair_attachment_metadata(
+            attachment_path, repaired, file_repair = self._repair_attachment_metadata(
                 card.id, attachment, attachment_path
             )
             if repaired:
-                self._save_bundle(
-                    bundle,
-                    columns=bundle["columns"],
-                    cards=bundle["cards"],
-                    events=bundle["events"],
+                self._save_attachment_metadata_repair(
+                    bundle, card_id=card.id, file_repair=file_repair
                 )
             content = self._read_attachment_file_bytes(attachment_path, attachment)
             attachment_meta = self._attachment_agent_dict(
@@ -1154,7 +1154,8 @@ class CardAttachmentsMixin:
 
     def _repair_attachment_metadata(
         self, card_id: str, attachment: Attachment, attachment_path: Path
-    ) -> tuple[Path, bool]:
+    ) -> tuple[Path, bool, _AttachmentFileRepair | None]:
+        source_path = attachment_path
         content = self._read_attachment_file_bytes(attachment_path, attachment)
         detected_type = self._detect_attachment_type(content)
         if not detected_type:
@@ -1202,14 +1203,96 @@ class CardAttachmentsMixin:
 
         preferred_extension = self._preferred_storage_extension(attachment.file_name, spec)
         preferred_stored_name = f"{attachment.id}{preferred_extension}"
-        if attachment.stored_name != preferred_stored_name:
-            target_path = self._attachment_path(card_id, preferred_stored_name)
-            if target_path != attachment_path and not target_path.exists():
-                attachment_path.rename(target_path)
+        target_path = self._attachment_path(card_id, preferred_stored_name)
+        file_repair: _AttachmentFileRepair | None = None
+        if target_path != attachment_path:
+            target_available = False
+            if target_path.exists():
+                try:
+                    target_available = (
+                        self._attachment_is_regular_file(target_path)
+                        and self._read_attachment_file_bytes(target_path, attachment) == content
+                    )
+                    if not target_available:
+                        self._write_attachment_file(card_id, preferred_stored_name, content)
+                        target_available = True
+                except (OSError, ValueError, ServiceError):
+                    self._logger.warning(
+                        "attachment repair target refresh deferred card_id=%s target=%s",
+                        card_id,
+                        target_path.name,
+                        exc_info=True,
+                    )
+                    target_available = False
+            else:
+                self._write_attachment_file(card_id, preferred_stored_name, content)
+                target_available = True
+            if target_available:
                 attachment_path = target_path
                 attachment.stored_name = preferred_stored_name
                 repaired = True
-        return attachment_path, repaired
+                file_repair = _AttachmentFileRepair(
+                    source_path=source_path,
+                    target_path=target_path,
+                    expected_size=len(content),
+                    expected_sha256=hashlib.sha256(content).hexdigest(),
+                )
+        elif attachment.stored_name != preferred_stored_name:
+            attachment.stored_name = preferred_stored_name
+            repaired = True
+        return attachment_path, repaired, file_repair
+
+    def _save_attachment_metadata_repair(
+        self,
+        bundle: dict,
+        *,
+        card_id: str,
+        file_repair: _AttachmentFileRepair | None,
+    ) -> None:
+        # Keep a staged target when the state write fails. Removing it after a
+        # separate authority check has a TOCTOU race with another process that
+        # can commit metadata pointing at the same byte-identical target. A
+        # later repair safely adopts this copy; the authoritative source stays
+        # available until one metadata commit succeeds.
+        self._save_bundle(
+            bundle,
+            columns=bundle["columns"],
+            cards=bundle["cards"],
+            events=bundle["events"],
+        )
+        self._finish_attachment_file_repair(card_id, file_repair)
+
+    def _finish_attachment_file_repair(
+        self, card_id: str, file_repair: _AttachmentFileRepair | None
+    ) -> None:
+        if file_repair is None or file_repair.source_path == file_repair.target_path:
+            return
+        try:
+            target_matches = (
+                self._attachment_is_regular_file(file_repair.target_path)
+                and file_repair.target_path.stat().st_size == file_repair.expected_size
+                and self._attachment_file_sha256(file_repair.target_path)
+                == file_repair.expected_sha256
+            )
+        except (OSError, ValueError):
+            target_matches = False
+        if not target_matches:
+            self._logger.warning(
+                "attachment repair target changed; source retained card_id=%s target=%s",
+                card_id,
+                file_repair.target_path.name,
+            )
+            return
+        try:
+            if file_repair.source_path.is_file() or file_repair.source_path.is_symlink():
+                file_repair.source_path.unlink()
+        except OSError:
+            self._logger.warning(
+                "attachment repair source cleanup deferred card_id=%s source=%s",
+                card_id,
+                file_repair.source_path.name,
+                exc_info=True,
+            )
 
     def _ensure_safe_attachment_name(self, file_name: str) -> None:
         suffixes = [suffix.lower() for suffix in PurePath(file_name).suffixes]
