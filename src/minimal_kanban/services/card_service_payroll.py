@@ -1940,7 +1940,7 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
             cashboxes = bundle["cashboxes"]
             cash_transactions = bundle["cash_transactions"]
             employee_balances = {
-                employee["id"]: self._build_employee_salary_ledger(
+                employee["id"]: self._build_employee_salary_balance_summary(
                     bundle["cards"],
                     cashboxes,
                     cash_transactions,

@@ -165,6 +165,7 @@ class CardServiceSalaryLedgerMixin:
         months: int = 6,
         period_only_totals: bool = False,
         as_of: datetime | None = None,
+        _balance_summary_only: bool = False,
     ) -> dict[str, Any]:
         repair_order_accruals = self._legacy_overall_accruals_without_postings(
             cards, repair_order_accruals or []
@@ -196,6 +197,8 @@ class CardServiceSalaryLedgerMixin:
                 accrual_total += amount
                 if not is_recent:
                     continue
+            if _balance_summary_only:
+                continue
             journal_rows.append(
                 {
                     "kind": "base_salary_accrual",
@@ -234,6 +237,8 @@ class CardServiceSalaryLedgerMixin:
                 accrual_total += amount
                 if not is_recent:
                     continue
+            if _balance_summary_only:
+                continue
             journal_rows.append(
                 {
                     "kind": "shift_accrual",
@@ -274,6 +279,8 @@ class CardServiceSalaryLedgerMixin:
                 accrual_total += amount
                 if not is_recent:
                     continue
+            if _balance_summary_only:
+                continue
             base_minor = int(normalize_money_minor(order_accrual.get("base_amount_minor")))
             percent = order_accrual.get("percent") or "0"
             journal_rows.append(
@@ -322,6 +329,8 @@ class CardServiceSalaryLedgerMixin:
                         accrual_total += amount
                         if not is_recent:
                             continue
+                    if _balance_summary_only:
+                        continue
                     is_reversal = posting.get("kind") == "reversal" or amount_minor < 0
                     posting_type = posting.get("posting_type") or "work"
                     if posting_type == "repair_order":
@@ -406,6 +415,8 @@ class CardServiceSalaryLedgerMixin:
                     accrual_total += amount
                     if not is_recent:
                         continue
+                if _balance_summary_only:
+                    continue
                 journal_rows.append(
                     {
                         "kind": "accrual",
@@ -442,6 +453,8 @@ class CardServiceSalaryLedgerMixin:
                     accrual_total += amount
                     if not is_recent:
                         continue
+                if _balance_summary_only:
+                    continue
                 journal_rows.append(
                     {
                         "kind": "material_accrual",
@@ -479,6 +492,8 @@ class CardServiceSalaryLedgerMixin:
                 advance_total += amount
                 kind_label = "АВАНС"
             if created_at is not None and created_at < period_start:
+                continue
+            if _balance_summary_only:
                 continue
             cashbox_name = (
                 cashboxes_by_id.get(transaction.cashbox_id).name
@@ -523,6 +538,8 @@ class CardServiceSalaryLedgerMixin:
                 balance_reset_total += amount
                 if not is_recent:
                     continue
+            if _balance_summary_only:
+                continue
             actor_name = normalize_actor_name(balance_reset.get("actor_name"), default="")
             journal_rows.append(
                 {
@@ -545,31 +562,74 @@ class CardServiceSalaryLedgerMixin:
                 }
             )
 
-        journal_rows.sort(
-            key=lambda item: (
-                self._repair_order_sortable_datetime(item["created_at"]),
-                item["kind_label"],
-                item.get("repair_order_number") or "",
-                item.get("work_name") or "",
-            ),
-            reverse=True,
+        return self._finalize_employee_salary_ledger(
+            cards=cards,
+            cash_transactions=cash_transactions,
+            employee=employee,
+            shift_accruals=shift_accruals or [],
+            repair_order_accruals=repair_order_accruals,
+            salary_balance_resets=salary_balance_resets or [],
+            months=months,
+            now=now,
+            period_start=period_start,
+            journal_rows=journal_rows,
+            accrual_total=accrual_total,
+            payout_total=payout_total,
+            advance_total=advance_total,
+            balance_reset_total=balance_reset_total,
+            balance_summary_only=_balance_summary_only,
         )
+
+    def _finalize_employee_salary_ledger(
+        self,
+        *,
+        cards: list[Card],
+        cash_transactions: list[CashTransaction],
+        employee: dict[str, Any],
+        shift_accruals: list[dict[str, Any]],
+        repair_order_accruals: list[dict[str, Any]],
+        salary_balance_resets: list[dict[str, Any]],
+        months: int,
+        now: datetime,
+        period_start: datetime,
+        journal_rows: list[dict[str, Any]],
+        accrual_total: Decimal,
+        payout_total: Decimal,
+        advance_total: Decimal,
+        balance_reset_total: Decimal,
+        balance_summary_only: bool,
+    ) -> dict[str, Any]:
+        if not balance_summary_only:
+            journal_rows.sort(
+                key=lambda item: (
+                    self._repair_order_sortable_datetime(item["created_at"]),
+                    item["kind_label"],
+                    item.get("repair_order_number") or "",
+                    item.get("work_name") or "",
+                ),
+                reverse=True,
+            )
         balance_total = accrual_total - payout_total - advance_total + balance_reset_total
         balance_minor = int(
             (balance_total * Decimal("100")).to_integral_value(rounding=ROUND_HALF_UP)
         )
+        if balance_summary_only:
+            return {
+                "balance_total": self._format_payroll_decimal(balance_total),
+                "balance_minor": balance_minor,
+            }
         balance_revision = self._employee_salary_ledger_revision(
             cards,
             cash_transactions,
             employee,
-            shift_accruals=shift_accruals or [],
+            shift_accruals=shift_accruals,
             repair_order_accruals=repair_order_accruals,
-            salary_balance_resets=salary_balance_resets or [],
+            salary_balance_resets=salary_balance_resets,
             as_of=now,
             period_start=period_start,
         )
         return {
-            "employee_id": employee_id,
+            "employee_id": employee["id"],
             "employee_name": employee["name"],
             "position": employee["position"],
             "period_months": months,
@@ -589,6 +649,32 @@ class CardServiceSalaryLedgerMixin:
             "journal_rows": journal_rows,
             "journal_total": len(journal_rows),
         }
+
+    def _build_employee_salary_balance_summary(
+        self,
+        cards: list[Card],
+        cashboxes: list[CashBox],
+        cash_transactions: list[CashTransaction],
+        employee: dict[str, Any],
+        *,
+        shift_accruals: list[dict[str, Any]] | None = None,
+        repair_order_accruals: list[dict[str, Any]] | None = None,
+        salary_balance_resets: list[dict[str, Any]] | None = None,
+        months: int = 6,
+        as_of: datetime | None = None,
+    ) -> dict[str, Any]:
+        return self._build_employee_salary_ledger(
+            cards,
+            cashboxes,
+            cash_transactions,
+            employee,
+            shift_accruals=shift_accruals,
+            repair_order_accruals=repair_order_accruals,
+            salary_balance_resets=salary_balance_resets,
+            months=months,
+            as_of=as_of,
+            _balance_summary_only=True,
+        )
 
     def get_employee_salary_ledger(self, payload: dict | None = None) -> dict:
         with self._lock:
