@@ -217,6 +217,15 @@ After an atomic state replace, deferred cleanup/readback failures are logged;
 an unpublished durable change-feed stage remains available for reconciliation.
 `test_salary_balance_summary` proves that the employee-list balance projection
 matches the full ledger without building journal rows or a revision.
+`test_printing_state_lock` owns concurrent read-modify-write safety for custom
+templates, print settings and inspection-sheet drafts. Mutations sharing one
+printing root hold the same bounded process lock through file replacement and
+change-feed synchronization. The full projection during initialization,
+explicit reconciliation and bounded pending completion-act replay use that
+boundary too, so a stale
+snapshot cannot overwrite a newer published entity. A lock acquisition timeout
+is a retryable 503; timeouts raised by the mutation itself retain their original
+meaning.
 
 Frontend ownership suites `test_card_workspace_context`,
 `test_web_assets_async_ownership_context`, `test_web_assets_client_context`,
