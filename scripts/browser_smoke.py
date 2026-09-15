@@ -498,6 +498,65 @@ async def _exercise_card_modal_roundtrip(
           return !editor?.classList.contains('is-loading') && !saveButton?.disabled;
         }"""
     )
+    original_title = await page.input_value("#cardTitle")
+    await page.evaluate(
+        """() => {
+          window.__browserSmokeOriginalConfirm = window.confirm;
+          window.__browserSmokeConfirmMessages = [];
+          window.confirm = (message) => {
+            window.__browserSmokeConfirmMessages.push(String(message || ''));
+            return false;
+          };
+        }"""
+    )
+    try:
+        await page.fill("#cardTitle", "Discarded by top close")
+        await page.wait_for_selector("#saveCardButton.is-dirty")
+        await page.click("#cardModalCloseButtonTop")
+        await _wait_modal_closed(page, "#cardModal")
+
+        await page.click(card_selector)
+        await _wait_modal_open(page, "#cardModal")
+        await page.wait_for_function(
+            """() => {
+              const editor = document.querySelector('#cardDescriptionEditor');
+              const saveButton = document.querySelector('#saveCardButton');
+              return !editor?.classList.contains('is-loading') && !saveButton?.disabled;
+            }"""
+        )
+        top_close_discarded = await page.input_value("#cardTitle") == original_title
+
+        await page.fill("#cardTitle", "Discarded by bottom cancel")
+        await page.wait_for_selector("#saveCardButton.is-dirty")
+        await page.click("#cardModalCloseButtonBottom")
+        await _wait_modal_closed(page, "#cardModal")
+
+        await page.click(card_selector)
+        await _wait_modal_open(page, "#cardModal")
+        await page.wait_for_function(
+            """() => {
+              const editor = document.querySelector('#cardDescriptionEditor');
+              const saveButton = document.querySelector('#saveCardButton');
+              return !editor?.classList.contains('is-loading') && !saveButton?.disabled;
+            }"""
+        )
+        bottom_close_discarded = await page.input_value("#cardTitle") == original_title
+        confirm_messages = await page.evaluate(
+            "() => [...(window.__browserSmokeConfirmMessages || [])]"
+        )
+        discard_close_ok = bool(
+            top_close_discarded and bottom_close_discarded and not confirm_messages
+        )
+    finally:
+        await page.evaluate(
+            """() => {
+              if (window.__browserSmokeOriginalConfirm) {
+                window.confirm = window.__browserSmokeOriginalConfirm;
+              }
+              delete window.__browserSmokeOriginalConfirm;
+              delete window.__browserSmokeConfirmMessages;
+            }"""
+        )
     timer_initial_ok = bool(
         await page.evaluate(
             """() => {
@@ -618,7 +677,8 @@ async def _exercise_card_modal_roundtrip(
         }"""
     )
     controls_ok = bool(
-        await page.evaluate(
+        discard_close_ok
+        and await page.evaluate(
             """() => {
               const overview = document.querySelector('#cardModal [data-panel="overview"]');
               const editor = document.querySelector('#cardDescriptionEditor');

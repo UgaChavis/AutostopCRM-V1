@@ -906,7 +906,7 @@
             state.cardSavePromise = null;
             syncCardFilesMutationState();
             syncCardSaveDirtyState();
-            if (shouldCloseAfterSave) closeCardModal({ force: true });
+            if (shouldCloseAfterSave) closeCardModal();
             if (current && deferredSeenCardId && (!saveSucceeded || !saveChanged)) {
               deferCardSeen(deferredSeenCardId, { force: true });
             }
