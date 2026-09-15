@@ -36,6 +36,22 @@ class CardMoveOrderTests(CardServiceCase):
         again = self.service.move_card({"card_id": first, "column": "inbox", "placement": "end"})
         self.assertFalse(again["meta"]["moved"])
 
+    def test_delta_orders_active_cards_without_returning_archived_cards(self) -> None:
+        first, last = self._cards("inbox", 2)
+        archived = self.service.create_card({"title": "Archived", "column": "inbox"})
+        self.service.archive_card({"card_id": archived["card"]["id"]})
+
+        result = self.service.move_card(
+            {
+                "card_id": first,
+                "column": "inbox",
+                "placement": "end",
+                "response_mode": "delta",
+            }
+        )
+
+        self.assertEqual(result["affected_columns"][0]["ordered_card_ids"], [last, first])
+
     def test_other_column_top_middle_end_and_empty(self) -> None:
         first, middle, last = self._cards("inbox")
         target_first, target_last = self._cards("in_progress", 2)

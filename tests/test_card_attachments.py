@@ -96,6 +96,27 @@ class CardAttachmentPersistenceTests(unittest.TestCase):
             self.service.get_attachment_download(self.card_id, self.attachment["id"])
         self.assertEqual(error.exception.code, "not_found")
 
+    def test_card_open_can_defer_attachment_disk_status_until_files_are_requested(self) -> None:
+        with patch.object(
+            self.service,
+            "_attachment_exists_on_disk",
+            wraps=self.service._attachment_exists_on_disk,
+        ) as exists:
+            overview = self.service.get_card(
+                {"card_id": self.card_id, "include_attachment_status": False}
+            )["card"]
+        exists.assert_not_called()
+        self.assertNotIn("exists_on_disk", overview["attachments"][0])
+
+        with patch.object(
+            self.service,
+            "_attachment_exists_on_disk",
+            wraps=self.service._attachment_exists_on_disk,
+        ) as exists:
+            files = self.service.get_card({"card_id": self.card_id})["card"]
+        exists.assert_called_once()
+        self.assertTrue(files["attachments"][0]["exists_on_disk"])
+
     def test_legacy_constant_imports_reexport_the_single_attachment_policy(self) -> None:
         names = [
             name

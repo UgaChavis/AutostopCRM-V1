@@ -680,7 +680,7 @@ snapshots.set('a', summary('a'));
 const current = openCardWorkspace('a');
 assert.equal(rendered.length, 1);
 assert.equal(rendered[0].descriptionLoading, true);
-assert.equal(requests[0].path, '/api/get_card?card_id=a');
+assert.equal(requests[0].path, '/api/get_card?include_attachment_status=0&card_id=a');
 requests[0].resolve({card: full('a')});
 assert.deepEqual(await current, full('a'));
 assert.equal(rendered.length, 2);

@@ -118,6 +118,7 @@ BOOLEAN_QUERY_KEYS = frozenset(
         "include_full_details",
         "include_markdown",
         "include_removed",
+        "include_attachment_status",
         "include_repair_order_text",
         "include_stats",
         "only_missing",

@@ -884,7 +884,10 @@
           const savedCard = data?.card || null;
           saveChanged = data?.meta?.changed === true;
           if (savedCard) {
-            applySavedCardLocalPatch(savedCard);
+            applySavedCardLocalPatch(savedCard, {
+              cardIsFull: data?.meta?.response_mode !== 'compact',
+              payload,
+            });
             editingId = state.editingId;
           } else {
             rememberCardModalCleanState(payload);

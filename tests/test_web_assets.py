@@ -2404,7 +2404,7 @@ class WebAssetsTests(unittest.TestCase):
             "async function fetchFullCard(cardId, expectedUpdatedAt = '')", BOARD_WEB_APP_HTML
         )
         self.assertIn(
-            "api('/api/get_card?card_id=' + encodeURIComponent(normalizedCardId))",
+            "api('/api/get_card?include_attachment_status=0&card_id=' + encodeURIComponent(normalizedCardId))",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("const cachedCard = snapshotCardById(normalizedCardId);", BOARD_WEB_APP_HTML)
@@ -2479,7 +2479,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("СОХРАНЯЮ КАРТОЧКУ. ЗАКРОЮ ПОСЛЕ СОХРАНЕНИЯ.", BOARD_WEB_APP_HTML)
         self.assertIn("const data = await persistCardPayload(payload);", BOARD_WEB_APP_HTML)
         self.assertIn("const savedCard = data?.card || null;", save_fragment)
-        self.assertIn("applySavedCardLocalPatch(savedCard);", save_fragment)
+        self.assertIn("applySavedCardLocalPatch(savedCard, {", save_fragment)
+        self.assertIn("cardIsFull: data?.meta?.response_mode !== 'compact'", save_fragment)
+        self.assertIn("response_mode: 'compact'", BOARD_WEB_APP_HTML)
+        self.assertIn("ПРОВЕРЯЮ ДОСТУПНОСТЬ ФАЙЛОВ", BOARD_WEB_APP_HTML)
         self.assertNotIn("applyCardModalState(savedCard", save_fragment)
         self.assertIn("rememberCardModalCleanState(payload);", save_fragment)
         self.assertIn(

@@ -12079,7 +12079,10 @@
       const createVehicle = Boolean(state.pendingCreateClientVehicleFromCard);
       let data;
       if (state.editingId) {
-        data = await api('/api/update_card', { method: 'POST', body: { card_id: state.editingId, ...payload } });
+        data = await api('/api/update_card', {
+          method: 'POST',
+          body: { card_id: state.editingId, ...payload, response_mode: 'compact' },
+        });
       } else {
         data = await api('/api/create_card', { method: 'POST', body: payload });
       }
@@ -12510,6 +12513,23 @@
       }
       if (!state.activeCardIsFull) {
         renderCardFilesPlaceholder(card, 'ЗАГРУЗКА ФАЙЛОВ...');
+        return;
+      }
+      const attachments = Array.isArray(card.attachments) ? card.attachments : [];
+      const attachmentStatusLoaded = attachments.every(
+        (item) => item?.removed || typeof item?.exists_on_disk === 'boolean'
+      );
+      if (!attachmentStatusLoaded) {
+        const statusKey = 'status|' + String(card.id || '') + '|' + String(card.updated_at || '');
+        if (state.cardFilesRenderedFor === statusKey) return;
+        renderCardFilesPlaceholder(card, 'ПРОВЕРЯЮ ДОСТУПНОСТЬ ФАЙЛОВ...');
+        state.cardFilesRenderedFor = statusKey;
+        void refreshActiveCardFiles().catch((error) => {
+          if (state.cardFilesRenderedFor !== statusKey) return;
+          state.cardFilesRenderedFor = '';
+          renderCardFilesPlaceholder(card, 'НЕ УДАЛОСЬ ПРОВЕРИТЬ ДОСТУПНОСТЬ ФАЙЛОВ.');
+          setStatus(error.message, true);
+        });
         return;
       }
       const renderKey = String(card.id || '') + '|' + String(card.updated_at || '');
@@ -13971,7 +13991,7 @@
         return fetchFullCard(normalizedCardId, normalizedExpectedUpdatedAt);
       }
       let request = null;
-      request = api('/api/get_card?card_id=' + encodeURIComponent(normalizedCardId))
+      request = api('/api/get_card?include_attachment_status=0&card_id=' + encodeURIComponent(normalizedCardId))
         .then((data) => {
           if (viewerStateGeneration !== state.viewerStateGeneration) return null;
           return cacheFullCard(applyCardSeenSuppression(data?.card));
@@ -14108,12 +14128,29 @@
       };
     }
 
-    function applySavedCardLocalPatch(card) {
+    function applySavedCardLocalPatch(card, { cardIsFull = true, payload = null } = {}) {
       if (!card?.id || !Array.isArray(state.snapshot?.cards)) return false;
       const suppressedCard = applyCardSeenSuppression(card);
-      cacheFullCard(suppressedCard);
-      const nextCard = boardCardFromFullCard(suppressedCard);
-      const previousCard = snapshotCardById(nextCard.id);
+      if (cardIsFull) cacheFullCard(suppressedCard);
+      else state.fullCardCache.delete(String(suppressedCard.id || '').trim());
+      const previousCard = snapshotCardById(suppressedCard.id);
+      const draftTags = Array.isArray(payload?.tags) ? normalizeDraftTags(payload.tags) : null;
+      const draftDescription = payload && Object.hasOwn(payload, 'description')
+        ? String(payload.description || '')
+        : String(previousCard?.description || '');
+      const descriptionChanged = payload && Object.hasOwn(payload, 'description')
+        && draftDescription !== String(state.activeCard?.description || '');
+      const descriptionPreview = stripDescriptionFormatting(draftDescription).slice(0, 480).trim();
+      const patchCard = cardIsFull ? suppressedCard : {
+        ...previousCard,
+        ...suppressedCard,
+        description: descriptionPreview,
+        description_preview: descriptionPreview,
+        board_summary: descriptionChanged ? '' : String(previousCard?.board_summary || ''),
+        tags: draftTags ? draftTags.map((tag) => tag.label) : (previousCard?.tags || []),
+        tag_items: draftTags || previousCard?.tag_items || [],
+      };
+      const nextCard = boardCardFromFullCard(patchCard);
       if (previousCard) {
         replaceSnapshotCard(nextCard);
         updateSnapshotStatusLine({ showSuccess: true });

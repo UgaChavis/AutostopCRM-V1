@@ -116,6 +116,7 @@ from .card_attachments import _ATTACHMENT_TYPE_SPECS as _ATTACHMENT_TYPE_SPECS
 from .card_attachments import _ATTACHMENT_XML_READ_MAX_BYTES as _ATTACHMENT_XML_READ_MAX_BYTES
 from .card_attachments import _OLE_MAGIC as _OLE_MAGIC
 from .card_attachments import CardAttachmentsMixin
+from .card_ordering import ordered_active_card_ids_by_column
 from .card_service_bulk import CardServiceBulkMixin
 from .card_service_clients import CardServiceClientsMixin
 from .card_service_dashboard import (
@@ -4761,14 +4762,13 @@ class CardService(
                 },
             }
             if response_mode == "delta":
+                ordered_ids_by_column = ordered_active_card_ids_by_column(
+                    cards, affected_column_ids
+                )
                 response["affected_columns"] = [
                     {
                         "column_id": column_id,
-                        "ordered_card_ids": [
-                            item.id
-                            for item in self._ordered_cards_in_column(cards, column_id)
-                            if not item.archived
-                        ],
+                        "ordered_card_ids": ordered_ids_by_column[column_id],
                     }
                     for column_id in affected_column_ids
                 ]
@@ -5182,6 +5182,7 @@ class CardService(
         column_labels: dict[str, str] | None = None,
         event_counts: dict[str, int] | None = None,
         include_removed_attachments: bool = False,
+        include_attachment_status: bool = True,
         viewer_username: str | None = None,
         compact: bool = False,
     ) -> dict:
@@ -5195,7 +5196,11 @@ class CardService(
             viewer_username=viewer_username,
             compact=compact,
         )
-        if not compact and isinstance(payload.get("attachments"), list):
+        if (
+            include_attachment_status
+            and not compact
+            and isinstance(payload.get("attachments"), list)
+        ):
             for attachment_payload in payload["attachments"]:
                 if not isinstance(attachment_payload, dict):
                     continue

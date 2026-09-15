@@ -264,6 +264,39 @@ assert.equal(state.cardSaveInFlight,false);
 """,
         )
 
+    def test_existing_card_save_requests_compact_response(self) -> None:
+        definitions = functions("app_main_before_printing.js", "persistCardPayload")
+        self.run_node(
+            definitions,
+            """
+state.pendingCardClientId='';state.pendingCardClientVehicleId='';
+state.pendingCreateClientVehicleFromCard=false;
+api=async(path,options)=>{calls.push({path,options});return {card:{id:'A'},meta:{response_mode:'compact'}};};
+const result=await persistCardPayload({title:'Changed title',description:'Changed description'});
+assert.equal(result.meta.response_mode,'compact');
+assert.equal(calls.length,1);assert.equal(calls[0].path,'/api/update_card');
+assert.equal(calls[0].options.body.card_id,'A');
+assert.equal(calls[0].options.body.response_mode,'compact');
+""",
+        )
+
+    def test_files_status_readback_is_started_once_for_unchecked_attachments(self) -> None:
+        definitions = functions("app_main_before_printing.js", "renderActiveCardFiles")
+        self.run_node(
+            definitions,
+            """
+const statusRead=deferred();const placeholders=[];
+function renderCardFilesPlaceholder(card,message){placeholders.push({card,message});}
+function refreshActiveCardFiles(){calls.push({path:'/api/get_card'});return statusRead.promise;}
+state.activeCard={id:'A',updated_at:'revision-1',attachments:[{id:'file-1'}]};
+state.activeCardIsFull=true;state.cardFilesRenderedFor='';
+renderActiveCardFiles();renderActiveCardFiles();
+assert.equal(calls.length,1,'repeated tab rendering started duplicate status reads');
+assert.match(placeholders[0].message,/ПРОВЕРЯЮ ДОСТУПНОСТЬ/);
+statusRead.resolve({id:'A'});await statusRead.promise;
+""",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

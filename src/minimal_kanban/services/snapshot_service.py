@@ -1438,16 +1438,16 @@ class SnapshotService:
             card = self._find_card(bundle["cards"], payload.get("card_id"))
             events = visible_audit_events(payload, bundle["events"])
             column_labels = self._column_labels(bundle["columns"])
-            viewer_username = self._viewer_username(payload)
-            event_counts = {card.id: _event_counts(events).get(card.id, 0)}
             return {
                 "card": self._serialize_card(
                     card,
                     events,
                     column_labels=column_labels,
-                    event_counts=event_counts,
                     include_removed_attachments=True,
-                    viewer_username=viewer_username,
+                    include_attachment_status=self._validated_optional_bool(
+                        payload, "include_attachment_status", default=True
+                    ),
+                    viewer_username=self._viewer_username(payload),
                 )
             }
 
