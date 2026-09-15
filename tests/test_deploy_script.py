@@ -65,11 +65,29 @@ class DeployScriptTests(unittest.TestCase):
 
     def test_setup_dev_installs_the_full_dependency_graph_once(self) -> None:
         script = (PROJECT_ROOT / "scripts" / "setup_dev.ps1").read_text(encoding="utf-8")
+        bootstrap = (PROJECT_ROOT / "scripts" / "python_bootstrap.ps1").read_text(encoding="utf-8")
 
         self.assertIn("$installRequirementsPath = if (Test-Path $devRequirementsPath)", script)
         self.assertIn("$devRequirementsPath\n} else {\n    $requirementsPath", script)
         self.assertEqual(1, script.count("-m pip install -r"))
         self.assertIn("-m pip install -r $installRequirementsPath", script)
+        self.assertIn("function Get-ProjectVirtualEnvironmentPythonPath", bootstrap)
+        self.assertIn('"Scripts\\python.exe"', bootstrap)
+        self.assertIn('"bin/python"', bootstrap)
+        for script_name in (
+            "build_app.ps1",
+            "doctor.ps1",
+            "run_checks.ps1",
+            "run_dev.ps1",
+            "run_mcp_server.ps1",
+            "setup_dev.ps1",
+        ):
+            script_text = (PROJECT_ROOT / "scripts" / script_name).read_text(encoding="utf-8")
+            self.assertIn(
+                "Get-ProjectVirtualEnvironmentPythonPath -VenvPath $venvPath",
+                script_text,
+                script_name,
+            )
 
     def test_ci_parallel_checks_have_a_fail_closed_aggregate(self) -> None:
         workflow = (PROJECT_ROOT / ".github/workflows/quality.yml").read_text(encoding="utf-8")

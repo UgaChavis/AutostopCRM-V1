@@ -53,6 +53,21 @@ function Get-PreferredPythonLauncher {
     throw "Python 3.11+ was not found. Install Python 3.12 or 3.13 and rerun."
 }
 
+function Get-ProjectVirtualEnvironmentPythonPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$VenvPath
+    )
+
+    $relativePath = if ([IO.Path]::DirectorySeparatorChar -eq '\') {
+        "Scripts\python.exe"
+    }
+    else {
+        "bin/python"
+    }
+    return Join-Path $VenvPath $relativePath
+}
+
 function New-ProjectVirtualEnvironment {
     param(
         [Parameter(Mandatory = $true)]
