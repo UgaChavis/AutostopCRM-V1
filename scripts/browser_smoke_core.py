@@ -59,6 +59,54 @@ async def _exercise_board_create_roundtrip(page: Any, runtime: TempRuntime) -> b
     )
 
 
+async def _exercise_card_discard_controls(page: Any, card_selector: str) -> bool:
+    original_title = await page.input_value("#cardTitle")
+    await page.evaluate(
+        """() => {
+          window.__browserSmokeOriginalConfirm = window.confirm;
+          window.__browserSmokeConfirmMessages = [];
+          window.confirm = (message) => {
+            window.__browserSmokeConfirmMessages.push(String(message || ''));
+            return false;
+          };
+        }"""
+    )
+    try:
+        discarded = []
+        for button_id, changed_title in (
+            ("#cardModalCloseButtonTop", "Discarded by top close"),
+            ("#cardModalCloseButtonBottom", "Discarded by bottom cancel"),
+        ):
+            await page.fill("#cardTitle", changed_title)
+            await page.wait_for_selector("#saveCardButton.is-dirty")
+            await page.click(button_id)
+            await _wait_modal_closed(page, "#cardModal")
+            await page.click(card_selector)
+            await _wait_modal_open(page, "#cardModal")
+            await page.wait_for_function(
+                """() => {
+                  const editor = document.querySelector('#cardDescriptionEditor');
+                  const saveButton = document.querySelector('#saveCardButton');
+                  return !editor?.classList.contains('is-loading') && !saveButton?.disabled;
+                }"""
+            )
+            discarded.append(await page.input_value("#cardTitle") == original_title)
+        confirm_messages = await page.evaluate(
+            "() => [...(window.__browserSmokeConfirmMessages || [])]"
+        )
+        return all(discarded) and not confirm_messages
+    finally:
+        await page.evaluate(
+            """() => {
+              if (window.__browserSmokeOriginalConfirm) {
+                window.confirm = window.__browserSmokeOriginalConfirm;
+              }
+              delete window.__browserSmokeOriginalConfirm;
+              delete window.__browserSmokeConfirmMessages;
+            }"""
+        )
+
+
 async def _exercise_client_link_roundtrip(page: Any, runtime: TempRuntime) -> dict[str, bool]:
     client_count_before = len(runtime.service.list_clients({"limit": 500})["clients"])
     created_card = next(
