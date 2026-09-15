@@ -156,8 +156,9 @@ def _read_state_text(state_file: Path) -> str:
 
 
 def _write_state(state_file: Path, state: dict[str, Any]) -> None:
+    reject_deeply_nested_json(state)
     payload = json.dumps(
-        _json_safe_value(state),
+        state,
         ensure_ascii=False,
         separators=(",", ":"),
         allow_nan=False,

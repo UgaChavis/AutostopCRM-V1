@@ -50,7 +50,7 @@ class SalaryBalanceResetWebAssetTests(unittest.TestCase):
             "async function deleteOperatorUser(",
         )
         self.assertIn("const existingUser = (state.operatorUsers || []).find(", permission_save)
-        self.assertIn("if (!existingUser || editingPermissions)", permission_save)
+        self.assertIn("payload.expected_permissions =", permission_save)
         self.assertIn("payload.permissions = [];", permission_save)
         self.assertIn(
             "payload.permissions.push(EMPLOYEES_CASHBOXES_ACCESS_PERMISSION);",

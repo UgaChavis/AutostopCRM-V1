@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 import time
 from dataclasses import dataclass
@@ -63,7 +62,7 @@ class CompactResult:
 def json_bytes(value: Any) -> int:
     return len(
         json.dumps(
-            _json_safe_value(value),
+            value,
             ensure_ascii=False,
             separators=(",", ":"),
             allow_nan=False,
@@ -73,24 +72,6 @@ def json_bytes(value: Any) -> int:
 
 def _reject_json_constant(value: str) -> None:
     raise ValueError(f"Unsupported JSON constant: {value}")
-
-
-def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
-    if depth <= 0:
-        return str(value)
-    if value is None or isinstance(value, (str, bool, int)):
-        return value
-    if isinstance(value, float):
-        return value if math.isfinite(value) else None
-    if isinstance(value, dict):
-        return {
-            str(key): _json_safe_value(item, depth=depth - 1)
-            for key, item in value.items()
-            if key is not None
-        }
-    if isinstance(value, (list, tuple, set)):
-        return [_json_safe_value(item, depth=depth - 1) for item in value]
-    return str(value)
 
 
 def archive_ref_for_event(event: dict[str, Any]) -> str:
@@ -201,8 +182,9 @@ def backup_state_file(state_file: Path) -> Path:
 
 
 def write_state_file(state_file: Path, state: dict[str, Any]) -> None:
+    reject_deeply_nested_json(state)
     payload = json.dumps(
-        _json_safe_value(state),
+        state,
         ensure_ascii=False,
         separators=(",", ":"),
         allow_nan=False,

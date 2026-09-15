@@ -217,8 +217,9 @@
       }
       event.preventDefault();
       const cardId = state.boardDragCardId || event.dataTransfer?.getData('text/plain') || '';
-      const columnId = state.boardDropColumnId || column.dataset.columnId || '';
-      const beforeCardId = state.boardDropBeforeCardId || '';
+      const columnId = column.dataset.columnId || '';
+      const beforeCardId = resolveDropBeforeCardId(column, event.clientY, cardId);
+      finishCardDrag();
       if (cardId && columnId) {
         await moveCard(cardId, columnId, beforeCardId);
       } else {

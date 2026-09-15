@@ -153,6 +153,69 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.window.open_local_board()
         self.browser_open.assert_called_once_with("http://127.0.0.1:41731")
 
+    def test_tunnel_completion_preserves_settings_saved_during_start(self) -> None:
+        initial = self.settings_service.load()
+        mcp_state = Mock(running=True)
+        mcp = Mock()
+        mcp.state.running = False
+        mcp.start.return_value = mcp_state
+        mcp.restart.return_value = mcp_state
+        self.window._mcp_controller = mcp
+
+        def start_tunnel(_settings):
+            self.settings_service.update_section(
+                "local_api", {"local_api_port": 44123}, persist=True
+            )
+            return Mock(running=True, public_url="https://synthetic.example")
+
+        tunnel = Mock()
+        tunnel.start.side_effect = start_tunnel
+        self.window._tunnel_controller = tunnel
+        _, updated = self.window._start_publication_runtime_core(initial)
+
+        self.assertEqual(updated.local_api.local_api_port, 44123)
+        self.assertEqual(updated.mcp.tunnel_url, "https://synthetic.example")
+        self.assertEqual(self.settings_service.load(), updated)
+        mcp.restart.assert_called_once_with(updated)
+
+    def test_queued_publication_result_uses_current_settings_for_display_and_export(self) -> None:
+        completed = self.settings_service.update_section(
+            "mcp", {"public_https_base_url": "https://old.synthetic.example"}, persist=True
+        )
+        current = self.settings_service.update_section(
+            "mcp", {"public_https_base_url": "https://new.synthetic.example"}, persist=True
+        )
+        self.window._on_settings_saved(current)
+        dialog = self.window.build_settings_window()
+        self.connector_files.reset_mock()
+        self.window.publication_ready.emit(completed, Mock(running=True))
+
+        self.assertEqual(self.window.mcp_value_label.text(), "https://new.synthetic.example/mcp")
+        self.assertEqual(
+            self.connector_files.call_args.args[0], "https://new.synthetic.example/mcp"
+        )
+        self.assertEqual(dialog._runtime_reference, current)
+        self.assertIn("изменились", self.window.status_label.text())
+        self.assertEqual(self.settings_service.load(), current)
+
+    def test_diagnostic_only_update_does_not_invalidate_publication_result(self) -> None:
+        completed = self.settings_service.update_section(
+            "mcp", {"public_https_base_url": "https://current.synthetic.example"}, persist=True
+        )
+        self.settings_service.update_section("diagnostics", {"mcp_status": "success"}, persist=True)
+        self.window.publication_ready.emit(completed, Mock(running=True))
+        self.assertIn("готовы", self.window.status_label.text())
+        self.assertNotIn("изменились", self.window.status_label.text())
+
+    def test_publication_read_failure_keeps_display_and_does_not_export_old_settings(self) -> None:
+        completed = self.settings_service.load()
+        before = self.window.mcp_value_label.text()
+        with patch.object(self.settings_service, "load", side_effect=PermissionError("busy")):
+            self.window._on_publication_ready(completed, Mock(running=True))
+        self.assertEqual(self.window.mcp_value_label.text(), before)
+        self.connector_files.assert_not_called()
+        self.assertIn("Не удалось", self.window.status_label.text())
+
 
 if __name__ == "__main__":
     unittest.main()

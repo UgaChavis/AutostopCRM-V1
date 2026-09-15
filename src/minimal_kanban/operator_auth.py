@@ -343,8 +343,23 @@ class OperatorAuthService:
             if "permissions" in payload
             else None
         )
+        expected_permissions = (
+            self._validated_permissions(payload.get("expected_permissions"))
+            if "expected_permissions" in payload
+            else None
+        )
         with self._locked_state() as state:
             existing = self._find_user(state["users"], username)
+            if (
+                expected_permissions is not None
+                and expected_permissions
+                != normalize_operator_permissions((existing or {}).get("permissions"))
+            ):
+                self._fail(
+                    "operator_user_conflict",
+                    "Права пользователя уже изменены. Откройте редактор прав заново и повторите изменение.",
+                    status_code=409,
+                )
             created = existing is None
             if created:
                 password = self._validated_password(payload.get("password"))

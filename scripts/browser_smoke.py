@@ -48,6 +48,7 @@ from browser_smoke_core import (
     _exercise_inventory_item_roundtrip,
     _exercise_repair_order_preview_roundtrip,
 )
+from browser_smoke_review import run_review_scenarios
 from browser_smoke_profiles import (
     BROWSER_DEPENDENCY_PROBES,
     CORE_SMOKE_SCENARIOS,
@@ -2365,6 +2366,7 @@ async def run_browser_smoke(
                     scenarios.update(await _desktop_scenarios(page, runtime))
             finally:
                 await _close_with_timeout(context.close())
+            scenarios.update(await run_review_scenarios(browser, runtime))
             if profile == PROFILE_FULL:
                 scenarios.update(
                     await _mobile_scenarios(

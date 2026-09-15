@@ -204,7 +204,23 @@ class CardAttachmentsMixin:
                     "size_bytes": attachment.size_bytes,
                 },
             )
-            self._save_bundle(bundle, columns=bundle["columns"], cards=cards, events=events)
+            try:
+                self._save_bundle(bundle, columns=bundle["columns"], cards=cards, events=events)
+            except ServiceError as exc:
+                # CAS rejects before committing metadata. Only this upload knows
+                # its fresh UUID; unlike a repair target, no peer can adopt it.
+                # Other failures may occur after commit, so retain their bytes.
+                if exc.code == "state_write_conflict":
+                    try:
+                        self._delete_attachment_file(card.id, stored_name)
+                    except (OSError, ServiceError):
+                        self._logger.warning(
+                            "attachment upload cleanup deferred card_id=%s attachment_id=%s",
+                            card.id,
+                            attachment_id,
+                            exc_info=True,
+                        )
+                raise
             self._logger.info(
                 "add_attachment card_id=%s attachment_id=%s actor=%s",
                 card.id,
@@ -640,6 +656,8 @@ class CardAttachmentsMixin:
         return "binary"
 
     def _decode_attachment_text(self, content: bytes) -> tuple[str, str]:
+        if content.startswith((b"\xff\xfe", b"\xfe\xff")):
+            return content.decode("utf-16", errors="replace"), "utf-16"
         encodings = ("utf-8-sig", "utf-8", "cp1251", "utf-16", "latin-1")
         for encoding in encodings:
             try:

@@ -1,3 +1,9 @@
+    function invalidateEmployeesReference() {
+      state.employeesReferenceRevision = (state.employeesReferenceRevision || 0) + 1;
+      state.employeesReferencePromise = null;
+      state.employeesLoadedMonth = '';
+    }
+
     function applyEmployeesReferenceData(data, month) {
       state.employees = Array.isArray(data?.employees) ? data.employees : [];
       state.employeesLoadedMonth = month;
@@ -13,6 +19,7 @@
       const viewerStateGeneration = state.viewerStateGeneration;
       const session = state.operatorSessionToken;
       const accessRevision = state.employeesCashboxesAccessRevision;
+      const referenceRevision = state.employeesReferenceRevision || 0;
       const month = String(requestedMonth || state.payrollMonth || currentPayrollMonthValue()).trim();
       if (!force && state.employeesLoadedMonth === month && Array.isArray(state.employees)) {
         return { employees: state.employees, meta: { cached: true, month } };
@@ -24,6 +31,7 @@
         && state.employeesReferencePromise.viewerStateGeneration === viewerStateGeneration
         && state.employeesReferencePromise.session === session
         && state.employeesReferencePromise.accessRevision === accessRevision
+        && state.employeesReferencePromise.referenceRevision === referenceRevision
       ) {
         request = state.employeesReferencePromise.promise;
       } else {
@@ -33,13 +41,14 @@
               state.employeesReferencePromise = null;
             }
           });
-        state.employeesReferencePromise = { month, viewerStateGeneration, session, accessRevision, promise: request };
+        state.employeesReferencePromise = { month, viewerStateGeneration, session, accessRevision, referenceRevision, promise: request };
       }
       const data = await request;
       if (
         viewerStateGeneration !== state.viewerStateGeneration
         || session !== state.operatorSessionToken
         || accessRevision !== state.employeesCashboxesAccessRevision
+        || referenceRevision !== (state.employeesReferenceRevision || 0)
       ) return data;
       const activeMonth = state.payrollMonth || currentPayrollMonthValue();
       if (apply && month === activeMonth) applyEmployeesReferenceData(data, month);
@@ -82,11 +91,13 @@
       const viewer = state.viewerStateGeneration;
       const session = state.operatorSessionToken;
       const access = state.employeesCashboxesAccessRevision;
+      const reference = state.employeesReferenceRevision || 0;
       const requestedMonth = String(month || state.payrollMonth || currentPayrollMonthValue()).trim();
       state.payrollMonth = requestedMonth;
       const generation = ++state.employeesWorkspaceLoadGeneration;
       const isCurrent = () => viewer === state.viewerStateGeneration && session === state.operatorSessionToken
         && access === state.employeesCashboxesAccessRevision
+        && reference === (state.employeesReferenceRevision || 0)
         && generation === state.employeesWorkspaceLoadGeneration && requestedMonth === state.payrollMonth;
       const result = { applied: false, generation, month: requestedMonth };
       const canManage = operatorCanAccessEmployeesCashboxes();

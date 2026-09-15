@@ -52,7 +52,7 @@ CASHBOX_STATISTIC_FIELDS = (
 def _json_bytes(value: Any) -> int:
     return len(
         json.dumps(
-            _json_safe_value(value),
+            value,
             ensure_ascii=False,
             separators=(",", ":"),
             allow_nan=False,
@@ -136,8 +136,9 @@ def _backup_state_file(state_file: Path) -> dict[str, str]:
 
 
 def _write_state_file(state_file: Path, state: dict[str, Any]) -> None:
+    reject_deeply_nested_json(state)
     payload = json.dumps(
-        _json_safe_value(state),
+        state,
         ensure_ascii=False,
         separators=(",", ":"),
         allow_nan=False,
@@ -220,6 +221,12 @@ def _count_removed_financial_events(state: dict[str, Any], sanitized: dict[str, 
     return max(0, len(events) - len(sanitized_events))
 
 
+def _count_salary_balance_resets(state: dict[str, Any]) -> int:
+    settings = state.get("settings")
+    resets = settings.get("employee_salary_balance_resets") if isinstance(settings, dict) else None
+    return len(resets) if isinstance(resets, list) else 0
+
+
 def _build_summary(state: dict[str, Any], sanitized: dict[str, Any]) -> dict[str, Any]:
     cash_transactions = (
         state.get("cash_transactions") if isinstance(state.get("cash_transactions"), list) else []
@@ -237,6 +244,9 @@ def _build_summary(state: dict[str, Any], sanitized: dict[str, Any]) -> dict[str
             0, len(cash_transactions) - len(sanitized_cash_transactions)
         ),
         "financial_events_removed": _count_removed_financial_events(state, sanitized),
+        "salary_balance_resets_removed": max(
+            0, _count_salary_balance_resets(state) - _count_salary_balance_resets(sanitized)
+        ),
         "repair_order_payment_links_cleared": _count_existing_repair_order_values(
             state,
             row_keys=("payments", "payment_history"),
@@ -295,6 +305,7 @@ def _format_text(result: dict[str, Any]) -> str:
         f"state_bytes_after: {summary['state_bytes_after']}",
         f"cash_transactions_removed: {summary['cash_transactions_removed']}",
         f"financial_events_removed: {summary['financial_events_removed']}",
+        f"salary_balance_resets_removed: {summary['salary_balance_resets_removed']}",
         f"repair_order_payment_links_cleared: {summary['repair_order_payment_links_cleared']}",
         f"payroll_fields_cleared: {summary['payroll_fields_cleared']}",
         f"cashbox_statistics_reset: {summary['cashbox_statistics_reset']}",

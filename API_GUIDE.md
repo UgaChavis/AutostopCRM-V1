@@ -65,6 +65,25 @@ and readback policy. The historical
 specs. Isolated feed routes remain bearer-authenticated; Gateway additionally
 classifies `bootstrap` and `ack` as guarded checkpoint writes.
 
+## Card Attachments
+
+`add_card_attachment` publishes file bytes before committing attachment metadata.
+A `state_write_conflict` (409) rejects the metadata write and attempts to remove
+only that upload's new file. A filesystem cleanup failure is logged and preserves
+the original conflict response. Other save failures can have an uncertain commit
+outcome: refresh the attachment list before deciding whether to upload again.
+Removing an attachment commits its tombstone before deleting file bytes.
+
+`read_card_attachment` decodes TXT files with a UTF-16 byte-order mark as UTF-16;
+UTF-8 and Windows-1251 remain supported. Text limits apply to decoded characters.
+The original download bytes are unchanged by text extraction.
+
+Shared-file deletion commits the index removal before unlinking bytes. A cleanup
+failure is logged; the removed file remains inaccessible through the API.
+Uploads and copies keep file bytes if an index-write failure happened after the
+reference was committed or the current index cannot be read reliably. Refresh
+the file list after an uncertain failure before retrying the operation.
+
 ## Board And Audit History
 
 Use compact board reads for polling:
@@ -83,6 +102,13 @@ may opt into `response_mode="delta"`; that response contains the full moved
 `affected_cards`. A client must refresh the board if the returned ordering
 does not exactly match its affected-card set. The MCP `move_card` contract does
 not expose this UI-specific response mode.
+
+An omitted, null or blank `before_card_id` keeps the historical prepend
+behavior. The browser sends `placement="end"` for a drop below the last
+card (including an empty column). `placement="start"` is the default;
+an explicit `before_card_id` inserts before that card. Combining an anchor
+with `placement="end"` is a validation error. UI moves are queued in gesture
+order; after a failed write the browser refreshes state without retrying it.
 
 `/api/get_card_log` returns compact event details by default. Set
 `include_full_details=true` only for authorized maintenance/debugging; the
@@ -286,7 +312,37 @@ stock. `return_inventory_movement` restores the movement and removes only its
 technical warehouse link. Fractional quantities are supported for litre
 positions.
 
+New quantities, prices and resulting stock balances must fit the existing
+40-character material-row number format after expanding exponent notation and
+removing redundant zeros. Out-of-range values return a validation error before
+writing. Supported quantities use exact decimal addition/subtraction and survive
+storage reloads without rounding to the default Decimal context precision.
+
+A write-off cannot replace a material with an existing warehouse movement:
+return that movement first (`inventory_material_movement_active`, HTTP 409).
+Appending beyond the 150-material-row limit is rejected before stock or order
+changes. Replacing an unlinked row at the limit remains supported. For returns,
+an optional `card_id` must match the original movement's card when recorded;
+omitting it uses that recorded card. A mismatch is a validation error and does
+not restore stock or alter either order.
+
+Browser item edits, replenishments and write-offs send the observed item's
+`expected_updated_at`; material write-offs and returns also send the observed
+card's `expected_card_updated_at`. Stale revisions return HTTP 409 without a
+write. Reopen the affected workspace to load the latest values before retrying.
+
 ## Finance And Payroll
+
+The browser checks the current operator profile on visible board polls,
+at most once per 30 seconds, and immediately when the page becomes visible.
+With a responsive server, new rights appear within 45 seconds on a visible
+page. Profile refresh failure leaves the last known UI state and is retried
+on later polls; the server always checks current permissions on requests.
+`save_operator_user` preserves permissions when `permissions` is omitted,
+including password changes. The UI permission editor sends
+`expected_permissions` from its initial read. A concurrent permission change
+returns `operator_user_conflict` (409) before any user or password write;
+unrelated password or employee-binding changes do not conflict.
 
 - `employees_read_access` opens the Employees workspace as a roster-only,
   read-only view. It shows active employees' names and positions, but
@@ -315,12 +371,19 @@ positions.
   normal work/material editing is unchanged.
 - `/api/finance_audit` is read-only and also requires
   `employees_cashboxes_access` for human sessions.
+  A movement whose cashbox is missing remains in storage and is reported as
+  `cash_transaction_missing_cashbox`. Reads also retain inventory movements
+  whose item is missing; bundle writes reject these broken parent references
+  before changing state. Recovery requires the runbook's reviewed backup flow.
 - `/api/finance_audit/apply_safe_fixes` is a maintenance-only write and
   requires both administrator status and `employees_cashboxes_access`, plus
   the runbook's audit, backup, and explicit-owner flow.
 - Manual expense transactions require a meaningful note.
-- Cancellation preserves the original transaction and creates audited reversal
-  rows; paired transfer movements are reversed together.
+- `cancel_cash_transaction` preserves the original transaction and creates
+  audited reversal rows; paired transfer movements are reversed together.
+  The legacy `cancel_last_cash_transaction` still removes an ordinary latest
+  movement, but rejects cancelled movements and reversal rows. Internal
+  transfers and their reversals stay excluded from external journal turnover.
 - `get_cashbox` accepts `transaction_limit` and `transaction_offset`; use
   `meta.has_more` for pagination.
 - `list_cashboxes` returns the current operator's compact `notification`

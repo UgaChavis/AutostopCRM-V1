@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+from collections.abc import Callable
 from logging import Logger
 from pathlib import Path
 from uuid import uuid4
@@ -28,17 +29,24 @@ class SettingsStore:
         self._settings_file.parent.mkdir(parents=True, exist_ok=True)
         if not self._settings_file.exists():
             with self._process_lock.acquire():
-                self._write_settings(IntegrationSettings.defaults())
+                if not self._settings_file.exists():
+                    self._write_settings(IntegrationSettings.defaults())
 
     @property
     def path(self) -> Path:
         return self._settings_file
 
-    def read(self) -> IntegrationSettings:
+    def read(
+        self,
+        *,
+        normalizer: Callable[[IntegrationSettings], IntegrationSettings] | None = None,
+    ) -> IntegrationSettings:
         with self._lock:
             with self._process_lock.acquire():
                 payload = self._read_payload()
                 settings = IntegrationSettings.from_dict(payload)
+                if normalizer is not None:
+                    settings = normalizer(settings)
                 if payload != settings.to_dict():
                     self._write_settings(settings)
                 return settings
@@ -47,6 +55,12 @@ class SettingsStore:
         with self._lock:
             with self._process_lock.acquire():
                 self._write_settings(settings)
+
+    def update(
+        self, transform: Callable[[IntegrationSettings], IntegrationSettings]
+    ) -> IntegrationSettings:
+        """Read, transform and persist under one thread/process lock boundary."""
+        return self.read(normalizer=transform)
 
     def reset(self) -> IntegrationSettings:
         defaults = IntegrationSettings.defaults()
@@ -61,7 +75,7 @@ class SettingsStore:
                 self._read_settings_text(),
                 parse_constant=_reject_json_constant,
             )
-        except (OSError, json.JSONDecodeError, UnicodeDecodeError, ValueError, RecursionError):
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError, RecursionError):
             backup = self._corrupted_settings_backup_path()
             self._log_warning(
                 "Файл настроек поврежден, создаётся резервная копия %s и используются значения по умолчанию.",

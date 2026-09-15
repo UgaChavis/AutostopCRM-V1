@@ -50,7 +50,7 @@
 
     async function refreshEmployeePayroll(isCurrent) {
       if (!isCurrent()) return false;
-      state.employeesReferencePromise = null;
+      invalidateEmployeesReference();
       const employees = await loadEmployeesReference({ month: isCurrent.month, apply: false });
       if (!isCurrent()) return false;
       const report = await loadPayrollReport({ month: isCurrent.month, apply: false });
@@ -1452,8 +1452,7 @@
         });
         if (!isCurrent()) return;
         closeEmployeeShiftAccrualDialog();
-        state.employeesLoadedMonth = '';
-        state.employeesReferencePromise = null;
+        invalidateEmployeesReference();
         const employees = await loadEmployeesReference({ month: isCurrent.month, apply: false });
         if (!isCurrent()) return;
         applyEmployeesReferenceData(employees, isCurrent.month);
@@ -1603,6 +1602,7 @@
       try {
         const data = await api('/api/save_employee', { method: 'POST', body: readEmployeeFormPayload() });
         if (!isCurrent()) return;
+        invalidateEmployeesReference();
         state.employees = Array.isArray(data?.employees) ? data.employees : [];
         state.employeesLoadedMonth = isCurrent.month;
         state.employeeCreateMode = false;
@@ -1652,6 +1652,7 @@
           },
         });
         if (!isCurrent()) return;
+        invalidateEmployeesReference();
         state.employees = Array.isArray(data?.employees) ? data.employees : [];
         state.employeesLoadedMonth = state.payrollMonth || currentPayrollMonthValue();
         if (String(state.activeEmployeeId || '') === String(employee.id || '')) {

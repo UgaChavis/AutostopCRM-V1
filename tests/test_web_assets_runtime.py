@@ -1454,6 +1454,10 @@ class WebAssetsRuntimeTests(unittest.TestCase):
     def test_employee_salary_reset_permission_payload_and_double_click_guard(self) -> None:
         async_helpers = _source_section(
             self.source, "function employeeAsyncContext(", "const EMPLOYEE_INCENTIVE_DEFINITIONS ="
+        ) + _source_section(
+            self.source,
+            "function invalidateEmployeesReference()",
+            "function applyEmployeesReferenceData(",
         )
         permission_helper = _source_section(
             self.source,
@@ -1684,6 +1688,10 @@ class WebAssetsRuntimeTests(unittest.TestCase):
     def test_employee_salary_reset_retry_reuses_key_and_conflict_reloads_snapshot(self) -> None:
         async_helpers = _source_section(
             self.source, "function employeeAsyncContext(", "const EMPLOYEE_INCENTIVE_DEFINITIONS ="
+        ) + _source_section(
+            self.source,
+            "function invalidateEmployeesReference()",
+            "function applyEmployeesReferenceData(",
         )
         permission_helper = _source_section(
             self.source,

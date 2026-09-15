@@ -119,6 +119,20 @@ version. Ordinary regression tests do not establish protection against this rare
 concurrent-checkpoint fault. Keep runtime upgrades and before/after measurements
 as a controlled environment change; do not silently replace a machine-wide DLL.
 
+Desktop integration settings live in the compatibility data directory's
+`settings.json`. Initial creation and load-time normalization hold the same
+process lock as saves. An I/O read failure propagates without replacing settings;
+check file access and retry. Invalid JSON or a payload outside the supported
+format/size is still backed up to a unique `settings.corrupted*.json` before
+defaults are written. Keep these backups private: they can contain credentials.
+Explicit API/MCP token changes through `SettingsService.update_section` update
+both compatibility fields, including an explicit empty value.
+Section updates without an explicit draft merge atomically with current settings;
+tunnel completion uses that path. Connection diagnostics update only diagnostics.
+If configuration changed while a check ran, its result becomes a warning asking
+for a new check instead of reporting success for the old endpoint. Explicit full
+draft saves and reset-to-defaults retain their replacement semantics.
+
 ## Release Checklist
 
 Documentation-only minimum:
@@ -392,6 +406,11 @@ payloads live in append-only `audit-archive`. Never edit either manually. Run
 `compact_audit_events.py --apply --backup` only after reviewing a non-zero
 dry-run result and approving a verified backup.
 
+Maintenance state writers preserve nested repair-order cycle snapshots and
+JSON value types. Non-finite numbers and excessive nesting reject the write
+before replacing state; they are not converted into nulls or text. Compaction
+dry-run byte estimates use the same untruncated JSON representation as the save.
+
 Operator activity lives under `operator-activity/current`,
 `operator-activity/details`, and `operator-activity/aggregates`. Use
 `scripts/operator_activity_maintenance.py --dry-run --json` first; apply only
@@ -419,6 +438,12 @@ Finance audit is read-only first:
 .\.venv\Scripts\python.exe scripts\payroll_audit_report.py --base-url https://crm.autostopcrm.ru --format text --issue-limit 50
 ```
 
+Missing-parent cash and inventory movements are retained on reads. A finance
+audit reports `cash_transaction_missing_cashbox`; bundle writes reject missing
+cashbox/item references before saving. Preserve the state and investigate the
+missing parent under a separate recovery plan; do not delete the movement to
+clear the error.
+
 `/api/finance_audit/apply_safe_fixes` is maintenance-only. Historical finance
 cleanup is destructive and must start with:
 
@@ -429,6 +454,11 @@ cleanup is destructive and must start with:
 Apply only under a separate owner-reviewed plan with a verified backup, using
 the script's explicit `--apply --backup` mode. Never edit cashbox or payroll
 ledgers by hand.
+
+Full historical cleanup also removes salary-balance reset adjustments together
+with the accrual/payment history they offset. Review the dry-run field
+`salary_balance_resets_removed`; retaining those adjustments alone would
+create a false positive or negative employee balance.
 
 ### Repair-order posting migration
 

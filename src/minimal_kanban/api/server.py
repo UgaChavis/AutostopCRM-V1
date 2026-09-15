@@ -449,6 +449,31 @@ class RequestContextFactory:
     """Parse bounded HTTP input without deciding authentication or routing."""
 
     @staticmethod
+    def drain_rejected_request_body(handler: BaseHTTPRequestHandler) -> None:
+        remaining = min(
+            max(0, _content_length_header(handler.headers.get("Content-Length", "0")) or 0),
+            OVERSIZED_JSON_DRAIN_BYTES,
+        )
+        if not remaining:
+            return
+        previous_timeout = handler.connection.gettimeout()
+        deadline = perf_counter() + 0.25
+        try:
+            while remaining > 0:
+                timeout = deadline - perf_counter()
+                if timeout <= 0:
+                    break
+                handler.connection.settimeout(timeout)
+                chunk = handler.rfile.read1(min(65536, remaining))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+        except OSError:
+            pass
+        finally:
+            handler.connection.settimeout(previous_timeout)
+
+    @staticmethod
     def drain_request_body(handler: BaseHTTPRequestHandler, content_length: int) -> None:
         remaining = max(0, int(content_length))
         while remaining > 0:
@@ -1764,6 +1789,9 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         request_id = str(uuid.uuid4())
         if self.headers.get("Origin") and not self._cors_allowed_origin():
+            # Closing with an unread body can reset the connection before the
+            # client receives its 403. Bound draining by both bytes and time.
+            self.REQUEST_CONTEXT_FACTORY.drain_rejected_request_body(self)
             self._send_error_response(
                 request_id,
                 HTTPStatus.FORBIDDEN,

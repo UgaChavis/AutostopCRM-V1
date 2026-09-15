@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import uuid
 from copy import deepcopy
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, localcontext
 from typing import Any
 
 from ..models import (
@@ -14,7 +14,7 @@ from ..models import (
     normalize_text,
     utc_now_iso,
 )
-from ..repair_order import RepairOrderRow
+from ..repair_order import REPAIR_ORDER_ROW_VALUE_LIMIT, REPAIR_ORDER_ROWS_LIMIT, RepairOrderRow
 
 
 class CardServiceInventoryMixin:
@@ -139,8 +139,8 @@ class CardServiceInventoryMixin:
                 name=item.name,
                 catalog_number=item.catalog_number,
                 unit=item.unit,
-                quantity=self._inventory_decimal_text(
-                    self._inventory_decimal(item.quantity) + quantity
+                quantity=self._inventory_quantity_after(
+                    self._inventory_decimal(item.quantity), quantity
                 ),
                 cost_price=cost_price,
                 sale_price=sale_price,
@@ -213,13 +213,30 @@ class CardServiceInventoryMixin:
             movement_id = str(uuid.uuid4())
             rows = [row.to_dict() for row in card.repair_order.materials]
             row_index = self._inventory_target_row_index(payload.get("row_index"), rows)
+            if row_index == len(rows) and len(rows) >= REPAIR_ORDER_ROWS_LIMIT:
+                self._fail(
+                    "validation_error",
+                    "Достигнут лимит строк материалов заказ-наряда.",
+                    details={"field": "row_index", "limit": REPAIR_ORDER_ROWS_LIMIT},
+                )
+            if row_index < len(rows) and rows[row_index].get("inventory_movement_id"):
+                self._fail(
+                    "inventory_material_movement_active",
+                    "Складской материал сначала нужно вернуть отдельной складской операцией.",
+                    status_code=409,
+                    details={"field": "row_index", "row_index": row_index},
+                )
             material_row = RepairOrderRow(
                 id=str(uuid.uuid4()),
                 name=item.name,
                 catalog_number=item.catalog_number,
                 quantity=quantity_text,
-                cost_price=item.cost_price,
-                price=item.sale_price,
+                cost_price=self._inventory_decimal_text(
+                    self._inventory_decimal(item.cost_price), field="cost_price"
+                ),
+                price=self._inventory_decimal_text(
+                    self._inventory_decimal(item.sale_price), field="sale_price"
+                ),
                 inventory_item_id=item.id,
                 inventory_movement_id=movement_id,
                 inventory_unit=item.unit,
@@ -247,7 +264,7 @@ class CardServiceInventoryMixin:
                 name=item.name,
                 catalog_number=item.catalog_number,
                 unit=item.unit,
-                quantity=self._inventory_decimal_text(available - quantity),
+                quantity=self._inventory_quantity_after(available, quantity.copy_negate()),
                 cost_price=item.cost_price,
                 sale_price=item.sale_price,
                 created_at=item.created_at,
@@ -257,7 +274,7 @@ class CardServiceInventoryMixin:
                 item=updated_item,
                 kind="write_off",
                 quantity=quantity_text,
-                quantity_delta=self._inventory_decimal_text(quantity * Decimal("-1")),
+                quantity_delta=self._inventory_decimal_text(quantity.copy_negate()),
                 actor_name=actor_name,
                 source=source,
                 card_id=card.id,
@@ -355,8 +372,8 @@ class CardServiceInventoryMixin:
                 name=item.name,
                 catalog_number=item.catalog_number,
                 unit=item.unit,
-                quantity=self._inventory_decimal_text(
-                    self._inventory_decimal(item.quantity) + quantity
+                quantity=self._inventory_quantity_after(
+                    self._inventory_decimal(item.quantity), quantity
                 ),
                 cost_price=item.cost_price,
                 sale_price=item.sale_price,
@@ -367,6 +384,12 @@ class CardServiceInventoryMixin:
                 normalize_text(payload.get("card_id"), default="", limit=128)
                 or source_movement.card_id
             )
+            if source_movement.card_id and card_id != source_movement.card_id:
+                self._fail(
+                    "validation_error",
+                    "Складское списание относится к другой карточке.",
+                    details={"field": "card_id"},
+                )
             card = self._find_card(cards, card_id) if card_id else None
             row_index = source_movement.repair_order_row_index
             changed = False
@@ -641,7 +664,8 @@ class CardServiceInventoryMixin:
 
     def _validated_inventory_decimal_text(self, value: Any, *, field: str, allow_zero: bool) -> str:
         return self._inventory_decimal_text(
-            self._validated_inventory_decimal(value, field=field, allow_zero=allow_zero)
+            self._validated_inventory_decimal(value, field=field, allow_zero=allow_zero),
+            field=field,
         )
 
     def _validated_inventory_decimal(self, value: Any, *, field: str, allow_zero: bool) -> Decimal:
@@ -691,13 +715,39 @@ class CardServiceInventoryMixin:
                 "Цена не может быть отрицательной.",
                 details={"field": field},
             )
-        return self._inventory_decimal_text(parsed)
+        return self._inventory_decimal_text(parsed, field=field)
 
     def _inventory_decimal(self, value: Any) -> Decimal:
         return Decimal(normalize_decimal_text(value, default="0"))
 
-    def _inventory_decimal_text(self, value: Any) -> str:
+    def _inventory_decimal_text(self, value: Decimal, *, field: str = "quantity") -> str:
+        if value == 0:
+            return "0"
+        # Inspect the exponent before formatting: a short input can expand enormously.
+        parts = value.as_tuple()
+        digits = len(parts.digits)
+        exponent = int(parts.exponent)
+        while digits > 1 and parts.digits[digits - 1] == 0:
+            digits -= 1
+            exponent += 1
+        places = max(0, -exponent)
+        length = max(1, digits + exponent) + (places + 1 if places else 0)
+        if length > REPAIR_ORDER_ROW_VALUE_LIMIT:
+            self._fail(
+                "validation_error",
+                "Число выходит за пределы точности складской строки заказ-наряда.",
+                details={"field": field, "limit": REPAIR_ORDER_ROW_VALUE_LIMIT},
+            )
         return normalize_decimal_text(value, default="0")
+
+    def _inventory_quantity_after(self, current: Decimal, delta: Decimal) -> str:
+        self._inventory_decimal_text(current)
+        self._inventory_decimal_text(delta)
+        with localcontext() as context:
+            # Two supported fixed-point operands need at most twice the row width.
+            context.prec = REPAIR_ORDER_ROW_VALUE_LIMIT * 2 + 1
+            result = current + delta
+        return self._inventory_decimal_text(result)
 
     def _inventory_target_row_index(self, value: Any, rows: list[dict[str, Any]]) -> int:
         if value in (None, ""):

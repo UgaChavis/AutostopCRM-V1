@@ -263,13 +263,13 @@ class JsonStore:
                 stickies, stickies_repaired = self._normalize_stickies(state)
                 cashboxes, cashboxes_repaired = self._normalize_cashboxes(state)
                 cash_transactions, cash_transactions_repaired = self._normalize_cash_transactions(
-                    state, cashboxes
+                    state
                 )
                 inventory_items, inventory_items_repaired = self._normalize_inventory_items(state)
                 (
                     inventory_movements,
                     inventory_movements_repaired,
-                ) = self._normalize_inventory_movements(state, inventory_items)
+                ) = self._normalize_inventory_movements(state)
                 events, events_repaired = self._normalize_events(state)
                 settings, settings_repaired = self._normalize_settings(state)
                 ready_column_repaired = ensure_ready_column(columns, settings)[1]
@@ -370,17 +370,13 @@ class JsonStore:
                     cashboxes, _ = self._normalize_cashboxes(current_state)
                 if cash_transactions is None:
                     assert current_state is not None
-                    cash_transactions, _ = self._normalize_cash_transactions(
-                        current_state, cashboxes or []
-                    )
+                    cash_transactions, _ = self._normalize_cash_transactions(current_state)
                 if inventory_items is None:
                     assert current_state is not None
                     inventory_items, _ = self._normalize_inventory_items(current_state)
                 if inventory_movements is None:
                     assert current_state is not None
-                    inventory_movements, _ = self._normalize_inventory_movements(
-                        current_state, inventory_items or []
-                    )
+                    inventory_movements, _ = self._normalize_inventory_movements(current_state)
                 normalized_columns = self._normalize_columns_payload(columns)
                 normalized_cards = self._normalize_cards_payload(cards, normalized_columns)
                 normalized_clients = self._normalize_clients_payload(clients or [])
@@ -1444,15 +1440,12 @@ class JsonStore:
         parsed_cashboxes.sort(key=lambda item: (item.order, item.name.casefold(), item.id))
         return parsed_cashboxes, repaired
 
-    def _normalize_cash_transactions(
-        self, state: dict, cashboxes: list[CashBox]
-    ) -> tuple[list[CashTransaction], bool]:
+    def _normalize_cash_transactions(self, state: dict) -> tuple[list[CashTransaction], bool]:
         raw_transactions = state.get("cash_transactions", [])
         repaired = False
         if not isinstance(raw_transactions, list):
             raw_transactions = []
             repaired = True
-        valid_cashbox_ids = {item.id for item in cashboxes}
         parsed_transactions: list[CashTransaction] = []
         seen_ids: set[str] = set()
         for item in raw_transactions:
@@ -1464,7 +1457,8 @@ class JsonStore:
             except (OverflowError, TypeError, ValueError):
                 repaired = True
                 continue
-            if transaction.id in seen_ids or transaction.cashbox_id not in valid_cashbox_ids:
+            # Missing parents are audit findings, not permission to erase history.
+            if transaction.id in seen_ids:
                 repaired = True
                 continue
             seen_ids.add(transaction.id)
@@ -1499,15 +1493,12 @@ class JsonStore:
         )
         return parsed_items, repaired
 
-    def _normalize_inventory_movements(
-        self, state: dict, inventory_items: list[InventoryItem]
-    ) -> tuple[list[InventoryMovement], bool]:
+    def _normalize_inventory_movements(self, state: dict) -> tuple[list[InventoryMovement], bool]:
         raw_movements = state.get("inventory_movements", [])
         repaired = False
         if not isinstance(raw_movements, list):
             raw_movements = []
             repaired = True
-        valid_item_ids = {item.id for item in inventory_items}
         parsed_movements: list[InventoryMovement] = []
         seen_ids: set[str] = set()
         for item in raw_movements:
@@ -1519,7 +1510,8 @@ class JsonStore:
             except (OverflowError, TypeError, ValueError):
                 repaired = True
                 continue
-            if movement.id in seen_ids or movement.item_id not in valid_item_ids:
+            # Preserve orphan movements for diagnosis and explicit recovery.
+            if movement.id in seen_ids:
                 repaired = True
                 continue
             seen_ids.add(movement.id)
@@ -1611,7 +1603,9 @@ class JsonStore:
         valid_cashbox_ids = {item.id for item in cashboxes}
         seen_ids: set[str] = set()
         for item in _domain_items(transactions, CashTransaction):
-            if item.id in seen_ids or item.cashbox_id not in valid_cashbox_ids:
+            if item.cashbox_id not in valid_cashbox_ids:
+                raise ValueError("Cash transaction references an unknown cashbox.")
+            if item.id in seen_ids:
                 continue
             seen_ids.add(item.id)
             normalized.append(item)
@@ -1646,7 +1640,9 @@ class JsonStore:
         valid_item_ids = {item.id for item in inventory_items}
         seen_ids: set[str] = set()
         for item in _domain_items(movements, InventoryMovement):
-            if item.id in seen_ids or item.item_id not in valid_item_ids:
+            if item.item_id not in valid_item_ids:
+                raise ValueError("Inventory movement references an unknown inventory item.")
+            if item.id in seen_ids:
                 continue
             seen_ids.add(item.id)
             normalized.append(InventoryMovement.from_dict(item.to_storage_dict()))

@@ -6,6 +6,7 @@ import json
 import mimetypes
 import os
 import threading
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from http import HTTPStatus
@@ -187,8 +188,7 @@ class SharedFilesService:
                 self._write_file_bytes_atomic(file_path, content)
                 self._write_index(files, payload_text=index_text)
             except Exception:
-                if self._storage_path_can_unlink(file_path):
-                    file_path.unlink()
+                self._cleanup_unreferenced_file(file_path)
                 raise
             self._audit(
                 "shared_file_uploaded",
@@ -244,8 +244,7 @@ class SharedFilesService:
                     index_text = self._index_payload_text(files)
                 self._write_index(files, payload_text=index_text)
             except Exception:
-                if self._storage_path_can_unlink(file_path):
-                    file_path.unlink()
+                self._cleanup_unreferenced_file(file_path)
                 raise
             self._audit(
                 "shared_file_uploaded",
@@ -298,9 +297,8 @@ class SharedFilesService:
             file_path = self._storage_path(item.stored_name)
             remaining = [candidate for candidate in files if candidate.id != item.id]
             files[:] = remaining
-            if self._storage_path_can_unlink(file_path):
-                file_path.unlink()
             self._write_index(remaining)
+            self._cleanup_unreferenced_file(file_path)
             self._audit(
                 "shared_file_deleted",
                 actor_name=actor_name,
@@ -370,8 +368,7 @@ class SharedFilesService:
                     index_text = self._index_payload_text(files)
                 self._write_index(files, payload_text=index_text)
             except Exception:
-                if self._storage_path_can_unlink(target_path):
-                    target_path.unlink()
+                self._cleanup_unreferenced_file(target_path)
                 raise
             self._audit(
                 "shared_file_copied",
@@ -639,6 +636,20 @@ class SharedFilesService:
                 return stored_name
         raise ServiceError("internal_error", "Не удалось подобрать имя файла на диске.")
 
+    def _cleanup_unreferenced_file(self, path: Path) -> None:
+        # Callers hold the index process lock. A late writer failure can leave a
+        # durable reference, so consult the authoritative index before unlinking.
+        try:
+            if not self._index_file.exists():
+                return
+            if any(item.stored_name == path.name for item in self._read_index()):
+                return
+            if self._storage_path_can_unlink(path):
+                path.unlink()
+        except (OSError, ServiceError):
+            if self._logger is not None:
+                self._logger.warning("shared_file_cleanup_deferred", exc_info=True)
+
     def _copy_name(self, original_name: str, files: list[SharedFile]) -> str:
         suffix = PurePath(original_name).suffix
         stem = original_name[: -len(suffix)] if suffix else original_name
@@ -779,25 +790,11 @@ class SharedFilesService:
         finally:
             temp_file.unlink(missing_ok=True)
 
+    @contextmanager
     def _locked_files(self, *, write: bool = False):
-        service = self
-
-        class _FilesContext:
-            def __enter__(self_inner) -> list[SharedFile]:
-                service._lock.acquire()
-                self_inner._process_context = service._process_lock.acquire()
-                self_inner._process_context.__enter__()
-                self_inner.files = service._read_index()
-                return self_inner.files
-
-            def __exit__(self_inner, exc_type, exc, tb) -> None:
-                try:
-                    self_inner._process_context.__exit__(exc_type, exc, tb)
-                finally:
-                    service._lock.release()
-                return None
-
-        return _FilesContext()
+        with self._lock:
+            with self._process_lock.acquire():
+                yield self._read_index()
 
     def _audit_identity(self, payload: dict[str, Any]) -> tuple[str, str]:
         actor_name = normalize_actor_name(payload.get("actor_name"), default="СИСТЕМА")

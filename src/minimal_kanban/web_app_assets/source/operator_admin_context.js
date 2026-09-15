@@ -115,6 +115,7 @@ function operatorUserEditorDraftSignature() {
 function clearOperatorUserEditor({ invalidate = true } = {}) {
 	if (invalidate) claimOperatorUserEditorIntent();
 	state.operatorPermissionEditorUsername = '';
+	state.operatorPermissionEditorPermissions = null;
 	if (els.adminUserLogin) els.adminUserLogin.value = '';
 	if (els.adminUserPassword) els.adminUserPassword.value = '';
 	if (els.adminUserSalaryBalanceReset) els.adminUserSalaryBalanceReset.checked = false;

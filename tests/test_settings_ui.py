@@ -23,7 +23,11 @@ from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication, QLineEdit, QMessageBox
 
 from minimal_kanban.integration_runtime import McpRuntimeState
-from minimal_kanban.settings_service import ConnectionCheckResult, SettingsService
+from minimal_kanban.settings_service import (
+    ConnectionCheckResult,
+    ConnectionTestSummary,
+    SettingsService,
+)
 from minimal_kanban.settings_store import SettingsStore
 from minimal_kanban.tunnel_runtime import TunnelRuntimeState
 from minimal_kanban.ui.main_window import MainWindow
@@ -649,6 +653,90 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
         self.assertEqual(dialog.mcp_tunnel_url_input.text(), "")
         self.assertEqual(dialog.mcp_effective_url_input.text(), "https://public.example/mcp")
         dialog.close()
+
+    def test_runtime_diagnostics_do_not_restore_form_saved_before_tunnel_start(self) -> None:
+        tunnel = FakeTunnelController()
+        dialog = SettingsWindow(
+            self.settings_service,
+            "http://127.0.0.1:41731",
+            mcp_controller=self.controller,
+            tunnel_controller=tunnel,
+            parent=self.window,
+        )
+        self.addCleanup(dialog.close)
+        dialog.mcp_enabled_checkbox.setChecked(True)
+        start = tunnel.start
+
+        def start_after_peer_save(settings):
+            self.settings_service.update_section(
+                "local_api", {"local_api_port": 44234}, persist=True
+            )
+            return start(settings)
+
+        with patch.object(tunnel, "start", side_effect=start_after_peer_save):
+            dialog._start_mcp_runtime()
+
+        persisted = self.settings_service.load()
+        self.assertEqual(persisted.local_api.local_api_port, 44234)
+        self.assertEqual(dialog.local_api_port_input.value(), 44234)
+        self.assertEqual(persisted.mcp.tunnel_url, "https://demo.ngrok-free.app")
+        self.assertEqual(persisted.diagnostics.mcp_status, "success")
+
+    def test_delayed_single_check_reports_changed_settings_without_overwriting_them(self) -> None:
+        dialog = self.window.build_settings_window()
+
+        def check_after_save(_settings, target):
+            self.settings_service.update_section(
+                "local_api", {"local_api_port": 44356}, persist=True
+            )
+            return ConnectionCheckResult(target, "success", "Old endpoint worked")
+
+        with patch.object(self.settings_service, "test_target", side_effect=check_after_save):
+            result = dialog._run_single_test("local_api")
+        self.assertEqual(self.settings_service.load().local_api.local_api_port, 44356)
+        self.assertEqual(dialog.local_api_port_input.value(), 44356)
+        self.assertEqual(result.status, "warning")
+        self.assertIn("изменились", result.message)
+        self.assertIn("изменились", dialog.status_label.text())
+
+    def test_delayed_full_check_displays_current_diagnostics(self) -> None:
+        dialog = self.window.build_settings_window()
+
+        def check_after_save(_settings):
+            self.settings_service.update_section(
+                "local_api", {"local_api_port": 44367}, persist=True
+            )
+            result = ConnectionCheckResult("local_api", "success", "Old endpoint worked")
+            return ConnectionTestSummary(
+                "synthetic-time", result, result, result, result, "success", (), ()
+            )
+
+        with (
+            patch.object(self.settings_service, "test_connections", side_effect=check_after_save),
+            patch.object(QMessageBox, "information") as popup,
+        ):
+            dialog._test_connections()
+        self.assertEqual(self.settings_service.load().local_api.local_api_port, 44367)
+        self.assertEqual(dialog.local_api_port_input.value(), 44367)
+        self.assertIn("изменились", popup.call_args.args[2])
+        self.assertNotIn("Old endpoint worked", popup.call_args.args[2])
+
+    def test_runtime_start_reports_settings_changed_during_launch(self) -> None:
+        dialog = self.window.build_settings_window()
+        dialog.mcp_enabled_checkbox.setChecked(True)
+        start = self.controller.start
+
+        def launch_after_save(settings):
+            self.settings_service.update_section("mcp", {"mcp_port": 44478}, persist=True)
+            return start(settings)
+
+        with patch.object(self.controller, "start", side_effect=launch_after_save):
+            dialog._start_mcp_runtime()
+
+        persisted = self.settings_service.load()
+        self.assertEqual(persisted.mcp.mcp_port, 44478)
+        self.assertEqual(persisted.diagnostics.mcp_status, "warning")
+        self.assertIn("изменились", dialog.status_label.text())
 
     def test_connect_to_chatgpt_wizard_shows_token_and_runs_preflight(self) -> None:
         dialog = SettingsWindow(

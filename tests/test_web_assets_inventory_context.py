@@ -158,6 +158,53 @@ assert.equal(state.inventorySaving,false);
 """,
         )
 
+    def test_inventory_edit_payload_contains_observed_revision(self) -> None:
+        self.run_node(
+            functions("inventory_workspace.js", "inventoryPayloadFromForm"),
+            """
+state.inventoryActiveId='item';state.inventoryItems=[{id:'item',updated_at:'observed'}];
+inventoryFormRefs=()=>({name:{value:'edited'}});
+assert.equal(inventoryPayloadFromForm().expected_updated_at,'observed');
+state.inventoryActiveId='';assert.equal(inventoryPayloadFromForm().expected_updated_at,undefined);
+""",
+        )
+
+    def test_replenishment_captures_price_draft_before_pending_render(self) -> None:
+        self.run_node(
+            self.inventory_functions("replenishInventoryItem"),
+            """
+state.inventoryActiveId='item';
+const refs={replenishQuantity:{value:'2'},costPrice:{value:'125'},salePrice:{value:'175'}};
+inventoryFormRefs=()=>refs;activeInventoryItem=()=>({id:'item',updated_at:'observed'});
+renderInventoryForm=()=>{refs.costPrice.value='100';refs.salePrice.value='150';};
+const pending=replenishInventoryItem();
+assert.equal(calls[0].options.body.cost_price,'125');
+assert.equal(calls[0].options.body.sale_price,'175');
+assert.equal(calls[0].options.body.expected_updated_at,'observed');
+calls[0].reject(new Error('simulated rejection'));await pending;
+""",
+        )
+
+    def test_material_write_uses_captured_card_and_item_revisions(self) -> None:
+        self.run_node(
+            self.inventory_functions("writeOffInventoryItem", "returnInventoryMovement"),
+            """
+let prepare=deferred();function requireRepairOrderCardId(){return prepare.promise;}
+async function loadInventoryItems(){}async function refreshRepairOrdersListAfterMutation(){}
+selectedRepairOrderInventoryItem=()=>({id:'item',quantity:5,updated_at:'item-observed'});
+state.activeCard={id:'card-A',updated_at:'card-observed'};
+const write=writeOffInventoryItem();
+state.activeCard={id:'card-A',updated_at:'newer-card'};
+prepare.resolve('card-A');await Promise.resolve();
+assert.equal(calls[0].options.body.expected_card_updated_at,'card-observed');
+assert.equal(calls[0].options.body.expected_updated_at,'item-observed');
+calls[0].reject(new Error('conflict'));await write;
+prepare=deferred();const returned=returnInventoryMovement();prepare.resolve('card-A');await Promise.resolve();
+assert.equal(calls[1].options.body.expected_card_updated_at,'newer-card');
+calls[1].resolve({});await returned;
+""",
+        )
+
     def test_inventory_write_never_continues_after_old_card_preparation(self) -> None:
         self.run_node(
             self.inventory_functions("writeOffInventoryItem", "returnInventoryMovement"),

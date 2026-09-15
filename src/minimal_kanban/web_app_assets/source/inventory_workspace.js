@@ -468,7 +468,10 @@
         actor_name: state.actor,
         source: 'ui',
       };
-      if (itemId) payload.item_id = itemId;
+      if (itemId) {
+        payload.item_id = itemId;
+        payload.expected_updated_at = inventoryItemById(itemId)?.updated_at || undefined;
+      }
       else payload.quantity = String(refs.quantity?.value || '0').trim();
       return payload;
     }
@@ -521,19 +524,21 @@
         return inventoryStatus('УКАЖИТЕ КОЛИЧЕСТВО БОЛЬШЕ НУЛЯ.', true);
       }
       const context = inventoryAsyncContext('save', () => String(state.inventoryActiveId || '') === String(item.id));
+      const payload = {
+        item_id: item.id,
+        expected_updated_at: item.updated_at || undefined,
+        quantity,
+        cost_price: String(refs.costPrice?.value || '').trim(),
+        sale_price: String(refs.salePrice?.value || '').trim(),
+        actor_name: state.actor,
+        source: 'ui',
+      };
       state.inventorySaving = true;
       renderInventoryForm();
       try {
         const data = await api('/api/replenish_inventory_item', {
           method: 'POST',
-          body: {
-            item_id: item.id,
-            quantity,
-            cost_price: String(refs.costPrice?.value || '').trim(),
-            sale_price: String(refs.salePrice?.value || '').trim(),
-            actor_name: state.actor,
-            source: 'ui',
-          },
+          body: payload,
         });
         if (!context.isCurrent()) return;
         if (data?.item) {
@@ -735,6 +740,7 @@
       if (state.inventoryMaterialSaving) return;
       const cardContext = captureCardEditingContext();
       let expectedCardId = String(state.editingId || '');
+      let expectedCardUpdatedAt = state.activeCard?.id === expectedCardId ? state.activeCard.updated_at : undefined;
       let selectedId = state.repairOrderInventorySelectedId;
       let selectedRow = state.repairOrderInventoryRowIndex;
       const context = inventoryAsyncContext('material', () => cardContext()
@@ -746,11 +752,15 @@
       try {
         const cardId = await requireRepairOrderCardId();
         if (!cardId || !context.owns() || !cardContext() || (expectedCardId && cardId !== expectedCardId)) return;
+        if (!expectedCardId && state.activeCard?.id === cardId) expectedCardUpdatedAt = state.activeCard.updated_at;
         expectedCardId = String(cardId);
         if (!context.isCurrent()) return;
         const data = await api(path, {
           method: 'POST',
-          body: { ...payload, card_id: cardId, actor_name: actorName, source: 'ui' },
+          body: {
+            ...payload, card_id: cardId, expected_card_updated_at: expectedCardUpdatedAt || undefined,
+            actor_name: actorName, source: 'ui',
+          },
         });
         if (!context.isCurrent()) return;
         if (data?.item) {
@@ -804,6 +814,7 @@
       }
       return mutateInventoryMaterial('/api/write_off_inventory_item', {
         item_id: item.id, quantity: quantity.raw, row_index: repairOrderInventoryTargetRowIndex(),
+        expected_updated_at: item.updated_at || undefined,
       }, 'МАТЕРИАЛ СПИСАН СО СКЛАДА.');
     }
 

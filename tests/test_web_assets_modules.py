@@ -91,7 +91,7 @@ assert.deepEqual(calls, [null, prepared]);
 
         self.assertEqual(
             set(BOARD_WEB_APP_MODULE_MANIFEST),
-            {"printing", "payroll", "inventory", "cash_journal", "auxiliary"},
+            {"printing", "payroll", "inventory", "cash_journal", "auxiliary", "board_moves"},
         )
         for path, source in BOARD_WEB_APP_MODULES.items():
             raw = source.encode("utf-8")

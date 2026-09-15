@@ -10,7 +10,7 @@ from collections.abc import Collection
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, localcontext
 from functools import lru_cache
 from pathlib import PurePath
 from typing import Any, Literal
@@ -323,7 +323,10 @@ def normalize_decimal_text(
         parsed = maximum
     if parsed == 0:
         return "0"
-    normalized = parsed.normalize()
+    # Normalization must not round stored quantities to the ambient precision.
+    with localcontext() as context:
+        context.prec = max(context.prec, len(parsed.as_tuple().digits))
+        normalized = parsed.normalize()
     text = format(normalized, "f")
     return text.rstrip("0").rstrip(".") if "." in text else text
 
@@ -1445,8 +1448,7 @@ class InventoryMovement:
         kind = normalize_inventory_movement_kind(payload.get("kind"))
         quantity_delta = normalize_decimal_text(raw_quantity_delta, default="0")
         if raw_quantity_delta in (None, ""):
-            sign = Decimal("-1") if kind == "write_off" else Decimal("1")
-            quantity_delta = normalize_decimal_text(Decimal(quantity) * sign)
+            quantity_delta = f"-{quantity}" if kind == "write_off" and quantity != "0" else quantity
         return cls(
             id=normalize_entity_id(payload.get("id") or payload.get("movement_id")),
             item_id=item_id,

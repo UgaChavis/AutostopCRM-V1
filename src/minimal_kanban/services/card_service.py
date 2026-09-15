@@ -4691,7 +4691,11 @@ class CardService(
             )
             column_labels = self._column_labels(columns)
             move_meta = self._reposition_card(
-                cards, card, target_column=next_column, before_card_id=before_card_id
+                cards,
+                card,
+                target_column=next_column,
+                before_card_id=before_card_id,
+                placement=str(payload.get("placement") or "start").strip().casefold(),
             )
             changed = (
                 move_meta["before_column"] != move_meta["after_column"]
@@ -5300,7 +5304,14 @@ class CardService(
         *,
         target_column: str,
         before_card_id: str | None = None,
+        placement: str = "start",
     ) -> dict[str, object]:
+        if placement not in {"start", "end"} or (placement == "end" and before_card_id):
+            self._fail(
+                "validation_error",
+                "placement должен быть start или end; end нельзя сочетать с before_card_id.",
+                details={"field": "placement"},
+            )
         previous_column = card.column
         previous_position = card.position
         before_card = None
@@ -5326,7 +5337,7 @@ class CardService(
                 cards, target_column, exclude_card_id=card.id
             )
 
-        insert_index = 0
+        insert_index = len(target_cards) if placement == "end" else 0
         if before_card is not None:
             insert_index = next(
                 (index for index, item in enumerate(target_cards) if item.id == before_card.id),

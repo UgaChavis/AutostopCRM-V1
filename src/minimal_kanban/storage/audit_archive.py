@@ -145,6 +145,8 @@ class AuditArchiveStore:
                     record = json.loads(line, parse_constant=_reject_json_constant)
                 except (ValueError, json.JSONDecodeError, RecursionError):
                     continue
+                if not isinstance(record, dict):
+                    continue
                 if requested_event_id and record.get("event_id") != requested_event_id:
                     continue
                 details = record.get("details")

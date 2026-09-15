@@ -54,7 +54,6 @@ from ..settings_models import (
 )
 from ..settings_service import (
     ConnectionCheckResult,
-    ConnectionTestSummary,
     SettingsService,
     SettingsValidationError,
 )
@@ -1653,13 +1652,13 @@ class SettingsWindow(QDialog):
         )
 
     def _apply_runtime_state_to_diagnostics(
-        self, state, *, status_override: str | None = None
-    ) -> None:
-        settings = self._save_form_settings(show_errors=False)
-        if settings is None:
-            self._render_runtime_state()
-            return
-
+        self,
+        state,
+        *,
+        settings: IntegrationSettings | None = None,
+        status_override: str | None = None,
+    ) -> IntegrationSettings:
+        settings = settings or self._settings_service.load()
         result = ConnectionCheckResult(
             target="mcp",
             status=status_override or ("success" if state.running else "failed"),
@@ -1667,7 +1666,7 @@ class SettingsWindow(QDialog):
             checked_at=utc_now_iso(),
             errors=(state.error,) if state.error else (),
         )
-        self._apply_diagnostics_result(settings, "mcp", result)
+        return self._apply_diagnostics_result(settings, "mcp", result)
 
     def _current_mcp_error_text(self) -> str:
         if self._mcp_controller is None:
@@ -1696,7 +1695,6 @@ class SettingsWindow(QDialog):
             settings = self._settings_service.update_section(
                 "mcp",
                 {"tunnel_url": tunnel_state.public_url if tunnel_state.running else ""},
-                settings=settings,
                 persist=True,
             )
         state = (
@@ -1705,9 +1703,12 @@ class SettingsWindow(QDialog):
             else self._mcp_controller.start(settings)
         )
         self._render_runtime_state()
-        self._apply_runtime_state_to_diagnostics(state)
+        settings = self._apply_runtime_state_to_diagnostics(state, settings=settings)
         if state.running:
             self._load_into_form(settings)
+            if settings.diagnostics.mcp_status == "warning":
+                self._set_status(settings.diagnostics.mcp_message, tone="warning")
+                return
             if self._tunnel_controller is not None and self._tunnel_controller.state.running:
                 self._set_status(
                     f"{state.message}\nTunnel: {self._tunnel_controller.state.public_url}",
@@ -1741,7 +1742,7 @@ class SettingsWindow(QDialog):
             )
         )
         self._render_runtime_state()
-        self._apply_runtime_state_to_diagnostics(state, status_override="warning")
+        settings = self._apply_runtime_state_to_diagnostics(state, status_override="warning")
         self._load_into_form(settings)
         self._set_status("MCP и tunnel остановлены.", tone="success")
 
@@ -1761,24 +1762,34 @@ class SettingsWindow(QDialog):
         if settings is None:
             return
         summary = self._settings_service.test_connections(settings)
-        updated = self._settings_service.apply_test_summary(settings, summary)
-        self._reload_saved_settings(updated)
+        updated = self._settings_service.apply_test_summary(settings, summary, persist=True)
+        self._load_into_form(updated)
+        overall_status = updated.diagnostics.overall_status
         tone = (
             "success"
-            if summary.overall_status not in {"failed", "warning"}
+            if overall_status not in {"failed", "warning"}
             else "warning"
-            if summary.overall_status == "warning"
+            if overall_status == "warning"
             else "error"
         )
         self._set_status("Полная проверка соединений завершена.", tone=tone)
-        QMessageBox.information(self, "Проверка соединений", self._format_summary(summary))
+        QMessageBox.information(self, "Проверка соединений", self._format_summary(updated))
 
     def _run_single_test(self, target: str):
         settings = self._save_form_settings()
         if settings is None:
             return
         result = self._settings_service.test_target(settings, target)
-        self._apply_diagnostics_result(settings, target, result)
+        saved = self._apply_diagnostics_result(settings, target, result)
+        diagnostics = saved.diagnostics
+        result = ConnectionCheckResult(
+            target,
+            getattr(diagnostics, f"{target}_status"),
+            getattr(diagnostics, f"{target}_message"),
+            result.checked_at,
+            tuple(diagnostics.last_warnings),
+            tuple(diagnostics.last_errors),
+        )
         tone = (
             "success"
             if result.status == "success"
@@ -1939,12 +1950,13 @@ class SettingsWindow(QDialog):
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
         self._set_status(f"Открыта инструкция подключения: {path.name}", tone="success")
 
-    def _format_summary(self, summary: ConnectionTestSummary) -> str:
+    def _format_summary(self, settings: IntegrationSettings) -> str:
+        diagnostics = settings.diagnostics
         return (
-            f"Локальный API: {summary.local_api.message}\n"
-            f"MCP: {summary.mcp.message}\n"
-            f"Внешний endpoint: {summary.external.message}\n"
-            f"OpenAI: {summary.openai.message}"
+            f"Локальный API: {diagnostics.local_api_message}\n"
+            f"MCP: {diagnostics.mcp_message}\n"
+            f"Внешний endpoint: {diagnostics.external_message}\n"
+            f"OpenAI: {diagnostics.openai_message}"
         )
 
     def _show_validation_errors(self, errors: dict[str, str]) -> None:
@@ -1977,19 +1989,15 @@ class SettingsWindow(QDialog):
                 self._show_validation_errors(exc.errors)
             return None
 
-    def _reload_saved_settings(self, settings: IntegrationSettings) -> IntegrationSettings:
-        saved = self._settings_service.save(settings)
-        self._load_into_form(saved)
-        return saved
-
     def _apply_diagnostics_result(
         self,
         settings: IntegrationSettings,
         target: str,
         result: ConnectionCheckResult,
     ) -> IntegrationSettings:
-        updated = self._settings_service.apply_test_result(settings, target, result)
-        return self._reload_saved_settings(updated)
+        updated = self._settings_service.apply_test_result(settings, target, result, persist=True)
+        self._load_into_form(updated)
+        return updated
 
     def _set_status(self, message: str, *, tone: str = "info") -> None:
         _apply_status_label_state(self, self.status_label, message, tone=tone)

@@ -8,6 +8,7 @@ FINANCIAL_EVENT_ACTIONS = {
     "cash_transaction_deleted",
     "cashbox_transfer_created",
     "employee_salary_transaction_created",
+    "employee_salary_balance_reset",
     "employee_repair_order_accrual_created",
     "employee_repair_order_accrual_reversed",
     "payroll_policy_2026_07_13_applied",
@@ -28,7 +29,11 @@ def _clear_payroll_accrual_ledgers(state: dict[str, Any]) -> None:
     settings = state.get("settings")
     if not isinstance(settings, dict):
         return
-    for key in ("employee_shift_accruals", "employee_repair_order_accruals"):
+    for key in (
+        "employee_shift_accruals",
+        "employee_repair_order_accruals",
+        "employee_salary_balance_resets",
+    ):
         if isinstance(settings.get(key), list):
             settings[key] = []
 

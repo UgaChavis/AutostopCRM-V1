@@ -445,7 +445,6 @@ class MainWindow(QMainWindow):
             settings = self._settings_service.update_section(
                 "mcp",
                 {"tunnel_url": tunnel_state.public_url if tunnel_state.running else ""},
-                settings=settings,
                 persist=True,
             )
             # Restart MCP after the tunnel is known so public URL and allowed hosts/origins match the live endpoint.
@@ -454,11 +453,25 @@ class MainWindow(QMainWindow):
 
     def _on_publication_ready(self, settings, state) -> None:
         self._publication_in_progress = False
+        try:
+            current = self._settings_service.load()
+        except (OSError, ValueError):
+            self.status_label.setText(
+                "Не удалось обновить настройки после запуска MCP. Повторите запуск."
+            )
+            return
+        configuration_changed = self._settings_service.configuration_changed(settings, current)
+        settings = current
         self._load_publish_urls(settings)
         self._sync_publish_panel()
         self._publish_connector_files(settings)
         if self._settings_window is not None:
             self._settings_window.refresh_publication_runtime(settings, state)
+        if configuration_changed:
+            self.status_label.setText(
+                "Настройки изменились во время запуска MCP. Повторите запуск для текущих настроек."
+            )
+            return
         if state is None:
             return
         if state.running:

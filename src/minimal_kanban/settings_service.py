@@ -98,10 +98,7 @@ class SettingsService:
         return self._store.path
 
     def load(self) -> IntegrationSettings:
-        settings = self._store.read()
-        normalized = self._normalize_with_writeback(
-            settings, log_event="settings.load.normalized_writeback"
-        )
+        normalized = self._store.read(normalizer=self.normalize)
         self._logger.debug("settings.load payload=%s", normalized.to_dict(redact_secrets=True))
         return normalized
 
@@ -240,6 +237,14 @@ class SettingsService:
         settings: IntegrationSettings | None = None,
         persist: bool = False,
     ) -> IntegrationSettings:
+        if persist and settings is None:
+            updated = self._store.update(
+                lambda current: self._validated_settings(
+                    self.update_section(section_name, values, settings=current)
+                )
+            )
+            self._logger.info("settings.save payload=%s", updated.to_dict(redact_secrets=True))
+            return updated
         current = self.normalize(settings or self.load())
         name = str(section_name or "").strip().lower()
 
@@ -280,6 +285,19 @@ class SettingsService:
         else:
             raise ValueError(f"Неизвестная секция настроек: {section_name}")
 
+        # An explicit token edit must update its compatibility alias too;
+        # otherwise normalization can restore the previous non-empty token.
+        for token_field, alias in (
+            ("local_api_bearer_token", "local_api"),
+            ("mcp_bearer_token", "mcp"),
+        ):
+            if name in {"auth", alias} and token_field in values:
+                token = getattr(getattr(updated, name), token_field)
+                updated = replace(
+                    updated,
+                    auth=replace(updated.auth, **{token_field: token}),
+                    **{alias: replace(getattr(updated, alias), **{token_field: token})},
+                )
         normalized = self.normalize(updated)
         if persist:
             return self.save(normalized)
@@ -342,8 +360,31 @@ class SettingsService:
         raise ValueError(f"Неизвестная цель проверки: {target}")
 
     def apply_test_summary(
-        self, settings: IntegrationSettings, summary: ConnectionTestSummary
+        self,
+        settings: IntegrationSettings,
+        summary: ConnectionTestSummary,
+        *,
+        persist: bool = False,
     ) -> IntegrationSettings:
+        if persist:
+
+            def apply(current):
+                effective = summary
+                if self.configuration_changed(settings, current):
+                    results = {
+                        target: self._stale_test_result(getattr(summary, target))
+                        for target in ("local_api", "mcp", "external", "openai")
+                    }
+                    effective = replace(
+                        summary,
+                        **results,
+                        overall_status="warning",
+                        warnings=results["local_api"].warnings,
+                        errors=(),
+                    )
+                return self.apply_test_summary(current, effective)
+
+            return self._store.update(apply)
         diagnostics = DiagnosticsSettings(
             local_api_status=summary.local_api.status,
             local_api_message=summary.local_api.message,
@@ -370,7 +411,20 @@ class SettingsService:
         target: str,
         result: ConnectionCheckResult,
         tested_at: str | None = None,
+        *,
+        persist: bool = False,
     ) -> IntegrationSettings:
+        if persist:
+            return self._store.update(
+                lambda current: self.apply_test_result(
+                    current,
+                    target,
+                    self._stale_test_result(result)
+                    if self.configuration_changed(settings, current)
+                    else result,
+                    tested_at,
+                )
+            )
         current = settings.diagnostics.to_dict()
         checked_at = tested_at or result.checked_at
         if target == "local_api":
@@ -403,6 +457,18 @@ class SettingsService:
             )
         )
         return replace(settings, diagnostics=DiagnosticsSettings.from_dict(current))
+
+    def configuration_changed(self, tested, current) -> bool:
+        tested, current = self.normalize(tested), self.normalize(current)
+        return any(
+            getattr(tested, section) != getattr(current, section)
+            for section in ("general", "local_api", "mcp", "openai", "auth")
+        )
+
+    @staticmethod
+    def _stale_test_result(result: ConnectionCheckResult) -> ConnectionCheckResult:
+        message = "Настройки изменились во время проверки; повторите проверку."
+        return replace(result, status="warning", message=message, warnings=(message,), errors=())
 
     def test_local_api(self, settings: IntegrationSettings) -> ConnectionCheckResult:
         checked_at = utc_now_iso()

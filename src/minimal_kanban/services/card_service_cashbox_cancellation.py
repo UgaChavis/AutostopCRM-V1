@@ -71,34 +71,7 @@ class CardServiceCashboxCancellationMixin:
                     "Синтетическая отмена не соответствует контуру аттестации.",
                     status_code=403,
                 )
-            transaction_kind = normalize_text(transaction.transaction_kind, default="", limit=32)
-            if transaction_kind in {
-                _CASH_TRANSACTION_KIND_CANCELLED,
-                _CASH_TRANSACTION_KIND_CANCELLATION,
-            }:
-                self._fail(
-                    "validation_error",
-                    "Эта операция уже является отменой или уже отменена.",
-                    details={"transaction_id": transaction.id},
-                )
-            existing_cancellation = next(
-                (
-                    item
-                    for item in transactions
-                    if item.related_transaction_id == transaction.id
-                    and item.transaction_kind == _CASH_TRANSACTION_KIND_CANCELLATION
-                ),
-                None,
-            )
-            if existing_cancellation is not None:
-                self._fail(
-                    "validation_error",
-                    "Эта операция уже отменена.",
-                    details={
-                        "transaction_id": transaction.id,
-                        "cancellation_transaction_id": existing_cancellation.id,
-                    },
-                )
+            self._ensure_cash_transaction_cancellable(transaction, transactions)
             if transaction.transfer_group_id or transaction.related_transaction_id:
                 return self._cancel_selected_cashbox_transfer_transaction(
                     bundle=bundle,
@@ -201,6 +174,40 @@ class CardServiceCashboxCancellationMixin:
                 "cancellation_transaction": self._serialize_cash_transaction(cancellation),
                 "meta": response_meta,
             }
+
+    def _ensure_cash_transaction_cancellable(
+        self, transaction: CashTransaction, transactions: list[CashTransaction]
+    ) -> None:
+        transaction_kind = normalize_text(
+            transaction.transaction_kind, default="", limit=32
+        ).casefold()
+        if transaction_kind in {
+            _CASH_TRANSACTION_KIND_CANCELLED,
+            _CASH_TRANSACTION_KIND_CANCELLATION,
+        }:
+            self._fail(
+                "validation_error",
+                "Эта операция уже является отменой или уже отменена.",
+                details={"transaction_id": transaction.id},
+            )
+        existing_cancellation = next(
+            (
+                item
+                for item in transactions
+                if item.related_transaction_id == transaction.id
+                and item.transaction_kind == _CASH_TRANSACTION_KIND_CANCELLATION
+            ),
+            None,
+        )
+        if existing_cancellation is not None:
+            self._fail(
+                "validation_error",
+                "Эта операция уже отменена.",
+                details={
+                    "transaction_id": transaction.id,
+                    "cancellation_transaction_id": existing_cancellation.id,
+                },
+            )
 
     def _cancel_selected_cashbox_transfer_transaction(
         self,

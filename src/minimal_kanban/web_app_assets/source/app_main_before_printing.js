@@ -37,6 +37,8 @@
       actor: '',
       operatorSessionToken: localStorage.getItem(OPERATOR_SESSION_STORAGE_KEY) || '',
       operatorProfile: null,
+      operatorProfileRequestSeq: 0,
+      operatorProfileRefreshAttemptAt: 0,
       operatorPermissionRefreshPromise: null,
       operatorLoginRequest: null,
       operatorAdminRequestSeq: 0,
@@ -184,6 +186,9 @@
       draftTagColor: 'green',
       pollHandle: null,
       refreshInFlight: null,
+      boardMoveQueue: null,
+      boardMoveRequest: null,
+      boardMutationGeneration: 0,
       viewerStateGeneration: 0,
       boardDragCardId: '',
       boardDragColumnId: '',
@@ -2513,6 +2518,8 @@
       state.snapshot = null;
       state.lastSnapshotRevision = '';
       state.refreshInFlight = null;
+      state.boardMoveQueue = null;
+      state.boardMoveRequest = null;
       state.archiveCards = [];
       state.archiveQuery = '';
       state.archiveLoaded = false;
@@ -2804,6 +2811,8 @@
     }
 
     async function loadOperatorProfile(openModal = false) {
+      const requestSeq = (state.operatorProfileRequestSeq || 0) + 1;
+      state.operatorProfileRequestSeq = requestSeq;
       const viewerStateGeneration = state.viewerStateGeneration;
       const operatorSessionToken = state.operatorSessionToken;
       const personalBoardPreferencesRevision = state.personalBoardPreferencesRevision;
@@ -2812,12 +2821,23 @@
         viewerStateGeneration !== state.viewerStateGeneration
         || operatorSessionToken !== state.operatorSessionToken
       ) return null;
+      if (requestSeq !== state.operatorProfileRequestSeq) {
+        if (openModal) pushModal('operator-profile', els.operatorProfileModal);
+        return null;
+      }
       renderOperatorProfile(data, {
         openModal,
         preservePersonalBoardPreferences:
           personalBoardPreferencesRevision !== state.personalBoardPreferencesRevision,
       });
       return data;
+    }
+
+    function refreshOperatorProfileIfDue({ force = false } = {}) {
+      if (!state.operatorSessionToken || document.hidden) return null;
+      if (!force && Date.now() - (state.operatorProfileRefreshAttemptAt || 0) < 30000) return null;
+      state.operatorProfileRefreshAttemptAt = Date.now();
+      return refreshOperatorProfileAfterPermissionMismatch(state.operatorSessionToken);
     }
 
     function refreshOperatorProfileAfterPermissionMismatch(requestSessionToken, requestPath = '') {
@@ -3078,6 +3098,7 @@
       closeOperatorEmployeeBinding();
       claimOperatorUserEditorIntent();
       state.operatorPermissionEditorUsername = normalizedUsername;
+      state.operatorPermissionEditorPermissions = [...(user.permissions || [])];
       els.adminUserLogin.value = String(user.username || '');
       els.adminUserPassword.value = '';
       const permissions = Array.isArray(user.permissions) ? user.permissions : [];
@@ -5099,10 +5120,15 @@
           password: els.adminUserPassword.value,
           source: 'ui',
         };
-        if (!existingUser || editingPermissions) {
+        if (editingPermissions || (!existingUser && (
+          els.adminUserEmployeesCashboxesAccess?.checked || els.adminUserEmployeesReadAccess?.checked
+        ))) {
           const canAccessEmployeesCashboxes = Boolean(els.adminUserEmployeesCashboxesAccess?.checked);
           const canReadEmployees = Boolean(els.adminUserEmployeesReadAccess?.checked);
           payload.permissions = [];
+          payload.expected_permissions = editingPermissions
+            ? [...(state.operatorPermissionEditorPermissions || [])]
+            : [];
           if (canAccessEmployeesCashboxes) {
             payload.permissions.push(EMPLOYEES_CASHBOXES_ACCESS_PERMISSION);
           }
@@ -5129,7 +5155,12 @@
           viewerContext: context.viewer,
         });
       } catch (error) {
-        if (context.isCurrent()) setStatus(error.message, true);
+        if (context.isCurrent()) {
+          setStatus(error.message, true);
+          if (error.code === 'operator_user_conflict') {
+            await refreshOperatorAdminSurfaces({ viewerContext: context.viewer });
+          }
+        }
       } finally {
         finishOperatorUserSaveMutation(context);
       }
@@ -13835,12 +13866,15 @@
         }
 
         const viewerStateGeneration = state.viewerStateGeneration;
+        const boardMutationGeneration = state.boardMutationGeneration;
         let refreshPromise = null;
         refreshPromise = (async () => {
           try {
             if (!state.snapshot || els.statusLine?.dataset.connection === 'offline') showConnectionPendingStatus();
             const nextSnapshot = applyCardSeenSuppressionsToSnapshot(await api('/api/get_board_snapshot?compact=1&include_archive=0'));
-            if (viewerStateGeneration !== state.viewerStateGeneration) return;
+            if (viewerStateGeneration !== state.viewerStateGeneration
+              || boardMutationGeneration !== state.boardMutationGeneration
+              || state.boardMoveRequest) return;
             const previousRevision = String(state.lastSnapshotRevision || '');
             const nextRevision = String(nextSnapshot?.meta?.revision || '');
             const boardChanged = !previousRevision || !nextRevision || previousRevision !== nextRevision;
@@ -13979,124 +14013,6 @@
           : 'СЕРВЕР АКТИВЕН',
         false,
       );
-    }
-
-    function applyBoardColumnCardsPatch(nextCards, affectedColumnIds) {
-      if (!Array.isArray(state.snapshot?.cards) || !Array.isArray(nextCards) || !Array.isArray(affectedColumnIds)) return false;
-      const normalizedColumnIds = affectedColumnIds
-        .map((value) => String(value || '').trim())
-        .filter(Boolean);
-      if (!normalizedColumnIds.length) return false;
-      const targetColumns = new Set(normalizedColumnIds);
-      const suppressedNextCards = applyCardSeenSuppressionsToCards(nextCards);
-      const nextCardMap = new Map(suppressedNextCards.filter((card) => card?.id).map((card) => [card.id, card]));
-      state.snapshot.cards = state.snapshot.cards
-        .filter((card) => !targetColumns.has(String(card.column || '').trim()))
-        .concat(suppressedNextCards);
-      if (state.activeCard?.id) {
-        const nextActiveCard = nextCardMap.get(state.activeCard.id);
-        if (nextActiveCard && !state.activeCardIsFull) state.activeCard = nextActiveCard;
-      }
-      if (extraBoardColumnIsOpen()) {
-        renderBoard();
-        return true;
-      }
-      const cardsByColumn = buildBoardCardsByColumn(state.snapshot);
-      let renderedAny = false;
-      for (const columnId of normalizedColumnIds) {
-        renderedAny = renderBoardColumnById(columnId, cardsByColumn) || renderedAny;
-      }
-      return renderedAny;
-    }
-
-    function applyBoardColumnOrderDelta(movedCard, affectedColumns, affectedColumnIds) {
-      if (
-        !movedCard?.id
-        || !Array.isArray(state.snapshot?.cards)
-        || !Array.isArray(affectedColumns)
-        || !Array.isArray(affectedColumnIds)
-      ) return false;
-      const normalizedColumnIds = affectedColumnIds
-        .map((value) => String(value || '').trim())
-        .filter(Boolean);
-      if (!normalizedColumnIds.length || normalizedColumnIds.length !== new Set(normalizedColumnIds).size) return false;
-      const targetColumns = new Set(normalizedColumnIds);
-      const columnsById = new Map();
-      for (const item of affectedColumns) {
-        const columnId = String(item?.column_id || '').trim();
-        const orderedCardIds = Array.isArray(item?.ordered_card_ids)
-          ? item.ordered_card_ids.map((value) => String(value || '').trim()).filter(Boolean)
-          : null;
-        if (
-          !columnId
-          || !targetColumns.has(columnId)
-          || columnsById.has(columnId)
-          || !orderedCardIds
-          || orderedCardIds.length !== new Set(orderedCardIds).size
-        ) return false;
-        columnsById.set(columnId, orderedCardIds);
-      }
-      if (columnsById.size !== normalizedColumnIds.length) return false;
-
-      const existingCards = state.snapshot.cards;
-      const existingById = new Map(
-        existingCards.filter((card) => card?.id).map((card) => [String(card.id), card]),
-      );
-      const expectedAffectedIds = new Set(
-        existingCards
-          .filter((card) => targetColumns.has(String(card?.column || '').trim()))
-          .map((card) => String(card.id || '').trim())
-          .filter(Boolean),
-      );
-      expectedAffectedIds.add(String(movedCard.id));
-      const deltaIds = normalizedColumnIds.flatMap((columnId) => columnsById.get(columnId) || []);
-      const deltaIdSet = new Set(deltaIds);
-      if (
-        deltaIds.length !== deltaIdSet.size
-        || deltaIdSet.size !== expectedAffectedIds.size
-        || Array.from(expectedAffectedIds).some((cardId) => !deltaIdSet.has(cardId))
-        || deltaIds.some((cardId) => cardId !== movedCard.id && !existingById.has(cardId))
-      ) return false;
-
-      const suppressedMovedCard = applyCardSeenSuppression(movedCard);
-      cacheFullCard(suppressedMovedCard);
-      const movedBoardCard = boardCardFromFullCard(suppressedMovedCard);
-      const reorderedCards = [];
-      normalizedColumnIds.forEach((columnId) => {
-        (columnsById.get(columnId) || []).forEach((cardId, position) => {
-          const sourceCard = cardId === movedCard.id ? movedBoardCard : existingById.get(cardId);
-          reorderedCards.push({ ...sourceCard, column: columnId, position });
-        });
-      });
-      state.snapshot.cards = existingCards
-        .filter((card) => !targetColumns.has(String(card?.column || '').trim()))
-        .concat(reorderedCards);
-      if (state.activeCard?.id === movedCard.id) {
-        state.activeCard = state.activeCardIsFull
-          ? { ...state.activeCard, ...suppressedMovedCard }
-          : movedBoardCard;
-      }
-      if (state.mobileCard?.id === movedCard.id) {
-        state.mobileCard = { ...state.mobileCard, ...suppressedMovedCard };
-      }
-      if (extraBoardColumnIsOpen()) {
-        renderBoard();
-        return true;
-      }
-      const cardsByColumn = buildBoardCardsByColumn(state.snapshot);
-      const renderedAll = normalizedColumnIds.every(
-        (columnId) => renderBoardColumnById(columnId, cardsByColumn),
-      );
-      if (!renderedAll) renderBoard();
-      return true;
-    }
-
-    function applyBoardColumnsPatch(nextColumns) {
-      if (!Array.isArray(state.snapshot?.columns) || !Array.isArray(nextColumns)) return false;
-      state.snapshot.columns = sortBoardColumns(nextColumns);
-      renderBoard();
-      updateSnapshotStatusLine({ showSuccess: true });
-      return true;
     }
 
     function applyArchivedCardPatch(nextCard) {
@@ -14361,6 +14277,7 @@
       }
       state.pollHandle = window.setTimeout(async () => {
         state.pollHandle = null;
+        void refreshOperatorProfileIfDue();
         await Promise.all([refreshSnapshotRevision(), refreshCashboxNotification()]);
         scheduleNextSnapshotPoll();
       }, snapshotPollIntervalMs());
@@ -14377,6 +14294,7 @@
       }
       startSnapshotPolling();
       if (!document.hidden) refreshSnapshotRevision();
+      if (!document.hidden) void refreshOperatorProfileIfDue({ force: true });
     }
 
     function cardJournalLoadKey(cardId, limit = state.cardJournalLimit) {
@@ -14573,64 +14491,7 @@
       if (beforeCard) beforeCard.classList.add('is-drop-before');
     }
 
-    async function moveCard(cardId, columnId, beforeCardId = '') {
-      return perfMeasureAsync('moveCard', async () => {
-        try {
-          clearCardOpenSideEffectTimer();
-          const data = await api('/api/move_card', {
-            method: 'POST',
-            body: {
-              card_id: cardId,
-              column: columnId,
-              before_card_id: beforeCardId || undefined,
-              actor_name: state.actor,
-              source: 'ui',
-              response_mode: 'delta',
-            },
-          });
-          const hasDelta = Array.isArray(data?.affected_columns);
-          const patched = hasDelta
-            ? applyBoardColumnOrderDelta(data?.card, data.affected_columns, data?.affected_column_ids || [])
-            : applyBoardColumnCardsPatch(data?.affected_cards || [], data?.affected_column_ids || []);
-          if (!patched && hasDelta) {
-            await refreshSnapshot(true);
-          } else if (!patched && data?.card) {
-            replaceSnapshotCard(data.card);
-          } else if (!patched && !data?.card) {
-            await refreshSnapshot(true);
-          } else {
-            setStatus('ДОСКА ОБНОВЛЕНА · ' + new Date().toLocaleTimeString('ru-RU'), false);
-          }
-          return true;
-        } catch (error) {
-          setStatus(error.message, true);
-          return false;
-        } finally {
-          finishCardDrag();
-        }
-      });
-    }
-
-    async function moveColumn(columnId, beforeColumnId = '') {
-      try {
-        const data = await api('/api/move_column', {
-          method: 'POST',
-          body: {
-            column_id: columnId,
-            before_column_id: beforeColumnId || undefined,
-            actor_name: state.actor,
-            source: 'ui',
-          },
-        });
-        if (!applyBoardColumnsPatch(data?.columns || [])) {
-          await refreshSnapshot(true);
-        }
-      } catch (error) {
-        setStatus(error.message, true);
-      } finally {
-        finishColumnDrag();
-      }
-    }
+    // @include board_moves.js
 
     function beginArchiveMutation(cardId, { requireActiveCard = false } = {}) {
       if (state.archiveMutationRequest) return null;

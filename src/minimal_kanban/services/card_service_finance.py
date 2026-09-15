@@ -671,9 +671,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     )
             statistics = self._cashbox_statistics(cashbox, transactions)
             attestation_run_id = normalize_text(
-                payload.get("attestation_run_id"),
-                default="",
-                limit=64,
+                payload.get("attestation_run_id"), default="", limit=64
             )
             attestation_cleanup = bool(attestation_run_id)
             if attestation_cleanup and statistics["balance_minor"] != 0:
@@ -683,6 +681,8 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     status_code=409,
                     details={"cashbox_id": cashbox.id},
                 )
+            if related_transactions and not attestation_cleanup:
+                raise ValueError("Нельзя удалить кассу, пока в ней есть движения.")
             payment_links = self._finance_payment_links(bundle["cards"])
             related_ids = {transaction.id for transaction in related_transactions}
             linked_payment_ids = related_ids.intersection(payment_links)
@@ -726,8 +726,6 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     "Удаление кассы не соответствует синтетическому контуру аттестации.",
                     status_code=403,
                 )
-            if related_transactions and not attestation_cleanup:
-                raise ValueError("Нельзя удалить кассу, пока в ней есть движения.")
             remaining_cashboxes = self._ordered_cashboxes(
                 [item for item in cashboxes if item.id != cashbox.id]
             )
@@ -1238,9 +1236,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 )
             latest_transaction = related_transactions[0]
             requested_transaction_id = normalize_text(
-                payload.get("transaction_id"),
-                default="",
-                limit=128,
+                payload.get("transaction_id"), default="", limit=128
             )
             requested_transaction = (
                 self._find_cash_transaction(transactions, requested_transaction_id)
@@ -1288,6 +1284,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     "Синтетическая отмена последнего движения не соответствует контуру аттестации.",
                     status_code=403,
                 )
+            self._ensure_cash_transaction_cancellable(latest_transaction, transactions)
             if self._is_cashbox_transfer_transaction(latest_transaction):
                 return self._cancel_cashbox_transfer_pair(
                     bundle=bundle,
@@ -2495,12 +2492,14 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
         external_income_minor = sum(
             self._cash_journal_minor_value(item.get("amount_minor"))
             for item in entries
-            if item.get("direction") == "income" and item.get("source_label") != "перемещение"
+            if item.get("direction") == "income"
+            and not (item.get("transfer_group_id") or item.get("source_label") == "перемещение")
         )
         external_expense_minor = sum(
             self._cash_journal_minor_value(item.get("amount_minor"))
             for item in entries
-            if item.get("direction") == "expense" and item.get("source_label") != "перемещение"
+            if item.get("direction") == "expense"
+            and not (item.get("transfer_group_id") or item.get("source_label") == "перемещение")
         )
         transfer_income_minor = income_minor - external_income_minor
         transfer_expense_minor = expense_minor - external_expense_minor
