@@ -27,7 +27,7 @@ function Assert-LastExitCode {
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $venvPath = Join-Path $projectRoot ".venv"
-$pythonExe = Join-Path $venvPath "Scripts\python.exe"
+$pythonExe = Get-ProjectVirtualEnvironmentPythonPath -VenvPath $venvPath
 
 if (-not (Test-Path $pythonExe)) {
     New-ProjectVirtualEnvironment -VenvPath $venvPath | Out-Null

@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $venvPath = Join-Path $projectRoot ".venv"
-$pythonExe = Join-Path $venvPath "Scripts\python.exe"
+$pythonExe = Get-ProjectVirtualEnvironmentPythonPath -VenvPath $venvPath
 $requirementsPath = Join-Path $projectRoot "requirements.txt"
 $devRequirementsPath = Join-Path $projectRoot "requirements-dev.txt"
 
