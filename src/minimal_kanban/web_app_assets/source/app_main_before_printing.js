@@ -14741,7 +14741,7 @@
     function openModuleMap() {
       const popup = window.open('/module-map', 'autostop-module-map');
       if (!popup) {
-        setStatus('БРАУЗЕР ЗАБЛОКИРОВАЛ ОКНО СТРУКТУРЫ IT.', true);
+        setStatus('БРАУЗЕР ЗАБЛОКИРОВАЛ ОКНО ИНФРАСТРУКТУРЫ МЕНЕДЖЕРА.', true);
         return;
       }
       popup.focus();

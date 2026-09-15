@@ -424,7 +424,7 @@ class DisplayDashboardWebContractTests(unittest.TestCase):
             'id="openModuleMapSettingsButton" type="button"',
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn("ОТКРЫТЬ СТРУКТУРУ IT", BOARD_WEB_APP_HTML)
+        self.assertIn("ОТКРЫТЬ ИНФРАСТРУКТУРУ МЕНЕДЖЕРА", BOARD_WEB_APP_HTML)
         self.assertNotIn("РЕДАКТИРОВАТЬ ДОСКУ СООБЩЕНИЙ", BOARD_WEB_APP_HTML)
         self.assertIn("window.open('/dashboard', 'autostop-display-dashboard')", BOARD_WEB_APP_HTML)
         self.assertIn("window.open('/module-map', 'autostop-module-map')", BOARD_WEB_APP_HTML)

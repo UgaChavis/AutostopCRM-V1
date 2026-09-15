@@ -49,6 +49,22 @@ conversation context. A short quote signal can be enough to start. Routes and
 tools are suggestions, while native confirmation protects only money, published
 prices, orders, deletion, new external recipients, deployment, and secrets.
 
+## Manager infrastructure map
+
+Board settings open **«Открыть инфраструктуру менеджера»** at `/module-map`.
+The public HTML is a shell; `GET /api/get_module_map_infrastructure` still requires
+an operator session and returns `autostopmanager.infrastructure-map.v1`.
+The source dataset is `web_app_assets/source/manager_infrastructure.json`: 32 stable
+element IDs and 19 connection IDs, with coordinates, nesting, descriptions and
+protocols. Update that dataset to change descriptions or layout. The former
+application/IT maps and their snapshots are retired.
+
+The map supports search, keyboard selection, pan/zoom, fullscreen and a read-only
+detail panel. Selecting an element never invokes a business operation or polls a
+provider. `#C1` or `#L7` links focus a specific element after authentication.
+Browser regression tests use a disposable local CRM with synthetic data:
+`python -m unittest tests.test_module_map tests.test_module_map_browser -v`.
+
 ## Local Development
 
 ```powershell

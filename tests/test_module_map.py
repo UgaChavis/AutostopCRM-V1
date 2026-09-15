@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 import sys
 import unittest
@@ -17,167 +16,106 @@ from minimal_kanban.web_assets import (  # noqa: E402
     MODULE_MAP_INFRASTRUCTURE,
 )
 
-MODULE_MAP_DATA_RE = re.compile(
-    r'<script id="moduleMapData" type="application/json">\s*(.*?)\s*</script>',
-    re.DOTALL,
-)
-
 
 class ModuleMapTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        match = MODULE_MAP_DATA_RE.search(MODULE_MAP_HTML)
-        if match is None:
-            raise AssertionError("module map JSON payload is missing")
-        cls.application = json.loads(match.group(1))
-        cls.infrastructure = MODULE_MAP_INFRASTRUCTURE
+    def setUp(self) -> None:
+        self.data = MODULE_MAP_INFRASTRUCTURE
+        self.nodes = {item["id"]: item for item in self.data["elements"]}
 
-    def assert_map_integrity(self, data: dict) -> None:
-        modules = data["modules"]
-        relations = data["relations"]
-        module_ids = [module["id"] for module in modules]
-        zone_roles = {zone["id"]: zone["role"] for zone in data["zones"]}
-
-        self.assertEqual(len(module_ids), len(set(module_ids)))
-        self.assertTrue(all(re.fullmatch(r"[A-Z][A-Z0-9_]*", item) for item in module_ids))
-        self.assertTrue(all(module["zone"] in zone_roles for module in modules))
-        self.assertTrue(all(module["role"] == zone_roles[module["zone"]] for module in modules))
-        self.assertTrue(all(module["paths"] for module in modules))
-
-        relation_pairs: set[tuple[str, str]] = set()
-        for relation in relations:
-            pair = (relation["from"], relation["to"])
-            self.assertIn(relation["from"], module_ids)
-            self.assertIn(relation["to"], module_ids)
-            self.assertNotEqual(relation["from"], relation["to"])
-            self.assertTrue(relation["label"].strip())
-            self.assertIsInstance(relation["overview"], bool)
-            self.assertNotIn(pair, relation_pairs)
-            relation_pairs.add(pair)
-
-        self.assertTrue(set(data.get("aliases", {}).values()).issubset(module_ids))
-        self.assertEqual(
-            {relation["from"] for relation in relations}
-            | {relation["to"] for relation in relations},
-            set(module_ids),
-        )
-
-    def test_application_map_has_current_stable_baseline(self) -> None:
-        self.assertEqual(self.application["schema_version"], "autostopcrm.module-map.v10.4")
-        self.assertEqual(self.application["verified_at"], "2026-08-21")
-        self.assertEqual(self.application["baseline"], "origin/autostopcrm-v1")
-        self.assertEqual(len(self.application["modules"]), 23)
-        self.assertEqual(len(self.application["relations"]), 46)
-        self.assertEqual(
-            {module["id"] for module in self.application["modules"]},
-            {
-                "AGENT",
-                "API",
-                "API_CLIENTS",
-                "AUTH",
-                "AUTH_STATE",
-                "BOARD",
-                "CARD_SERVICE",
-                "CRM",
-                "DASHBOARD",
-                "DESKTOP",
-                "EVENTS",
-                "FILES",
-                "FINANCE",
-                "INVENTORY",
-                "MCP",
-                "MCP_CLIENTS",
-                "OPS",
-                "REPAIR",
-                "RESEARCH",
-                "SHARED",
-                "STATE",
-                "STORE",
-                "UI",
-            },
-        )
-        self.assert_map_integrity(self.application)
-
-    def test_infrastructure_map_is_complete_and_consistent(self) -> None:
-        self.assertEqual(self.infrastructure["verified_at"], "2026-08-21")
-        self.assertEqual(len(self.infrastructure["zones"]), 8)
-        self.assertEqual(len(self.infrastructure["modules"]), 43)
-        self.assertEqual(len(self.infrastructure["relations"]), 50)
-        self.assertEqual(len(self.infrastructure["primary_relations"]), 15)
-        relation_keys = {
-            f"{relation['from']}>{relation['to']}" for relation in self.infrastructure["relations"]
+    def test_exact_reference_ids_and_connection_endpoints(self) -> None:
+        expected = {
+            f"{group}{i}"
+            for group, count in {"A": 3, "B": 4, "C": 7, "D": 5, "E": 6, "F": 5, "N": 2}.items()
+            for i in range(1, count + 1)
         }
-        self.assertTrue(set(self.infrastructure["primary_relations"]).issubset(relation_keys))
-        self.assert_map_integrity(self.infrastructure)
+        self.assertEqual(self.data["schema_version"], "autostopmanager.infrastructure-map.v1")
+        self.assertEqual(set(self.nodes), expected)
+        self.assertEqual(len(self.data["elements"]), 32)
+        edges = {item["id"]: item for item in self.data["relations"]}
+        self.assertEqual(len(self.data["relations"]), 19)
+        self.assertEqual(set(edges), {f"L{i}" for i in range(1, 20)})
+        pairs = [
+            ("A1", "A2"),
+            ("A2", "A3"),
+            ("A3", "B1"),
+            ("B1", "B2"),
+            ("B1", "B3"),
+            ("B2", "B4"),
+            ("B4", "A2"),
+            ("A2", "C1"),
+            ("C1", "C2"),
+            ("A2", "C2"),
+            ("C2", "C3"),
+            ("A2", "D1"),
+            ("D1", "D2"),
+            ("D1", "E1"),
+            ("D1", "F1"),
+            ("D2", "D3"),
+            ("E1", "E2"),
+            ("E1", "E3"),
+            ("F1", "F2"),
+        ]
+        for index, pair in enumerate(pairs, 1):
+            edge = edges[f"L{index}"]
+            self.assertEqual((edge["from"], edge["to"]), pair)
+            self.assertEqual(edge["direction"], "forward" if index in {1, 6, 7} else "both")
+            self.assertEqual(edge["kind"], "event" if index in {6, 7} else "exchange")
 
-    def test_public_shell_does_not_embed_private_infrastructure(self) -> None:
-        self.assertNotIn("infrastructure", self.application)
-        self.assertNotIn("/opt/autostopcrm", MODULE_MAP_HTML)
-        self.assertNotIn("PROD_VPS", MODULE_MAP_HTML)
+    def test_hierarchy_geometry_and_russian_descriptions(self) -> None:
+        for node in self.nodes.values():
+            self.assertRegex(node["description"], r"[А-Яа-яЁё]")
+            self.assertGreater(node["width"], 0)
+            self.assertGreater(node["height"], 0)
+            self.assertGreaterEqual(node["x"], 0)
+            self.assertGreaterEqual(node["y"], 0)
+            self.assertLessEqual(node["x"] + node["width"], self.data["canvas"]["width"])
+            self.assertLessEqual(node["y"] + node["height"], self.data["canvas"]["height"])
+            seen = {node["id"]}
+            parent = node.get("parent")
+            while parent:
+                self.assertIn(parent, self.nodes)
+                self.assertNotIn(parent, seen)
+                seen.add(parent)
+                parent = self.nodes[parent].get("parent")
+        for child in ["C4", "C5", "C6", "C7", "D4", "E4", "E5", "E6", "F3", "F4", "F5"]:
+            node = self.nodes[child]
+            parent = self.nodes[node["parent"]]
+            self.assertGreaterEqual(node["x"], parent["x"])
+            self.assertGreaterEqual(node["y"], parent["y"])
+            self.assertLessEqual(node["x"] + node["width"], parent["x"] + parent["width"])
+            self.assertLessEqual(node["y"] + node["height"], parent["y"] + parent["height"])
+        for edge in self.data["relations"]:
+            for field in ("label", "protocol", "description", "path"):
+                self.assertTrue(edge[field].strip())
+            self.assertRegex(edge["path"], r"^M[0-9]")
+
+    def test_public_shell_does_not_embed_topology_or_old_map(self) -> None:
+        for old in (
+            "PROD_VPS",
+            "/opt/autostopcrm",
+            "autostopcrm.module-map.v10.4",
+            "moduleMapData",
+            "data-map-view",
+            "Статус неизвестен",
+        ):
+            self.assertNotIn(old, MODULE_MAP_HTML)
+        for item in self.data["elements"]:
+            self.assertNotIn(item["description"], MODULE_MAP_HTML)
         self.assertIn("/api/get_module_map_infrastructure", MODULE_MAP_HTML)
         self.assertIn("X-Operator-Session", MODULE_MAP_HTML)
         self.assertIn("kanban-operator-session", MODULE_MAP_HTML)
+        self.assertIn("response.status===401||response.status===403", MODULE_MAP_HTML)
+        self.assertNotRegex(str(self.data), r"/opt/|/root/|https?://|\b\d{1,3}(?:\.\d{1,3}){3}\b")
+        self.assertEqual(len(re.findall(r"\bfetch\(", MODULE_MAP_HTML)), 1)
+        self.assertNotIn("setInterval", MODULE_MAP_HTML)
 
-    def test_user_facing_map_copy_is_russian(self) -> None:
-        has_cyrillic = re.compile(r"[А-Яа-яЁё]")
-        for data in (self.application, self.infrastructure):
-            self.assertTrue(all(has_cyrillic.search(zone["label"]) for zone in data["zones"]))
-            translated_names = sum(
-                bool(has_cyrillic.search(module["name"])) for module in data["modules"]
-            )
-            self.assertGreaterEqual(translated_names, len(data["modules"]) * 3 // 4)
-            self.assertTrue(
-                all(has_cyrillic.search(module["description"]) for module in data["modules"])
-            )
-            self.assertTrue(
-                all(has_cyrillic.search(relation["label"]) for relation in data["relations"])
-            )
-
-    def test_overview_path_matches_project_architecture(self) -> None:
-        overview = {
-            (relation["from"], relation["to"], relation["label"])
-            for relation in self.application["relations"]
-            if relation["overview"]
-        }
-        expected = {
-            ("UI", "API", "отправляет запросы"),
-            ("MCP", "API", "обращается к API"),
-            ("API", "AUTH", "проверяет сеанс"),
-            ("API", "CARD_SERVICE", "передаёт задачу"),
-            ("CARD_SERVICE", "BOARD", "управляет доской"),
-            ("BOARD", "STATE", "читает и сохраняет"),
-            ("MCP", "STORE", "получает каталог и склад"),
-        }
-        self.assertTrue(expected.issubset(overview))
-        self.assertEqual(len(overview), 18)
-
-    def test_page_supports_views_focus_zoom_pan_and_blank_clear(self) -> None:
-        expected_fragments = (
-            "Карта модулей V10.4",
-            'data-map-view="infrastructure"',
-            "async function switchView(view)",
-            "function selectModule(moduleId, options)",
-            "window.location.hash",
-            "addEventListener('wheel'",
-            "addEventListener('pointerdown'",
-            "setPointerCapture(event.pointerId)",
-            "Math.exp(-event.deltaY",
-            "function selectRelation(index, x, y)",
-            "selectModule('');",
-            "data-relation-key",
-        )
-        for fragment in expected_fragments:
-            self.assertIn(fragment, MODULE_MAP_HTML)
-        self.assertNotIn(".module.is-hidden", MODULE_MAP_HTML)
-        self.assertNotIn("<script src=", MODULE_MAP_HTML)
-        self.assertNotIn('<link rel="stylesheet"', MODULE_MAP_HTML)
-
-    def test_board_has_one_click_module_map_link(self) -> None:
+    def test_board_opens_same_route_with_manager_copy(self) -> None:
+        self.assertIn('href="/module-map"', BOARD_WEB_APP_CONTRACT_TEXT)
+        self.assertIn("ОТКРЫТЬ ИНФРАСТРУКТУРУ МЕНЕДЖЕРА", BOARD_WEB_APP_CONTRACT_TEXT)
         self.assertIn(
-            '<a class="btn" id="moduleMapLink" href="/module-map" '
-            'target="_blank" rel="noopener">КАРТА</a>',
-            BOARD_WEB_APP_CONTRACT_TEXT,
+            "window.open('/module-map', 'autostop-module-map')", BOARD_WEB_APP_CONTRACT_TEXT
         )
+        self.assertNotIn("ОТКРЫТЬ СТРУКТУРУ IT", BOARD_WEB_APP_CONTRACT_TEXT)
 
 
 if __name__ == "__main__":

@@ -256,6 +256,10 @@ jobs:
           python scripts/crm_capability_parity.py --require-complete
           python scripts/crm_change_feed_producer_parity.py --require-complete
 
+      - name: Manager infrastructure map browser regression
+        if: ${{ matrix.suite == 'browser-performance' }}
+        run: python -m unittest tests.test_module_map_browser -v
+
       - name: Mandatory core browser smoke
         if: ${{ matrix.suite == 'browser-performance' }}
         id: core_browser_smoke
