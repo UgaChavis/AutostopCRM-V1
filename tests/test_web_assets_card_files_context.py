@@ -280,6 +280,36 @@ assert.equal(calls[0].options.body.response_mode,'compact');
 """,
         )
 
+    def test_dirty_card_close_discards_without_confirmation_and_keeps_write_guards(self) -> None:
+        definitions = functions("app_main_before_printing.js", "closeCardModal")
+        self.run_node(
+            definitions,
+            """
+let confirmations=0,resets=0,pops=0,clientCloses=0,orderCloses=0,previewClears=0,pollStops=0;
+global.window={confirm(){confirmations++;throw new Error('dirty card close requested confirmation');}};
+function closeCardClientCreateModal(){clientCloses++;}
+function closeRepairOrderModal(){orderCloses++;return true;}
+function clearFilePreview(){previewClears++;}
+function popModal(key){assert.equal(key,'card');pops++;}
+function resetCardModalState(){resets++;}
+function stopCardCleanupPolling(){pollStops++;}
+
+state.cardInitialPayloadKey='clean-payload';
+state.activeCard={id:'A',title:'Unsaved title'};
+assert.equal(closeCardModal(),true);
+assert.equal(confirmations,0);
+assert.deepEqual(
+  {resets,pops,clientCloses,orderCloses,previewClears,pollStops},
+  {resets:1,pops:1,clientCloses:1,orderCloses:1,previewClears:1,pollStops:1}
+);
+
+state.cardSaveInFlight=true;
+assert.equal(closeCardModal(),false);
+assert.equal(resets,1);assert.equal(pops,1);
+assert.match(statuses.at(-1).message,/СОХРАНЯЮ КАРТОЧКУ/);
+""",
+        )
+
     def test_files_status_readback_is_started_once_for_unchecked_attachments(self) -> None:
         definitions = functions("app_main_before_printing.js", "renderActiveCardFiles")
         self.run_node(

@@ -2474,8 +2474,8 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("#saveCardButton.is-dirty:not(:disabled) {", BOARD_WEB_APP_HTML)
-        self.assertIn("Есть несохраненные изменения", BOARD_WEB_APP_HTML)
-        self.assertIn("function closeCardModal({ force = false } = {})", BOARD_WEB_APP_HTML)
+        self.assertNotIn("Есть несохраненные изменения", BOARD_WEB_APP_HTML)
+        self.assertIn("function closeCardModal()", BOARD_WEB_APP_HTML)
         self.assertIn("СОХРАНЯЮ КАРТОЧКУ. ЗАКРОЮ ПОСЛЕ СОХРАНЕНИЯ.", BOARD_WEB_APP_HTML)
         self.assertIn("const data = await persistCardPayload(payload);", BOARD_WEB_APP_HTML)
         self.assertIn("const savedCard = data?.card || null;", save_fragment)
@@ -2490,11 +2490,12 @@ class WebAssetsTests(unittest.TestCase):
             save_fragment,
         )
         self.assertIn("state.cardSavePromise = savePromise;", save_fragment)
-        self.assertIn("if (shouldCloseAfterSave) closeCardModal({ force: true });", save_fragment)
+        self.assertIn("if (shouldCloseAfterSave) closeCardModal();", save_fragment)
         self.assertNotIn(
-            "setStatus('КАРТОЧКА СОХРАНЕНА.', false);\n          closeCardModal({ force: true });",
+            "setStatus('КАРТОЧКА СОХРАНЕНА.', false);\n          closeCardModal();",
             save_fragment,
         )
+        self.assertNotIn("closeCardModal({ force: true })", BOARD_WEB_APP_HTML)
         self.assertIn("syncCardFilesMutationState();", save_fragment)
         self.assertIn(
             "expected_updated_at: state.editingId ? String(state.activeCard?.updated_at || '') : undefined",

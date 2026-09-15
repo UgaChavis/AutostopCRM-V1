@@ -43,6 +43,7 @@ from browser_smoke_completion_act import (
 from browser_smoke_core import (
     _anonymous_write_rejected,
     _exercise_board_create_roundtrip,
+    _exercise_card_discard_controls,
     _exercise_client_link_roundtrip,
     _exercise_files_modal,
     _exercise_inventory_item_roundtrip,
@@ -498,6 +499,7 @@ async def _exercise_card_modal_roundtrip(
           return !editor?.classList.contains('is-loading') && !saveButton?.disabled;
         }"""
     )
+    discard_close_ok = await _exercise_card_discard_controls(page, card_selector)
     timer_initial_ok = bool(
         await page.evaluate(
             """() => {
@@ -618,7 +620,8 @@ async def _exercise_card_modal_roundtrip(
         }"""
     )
     controls_ok = bool(
-        await page.evaluate(
+        discard_close_ok
+        and await page.evaluate(
             """() => {
               const overview = document.querySelector('#cardModal [data-panel="overview"]');
               const editor = document.querySelector('#cardDescriptionEditor');

@@ -13778,7 +13778,7 @@
       });
     }
 
-    function closeCardModal({ force = false } = {}) {
+    function closeCardModal() {
       if (state.repairOrderMutationRequest) {
         setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ С ЗАКАЗ-НАРЯДОМ.', false);
         return false;
@@ -13790,10 +13790,6 @@
       if (state.cardSaveInFlight) {
         setStatus('СОХРАНЯЮ КАРТОЧКУ. ЗАКРОЮ ПОСЛЕ СОХРАНЕНИЯ.', false);
         return false;
-      }
-      if (!force && cardModalHasUnsavedChanges()) {
-        const confirmed = window.confirm('Есть несохраненные изменения. Закрыть карточку без сохранения?');
-        if (!confirmed) return false;
       }
       closeCardClientCreateModal();
       closeRepairOrderModal();
@@ -15520,7 +15516,7 @@
         if (!applied) await refreshSnapshot(true);
         if (context.cardWorkspaceCurrent()) {
           finishArchiveMutation(context);
-          closeCardModal({ force: true });
+          closeCardModal();
         }
       } catch (error) {
         if (!context.isCurrent()) return;
@@ -15545,7 +15541,7 @@
       const isCurrent = captureCardEditingContext();
       const restored = await restoreCard(cardId);
       if (restored && isCurrent() && String(state.editingId || '').trim() === cardId) {
-        closeCardModal({ force: true });
+        closeCardModal();
       }
     }
 
