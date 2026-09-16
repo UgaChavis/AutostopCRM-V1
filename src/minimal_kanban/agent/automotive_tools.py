@@ -18,7 +18,12 @@ from .source_registry import (
     public_part_evidence_domains,
     trusted_domains,
 )
-from .web_tools import DuckDuckGoSearchClient, InternetToolError, _normalize_seconds
+from .web_tools import (
+    DuckDuckGoSearchClient,
+    InternetToolError,
+    _normalize_seconds,
+    sanitize_public_search_query,
+)
 
 AUTOMOTIVE_VIN_RESPONSE_MAX_BYTES = 1 * 1024 * 1024
 AUTOMOTIVE_PRICE_MAX_RUB = 100_000_000
@@ -693,7 +698,7 @@ class AutomotiveLookupService:
     def search_web(
         self, *, query: str, limit: int = 5, allowed_domains: list[str] | None = None
     ) -> dict[str, Any]:
-        normalized_query = self._required_query(query)
+        normalized_query = sanitize_public_search_query(self._required_query(query))
         normalized_domains = sorted(
             {str(item or "").strip() for item in (allowed_domains or []) if str(item or "").strip()}
         )
@@ -718,7 +723,7 @@ class AutomotiveLookupService:
         allowed_domains: list[str] | None = None,
         providers: list[str] | None = None,
     ) -> dict[str, Any]:
-        normalized_query = self._required_query(query)
+        normalized_query = sanitize_public_search_query(self._required_query(query))
         normalized_domains = sorted(
             {str(item or "").strip() for item in (allowed_domains or []) if str(item or "").strip()}
         )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 import unittest
@@ -53,15 +54,28 @@ def _client_factory(*, text: str = "", url: str, chunks: list[bytes] | None = No
 
 
 class _JsonResponse:
-    def __init__(self, payload: dict[str, object]) -> None:
+    def __init__(self, payload: dict[str, object], *, url: str = "https://example.com/api") -> None:
         self._payload = payload
         self.status_code = 200
+        self.url = url
+        self.encoding = "utf-8"
+        self.headers: dict[str, str] = {}
 
     def raise_for_status(self) -> None:
         return None
 
     def json(self) -> dict[str, object]:
         return self._payload
+
+    def iter_bytes(self, *, chunk_size=None):
+        _ = chunk_size
+        yield json.dumps(self._payload).encode("utf-8")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        _ = (exc_type, exc, tb)
 
 
 def _result_html(count: int) -> str:
@@ -303,7 +317,10 @@ class AgentWebToolsTests(unittest.TestCase):
             def __exit__(self, exc_type, exc, tb) -> None:
                 _ = (exc_type, exc, tb)
 
-            def get(self, url: str, *, params=None, headers=None) -> _JsonResponse:  # noqa: ANN001
+            def stream(
+                self, method: str, url: str, *, params=None, headers=None, **kwargs
+            ) -> _JsonResponse:  # noqa: ANN001
+                _ = (method, kwargs)
                 self.calls.append({"url": url, "params": params or {}, "headers": headers or {}})
                 return _JsonResponse(
                     {
@@ -382,22 +399,20 @@ class AgentWebToolsTests(unittest.TestCase):
             def __exit__(self, exc_type, exc, tb) -> None:
                 _ = (exc_type, exc, tb)
 
-            def post(self, *args, **kwargs) -> _JsonResponse:  # noqa: ANN001
+            def stream(self, method: str, *args, **kwargs) -> _JsonResponse:  # noqa: ANN001
                 _ = (args, kwargs)
-                return _JsonResponse(
-                    {
-                        "results": [
-                            {
-                                "title": "Tavily",
-                                "url": "https://forum.example/item",
-                                "content": "Forum result",
-                            }
-                        ]
-                    }
-                )
-
-            def get(self, *args, **kwargs) -> _JsonResponse:  # noqa: ANN001
-                _ = (args, kwargs)
+                if method == "POST":
+                    return _JsonResponse(
+                        {
+                            "results": [
+                                {
+                                    "title": "Tavily",
+                                    "url": "https://forum.example/item",
+                                    "content": "Forum result",
+                                }
+                            ]
+                        }
+                    )
                 return _JsonResponse(
                     {
                         "items": [
@@ -442,7 +457,10 @@ class AgentWebToolsTests(unittest.TestCase):
             def __exit__(self, exc_type, exc, tb) -> None:
                 _ = (exc_type, exc, tb)
 
-            def get(self, url: str, *, params=None, headers=None) -> _JsonResponse:  # noqa: ANN001
+            def stream(
+                self, method: str, url: str, *, params=None, headers=None, **kwargs
+            ) -> _JsonResponse:  # noqa: ANN001
+                _ = (method, kwargs)
                 _ = (headers,)
                 if "marginalia" in url:
                     self.marginalia_params = params or {}
@@ -591,9 +609,9 @@ class AgentWebToolsTests(unittest.TestCase):
 
         self.assertEqual(len(payload["excerpt"]), 2500)
 
-    def test_fetch_page_excerpt_uses_crawl4ai_markdown_when_configured(self) -> None:
-        class CrawlClient:
-            calls: list[dict[str, object]] = []
+    def test_fetch_page_excerpt_uses_pinned_http_when_crawl4ai_is_configured(self) -> None:
+        class DirectClient:
+            post_calls = 0
 
             def __init__(self, *args, **kwargs) -> None:
                 _ = (args, kwargs)
@@ -603,92 +621,35 @@ class AgentWebToolsTests(unittest.TestCase):
 
             def __exit__(self, exc_type, exc, tb) -> None:
                 _ = (exc_type, exc, tb)
-
-            def post(self, url: str, *, json=None, headers=None) -> _JsonResponse:  # noqa: ANN001
-                self.calls.append({"url": url, "json": json or {}, "headers": headers or {}})
-                return _JsonResponse(
-                    {
-                        "success": True,
-                        "url": "https://example.com/specs",
-                        "markdown": "# Specs\n\nClean markdown text",
-                    }
-                )
-
-            def stream(self, *args, **kwargs):  # noqa: ANN001
-                _ = (args, kwargs)
-                raise AssertionError("HTTP fallback should not be used")
-
-        client = DuckDuckGoSearchClient()
-
-        with (
-            patch.dict(
-                os.environ,
-                {
-                    "AUTOSTOP_CRAWL4AI_BASE_URL": "http://crawl4ai:11235",
-                    "AUTOSTOP_CRAWL4AI_API_TOKEN": "crawl-secret-token",
-                },
-                clear=True,
-            ),
-            patch("minimal_kanban.agent.web_tools.httpx.Client", CrawlClient),
-        ):
-            payload = client.fetch_page_excerpt("https://example.com/specs", max_chars=12)
-
-        self.assertTrue(payload["ok"])
-        self.assertEqual(payload["engine"], "crawl4ai")
-        self.assertEqual(payload["mode"], "markdown")
-        self.assertEqual(payload["format"], "markdown")
-        self.assertEqual(payload["excerpt"], "# Specs\n\nCle")
-        self.assertFalse(payload["fallback_used"])
-        self.assertEqual(payload["extractors"], [{"provider": "crawl4ai", "status": "success"}])
-        self.assertEqual(CrawlClient.calls[0]["url"], "http://crawl4ai:11235/md")
-        self.assertEqual(
-            CrawlClient.calls[0]["headers"]["Authorization"], "Bearer crawl-secret-token"
-        )
-        self.assertEqual(CrawlClient.calls[0]["json"]["url"], "https://example.com/specs")
-
-    def test_fetch_page_excerpt_falls_back_to_http_after_crawl4ai_error(self) -> None:
-        class FallbackClient:
-            def __init__(self, *args, **kwargs) -> None:
-                _ = (args, kwargs)
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, exc_type, exc, tb) -> None:
-                _ = (exc_type, exc, tb)
-
-            def post(self, *args, **kwargs):  # noqa: ANN001
-                _ = (args, kwargs)
-                raise RuntimeError("crawl-secret-token should not leak")
 
             def stream(self, *args, **kwargs):  # noqa: ANN001
                 _ = (args, kwargs)
                 return _client_factory(
-                    text="<html><body>Fallback text</body></html>",
+                    text="<html><body>Direct text</body></html>",
                     url="https://example.com/specs",
                 )().stream()
 
-        client = DuckDuckGoSearchClient()
+            def post(self, *args, **kwargs):  # noqa: ANN001
+                _ = (args, kwargs)
+                self.__class__.post_calls += 1
+                raise AssertionError("generic page fetch must not call Crawl4AI")
 
+        client = DuckDuckGoSearchClient()
         with (
             patch.dict(
                 os.environ,
-                {
-                    "AUTOSTOP_CRAWL4AI_BASE_URL": "http://crawl4ai:11235",
-                    "AUTOSTOP_CRAWL4AI_API_TOKEN": "crawl-secret-token",
-                },
+                {"AUTOSTOP_CRAWL4AI_BASE_URL": "http://crawl4ai:11235"},
                 clear=True,
             ),
-            patch("minimal_kanban.agent.web_tools.httpx.Client", FallbackClient),
+            patch("minimal_kanban.agent.web_tools.httpx.Client", DirectClient),
         ):
             payload = client.fetch_page_excerpt("https://example.com/specs")
 
         self.assertEqual(payload["engine"], "httpx_html")
-        self.assertEqual(payload["excerpt"], "Fallback text")
-        self.assertTrue(payload["fallback_used"])
-        self.assertEqual(payload["extractors"][0]["provider"], "crawl4ai")
-        self.assertEqual(payload["extractors"][0]["status"], "error")
-        self.assertNotIn("crawl-secret-token", str(payload["extractors"][0]))
+        self.assertEqual(payload["excerpt"], "Direct text")
+        self.assertEqual(payload["extractors"], [{"provider": "httpx_html", "status": "success"}])
+        self.assertFalse(payload["fallback_used"])
+        self.assertEqual(DirectClient.post_calls, 0)
 
     def test_fetch_page_excerpt_rejects_local_and_private_urls_before_http_client(self) -> None:
         client = DuckDuckGoSearchClient()
