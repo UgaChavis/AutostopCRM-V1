@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import html
 import ipaddress
+import json
 import math
 import os
 import re
 import shutil
+import socket
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qs, quote_plus, unquote, urljoin, urlparse
@@ -35,6 +38,7 @@ _MAX_BROWSER_LINKS = 30
 _MAX_SEARCH_RESPONSE_BYTES = 1_500_000
 _MAX_PAGE_RESPONSE_BYTES = 2_000_000
 _MAX_REDIRECTS = 5
+_MAX_BROWSER_REQUESTS = 48
 _SEARCH_PROVIDER_ORDER = ("brave", "tavily", "google_cse", "searxng", "marginalia", "duckduckgo")
 _SEARCH_PROVIDER_ALIASES = {
     "brave_search": "brave",
@@ -55,8 +59,10 @@ _BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
 _TAVILY_SEARCH_URL = "https://api.tavily.com/search"
 _GOOGLE_CSE_SEARCH_URL = "https://www.googleapis.com/customsearch/v1"
 _MARGINALIA_SEARCH_URL = "https://api2.marginalia-search.com/search"
-_CRAWL4AI_MD_PATH = "/md"
 _BLOCKED_HOST_SUFFIXES = (".local", ".localhost", ".internal", ".lan", ".home", ".test", ".invalid")
+_BLOCKED_BROWSER_RESOURCE_TYPES = frozenset(
+    {"eventsource", "font", "image", "manifest", "media", "websocket"}
+)
 _BROWSER_USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 AutoStopCRM/1.0"
@@ -95,10 +101,77 @@ _ACCESS_FLAG_PATTERNS = (
 _HUMAN_REQUIRED_FLAGS = frozenset(
     {"captcha_required", "login_required", "ip_blocked", "access_denied", "js_challenge"}
 )
+_VIN_LIKE_QUERY_TOKEN_PATTERN = re.compile(
+    r"(?<![A-HJ-NPR-Z0-9])(?:[A-HJ-NPR-Z0-9][ ._/\\-]?){17}(?![A-HJ-NPR-Z0-9])",
+    re.IGNORECASE,
+)
+_PHONE_QUERY_TOKEN_PATTERN = re.compile(
+    r"(?<!\d)(?:\+7|8)\s*(?:\(\s*\d{3}\s*\)|\d{3})\s*[-. ]?\s*\d{3}\s*[-. ]?\s*\d{2}\s*[-. ]?\s*\d{2}(?!\d)"
+)
+_EMAIL_QUERY_TOKEN_PATTERN = re.compile(r"\b[\w.+-]+@[\w.-]+\.\w+\b", re.IGNORECASE)
+_SENSITIVE_QUERY_FIELD_PATTERN = re.compile(
+    r"""(?ix)
+    \b(?:
+        access[_ -]?token|api[_ -]?key|authorization|bearer|client(?:[_ -]?id)?|
+        contact|customer(?:[_ -]?id)?|email|e-mail|owner|password|phone|secret|telegram|
+        token|buyer|клиент|заказчик|покупатель|контакт|телефон|почта
+    )\s*[:=]\s*(?:\"[^\"]{0,256}\"|'[^']{0,256}'|[^,;|\n]{1,256})
+    """
+)
 
 
 class InternetToolError(RuntimeError):
     pass
+
+
+def sanitize_public_search_query(value: Any) -> str:
+    """Remove identifiers and credentials before a query leaves the CRM boundary."""
+
+    text = str(value or "").strip()
+    for _ in range(3):
+        decoded = unquote(text)
+        if decoded == text:
+            break
+        text = decoded
+    text = _SENSITIVE_QUERY_FIELD_PATTERN.sub(" ", text)
+    text = _EMAIL_QUERY_TOKEN_PATTERN.sub(" ", text)
+    text = _PHONE_QUERY_TOKEN_PATTERN.sub(" ", text)
+    text = _VIN_LIKE_QUERY_TOKEN_PATTERN.sub(" ", text)
+    text = _MULTISPACE_PATTERN.sub(" ", text).strip()
+    if not text:
+        raise InternetToolError("public search query is required after redaction")
+    return text
+
+
+class _PublicBrowserRequestGuard:
+    """Block unsafe browser requests; private-range egress remains a runtime control.
+
+    Playwright exposes request routing but no stable per-request IP pinning API.
+    Each browser request is therefore resolved and checked before it continues;
+    deployment must also deny browser egress to private address ranges.
+    """
+
+    def __init__(self, client: DuckDuckGoSearchClient) -> None:
+        self._client = client
+        self._request_count = 0
+
+    def __call__(self, route: Any, request: Any) -> None:
+        self._request_count += 1
+        resource_type = str(getattr(request, "resource_type", "") or "").casefold()
+        method = str(getattr(request, "method", "") or "").upper()
+        if (
+            self._request_count > _MAX_BROWSER_REQUESTS
+            or resource_type in _BLOCKED_BROWSER_RESOURCE_TYPES
+            or method not in {"GET", "HEAD"}
+        ):
+            route.abort()
+            return
+        try:
+            self._client._validated_public_http_url(str(getattr(request, "url", "") or ""))
+        except InternetToolError:
+            route.abort()
+            return
+        route.continue_()
 
 
 @dataclass(frozen=True)
@@ -132,16 +205,16 @@ class DuckDuckGoSearchClient:
         limit: int = 5,
         allowed_domains: list[str] | None = None,
     ) -> list[SearchResult]:
-        query_text = str(query or "").strip()
-        if not query_text:
-            raise InternetToolError("query is required")
+        query_text = sanitize_public_search_query(query)
         normalized_limit = _normalize_int(
             limit, default=_DEFAULT_SEARCH_LIMIT, maximum=_MAX_SEARCH_LIMIT
         )
         url = f"https://html.duckduckgo.com/html/?q={quote_plus(query_text)}"
         try:
             with httpx.Client(
-                timeout=self._timeout_seconds, headers={"User-Agent": "Mozilla/5.0 AutoStopCRM/1.0"}
+                timeout=self._timeout_seconds,
+                headers={"User-Agent": "Mozilla/5.0 AutoStopCRM/1.0"},
+                trust_env=False,
             ) as client:
                 html_text = self._fetch_limited_text(client, url, _MAX_SEARCH_RESPONSE_BYTES)
         except httpx.HTTPError as exc:
@@ -158,9 +231,7 @@ class DuckDuckGoSearchClient:
         allowed_domains: list[str] | None = None,
         providers: list[str] | None = None,
     ) -> dict[str, Any]:
-        query_text = str(query or "").strip()
-        if not query_text:
-            raise InternetToolError("query is required")
+        query_text = sanitize_public_search_query(query)
         normalized_limit = _normalize_int(
             limit, default=_DEFAULT_SEARCH_LIMIT, maximum=_MAX_SEARCH_LIMIT
         )
@@ -214,21 +285,11 @@ class DuckDuckGoSearchClient:
             default=_DEFAULT_PAGE_EXCERPT_CHARS,
             maximum=_MAX_PAGE_EXCERPT_CHARS,
         )
-        extractor_attempts: list[dict[str, Any]] = []
-        crawl_payload, crawl_attempt = self._try_crawl4ai_page_excerpt(
-            normalized_url,
-            max_chars=normalized_max_chars,
-        )
-        if crawl_attempt is not None:
-            extractor_attempts.append(crawl_attempt)
-        if crawl_payload is not None:
-            crawl_payload["extractors"] = extractor_attempts
-            crawl_payload["fallback_used"] = False
-            return crawl_payload
-
         try:
             with httpx.Client(
-                timeout=self._timeout_seconds, headers={"User-Agent": "Mozilla/5.0 AutoStopCRM/1.0"}
+                timeout=self._timeout_seconds,
+                headers={"User-Agent": "Mozilla/5.0 AutoStopCRM/1.0"},
+                trust_env=False,
             ) as client:
                 response_url, html_text = self._fetch_limited_text_with_url(
                     client, normalized_url, _MAX_PAGE_RESPONSE_BYTES
@@ -248,8 +309,8 @@ class DuckDuckGoSearchClient:
             "requires_human": any(flag in _HUMAN_REQUIRED_FLAGS for flag in access_flags),
             "engine": "httpx_html",
             "mode": "http_excerpt",
-            "extractors": extractor_attempts + [_provider_attempt("httpx_html", "success")],
-            "fallback_used": bool(extractor_attempts),
+            "extractors": [_provider_attempt("httpx_html", "success")],
+            "fallback_used": False,
         }
 
     def fetch_page_browser(
@@ -290,7 +351,7 @@ class DuckDuckGoSearchClient:
                         viewport={"width": 1365, "height": 900},
                         ignore_https_errors=True,
                     )
-                    context.route("**/*", self._route_public_browser_request)
+                    context.route("**/*", _PublicBrowserRequestGuard(self))
                     page = context.new_page()
                     response = page.goto(
                         normalized_url,
@@ -349,115 +410,142 @@ class DuckDuckGoSearchClient:
     def _fetch_limited_text_with_url(
         self, client: httpx.Client, url: str, max_bytes: int
     ) -> tuple[str, str]:
-        current_url = self._validated_public_http_url(url)
+        current_url = self._validated_public_http_url(url, resolve_dns=False)
         for _ in range(_MAX_REDIRECTS + 1):
-            with client.stream("GET", current_url, follow_redirects=False) as response:
+            with self._stream_public_request(client, "GET", current_url) as response:
                 status_code = int(getattr(response, "status_code", 200) or 200)
                 if 300 <= status_code < 400:
                     location = str(getattr(response, "headers", {}).get("location", "") or "")
                     if not location:
                         raise InternetToolError("Web redirect is missing a Location header.")
-                    current_url = self._validated_public_http_url(urljoin(current_url, location))
+                    current_url = self._validated_public_http_url(
+                        urljoin(current_url, location), resolve_dns=False
+                    )
                     continue
                 response.raise_for_status()
-                chunks: list[bytes] = []
-                total = 0
-                for chunk in response.iter_bytes(chunk_size=max_bytes + 1):
-                    total += len(chunk)
-                    if total > max_bytes:
-                        raise InternetToolError("Web response is too large.")
-                    chunks.append(chunk)
                 encoding = response.encoding or "utf-8"
-                text = b"".join(chunks).decode(encoding, errors="replace")
-                return str(response.url), text
+                text = self._read_limited_response_bytes(response, max_bytes).decode(
+                    encoding, errors="replace"
+                )
+                return current_url, text
         raise InternetToolError("Web redirect chain is too long.")
 
-    def _try_crawl4ai_page_excerpt(
+    def _read_limited_response_bytes(self, response: Any, max_bytes: int) -> bytes:
+        chunks: list[bytes] = []
+        total = 0
+        for chunk in response.iter_bytes(chunk_size=max_bytes + 1):
+            total += len(chunk)
+            if total > max_bytes:
+                raise InternetToolError("Web response is too large.")
+            chunks.append(chunk)
+        return b"".join(chunks)
+
+    @contextmanager
+    def _stream_public_request(
+        self, client: Any, method: str, url: str, **request_kwargs: Any
+    ) -> Any:
+        normalized_url = self._validated_public_http_url(url, resolve_dns=False)
+        parsed = urlparse(normalized_url)
+        host = str(parsed.hostname or "").strip().casefold().rstrip(".")
+        port = parsed.port or (443 if parsed.scheme.casefold() == "https" else 80)
+        addresses = self._resolve_public_host(host, port)
+
+        if not hasattr(client, "build_request") or not hasattr(client, "send"):
+            with client.stream(
+                method, normalized_url, follow_redirects=False, **request_kwargs
+            ) as response:
+                yield response
+            return
+
+        address = addresses[0]
+        pinned_host = f"[{address}]" if ":" in address else address
+        explicit_port = parsed.port
+        pinned_netloc = f"{pinned_host}:{explicit_port}" if explicit_port else pinned_host
+        pinned_url = parsed._replace(netloc=pinned_netloc).geturl()
+        headers = dict(request_kwargs.pop("headers", {}) or {})
+        headers["Host"] = _http_host_header(host, explicit_port, parsed.scheme.casefold())
+        request = client.build_request(method, pinned_url, headers=headers, **request_kwargs)
+        request.extensions["sni_hostname"] = host
+        response = client.send(request, stream=True, follow_redirects=False)
+        try:
+            yield response
+        finally:
+            response.close()
+
+    def _fetch_limited_json(
         self,
+        client: Any,
+        method: str,
         url: str,
         *,
-        max_chars: int,
-    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-        base_url = _first_env("AUTOSTOP_CRAWL4AI_BASE_URL", "CRAWL4AI_BASE_URL")
-        enabled_value = _first_env("AUTOSTOP_CRAWL4AI_ENABLED", "CRAWL4AI_ENABLED")
-        if enabled_value and not _truthy(enabled_value):
-            return None, None
-        if not base_url:
-            return None, None
-
-        try:
-            payload = self._fetch_crawl4ai_markdown(url, base_url=base_url)
-            markdown = _extract_crawl4ai_markdown(payload)
-            if not markdown:
-                raise InternetToolError("Crawl4AI response did not include markdown.")
-            final_url = self._validated_public_http_url(str(payload.get("url") or url))
-            access_flags = _detect_access_flags(" ".join((final_url, markdown[:5000])))
-            return {
-                "ok": True,
-                "url": url,
-                "final_url": final_url,
-                "domain": self._url_hostname(final_url),
-                "excerpt": markdown[:max_chars],
-                "format": "markdown",
-                "access_flags": access_flags,
-                "requires_human": any(flag in _HUMAN_REQUIRED_FLAGS for flag in access_flags),
-                "engine": "crawl4ai",
-                "mode": "markdown",
-            }, _provider_attempt("crawl4ai", "success")
-        except Exception as exc:
-            return None, _provider_attempt(
-                "crawl4ai",
-                "error",
-                reason="request_failed",
-                error=_provider_error_message(exc),
-            )
-
-    def _fetch_crawl4ai_markdown(self, url: str, *, base_url: str) -> dict[str, Any]:
-        endpoint = _crawl4ai_md_endpoint(base_url)
-        token = _first_env("AUTOSTOP_CRAWL4AI_API_TOKEN", "CRAWL4AI_API_TOKEN")
-        headers = {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            "User-Agent": _BROWSER_USER_AGENT,
-        }
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-        body = {
-            "url": url,
-            "f": _first_env("AUTOSTOP_CRAWL4AI_MARKDOWN_FILTER", "CRAWL4AI_MARKDOWN_FILTER")
-            or "fit",
-            "cache": "0",
-        }
-        with httpx.Client(
-            timeout=self._timeout_seconds, headers={"User-Agent": _BROWSER_USER_AGENT}
-        ) as client:
-            response = client.post(endpoint, json=body, headers=headers)
+        max_bytes: int,
+        public: bool = True,
+        **request_kwargs: Any,
+    ) -> Any:
+        if public:
+            response_context = self._stream_public_request(client, method, url, **request_kwargs)
+        else:
+            response_context = client.stream(method, url, follow_redirects=False, **request_kwargs)
+        with response_context as response:
             response.raise_for_status()
-            payload = response.json()
-        if not isinstance(payload, dict):
-            raise InternetToolError("Crawl4AI response was not a JSON object.")
-        if payload.get("success") is False:
-            raise InternetToolError("Crawl4AI reported an unsuccessful extraction.")
-        return payload
+            encoding = response.encoding or "utf-8"
+            payload_text = self._read_limited_response_bytes(response, max_bytes).decode(
+                encoding, errors="replace"
+            )
+        try:
+            return json.loads(payload_text)
+        except json.JSONDecodeError as exc:
+            raise InternetToolError("Web response was not valid JSON.") from exc
 
-    def _validated_public_http_url(self, url: str) -> str:
+    def _validated_public_http_url(self, url: str, *, resolve_dns: bool = True) -> str:
         try:
             parsed = urlparse(url)
+            port = parsed.port
         except ValueError as exc:
             raise InternetToolError("Only public HTTP(S) URLs are supported.") from exc
         scheme = str(parsed.scheme or "").casefold()
         host = str(parsed.hostname or "").strip().casefold().rstrip(".")
-        if scheme not in {"http", "https"} or not parsed.netloc or not host:
+        if (
+            scheme not in {"http", "https"}
+            or not parsed.netloc
+            or not host
+            or port == 0
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
             raise InternetToolError("Only public HTTP(S) URLs are supported.")
+        resolved_port = port or (443 if scheme == "https" else 80)
         try:
             address = ipaddress.ip_address(host)
         except ValueError:
             if host == "localhost" or host.endswith(_BLOCKED_HOST_SUFFIXES) or "." not in host:
                 raise InternetToolError("Local or private URLs are not supported.")
+            if resolve_dns:
+                self._resolve_public_host(host, resolved_port)
             return url
         if not address.is_global:
             raise InternetToolError("Local or private URLs are not supported.")
         return url
+
+    def _resolve_public_host(self, host: str, port: int) -> list[str]:
+        try:
+            records = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+        except (OSError, ValueError) as exc:
+            raise InternetToolError("Public host could not be resolved.") from exc
+        addresses: list[str] = []
+        for record in records:
+            try:
+                address = ipaddress.ip_address(str(record[4][0]))
+            except (IndexError, ValueError):
+                raise InternetToolError("Public host resolved to an invalid address.") from None
+            if not address.is_global:
+                raise InternetToolError("Local or private URLs are not supported.")
+            normalized = str(address)
+            if normalized not in addresses:
+                addresses.append(normalized)
+        if not addresses:
+            raise InternetToolError("Public host could not be resolved.")
+        return addresses
 
     def _parse_results(
         self,
@@ -481,7 +569,7 @@ class DuckDuckGoSearchClient:
             if not resolved_url or resolved_url in seen_urls:
                 continue
             try:
-                resolved_url = self._validated_public_http_url(resolved_url)
+                resolved_url = self._validated_public_http_url(resolved_url, resolve_dns=False)
             except InternetToolError:
                 continue
             domain = self._url_hostname(resolved_url)
@@ -642,18 +730,21 @@ class DuckDuckGoSearchClient:
             if value:
                 params[param_name] = value
         with httpx.Client(
-            timeout=self._timeout_seconds, headers={"User-Agent": _BROWSER_USER_AGENT}
+            timeout=self._timeout_seconds,
+            headers={"User-Agent": _BROWSER_USER_AGENT},
+            trust_env=False,
         ) as client:
-            response = client.get(
+            payload = self._fetch_limited_json(
+                client,
+                "GET",
                 _BRAVE_SEARCH_URL,
                 params=params,
                 headers={
                     "Accept": "application/json",
                     "X-Subscription-Token": api_key,
                 },
+                max_bytes=_MAX_SEARCH_RESPONSE_BYTES,
             )
-            response.raise_for_status()
-            payload = response.json()
         raw_results = _as_list(_as_dict(payload).get("web"), key="results")
         results: list[SearchResult] = []
         for item in raw_results:
@@ -691,18 +782,21 @@ class DuckDuckGoSearchClient:
         if allowed_domains:
             body["include_domains"] = allowed_domains
         with httpx.Client(
-            timeout=self._timeout_seconds, headers={"User-Agent": _BROWSER_USER_AGENT}
+            timeout=self._timeout_seconds,
+            headers={"User-Agent": _BROWSER_USER_AGENT},
+            trust_env=False,
         ) as client:
-            response = client.post(
+            payload = self._fetch_limited_json(
+                client,
+                "POST",
                 _TAVILY_SEARCH_URL,
                 json=body,
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
                 },
+                max_bytes=_MAX_SEARCH_RESPONSE_BYTES,
             )
-            response.raise_for_status()
-            payload = response.json()
         results: list[SearchResult] = []
         for item in _as_list(payload, key="results"):
             if not isinstance(item, dict):
@@ -735,11 +829,17 @@ class DuckDuckGoSearchClient:
             "safe": "active",
         }
         with httpx.Client(
-            timeout=self._timeout_seconds, headers={"User-Agent": _BROWSER_USER_AGENT}
+            timeout=self._timeout_seconds,
+            headers={"User-Agent": _BROWSER_USER_AGENT},
+            trust_env=False,
         ) as client:
-            response = client.get(_GOOGLE_CSE_SEARCH_URL, params=params)
-            response.raise_for_status()
-            payload = response.json()
+            payload = self._fetch_limited_json(
+                client,
+                "GET",
+                _GOOGLE_CSE_SEARCH_URL,
+                params=params,
+                max_bytes=_MAX_SEARCH_RESPONSE_BYTES,
+            )
         results: list[SearchResult] = []
         for item in _as_list(payload, key="items"):
             if not isinstance(item, dict):
@@ -774,11 +874,18 @@ class DuckDuckGoSearchClient:
             params["language"] = language
         endpoint = _searxng_search_endpoint(base_url)
         with httpx.Client(
-            timeout=self._timeout_seconds, headers={"User-Agent": _BROWSER_USER_AGENT}
+            timeout=self._timeout_seconds,
+            headers={"User-Agent": _BROWSER_USER_AGENT},
+            trust_env=False,
         ) as client:
-            response = client.get(endpoint, params=params)
-            response.raise_for_status()
-            payload = response.json()
+            payload = self._fetch_limited_json(
+                client,
+                "GET",
+                endpoint,
+                params=params,
+                max_bytes=_MAX_SEARCH_RESPONSE_BYTES,
+                public=False,
+            )
         results: list[SearchResult] = []
         for item in _as_list(payload, key="results"):
             if not isinstance(item, dict):
@@ -810,15 +917,18 @@ class DuckDuckGoSearchClient:
             "nsfw": _first_env("AUTOSTOP_MARGINALIA_NSFW") or "1",
         }
         with httpx.Client(
-            timeout=self._timeout_seconds, headers={"User-Agent": _BROWSER_USER_AGENT}
+            timeout=self._timeout_seconds,
+            headers={"User-Agent": _BROWSER_USER_AGENT},
+            trust_env=False,
         ) as client:
-            response = client.get(
+            payload = self._fetch_limited_json(
+                client,
+                "GET",
                 _MARGINALIA_SEARCH_URL,
                 params=params,
                 headers={"API-Key": api_key},
+                max_bytes=_MAX_SEARCH_RESPONSE_BYTES,
             )
-            response.raise_for_status()
-            payload = response.json()
         results: list[SearchResult] = []
         for item in _as_list(payload, key="results"):
             if not isinstance(item, dict):
@@ -846,7 +956,9 @@ class DuckDuckGoSearchClient:
         allowed_domains: list[str],
     ) -> SearchResult | None:
         try:
-            normalized_url = self._validated_public_http_url(str(url or "").strip())
+            normalized_url = self._validated_public_http_url(
+                str(url or "").strip(), resolve_dns=False
+            )
         except InternetToolError:
             return None
         domain = self._url_hostname(normalized_url)
@@ -899,14 +1011,6 @@ class DuckDuckGoSearchClient:
         tail = " | ".join(errors[-3:]) if errors else "unknown launch error"
         raise InternetToolError(f"Chromium browser could not start: {tail}")
 
-    def _route_public_browser_request(self, route: Any, request: Any) -> None:
-        try:
-            self._validated_public_http_url(str(getattr(request, "url", "") or ""))
-        except InternetToolError:
-            route.abort()
-            return
-        route.continue_()
-
     def _browser_title(self, page: Any) -> str:
         try:
             return self._clean_html_text(str(page.title() or ""))[:200]
@@ -942,7 +1046,9 @@ class DuckDuckGoSearchClient:
             if not raw_url:
                 continue
             try:
-                resolved_url = self._validated_public_http_url(urljoin(base_url, raw_url))
+                resolved_url = self._validated_public_http_url(
+                    urljoin(base_url, raw_url), resolve_dns=False
+                )
             except InternetToolError:
                 continue
             if resolved_url in seen:
@@ -1133,29 +1239,6 @@ def _searxng_search_endpoint(base_url: str) -> str:
     return f"{url}/search"
 
 
-def _crawl4ai_md_endpoint(base_url: str) -> str:
-    url = str(base_url or "").strip().rstrip("/")
-    if not url:
-        return ""
-    parsed = urlparse(url)
-    if parsed.path.rstrip("/").endswith(_CRAWL4AI_MD_PATH):
-        return url
-    return f"{url}{_CRAWL4AI_MD_PATH}"
-
-
-def _extract_crawl4ai_markdown(payload: dict[str, Any]) -> str:
-    markdown = payload.get("markdown")
-    if isinstance(markdown, dict):
-        for key in ("fit_markdown", "raw_markdown", "markdown_with_citations", "markdown"):
-            value = markdown.get(key)
-            if str(value or "").strip():
-                markdown = value
-                break
-    text = str(markdown or "").replace("\x00", " ").strip()
-    text = re.sub(r"[ \t]+\n", "\n", text)
-    return re.sub(r"\n{3,}", "\n\n", text).strip()
-
-
 def _truthy(value: Any) -> bool:
     return str(value or "").strip().casefold() in {"1", "true", "yes", "y", "on", "enabled"}
 
@@ -1185,6 +1268,13 @@ def _canonical_result_url(url: str) -> str:
         path=path,
         fragment="",
     ).geturl()
+
+
+def _http_host_header(host: str, port: int | None, scheme: str) -> str:
+    bracketed_host = f"[{host}]" if ":" in host else host
+    if port is None or (scheme == "https" and port == 443) or (scheme == "http" and port == 80):
+        return bracketed_host
+    return f"{bracketed_host}:{port}"
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
