@@ -27,6 +27,7 @@ _RESULT_SNIPPET_PATTERN = re.compile(
 _TAG_PATTERN = re.compile(r"<[^>]+>")
 _SCRIPT_STYLE_PATTERN = re.compile(r"<(?:script|style)\b.*?>.*?</(?:script|style)>", re.S | re.I)
 _MULTISPACE_PATTERN = re.compile(r"\s+")
+_NUMERIC_ARTICLE_QUERY_PATTERN = re.compile(r"(?<!\w)[0-9]{6,14}(?!\w)")
 _DEFAULT_SEARCH_LIMIT = 5
 _MAX_SEARCH_LIMIT = 10
 _DEFAULT_PAGE_EXCERPT_CHARS = 2500
@@ -261,6 +262,10 @@ class DuckDuckGoSearchClient:
         )
         allowed = _normalize_domain_list(allowed_domains)
         provider_order = _normalize_provider_order(providers)
+        article_patterns = tuple(
+            re.compile(r"(?<![0-9])" + r"[\s._/\-]?".join(article) + r"(?![0-9])")
+            for article in dict.fromkeys(_NUMERIC_ARTICLE_QUERY_PATTERN.findall(query_text))
+        )
         attempts: list[dict[str, Any]] = []
         results: list[dict[str, str]] = []
         seen_urls: set[str] = set()
@@ -273,7 +278,14 @@ class DuckDuckGoSearchClient:
                 allowed_domains=allowed,
             )
             added_count = 0
+            article_filtered_count = 0
             for result in batch:
+                if article_patterns and not any(
+                    pattern.search(unquote(" ".join((result.title, result.snippet, result.url))))
+                    for pattern in article_patterns
+                ):
+                    article_filtered_count += 1
+                    continue
                 dedupe_key = _canonical_result_url(result.url)
                 if not dedupe_key or dedupe_key in seen_urls:
                     continue
@@ -284,6 +296,8 @@ class DuckDuckGoSearchClient:
                     break
             attempt["result_count"] = len(batch)
             attempt["added_count"] = added_count
+            if article_patterns:
+                attempt["article_filtered_count"] = article_filtered_count
             attempts.append(attempt)
             if len(results) >= normalized_limit:
                 break

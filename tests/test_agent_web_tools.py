@@ -12,7 +12,11 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from minimal_kanban.agent.web_tools import DuckDuckGoSearchClient, InternetToolError  # noqa: E402
+from minimal_kanban.agent.web_tools import (  # noqa: E402
+    DuckDuckGoSearchClient,
+    InternetToolError,
+    SearchResult,
+)
 
 
 def _client_factory(*, text: str = "", url: str, chunks: list[bytes] | None = None):
@@ -303,6 +307,72 @@ class AgentWebToolsTests(unittest.TestCase):
         self.assertEqual(
             [item["provider"] for item in payload["results"]], ["duckduckgo", "duckduckgo"]
         )
+
+    def test_search_multi_discards_unrelated_article_results_and_falls_back(self) -> None:
+        client = DuckDuckGoSearchClient()
+        batches = {
+            "searxng": [
+                SearchResult(
+                    "Typing speed",
+                    "https://typing.example/test",
+                    "Typing lessons",
+                    "typing.example",
+                )
+            ],
+            "duckduckgo": [
+                SearchResult(
+                    "Renault 7700100008",
+                    "https://parts.example/7700100008",
+                    "Купить деталь",
+                    "parts.example",
+                    "duckduckgo",
+                )
+            ],
+        }
+
+        def provider(name, **kwargs):  # noqa: ANN001
+            _ = kwargs
+            return batches[name], {"provider": name, "status": "success"}
+
+        with patch.object(client, "_run_search_provider", side_effect=provider) as search:
+            payload = client.search_multi(
+                "Renault 7700100008 купить руб", limit=1, providers=["searxng", "duckduckgo"]
+            )
+
+        self.assertEqual(search.call_count, 2)
+        self.assertEqual(payload["results"][0]["provider"], "duckduckgo")
+        self.assertEqual(payload["providers"][0]["article_filtered_count"], 1)
+        self.assertTrue(payload["fallback_used"])
+
+    def test_search_multi_accepts_formatted_article_and_respects_limit(self) -> None:
+        client = DuckDuckGoSearchClient()
+        batch = [
+            SearchResult("Renault 7700-100008", "https://parts.example/one", "", "parts.example"),
+            SearchResult("Renault 7700100008", "https://parts.example/two", "", "parts.example"),
+        ]
+        with patch.object(
+            client,
+            "_run_search_provider",
+            return_value=(batch, {"provider": "searxng", "status": "success"}),
+        ) as search:
+            payload = client.search_multi(
+                "Renault 7700100008", limit=1, providers=["searxng", "duckduckgo"]
+            )
+        search.assert_called_once()
+        self.assertEqual(len(payload["results"]), 1)
+        self.assertEqual(payload["providers"][0]["article_filtered_count"], 0)
+
+    def test_search_multi_generic_query_keeps_existing_provider_behavior(self) -> None:
+        client = DuckDuckGoSearchClient()
+        batch = [SearchResult("Workshop", "https://shop.example/item", "Other", "shop.example")]
+        with patch.object(
+            client,
+            "_run_search_provider",
+            return_value=(batch, {"provider": "searxng", "status": "success"}),
+        ):
+            payload = client.search_multi("тормозные колодки Красноярск", limit=1)
+        self.assertEqual(len(payload["results"]), 1)
+        self.assertNotIn("article_filtered_count", payload["providers"][0])
 
     def test_search_multi_uses_brave_first_when_configured(self) -> None:
         class BraveClient:
