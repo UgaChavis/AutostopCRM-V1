@@ -69,7 +69,8 @@ class DesktopConnectorFilesTests(unittest.TestCase):
                     )
                 )
                 payload = json.loads(contents[CONNECTOR_JSON_FILENAME])
-                self.assertNotIn("ping_connector, затем bootstrap_context", guidance)
+                self.assertNotIn("bootstrap_context", guidance)
+                self.assertIn("agent_bootstrap", guidance)
                 self.assertNotIn("First call should be", guidance)
                 self.assertNotIn("Second call should be", guidance)
                 self.assertNotIn("First checks:\\n1. ping_connector", guidance)
@@ -220,6 +221,25 @@ class DesktopConnectorFilesTests(unittest.TestCase):
         payload = json.loads(contents[CONNECTOR_JSON_FILENAME])
         self.assertEqual(payload["auth_mode"], "oauth_embedded")
         self.assertIn("Authentication mode: Embedded OAuth / DCR.", payload["notes"])
+
+    def test_ready_and_pending_exports_preserve_oauth_2_1_pkce(self) -> None:
+        ready = build_connector_file_contents(
+            "https://kanban.example/mcp",
+            "http://127.0.0.1:41731",
+            auth_mode="oauth_2_1_pkce",
+        )
+        pending = build_pending_connector_file_contents(auth_mode="oauth_2_1_pkce")
+
+        for contents in (ready, pending):
+            with self.subTest(pending=contents is pending):
+                self.assertIn(
+                    "connector_auth_mode = oauth_2_1_pkce", contents[CONNECTION_CARD_FILENAME]
+                )
+                self.assertIn("OAuth 2.1 / PKCE S256", contents[AUTH_NOTE_FILENAME])
+                self.assertEqual(
+                    json.loads(contents[CONNECTOR_JSON_FILENAME])["auth_mode"],
+                    "oauth_2_1_pkce",
+                )
 
     def test_pending_connector_files_keep_auth_mode_and_local_api_context(self) -> None:
         contents = build_pending_connector_file_contents(

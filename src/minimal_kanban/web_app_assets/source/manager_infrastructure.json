@@ -124,22 +124,6 @@
       "compact": true
     },
     {
-      "id": "C1",
-      "title": "Подключение AutoStopCRM",
-      "x": 735,
-      "y": 245,
-      "width": 275,
-      "height": 75,
-      "description": "Доступ к инструментам AutoStopCRM через слой подключённых приложений codex_apps. Наличие этого пути не означает автоматического резервирования прямого MCP.",
-      "group": "C",
-      "kind": "module",
-      "lines": [
-        "codex_apps"
-      ],
-      "icon": "plug",
-      "tone": "A"
-    },
-    {
       "id": "C2",
       "title": "CRM MCP-коннектор",
       "x": 680,
@@ -531,41 +515,15 @@
       "label_max_width": 90
     },
     {
-      "id": "L8",
-      "from": "A2",
-      "to": "C1",
-      "label": "Через codex_apps",
-      "protocol": "Подключённое приложение / MCP",
-      "description": "Обращение агента к инструментам подключённого приложения AutoStopCRM.",
-      "path": "M805 163 V245",
-      "label_x": 895,
-      "label_y": 204,
-      "direction": "both",
-      "kind": "exchange"
-    },
-    {
-      "id": "L9",
-      "from": "C1",
-      "to": "C2",
-      "label": "Запросы CRM",
-      "protocol": "MCP-коннектор",
-      "description": "Запросы и результаты инструментов CRM через подключение codex_apps.",
-      "path": "M845 320 V425",
-      "label_x": 930,
-      "label_y": 375,
-      "direction": "both",
-      "kind": "exchange"
-    },
-    {
       "id": "L10",
       "from": "A2",
       "to": "C2",
       "label": "Прямой MCP / HTTPS",
-      "protocol": "MCP / HTTPS",
-      "description": "Прямое обращение агента к MCP-коннектору CRM, отдельное от пути codex_apps.",
-      "path": "M718 163 V425",
-      "label_x": 722,
-      "label_y": 359,
+      "protocol": "MCP / HTTPS · OAuth 2.1",
+      "description": "Основной защищённый маршрут агента Codex к CRM Gateway v2 через прямой MCP/HTTPS с OAuth 2.1.",
+      "path": "M835 163 V425",
+      "label_x": 950,
+      "label_y": 300,
       "direction": "both",
       "kind": "exchange"
     },

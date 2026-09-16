@@ -369,6 +369,30 @@ class AppStartupTests(unittest.TestCase):
             self.assertEqual(updated.mcp.effective_mcp_url, "https://kanban.example/mcp")
             write_pending.assert_not_called()
 
+    def test_pending_connector_uses_oauth_mode_for_bearer_server(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings_service = SettingsService(
+                SettingsStore(
+                    settings_file=Path(temp_dir) / "settings.json",
+                    logger=logging.getLogger("test.settings"),
+                ),
+                logging.getLogger("test.app"),
+            )
+            settings = settings_service.load()
+            settings = settings_service.save(
+                replace(
+                    settings,
+                    mcp=replace(settings.mcp, mcp_auth_mode="bearer", mcp_bearer_token="secret"),
+                )
+            )
+
+            with patch(
+                "minimal_kanban.desktop_connector_files.write_pending_connector_files"
+            ) as write_pending:
+                _reset_runtime_publication_state(settings_service, settings)
+
+            self.assertEqual(write_pending.call_args.kwargs["auth_mode"], "oauth_2_1_pkce")
+
     def test_run_does_not_call_exit_when_instance_guard_enter_fails(self) -> None:
         class BrokenGuard:
             def __init__(self) -> None:

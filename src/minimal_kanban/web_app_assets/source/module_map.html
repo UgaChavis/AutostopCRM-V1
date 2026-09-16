@@ -87,7 +87,6 @@
       person:'M19 8 A5 5 0 1 1 9 8 A5 5 0 1 1 19 8 M4 27 V24 C4 14 24 14 24 24 V27 Z',
       people:'M15 7 A4 4 0 1 1 7 7 A4 4 0 1 1 15 7 M3 26 V23 C3 14 19 14 19 23 V26 Z M21 4 A4 4 0 0 1 21 12 M23 17 Q29 19 27 26 H23',
       bell:'M5 21 H23 L21 17 V11 C21 2 7 2 7 11 V17 Z M11 25 Q14 29 17 25',
-      plug:'M8 2 V10 M20 2 V10 M6 10 H22 V17 Q22 25 14 25 Q6 25 6 17 Z M14 25 V29',
       gateway:'M2 3 H26 V21 H20 V27 H8 V21 H2 Z M8 21 V14 H20 V21 M11 18 V24 M17 18 V24',
       gear:'M10 2 H18 L19 7 L24 9 L28 14 L24 19 L19 21 L18 26 H10 L9 21 L4 19 L0 14 L4 9 L9 7 Z M19 14 A5 5 0 1 1 9 14 A5 5 0 1 1 19 14',
       book:'M14 5 Q5 0 2 5 V25 Q8 21 14 26 Q20 21 26 25 V5 Q22 0 14 5 V26',
@@ -285,7 +284,7 @@
         const result=await response.json();
         if(!result.ok||result.data?.schema_version!=='autostopmanager.infrastructure-map.v1') throw new Error('data');
         data=result.data; nodes=new Map(data.elements.map(n=>[n.id,n])); items=new Map([...data.elements,...data.relations].map(n=>[n.id,n]));
-        if(nodes.size!==30||items.size!==49||data.relations.some(r=>!nodes.has(r.from)||!nodes.has(r.to))) throw new Error('data');
+        if(nodes.size!==29||items.size!==46||data.relations.length!==17||data.relations.some(r=>!nodes.has(r.from)||!nodes.has(r.to))) throw new Error('data');
         render(); $('state').hidden=true; $('map').removeAttribute('hidden'); $('hint').hidden=false;
         requestAnimationFrame(()=>{fit();hashSelection();});
       } catch(error) {

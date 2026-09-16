@@ -32,15 +32,12 @@ Keep real tokens in a client secret/environment mechanism, never source,
 ordinary chat, shell history, or logs. Repeat the owner-approved link flow
 after revocation or loss of local credentials.
 
-If `codex_apps` returns MCP `-32603: Internal error` while direct Codex MCP
-works, compare the matching requests in the reverse-proxy access log. HTTP
-401 for the Apps client indicates an authentication failure before tool
-execution; it does not establish a CRM tool failure. Reconnect AutoStopCRM
-in the Apps client and complete the owner-approved OAuth flow, then refresh
-its tool catalog. Verify `ping_connector` and one read through that same
-route. A direct MCP success alone does not verify the Apps connection.
-Do not disable authentication, restore retired bearer tokens, or expose
-hidden raw tools to work around stale client credentials or registration.
+Direct Codex MCP is the A2 route. ChatGPT Apps are optional clients of the same
+public `/mcp` endpoint, not an additional A2 route. If an optional Apps client
+fails, check its OAuth session and tool catalog separately. HTTP 401 indicates
+authentication failed before tool execution; it does not establish a CRM tool
+failure. Do not disable authentication, restore retired bearer tokens, or
+expose hidden raw tools to work around stale client credentials or registration.
 
 ## Natural Use And Safety
 

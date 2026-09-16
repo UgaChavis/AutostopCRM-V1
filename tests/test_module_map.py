@@ -29,37 +29,39 @@ class ModuleMapTests(unittest.TestCase):
             for i in range(1, count + 1)
         }
         self.assertEqual(self.data["schema_version"], "autostopmanager.infrastructure-map.v1")
-        self.assertEqual(set(self.nodes), expected - {"N1", "N2"})
-        self.assertEqual(len(self.data["elements"]), 30)
+        self.assertEqual(set(self.nodes), expected - {"N1", "N2", "C1"})
+        self.assertEqual(len(self.data["elements"]), 29)
         edges = {item["id"]: item for item in self.data["relations"]}
-        self.assertEqual(len(self.data["relations"]), 19)
-        self.assertEqual(set(edges), {f"L{i}" for i in range(1, 20)})
-        pairs = [
-            ("A1", "A2"),
-            ("A2", "A3"),
-            ("A3", "B1"),
-            ("B1", "B2"),
-            ("B1", "B3"),
-            ("B2", "B4"),
-            ("B4", "A2"),
-            ("A2", "C1"),
-            ("C1", "C2"),
-            ("A2", "C2"),
-            ("C2", "C3"),
-            ("A2", "D1"),
-            ("D1", "D2"),
-            ("D1", "E1"),
-            ("D1", "F1"),
-            ("D2", "D3"),
-            ("E1", "E2"),
-            ("E1", "E3"),
-            ("F1", "F2"),
-        ]
-        for index, pair in enumerate(pairs, 1):
-            edge = edges[f"L{index}"]
+        self.assertEqual(len(self.data["relations"]), 17)
+        self.assertEqual(len(self.nodes) + len(edges), 46)
+        self.assertEqual(set(edges), {f"L{i}" for i in range(1, 20)} - {"L8", "L9"})
+        pairs = {
+            "L1": ("A1", "A2"),
+            "L2": ("A2", "A3"),
+            "L3": ("A3", "B1"),
+            "L4": ("B1", "B2"),
+            "L5": ("B1", "B3"),
+            "L6": ("B2", "B4"),
+            "L7": ("B4", "A2"),
+            "L10": ("A2", "C2"),
+            "L11": ("C2", "C3"),
+            "L12": ("A2", "D1"),
+            "L13": ("D1", "D2"),
+            "L14": ("D1", "E1"),
+            "L15": ("D1", "F1"),
+            "L16": ("D2", "D3"),
+            "L17": ("E1", "E2"),
+            "L18": ("E1", "E3"),
+            "L19": ("F1", "F2"),
+        }
+        for code, pair in pairs.items():
+            edge = edges[code]
             self.assertEqual((edge["from"], edge["to"]), pair)
+            index = int(code[1:])
             self.assertEqual(edge["direction"], "forward" if index in {1, 6, 7} else "both")
             self.assertEqual(edge["kind"], "event" if index in {6, 7} else "exchange")
+        self.assertEqual(edges["L10"]["path"], "M835 163 V425")
+        self.assertIn("OAuth 2.1", edges["L10"]["protocol"])
 
     def test_hierarchy_geometry_and_russian_descriptions(self) -> None:
         for node in self.nodes.values():

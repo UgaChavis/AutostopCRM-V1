@@ -38,6 +38,7 @@ def _detect_network_host() -> str:
 
 
 def _reset_runtime_publication_state(settings_service, settings):
+    from .connection_card import resolve_connector_auth_mode
     from .desktop_connector_files import write_pending_connector_files
 
     updated = settings
@@ -51,7 +52,7 @@ def _reset_runtime_publication_state(settings_service, settings):
     if not updated.mcp.effective_mcp_url.startswith("https://"):
         try:
             write_pending_connector_files(
-                auth_mode=updated.mcp.mcp_auth_mode,
+                auth_mode=resolve_connector_auth_mode(updated),
                 local_api_url=updated.local_api.effective_local_api_url,
             )
         except OSError:

@@ -18,6 +18,7 @@ CONNECTOR_AUTH_LABELS = {
     "none": "No authentication",
     "bearer": "Bearer token",
     "oauth_embedded": "Embedded OAuth / DCR",
+    "oauth_2_1_pkce": "OAuth 2.1 / PKCE S256",
 }
 
 
@@ -82,7 +83,7 @@ def build_connector_file_contents(
         "3. Вставьте effective_mcp_url.\n"
         f"4. Выберите режим {auth_label}.\n"
         "5. Создайте connector.\n"
-        "6. В новом чате опишите цель. Выбирайте только полезные инструменты и контекст; ping_connector нужен для диагностики связи, а bootstrap_context — когда нужен контекст доски.\n"
+        "6. В новом чате опишите цель. Выбирайте только полезные инструменты и контекст; ping_connector нужен для диагностики связи, а agent_bootstrap — когда нужен контекст доски.\n"
     )
     connector_payload = {
         "name": f"{DISPLAY_PRODUCT_NAME} / This Board Only ({host_label})",
@@ -93,7 +94,7 @@ def build_connector_file_contents(
             "Use the public HTTPS /mcp URL.",
             f"Authentication mode: {auth_label}.",
             "Start from the user's goal; tools have no required call order.",
-            "Use ping_connector only to diagnose connectivity and bootstrap_context when board context is useful.",
+            "Use ping_connector only to diagnose connectivity and agent_bootstrap when board context is useful.",
         ],
     }
     auth_note = (
@@ -105,7 +106,7 @@ def build_connector_file_contents(
         "After connecting:\n"
         "Start from the user's goal and relevant context. Tool order is not prescribed.\n"
         "Use ping_connector only if connectivity needs diagnosis; "
-        "use bootstrap_context when board context is useful.\n"
+        "use agent_bootstrap when board context is useful.\n"
     )
     return {
         CONNECTION_CARD_FILENAME: connection_card,
@@ -134,7 +135,7 @@ def build_pending_connector_file_contents(
             "3. Вставьте effective_mcp_url после появления публичного HTTPS MCP URL.\n"
             f"4. Выберите режим {auth_label}.\n"
             "5. Создайте connector.\n"
-            "6. В новом чате опишите цель. Выбирайте только полезные инструменты и контекст; ping_connector нужен для диагностики связи, а bootstrap_context — когда нужен контекст доски.\n"
+            "6. В новом чате опишите цель. Выбирайте только полезные инструменты и контекст; ping_connector нужен для диагностики связи, а agent_bootstrap — когда нужен контекст доски.\n"
         ),
         CONNECTOR_JSON_FILENAME: (
             "{\n"
@@ -146,7 +147,7 @@ def build_pending_connector_file_contents(
             '    "Wait for the public HTTPS /mcp URL to appear.",\n'
             f'    "Authentication mode: {auth_label}.",\n'
             '    "Start from the user\'s goal; tools have no required call order.",\n'
-            '    "Use ping_connector only to diagnose connectivity and bootstrap_context when board context is useful."\n'
+            '    "Use ping_connector only to diagnose connectivity and agent_bootstrap when board context is useful."\n'
             "  ]\n"
             "}"
         ),
@@ -158,7 +159,7 @@ def build_pending_connector_file_contents(
             "After connecting:\n"
             "Start from the user's goal and relevant context. Tool order is not prescribed.\n"
             "Use ping_connector only if connectivity needs diagnosis; "
-            "use bootstrap_context when board context is useful.\n"
+            "use agent_bootstrap when board context is useful.\n"
         ),
         URL_FILENAME: WAITING_MESSAGE,
     }

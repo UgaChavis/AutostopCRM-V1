@@ -390,7 +390,7 @@ class ChatGPTConnectDialog(QDialog):
             "Шаг 3. Добавьте MCP-сервер.",
             "Шаг 4. Вставьте итоговый MCP URL.",
             "Шаг 6. Нажмите кнопку подключения и завершите linking, если ChatGPT его запросит.",
-            "Шаг 7. Проверьте список tools, get_board_content и get_board_events.",
+            "Шаг 7. Проверьте список инструментов, ping_connector и agent_bootstrap.",
         )
         self.step_instruction_labels: list[QLabel] = []
         for text in step_texts[:4]:
