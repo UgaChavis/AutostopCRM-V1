@@ -1452,7 +1452,7 @@ def register_agent_gateway_v2(
         policy_error = _policy_error(tool_name=operation, risk=risk, arguments=payload)
         if policy_error:
             return workflow_error_result(workflow_id, policy_error)
-        finance_preview = workflow_id == "finance" and mode == "dry_run"
+        finance_preview = workflow_id == "finance" and mode == "dry_run" and risk != "read"
         if finance_preview:
             preflight = await finance_revision_preflight(operation, payload, _invoke)
             if not preflight["passed"]:
@@ -2395,7 +2395,7 @@ def register_agent_gateway_v2(
 
     @server.tool(
         name="agent_finance_workflow",
-        description="Execute a finance/cashbox/repair-order operation with idempotency, policy gates, and compact verification evidence.",
+        description="Execute finance/cashbox/repair-order work; dry_run previews writes but executes reads.",
         annotations=_write_annotations("Agent Finance Workflow", destructive=True),
     )
     async def agent_finance_workflow(

@@ -41,6 +41,14 @@ Use only enough calls to establish the target and perform the useful next step.
 A workflow can be helpful for an auditable multi-step task, but is not required
 for simple context, analysis, or a normal customer reply.
 
+## Finance Reads
+
+`list_cashboxes`, `get_cashbox`, `get_cash_journal`, and `get_repair_order`
+are read-only. Omit `mode`, or pass `mode="dry_run"` to make the non-mutating
+intent explicit; both execute the real read. A finance read never returns or
+accepts a preview proof, and `mode="apply"` is invalid. Finance writes retain
+their preview-and-proof guard.
+
 ## Store Boundary And Quote Context
 
 Store adapter remains internal. `store_owner_capabilities` and `store_owner_api`

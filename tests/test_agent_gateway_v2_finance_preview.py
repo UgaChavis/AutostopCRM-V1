@@ -42,6 +42,7 @@ class FinancePreviewBoardApi(FakeBoardApi):
         self.cashbox_snapshot_complete = True
         self.transaction_snapshot_complete = True
         self.order = {"client": "Before"}
+        self.cashbox_reads = 0
 
     def get_repair_order(self, card_id: str, *, create_if_missing: bool | None = None) -> dict:
         del create_if_missing
@@ -76,6 +77,7 @@ class FinancePreviewBoardApi(FakeBoardApi):
         }
 
     def list_cashboxes(self, *, limit: int | None = None) -> dict:
+        self.cashbox_reads += 1
         rows = self.cashboxes[: int(limit or 1000)]
         extra = 0 if self.cashbox_snapshot_complete else 1
         return {
@@ -395,17 +397,43 @@ class AgentGatewayFinancePreviewTests(unittest.IsolatedAsyncioTestCase):
             write_paths.isdisjoint(item["path"] for item in self.board_api.raw_requests)
         )
 
-    async def test_legacy_write_still_applies_and_explicit_mode_is_rejected_for_reads(self) -> None:
-        read_blocked = await self._workflow(
-            "get_repair_order", "finance-read-preview", {"card_id": "card-1"}, mode="dry_run"
+    async def test_finance_reads_accept_explicit_dry_run_without_preview_proof(self) -> None:
+        cashboxes = await self._workflow(
+            "list_cashboxes", "finance-read-dry-run", {}, mode="dry_run"
+        )
+        repair_order = await self._workflow(
+            "get_repair_order", "finance-repair-read-dry-run", {"card_id": "card-1"}, mode="dry_run"
+        )
+        apply_blocked = await self._workflow(
+            "get_repair_order", "finance-read-apply", {"card_id": "card-1"}, mode="apply"
+        )
+        preview_fields_blocked = await self._workflow(
+            "list_cashboxes",
+            "finance-read-proof",
+            {},
+            mode="dry_run",
+            dry_run_proof="f" * 64,
+            dry_run_idempotency_key="finance-read-proof-preview",
         )
         legacy = await self._workflow(
             "update_repair_order", "finance-legacy-apply", self._payload()
         )
 
+        self.assertTrue(cashboxes.structuredContent["ok"])
+        self.assertTrue(repair_order.structuredContent["ok"])
+        self.assertEqual(1, self.board_api.cashbox_reads)
+        self.assertGreaterEqual(self.board_api.repair_order_reads, 1)
+        self.assertEqual("list_cashboxes", cashboxes.structuredContent["summary"]["executor"])
+        self.assertEqual("get_repair_order", repair_order.structuredContent["summary"]["executor"])
+        self.assertNotIn("dry_run_proof", cashboxes.structuredContent["data"])
+        self.assertNotIn("dry_run_proof", repair_order.structuredContent["data"])
         self.assertIn(
             "finance_read_operation_write_mode_not_allowed",
-            read_blocked.structuredContent["warnings"],
+            apply_blocked.structuredContent["warnings"],
+        )
+        self.assertIn(
+            "finance_read_operation_preview_fields_not_allowed",
+            preview_fields_blocked.structuredContent["warnings"],
         )
         self.assertTrue(legacy.structuredContent["ok"])
         self.assertEqual(1, self.board_api.update_calls)

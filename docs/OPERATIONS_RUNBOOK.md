@@ -735,6 +735,8 @@ git rev-parse origin/autostopcrm-v1
 docker compose ps
 docker compose exec -T autostopcrm python scripts/validate_production_env.py --require-production --require-store
 docker compose exec -T autostopcrm python scripts/check_live_connector.py --strict --site-url https://crm.autostopcrm.ru --expect-https --local-api-url http://127.0.0.1:41731 --expect-admin
+# This public smoke deliberately omits --maintenance-safe: it never runs the
+# technical change-feed bootstrap, replay, or ACK probes.
 docker compose exec -T autostopcrm python scripts/check_agent_gateway_v2.py --mcp-url https://crm.autostopcrm.ru/mcp --exhaustive --require-store --require-web
 docker compose exec -T autostopcrm python scripts/check_mcp_oauth.py --mcp-url https://crm.autostopcrm.ru/mcp
 docker compose exec -T autostopcrm python scripts/docs_audit.py --format text

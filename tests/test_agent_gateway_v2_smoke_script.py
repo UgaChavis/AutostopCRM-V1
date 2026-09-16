@@ -193,15 +193,61 @@ class AgentGatewayV2SmokeScriptTests(unittest.TestCase):
         self.assertEqual("gateway-v2-contract-case-id", arguments["idempotency_key"])
         self.assertTrue(arguments["dry_run"])
 
-    def test_store_exhaustive_probes_are_conditioned_on_both_flags(self) -> None:
+    def test_change_feed_probes_require_store_and_maintenance_mode(self) -> None:
         source = SCRIPT_PATH.read_text(encoding="utf-8")
+        module = load_script_module()
 
-        self.assertIn("require_store=args.require_store", source)
-        self.assertIn("if require_store:", source)
-        self.assertIn("_run_change_feed_probes(", source)
+        self.assertFalse(
+            module._change_feed_probes_enabled(require_store=False, maintenance_safe=False)
+        )
+        self.assertFalse(
+            module._change_feed_probes_enabled(require_store=True, maintenance_safe=False)
+        )
+        self.assertFalse(
+            module._change_feed_probes_enabled(require_store=False, maintenance_safe=True)
+        )
+        self.assertTrue(
+            module._change_feed_probes_enabled(require_store=True, maintenance_safe=True)
+        )
+        self.assertEqual(3, source.count("_change_feed_probes_enabled("))
 
 
 class AgentGatewayV2SmokeProbeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_public_exhaustive_store_smoke_skips_technical_change_feed(self) -> None:
+        module = load_script_module()
+
+        def handler(name: str, arguments: dict):
+            if name == "get_raw_capability_schema":
+                return tool_result({"ok": True, "summary": {"schema_hash": "schema"}})
+            if name == "start_workflow":
+                return tool_result({"ok": True, "run_id": 1, "summary": {"state_version": 1}})
+            if name == "workflow_cancel":
+                return tool_result(
+                    {"ok": True, "status": "cancelled", "summary": {"state_version": 1}}
+                )
+            if name.startswith("workflow_") or name == "complete_external_step":
+                return tool_result(
+                    {"ok": True, "status": "completed", "summary": {"state_version": 1}}
+                )
+            return tool_result({"ok": True, "status": "completed", "data": {}})
+
+        session = ScriptSession(handler)
+        with patch.object(
+            module,
+            "_run_change_feed_probes",
+            side_effect=AssertionError("public smoke must not call change-feed"),
+        ):
+            result = await module._run_exhaustive_checks(
+                session,
+                {},
+                smoke_id="a" * 32,
+                require_store=True,
+                maintenance_safe=False,
+            )
+
+        self.assertEqual({}, result["change_feed_probe"])
+        self.assertEqual("cancelled", result["synthetic_terminal_status"])
+
     async def test_store_owner_probe_reads_one_bounded_page_from_exact_contract(self) -> None:
         module = load_script_module()
         expected_contracts = (

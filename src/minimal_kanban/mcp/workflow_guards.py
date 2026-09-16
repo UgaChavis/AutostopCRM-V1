@@ -150,12 +150,16 @@ def finance_request_error(
         return None
     proof = str(dry_run_proof or "").strip()
     dry_run_key = str(dry_run_idempotency_key or "").strip()
+    if operation in FINANCE_READ_OPERATIONS:
+        if mode == "apply":
+            return "finance_read_operation_write_mode_not_allowed", []
+        if proof or dry_run_key:
+            return "finance_read_operation_preview_fields_not_allowed", []
+        return None
     if mode is None:
         return (
             ("finance_preview_fields_require_explicit_mode", []) if proof or dry_run_key else None
         )
-    if operation in FINANCE_READ_OPERATIONS:
-        return "finance_read_operation_write_mode_not_allowed", []
     logical_payment = operation == "record_repair_order_payment"
     target_tool = (
         virtual_api_name(FINANCE_VIRTUAL_OPERATIONS[operation])

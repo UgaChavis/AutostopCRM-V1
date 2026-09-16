@@ -978,6 +978,10 @@ def _safe_inventory_contract_arguments(smoke_id: str) -> dict[str, Any]:
     }
 
 
+def _change_feed_probes_enabled(*, require_store: bool, maintenance_safe: bool) -> bool:
+    return require_store and maintenance_safe
+
+
 async def _run_exhaustive_checks(
     session: ClientSession,
     calls: dict[str, bool],
@@ -1071,7 +1075,9 @@ async def _run_exhaustive_checks(
 
     if maintenance_safe:
         change_feed_probe: dict[str, Any] = {}
-        if require_store:
+        if _change_feed_probes_enabled(
+            require_store=require_store, maintenance_safe=maintenance_safe
+        ):
             change_feed_probe = await _run_change_feed_probes(
                 session,
                 calls,
@@ -1197,20 +1203,11 @@ async def _run_exhaustive_checks(
             },
         )
         cancelled_payload = _structured(cancelled)
-    change_feed_probe: dict[str, Any] = {}
-    if require_store:
-        change_feed_probe = await _run_change_feed_probes(
-            session,
-            calls,
-            smoke_id=smoke_id,
-            release_revision=release_revision,
-            release_smoke_proof=release_smoke_proof,
-        )
     return {
         "synthetic_run_id": run_id,
         "synthetic_terminal_status": cancelled_payload.get("status"),
         "synthetic_deduplicated": synthetic_deduplicated,
-        "change_feed_probe": change_feed_probe,
+        "change_feed_probe": {},
     }
 
 
@@ -1502,7 +1499,9 @@ async def check_gateway(args: argparse.Namespace) -> dict[str, Any]:
                 ),
             }
         )
-        if args.require_store:
+        if _change_feed_probes_enabled(
+            require_store=args.require_store, maintenance_safe=maintenance_safe
+        ):
             change_feed_exhaustive = (
                 exhaustive.get("change_feed_probe")
                 if isinstance(exhaustive.get("change_feed_probe"), dict)
