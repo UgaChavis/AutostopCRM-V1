@@ -103,7 +103,12 @@ _HUMAN_REQUIRED_FLAGS = frozenset(
     {"captcha_required", "login_required", "ip_blocked", "access_denied", "js_challenge"}
 )
 _VIN_LIKE_QUERY_TOKEN_PATTERN = re.compile(
-    r"(?<![A-HJ-NPR-Z0-9])(?:[A-HJ-NPR-Z0-9][ ._/\\-]?){17}(?![A-HJ-NPR-Z0-9])",
+    r"(?<![A-HJ-NPR-Z0-9])(?:[A-HJ-NPR-Z0-9][._/\\-]?){17}(?![A-HJ-NPR-Z0-9])",
+    re.IGNORECASE,
+)
+_SPACED_VIN_QUERY_TOKEN_PATTERN = re.compile(
+    r"(?<![A-HJ-NPR-Z0-9])(?:[A-HJ-NPR-Z0-9]{2,8}[ \t]+){2,6}"
+    r"[A-HJ-NPR-Z0-9]{2,8}(?![A-HJ-NPR-Z0-9])",
     re.IGNORECASE,
 )
 _PHONE_QUERY_TOKEN_PATTERN = re.compile(
@@ -125,6 +130,24 @@ class InternetToolError(RuntimeError):
     pass
 
 
+def redact_public_vin_text(value: str) -> tuple[str, bool]:
+    """Redact VINs without swallowing a brand followed by a part number."""
+
+    text, direct_count = _VIN_LIKE_QUERY_TOKEN_PATTERN.subn("[vin-redacted]", value)
+    spaced_count = 0
+
+    def redact_spaced(match: re.Match[str]) -> str:
+        nonlocal spaced_count
+        compact = re.sub(r"\s+", "", match.group())
+        if len(compact) == 17 and any(char.isdigit() for char in compact):
+            spaced_count += 1
+            return "[vin-redacted]"
+        return match.group()
+
+    text = _SPACED_VIN_QUERY_TOKEN_PATTERN.sub(redact_spaced, text)
+    return text, bool(direct_count or spaced_count)
+
+
 def sanitize_public_search_query(value: Any) -> str:
     """Remove identifiers and credentials before a query leaves the CRM boundary."""
 
@@ -137,7 +160,7 @@ def sanitize_public_search_query(value: Any) -> str:
     text = _SENSITIVE_QUERY_FIELD_PATTERN.sub(" ", text)
     text = _EMAIL_QUERY_TOKEN_PATTERN.sub(" ", text)
     text = _PHONE_QUERY_TOKEN_PATTERN.sub(" ", text)
-    text = _VIN_LIKE_QUERY_TOKEN_PATTERN.sub(" ", text)
+    text = redact_public_vin_text(text)[0].replace("[vin-redacted]", " ")
     text = _MULTISPACE_PATTERN.sub(" ", text).strip()
     if not text:
         raise InternetToolError("public search query is required after redaction")

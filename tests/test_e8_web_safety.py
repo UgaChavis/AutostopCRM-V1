@@ -117,6 +117,22 @@ class E8WebSafetyTests(unittest.TestCase):
         with self.assertRaisesRegex(InternetToolError, "after redaction"):
             sanitize_public_search_query("X9FKXXEEBKDJ82493 customer_id=client-77")
 
+    def test_brand_and_ten_digit_part_number_survive_both_e8_search_modes(self) -> None:
+        query = "Renault 7700100008 купить руб"
+        self.assertEqual(sanitize_public_search_query(query), query)
+        service = AutomotiveLookupService()
+        self.assertEqual(service._public_part_query(query), (query, False))
+
+    def test_contiguous_and_spaced_vins_are_redacted_without_losing_article(self) -> None:
+        for vin in ("X9FKXXEEBKDJ82493", "X9F KXX EEB KDJ 82493"):
+            with self.subTest(vin=vin):
+                query = f"Renault 7700100008 {vin} купить"
+                self.assertEqual(sanitize_public_search_query(query), "Renault 7700100008 купить")
+                self.assertEqual(
+                    AutomotiveLookupService()._public_part_query(query),
+                    ("Renault 7700100008 купить", True),
+                )
+
     def test_private_dns_result_is_rejected_before_a_page_request(self) -> None:
         client = DuckDuckGoSearchClient()
         with (

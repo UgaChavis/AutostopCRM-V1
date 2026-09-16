@@ -22,13 +22,13 @@ from .web_tools import (
     DuckDuckGoSearchClient,
     InternetToolError,
     _normalize_seconds,
+    redact_public_vin_text,
     sanitize_public_search_query,
 )
 
 AUTOMOTIVE_VIN_RESPONSE_MAX_BYTES = 1 * 1024 * 1024
 AUTOMOTIVE_PRICE_MAX_RUB = 100_000_000
 _PART_NUMBER_PATTERN = re.compile(r"\b[A-Z0-9-]{5,18}\b")
-_VIN_LIKE_TOKEN_PATTERN = re.compile(r"(?:[A-HJ-NPR-Z0-9][ ._/\\-]?){17}", re.I)
 _PUBLIC_PART_EVIDENCE_CONTRACT_VERSION = "autostop.web-research.v1"
 
 
@@ -439,8 +439,7 @@ class AutomotiveLookupService:
     @staticmethod
     def _redact_vin_text(value: str) -> tuple[str, bool]:
         text = unquote(str(value or ""))
-        redacted, replacements = _VIN_LIKE_TOKEN_PATTERN.subn("[vin-redacted]", text)
-        return redacted, bool(replacements)
+        return redact_public_vin_text(text)
 
     @classmethod
     def _redact_vin_value(cls, value: Any) -> Any:
