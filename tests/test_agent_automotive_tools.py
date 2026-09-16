@@ -16,6 +16,7 @@ from minimal_kanban.agent.automotive_tools import (  # noqa: E402
     AutomotiveLookupService,
     InternetToolError,
 )
+from minimal_kanban.agent.source_registry import public_part_evidence_domains  # noqa: E402
 from minimal_kanban.agent.tools import AgentToolExecutor, _json_dumps  # noqa: E402
 
 
@@ -23,6 +24,7 @@ class _FakeSearchClient:
     def __init__(self) -> None:
         self.search_calls: list[dict[str, object]] = []
         self.search_multi_calls: list[dict[str, object]] = []
+        self.search_multi_payload: dict[str, object] | None = None
         self.fetch_calls: list[dict[str, object]] = []
         self.browser_fetch_calls: list[dict[str, object]] = []
 
@@ -54,7 +56,9 @@ class _FakeSearchClient:
                 "providers": providers or [],
             }
         )
-        return {"query": query, "results": [], "providers": []}
+        payload = dict(self.search_multi_payload or {"results": [], "providers": []})
+        payload.setdefault("query", query)
+        return payload
 
     def fetch_page_excerpt(self, url: str, *, max_chars: int = 2500) -> dict[str, object]:
         self.fetch_calls.append({"url": url, "max_chars": max_chars})
@@ -173,8 +177,8 @@ class AutomotiveLookupServiceTests(unittest.TestCase):
 
         service.search_part_numbers(vehicle_context={}, part_query="масляный фильтр", limit=1e308)
 
-        self.assertTrue(fake_search.search_calls)
-        self.assertTrue(all(call["limit"] == 12 for call in fake_search.search_calls))
+        self.assertTrue(fake_search.search_multi_calls)
+        self.assertTrue(all(call["limit"] == 12 for call in fake_search.search_multi_calls))
 
     def test_price_summary_ignores_unbounded_ruble_amounts(self) -> None:
         service = AutomotiveLookupService()
@@ -191,8 +195,110 @@ class AutomotiveLookupServiceTests(unittest.TestCase):
             limit=1.5,  # type: ignore[arg-type]
         )
 
-        self.assertTrue(fake_search.search_calls)
-        self.assertTrue(all(call["limit"] == 8 for call in fake_search.search_calls))
+        self.assertTrue(fake_search.search_multi_calls)
+        self.assertTrue(all(call["limit"] == 8 for call in fake_search.search_multi_calls))
+
+    def test_part_evidence_gateway_is_vin_safe_and_fetches_only_static_sources(self) -> None:
+        service, fake_search = _service_with_fake_search()
+        vin = "WBA/000000/00000000"
+        self.assertEqual(
+            public_part_evidence_domains(),
+            ["partsouq.com", "amayama.com", "emex.ru", "exist.ru"],
+        )
+        fake_search.search_multi_payload = {
+            "results": [
+                {
+                    "title": f"Ford 1712024 {vin}",
+                    "url": "https://partsouq.com/catalog/1712024",
+                    "snippet": f"Front brake pads {vin}",
+                    "domain": "partsouq.com",
+                    "provider": "searxng",
+                },
+                {
+                    "title": "Legacy MegaZip 1712024",
+                    "url": "https://megazip.net/catalog/1712024",
+                    "snippet": "Legacy catalog result",
+                    "domain": "megazip.net",
+                    "provider": "searxng",
+                },
+            ],
+            "provider_order": ["searxng", "duckduckgo"],
+            "providers": [{"provider": "searxng", "status": "success"}],
+            "fallback_used": False,
+        }
+
+        result = service.research_part_public_evidence(
+            query=f"{vin} Ford 1712024 front brake pads",
+            allowed_domains=["https://www.partsouq.com", "megazip.net", "untrusted.example"],
+            max_pages=2,
+        )
+
+        rendered = json.dumps(result, ensure_ascii=False)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["contract_version"], "autostop.web-research.v1")
+        self.assertTrue(result["vin_redacted"])
+        self.assertFalse(result["fitment_confirmed"])
+        self.assertEqual(result["next_step"], "confirm_with_vin_specific_epc")
+        self.assertEqual(result["allowed_domains"], ["partsouq.com"])
+        self.assertEqual(result["rejected_domains"], ["megazip.net", "untrusted.example"])
+        self.assertEqual(len(result["results"]), 1)
+        self.assertEqual(result["results"][0]["source_id"], "partsouq_catalog")
+        self.assertEqual(result["results"][0]["source_type"], "oem_catalog")
+        self.assertTrue(result["results"][0]["source_authorized"])
+        self.assertNotIn(vin, rendered)
+        self.assertNotIn("WBA00000000000000", rendered)
+        self.assertNotIn(vin, str(fake_search.search_multi_calls[0]["query"]))
+        self.assertEqual(
+            fake_search.fetch_calls,
+            [{"url": "https://partsouq.com/catalog/1712024", "max_chars": 1200}],
+        )
+
+    def test_existing_part_lookup_keeps_its_fields_and_uses_vin_safe_gateway(self) -> None:
+        service, fake_search = _service_with_fake_search()
+        vin = "WBA00000000000000"
+        fake_search.search_multi_payload = {
+            "results": [
+                {
+                    "title": "Ford 1712024",
+                    "url": "https://partsouq.com/catalog/1712024",
+                    "snippet": "Front brake pads",
+                    "domain": "partsouq.com",
+                    "provider": "searxng",
+                }
+            ],
+            "providers": [],
+        }
+
+        result = service.search_part_numbers(
+            vehicle_context={"vin": vin, "make": "Ford", "model": f"Focus {vin}"},
+            part_query=f"передние тормозные колодки {vin}",
+        )
+
+        self.assertEqual(
+            set(result).intersection(
+                {
+                    "vehicle_context",
+                    "part_query",
+                    "query_variants",
+                    "results",
+                    "part_numbers",
+                    "source_group",
+                }
+            ),
+            {
+                "vehicle_context",
+                "part_query",
+                "query_variants",
+                "results",
+                "part_numbers",
+                "source_group",
+            },
+        )
+        self.assertEqual(result["vehicle_context"]["vin"], "[vin-redacted]")
+        self.assertEqual(result["part_query"], "передние тормозные колодки")
+        self.assertEqual(result["web_research"]["contract_version"], "autostop.web-research.v1")
+        self.assertNotIn(vin, json.dumps(result, ensure_ascii=False))
+        self.assertNotIn(vin, str(fake_search.search_multi_calls[0]["query"]))
 
     def test_decode_vin_treats_non_object_json_as_empty_decode(self) -> None:
         service = AutomotiveLookupService()

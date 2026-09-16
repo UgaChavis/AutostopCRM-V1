@@ -571,6 +571,23 @@ normal deploys. Never dump `.env`, container
 tool transcript. Report only allowlisted non-secret settings and boolean
 credential checks.
 
+### Manager E8 loopback credential
+
+After the candidate CRM has passed its Gateway and OAuth checks, `deploy.sh`
+atomically writes only `AUTOSTOP_CRM_MCP_URL` and
+`AUTOSTOP_CRM_MCP_BEARER_TOKEN` to the separate root-only
+`/opt/AutostopManager/.crm-mcp.env`. The URL is fixed to
+`http://127.0.0.1:8001/mcp`; the helper takes the current CRM bearer from
+server `.env`, snapshots the previous Manager file, and restores it during a
+rollback. It never prints either credential.
+
+The default `AUTOSTOP_MANAGER_MCP_ACTIVATE_ON_DEPLOY=0` preserves the existing
+CRM-only deploy behavior. Before E7 may use E8 live, use `=1` in an authorized
+coordinated deploy, or restart the active Manager native MCP with its
+`scripts/install-manager-mcp.sh --replace-unit --activate` and complete its synthetic
+post-check. Do not copy the bearer into Manager's general `.env` or invoke E7
+until that restart has completed.
+
 ## GitHub-Only Publication
 
 When the approved endpoint is the GitHub branch rather than a production rollout,

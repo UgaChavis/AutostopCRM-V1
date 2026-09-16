@@ -5,18 +5,26 @@ import math
 import re
 from copy import deepcopy
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlparse
 
 import httpx
 
 from ..json_safety import json_safe_value as _json_safe_value
 from .drive2_research import Drive2CaseResearch
-from .source_registry import PARTS_CATALOG_SOURCES, PARTS_PRICE_SOURCES, trusted_domains
+from .source_registry import (
+    E8_PART_EVIDENCE_SOURCES,
+    PARTS_CATALOG_SOURCES,
+    PARTS_PRICE_SOURCES,
+    public_part_evidence_domains,
+    trusted_domains,
+)
 from .web_tools import DuckDuckGoSearchClient, InternetToolError, _normalize_seconds
 
 AUTOMOTIVE_VIN_RESPONSE_MAX_BYTES = 1 * 1024 * 1024
 AUTOMOTIVE_PRICE_MAX_RUB = 100_000_000
 _PART_NUMBER_PATTERN = re.compile(r"\b[A-Z0-9-]{5,18}\b")
+_VIN_LIKE_TOKEN_PATTERN = re.compile(r"(?:[A-HJ-NPR-Z0-9][ ._/\\-]?){17}", re.I)
+_PUBLIC_PART_EVIDENCE_CONTRACT_VERSION = "autostop.web-research.v1"
 
 
 _PRICE_PATTERN = re.compile(
@@ -250,27 +258,282 @@ class AutomotiveLookupService:
     def _search_part_numbers_uncached(
         self, *, context: dict[str, Any], normalized_query: str, limit: int
     ) -> dict[str, Any]:
-        query_variants = self._expand_part_query_variants(normalized_query)
-        queries: list[str] = []
-        for variant in query_variants[:3]:
-            if context.get("vin"):
-                queries.append(f"{context['vin']} {variant} OEM part number")
-            queries.append(self._build_vehicle_query(context, variant, suffix="OEM part number"))
-            queries.append(self._build_vehicle_query(context, variant, suffix="catalog"))
-        results = self._search_domains(
-            queries,
-            allowed_domains=trusted_domains(kind="catalog"),
-            per_query_limit=max(2, limit),
-            total_limit=limit,
+        public_part_query, part_query_had_vin = self._public_part_query(normalized_query)
+        public_context = self._redacted_public_context(context)
+        if not public_part_query:
+            return {
+                "vehicle_context": public_context,
+                "part_query": "",
+                "query_variants": [],
+                "results": [],
+                "part_numbers": [],
+                "source_group": [item.label for item in PARTS_CATALOG_SOURCES],
+                "web_research": self.research_part_public_evidence(
+                    query=normalized_query,
+                    limit=min(limit, 5),
+                    allowed_domains=public_part_evidence_domains(),
+                    max_pages=0,
+                ),
+            }
+        query_variants = self._expand_part_query_variants(public_part_query)
+        public_query = self._build_vehicle_query(
+            public_context,
+            " ".join(query_variants),
+            suffix="OEM part number catalog",
         )
-        enriched_results = self._enrich_part_catalog_results(results)
+        evidence = self._research_part_public_evidence_uncached(
+            query=public_query,
+            limit=limit,
+            allowed_domains=public_part_evidence_domains(),
+            providers=[],
+            max_pages=min(2, limit),
+            vin_redacted=part_query_had_vin or bool(context.get("vin")),
+            rejected_domains=[],
+        )
+        excerpts = {
+            str(item.get("url") or ""): str(item.get("excerpt") or "")
+            for item in evidence.get("evidence", [])
+            if isinstance(item, dict)
+        }
+        enriched_results = [
+            {
+                **item,
+                **(
+                    {"page_excerpt": excerpts[str(item.get("url") or "")]}
+                    if excerpts.get(str(item.get("url") or ""))
+                    else {}
+                ),
+            }
+            for item in evidence.get("results", [])
+            if isinstance(item, dict)
+        ]
         return {
-            "vehicle_context": context,
-            "part_query": normalized_query,
+            "vehicle_context": public_context,
+            "part_query": public_part_query,
             "query_variants": query_variants,
             "results": enriched_results,
             "part_numbers": self._extract_part_numbers_from_results(enriched_results),
             "source_group": [item.label for item in PARTS_CATALOG_SOURCES],
+            "web_research": evidence,
+        }
+
+    def _research_part_public_evidence_uncached(
+        self,
+        *,
+        query: str,
+        limit: int,
+        allowed_domains: list[str],
+        providers: list[str],
+        max_pages: int,
+        vin_redacted: bool,
+        rejected_domains: list[str],
+    ) -> dict[str, Any]:
+        base = self._part_evidence_base(
+            query=query,
+            vin_redacted=vin_redacted,
+            allowed_domains=allowed_domains,
+        )
+        try:
+            search = self._search.search_multi(
+                query,
+                limit=limit,
+                allowed_domains=allowed_domains,
+                providers=providers,
+            )
+        except InternetToolError:
+            return {
+                **base,
+                "ok": False,
+                "status": "search_unavailable",
+                "error": {"code": "public_search_unavailable", "retryable": True},
+                "rejected_domains": rejected_domains,
+            }
+
+        results: list[dict[str, Any]] = []
+        for item in search.get("results", []):
+            if not isinstance(item, dict) or not self._part_result_is_allowed(
+                item, allowed_domains
+            ):
+                continue
+            public_result = self._public_part_result(item)
+            if public_result is not None:
+                results.append(public_result)
+            if len(results) >= limit:
+                break
+        evidence: list[dict[str, Any]] = []
+        for result in results[:max_pages]:
+            entry: dict[str, Any] = {
+                "url": result["url"],
+                "domain": result["domain"],
+                "provider": result["provider"],
+                "source_id": result["source_id"],
+                "source_type": result["source_type"],
+                "source_authorized": bool(result["source_authorized"]),
+                "confidence": "candidate",
+                "access_status": "not_checked",
+                "access_flags": [],
+            }
+            try:
+                page = self._search.fetch_page_excerpt(result["url"], max_chars=1200)
+            except InternetToolError:
+                entry.update({"access_status": "unavailable", "access_flags": ["fetch_failed"]})
+            else:
+                flags = [
+                    str(self._redact_vin_value(flag or "")).strip()
+                    for flag in page.get("access_flags", [])
+                    if str(self._redact_vin_value(flag or "")).strip()
+                ]
+                entry.update(
+                    {
+                        "access_status": (
+                            "restricted" if bool(page.get("requires_human")) else "available"
+                        ),
+                        "access_flags": flags,
+                        "excerpt": self._redact_vin_value(str(page.get("excerpt") or ""))[:600],
+                    }
+                )
+            evidence.append(entry)
+
+        status = "candidate_evidence" if results else "no_public_evidence"
+        if (
+            results
+            and evidence
+            and all(item["access_status"] == "unavailable" for item in evidence)
+        ):
+            status = "partial_evidence"
+        return {
+            **base,
+            "ok": True,
+            "status": status,
+            "results": results,
+            "evidence": evidence,
+            "provider_order": self._redact_vin_value(search.get("provider_order", [])),
+            "providers": self._redact_vin_value(search.get("providers", [])),
+            "fallback_used": bool(search.get("fallback_used")),
+            "rejected_domains": rejected_domains,
+        }
+
+    def _part_evidence_base(
+        self, *, query: str, vin_redacted: bool, allowed_domains: list[str]
+    ) -> dict[str, Any]:
+        return {
+            "contract_version": _PUBLIC_PART_EVIDENCE_CONTRACT_VERSION,
+            "operation": "part_public_evidence",
+            "read_only": True,
+            "query": query,
+            "vin_redacted": vin_redacted,
+            "allowed_domains": allowed_domains,
+            "fitment_confirmed": False,
+            "next_step": "confirm_with_vin_specific_epc",
+        }
+
+    def _public_part_query(self, value: str) -> tuple[str, bool]:
+        redacted, had_vin = self._redact_vin_text(str(value or ""))
+        return re.sub(r"\s+", " ", redacted.replace("[vin-redacted]", " ")).strip(), had_vin
+
+    @staticmethod
+    def _redact_vin_text(value: str) -> tuple[str, bool]:
+        text = unquote(str(value or ""))
+        redacted, replacements = _VIN_LIKE_TOKEN_PATTERN.subn("[vin-redacted]", text)
+        return redacted, bool(replacements)
+
+    @classmethod
+    def _redact_vin_value(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return cls._redact_vin_text(value)[0]
+        if isinstance(value, list):
+            return [cls._redact_vin_value(item) for item in value]
+        if isinstance(value, dict):
+            return {str(key): cls._redact_vin_value(item) for key, item in value.items()}
+        return value
+
+    def _redacted_public_context(self, context: dict[str, Any]) -> dict[str, Any]:
+        result = self._redact_vin_value(context)
+        if not isinstance(result, dict):
+            return {}
+        if result.get("vin"):
+            result["vin"] = "[vin-redacted]"
+        return result
+
+    @staticmethod
+    def _normalized_domain(value: object) -> str:
+        text = str(value or "").strip().casefold().rstrip(".")
+        if not text:
+            return ""
+        try:
+            parsed = urlparse(text if "://" in text else f"//{text}")
+        except ValueError:
+            return ""
+        return str(parsed.hostname or "").strip().casefold().rstrip(".")
+
+    def _part_evidence_domains(
+        self, requested_domains: list[str] | None
+    ) -> tuple[list[str], list[str]]:
+        static_domains = public_part_evidence_domains()
+        if not requested_domains:
+            return static_domains, []
+        requested = {
+            domain for item in requested_domains if (domain := self._normalized_domain(item))
+        }
+        selected = [
+            domain
+            for domain in static_domains
+            if any(
+                domain == item or domain.endswith(f".{item}") or item.endswith(f".{domain}")
+                for item in requested
+            )
+        ]
+        rejected = sorted(
+            item
+            for item in requested
+            if not any(
+                item == domain or item.endswith(f".{domain}") or domain.endswith(f".{item}")
+                for domain in static_domains
+            )
+        )
+        return selected, rejected
+
+    @staticmethod
+    def _part_source_metadata(domain: str) -> tuple[str, str]:
+        normalized = str(domain or "").strip().casefold().rstrip(".")
+        for source in E8_PART_EVIDENCE_SOURCES:
+            if any(
+                normalized == item or normalized.endswith(f".{item}") for item in source.domains
+            ):
+                return source.key, source.kind
+        return "", "unclassified"
+
+    def _part_result_is_allowed(self, item: dict[str, Any], allowed_domains: list[str]) -> bool:
+        domain = self._normalized_domain(item.get("domain"))
+        url_domain = self._normalized_domain(item.get("url"))
+        return bool(
+            domain
+            and url_domain
+            and any(
+                domain == allowed or domain.endswith(f".{allowed}") for allowed in allowed_domains
+            )
+            and any(
+                url_domain == allowed or url_domain.endswith(f".{allowed}")
+                for allowed in allowed_domains
+            )
+        )
+
+    def _public_part_result(self, item: dict[str, Any]) -> dict[str, Any] | None:
+        raw_url = str(item.get("url") or "")
+        safe_url, url_contains_vin = self._redact_vin_text(raw_url)
+        if url_contains_vin:
+            return None
+        domain = str(self._redact_vin_value(item.get("domain") or ""))[:253]
+        source_id, source_type = self._part_source_metadata(domain)
+        return {
+            "title": str(self._redact_vin_value(item.get("title") or ""))[:500],
+            "url": safe_url[:2048],
+            "snippet": str(self._redact_vin_value(item.get("snippet") or ""))[:1000],
+            "domain": domain,
+            "provider": str(self._redact_vin_value(item.get("provider") or ""))[:40],
+            "source_id": source_id,
+            "source_type": source_type,
+            "source_authorized": bool(source_id),
         }
 
     def _lookup_part_prices_uncached(
@@ -476,6 +739,69 @@ class AutomotiveLookupService:
                 limit=normalized_limit,
                 allowed_domains=normalized_domains,
                 providers=normalized_providers,
+            ),
+        )
+
+    def research_part_public_evidence(
+        self,
+        *,
+        query: str,
+        limit: int = 3,
+        allowed_domains: list[str] | None = None,
+        providers: list[str] | None = None,
+        max_pages: int = 2,
+    ) -> dict[str, Any]:
+        """Return compact, VIN-safe public evidence for a part candidate.
+
+        E8 deliberately searches only its static catalog/price registry. It is
+        evidence discovery, never a VIN-EPC or fitment decision.
+        """
+
+        public_query, vin_redacted = self._public_part_query(query)
+        normalized_limit = self._normalize_limit(limit, default=3, maximum=5)
+        normalized_max_pages = self._normalize_limit(max_pages, default=2, minimum=0, maximum=2)
+        selected_domains, rejected_domains = self._part_evidence_domains(allowed_domains)
+        normalized_providers = [
+            str(item or "").strip() for item in (providers or []) if str(item or "").strip()
+        ]
+        base = self._part_evidence_base(
+            query=public_query,
+            vin_redacted=vin_redacted,
+            allowed_domains=selected_domains,
+        )
+        if not public_query:
+            return {
+                **base,
+                "ok": False,
+                "status": "blocked",
+                "error": {"code": "part_query_required_after_vin_redaction", "retryable": False},
+                "rejected_domains": rejected_domains,
+            }
+        if allowed_domains and not selected_domains:
+            return {
+                **base,
+                "ok": False,
+                "status": "blocked",
+                "error": {"code": "static_part_source_required", "retryable": False},
+                "rejected_domains": rejected_domains,
+            }
+        return self._cached_result(
+            "research_part_public_evidence",
+            {
+                "query": public_query,
+                "limit": normalized_limit,
+                "allowed_domains": selected_domains,
+                "providers": normalized_providers,
+                "max_pages": normalized_max_pages,
+            },
+            lambda: self._research_part_public_evidence_uncached(
+                query=public_query,
+                limit=normalized_limit,
+                allowed_domains=selected_domains,
+                providers=normalized_providers,
+                max_pages=normalized_max_pages,
+                vin_redacted=vin_redacted,
+                rejected_domains=rejected_domains,
             ),
         )
 

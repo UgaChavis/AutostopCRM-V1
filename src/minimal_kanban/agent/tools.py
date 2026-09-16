@@ -153,6 +153,7 @@ class AgentToolExecutor:
             "fetch_page_excerpt": self._fetch_page_excerpt,
             "fetch_page_browser": self._fetch_page_browser,
             "research_drive2_cases": self._research_drive2_cases,
+            "research_part_public_evidence": self._research_part_public_evidence,
         }
 
     @property
@@ -777,6 +778,17 @@ class AgentToolExecutor:
             limit=self._maybe_int(args.get("limit")) or 5,
             allowed_domains=self._maybe_list(args.get("allowed_domains")),
             providers=self._maybe_text_list(args.get("providers")),
+        )
+
+    def _research_part_public_evidence(self, args: dict[str, Any]) -> dict[str, Any]:
+        self._consume_external_request_budget()
+        max_pages = self._maybe_int(args.get("max_pages"))
+        return self._automotive.research_part_public_evidence(
+            query=self._required_text(args, "query"),
+            limit=self._maybe_int(args.get("limit")) or 3,
+            allowed_domains=self._maybe_list(args.get("allowed_domains")),
+            providers=self._maybe_text_list(args.get("providers")),
+            max_pages=max_pages if max_pages is not None else 2,
         )
 
     def _fetch_page_excerpt(self, args: dict[str, Any]) -> dict[str, Any]:

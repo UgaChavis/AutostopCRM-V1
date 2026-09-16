@@ -97,6 +97,12 @@ class ModuleMapTests(unittest.TestCase):
             ["E4", "E5", "E7", "E6"],
         )
         self.assertEqual(self.nodes["E7"]["title"], "Интернет-проверка детали")
+        self.assertEqual(self.nodes["E8"]["title"], "Веб-шлюз")
+        self.assertIn("Web Research Gateway", self.nodes["E8"]["description"])
+        self.assertIn(
+            "обезличенный запрос",
+            next(item for item in self.data["relations"] if item["id"] == "L22")["description"],
+        )
         self.assertEqual(self.nodes["E8"].get("tone"), "N")
         self.assertGreaterEqual(
             self.nodes["E8"]["x"], self.nodes["E1"]["x"] + self.nodes["E1"]["width"]

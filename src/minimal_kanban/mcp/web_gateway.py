@@ -12,6 +12,7 @@ WEB_RESEARCH_CAPABILITY_NAMES = frozenset(
         "fetch_page_excerpt",
         "fetch_page_browser",
         "research_drive2_cases",
+        "research_part_public_evidence",
     }
 )
 WEB_RESEARCH_CAPABILITY_DESCRIPTIONS = {
@@ -29,6 +30,11 @@ WEB_RESEARCH_CAPABILITY_DESCRIPTIONS = {
     "research_drive2_cases": (
         "Research bounded public Drive2 logbook cases for a vehicle symptom; returns compact "
         "case evidence and access status without account use or raw-page retention."
+    ),
+    "research_part_public_evidence": (
+        "E8 Web Research Gateway: find compact public evidence for a part through the provider "
+        "cascade and static catalog registry. VIN-like tokens are redacted before search; this "
+        "read-only result never confirms fitment."
     ),
 }
 WEB_RESEARCH_CAPABILITY_SCHEMAS: dict[str, dict[str, Any]] = {
@@ -105,6 +111,28 @@ WEB_RESEARCH_CAPABILITY_SCHEMAS: dict[str, dict[str, Any]] = {
         },
         "required": ["query"],
     },
+    "research_part_public_evidence": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "query": {"type": "string", "minLength": 1, "maxLength": 1000},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 5, "default": 3},
+            "allowed_domains": {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1, "maxLength": 253},
+                "maxItems": 20,
+                "uniqueItems": True,
+            },
+            "providers": {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1, "maxLength": 40},
+                "maxItems": 10,
+                "uniqueItems": True,
+            },
+            "max_pages": {"type": "integer", "minimum": 0, "maximum": 2, "default": 2},
+        },
+        "required": ["query"],
+    },
 }
 
 
@@ -164,8 +192,15 @@ def _field_error(field: str, value: Any, schema: Mapping[str, Any]) -> str | Non
     elif expected_type == "array":
         if not isinstance(value, list) or len(value) > int(schema.get("maxItems", len(value))):
             return f"web_argument_{field}_invalid"
+        items = schema.get("items") if isinstance(schema.get("items"), Mapping) else {}
         if not all(isinstance(item, str) and item.strip() for item in value):
             return f"web_argument_{field}_invalid"
+        if any(
+            len(item) < int(items.get("minLength", 0))
+            or len(item) > int(items.get("maxLength", len(item)))
+            for item in value
+        ):
+            return f"web_argument_{field}_out_of_range"
         if schema.get("uniqueItems") and len(set(value)) != len(value):
             return f"web_argument_{field}_duplicates"
     return None

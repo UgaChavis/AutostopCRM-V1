@@ -40,6 +40,8 @@ MANAGER_RELEASE_ROOT="${AUTOSTOP_MANAGER_RELEASE_ROOT:-/opt/autostop-manager-rel
 MANAGER_CURRENT_LINK="${AUTOSTOP_MANAGER_CURRENT_LINK:-$MANAGER_RELEASE_ROOT/current}"
 MANAGER_CONTAINER_DIR="${AUTOSTOP_MANAGER_CONTAINER_DIR:-/opt/AutostopManager}"
 MANAGER_RELEASE_PYTHON="$MANAGER_SOURCE_DIR/.venv/bin/python"
+MANAGER_CRM_MCP_ENV="/opt/AutostopManager/.crm-mcp.env"
+MANAGER_MCP_ACTIVATE_ON_DEPLOY="${AUTOSTOP_MANAGER_MCP_ACTIVATE_ON_DEPLOY:-0}"
 MAINTENANCE_MARKER_HOST="${AUTOSTOP_MAINTENANCE_MARKER_HOST:-$CRM_DATA_DIR/.agent-gateway-maintenance}"
 PUBLIC_SITE_URL="${AUTOSTOP_PUBLIC_SITE_URL:-https://crm.autostopcrm.ru}"
 PUBLIC_MCP_URL="${AUTOSTOP_PUBLIC_MCP_URL:-https://crm.autostopcrm.ru/mcp}"
@@ -97,6 +99,11 @@ fi
 if ! [[ "$MANAGER_RELEASE_RETENTION_COUNT" =~ ^[0-9]+$ ]] \
   || (( MANAGER_RELEASE_RETENTION_COUNT < 2 || MANAGER_RELEASE_RETENTION_COUNT > 100 )); then
   echo "ERROR: AUTOSTOP_MANAGER_RELEASE_RETENTION_COUNT must be between 2 and 100." >&2
+  exit 2
+fi
+if [[ "$MANAGER_MCP_ACTIVATE_ON_DEPLOY" != "0" \
+  && "$MANAGER_MCP_ACTIVATE_ON_DEPLOY" != "1" ]]; then
+  echo "ERROR: AUTOSTOP_MANAGER_MCP_ACTIVATE_ON_DEPLOY must be 0 or 1." >&2
   exit 2
 fi
 for retention_count in "$RELEASE_IMAGE_RETENTION_COUNT" "$ROLLBACK_IMAGE_RETENTION_COUNT"; do
@@ -322,10 +329,14 @@ auth_rotated=0
 rollback_active=0
 previous_manager_dir=""
 auth_backup_dir="$BACKUP_ROOT/.auth-rollback-$release_id"
+manager_crm_mcp_backup_dir="$BACKUP_ROOT/.manager-crm-mcp-rollback-$release_id"
 manager_release_dir="$MANAGER_RELEASE_ROOT/${release_id}-manager-${manager_revision:0:12}"
 manager_release_staging_dir="${manager_release_dir}.partial-$$"
 manager_attempt_cleanup_authorized=0
 premaintenance_cleanup_done=0
+manager_crm_mcp_snapshot_created=0
+manager_crm_mcp_synced=0
+manager_mcp_activation_attempted=0
 
 cleanup_owned_premaintenance_artifacts() {
   if (( maintenance_started != 0 || premaintenance_cleanup_done != 0 )); then
@@ -894,6 +905,72 @@ remove_auth_backup_if_safe() {
   fi
 }
 
+sync_manager_crm_mcp_configuration() {
+  run_release "$PYTHON_BIN" scripts/configure_manager_crm_mcp.py \
+    --server-env "$ROOT_DIR/.env" \
+    --manager-env "$MANAGER_CRM_MCP_ENV" \
+    snapshot --backup-dir "$manager_crm_mcp_backup_dir"
+  manager_crm_mcp_snapshot_created=1
+  run_release "$PYTHON_BIN" scripts/configure_manager_crm_mcp.py \
+    --server-env "$ROOT_DIR/.env" \
+    --manager-env "$MANAGER_CRM_MCP_ENV" sync
+  manager_crm_mcp_synced=1
+  run_release "$PYTHON_BIN" scripts/configure_manager_crm_mcp.py \
+    --server-env "$ROOT_DIR/.env" \
+    --manager-env "$MANAGER_CRM_MCP_ENV" check
+}
+
+restore_manager_crm_mcp_configuration() {
+  if (( ${manager_crm_mcp_synced:-0} != 1 )); then
+    return 0
+  fi
+  if run_maintenance "$PYTHON_BIN" scripts/configure_manager_crm_mcp.py \
+    --manager-env "$MANAGER_CRM_MCP_ENV" \
+    restore --backup-dir "$manager_crm_mcp_backup_dir"; then
+    manager_crm_mcp_synced=0
+    return 0
+  fi
+  echo "MANAGER CRM MCP RECOVERY WARNING: private E8 configuration snapshot is preserved at $manager_crm_mcp_backup_dir." >&2
+  return 1
+}
+
+remove_manager_crm_mcp_backup_if_safe() {
+  if (( ${manager_crm_mcp_snapshot_created:-0} != 1 )); then
+    return 0
+  fi
+  if (( ${manager_crm_mcp_synced:-0} != 0 )); then
+    echo "MANAGER CRM MCP RECOVERY WARNING: refusing to remove the active private snapshot at $manager_crm_mcp_backup_dir." >&2
+    return 1
+  fi
+  if ! rm -rf "$manager_crm_mcp_backup_dir"; then
+    echo "WARN: committed Manager CRM MCP snapshot cleanup failed at $manager_crm_mcp_backup_dir." >&2
+    return 1
+  fi
+  manager_crm_mcp_snapshot_created=0
+}
+
+activate_manager_native_mcp() {
+  local target_dir="$1"
+  local mode="$2"
+  local active_manager_dir expected_manager_dir installer
+  active_manager_dir="$(readlink -f "$MANAGER_CURRENT_LINK")"
+  expected_manager_dir="$(readlink -f "$target_dir")"
+  if [[ "$active_manager_dir" != "$expected_manager_dir" ]]; then
+    echo "ERROR: Manager native MCP activation source is not the expected release." >&2
+    return 2
+  fi
+  installer="$MANAGER_CURRENT_LINK/scripts/install-manager-mcp.sh"
+  if [[ ! -x "$installer" || -L "$installer" ]]; then
+    echo "ERROR: active Manager native MCP installer is unavailable." >&2
+    return 2
+  fi
+  if [[ "$mode" == "release" ]]; then
+    run_release "$installer" --replace-unit --activate
+  else
+    run_maintenance "$installer" --replace-unit --activate
+  fi
+}
+
 rollback_release() {
   local original_status="$1"
   local rollback_ok=1
@@ -926,6 +1003,9 @@ rollback_release() {
   if (( marker_rearmed == 0 )); then
     echo "ROLLBACK CRITICAL: CRM remains stopped because write protection is unavailable." >&2
     if restore_auth_configuration; then
+      if (( ${manager_crm_mcp_snapshot_created:-0} == 1 )); then
+        restore_manager_crm_mcp_configuration || true
+      fi
       remove_auth_backup_if_safe || true
     fi
     set -e
@@ -949,8 +1029,14 @@ rollback_release() {
       rollback_ok=0
     fi
   fi
-  activate_manager_snapshot "$previous_manager_dir" || rollback_ok=0
   restore_auth_configuration || rollback_ok=0
+  if (( ${manager_crm_mcp_snapshot_created:-0} == 1 )); then
+    restore_manager_crm_mcp_configuration || rollback_ok=0
+  fi
+  activate_manager_snapshot "$previous_manager_dir" || rollback_ok=0
+  if (( ${manager_mcp_activation_attempted:-0} == 1 )); then
+    activate_manager_native_mcp "$previous_manager_dir" maintenance || rollback_ok=0
+  fi
   run_maintenance env AUTOSTOP_RELEASE_IMAGE="$rollback_image" docker compose up \
     -d --no-deps --no-build --force-recreate "$SERVICE_NAME" >&2 || rollback_ok=0
   if wait_for_health "$rollback_image" 0; then
@@ -972,6 +1058,12 @@ rollback_release() {
     remove_auth_backup_if_safe || true
   else
     echo "ROLLBACK CRITICAL: auth recovery is incomplete; private snapshot remains at $auth_backup_dir." >&2
+  fi
+  if (( ${manager_crm_mcp_snapshot_created:-0} == 1 \
+      && ${manager_crm_mcp_synced:-0} == 0 )); then
+    remove_manager_crm_mcp_backup_if_safe || true
+  else
+    echo "ROLLBACK CRITICAL: Manager CRM MCP recovery is incomplete; private snapshot remains at $manager_crm_mcp_backup_dir." >&2
   fi
   if (( rollback_ok == 0 )); then
     echo "ROLLBACK completed with warnings; inspect protected data and auth state." >&2
@@ -1086,6 +1178,21 @@ run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_agent_ga
 run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_mcp_oauth.py \
   --mcp-url "$PUBLIC_MCP_URL"
 
+# E8 credentials are synced only after the candidate CRM has passed its
+# internal/public read-only Gateway and OAuth checks.  The helper writes only
+# the fixed loopback CRM MCP URL and current internal bearer into Manager's
+# separate root-only environment file, with a recoverable pre-sync snapshot.
+sync_manager_crm_mcp_configuration
+assert_release_budget
+if [[ "$MANAGER_MCP_ACTIVATE_ON_DEPLOY" == "1" ]]; then
+  # The active Manager installer owns its bounded listener/native-MCP probe.
+  # Mark the attempt first so rollback restores the previous service even when
+  # candidate activation stops halfway through.
+  manager_mcp_activation_attempted=1
+  activate_manager_native_mcp "$manager_release_dir" release
+  assert_release_budget
+fi
+
 # Public site/auth/health probes are non-mutating and run while the marker is
 # still active. Removing the marker is the final fallible release action.
 run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_live_connector.py \
@@ -1119,6 +1226,8 @@ deployment_succeeded=1
 trap - EXIT
 auth_rotated=0
 remove_auth_backup_if_safe || true
+manager_crm_mcp_synced=0
+remove_manager_crm_mcp_backup_if_safe || true
 
 # Retention is deliberately post-success and best effort: cleanup can never
 # roll back or interrupt a healthy release after public writes reopen. The

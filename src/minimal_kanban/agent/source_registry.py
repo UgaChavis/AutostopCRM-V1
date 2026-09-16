@@ -77,6 +77,39 @@ PARTS_PRICE_SOURCES: tuple[SourceDefinition, ...] = (
     ),
 )
 
+# E8 is deliberately narrower than the legacy catalog and price source lists.
+# Its public-evidence contract must stay aligned with the canonical Manager IDs.
+E8_PART_EVIDENCE_SOURCES: tuple[SourceDefinition, ...] = (
+    SourceDefinition(
+        key="partsouq_catalog",
+        label="PartSouq",
+        kind="oem_catalog",
+        domains=("partsouq.com",),
+        note="Public OEM catalog evidence.",
+    ),
+    SourceDefinition(
+        key="amayama_catalog",
+        label="Amayama",
+        kind="oem_catalog",
+        domains=("amayama.com",),
+        note="Public OEM catalog evidence.",
+    ),
+    SourceDefinition(
+        key="emex_public",
+        label="Emex",
+        kind="price_catalog",
+        domains=("emex.ru",),
+        note="Public price-catalog evidence.",
+    ),
+    SourceDefinition(
+        key="exist",
+        label="Exist",
+        kind="price_catalog",
+        domains=("exist.ru",),
+        note="Public price-catalog evidence.",
+    ),
+)
+
 DIAGNOSTIC_SOURCES: tuple[SourceDefinition, ...] = (
     SourceDefinition(
         key="obd_codes",
@@ -130,6 +163,12 @@ def trusted_domains(*, kind: str) -> list[str]:
         "search": GENERIC_WEB_SOURCES,
     }
     return [domain for item in registries.get(kind, ()) for domain in item.domains]
+
+
+def public_part_evidence_domains() -> list[str]:
+    """Return the fixed public allowlist for the E8 part-evidence gateway."""
+
+    return [domain for item in E8_PART_EVIDENCE_SOURCES for domain in item.domains]
 
 
 def describe_sources() -> str:
