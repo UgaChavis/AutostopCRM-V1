@@ -32,8 +32,8 @@ class ModuleMapTests(unittest.TestCase):
         self.assertEqual(set(self.nodes), expected - {"N1", "N2"})
         self.assertEqual(len(self.data["elements"]), 30)
         edges = {item["id"]: item for item in self.data["relations"]}
-        self.assertEqual(len(self.data["relations"]), 18)
-        self.assertEqual(set(edges), {f"L{i}" for i in range(1, 20)} - {"L6"})
+        self.assertEqual(len(self.data["relations"]), 19)
+        self.assertEqual(set(edges), {f"L{i}" for i in range(1, 20)})
         pairs = [
             ("A1", "A2"),
             ("A2", "A3"),
@@ -56,8 +56,6 @@ class ModuleMapTests(unittest.TestCase):
             ("F1", "F2"),
         ]
         for index, pair in enumerate(pairs, 1):
-            if index == 6:
-                continue
             edge = edges[f"L{index}"]
             self.assertEqual((edge["from"], edge["to"]), pair)
             self.assertEqual(edge["direction"], "forward" if index in {1, 6, 7} else "both")

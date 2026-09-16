@@ -55,10 +55,10 @@ Board settings open **«Открыть инфраструктуру менедж
 The public HTML is a shell; `GET /api/get_module_map_infrastructure` still requires
 an operator session and returns `autostopmanager.infrastructure-map.v1`.
 The source dataset is `web_app_assets/source/manager_infrastructure.json`: 30 stable
-element IDs and 18 connection IDs, with coordinates, nesting, descriptions and
+element IDs and 19 connection IDs, with coordinates, nesting, descriptions and
 protocols. Update that dataset to change descriptions or layout. The former
-application/IT maps and their snapshots are retired. Removed IDs `N1`, `N2` and `L6`
-are not reused.
+application/IT maps and their snapshots are retired. Removed IDs `N1` and `N2` are not reused.
+`L6` connects the work account to the compact wake node without a visible label.
 
 `B4.indicator` in the dataset is a manually maintained display state: `on`
 (green), `off` (red), or `unknown` (yellow; also the fallback for missing or

@@ -68,7 +68,9 @@ class ManagerMapBrowserTests(unittest.TestCase):
         from minimal_kanban.web_assets import MODULE_MAP_INFRASTRUCTURE
 
         self.login()
-        self.assertEqual(self.page.locator('[data-id="N1"],[data-id="L6"],.legend').count(), 0)
+        self.assertEqual(
+            self.page.locator('[data-id="N1"],[data-id="L6"] .edge-label,.legend').count(), 0
+        )
         self.search("A1")
         self.assertEqual(self.page.locator("#detailTitle").inner_text(), "Инструкции")
         self.assertEqual(self.page.locator('[data-id="A1"] .subtitle').count(), 0)
@@ -128,8 +130,8 @@ class ManagerMapBrowserTests(unittest.TestCase):
         identifiers = self.page.locator("[data-id]").evaluate_all(
             "elements => elements.map(el => el.dataset.id)"
         )
-        self.assertEqual(len(identifiers), 48)
-        self.assertEqual(len(set(identifiers)), 48)
+        self.assertEqual(len(identifiers), 49)
+        self.assertEqual(len(set(identifiers)), 49)
         for code in identifiers:
             with self.subTest(code=code):
                 self.page.locator("#fit").click()
@@ -248,7 +250,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.assertEqual(self.page.locator("[data-id]").count(), 0)
         self.page.unroute("**/api/get_module_map_infrastructure")
         self.login()
-        self.assertEqual(self.page.locator("[data-id]").count(), 48)
+        self.assertEqual(self.page.locator("[data-id]").count(), 49)
         self.assertEqual(self.errors, [])
 
 

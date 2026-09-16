@@ -112,18 +112,16 @@
     {
       "id": "B4",
       "title": "Запуск по событию",
-      "x": 35,
-      "y": 845,
-      "width": 240,
-      "height": 70,
+      "x": 42,
+      "y": 805,
+      "width": 180,
+      "height": 42,
       "description": "Wake-адаптер передаёт событие рабочего Telegram агенту Codex. Это событийный запуск, а не периодический опрос.",
       "group": "B",
       "kind": "module",
-      "lines": [
-        "Wake-адаптер"
-      ],
-      "icon": "bell",
-      "indicator": "off"
+      "lines": [],
+      "indicator": "off",
+      "compact": true
     },
     {
       "id": "C1",
@@ -505,13 +503,27 @@
       "kind": "exchange"
     },
     {
+      "id": "L6",
+      "from": "B2",
+      "to": "B4",
+      "label": "Входящее событие",
+      "protocol": "Локальное событие",
+      "description": "Входящее рабочего аккаунта передаётся Wake-адаптеру при выполнении условия N1.",
+      "path": "M132 696 V805",
+      "label_x": 170,
+      "label_y": 750,
+      "direction": "forward",
+      "kind": "event",
+      "show_label": false
+    },
+    {
       "id": "L7",
       "from": "B4",
       "to": "A2",
       "label": "JSON-RPC WebSocket",
       "protocol": "JSON-RPC / локальный WebSocket",
       "description": "Wake-адаптер инициирует ход агента по событию.",
-      "path": "M275 880 H420 Q595 880 595 665 V265 Q595 205 642 163",
+      "path": "M222 826 H420 Q595 826 595 665 V265 Q595 205 642 163",
       "label_x": 565,
       "label_y": 520,
       "direction": "forward",
@@ -535,11 +547,11 @@
       "id": "L9",
       "from": "C1",
       "to": "C2",
-      "label": "Подключение к CRM",
+      "label": "Запросы CRM",
       "protocol": "MCP-коннектор",
       "description": "Запросы и результаты инструментов CRM через подключение codex_apps.",
       "path": "M845 320 V425",
-      "label_x": 895,
+      "label_x": 930,
       "label_y": 375,
       "direction": "both",
       "kind": "exchange"

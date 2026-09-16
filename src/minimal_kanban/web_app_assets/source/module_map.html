@@ -148,18 +148,18 @@
       const indicator=indicatorFor(n);
       const g = el('g', {class:'node',transform:`translate(${n.x} ${n.y})`,'data-id':n.id,tabindex:0,role:'button','aria-label':`${n.id}: ${n.title}${indicator ? '. '+indicator.label : ''}`,'aria-pressed':'false',style:`--color:${colors[n.tone||n.group]}`});
       g.append(el('title',{},`${n.id} · ${n.title}`));
-      g.append(el('rect',{class:'card',width:n.width,height:n.height,rx:n.kind==='item'?6:13}));
+      g.append(el('rect',{class:'card',width:n.width,height:n.height,rx:n.kind==='item'?6:n.compact?9:13}));
       if (n.icon) g.append(el('path',{d:icons[n.icon],transform:'translate(18 24)',fill:'none',stroke:colors[n.tone||n.group],'stroke-width':2,'stroke-linejoin':'round','stroke-linecap':'round','aria-hidden':true}));
       const nested = n.kind==='item';
-      let font = n.id==='A2'?26:nested?15:n.kind==='condition'?15:19;
-      const start = nested?49:n.icon?59:15;
+      let font = n.compact?14:n.id==='A2'?26:nested?15:n.kind==='condition'?15:19;
+      const start = n.compact?12:nested?49:n.icon?59:15;
       const available=n.width-start-12-(indicator?18:0);
       if(!nested&&n.kind!=='condition') {
         while(font>15&&measure(n.title,font,'600')>available) font-=.5;
       }
       while(nested&&font>11&&linesFor(n.title,available,font).length*font*1.22>n.height-7) font-=.5;
       const titleLines = linesFor(n.title,available,font);
-      textLines(g,titleLines,start,nested?Math.max(20,(n.height-titleLines.length*font*1.22)/2+font):n.kind==='condition'?21:31,font,'',nested?'normal':'600');
+      textLines(g,titleLines,start,n.compact?(n.height+font*.7)/2:nested?Math.max(20,(n.height-titleLines.length*font*1.22)/2+font):n.kind==='condition'?21:31,font,'',nested?'normal':'600');
       if (n.lines.length) {
         const y = Math.max(n.height>=105?68:55,31+titleLines.length*font*1.22+4);
         const sx=n.icon&&n.height<105?59:14;
@@ -187,7 +187,7 @@
       if (r.direction==='both') attrs['marker-start']=attrs['marker-end'];
       g.append(el('path',attrs));
       if(r.show_label===false) {stage.append(g);return;}
-      const label = r.id==='L9'?'':r.label;
+      const label = r.label;
       const labelLines = linesFor(label,r.label_max_width||220,14);
       const w=label?55+Math.max(...labelLines.map(t=>measure(t,14))):42;
       const h=Math.max(28,labelLines.length*17+10), x=r.label_x-w/2, y=r.label_y-h/2;
@@ -320,7 +320,7 @@
         const result=await response.json();
         if(!result.ok||result.data?.schema_version!=='autostopmanager.infrastructure-map.v1') throw new Error('data');
         data=result.data; nodes=new Map(data.elements.map(n=>[n.id,n])); items=new Map([...data.elements,...data.relations].map(n=>[n.id,n]));
-        if(nodes.size!==30||items.size!==48||data.relations.some(r=>!nodes.has(r.from)||!nodes.has(r.to))) throw new Error('data');
+        if(nodes.size!==30||items.size!==49||data.relations.some(r=>!nodes.has(r.from)||!nodes.has(r.to))) throw new Error('data');
         render(); $('state').hidden=true; $('map').removeAttribute('hidden'); $('hint').hidden=false;
         ['zoomOut','zoomReset','zoomIn','fit'].forEach(id=>$(id).disabled=false);
         requestAnimationFrame(()=>{fit();hashSelection();});
