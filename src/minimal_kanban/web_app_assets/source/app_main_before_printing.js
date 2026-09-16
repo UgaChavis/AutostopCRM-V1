@@ -5951,7 +5951,11 @@
       };
     }
 
-    function openMobileNewCard(columnId = '') {
+    function openMobileNewCard() {
+      openMobileNewCardInColumn('');
+    }
+
+    function openMobileNewCardInColumn(columnId) {
       invalidateMobileCardContext();
       state.mobileCardId = '';
       state.mobileCard = emptyMobileCardDraft();
@@ -6087,7 +6091,7 @@
       const createButton = target instanceof HTMLElement ? target.closest('[data-mobile-create-in]') : null;
       if (createButton && els.mobileBoardColumns?.contains(createButton)) {
         event.preventDefault();
-        openMobileNewCard(createButton.getAttribute('data-mobile-create-in'));
+        openMobileNewCardInColumn(createButton.getAttribute('data-mobile-create-in'));
         return;
       }
       const toggleButton = target instanceof HTMLElement ? target.closest('[data-mobile-column-toggle]') : null;

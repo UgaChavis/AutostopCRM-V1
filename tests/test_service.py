@@ -8230,15 +8230,15 @@ class CardServiceTests(CardServiceCase):
             {"column_id": third["id"], "before_column_id": first["id"]}
         )
         self.assertEqual(
-            [column["id"] for column in moved["columns"]][-3:],
-            [third["id"], first["id"], second["id"]],
+            [column["id"] for column in moved["columns"]][-4:],
+            [third["id"], first["id"], second["id"], "parts_store"],
         )
         self.assertTrue(moved["meta"]["changed"])
 
         moved_again = self.service.move_column({"column_id": third["id"]})
         self.assertEqual(
-            [column["id"] for column in moved_again["columns"]][-3:],
-            [first["id"], second["id"], third["id"]],
+            [column["id"] for column in moved_again["columns"]][-4:],
+            [first["id"], second["id"], third["id"], "parts_store"],
         )
         self.assertEqual(
             [column["position"] for column in moved_again["columns"]],

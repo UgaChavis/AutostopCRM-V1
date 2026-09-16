@@ -176,7 +176,7 @@ assert.notEqual(current.children[0],nestedOne);assert.equal(renders.length,1);
         self.run_node(
             """
 const assert=require('node:assert/strict');const state={mobileLite:false,boardScale:1};
-const COLUMN_TONES=[{tint:'t',head:'h',edge:'e',empty:'x'}],READY_COLUMN_LABEL='ready';
+const COLUMN_TONES=[{tint:'t',head:'h',edge:'e',empty:'x'}],READY_COLUMN_LABEL='ready',PARTS_STORE_COLUMN_ID='parts_store';
 const column={id:'one',label:'regular'},snapshot={columns:[column]};let cards=[{id:'a'},{id:'b'}];
 function sortedCardsForBoardColumn(){return cards;}function extraBoardColumnCards(){return cards;}
 function extraBoardColumnPreferences(){return {is_detached:false};}
@@ -193,6 +193,9 @@ cards=[];html=renderBoardColumnHtml(column,0,snapshot);assert.doesNotMatch(html,
 assert.match(html,/disabled/,'last column deletion remains blocked');
 html=renderBoardColumnHtml({id:'ready',label:'ready'},0,{columns:[column,{id:'ready'}]});
 assert.match(html,/disabled data-system-column="ready"/);
+html=renderBoardColumnHtml({id:'parts_store',label:'Магазин автозапчастей'},1,{columns:[column,{id:'parts_store'}]});
+assert.match(html,/column--parts-store/);assert.match(html,/data-create-in="parts_store"/);
+assert.doesNotMatch(html,/data-delete-column|data-rename-column/);
 html=renderExtraBoardColumnHtml(snapshot);assert.equal((html.match(/class="empty"/g)||[]).length,1);
 """
         )

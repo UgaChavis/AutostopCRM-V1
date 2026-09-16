@@ -101,7 +101,8 @@ assert.deepEqual(calls, [null, prepared]);
             )
             self.assertEqual(gzip.decompress(_board_asset_gzip_bytes(path)), raw)
             self.assertNotIn(source, BOARD_WEB_APP_JS)
-        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 1_191_218 * 0.75)
+        # Keep the 25% startup reduction ratchet after adding parts-store controls.
+        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 1_192_200 * 0.75)
 
     def test_auxiliary_workspaces_are_lazy_while_popup_entrypoints_stay_eager(self) -> None:
         module = BOARD_WEB_APP_MODULES[BOARD_WEB_APP_MODULE_MANIFEST["auxiliary"]]
