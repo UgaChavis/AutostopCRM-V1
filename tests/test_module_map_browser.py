@@ -144,8 +144,8 @@ class ManagerMapBrowserTests(unittest.TestCase):
         identifiers = self.page.locator("[data-id]").evaluate_all(
             "elements => elements.map(el => el.dataset.id)"
         )
-        self.assertEqual(len(identifiers), 51)
-        self.assertEqual(len(set(identifiers)), 51)
+        self.assertEqual(len(identifiers), 54)
+        self.assertEqual(len(set(identifiers)), 54)
         for code in identifiers:
             with self.subTest(code=code):
                 self.close_detail()
@@ -286,7 +286,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
     def test_removed_hashes_open_current_map(self) -> None:
         self.page.goto(self.runtime.base_url + "/module-map#C1")
         self.login()
-        self.assertEqual(self.page.locator("[data-id]").count(), 51)
+        self.assertEqual(self.page.locator("[data-id]").count(), 54)
         self.assertFalse(self.page.locator("#detail").is_visible())
         self.assertEqual(self.page.evaluate("location.hash"), "")
         for code in ("L8", "L9"):
@@ -295,7 +295,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
                 self.page.wait_for_function(
                     "location.hash==='' && document.querySelector('#detail').hidden"
                 )
-                self.assertEqual(self.page.locator("[data-id]").count(), 51)
+                self.assertEqual(self.page.locator("[data-id]").count(), 54)
         self.assertEqual(self.errors, [])
 
     def test_failed_load_can_retry_without_exposing_partial_map(self) -> None:
@@ -310,7 +310,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.assertEqual(self.page.locator("[data-id]").count(), 0)
         self.page.unroute("**/api/get_module_map_infrastructure")
         self.login()
-        self.assertEqual(self.page.locator("[data-id]").count(), 51)
+        self.assertEqual(self.page.locator("[data-id]").count(), 54)
         self.assertEqual(self.errors, [])
 
 
