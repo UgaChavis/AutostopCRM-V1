@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import unittest
 from pathlib import Path
@@ -15,6 +16,10 @@ from browser_smoke_runtime import start_temp_runtime
 class ManagerMapBrowserTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        if sys.platform == "win32":
+            previous_policy = asyncio.get_event_loop_policy()
+            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+            cls.addClassCleanup(asyncio.set_event_loop_policy, previous_policy)
         try:
             from playwright.sync_api import sync_playwright
         except ImportError as error:
