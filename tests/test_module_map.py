@@ -67,6 +67,7 @@ class ModuleMapTests(unittest.TestCase):
         self.assertIn("OAuth 2.1", edges["L10"]["protocol"])
         for code in ("L20", "L21", "L22"):
             self.assertFalse(edges[code].get("show_label", True))
+        self.assertEqual(edges["L22"]["path"], "M1588 600.5 H1614")
 
     def test_hierarchy_geometry_and_russian_descriptions(self) -> None:
         for node in self.nodes.values():
@@ -100,6 +101,8 @@ class ModuleMapTests(unittest.TestCase):
         self.assertGreaterEqual(
             self.nodes["E8"]["x"], self.nodes["E1"]["x"] + self.nodes["E1"]["width"]
         )
+        self.assertEqual((self.nodes["E8"]["width"], self.nodes["E8"]["height"]), (130, 40))
+        self.assertTrue(self.nodes["E8"].get("compact"))
         for edge in self.data["relations"]:
             for field in ("label", "protocol", "description", "path"):
                 self.assertTrue(edge[field].strip())
