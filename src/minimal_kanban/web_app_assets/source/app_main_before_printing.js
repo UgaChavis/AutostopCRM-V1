@@ -7338,7 +7338,7 @@
           status: loadState,
           detail: employees.length
             ? ('Активных: ' + activeEmployees + ' из ' + employees.length)
-            : (operatorHasEmployeesReadOnlyAccess() ? 'Только просмотр списка сотрудников' : 'Зарплата, смены и начисления'),
+            : (operatorHasEmployeesReadOnlyAccess() ? 'Просмотр зарплат и начислений' : 'Зарплата, смены и начисления'),
         });
       }
       rows.push(

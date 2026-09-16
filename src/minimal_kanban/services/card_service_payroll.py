@@ -24,7 +24,7 @@ from ..models import (
     parse_datetime,
 )
 from ..operator_permissions import (
-    EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
+    EMPLOYEES_READ_ACCESS_PERMISSION,
     operator_has_permission,
 )
 from ..repair_order import REPAIR_ORDER_STATUS_CLOSED, RepairOrder, RepairOrderRow
@@ -1901,9 +1901,8 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
             employees = self._employees_from_settings(bundle["settings"])
             operator_session = payload.get("_operator_session")
             if isinstance(operator_session, dict) and not operator_has_permission(
-                operator_session, EMPLOYEES_CASHBOXES_ACCESS_PERMISSION
+                operator_session, EMPLOYEES_READ_ACCESS_PERMISSION
             ):
-                month = self._validated_payroll_month(payload.get("month"))
                 return {
                     "employees": [
                         {
@@ -1914,7 +1913,7 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
                         }
                         for employee in employees
                     ],
-                    "month": month,
+                    "month": self._validated_payroll_month(payload.get("month")),
                     "summary": {},
                     "detail_rows": [],
                     "meta": {"references_only": True},

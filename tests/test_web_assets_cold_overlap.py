@@ -217,7 +217,7 @@ for(const name of ['payroll','inventory']) for(const failure of ['data','script'
         self.run_node(r"""
 const readOnly=fixture('payroll',false),pending=readOnly.invoke();
 assert.equal(readOnly.requests.length,1);assert.match(readOnly.requests[0].path,/list_employees/);
-readOnly.reply();readOnly.finishModule();await pending;assert.equal(readOnly.state.payrollReport,null);
+readOnly.reply();readOnly.finishModule();await pending;assert.equal(readOnly.state.payrollReport.detail_rows.length,1);
 const denied=fixture();denied.deny();const rejected=denied.invoke();
 assert.equal(denied.requests.length,0);denied.finishModule();await rejected;assert.equal(denied.renders.length,0);
 """)

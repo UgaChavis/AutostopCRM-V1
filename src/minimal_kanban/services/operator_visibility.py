@@ -7,6 +7,7 @@ from typing import Any
 from ..models import AuditEvent
 from ..operator_permissions import (
     EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
+    EMPLOYEES_READ_ACCESS_PERMISSION,
     operator_has_permission,
 )
 from ..repair_order import RepairOrder, RepairOrderRow
@@ -160,8 +161,15 @@ def public_snapshot_settings(
     return {key: value for key, value in settings.items() if key not in excluded_keys}
 
 
-def project_operator_result(payload: dict[str, Any] | None, result: Any) -> Any:
-    if operator_can_access_employees_cashboxes(payload):
+def project_operator_result(
+    payload: dict[str, Any] | None, result: Any, *, include_payroll: bool = False
+) -> Any:
+    if operator_can_access_employees_cashboxes(payload) or (
+        include_payroll
+        and operator_has_permission(
+            (payload or {}).get("_operator_session"), EMPLOYEES_READ_ACCESS_PERMISSION
+        )
+    ):
         return result
     return _project_operator_value(result)
 

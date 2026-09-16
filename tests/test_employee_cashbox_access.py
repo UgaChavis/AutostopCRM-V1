@@ -18,6 +18,7 @@ import test_api as api_test_module  # noqa: E402
 
 from minimal_kanban.api.route_registry import (  # noqa: E402
     EMPLOYEES_CASHBOXES_PERMISSION_ROUTES,
+    EMPLOYEES_READ_PERMISSION_ROUTES,
     policy_for_route,
 )
 from minimal_kanban.models import AuditEvent  # noqa: E402
@@ -260,7 +261,9 @@ class EmployeeCashboxAccessApiTests(unittest.TestCase):
             with self.subTest(route=route):
                 self.assertEqual(
                     policy_for_route(route).required_permission,
-                    EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
+                    EMPLOYEES_READ_ACCESS_PERMISSION
+                    if route in EMPLOYEES_READ_PERMISSION_ROUTES
+                    else EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
                 )
                 status, response = self.api.request(
                     route,
@@ -372,52 +375,65 @@ class EmployeeCashboxAccessApiTests(unittest.TestCase):
         self.assertNotIn("transactions_total", cashboxes["data"]["meta"])
         self.assertIsNone(cashboxes["data"]["notification"])
 
-    def test_employees_read_only_operator_can_view_roster_without_finance_or_mutations(
-        self,
-    ) -> None:
+    def test_employees_read_only_operator_sees_full_payroll_without_write_access(self) -> None:
+        employee_id = self.employee["id"]
+        self.api.service.create_employee_shift_accrual(
+            {"employee_id": employee_id, "amount": "321", "actor_name": "TEST"}
+        )
+        for route in ("/api/list_employees", *sorted(EMPLOYEES_READ_PERMISSION_ROUTES)):
+            for method in ("GET", "POST"):
+                with self.subTest(route=route, method=method):
+                    path = f"{route}?employee_id={employee_id}"
+                    status, response = self.api.request(
+                        path,
+                        {"employee_id": employee_id} if method == "POST" else None,
+                        method=method,
+                        headers=self.read_only_headers,
+                    )
+                    self.assertEqual(status, 200, response)
+                    expected_status, expected = self.api.request(
+                        path,
+                        {"employee_id": employee_id} if method == "POST" else None,
+                        method=method,
+                        headers=self.allowed_headers,
+                    )
+                    self.assertEqual(expected_status, 200)
+                    # Ledger period starts and reconciliation timestamps are request-time values.
+                    if route == "/api/get_employee_salary_ledger":
+                        response["data"].pop("period_start", None)
+                        expected["data"].pop("period_start", None)
+                    if route != "/api/get_employee_salary_reconciliation":
+                        self.assertEqual(response["data"], expected["data"])
+                    else:
+                        self.assertEqual(response["data"]["rows"], expected["data"]["rows"])
+                    if route == "/api/list_employees":
+                        employee = next(
+                            x for x in response["data"]["employees"] if x["id"] == employee_id
+                        )
+                        self.assertIn("base_salary", employee)
+                        self.assertIn("balance_total", employee)
+                    if route == "/api/get_payroll_report":
+                        rows = response["data"]["detail_rows"]
+                        self.assertTrue(any(row.get("salary_amount") == "321" for row in rows))
+
+        for route in EXPECTED_PROTECTED_ROUTES - EMPLOYEES_READ_PERMISSION_ROUTES:
+            with self.subTest(denied_route=route):
+                status, response = self.api.request(
+                    route,
+                    {"employee_id": employee_id, "amount": "1"},
+                    headers=self.read_only_headers,
+                )
+                self.assertEqual(status, 403, response)
+        status, cashboxes = self.api.request(
+            "/api/list_cashboxes", method="GET", headers=self.read_only_headers
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(cashboxes["data"]["meta"]["references_only"])
         status, profile = self.api.request(
             "/api/get_operator_profile", method="GET", headers=self.read_only_headers
         )
         self.assertEqual(status, 200)
-        self.assertEqual(
-            profile["data"]["user"]["permissions"],
-            [EMPLOYEES_READ_ACCESS_PERMISSION],
-        )
-
-        status, employees = self.api.request(
-            "/api/list_employees", method="GET", headers=self.read_only_headers
-        )
-        self.assertEqual(status, 200)
-        self.assertTrue(employees["data"]["meta"]["references_only"])
-        employee = next(
-            item for item in employees["data"]["employees"] if item["id"] == self.employee["id"]
-        )
-        self.assertEqual(set(employee), {"id", "name", "position", "is_active"})
-
-        cases = (
-            ("GET", "/api/get_payroll_report", None),
-            ("GET", f"/api/get_cashbox?cashbox_id={self.cashbox['id']}", None),
-            ("POST", "/api/save_employee", {"name": "Не должен сохраниться"}),
-            (
-                "POST",
-                "/api/create_cash_transaction",
-                {
-                    "cashbox_id": self.cashbox["id"],
-                    "direction": "expense",
-                    "amount": "1",
-                },
-            ),
-        )
-        for method, path, payload in cases:
-            with self.subTest(method=method, path=path):
-                status, response = self.api.request(
-                    path,
-                    payload,
-                    method=method,
-                    headers=self.read_only_headers,
-                )
-                self.assertEqual(status, 403)
-                self.assertEqual(response["error"]["code"], "forbidden")
+        self.assertEqual(profile["data"]["user"]["permissions"], [EMPLOYEES_READ_ACCESS_PERMISSION])
 
     def test_restricted_operator_cannot_read_or_mutate_protected_sections(self) -> None:
         cases = (

@@ -1089,7 +1089,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             const requests = [];
             function clearCardOpenSideEffectTimer() {{}}
             function currentPayrollMonthValue() {{ return '2026-01'; }}
-            function operatorCanAccessEmployeesCashboxes() {{ return true; }}
+            function operatorCanViewEmployees() {{ return true; }}
             function api(url) {{
               let resolve;
               let reject;
@@ -1229,7 +1229,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             const requests = [];
             const renders = [];
             function currentPayrollMonthValue() {{ return '2026-01'; }}
-            function operatorCanAccessEmployeesCashboxes() {{ return true; }}
+            function operatorCanViewEmployees() {{ return true; }}
             function renderEmployeesWorkspace() {{
               renders.push({{
                 month: state.payrollMonth,

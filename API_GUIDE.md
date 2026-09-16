@@ -344,25 +344,19 @@ including password changes. The UI permission editor sends
 returns `operator_user_conflict` (409) before any user or password write;
 unrelated password or employee-binding changes do not conflict.
 
-- `employees_read_access` opens the Employees workspace as a roster-only,
-  read-only view. It shows active employees' names and positions, but
-  does not open Cashboxes, payroll/balance details, reports, or any employee
-  mutation route.
-- Human sessions need the `employees_cashboxes_access` permission to open the
-  Employees and Cashboxes workspaces or call their detailed reports and
-  mutation routes. The administrator role alone does not grant this access.
-  Guarded local bearer/Gateway service calls retain their existing integration
-  contract.
-- `list_employees` and `list_cashboxes` remain available to an authenticated
-  human without that permission only as reference lookups for repair-order
-  assignees and payment cashboxes. Those responses set
-  `meta.references_only=true` and omit payroll terms, balances, cashbox
-  statistics, transaction totals, and notification data.
-- Board snapshots, full card/context responses, repair-order text, mutation
-  responses, and board/card journals omit per-row payroll snapshots, salary
-  overrides, payroll postings, and private employee/cashbox event details for
-  a human session without that permission. Operational work fields such as
-  executor, name, quantity, price, and total remain available.
+- `employees_read_access` opens Employees with payroll terms, balances, accrual
+  details, salary ledgers and reports. The existing permission is sufficient;
+  no additional checkbox or account migration is needed. It grants no employee,
+  payroll or cashbox mutations and does not open Cashboxes.
+- `employees_cashboxes_access` includes these employee reads and additionally
+  grants Employees/Cashboxes management. Administrator role alone grants neither.
+  Guarded local bearer/Gateway calls retain their existing integration contract.
+- `list_employees` without either employee permission and `list_cashboxes`
+  without management permission remain authenticated reference lookups with
+  `meta.references_only=true`, omitting their financial details.
+- Payroll report routes and `list_employees` retain salary fields for employee
+  readers. Other responses and snapshots continue to omit private payroll fields
+  and employee/cashbox events for sessions without management permission.
 - Restricted card journals filter private events before hydration, pagination,
   grouping, totals, and Markdown rendering. Safe repair-order update events
   retain only their number, status, and work/material counts.

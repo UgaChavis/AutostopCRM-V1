@@ -84,7 +84,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
             )
             self.assertEqual(link.get_attribute("rel"), "noopener noreferrer")
         self.search("B4")
-        self.assertIn("выключен", self.page.locator("#detailStatus").inner_text())
+        self.assertIn("включён", self.page.locator("#detailStatus").inner_text())
         self.assertFalse(self.page.locator("#instructions").is_visible())
         colors = {}
         for state, label in (

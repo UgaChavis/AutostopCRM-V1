@@ -66,7 +66,7 @@
                   + '</div>'
                   + '<div class="subpanel employees-read-only-notice" id="employeesReadOnlyNotice" hidden>'
                     + '<div class="panel-title">ТОЛЬКО ПРОСМОТР</div>'
-                    + '<div class="log-row__meta">Доступен только список активных сотрудников. Зарплаты, начисления, отчёты и изменение данных закрыты.</div>'
+                    + '<div class="log-row__meta">Доступны зарплаты, начисления и отчёты сотрудников. Изменение данных и выплаты запрещены.</div>'
                   + '</div>'
                   + '<div class="subpanel" id="employeesReportPanel">'
                     + '<div class="employees-panel-head"><div class="panel-title">ОТЧЁТ ПО СОТРУДНИКУ</div><input class="repair-orders-search" id="employeesMonthInput" type="month"></div>'

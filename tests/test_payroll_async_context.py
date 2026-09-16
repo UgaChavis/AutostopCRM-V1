@@ -35,7 +35,8 @@ function fixture() {
     setStatus:message=>statuses.push(message),
     currentPayrollMonthValue:()=> '2026-09',
     requireEmployeesCashboxesAccess:()=>true, operatorCanResetSalaryBalance:()=>true,
-    operatorCanAccessEmployeesCashboxes:()=>true,
+    operatorCanAccessEmployeesCashboxes:()=>true, operatorCanViewEmployees:()=>true,
+    requireEmployeesViewAccess:()=>true,
     maybeOpenModal:()=>renders.push('open'), popModal:()=>renders.push('close'),
   });
   for (const name of ['payroll_workspace.js','employees_reference.js','employees_mobile.js']) {

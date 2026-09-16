@@ -30,7 +30,7 @@
     }
 
     function syncEmployeeMoneyMutationControls() {
-      const pending = Boolean(state.employeeMoneyMutationOperation);
+      const pending = !operatorCanAccessEmployeesCashboxes() || Boolean(state.employeeMoneyMutationOperation);
       for (const key of [
         'employeeSalaryActionConfirmButton',
         'employeeSalaryAdvanceConfirmButton',
@@ -362,6 +362,7 @@
     }
 
     function employeeFormHasUnsavedChanges() {
+      if (operatorHasEmployeesReadOnlyAccess()) return false;
       const baseline = state.employeeFormBaseline || employeeComparableSnapshot(selectedEmployeeRecord());
       return JSON.stringify(employeeFormSnapshot()) !== JSON.stringify(baseline);
     }
@@ -518,7 +519,7 @@
         els.employeesCreateButton.disabled = !canManageEmployees;
       }
       if (els.employeesProfilePanel) els.employeesProfilePanel.hidden = !canManageEmployees;
-      if (els.employeesReportPanel) els.employeesReportPanel.hidden = !canManageEmployees;
+      if (els.employeesReportPanel) els.employeesReportPanel.hidden = !operatorCanViewEmployees();
       if (els.employeesReadOnlyNotice) els.employeesReadOnlyNotice.hidden = !readOnly;
     }
 
@@ -613,7 +614,6 @@
     function renderEmployeesList() {
       const employees = Array.isArray(state.employees) ? state.employees : [];
       const visibleEmployees = filteredEmployeesList();
-      const readOnly = operatorHasEmployeesReadOnlyAccess();
       const summaryMap = payrollSummaryMap();
       if (!els.employeesList) return;
       if (!employees.length) {
@@ -629,15 +629,10 @@
         const summary = summaryMap.get(String(employee.id || ''));
         const summaryLabel = 'К ВЫПЛАТЕ';
         const summaryValue = String(employee.balance_total ?? summary?.balance_total ?? summary?.total_salary ?? '0');
-        const rowLabel = readOnly
-          ? [employee.name || 'Сотрудник', employee.position || 'Без должности'].join(' · ')
-          : employeeRowAriaLabel(employee, summaryValue);
-        const readOnlyContent = '<div class="employees-row__formula">ТОЛЬКО ПРОСМОТР</div>';
+        const rowLabel = employeeRowAriaLabel(employee, summaryValue);
         const fullAccessContent = '<div class="employees-row__formula">' + escapeHtml(employeePayrollFormulaLabel(employee)) + '</div>'
           + '<div class="employees-row__summary"><span class="employees-row__summary-label">' + escapeHtml(summaryLabel) + '</span><strong>' + escapeHtml(summaryValue) + '</strong></div>';
-        const actions = readOnly
-          ? ''
-          : '<div class="employees-row__actions">'
+        const actions = '<div class="employees-row__actions">'
             + '<button class="btn btn--ghost employees-row__salary" type="button" data-employee-salary="' + escapeHtml(employee.id) + '">ЗАРПЛАТА</button>'
             + '<button class="btn btn--ghost employees-row__report" type="button" data-employee-report="' + escapeHtml(employee.id) + '" title="ВЫБРАТЬ ПЕРИОД И ОТКРЫТЬ ПЕЧАТНЫЙ АКТ СВЕРКИ ЗАРПЛАТЫ">ОТЧЕТ</button>'
           + '</div>';
@@ -645,7 +640,7 @@
           + '<button class="employees-row__body" type="button" data-employee-id="' + escapeHtml(employee.id) + '" aria-label="Сотрудник ' + escapeHtml(rowLabel) + '" title="' + escapeHtml(rowLabel) + '">'
             + '<div class="employees-row__top"><div class="employees-row__title">' + escapeHtml(employee.name) + '</div></div>'
             + '<div class="employees-row__meta">' + escapeHtml(employee.position || 'Без должности') + '</div>'
-            + (readOnly ? readOnlyContent : fullAccessContent)
+            + fullAccessContent
           + '</button>'
           + actions
           + '</div>';
@@ -789,6 +784,9 @@
       if (els.employeeSalaryBalance) {
         els.employeeSalaryBalance.textContent = String(sheet?.balance_display || sheet?.balance_total || '0');
       }
+      for (const button of [els.employeeSalaryPayoutButton, els.employeeSalaryAdvanceButton]) {
+        if (button) button.hidden = !operatorCanAccessEmployeesCashboxes();
+      }
       if (els.employeeSalaryResetButton) {
         const canResetBalance = operatorCanResetSalaryBalance();
         const balanceMinor = Number(sheet?.balance_minor);
@@ -867,6 +865,7 @@
     }
 
     async function openEmployeeSalaryDialog(kind) {
+      if (!requireEmployeesCashboxesAccess()) return;
       if (String(kind || '').trim() === 'salary_advance') {
         await openEmployeeSalaryAdvanceDialog();
         return;
@@ -894,6 +893,7 @@
     }
 
     async function openEmployeeSalaryAdvanceDialog() {
+      if (!requireEmployeesCashboxesAccess()) return;
       state.employeeSalaryViewGeneration = (state.employeeSalaryViewGeneration || 0) + 1;
       state.employeeSalaryResetPending = false;
       state.employeeSalaryActionKind = '';
@@ -963,7 +963,7 @@
     }
 
     function openEmployeeSalaryReconciliationPeriodDialog(employeeId) {
-      if (!requireEmployeesCashboxesAccess()) return;
+      if (!requireEmployeesViewAccess()) return;
       const requestedId = String(employeeId || '').trim();
       if (!requestedId) return;
       state.activeEmployeeSalaryReconciliationReportId = requestedId;
@@ -1154,7 +1154,7 @@
     }
 
     async function openEmployeeSalaryModal(employeeId) {
-      if (!requireEmployeesCashboxesAccess()) return;
+      if (!requireEmployeesViewAccess()) return;
       const requestedId = String(employeeId || '').trim();
       if (!requestedId) return;
       if (!confirmDiscardEmployeeChanges()) return;
@@ -1300,6 +1300,7 @@
     }
 
     async function handleEmployeeSalaryActionConfirm() {
+      if (!requireEmployeesCashboxesAccess()) return;
       const employeeId = String(state.activeEmployeeSalaryId || '').trim();
       const kind = String(state.employeeSalaryActionKind || '').trim();
       const amount = String(els.employeeSalaryAmountInput?.value || '').trim();
@@ -1357,6 +1358,7 @@
     }
 
     async function handleEmployeeSalaryAdvanceConfirm() {
+      if (!requireEmployeesCashboxesAccess()) return;
       const employeeId = String(state.activeEmployeeSalaryId || '').trim();
       const amount = String(els.employeeSalaryAdvanceAmountInput?.value || '').trim();
       const comment = String(els.employeeSalaryAdvanceCommentInput?.value || '').trim();
@@ -1416,6 +1418,7 @@
     }
 
     async function handleEmployeeShiftAccrualConfirm() {
+      if (!requireEmployeesCashboxesAccess()) return;
       const employeeId = String(state.activeEmployeeId || '').trim();
       const amount = String(els.employeeShiftAccrualAmountInput?.value || '').trim();
       if (!employeeId || state.employeeCreateMode) {
@@ -1483,12 +1486,10 @@
       syncEmployeesReadOnlyWorkspaceUi();
       if (operatorHasEmployeesReadOnlyAccess()) {
         state.employeeCreateMode = false;
-        state.employeesReportDetailsOpen = false;
+        state.employeesReportDetailsOpen = true;
         state.employeeFormBaseline = null;
         state.employeeShiftAccrualOpen = false;
         state.employeeShiftAccrualDraft = '';
-        renderEmployeesList();
-        return;
       }
       const employees = Array.isArray(state.employees) ? state.employees : [];
       if (!state.employeeCreateMode && !state.activeEmployeeId && employees.length) {
@@ -1697,7 +1698,7 @@
     }
 
     function handleEmployeesListClick(event) {
-      if (operatorHasEmployeesReadOnlyAccess()) return;
+      if (!requireEmployeesViewAccess()) return;
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
       const salaryButton = target.closest('[data-employee-salary]');

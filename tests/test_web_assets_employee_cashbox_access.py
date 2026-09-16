@@ -192,7 +192,7 @@ class EmployeeCashboxAccessWebAssetTests(unittest.TestCase):
             save,
         )
 
-    def test_read_only_workspace_renders_a_roster_without_finance_controls(self) -> None:
+    def test_read_only_workspace_renders_payroll_without_write_controls(self) -> None:
         workspace = _asset_section(
             "function syncEmployeesReadOnlyWorkspaceUi()", "function payrollSummaryMap()"
         )
@@ -200,29 +200,29 @@ class EmployeeCashboxAccessWebAssetTests(unittest.TestCase):
             "const canManageEmployees = operatorCanAccessEmployeesCashboxes();", workspace
         )
         self.assertIn("els.employeesProfilePanel.hidden = !canManageEmployees;", workspace)
-        self.assertIn("els.employeesReportPanel.hidden = !canManageEmployees;", workspace)
+        self.assertIn("els.employeesReportPanel.hidden = !operatorCanViewEmployees();", workspace)
         self.assertIn("els.employeesReadOnlyNotice.hidden = !readOnly;", workspace)
 
         rows = _asset_section("function renderEmployeesList()", "function renderEmployeesDetails()")
-        self.assertIn("const readOnly = operatorHasEmployeesReadOnlyAccess();", rows)
-        self.assertIn("ТОЛЬКО ПРОСМОТР", rows)
-        self.assertIn("const actions = readOnly", rows)
+        self.assertIn("data-employee-salary", rows)
+        self.assertIn("employee.balance_total", rows)
+        self.assertNotIn("const actions = readOnly", rows)
 
         loader = _asset_section(
             "function prepareEmployeesWorkspaceData(",
             "function refreshRepairOrderEmployeeSelects()",
         )
-        self.assertIn("const canManage = operatorCanAccessEmployeesCashboxes();", loader)
+        self.assertIn("const canView = operatorCanViewEmployees();", loader)
         self.assertIn("const employeesRequest = loadEmployeesReference({", loader)
-        self.assertIn("force: canManage && useEmbeddedPayrollReport,", loader)
+        self.assertIn("force: canView && useEmbeddedPayrollReport,", loader)
         self.assertIn(": loadPayrollReport({ month: requestedMonth, apply: false }))", loader)
-        self.assertIn("const payrollRequest = canManage", loader)
+        self.assertIn("const payrollRequest = canView", loader)
 
         mobile = _asset_section(
             "function renderMobileEmployeesList()", "function renderMobileArchiveRows("
         )
-        self.assertIn("if (readOnly)", mobile)
-        self.assertIn("Зарплаты, начисления, отчёты и изменение данных недоступны.", mobile)
+        self.assertIn("row?.salary_amount", mobile)
+        self.assertNotIn("Зарплаты, начисления, отчёты и изменение данных недоступны.", mobile)
 
     def test_salary_reset_render_and_handler_require_both_permissions(self) -> None:
         permission_helpers = _asset_section(

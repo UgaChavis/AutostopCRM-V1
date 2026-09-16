@@ -100,13 +100,13 @@
         && reference === (state.employeesReferenceRevision || 0)
         && generation === state.employeesWorkspaceLoadGeneration && requestedMonth === state.payrollMonth;
       const result = { applied: false, generation, month: requestedMonth };
-      const canManage = operatorCanAccessEmployeesCashboxes();
+      const canView = operatorCanViewEmployees();
       const employeesRequest = loadEmployeesReference({
         month: requestedMonth,
         apply: false,
-        force: canManage && useEmbeddedPayrollReport,
+        force: canView && useEmbeddedPayrollReport,
       });
-      const payrollRequest = canManage
+      const payrollRequest = canView
         ? (useEmbeddedPayrollReport
           ? employeesRequest.then((data) => {
             const embeddedReport = payrollReportFromEmployeesData(data, requestedMonth);
@@ -123,7 +123,7 @@
         if (!isCurrent()) return result;
         applyEmployeesReferenceData(employeesData, requestedMonth);
         state.payrollReport = payrollReport;
-        state.payrollReportMonth = canManage ? requestedMonth : '';
+        state.payrollReportMonth = canView ? requestedMonth : '';
         return { ...result, applied: true };
       }, (error) => {
         if (!isCurrent()) return result;

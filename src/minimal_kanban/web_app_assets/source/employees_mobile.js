@@ -48,7 +48,6 @@
     function renderMobileEmployeesList() {
       if (!els.mobileEmployeesList) return;
       const employees = filteredEmployeesList();
-      const readOnly = operatorHasEmployeesReadOnlyAccess();
       const summaryMap = mobileEmployeeSummaryMap();
       if (state.mobileEmployeesLoading && !employees.length) {
         els.mobileEmployeesList.innerHTML = '<div class="mobile-employee-detail__empty">ЗАГРУЗКА СОТРУДНИКОВ...</div>';
@@ -56,19 +55,6 @@
       }
       if (!employees.length) {
         els.mobileEmployeesList.innerHTML = '<div class="mobile-employee-detail__empty">СОТРУДНИКОВ ПОКА НЕТ.</div>';
-        return;
-      }
-      if (readOnly) {
-        els.mobileEmployeesList.innerHTML = employees.map((employee) => {
-          const isActive = String(employee.id || '') === String(state.activeEmployeeId || '');
-          return '<button class="mobile-employee-row' + (isActive ? ' is-active' : '') + '" type="button" data-mobile-employee-id="' + escapeHtml(employee.id || '') + '">'
-            + '<div class="mobile-employee-row__top">'
-              + '<div class="mobile-employee-row__name">' + escapeHtml(employee.name || 'Сотрудник') + '</div>'
-            + '</div>'
-            + '<div class="mobile-employee-row__meta">' + escapeHtml(employee.position || 'Без должности') + '</div>'
-            + '<div class="mobile-employee-row__meta">ТОЛЬКО ПРОСМОТР</div>'
-          + '</button>';
-        }).join('');
         return;
       }
       els.mobileEmployeesList.innerHTML = employees.map((employee) => {
@@ -102,21 +88,11 @@
         els.mobileEmployeeDetail.innerHTML = '<div class="mobile-employee-detail__empty">ВЫБЕРИТЕ СОТРУДНИКА, ЧТОБЫ УВИДЕТЬ НАЧИСЛЕНИЯ.</div>';
         return;
       }
-      if (operatorHasEmployeesReadOnlyAccess()) {
-        els.mobileEmployeeDetail.innerHTML = '<div class="mobile-employee-detail__head">'
-          + '<div>'
-            + '<div class="mobile-employee-detail__name">' + escapeHtml(employee.name || 'Сотрудник') + '</div>'
-            + '<div class="mobile-employee-detail__meta">' + escapeHtml(employee.position || 'Без должности') + '</div>'
-          + '</div>'
-        + '</div>'
-        + '<section class="mobile-employee-detail__section"><h4>ТОЛЬКО ПРОСМОТР</h4><div class="mobile-employee-detail__empty">Зарплаты, начисления, отчёты и изменение данных недоступны.</div></section>';
-        return;
-      }
       const summary = mobileEmployeeSummaryMap().get(String(employee.id || '')) || {};
       const balance = mobileEmployeeBalanceValue(employee, summary);
       const details = mobileEmployeeDetailRows(employee.id);
       const detailsHtml = details.length
-        ? details.slice(0, 5).map((row) => {
+        ? details.map((row) => {
           return '<div class="mobile-employee-accrual">'
             + '<strong>' + escapeHtml(mobileEmployeeAccrualTitle(row)) + '</strong>'
             + '<span>' + escapeHtml(mobileEmployeeAccrualMeta(row)) + '</span>'
@@ -137,7 +113,7 @@
           + '<div class="mobile-employee-kpi"><span>Работы</span><strong>' + escapeHtml(String(finiteNonNegativeNumber(summary.works_count))) + ' / ' + escapeHtml(mobileEmployeeMoneyText(summary.work_accrued_total ?? 0)) + '</strong></div>'
           + '<div class="mobile-employee-kpi"><span>Материалы</span><strong>' + escapeHtml(String(finiteNonNegativeNumber(summary.materials_count))) + ' / ' + escapeHtml(mobileEmployeeMoneyText(summary.materials_accrued_total ?? 0)) + '</strong></div>'
         + '</div>'
-        + '<section class="mobile-employee-detail__section"><h4>Последние начисления</h4>' + detailsHtml + '</section>';
+        + '<section class="mobile-employee-detail__section"><h4>Начисления за месяц</h4>' + detailsHtml + '</section>';
     }
 
     function renderMobileEmployeesPanel() {
@@ -154,7 +130,7 @@
         if (state.mobileEmployeesLoading) {
           els.mobileEmployeesMeta.textContent = 'ЗАГРУЗКА...';
         } else if (operatorHasEmployeesReadOnlyAccess()) {
-          els.mobileEmployeesMeta.textContent = 'ТОЛЬКО ПРОСМОТР · АКТИВНЫХ: ' + String(employees.length);
+          els.mobileEmployeesMeta.textContent = 'ТОЛЬКО ПРОСМОТР · МЕСЯЦ: ' + month + ' · АКТИВНЫХ: ' + String(employees.length);
         } else if (employees.length) {
           els.mobileEmployeesMeta.textContent = 'МЕСЯЦ: ' + month + ' · АКТИВНЫХ: ' + String(employees.length);
         } else {
@@ -167,7 +143,7 @@
 
     async function loadMobileEmployees({ force = false } = {}) {
       const month = state.payrollMonth || currentPayrollMonthValue();
-      const needsPayrollData = operatorCanAccessEmployeesCashboxes();
+      const needsPayrollData = operatorCanViewEmployees();
       if (!force && state.employeesLoadedMonth === month && Array.isArray(state.employees) && (!needsPayrollData || state.payrollReportMonth === month)) {
         renderMobileEmployeesPanel();
         return;

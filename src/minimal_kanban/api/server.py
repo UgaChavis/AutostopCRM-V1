@@ -71,6 +71,7 @@ from .change_feed import (
     build_change_feed_routes,
 )
 from .route_registry import (
+    EMPLOYEES_READ_PERMISSION_ROUTES,
     build_operator_routes,
     build_route_specs,
     build_service_routes,
@@ -1624,7 +1625,12 @@ class JsonRouteDispatcher:
                         request_id=request_id,
                     )
                 else:
-                    result = project_operator_result(payload, result)
+                    result = project_operator_result(
+                        payload,
+                        result,
+                        include_payroll=route in EMPLOYEES_READ_PERMISSION_ROUTES
+                        or route == "/api/list_employees",
+                    )
                     body = _json_response(
                         ok=True,
                         data=result,

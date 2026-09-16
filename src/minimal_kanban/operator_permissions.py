@@ -29,9 +29,11 @@ def normalize_operator_permissions(value: Any) -> list[str]:
 def operator_has_permission(session: Any, permission: str) -> bool:
     if not isinstance(session, dict):
         return False
-    return str(permission or "").strip().casefold() in normalize_operator_permissions(
-        session.get("permissions")
-    )
+    permission = str(permission or "").strip().casefold()
+    permissions = normalize_operator_permissions(session.get("permissions"))
+    if permission == EMPLOYEES_READ_ACCESS_PERMISSION:
+        return bool({permission, EMPLOYEES_CASHBOXES_ACCESS_PERMISSION}.intersection(permissions))
+    return permission in permissions
 
 
 def unknown_operator_permissions(value: Any) -> list[str]:

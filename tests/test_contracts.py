@@ -25,6 +25,7 @@ from minimal_kanban.api.route_registry import (  # noqa: E402
 from minimal_kanban.mcp.tool_registry import PUBLIC_MCP_TOOL_NAMES  # noqa: E402
 from minimal_kanban.operator_permissions import (  # noqa: E402
     EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
+    EMPLOYEES_READ_ACCESS_PERMISSION,
 )
 from scripts.browser_smoke import SMOKE_SCENARIOS  # noqa: E402
 
@@ -421,7 +422,7 @@ class ContractSnapshotTests(unittest.TestCase):
                 path
                 for path in ROUTE_POLICY_PATHS
                 if policy_for_route(path).required_permission
-                == EMPLOYEES_CASHBOXES_ACCESS_PERMISSION
+                in {EMPLOYEES_CASHBOXES_ACCESS_PERMISSION, EMPLOYEES_READ_ACCESS_PERMISSION}
             ),
         )
         self.assertEqual("", policy_for_route("/api/list_employees").required_permission)

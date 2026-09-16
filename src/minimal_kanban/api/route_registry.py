@@ -4,7 +4,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from ..operator_permissions import EMPLOYEES_CASHBOXES_ACCESS_PERMISSION
+from ..operator_permissions import (
+    EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
+    EMPLOYEES_READ_ACCESS_PERMISSION,
+)
 
 RouteHandler = Callable[[dict[str, Any] | None], dict[str, Any]]
 
@@ -155,8 +158,22 @@ EMPLOYEES_CASHBOXES_PERMISSION_ROUTES = frozenset(
     }
 )
 
+EMPLOYEES_READ_PERMISSION_ROUTES = frozenset(
+    {
+        "/api/get_payroll_report",
+        "/api/get_employee_salary_ledger",
+        "/api/get_employee_salary_report",
+        "/api/get_employee_salary_reconciliation",
+    }
+)
+
 _ROUTE_PERMISSION_REQUIREMENTS = {
-    path: EMPLOYEES_CASHBOXES_ACCESS_PERMISSION for path in EMPLOYEES_CASHBOXES_PERMISSION_ROUTES
+    path: (
+        EMPLOYEES_READ_ACCESS_PERMISSION
+        if path in EMPLOYEES_READ_PERMISSION_ROUTES
+        else EMPLOYEES_CASHBOXES_ACCESS_PERMISSION
+    )
+    for path in EMPLOYEES_CASHBOXES_PERMISSION_ROUTES
 }
 
 _OPERATOR_ACTIVITY_ROUTE_PATHS = {
