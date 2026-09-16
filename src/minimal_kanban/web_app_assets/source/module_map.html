@@ -393,7 +393,7 @@
         const result=await response.json();
         if(!result.ok||result.data?.schema_version!=='autostopmanager.infrastructure-map.v1') throw new Error('data');
         data=result.data; nodes=new Map(data.elements.map(n=>[n.id,n])); items=new Map([...data.elements,...data.relations].map(n=>[n.id,n]));
-        if(nodes.size!==31||items.size!==51||data.relations.length!==20||data.relations.some(r=>!nodes.has(r.from)||!nodes.has(r.to))) throw new Error('data');
+        if(nodes.size!==32||items.size!==54||data.relations.length!==22||data.relations.some(r=>!nodes.has(r.from)||!nodes.has(r.to))) throw new Error('data');
         render(); $('state').hidden=true; $('map').removeAttribute('hidden'); $('hint').hidden=false;
         requestAnimationFrame(()=>{fit();hashSelection();});
       } catch(error) {
