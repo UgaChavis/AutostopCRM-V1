@@ -7,7 +7,7 @@
   "elements": [
     {
       "id": "A1",
-      "title": "Стартовые инструкции",
+      "title": "Инструкции",
       "x": 45,
       "y": 80,
       "width": 260,
@@ -15,10 +15,30 @@
       "description": "Правила и навыки, которые агент читает перед работой. Определяют контекст и границы поручения.",
       "group": "A",
       "kind": "module",
-      "lines": [
-        "AGENTS.md · правила · навыки"
-      ],
-      "icon": "document"
+      "lines": [],
+      "icon": "document",
+      "links": [
+        {
+          "title": "Основные правила",
+          "url": "https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/AGENTS.md"
+        },
+        {
+          "title": "Telegram",
+          "url": "https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/.agents/skills/manage-owner-telegram/SKILL.md"
+        },
+        {
+          "title": "CRM, ремонт и запчасти",
+          "url": "https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/.agents/skills/manage-autostop-store/SKILL.md"
+        },
+        {
+          "title": "Документы CRM и почта",
+          "url": "https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/docs/agent/operations.md"
+        },
+        {
+          "title": "Выпуск и развёртывание",
+          "url": "https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/docs/agent/deployment_runbook.md"
+        }
+      ]
     },
     {
       "id": "A2",
@@ -102,20 +122,8 @@
       "lines": [
         "Wake-адаптер"
       ],
-      "icon": "bell"
-    },
-    {
-      "id": "N1",
-      "title": "При включённом рабочем режиме",
-      "x": 65,
-      "y": 946,
-      "width": 215,
-      "height": 56,
-      "description": "Событийный запуск действует только при включённом владельцем рабочем режиме.",
-      "group": "N",
-      "kind": "condition",
-      "lines": [],
-      "parent": "B4"
+      "icon": "bell",
+      "indicator": "off"
     },
     {
       "id": "C1",
@@ -507,19 +515,6 @@
       "label_y": 590,
       "direction": "both",
       "kind": "exchange"
-    },
-    {
-      "id": "L6",
-      "from": "B2",
-      "to": "B4",
-      "label": "Входящее событие",
-      "protocol": "Локальное событие",
-      "description": "Входящее рабочего аккаунта передаётся Wake-адаптеру при выполнении условия N1.",
-      "path": "M132 696 V845",
-      "label_x": 230,
-      "label_y": 770,
-      "direction": "forward",
-      "kind": "event"
     },
     {
       "id": "L7",

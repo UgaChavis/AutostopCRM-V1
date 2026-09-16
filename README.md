@@ -54,10 +54,16 @@ prices, orders, deletion, new external recipients, deployment, and secrets.
 Board settings open **«Открыть инфраструктуру менеджера»** at `/module-map`.
 The public HTML is a shell; `GET /api/get_module_map_infrastructure` still requires
 an operator session and returns `autostopmanager.infrastructure-map.v1`.
-The source dataset is `web_app_assets/source/manager_infrastructure.json`: 32 stable
-element IDs and 19 connection IDs, with coordinates, nesting, descriptions and
+The source dataset is `web_app_assets/source/manager_infrastructure.json`: 31 stable
+element IDs and 18 connection IDs, with coordinates, nesting, descriptions and
 protocols. Update that dataset to change descriptions or layout. The former
-application/IT maps and their snapshots are retired.
+application/IT maps and their snapshots are retired. Removed IDs `N1` and `L6`
+are not reused.
+
+`B4.indicator` in the dataset is a manually maintained display state: `on`
+(green), `off` (red), or `unknown` (yellow; also the fallback for missing or
+invalid values). It does not switch or poll the wake adapter. `A1.links` lists
+the main Manager instructions on GitHub for the read-only detail panel.
 
 The map supports search, keyboard selection, pan/zoom, fullscreen and a read-only
 detail panel. Selecting an element never invokes a business operation or polls a

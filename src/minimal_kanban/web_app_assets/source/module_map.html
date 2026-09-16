@@ -46,13 +46,13 @@
     .edge-label { fill:#202831; stroke:#657789; stroke-width:1; }
     .edge text { fill:var(--ink); font-family:"Segoe UI",Arial,sans-serif; }
     .edge.is-selected .edge-label,.edge:focus-visible .edge-label { stroke:#eef6ff; stroke-width:2; }
-    .legend { fill:var(--muted); font:16px "Segoe UI",Arial,sans-serif; pointer-events:none; }
     .detail { width:340px; flex-shrink:0; padding:22px; background:#222a33; border-left:1px solid var(--border); overflow:auto; }
     .detail header { display:flex; justify-content:space-between; align-items:center; gap:8px; }
     .detail h1 { font-size:21px; line-height:1.35; margin:16px 0; }
     .detail p { line-height:1.6; color:var(--muted); }
     .detail dl { display:grid; grid-template-columns:90px 1fr; gap:10px; line-height:1.5; }
     .detail dt { color:var(--muted); }
+    .instructions li { margin:10px 0; line-height:1.5; }
     .detail dd { margin:0; overflow-wrap:anywhere; }
     .detail h2 { font-size:14px; font-weight:500; margin-top:26px; color:var(--muted); }
     .related button { display:block; width:100%; margin:7px 0; text-align:left; line-height:1.4; }
@@ -86,7 +86,8 @@
     </div>
     <aside class="detail" id="detail" aria-label="Описание выбранного элемента" hidden>
       <header><strong id="detailCode"></strong><button id="closeDetail" type="button" aria-label="Закрыть описание">Закрыть</button></header>
-      <h1 id="detailTitle"></h1><p id="detailDescription"></p><dl id="detailFacts"></dl>
+      <h1 id="detailTitle"></h1><p id="detailDescription"></p><p id="detailStatus" hidden></p><dl id="detailFacts"></dl>
+      <section id="instructions" class="instructions" hidden><h2>Основные инструкции</h2><ul id="instructionLinks"></ul></section>
       <h2>Связанные элементы</h2><div class="related" id="related"></div>
     </aside>
   </main>
@@ -97,6 +98,8 @@
     const ns = 'http://www.w3.org/2000/svg';
     const $ = id => document.getElementById(id);
     const colors = {A:'#83a9bb',B:'#83a9bb',C:'#b8a27a',D:'#a398bb',E:'#bc9290',F:'#91aa98',N:'#a2b4c3'};
+    const indicatorStates = {on:{color:'#71ad86',label:'Включён'},off:{color:'#bb6868',label:'Выключен'},unknown:{color:'#bba65e',label:'Состояние неизвестно'}};
+    const indicatorFor = n => n.id==='B4' ? indicatorStates[n.indicator]||indicatorStates.unknown : null;
     const icons = {
       terminal:'M3 6 L10 12 L3 18 M14 19 H23',
       document:'M5 2 H16 L23 9 V26 H5 Z M16 2 V9 H23 M9 14 H19 M9 19 H19',
@@ -142,14 +145,15 @@
       group.append(text);
     }
     function renderNode(n) {
-      const g = el('g', {class:'node',transform:`translate(${n.x} ${n.y})`,'data-id':n.id,tabindex:0,role:'button','aria-label':`${n.id}: ${n.title}`,'aria-pressed':'false',style:`--color:${colors[n.tone||n.group]}`});
+      const indicator=indicatorFor(n);
+      const g = el('g', {class:'node',transform:`translate(${n.x} ${n.y})`,'data-id':n.id,tabindex:0,role:'button','aria-label':`${n.id}: ${n.title}${indicator ? '. '+indicator.label : ''}`,'aria-pressed':'false',style:`--color:${colors[n.tone||n.group]}`});
       g.append(el('title',{},`${n.id} · ${n.title}`));
       g.append(el('rect',{class:'card',width:n.width,height:n.height,rx:n.kind==='item'?6:13}));
       if (n.icon) g.append(el('path',{d:icons[n.icon],transform:'translate(18 24)',fill:'none',stroke:colors[n.tone||n.group],'stroke-width':2,'stroke-linejoin':'round','stroke-linecap':'round','aria-hidden':true}));
       const nested = n.kind==='item';
       let font = n.id==='A2'?26:nested?15:n.kind==='condition'?15:19;
       const start = nested?49:n.icon?59:15;
-      const available=n.width-start-12;
+      const available=n.width-start-12-(indicator?18:0);
       if(!nested&&n.kind!=='condition') {
         while(font>15&&measure(n.title,font,'600')>available) font-=.5;
       }
@@ -164,6 +168,13 @@
       const bx = nested?5:-9, by = nested?(n.height-23)/2:-12;
       g.append(el('rect',{class:'badge',x:bx,y:by,width:39,height:24,rx:4}));
       textLines(g,[n.id],bx+6,by+18,17,'code');
+      if(indicator) {
+        const lamp=el('g',{class:'status-indicator','aria-hidden':true});
+        lamp.append(el('title',{},indicator.label));
+        lamp.append(el('circle',{cx:n.width-15,cy:14,r:9,fill:indicator.color,opacity:.13}));
+        lamp.append(el('circle',{class:'status-light',cx:n.width-15,cy:14,r:4.5,fill:indicator.color}));
+        g.append(lamp);
+      }
       stage.append(g);
     }
     function renderEdge(r) {
@@ -194,8 +205,6 @@
       $('map').append(defs); stage=el('g',{id:'stage'}); $('map').append(stage);
       data.relations.forEach(renderEdge);
       data.elements.forEach(renderNode);
-      textLines(stage,['↔ запрос и результат      ⇢ запуск по событию'],720,1031,16,'legend');
-      textLines(stage,['A Агент · B Telegram · C CRM · D Manager · E Подбор · F Магазин · N Условия · L Связи'],595,1060,16,'legend');
     }
     function applyTransform() {
       if (!stage) return;
@@ -245,6 +254,17 @@
       if(!items.has(id)) { clearSelection(); return; }
       selected=id; const item=items.get(id), related=relationships(id);
       $('detail').hidden=false; $('detailCode').textContent=id; $('detailTitle').textContent=item.title||item.label;
+      const indicator=indicatorFor(item);
+      $('detailStatus').hidden=!indicator; $('detailStatus').textContent=indicator?`Состояние: ${indicator.label.toLocaleLowerCase('ru')}`:'';
+      $('instructionLinks').replaceChildren();
+      for(const link of item.links||[]) {
+        let url;try {url=new URL(link.url);} catch(_error) {continue;}
+        if(url.protocol!=='https:'||url.hostname!=='github.com'||url.username||url.password) continue;
+        const li=document.createElement('li'),a=document.createElement('a');
+        a.textContent=link.title;a.href=url.href;a.target='_blank';a.rel='noopener noreferrer';
+        li.append(a);$('instructionLinks').append(li);
+      }
+      $('instructions').hidden=!$('instructionLinks').childElementCount;
       $('detailDescription').textContent=item.description; $('detailFacts').replaceChildren(); $('related').replaceChildren();
       if(item.from) {
         [['Направление',`${item.from} ${item.direction==='both'?'↔':'→'} ${item.to}`],['Протокол',item.protocol]].forEach(([key,value])=>{
@@ -299,7 +319,7 @@
         const result=await response.json();
         if(!result.ok||result.data?.schema_version!=='autostopmanager.infrastructure-map.v1') throw new Error('data');
         data=result.data; nodes=new Map(data.elements.map(n=>[n.id,n])); items=new Map([...data.elements,...data.relations].map(n=>[n.id,n]));
-        if(nodes.size!==32||items.size!==51||data.relations.some(r=>!nodes.has(r.from)||!nodes.has(r.to))) throw new Error('data');
+        if(nodes.size!==31||items.size!==49||data.relations.some(r=>!nodes.has(r.from)||!nodes.has(r.to))) throw new Error('data');
         render(); $('state').hidden=true; $('map').removeAttribute('hidden'); $('hint').hidden=false;
         ['zoomOut','zoomReset','zoomIn','fit'].forEach(id=>$(id).disabled=false);
         requestAnimationFrame(()=>{fit();hashSelection();});

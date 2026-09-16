@@ -62,6 +62,61 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.page.locator("#search").fill(value)
         self.page.locator("#search").press("Enter")
 
+    def test_simplified_map_instructions_and_indicator_states(self) -> None:
+        import copy
+
+        from minimal_kanban.web_assets import MODULE_MAP_INFRASTRUCTURE
+
+        self.login()
+        self.assertEqual(self.page.locator('[data-id="N1"],[data-id="L6"],.legend').count(), 0)
+        self.search("A1")
+        self.assertEqual(self.page.locator("#detailTitle").inner_text(), "Инструкции")
+        self.assertEqual(self.page.locator('[data-id="A1"] .subtitle').count(), 0)
+        links = self.page.locator("#instructionLinks a")
+        self.assertEqual(links.count(), 5)
+        for link in links.all():
+            self.assertTrue(
+                link.get_attribute("href").startswith(
+                    "https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/"
+                )
+            )
+            self.assertEqual(link.get_attribute("rel"), "noopener noreferrer")
+        self.search("B4")
+        self.assertIn("выключен", self.page.locator("#detailStatus").inner_text())
+        self.assertFalse(self.page.locator("#instructions").is_visible())
+        colors = {}
+        for state, label in (
+            ("off", "Выключен"),
+            ("on", "Включён"),
+            ("unknown", "Состояние неизвестно"),
+            ("invalid", "Состояние неизвестно"),
+            (None, "Состояние неизвестно"),
+        ):
+            data = copy.deepcopy(MODULE_MAP_INFRASTRUCTURE)
+            node = next(n for n in data["elements"] if n["id"] == "B4")
+            if state is None:
+                node.pop("indicator")
+            else:
+                node["indicator"] = state
+            instructions = next(n for n in data["elements"] if n["id"] == "A1")
+            instructions["links"].append({"title": "Unsafe", "url": "javascript:alert(1)"})
+            self.page.route(
+                "**/api/get_module_map_infrastructure",
+                lambda route, _request, data=data: route.fulfill(json={"ok": True, "data": data}),
+            )
+            self.page.reload()
+            lamp = self.page.locator('[data-id="B4"] .status-indicator')
+            lamp.wait_for(state="attached")
+            self.assertEqual(lamp.locator("title").text_content(), label)
+            colors[state] = lamp.locator(".status-light").get_attribute("fill")
+            self.search("A1")
+            self.assertEqual(self.page.locator("#instructionLinks a").count(), 5)
+            self.page.unroute("**/api/get_module_map_infrastructure")
+        self.assertEqual(len({colors[state] for state in ("on", "off", "unknown")}), 3)
+        self.assertEqual(colors["invalid"], colors["unknown"])
+        self.assertEqual(colors[None], colors["unknown"])
+        self.assertEqual(self.errors, [])
+
     def test_operator_access_all_elements_and_read_only_interactions(self) -> None:
         self.page.get_by_text(
             "Для просмотра карты войдите в CRM под учётной записью оператора."
@@ -73,8 +128,8 @@ class ManagerMapBrowserTests(unittest.TestCase):
         identifiers = self.page.locator("[data-id]").evaluate_all(
             "elements => elements.map(el => el.dataset.id)"
         )
-        self.assertEqual(len(identifiers), 51)
-        self.assertEqual(len(set(identifiers)), 51)
+        self.assertEqual(len(identifiers), 49)
+        self.assertEqual(len(set(identifiers)), 49)
         for code in identifiers:
             with self.subTest(code=code):
                 self.page.locator("#fit").click()
@@ -183,7 +238,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.assertEqual(self.page.locator("[data-id]").count(), 0)
         self.page.unroute("**/api/get_module_map_infrastructure")
         self.login()
-        self.assertEqual(self.page.locator("[data-id]").count(), 51)
+        self.assertEqual(self.page.locator("[data-id]").count(), 49)
         self.assertEqual(self.errors, [])
 
 
