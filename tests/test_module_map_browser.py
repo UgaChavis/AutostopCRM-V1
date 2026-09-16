@@ -64,8 +64,17 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.page.wait_for_selector('[data-id="A2"]')
 
     def select_node(self, value: str) -> None:
+        self.close_detail()
         self.page.locator(f'[data-id="{value}"]').focus()
         self.page.keyboard.press("Enter")
+
+    def close_detail(self) -> None:
+        if self.page.locator("#detail").is_visible():
+            self.page.keyboard.press("Escape")
+            self.page.wait_for_function("document.querySelector('#detail').hidden")
+
+    def reveal_details(self) -> None:
+        self.page.locator("#detailMore summary").click()
 
     def test_simplified_map_instructions_and_indicator_states(self) -> None:
         import copy
@@ -139,6 +148,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.assertEqual(len(set(identifiers)), 51)
         for code in identifiers:
             with self.subTest(code=code):
+                self.close_detail()
                 self.page.keyboard.press("Home")
                 self.page.evaluate(
                     "() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))"
@@ -156,6 +166,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
                 self.assertEqual(self.page.locator("#detailCode").inner_text(), code)
                 self.assertTrue(self.page.locator("#detailDescription").inner_text())
         self.select_node("L19")
+        self.reveal_details()
         self.assertIn("F1 ↔ F2", self.page.locator("#detailFacts").inner_text())
         self.page.locator("#related button").filter(has_text="F2 ·").click()
         self.assertEqual(self.page.locator("#detailCode").inner_text(), "F2")
@@ -166,6 +177,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.page.keyboard.press("Space")
         self.assertEqual(self.page.locator("#detailCode").inner_text(), "E4")
         self.select_node("E7")
+        self.reveal_details()
         related = self.page.locator("#related button").all_inner_texts()
         for code in ("L20 ·", "L21 ·", "L22 ·", "E8 ·"):
             self.assertTrue(any(item.startswith(code) for item in related), related)
@@ -174,6 +186,27 @@ class ManagerMapBrowserTests(unittest.TestCase):
             [],
             "Map interactions must not call business APIs",
         )
+        self.assertEqual(self.errors, [])
+
+    def test_e1_modal_diagram_and_close_interactions(self) -> None:
+        self.login()
+        self.select_node("E1")
+        dialog = self.page.locator("#detail")
+        self.assertTrue(dialog.is_visible())
+        self.assertEqual(dialog.get_attribute("role"), "dialog")
+        self.assertEqual(dialog.get_attribute("aria-modal"), "true")
+        diagram = self.page.locator("#detailDiagram")
+        stages = diagram.locator("[data-step-id]").evaluate_all(
+            "elements => elements.map(element => element.dataset.stepId)"
+        )
+        self.assertEqual(stages, ["E4", "E5", "E7", "E6"])
+        self.assertTrue(self.page.locator(".detail-backdrop").is_visible())
+        self.page.keyboard.press("Escape")
+        self.assertFalse(dialog.is_visible())
+        self.assertEqual(self.page.evaluate("document.activeElement?.dataset.id"), "E1")
+        self.select_node("E1")
+        self.page.locator(".detail-backdrop").click(position={"x": 5, "y": 5})
+        self.assertFalse(dialog.is_visible())
         self.assertEqual(self.errors, [])
 
     def test_fit_text_bounds_pan_zoom_and_hash(self) -> None:
@@ -244,6 +277,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.assertEqual(self.page.locator("#detailCode").inner_text(), "L19")
         self.page.evaluate("location.hash='L7'")
         self.page.wait_for_function("document.querySelector('#detailCode').textContent==='L7'")
+        self.reveal_details()
         self.assertIn("B4 → A2", self.page.locator("#detailFacts").inner_text())
         self.page.evaluate("location.hash='unknown'")
         self.page.wait_for_function("document.querySelector('#detail').hidden")

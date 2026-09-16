@@ -39,21 +39,55 @@
     .edge-label { fill:#202831; stroke:#657789; stroke-width:1; }
     .edge text { fill:var(--ink); font-family:"Segoe UI",Arial,sans-serif; }
     .edge.is-selected .edge-label,.edge:focus-visible .edge-label { stroke:#eef6ff; stroke-width:2; }
-    .detail { width:340px; flex-shrink:0; padding:22px; background:#222a33; border-left:1px solid var(--border); overflow:auto; }
-    .detail header { display:flex; justify-content:space-between; align-items:center; gap:8px; }
-    .detail h1 { font-size:21px; line-height:1.35; margin:16px 0; }
-    .detail p { line-height:1.6; color:var(--muted); }
-    .detail dl { display:grid; grid-template-columns:90px 1fr; gap:10px; line-height:1.5; }
-    .detail dt { color:var(--muted); }
-    .instructions li { margin:10px 0; line-height:1.5; }
-    .detail dd { margin:0; overflow-wrap:anywhere; }
-    .detail h2 { font-size:14px; font-weight:500; margin-top:26px; color:var(--muted); }
-    .related button { display:block; width:100%; margin:7px 0; text-align:left; line-height:1.4; }
+    .detail-layer { position:absolute; inset:0; z-index:5; display:grid; place-items:center; padding:24px; }
+    .detail-backdrop { position:absolute; inset:0; background:rgba(10,15,21,.76); }
+    .detail { position:relative; width:min(920px,100%); max-height:min(820px,calc(100dvh - 48px)); overflow:auto; padding:32px; background:#252d37; border:1px solid #61707f; border-radius:18px; box-shadow:0 28px 85px rgba(0,0,0,.42); }
+    .detail:focus { outline:none; }
+    .detail header { display:flex; justify-content:space-between; align-items:flex-start; gap:20px; }
+    .detail-heading { min-width:0; }
+    .detail-code { color:#9db5c5; font-size:12px; letter-spacing:.08em; }
+    .detail h1 { font-size:clamp(23px,3vw,30px); line-height:1.2; margin:6px 0 0; }
+    .detail-lead { max-width:660px; margin:16px 0 24px; line-height:1.55; color:#c8d1da; }
+    .detail-status { display:inline-flex; align-items:center; gap:8px; margin:10px 0 0; color:#a9d1b4; font-size:13px; }
+    .detail-status::before { content:""; width:8px; height:8px; border-radius:50%; background:currentColor; box-shadow:0 0 10px currentColor; }
+    .detail-status[data-state="off"] { color:#d58e8e; }
+    .detail-status[data-state="unknown"] { color:#d0be7d; }
+    .detail-close { width:34px; height:34px; flex:none; display:grid; place-items:center; padding:0; font-size:22px; line-height:1; }
+    .detail-diagram { padding:26px 22px; background:#202832; border:1px solid #465666; border-radius:13px; }
+    .flow-chain { display:flex; align-items:stretch; justify-content:center; gap:12px; }
+    .flow-group { flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:8px; }
+    .flow-step { display:flex; align-items:center; justify-content:center; width:100%; min-height:78px; padding:12px; border:1px solid var(--step-color,#83a9bb); border-radius:10px; background:#29343f; color:var(--ink); font-weight:600; line-height:1.3; text-align:center; }
+    button.flow-step:hover { background:#33424e; }
+    .flow-step.is-current { background:#30424b; border-width:2px; }
+    .flow-connector { flex:none; width:27px; align-self:center; height:1px; background:#91a8b8; position:relative; }
+    .flow-connector::after { content:""; position:absolute; right:0; top:-4px; border:4px solid transparent; border-left-color:#91a8b8; transform:translateX(8px); }
+    .flow-connector.is-both::before { content:""; position:absolute; left:0; top:-4px; border:4px solid transparent; border-right-color:#91a8b8; transform:translateX(-8px); }
+    .flow-connector.is-plain::after { display:none; }
+    .detail-sources { margin:14px 2px 0; color:#aebcc8; font-size:12px; line-height:1.45; }
+    .detail-more { margin-top:22px; border-top:1px solid #465666; color:#b8c5d0; }
+    .detail-more summary { width:max-content; padding:15px 0 0; cursor:pointer; }
+    .detail-more-body { padding:4px 0 0; }
+    .detail-more h2 { font-size:13px; font-weight:600; margin:20px 0 8px; color:#d0dbe3; }
+    .detail-more dl { display:grid; grid-template-columns:100px 1fr; gap:8px; line-height:1.5; margin:0; }
+    .detail-more dt { color:var(--muted); }
+    .detail-more dd { margin:0; overflow-wrap:anywhere; }
+    .instructions li { margin:8px 0; line-height:1.5; }
+    .related { display:flex; flex-wrap:wrap; gap:8px; }
+    .related button { padding:7px 9px; text-align:left; font-size:12px; }
     .state { position:absolute; left:50%; top:45%; transform:translate(-50%,-50%); max-width:420px; width:85%; padding:22px; text-align:center; background:var(--panel); border:1px solid var(--border); border-radius:12px; line-height:1.6; }
     .hint { position:absolute; left:16px; bottom:10px; color:#929daa; font-size:11px; pointer-events:none; }
     .sr-only { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
-    @media(max-width:900px) { .detail { width:290px; padding:16px; } }
-    @media(max-width:600px) { .detail { position:absolute; inset:0 0 0 auto; width:min(320px,90vw); z-index:3; } .hint { display:none; } }
+    @media(max-width:650px) {
+      .detail-layer { padding:12px; }
+      .detail { padding:22px; max-height:calc(100dvh - 24px); }
+      .detail-diagram { padding:20px; }
+      .flow-chain { flex-direction:column; align-items:stretch; gap:14px; }
+      .flow-step { min-height:55px; }
+      .flow-connector { width:1px; height:18px; align-self:center; }
+      .flow-connector::after { right:-4px; top:auto; bottom:-8px; border:4px solid transparent; border-top-color:#91a8b8; transform:none; }
+      .flow-connector.is-both::before { left:-4px; top:-8px; border:4px solid transparent; border-bottom-color:#91a8b8; transform:none; }
+      .hint { display:none; }
+    }
     @media(prefers-reduced-motion:reduce) { * { scroll-behavior:auto; } }
   </style>
 </head>
@@ -64,12 +98,23 @@
       <div class="state" id="state" role="status"><p id="stateText">Загрузка карты…</p><button id="retry" type="button" hidden>Повторить</button> <a href="/" id="loginLink" hidden>Войти в CRM</a></div>
       <div class="hint" id="hint" hidden>Колесо — масштаб · Фон — перемещение · Клик — описание</div>
     </div>
-    <aside class="detail" id="detail" aria-label="Описание выбранного элемента" hidden>
-      <header><strong id="detailCode"></strong><button id="closeDetail" type="button" aria-label="Закрыть описание">Закрыть</button></header>
-      <h1 id="detailTitle"></h1><p id="detailDescription"></p><p id="detailStatus" hidden></p><dl id="detailFacts"></dl>
-      <section id="instructions" class="instructions" hidden><h2>Основные инструкции</h2><ul id="instructionLinks"></ul></section>
-      <h2>Связанные элементы</h2><div class="related" id="related"></div>
-    </aside>
+    <div class="detail-layer" id="detailLayer" hidden>
+      <div class="detail-backdrop" id="detailBackdrop"></div>
+      <section class="detail" id="detail" role="dialog" aria-modal="true" aria-labelledby="detailTitle" tabindex="-1" hidden>
+        <header>
+          <div class="detail-heading"><span class="detail-code" id="detailCode"></span><h1 id="detailTitle"></h1><p class="detail-status" id="detailStatus" hidden></p></div>
+          <button class="detail-close" id="closeDetail" type="button" aria-label="Закрыть карточку">×</button>
+        </header>
+        <p class="detail-lead" id="detailDescription"></p>
+        <div class="detail-diagram" id="detailDiagram" role="group" aria-label="Схема взаимодействия модуля"></div>
+        <p class="detail-sources" id="detailSources" hidden></p>
+        <details class="detail-more" id="detailMore"><summary>Подробнее</summary><div class="detail-more-body">
+          <dl id="detailFacts"></dl>
+          <section id="instructions" class="instructions" hidden><h2>Инструкции</h2><ul id="instructionLinks"></ul></section>
+          <h2>Связанные элементы</h2><div class="related" id="related"></div>
+        </div></details>
+      </section>
+    </div>
   </main>
   <p id="announce" class="sr-only" aria-live="polite"></p>
   <script>
@@ -97,7 +142,7 @@
       box:'M2 8 L14 1 L26 8 V22 L14 29 L2 22 Z M2 8 L14 15 L26 8 M14 15 V29 M8 5 L20 12'
     };
     let data, items = new Map(), nodes = new Map(), stage, selected = '', zoom = 1, tx = 0, ty = 0, fitMode = true;
-    let pointer = null, suppressClick = false, loading = false;
+    let pointer = null, suppressClick = false, loading = false, previousFocus = null;
     const el = (name, attrs={}, content) => {
       const result = document.createElementNS(ns,name);
       Object.entries(attrs).forEach(([key,value]) => result.setAttribute(key,String(value)));
@@ -235,12 +280,64 @@
       }
       return ids;
     }
+    function flowStep(id, current=false) {
+      const item=nodes.get(id), step=document.createElement(current?'div':'button');
+      step.className=`flow-step${current?' is-current':''}`;
+      step.dataset.stepId=id;
+      step.style.setProperty('--step-color',colors[item.tone||item.group]);
+      step.textContent=item.title;
+      if(!current) {step.type='button';step.addEventListener('click',()=>select(id,true));}
+      return step;
+    }
+    function drawFlow(groups, connectors=[]) {
+      const chain=document.createElement('div');chain.className='flow-chain';
+      groups.forEach((group,index)=>{
+        if(index) {
+          const line=document.createElement('span');
+          line.className=`flow-connector${connectors[index-1]==='both'?' is-both':''}${connectors[index-1]==='plain'?' is-plain':''}`;
+          line.setAttribute('aria-hidden','true');chain.append(line);
+        }
+        const column=document.createElement('div');column.className='flow-group';
+        group.forEach(id=>column.append(flowStep(id,id===selected)));
+        chain.append(column);
+      });
+      $('detailDiagram').replaceChildren(chain);
+    }
+    function drawDiagram(id) {
+      $('detailSources').hidden=true;
+      if(id==='E1') {
+        drawFlow(['E4','E5','E7','E6'].map(step=>[step]));
+        $('detailSources').textContent='Источники: vPIC / PartsAPI · каталоги и поставщики · веб-шлюз';
+        $('detailSources').hidden=false;
+        return;
+      }
+      const item=items.get(id);
+      if(item.from) {
+        drawFlow([[item.from],[item.to]],[item.direction==='both'?'both':'forward']);
+        return;
+      }
+      const children=data.elements.filter(node=>node.parent===id).map(node=>node.id);
+      if(children.length) {drawFlow([[id],children],['plain']);return;}
+      const linked=data.relations.filter(relation=>relation.from===id||relation.to===id);
+      const incoming=[...new Set(linked.filter(relation=>relation.to===id).map(relation=>relation.from))].slice(0,2);
+      const outgoing=[...new Set(linked.filter(relation=>relation.from===id).map(relation=>relation.to))].slice(0,2);
+      const parentOnly=!incoming.length&&Boolean(item.parent);
+      if(parentOnly) incoming.push(item.parent);
+      const groups=[incoming,[id],outgoing].filter(group=>group.length);
+      const connectors=[];
+      if(incoming.length) connectors.push(parentOnly?'plain':linked.some(relation=>incoming.includes(relation.from)&&relation.to===id&&relation.direction==='both')?'both':'forward');
+      if(outgoing.length) connectors.push(linked.some(relation=>relation.from===id&&outgoing.includes(relation.to)&&relation.direction==='both')?'both':'forward');
+      drawFlow(groups,connectors);
+    }
     function select(id, focus=false) {
       if(!items.has(id)) { clearSelection(); return; }
       selected=id; const item=items.get(id), related=relationships(id);
-      $('detail').hidden=false; $('detailCode').textContent=id; $('detailTitle').textContent=item.title||item.label;
+      if($('detailLayer').hidden) previousFocus=document.activeElement;
+      $('detailLayer').hidden=false; $('detail').hidden=false; $('viewport').inert=true;
+      $('detailCode').textContent=id; $('detailTitle').textContent=item.title||item.label;
       const indicator=indicatorFor(item);
       $('detailStatus').hidden=!indicator; $('detailStatus').textContent=indicator?`Состояние: ${indicator.label.toLocaleLowerCase('ru')}`:'';
+      $('detailStatus').dataset.state=item.indicator||'unknown';
       $('instructionLinks').replaceChildren();
       for(const link of item.links||[]) {
         let url;try {url=new URL(link.url);} catch(_error) {continue;}
@@ -250,7 +347,9 @@
         li.append(a);$('instructionLinks').append(li);
       }
       $('instructions').hidden=!$('instructionLinks').childElementCount;
-      $('detailDescription').textContent=item.description; $('detailFacts').replaceChildren(); $('related').replaceChildren();
+      $('detailDescription').textContent=item.description.match(/^.*?[.!?](?:\s|$)/)?.[0]?.trim()||item.description;
+      $('detailFacts').replaceChildren(); $('related').replaceChildren(); $('detailMore').open=false;
+      drawDiagram(id);
       if(item.from) {
         [['Направление',`${item.from} ${item.direction==='both'?'↔':'→'} ${item.to}`],['Протокол',item.protocol]].forEach(([key,value])=>{
           const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=key;dd.textContent=value;$('detailFacts').append(dt,dd);
@@ -266,14 +365,18 @@
       });
       history.replaceState(null,'',`#${id}`); $('announce').textContent=`Выбран ${id}: ${item.title||item.label}`;
       requestAnimationFrame(()=>{
-        if(fitMode) fit();
-        if(focus) { center(id); stage.querySelector(`[data-id="${id}"]`).focus({preventScroll:true}); }
+        if(focus) center(id);
+        $('detail').focus({preventScroll:true});
       });
     }
     function clearSelection() {
-      selected=''; $('detail').hidden=true;
+      selected=''; $('detail').hidden=true; $('detailLayer').hidden=true; $('viewport').inert=false;
       if(stage) stage.querySelectorAll('[data-id]').forEach(g=>{g.classList.remove('is-selected','is-related');g.setAttribute('aria-pressed','false');});
       history.replaceState(null,'',location.pathname+location.search);
+    }
+    function closeDetail() {
+      const id=selected, restore=stage?.querySelector(`[data-id="${id}"]`)||previousFocus;
+      clearSelection();previousFocus=null;restore?.focus?.({preventScroll:true});
     }
     function hashSelection() { const id=location.hash.slice(1); if(items.has(id)) select(id,true); else {clearSelection();fit();} }
     async function load() {
@@ -336,10 +439,19 @@
     }
     $('map').addEventListener('pointerup',endPan);$('map').addEventListener('pointercancel',endPan);
     $('map').addEventListener('lostpointercapture',endPan);
-    $('closeDetail').addEventListener('click',()=>{const id=selected;clearSelection();stage?.querySelector(`[data-id="${id}"]`)?.focus({preventScroll:true});});
+    $('closeDetail').addEventListener('click',closeDetail);
+    $('detailBackdrop').addEventListener('click',closeDetail);
     $('retry').addEventListener('click',load);
     document.addEventListener('keydown',event=>{
-      if(event.key==='Escape'){const id=selected;clearSelection();stage?.querySelector(`[data-id="${id}"]`)?.focus({preventScroll:true});}
+      if(event.key==='Escape'&&selected){event.preventDefault();closeDetail();return;}
+      if(selected&&event.key==='Tab') {
+        const controls=[...$('detail').querySelectorAll('button,summary,a[href]')].filter(element=>element.getClientRects().length);
+        const first=controls[0],last=controls.at(-1);
+        if(event.shiftKey&&(document.activeElement===first||document.activeElement===$('detail'))) {event.preventDefault();last?.focus();}
+        else if(!event.shiftKey&&(document.activeElement===last||document.activeElement===$('detail'))) {event.preventDefault();first?.focus();}
+        return;
+      }
+      if(selected)return;
       if(event.target.matches('input,textarea'))return;
       if(event.key==='Home'){event.preventDefault();clearSelection();requestAnimationFrame(fit);}
       if(event.key==='+'||event.key==='='){event.preventDefault();zoomAt(zoom*1.2);}
