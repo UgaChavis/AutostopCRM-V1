@@ -442,7 +442,7 @@ class AgentToolExecutor:
             ),
             AgentToolDefinition(
                 "fetch_page_browser",
-                "Open a public web page with Chromium when Crawl4AI/HTTP excerpt is blocked by JavaScript.",
+                "Browser page rendering is unavailable until a verified private-range egress-isolated renderer is deployed; use fetch_page_excerpt.",
                 {
                     "url": "required string",
                     "max_chars": "optional int",

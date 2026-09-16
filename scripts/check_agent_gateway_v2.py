@@ -25,6 +25,7 @@ from minimal_kanban.mcp.agent_gateway_support import (  # noqa: E402
 DEFAULT_MCP_URL = "http://127.0.0.1:41831/mcp"
 DEFAULT_TOKEN_ENV = "MINIMAL_KANBAN_MCP_BEARER_TOKEN"
 EXPECTED_TOOL_NAMES = PERMANENT_AGENT_GATEWAY_TOOL_NAMES
+_BROWSER_EGRESS_ISOLATION_REQUIRED_ERROR = "browser_egress_isolation_required"
 FORBIDDEN_LEGACY_TOOL_NAMES = frozenset(
     {
         "bootstrap_context",
@@ -314,6 +315,23 @@ def _tool_ok(result: Any) -> bool:
 def _structured(result: Any) -> dict[str, Any]:
     payload = getattr(result, "structuredContent", None)
     return payload if isinstance(payload, dict) else {}
+
+
+def _browser_guarded_unavailable(result: Any) -> bool:
+    """Accept only the explicit fail-closed browser state in a release smoke."""
+
+    if _tool_ok(result):
+        return False
+    data = _structured(result).get("data")
+    if not isinstance(data, dict):
+        return False
+    flags = data.get("access_flags")
+    return (
+        data.get("error") == _BROWSER_EGRESS_ISOLATION_REQUIRED_ERROR
+        and data.get("mode") == "browser"
+        and isinstance(flags, list)
+        and "browser_egress_unverified" in flags
+    )
 
 
 def _state_version(payload: dict[str, Any]) -> int:
@@ -1230,6 +1248,15 @@ async def _run_web_checks(
             "research_drive2_cases",
             {"query": "ремонт DQ200", "vehicle": "Skoda Octavia", "max_cases": 1},
         ),
+        (
+            "research_part_public_evidence",
+            {
+                "query": "масляный фильтр",
+                "limit": 1,
+                "providers": ["searxng"],
+                "max_pages": 0,
+            },
+        ),
     )
     for capability_name, arguments in probes:
         discovered = await _call(
@@ -1262,6 +1289,7 @@ async def _run_web_checks(
         if not schema_hash:
             checks[f"{capability_name}_call_ok"] = False
             continue
+        prior_raw_call_ok = calls.get("call_raw_capability", True)
         result = await _call(
             session,
             calls,
@@ -1273,6 +1301,15 @@ async def _run_web_checks(
                 "allow_large_output": False,
             },
         )
+        if capability_name == "fetch_page_browser":
+            guarded_unavailable = _browser_guarded_unavailable(result)
+            if guarded_unavailable:
+                # The tool deliberately refuses Chromium navigation until an
+                # independently verified egress boundary exists. Do not turn
+                # that secure refusal into a release failure or call it live.
+                calls["call_raw_capability"] = prior_raw_call_ok
+            checks["fetch_page_browser_safe_state"] = _tool_ok(result) or guarded_unavailable
+            continue
         checks[f"{capability_name}_call_ok"] = _tool_ok(result)
 
     return checks
@@ -1576,7 +1613,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--require-web",
         action="store_true",
-        help="Require discovery, schema, and live calls for all guarded web research capabilities.",
+        help=(
+            "Require discovery, schema, and safe calls for guarded web research capabilities; "
+            "Chromium rendering must be live behind a verified egress boundary or explicitly "
+            "guarded-unavailable."
+        ),
     )
     return parser
 

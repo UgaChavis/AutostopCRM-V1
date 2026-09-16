@@ -839,6 +839,10 @@ class AgentWebToolsTests(unittest.TestCase):
         client = DuckDuckGoSearchClient()
 
         with (
+            patch(
+                "minimal_kanban.agent.web_tools._browser_egress_isolation_verified",
+                return_value=True,
+            ),
             patch("minimal_kanban.agent.web_tools._load_sync_playwright", return_value=None),
             patch("minimal_kanban.agent.web_tools.httpx.Client") as http_client,
         ):
@@ -849,6 +853,21 @@ class AgentWebToolsTests(unittest.TestCase):
         self.assertEqual(payload["error"], "playwright_missing")
         self.assertEqual(payload["access_flags"], ["browser_unavailable"])
 
+    def test_fetch_page_browser_fails_closed_without_verified_egress_isolation(self) -> None:
+        client = DuckDuckGoSearchClient()
+
+        with (
+            patch("minimal_kanban.agent.web_tools._load_sync_playwright") as load_playwright,
+            patch("minimal_kanban.agent.web_tools.socket.getaddrinfo") as resolve_dns,
+        ):
+            payload = client.fetch_page_browser("https://example.com/specs")
+
+        load_playwright.assert_not_called()
+        resolve_dns.assert_not_called()
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"], "browser_egress_isolation_required")
+        self.assertEqual(payload["access_flags"], ["browser_egress_unverified"])
+
     def test_fetch_page_browser_extracts_rendered_text_links_and_access_flags(self) -> None:
         page = _FakeBrowserPage()
         browser = _FakeBrowser(page)
@@ -857,8 +876,14 @@ class AgentWebToolsTests(unittest.TestCase):
             return _FakePlaywrightContextManager(browser)
 
         client = DuckDuckGoSearchClient()
-        with patch(
-            "minimal_kanban.agent.web_tools._load_sync_playwright", return_value=sync_playwright
+        with (
+            patch(
+                "minimal_kanban.agent.web_tools._browser_egress_isolation_verified",
+                return_value=True,
+            ),
+            patch(
+                "minimal_kanban.agent.web_tools._load_sync_playwright", return_value=sync_playwright
+            ),
         ):
             payload = client.fetch_page_browser(
                 "https://example.com/specs",

@@ -487,6 +487,10 @@ class AgentGatewayV2SmokeProbeTests(unittest.IsolatedAsyncioTestCase):
             "fetch_page_excerpt": {"name": "fetch_page_excerpt", "risk": "read"},
             "fetch_page_browser": {"name": "fetch_page_browser", "risk": "read"},
             "research_drive2_cases": {"name": "research_drive2_cases", "risk": "read"},
+            "research_part_public_evidence": {
+                "name": "research_part_public_evidence",
+                "risk": "read",
+            },
         }
         raw_calls: list[dict] = []
 
@@ -507,12 +511,31 @@ class AgentGatewayV2SmokeProbeTests(unittest.IsolatedAsyncioTestCase):
                 )
             self.assertEqual("call_raw_capability", name)
             raw_calls.append(arguments)
+            if arguments["name"] == "fetch_page_browser":
+                return tool_result(
+                    {
+                        "ok": False,
+                        "data": {
+                            "error": "browser_egress_isolation_required",
+                            "mode": "browser",
+                            "access_flags": ["browser_egress_unverified"],
+                        },
+                    }
+                )
             return tool_result({"ok": True, "data": {}})
 
         checks = await module._run_web_checks(ScriptSession(handler), {})
 
         self.assertTrue(all(checks.values()))
         self.assertEqual(set(discovery_items), {item["name"] for item in raw_calls})
+        self.assertTrue(checks["fetch_page_browser_safe_state"])
+        browser_probe = next(item for item in raw_calls if item["name"] == "fetch_page_browser")
+        self.assertEqual(browser_probe["arguments"]["url"], "https://example.com")
+        e7_probe = next(
+            item for item in raw_calls if item["name"] == "research_part_public_evidence"
+        )
+        self.assertEqual(e7_probe["arguments"]["max_pages"], 0)
+        self.assertEqual(e7_probe["arguments"]["providers"], ["searxng"])
 
     def test_change_feed_page_rejects_gap_after_acked_sequence(self) -> None:
         module = load_script_module()

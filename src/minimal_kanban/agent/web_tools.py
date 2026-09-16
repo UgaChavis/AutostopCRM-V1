@@ -39,6 +39,7 @@ _MAX_SEARCH_RESPONSE_BYTES = 1_500_000
 _MAX_PAGE_RESPONSE_BYTES = 2_000_000
 _MAX_REDIRECTS = 5
 _MAX_BROWSER_REQUESTS = 48
+_BROWSER_EGRESS_ISOLATION_REQUIRED_ERROR = "browser_egress_isolation_required"
 _SEARCH_PROVIDER_ORDER = ("brave", "tavily", "google_cse", "searxng", "marginalia", "duckduckgo")
 _SEARCH_PROVIDER_ALIASES = {
     "brave_search": "brave",
@@ -144,11 +145,11 @@ def sanitize_public_search_query(value: Any) -> str:
 
 
 class _PublicBrowserRequestGuard:
-    """Block unsafe browser requests; private-range egress remains a runtime control.
+    """Defense in depth for a future egress-isolated browser renderer.
 
     Playwright exposes request routing but no stable per-request IP pinning API.
-    Each browser request is therefore resolved and checked before it continues;
-    deployment must also deny browser egress to private address ranges.
+    A DNS check before ``route.continue_`` is not a network boundary and cannot
+    prevent rebinding; this process therefore does not enable browser navigation.
     """
 
     def __init__(self, client: DuckDuckGoSearchClient) -> None:
@@ -319,7 +320,20 @@ class DuckDuckGoSearchClient:
         normalized_url = str(url or "").strip()
         if not normalized_url:
             raise InternetToolError("url is required")
-        normalized_url = self._validated_public_http_url(normalized_url)
+        # Keep syntactic and literal-private-target validation, but do not resolve
+        # or navigate.  Chromium has no stable per-request IP-pinning API, so an
+        # application-level DNS preflight cannot safely authorize this sink.
+        normalized_url = self._validated_public_http_url(normalized_url, resolve_dns=False)
+        if not _browser_egress_isolation_verified():
+            return self._browser_error_payload(
+                normalized_url,
+                error=_BROWSER_EGRESS_ISOLATION_REQUIRED_ERROR,
+                message=(
+                    "Browser rendering is disabled until it runs behind a verified "
+                    "private-range egress isolation boundary."
+                ),
+                access_flags=["browser_egress_unverified"],
+            )
         normalized_max_chars = _normalize_int(
             max_chars,
             default=_DEFAULT_PAGE_EXCERPT_CHARS,
@@ -349,7 +363,7 @@ class DuckDuckGoSearchClient:
                         user_agent=_BROWSER_USER_AGENT,
                         locale="ru-RU",
                         viewport={"width": 1365, "height": 900},
-                        ignore_https_errors=True,
+                        ignore_https_errors=False,
                     )
                     context.route("**/*", _PublicBrowserRequestGuard(self))
                     page = context.new_page()
@@ -1105,6 +1119,18 @@ def _load_sync_playwright() -> Any:
     except Exception:
         return None
     return sync_playwright
+
+
+def _browser_egress_isolation_verified() -> bool:
+    """Keep browser navigation disabled until deployment adds a real ACL boundary.
+
+    This intentionally has no environment override: a process flag cannot prove
+    that Chromium is unable to connect to loopback, private, link-local, metadata,
+    or Docker-network targets after DNS rebinding.  A future isolated renderer must
+    replace this with its independently verifiable network contract.
+    """
+
+    return False
 
 
 def _browser_executable_candidates() -> list[str]:

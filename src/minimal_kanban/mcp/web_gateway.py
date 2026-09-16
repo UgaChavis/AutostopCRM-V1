@@ -24,8 +24,8 @@ WEB_RESEARCH_CAPABILITY_DESCRIPTIONS = {
         "Fetch a bounded text excerpt from one public HTTP(S) page with SSRF protection."
     ),
     "fetch_page_browser": (
-        "Render one public HTTP(S) page in the browser and return a bounded excerpt with access "
-        "flags."
+        "Browser rendering is guarded-unavailable until a separately verified private-range "
+        "egress-isolated renderer exists; use the bounded HTTP(S) excerpt capability."
     ),
     "research_drive2_cases": (
         "Research bounded public Drive2 logbook cases for a vehicle symptom; returns compact "

@@ -306,7 +306,7 @@
     function drawDiagram(id) {
       $('detailSources').hidden=true;
       if(id==='E1') {
-        drawFlow(['E4','E5','E7','E6'].map(step=>[step]));
+        drawFlow(['E4','E5','E7','E6','E9'].map(step=>[step]));
         $('detailSources').textContent='Источники: vPIC / PartsAPI · каталоги и поставщики · веб-шлюз';
         $('detailSources').hidden=false;
         return;

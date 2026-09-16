@@ -199,7 +199,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
         stages = diagram.locator("[data-step-id]").evaluate_all(
             "elements => elements.map(element => element.dataset.stepId)"
         )
-        self.assertEqual(stages, ["E4", "E5", "E7", "E6"])
+        self.assertEqual(stages, ["E4", "E5", "E7", "E6", "E9"])
         self.assertTrue(self.page.locator(".detail-backdrop").is_visible())
         self.page.keyboard.press("Escape")
         self.assertFalse(dialog.is_visible())
