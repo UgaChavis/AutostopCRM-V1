@@ -1326,7 +1326,8 @@ class ApiServerTests(unittest.TestCase):
                     "is_detached": False,
                     "position": {"x": 0, "y": 0},
                     "filter": {"tag_label": "НАДО ЧТО ТО СДЕЛАТЬ", "tag_color": "red"},
-                }
+                },
+                "parts_store_column": {"is_open": True},
             },
             default_profile["data"]["board_preferences"],
         )
@@ -1369,7 +1370,8 @@ class ApiServerTests(unittest.TestCase):
                 "is_detached": False,
                 "position": {"x": 0, "y": 0},
                 "filter": {"tag_label": "СРОЧНО", "tag_color": "yellow"},
-            }
+            },
+            "parts_store_column": {"is_open": True},
         }
         self.assertEqual(expected_preferences, saved["data"]["board_preferences"])
 
@@ -3185,6 +3187,57 @@ class ApiServerTests(unittest.TestCase):
             user for user in migrated_state["users"] if user["username"] == "ADMIN"
         )
         self.assertNotEqual(migrated_admin["password_hash"], admin_user["password_hash"])
+
+    def test_parts_store_column_persists_cards_and_is_locked(self) -> None:
+        status, columns = self.request("/api/list_columns", method="GET")
+        self.assertEqual(status, 200)
+        self.assertEqual(columns["data"]["columns"][-1]["id"], "parts_store")
+
+        status, created = self.request(
+            "/api/create_card",
+            {"title": "Тестовый запрос детали", "column": "parts_store", "deadline": {"hours": 1}},
+        )
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+        self.assertEqual(created["data"]["card"]["column"], "parts_store")
+
+        status, card = self.request("/api/get_card", {"card_id": card_id})
+        self.assertEqual(status, 200)
+        self.assertEqual(card["data"]["card"]["column"], "parts_store")
+        for route, payload in (
+            ("/api/rename_column", {"column_id": "parts_store", "label": "Переименовать"}),
+            ("/api/delete_column", {"column_id": "parts_store"}),
+            ("/api/move_column", {"column_id": "parts_store"}),
+        ):
+            status, result = self.request(route, payload)
+            self.assertEqual(status, 409)
+            self.assertEqual(result["error"]["code"], "system_column_locked")
+
+    def test_parts_store_visibility_is_independent_of_extra_column(self) -> None:
+        status, login = self.request(
+            "/api/login_operator", {"username": "admin", "password": "admin"}
+        )
+        self.assertEqual(status, 200)
+        headers = {"X-Operator-Session": login["data"]["session"]["token"]}
+        status, saved = self.request(
+            "/api/update_personal_board_preferences",
+            {
+                "board_preferences": {
+                    "extra_column": {
+                        "is_open": True,
+                        "filter": {"tag_label": "ЛИЧНОЕ", "tag_color": "red"},
+                    },
+                    "parts_store_column": {"is_open": True},
+                }
+            },
+            headers=headers,
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(saved["data"]["board_preferences"]["parts_store_column"]["is_open"])
+        self.assertTrue(saved["data"]["board_preferences"]["extra_column"]["is_open"])
+        status, profile = self.request("/api/get_operator_profile", method="GET", headers=headers)
+        self.assertEqual(status, 200)
+        self.assertEqual(profile["data"]["board_preferences"], saved["data"]["board_preferences"])
 
     def test_create_column_move_card_and_update_deadline(self) -> None:
         status, created_column = self.request("/api/create_column", {"label": "Блокеры"})
@@ -5112,8 +5165,9 @@ class ApiServerTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         ordered_ids = [item["id"] for item in moved["data"]["columns"]]
+        self.assertEqual(ordered_ids[-1], "parts_store")
         self.assertEqual(
-            ordered_ids[-3:],
+            ordered_ids[-4:-1],
             [
                 third["data"]["column"]["id"],
                 first["data"]["column"]["id"],
@@ -5121,6 +5175,13 @@ class ApiServerTests(unittest.TestCase):
             ],
         )
         self.assertTrue(moved["data"]["meta"]["changed"])
+
+        status, moved_to_end = self.request(
+            "/api/move_column", {"column_id": third["data"]["column"]["id"]}
+        )
+        self.assertEqual(status, 200)
+        ordered_ids = [item["id"] for item in moved_to_end["data"]["columns"]]
+        self.assertEqual(ordered_ids[-2:], [third["data"]["column"]["id"], "parts_store"])
 
     def test_bulk_move_cards_route_moves_cards_and_reports_partial_failures(self) -> None:
         status, created_column = self.request("/api/create_column", {"label": "MCP TEST COLUMN"})

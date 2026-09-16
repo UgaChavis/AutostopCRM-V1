@@ -15,6 +15,7 @@ COLUMN_LABELS_RU = {
     "in_progress": "В работе",
     "control": "На контроле",
     "done": "Готовые автомобили",
+    "parts_store": "Магазин автозапчастей",
 }
 
 BUTTON_SAVE = "Сохранить"

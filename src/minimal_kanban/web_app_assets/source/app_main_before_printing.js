@@ -28,6 +28,7 @@
     const MOBILE_CARD_TITLE_REQUIRED_MESSAGE = 'УКАЖИ КРАТКУЮ СУТЬ КАРТОЧКИ.';
     const EXTRA_BOARD_COLUMN_DEFAULT_TAG_LABEL = 'НАДО ЧТО ТО СДЕЛАТЬ';
     const EXTRA_BOARD_COLUMN_DEFAULT_TAG_COLOR = 'red';
+    const PARTS_STORE_COLUMN_ID = 'parts_store';
     const DISPLAY_DASHBOARD_MAX_IMAGES = 8;
     const SALARY_BALANCE_RESET_PERMISSION = 'salary_balance_reset';
     const EMPLOYEES_CASHBOXES_ACCESS_PERMISSION = 'employees_cashboxes_access';
@@ -655,6 +656,7 @@
       displayDashboardMessageImages: document.getElementById('displayDashboardMessageImages'),
       displayDashboardMessageSaveButton: document.getElementById('displayDashboardMessageSaveButton'),
       extraBoardColumnToggleButton: document.getElementById('extraBoardColumnToggleButton'),
+      partsStoreColumnToggleButton: document.getElementById('partsStoreColumnToggleButton'),
       extraBoardColumnFilterButton: document.getElementById('extraBoardColumnFilterButton'),
       extraBoardColumnFilterPanel: document.getElementById('extraBoardColumnFilterPanel'),
       extraBoardColumnTagLabelInput: document.getElementById('extraBoardColumnTagLabelInput'),
@@ -5949,10 +5951,11 @@
       };
     }
 
-    function openMobileNewCard() {
+    function openMobileNewCard(columnId = '') {
       invalidateMobileCardContext();
       state.mobileCardId = '';
       state.mobileCard = emptyMobileCardDraft();
+      if (columnId === PARTS_STORE_COLUMN_ID) state.mobileCard.column = PARTS_STORE_COLUMN_ID;
       state.mobileCardTab = 'overview';
       state.mobileCardCreating = true;
       state.mobileCardLoading = false;
@@ -6081,6 +6084,12 @@
 
     function handleMobileBoardClick(event) {
       const target = event.target;
+      const createButton = target instanceof HTMLElement ? target.closest('[data-mobile-create-in]') : null;
+      if (createButton && els.mobileBoardColumns?.contains(createButton)) {
+        event.preventDefault();
+        openMobileNewCard(createButton.getAttribute('data-mobile-create-in'));
+        return;
+      }
       const toggleButton = target instanceof HTMLElement ? target.closest('[data-mobile-column-toggle]') : null;
       if (toggleButton && els.mobileBoardColumns?.contains(toggleButton)) {
         event.preventDefault();
@@ -6170,13 +6179,18 @@
         els.mobileBoardColumns.innerHTML = '<div class="mobile-empty">ДОСКА ЗАГРУЖАЕТСЯ...</div>';
         return;
       }
-      const mobileColumns = extraBoardColumnIsOpen()
-        ? columns.concat([{
+      const mobileColumns = columns.filter((column) => column.id !== PARTS_STORE_COLUMN_ID);
+      if (extraBoardColumnIsOpen()) {
+        mobileColumns.push({
             id: '__personal_extra_column__',
             label: 'ДОП. КОЛОНКА · ЛИЧНАЯ',
             is_personal_extra_column: true,
-          }])
-        : columns;
+        });
+      }
+      if (partsStoreColumnIsOpen()) {
+        const partsStoreColumn = columns.find((column) => column.id === PARTS_STORE_COLUMN_ID);
+        if (partsStoreColumn) mobileColumns.push(partsStoreColumn);
+      }
       els.mobileBoardColumns.innerHTML = mobileColumns.map((column) => {
         const columnId = String(column?.id || '').trim();
         const isPersonalExtraColumn = Boolean(column?.is_personal_extra_column);
@@ -6195,13 +6209,15 @@
               return '<button class="mobile-card-mini" type="button" data-mobile-card-id="' + escapeHtml(card?.id || '') + '"><span>' + escapeHtml(mobileCardTitle(card)) + '</span><strong>' + escapeHtml(due) + '</strong></button>';
             }).join('') + '</div>' + toggleHtml
           : '<div class="mobile-card-mini mobile-card-mini--empty"><span>Карточек нет</span></div>';
+        const isPartsStoreColumn = columnId === PARTS_STORE_COLUMN_ID;
         const virtualAttribute = isPersonalExtraColumn ? ' data-mobile-virtual-column="extra"' : '';
-        return '<section class="mobile-column-card" data-mobile-column-id="' + escapeHtml(columnId) + '"' + virtualAttribute + '>'
+        return '<section class="mobile-column-card' + (isPartsStoreColumn ? ' mobile-column-card--parts-store' : '') + '" data-mobile-column-id="' + escapeHtml(columnId) + '"' + virtualAttribute + '>'
           + '<div class="mobile-column-card__top">'
             + '<div class="mobile-column-card__title">' + escapeHtml(column?.label || column?.title || 'Колонка') + '</div>'
             + '<div class="mobile-column-card__count">' + escapeHtml(String(columnCards.length)) + '</div>'
           + '</div>'
           + cardsHtml
+          + (isPartsStoreColumn ? '<button class="mobile-action mobile-action--ghost" type="button" data-mobile-create-in="parts_store">+ КАРТОЧКА</button>' : '')
         + '</section>';
       }).join('');
     }
@@ -8748,6 +8764,7 @@
             tag_color: EXTRA_BOARD_COLUMN_DEFAULT_TAG_COLOR,
           },
         },
+        parts_store_column: { is_open: true },
       };
     }
 
@@ -8773,6 +8790,7 @@
             tag_color: normalizeExtraBoardColumnTagColor(rawFilter.tag_color || defaults.extra_column.filter.tag_color),
           },
         },
+        parts_store_column: { is_open: source.parts_store_column?.is_open !== false },
       };
     }
 
@@ -8790,6 +8808,10 @@
       return Boolean(extraBoardColumnPreferences().is_open);
     }
 
+    function partsStoreColumnIsOpen() {
+      return Boolean(personalBoardPreferences().parts_store_column.is_open);
+    }
+
     function extraBoardColumnIsDetached() {
       return Boolean(extraBoardColumnPreferences().is_detached);
     }
@@ -8804,7 +8826,7 @@
     }
 
     function cardMatchesExtraBoardColumn(card) {
-      if (!card || card.archived) return false;
+      if (!card || card.archived || card.column === PARTS_STORE_COLUMN_ID) return false;
       const filter = extraBoardColumnPreferences().filter;
       return normalizeDraftTags(card.tag_items || card.tags || []).some((tag) =>
         tag.label === filter.tag_label && tag.color === filter.tag_color
@@ -8832,6 +8854,11 @@
       if (els.extraBoardColumnToggleButton) {
         els.extraBoardColumnToggleButton.textContent = settings.is_open ? 'СКРЫТЬ ДОП. КОЛОНКУ' : 'ОТКРЫТЬ ДОП. КОЛОНКУ';
         els.extraBoardColumnToggleButton.disabled = saving;
+      }
+      if (els.partsStoreColumnToggleButton) {
+        els.partsStoreColumnToggleButton.textContent = partsStoreColumnIsOpen()
+          ? 'СКРЫТЬ МАГАЗИН АВТОЗАПЧАСТЕЙ' : 'ОТКРЫТЬ МАГАЗИН АВТОЗАПЧАСТЕЙ';
+        els.partsStoreColumnToggleButton.disabled = saving;
       }
       if (els.extraBoardColumnFilterButton) {
         els.extraBoardColumnFilterButton.disabled = saving;
@@ -8898,6 +8925,15 @@
         ? 'ДОПОЛНИТЕЛЬНАЯ КОЛОНКА ОТКРЫТА.'
         : 'ДОПОЛНИТЕЛЬНАЯ КОЛОНКА СКРЫТА.';
       await savePersonalBoardPreferences(nextPreferences, { statusMessage });
+    }
+
+    async function togglePartsStoreColumn() {
+      const nextPreferences = personalBoardPreferences();
+      nextPreferences.parts_store_column.is_open = !nextPreferences.parts_store_column.is_open;
+      await savePersonalBoardPreferences(nextPreferences, {
+        statusMessage: nextPreferences.parts_store_column.is_open
+          ? 'КОЛОНКА МАГАЗИНА ОТКРЫТА.' : 'КОЛОНКА МАГАЗИНА СКРЫТА.',
+      });
     }
 
     function toggleExtraBoardColumnFilterSettings() {
@@ -13604,6 +13640,13 @@
 
     function renderBoardColumnHtml(column, index, snapshot, cardsByColumn = null) {
       const cards = sortedCardsForBoardColumn(snapshot, column.id, cardsByColumn);
+      if (column.id === PARTS_STORE_COLUMN_ID) {
+        return '<section class="column column--parts-store" data-column-id="' + PARTS_STORE_COLUMN_ID + '" draggable="false" aria-label="Магазин автозапчастей">'
+          + '<div class="column__head"><div class="column__title">' + escapeHtml(column.label) + '</div><div class="column__count">' + cards.length + '</div></div>'
+          + '<div class="column__cards"></div>'
+          + '<button class="btn" type="button" data-create-in="' + PARTS_STORE_COLUMN_ID + '">+ КАРТОЧКА</button>'
+        + '</section>';
+      }
       const tone = COLUMN_TONES[index % COLUMN_TONES.length];
       const toneStyle = '--column-tint:' + tone.tint + ';--column-head:' + tone.head + ';--column-edge:' + tone.edge + ';--column-empty:' + tone.empty + ';';
       const isReadyColumn = String(column.label || '').trim().toLowerCase() === READY_COLUMN_LABEL.toLowerCase();
@@ -13720,7 +13763,7 @@
       const cardsByColumn = buildBoardCardsByColumn(snapshot);
       if (!(state.boardRenderedSections instanceof WeakMap)) state.boardRenderedSections = new WeakMap();
       const currentSections = new Map(Array.from(els.board.querySelectorAll(':scope > .column')).map((node) => [node.dataset.columnId || '__extra__', node]));
-      const desired = snapshot.columns.map((column, index) => ({
+      const desired = snapshot.columns.filter((column) => column.id !== PARTS_STORE_COLUMN_ID).map((column, index) => ({
         key: column.id,
         cards: cardsByColumn.get(column.id) || [],
         signature: JSON.stringify([column, index, snapshot.columns.length, cardsByColumn.get(column.id) || []]),
@@ -13729,6 +13772,18 @@
       if (extraBoardColumnIsOpen()) {
         const cards = extraBoardColumnCards(snapshot);
         desired.push({key: '__extra__', cards, signature: JSON.stringify([extraBoardColumnPreferences(), state.boardScale, cards]), html: () => renderExtraBoardColumnHtml(snapshot)});
+      }
+      if (partsStoreColumnIsOpen()) {
+        const partsStoreColumn = snapshot.columns.find((column) => column.id === PARTS_STORE_COLUMN_ID);
+        if (partsStoreColumn) {
+          const cards = cardsByColumn.get(PARTS_STORE_COLUMN_ID) || [];
+          desired.push({
+            key: PARTS_STORE_COLUMN_ID,
+            cards,
+            signature: JSON.stringify([partsStoreColumn, state.boardScale, cards]),
+            html: () => renderBoardColumnHtml(partsStoreColumn, snapshot.columns.length - 1, snapshot, cardsByColumn),
+          });
+        }
       }
       const desiredKeys = new Set(desired.map((item) => item.key));
       currentSections.forEach((node, key) => { if (!desiredKeys.has(key)) node.remove(); });

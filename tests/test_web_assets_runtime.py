@@ -1911,6 +1911,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             const READY_CARD_TAG_LABEL = 'ГОТОВ';
             const EXTRA_BOARD_COLUMN_DEFAULT_TAG_LABEL = 'НАДО ЧТО ТО СДЕЛАТЬ';
             const EXTRA_BOARD_COLUMN_DEFAULT_TAG_COLOR = 'red';
+            const PARTS_STORE_COLUMN_ID = 'parts_store';
             const TAG_COLOR_OPTIONS = [
               {{ value: 'green', label: 'ЗЕЛЁНЫЙ' }},
               {{ value: 'yellow', label: 'ЖЁЛТЫЙ' }},
@@ -1953,6 +1954,10 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             assert.equal(cardMatchesExtraBoardColumn({{
               id: 'archived',
               archived: true,
+              tag_items: [{{ label: 'НАДО ЧТО ТО СДЕЛАТЬ', color: 'red' }}],
+            }}), false);
+            assert.equal(cardMatchesExtraBoardColumn({{
+              id: 'store', column: 'parts_store',
               tag_items: [{{ label: 'НАДО ЧТО ТО СДЕЛАТЬ', color: 'red' }}],
             }}), false);
             assert.equal(cardMatchesExtraBoardColumn({{
@@ -2021,6 +2026,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
                 const READY_CARD_TAG_LABEL = 'ГОТОВ';
                 const EXTRA_BOARD_COLUMN_DEFAULT_TAG_LABEL = 'НАДО ЧТО ТО СДЕЛАТЬ';
                 const EXTRA_BOARD_COLUMN_DEFAULT_TAG_COLOR = 'red';
+                const PARTS_STORE_COLUMN_ID = 'parts_store';
                 const TAG_COLOR_OPTIONS = [
                   {{ value: 'green', label: 'ЗЕЛЁНЫЙ' }},
                   {{ value: 'yellow', label: 'ЖЁЛТЫЙ' }},
@@ -2230,6 +2236,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
                 const READY_CARD_TAG_LABEL = 'ГОТОВ';
                 const EXTRA_BOARD_COLUMN_DEFAULT_TAG_LABEL = 'НАДО ЧТО ТО СДЕЛАТЬ';
                 const EXTRA_BOARD_COLUMN_DEFAULT_TAG_COLOR = 'red';
+                const PARTS_STORE_COLUMN_ID = 'parts_store';
                 const TAG_COLOR_OPTIONS = [
                   {{ value: 'green', label: 'ЗЕЛЁНЫЙ' }},
                   {{ value: 'yellow', label: 'ЖЁЛТЫЙ' }},

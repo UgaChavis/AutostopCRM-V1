@@ -37,6 +37,7 @@ from ..models import (
     utc_now,
 )
 from ..performance import MeasuredRLock, record_timing
+from ..services.parts_store_column import ensure_parts_store_column
 from ..services.ready_column import ensure_ready_column
 from ..texts import COLUMN_LABELS_RU
 from .change_feed_projection import cached_crm_source_signatures
@@ -273,6 +274,8 @@ class JsonStore:
                 events, events_repaired = self._normalize_events(state)
                 settings, settings_repaired = self._normalize_settings(state)
                 ready_column_repaired = ensure_ready_column(columns, settings)[1]
+                if ensure_parts_store_column(columns):
+                    columns_repaired = True
                 if (
                     columns_repaired
                     or cards_repaired
@@ -1218,6 +1221,8 @@ class JsonStore:
             parsed_columns = default_columns()
 
         parsed_columns.sort(key=lambda item: (item.position, item.label.casefold(), item.id))
+        if ensure_parts_store_column(parsed_columns):
+            repaired = True
         for position, column in enumerate(parsed_columns):
             if column.position != position:
                 repaired = True
@@ -1238,7 +1243,10 @@ class JsonStore:
             seen_ids.add(candidate.id)
             seen_labels.add(candidate.label.casefold())
             normalized.append(candidate)
-        return normalized or default_columns()
+        if not normalized:
+            return default_columns()
+        ensure_parts_store_column(normalized)
+        return normalized
 
     def _normalize_cards(self, state: dict, columns: list[Column]) -> tuple[list[Card], bool]:
         raw_cards = state.get("cards", [])

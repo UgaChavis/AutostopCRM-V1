@@ -65,6 +65,21 @@ class JsonStoreTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
+    def test_existing_board_gains_parts_store_column_without_replacing_other_columns(self) -> None:
+        legacy_state = deepcopy(DEFAULT_STATE)
+        legacy_state["columns"] = [
+            column for column in legacy_state["columns"] if column["id"] != "parts_store"
+        ]
+        existing_columns = deepcopy(legacy_state["columns"])
+        self.state_file.write_text(json.dumps(legacy_state, ensure_ascii=False), encoding="utf-8")
+
+        store = JsonStore(state_file=self.state_file, logger=self.logger)
+        columns = store.read_bundle()["columns"]
+        self.assertEqual([column.to_dict() for column in columns[:-1]], existing_columns)
+        self.assertEqual(columns[-1].id, "parts_store")
+        persisted = json.loads(self.state_file.read_text(encoding="utf-8"))
+        self.assertEqual(persisted["columns"][-1]["id"], "parts_store")
+
     def test_concurrent_constructor_never_overwrites_state_created_while_waiting_for_lock(
         self,
     ) -> None:

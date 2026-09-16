@@ -6,6 +6,11 @@ from threading import RLock
 from typing import Any
 
 from ..models import COLUMN_LABEL_LIMIT, Column
+from .parts_store_column import (
+    PARTS_STORE_COLUMN_ID,
+    PARTS_STORE_COLUMN_LABEL,
+    ensure_parts_store_column,
+)
 from .ready_column import READY_COLUMN_LABEL, _next_column_id, ensure_ready_column
 
 
@@ -37,6 +42,7 @@ class ColumnService:
             bundle = self._read_bundle_for_update("columns")
             columns = bundle["columns"]
             ready_column_id, changed = ensure_ready_column(columns, bundle["settings"])
+            changed = ensure_parts_store_column(columns) or changed
             if changed:
                 self._append_event(
                     bundle["events"],
@@ -62,7 +68,8 @@ class ColumnService:
                 payload.get("label") or payload.get("name"), columns
             )
             column = Column(id=self._next_column_id(columns), label=label, position=len(columns))
-            columns.append(column)
+            columns.insert(max(0, len(columns) - 1), column)
+            ensure_parts_store_column(columns)
             self._append_event(
                 events,
                 actor_name=actor_name,
@@ -101,6 +108,13 @@ class ColumnService:
                     "Указанный столбец не найден.",
                     status_code=404,
                     details={"column_id": column_id},
+                )
+            if column_id == PARTS_STORE_COLUMN_ID:
+                self._fail(
+                    "system_column_locked",
+                    "Колонку магазина автозапчастей нельзя переименовать.",
+                    status_code=409,
+                    details={"column_id": column_id, "label": PARTS_STORE_COLUMN_LABEL},
                 )
             ready_column_id, ready_changed = ensure_ready_column(columns, bundle["settings"])
             if column_id == ready_column_id:
@@ -174,6 +188,13 @@ class ColumnService:
                     status_code=404,
                     details={"column_id": column_id},
                 )
+            if column_id == PARTS_STORE_COLUMN_ID or before_column_id == PARTS_STORE_COLUMN_ID:
+                self._fail(
+                    "system_column_locked",
+                    "Колонка магазина автозапчастей закреплена справа.",
+                    status_code=409,
+                    details={"column_id": PARTS_STORE_COLUMN_ID},
+                )
             if before_column_id:
                 before_column = next(
                     (item for item in columns if item.id == before_column_id), None
@@ -202,7 +223,7 @@ class ColumnService:
                 )
                 reordered_columns.insert(insert_at, column)
             else:
-                reordered_columns.append(column)
+                reordered_columns.insert(len(reordered_columns) - 1, column)
             changed = any(
                 item.id != columns[index].id for index, item in enumerate(reordered_columns)
             )
@@ -274,6 +295,13 @@ class ColumnService:
                     "Указанный столбец не найден.",
                     status_code=404,
                     details={"column_id": column_id},
+                )
+            if column_id == PARTS_STORE_COLUMN_ID:
+                self._fail(
+                    "system_column_locked",
+                    "Колонку магазина автозапчастей нельзя удалить.",
+                    status_code=409,
+                    details={"column_id": column_id, "label": PARTS_STORE_COLUMN_LABEL},
                 )
             ready_column_id, ready_changed = ensure_ready_column(columns, bundle["settings"])
             if column_id == ready_column_id:

@@ -698,6 +698,7 @@
     els.displayDashboardMessageImages?.addEventListener('click', removeDisplayDashboardImage);
     els.displayDashboardMessageSaveButton?.addEventListener('click', saveDisplayDashboardMessage);
     els.extraBoardColumnToggleButton?.addEventListener('click', toggleExtraBoardColumn);
+    els.partsStoreColumnToggleButton?.addEventListener('click', togglePartsStoreColumn);
     els.extraBoardColumnFilterButton?.addEventListener('click', toggleExtraBoardColumnFilterSettings);
     els.extraBoardColumnFilterSaveButton?.addEventListener('click', saveExtraBoardColumnFilterSettings);
     els.signalDaysIncrementButton.addEventListener('click', () => adjustSignalPart('days', 1));

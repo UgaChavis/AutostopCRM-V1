@@ -676,6 +676,18 @@
       background: linear-gradient(180deg, rgba(216, 185, 242, 0.42), rgba(73, 42, 92, 0.2));
     }
     .column--virtual .column__head { cursor: default; }
+    .column--parts-store {
+      --column-tint: rgba(8, 62, 73, 0.78);
+      --column-head: rgba(13, 125, 151, 0.77);
+      --column-edge: rgba(75, 219, 239, 0.8);
+      --column-empty: rgba(5, 48, 58, 0.42);
+      border-style: dashed;
+      opacity: 0.8;
+    }
+    .column--parts-store::before {
+      background: linear-gradient(180deg, rgba(111, 241, 252, 0.85), rgba(9, 114, 135, 0.3));
+    }
+    .column--parts-store .column__head { cursor: default; }
     .column--virtual.is-detached {
       position: absolute;
       z-index: 32;

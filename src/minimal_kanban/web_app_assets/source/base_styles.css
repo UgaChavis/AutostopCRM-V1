@@ -215,6 +215,11 @@
       border-left: 4px solid rgba(167, 178, 132, 0.52);
       scroll-snap-align: start;
     }
+    .mobile-column-card--parts-store {
+      border-color: rgba(75, 219, 239, 0.65);
+      border-left-color: rgba(75, 219, 239, 0.95);
+      background: rgba(8, 62, 73, 0.78);
+    }
     .mobile-column-card__top,
     .mobile-cashbox-row__top,
     .mobile-repair-order-row__top {

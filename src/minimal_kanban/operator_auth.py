@@ -839,7 +839,8 @@ class OperatorAuthService:
                     "tag_label": EXTRA_BOARD_COLUMN_DEFAULT_TAG_LABEL,
                     "tag_color": EXTRA_BOARD_COLUMN_DEFAULT_TAG_COLOR,
                 },
-            }
+            },
+            "parts_store_column": {"is_open": True},
         }
 
     @staticmethod
@@ -866,6 +867,8 @@ class OperatorAuthService:
         source = raw if isinstance(raw, dict) else {}
         raw_extra_column = source.get("extra_column")
         extra_column = raw_extra_column if isinstance(raw_extra_column, dict) else {}
+        raw_parts_store = source.get("parts_store_column")
+        parts_store = raw_parts_store if isinstance(raw_parts_store, dict) else {}
         raw_filter = extra_column.get("filter")
         filter_payload = raw_filter if isinstance(raw_filter, dict) else {}
         tag_label = normalize_tag_label(filter_payload.get("tag_label"))
@@ -890,7 +893,10 @@ class OperatorAuthService:
                     "y": normalize_int(position.get("y"), default=0, minimum=0, maximum=100_000),
                 },
                 "filter": {"tag_label": tag_label, "tag_color": tag_color},
-            }
+            },
+            "parts_store_column": {
+                "is_open": self._normalized_stored_bool(parts_store.get("is_open"), default=True)
+            },
         }
 
     def _validated_personal_board_preferences(self, value: Any) -> dict[str, Any]:
@@ -970,13 +976,21 @@ class OperatorAuthService:
                 "Цвет метки дополнительной колонки не поддерживается.",
                 details={"field": "board_preferences.extra_column.filter.tag_color"},
             )
+        parts_store = value.get("parts_store_column", {"is_open": True})
+        if not isinstance(parts_store, dict) or not isinstance(parts_store.get("is_open"), bool):
+            self._fail(
+                "validation_error",
+                "Параметр открытия колонки магазина должен иметь тип boolean.",
+                details={"field": "board_preferences.parts_store_column.is_open"},
+            )
         return {
             "extra_column": {
                 "is_open": is_open,
                 "is_detached": is_detached,
                 "position": position,
                 "filter": {"tag_label": tag_label, "tag_color": tag_color},
-            }
+            },
+            "parts_store_column": {"is_open": parts_store["is_open"]},
         }
 
     def _session_payload(self, *, token: str, user: dict[str, Any]) -> dict[str, Any]:

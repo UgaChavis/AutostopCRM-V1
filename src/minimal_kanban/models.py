@@ -31,7 +31,7 @@ ClientType = Literal["person", "ip", "ooo", "company"]
 InventoryUnit = Literal["шт", "л"]
 InventoryMovementKind = Literal["incoming", "adjustment", "write_off", "return"]
 
-DEFAULT_COLUMN_IDS: tuple[str, ...] = ("inbox", "in_progress", "control", "done")
+DEFAULT_COLUMN_IDS: tuple[str, ...] = ("inbox", "in_progress", "control", "done", "parts_store")
 VALID_INDICATORS: tuple[Indicator, ...] = ("green", "yellow", "red")
 VALID_TAG_COLORS: tuple[TagColor, ...] = ("green", "yellow", "red")
 VALID_STATUSES: tuple[Status, ...] = ("ok", "warning", "critical", "expired")
