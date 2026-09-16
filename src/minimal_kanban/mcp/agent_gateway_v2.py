@@ -38,6 +38,7 @@ from .agent_gateway_support import (
     _normalize_limit,
     _policy_error,
     _positive_decimal,
+    _raw_next_actions,
     _read_annotations,
     _response_data,
     _selected_fields,
@@ -3344,11 +3345,7 @@ def register_agent_gateway_v2(
                 "ledger_closed": ledger_closed,
                 **verification,
             },
-            next_actions=[]
-            if overall_ok
-            else [f"workflow_status(run_id={run_id}) and reconcile exact target"]
-            if run_id is not None
-            else ["Inspect data.error and correct the read request before retrying"],
+            next_actions=_raw_next_actions(overall_ok, run_id),
             meta={"ledger_error": _compact_object(ledger_error) if ledger_error else None},
         )
         return _tool_result(payload, label="call_raw_capability")

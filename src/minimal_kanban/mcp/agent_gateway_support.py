@@ -270,6 +270,14 @@ def _envelope(
     return payload
 
 
+def _raw_next_actions(ok: bool, run_id: int | None) -> list[str]:
+    if ok:
+        return []
+    if run_id is not None:
+        return [f"workflow_status(run_id={run_id}) and reconcile exact target"]
+    return ["Inspect data.error and correct the read request before retrying"]
+
+
 def _response_data(response: Any) -> tuple[bool, Any, dict[str, Any], Any]:
     payload = _as_dict(response)
     return (
