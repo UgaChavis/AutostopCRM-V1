@@ -245,14 +245,29 @@ async def exercise_employee_permission_refresh(
         async with viewer.expect_response("**/api/list_employees?*") as roster_info:
             await viewer.click("#employeesButton")
         roster = _api_data(await (await roster_info.value).json())
-        assert roster["meta"]["references_only"] is True
+        assert not roster.get("meta", {}).get("references_only")
+        assert all("balance_total" in employee for employee in roster["employees"])
         await viewer.wait_for_selector("#employeesReadOnlyNotice", state="visible")
+        await viewer.click(f'[data-employee-id="{runtime.employee_id}"]')
+        assert "Lada Payroll Smoke" in await viewer.locator("#employeesDetailTable").inner_text()
         assert not await viewer.locator("#employeeSaveButton").is_visible()
         assert not any("/api/get_payroll_report" in url for url in requests)
         assert not await viewer.locator("#cashboxesButton").is_visible()
+        await viewer.click(f'[data-employee-salary="{runtime.employee_id}"]')
+        await viewer.wait_for_selector("#employeeSalaryModal.is-open")
+        assert (
+            "Smoke payroll work" in await viewer.locator("#employeeSalaryJournalTable").inner_text()
+        )
+        for button in (
+            "employeeSalaryPayoutButton",
+            "employeeSalaryAdvanceButton",
+            "employeeSalaryResetButton",
+        ):
+            assert not await viewer.locator("#" + button).is_visible()
+        await viewer.click('[data-close="employeeSalary"]')
         module_path = await viewer.evaluate("() => BOARD_MODULE_MANIFEST.payroll")
         assert any(url.endswith(module_path) for url in requests)
-        # A revoked permission closes an already loaded roster and clears its rows.
+        # Revocation closes the loaded payroll view and clears its rows.
         await admin.click('[data-edit-operator-permissions="REVIEW-ROSTER"]')
         await admin.uncheck("#adminUserEmployeesReadAccess")
         async with admin.expect_response("**/api/save_operator_user"):
