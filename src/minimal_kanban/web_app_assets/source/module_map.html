@@ -77,7 +77,7 @@
     'use strict';
     const ns = 'http://www.w3.org/2000/svg';
     const $ = id => document.getElementById(id);
-    const colors = {A:'#83a9bb',B:'#83a9bb',C:'#b8a27a',D:'#a398bb',E:'#bc9290',F:'#91aa98',N:'#a2b4c3'};
+    const colors = {A:'#83a9bb',agent:'#5fb9c6',B:'#83a9bb',C:'#b8a27a',D:'#a398bb',E:'#bc9290',F:'#91aa98',N:'#a2b4c3'};
     const indicatorStates = {on:{color:'#71ad86',label:'Включён'},off:{color:'#bb6868',label:'Выключен'},unknown:{color:'#bba65e',label:'Состояние неизвестно'}};
     const indicatorFor = n => n.id==='B4' ? indicatorStates[n.indicator]||indicatorStates.unknown : null;
     const icons = {
@@ -183,8 +183,11 @@
         marker.append(el('path',{d:'M1 1 L9 5 L1 9 Z',fill:color})); defs.append(marker);
       });
       $('map').append(defs); stage=el('g',{id:'stage'}); $('map').append(stage);
-      data.relations.forEach(renderEdge);
-      data.elements.forEach(renderNode);
+      const nestedRelations=data.relations.filter(r=>nodes.get(r.from)?.parent||nodes.get(r.to)?.parent);
+      data.relations.filter(r=>!nestedRelations.includes(r)).forEach(renderEdge);
+      data.elements.filter(n=>!n.parent).forEach(renderNode);
+      nestedRelations.forEach(renderEdge);
+      data.elements.filter(n=>n.parent).forEach(renderNode);
     }
     function applyTransform() {
       if (!stage) return;
@@ -225,7 +228,10 @@
         if(item.parent) ids.add(item.parent);
         data.elements.filter(n=>n.parent===id).forEach(n=>ids.add(n.id));
         const root=rootOf(id);
-        data.relations.filter(r=>r.from===root||r.to===root).forEach(r=>{ids.add(r.id); ids.add(r.from===root?r.to:r.from);});
+        data.relations.filter(r=>r.from===id||r.to===id||r.from===root||r.to===root).forEach(r=>{
+          ids.add(r.id);
+          ids.add(r.from===id||r.from===root?r.to:r.from);
+        });
       }
       return ids;
     }
@@ -284,7 +290,7 @@
         const result=await response.json();
         if(!result.ok||result.data?.schema_version!=='autostopmanager.infrastructure-map.v1') throw new Error('data');
         data=result.data; nodes=new Map(data.elements.map(n=>[n.id,n])); items=new Map([...data.elements,...data.relations].map(n=>[n.id,n]));
-        if(nodes.size!==29||items.size!==46||data.relations.length!==17||data.relations.some(r=>!nodes.has(r.from)||!nodes.has(r.to))) throw new Error('data');
+        if(nodes.size!==31||items.size!==51||data.relations.length!==20||data.relations.some(r=>!nodes.has(r.from)||!nodes.has(r.to))) throw new Error('data');
         render(); $('state').hidden=true; $('map').removeAttribute('hidden'); $('hint').hidden=false;
         requestAnimationFrame(()=>{fit();hashSelection();});
       } catch(error) {

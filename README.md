@@ -54,8 +54,8 @@ prices, orders, deletion, new external recipients, deployment, and secrets.
 Board settings open **«Открыть инфраструктуру менеджера»** at `/module-map`.
 The public HTML is a shell; `GET /api/get_module_map_infrastructure` still requires
 an operator session and returns `autostopmanager.infrastructure-map.v1`.
-The source dataset is `web_app_assets/source/manager_infrastructure.json`: 29 stable
-element IDs and 17 connection IDs, with coordinates, nesting, descriptions and
+The source dataset is `web_app_assets/source/manager_infrastructure.json`: 31 stable
+element IDs and 20 connection IDs, with coordinates, nesting, descriptions and
 protocols. Update that dataset to change descriptions or layout. The former
 application/IT maps and their snapshots are retired. Removed IDs `N1`, `N2`, `C1`,
 `L8`, and `L9` are not reused. The Codex-to-CRM route is `A2` → `L10` → `C2` →
