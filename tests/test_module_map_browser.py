@@ -135,6 +135,9 @@ class ManagerMapBrowserTests(unittest.TestCase):
         for code in identifiers:
             with self.subTest(code=code):
                 self.page.locator("#fit").click()
+                self.page.evaluate(
+                    "() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))"
+                )
                 element = self.page.locator(f'[data-id="{code}"]')
                 if element.locator("text").count():
                     element.locator("text").first.click()
