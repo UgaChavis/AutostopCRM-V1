@@ -120,7 +120,7 @@
       "group": "B",
       "kind": "module",
       "lines": [],
-      "indicator": "off",
+      "indicator": "on",
       "compact": true
     },
     {
