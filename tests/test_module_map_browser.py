@@ -128,13 +128,21 @@ class ManagerMapBrowserTests(unittest.TestCase):
         identifiers = self.page.locator("[data-id]").evaluate_all(
             "elements => elements.map(el => el.dataset.id)"
         )
-        self.assertEqual(len(identifiers), 49)
-        self.assertEqual(len(set(identifiers)), 49)
+        self.assertEqual(len(identifiers), 48)
+        self.assertEqual(len(set(identifiers)), 48)
         for code in identifiers:
             with self.subTest(code=code):
                 self.page.locator("#fit").click()
                 element = self.page.locator(f'[data-id="{code}"]')
-                element.locator("text").first.click()
+                if element.locator("text").count():
+                    element.locator("text").first.click()
+                else:
+                    point = element.locator(".wire-hit").evaluate("""path => {
+                        const p=path.getPointAtLength(path.getTotalLength()/2);
+                        const screen=p.matrixTransform(path.getScreenCTM());
+                        return {x:screen.x,y:screen.y};
+                    }""")
+                    self.page.mouse.click(point["x"], point["y"])
                 self.assertEqual(self.page.locator("#detailCode").inner_text(), code)
                 self.assertTrue(self.page.locator("#detailDescription").inner_text())
         self.search("L19")
@@ -174,7 +182,9 @@ class ManagerMapBrowserTests(unittest.TestCase):
                 overflow = self.page.evaluate("""() => {
                     const bad=[];
                     for(const group of document.querySelectorAll('.node,.edge')) {
-                        const card=group.querySelector('.card,.edge-label').getBBox();
+                        const frame=group.querySelector('.card,.edge-label');
+                        if(!frame) continue;
+                        const card=frame.getBBox();
                         for(const text of group.querySelectorAll('text:not(.code)')) {
                             const r=text.getBBox();
                             if(r.x<card.x-1 || r.x+r.width>card.x+card.width+1 || r.y+r.height>card.y+card.height+1)
@@ -238,7 +248,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.assertEqual(self.page.locator("[data-id]").count(), 0)
         self.page.unroute("**/api/get_module_map_infrastructure")
         self.login()
-        self.assertEqual(self.page.locator("[data-id]").count(), 49)
+        self.assertEqual(self.page.locator("[data-id]").count(), 48)
         self.assertEqual(self.errors, [])
 
 

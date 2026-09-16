@@ -370,19 +370,6 @@
       "icon": "cart"
     },
     {
-      "id": "N2",
-      "title": "Доступность зависит от настройки",
-      "x": 1360,
-      "y": 943,
-      "width": 285,
-      "height": 52,
-      "description": "Наличие источника на карте не подтверждает доступность его API или успешную проверку конкретного автомобиля.",
-      "group": "N",
-      "kind": "condition",
-      "lines": [],
-      "parent": "E2"
-    },
-    {
       "id": "F1",
       "title": "Адаптер Store",
       "x": 1705,
@@ -462,7 +449,8 @@
       "label_x": 465,
       "label_y": 95,
       "direction": "forward",
-      "kind": "exchange"
+      "kind": "exchange",
+      "show_label": false
     },
     {
       "id": "L2",
@@ -481,7 +469,7 @@
       "id": "L3",
       "from": "A3",
       "to": "B1",
-      "label": "JSON / Unix socket",
+      "label": "JSON",
       "protocol": "JSON / Unix socket",
       "description": "CLI передаёт локальному мосту запрос и получает структурированный результат.",
       "path": "M242 310 V410",
@@ -494,7 +482,7 @@
       "id": "L4",
       "from": "B1",
       "to": "B2",
-      "label": "Telegram API / Telethon",
+      "label": "Telegram API",
       "protocol": "Telegram API / Telethon",
       "description": "Чтение и отправка через рабочий аккаунт.",
       "path": "M180 496 V567 H132 V630",
@@ -507,7 +495,7 @@
       "id": "L5",
       "from": "B1",
       "to": "B3",
-      "label": "Telegram API / Telethon",
+      "label": "Telegram API",
       "protocol": "Telegram API / Telethon",
       "description": "Чтение и отправка через личный аккаунт.",
       "path": "M300 496 V567 H422 V630",
@@ -520,14 +508,15 @@
       "id": "L7",
       "from": "B4",
       "to": "A2",
-      "label": "JSON-RPC / локальный WebSocket",
+      "label": "JSON-RPC WebSocket",
       "protocol": "JSON-RPC / локальный WebSocket",
       "description": "Wake-адаптер инициирует ход агента по событию.",
       "path": "M275 880 H420 Q595 880 595 665 V265 Q595 205 642 163",
       "label_x": 565,
-      "label_y": 550,
+      "label_y": 520,
       "direction": "forward",
-      "kind": "event"
+      "kind": "event",
+      "label_max_width": 90
     },
     {
       "id": "L8",
@@ -676,7 +665,7 @@
       "id": "L19",
       "from": "F1",
       "to": "F2",
-      "label": "HTTP(S) API / JSON",
+      "label": "HTTP API / JSON",
       "protocol": "HTTP(S) API / JSON",
       "description": "Запросы адаптера к Agent API / Owner API магазина и ответы магазина.",
       "path": "M1805 527 V775",

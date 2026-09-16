@@ -29,8 +29,8 @@ class ModuleMapTests(unittest.TestCase):
             for i in range(1, count + 1)
         }
         self.assertEqual(self.data["schema_version"], "autostopmanager.infrastructure-map.v1")
-        self.assertEqual(set(self.nodes), expected - {"N1"})
-        self.assertEqual(len(self.data["elements"]), 31)
+        self.assertEqual(set(self.nodes), expected - {"N1", "N2"})
+        self.assertEqual(len(self.data["elements"]), 30)
         edges = {item["id"]: item for item in self.data["relations"]}
         self.assertEqual(len(self.data["relations"]), 18)
         self.assertEqual(set(edges), {f"L{i}" for i in range(1, 20)} - {"L6"})
