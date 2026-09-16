@@ -2246,6 +2246,7 @@ def register_agent_gateway_v2(
             items = _compact_object(items, item_limit=effective_limit)
         payload = _envelope(
             ok=ok,
+            status="completed" if ok else "failed",
             summary={
                 "entity": entity,
                 "query": query,
@@ -2253,7 +2254,7 @@ def register_agent_gateway_v2(
                 "scope": "crm",
                 "applied_filters": repair_order_filters,
             },
-            data={"items": items},
+            data={"items": items, **({"error": _compact_object(error)} if not ok else {})},
             warnings=[] if ok else [_error_code({"error": error}) or "search_failed"],
             page={"limit": effective_limit, "has_more": False},
             meta={
@@ -3345,7 +3346,9 @@ def register_agent_gateway_v2(
             },
             next_actions=[]
             if overall_ok
-            else [f"workflow_status(run_id={run_id}) and reconcile exact target"],
+            else [f"workflow_status(run_id={run_id}) and reconcile exact target"]
+            if run_id is not None
+            else ["Inspect data.error and correct the read request before retrying"],
             meta={"ledger_error": _compact_object(ledger_error) if ledger_error else None},
         )
         return _tool_result(payload, label="call_raw_capability")
