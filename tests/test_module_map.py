@@ -25,16 +25,16 @@ class ModuleMapTests(unittest.TestCase):
     def test_exact_reference_ids_and_connection_endpoints(self) -> None:
         expected = {
             f"{group}{i}"
-            for group, count in {"A": 3, "B": 4, "C": 7, "D": 5, "E": 8, "F": 5, "N": 2}.items()
+            for group, count in {"A": 3, "B": 4, "C": 7, "D": 5, "E": 9, "F": 5, "N": 2}.items()
             for i in range(1, count + 1)
         }
         self.assertEqual(self.data["schema_version"], "autostopmanager.infrastructure-map.v1")
         self.assertEqual(set(self.nodes), expected - {"N1", "N2", "C1"})
-        self.assertEqual(len(self.data["elements"]), 31)
+        self.assertEqual(len(self.data["elements"]), 32)
         edges = {item["id"]: item for item in self.data["relations"]}
-        self.assertEqual(len(self.data["relations"]), 20)
-        self.assertEqual(len(self.nodes) + len(edges), 51)
-        self.assertEqual(set(edges), {f"L{i}" for i in range(1, 23)} - {"L8", "L9"})
+        self.assertEqual(len(self.data["relations"]), 22)
+        self.assertEqual(len(self.nodes) + len(edges), 54)
+        self.assertEqual(set(edges), {f"L{i}" for i in range(1, 25)} - {"L8", "L9"})
         pairs = {
             "L1": ("A1", "A2"),
             "L2": ("A2", "A3"),
@@ -56,18 +56,24 @@ class ModuleMapTests(unittest.TestCase):
             "L20": ("E5", "E7"),
             "L21": ("E7", "E6"),
             "L22": ("E7", "E8"),
+            "L23": ("E6", "E9"),
+            "L24": ("E9", "E8"),
         }
         for code, pair in pairs.items():
             edge = edges[code]
             self.assertEqual((edge["from"], edge["to"]), pair)
             index = int(code[1:])
-            self.assertEqual(edge["direction"], "forward" if index in {1, 6, 7, 20, 21} else "both")
+            self.assertEqual(
+                edge["direction"], "forward" if index in {1, 6, 7, 20, 21, 23} else "both"
+            )
             self.assertEqual(edge["kind"], "event" if index in {6, 7} else "exchange")
         self.assertEqual(edges["L10"]["path"], "M830 132 V425")
         self.assertIn("OAuth 2.1", edges["L10"]["protocol"])
-        for code in ("L20", "L21", "L22"):
+        for code in ("L20", "L21", "L22", "L23", "L24"):
             self.assertFalse(edges[code].get("show_label", True))
-        self.assertEqual(edges["L22"]["path"], "M1588 600.5 H1614")
+        self.assertEqual(edges["L22"]["path"], "M1588 600.5 H1600 V615 H1614")
+        self.assertEqual(edges["L23"]["path"], "M1460 657 V667")
+        self.assertEqual(edges["L24"]["path"], "M1588 682.5 H1600 V640 H1614")
 
     def test_hierarchy_geometry_and_russian_descriptions(self) -> None:
         for node in self.nodes.values():
@@ -85,7 +91,7 @@ class ModuleMapTests(unittest.TestCase):
                 self.assertNotIn(parent, seen)
                 seen.add(parent)
                 parent = self.nodes[parent].get("parent")
-        for child in ["C4", "C5", "C6", "C7", "D4", "E4", "E5", "E7", "E6", "F3", "F4", "F5"]:
+        for child in ["C4", "C5", "C6", "C7", "D4", "E4", "E5", "E7", "E6", "E9", "F3", "F4", "F5"]:
             node = self.nodes[child]
             parent = self.nodes[node["parent"]]
             self.assertGreaterEqual(node["x"], parent["x"])
@@ -94,10 +100,11 @@ class ModuleMapTests(unittest.TestCase):
             self.assertLessEqual(node["y"] + node["height"], parent["y"] + parent["height"])
         self.assertEqual(
             [node["id"] for node in self.data["elements"] if node.get("parent") == "E1"],
-            ["E4", "E5", "E7", "E6"],
+            ["E4", "E5", "E7", "E6", "E9"],
         )
         self.assertEqual(self.nodes["E7"]["title"], "Интернет-проверка детали")
         self.assertEqual(self.nodes["E8"]["title"], "Веб-шлюз")
+        self.assertEqual(self.nodes["E9"]["title"], "Рыночная оценка детали")
         self.assertIn("Web Research Gateway", self.nodes["E8"]["description"])
         self.assertIn(
             "обезличенный запрос",
@@ -107,7 +114,7 @@ class ModuleMapTests(unittest.TestCase):
         self.assertGreaterEqual(
             self.nodes["E8"]["x"], self.nodes["E1"]["x"] + self.nodes["E1"]["width"]
         )
-        self.assertEqual((self.nodes["E8"]["width"], self.nodes["E8"]["height"]), (130, 40))
+        self.assertEqual((self.nodes["E8"]["width"], self.nodes["E8"]["height"]), (130, 62))
         self.assertTrue(self.nodes["E8"].get("compact"))
         for edge in self.data["relations"]:
             for field in ("label", "protocol", "description", "path"):
@@ -127,6 +134,9 @@ class ModuleMapTests(unittest.TestCase):
         for item in self.data["elements"]:
             self.assertNotIn(item["description"], MODULE_MAP_HTML)
         self.assertIn("/api/get_module_map_infrastructure", MODULE_MAP_HTML)
+        self.assertIn(
+            "nodes.size!==32||items.size!==54||data.relations.length!==22", MODULE_MAP_HTML
+        )
         self.assertIn("X-Operator-Session", MODULE_MAP_HTML)
         self.assertIn("kanban-operator-session", MODULE_MAP_HTML)
         self.assertIn("response.status===401||response.status===403", MODULE_MAP_HTML)
