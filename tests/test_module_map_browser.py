@@ -63,9 +63,9 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.page.locator("#retry").click()
         self.page.wait_for_selector('[data-id="A2"]')
 
-    def search(self, value: str) -> None:
-        self.page.locator("#search").fill(value)
-        self.page.locator("#search").press("Enter")
+    def select_node(self, value: str) -> None:
+        self.page.locator(f'[data-id="{value}"]').focus()
+        self.page.keyboard.press("Enter")
 
     def test_simplified_map_instructions_and_indicator_states(self) -> None:
         import copy
@@ -76,7 +76,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.assertEqual(
             self.page.locator('[data-id="N1"],[data-id="L6"] .edge-label,.legend').count(), 0
         )
-        self.search("A1")
+        self.select_node("A1")
         self.assertEqual(self.page.locator("#detailTitle").inner_text(), "Инструкции")
         self.assertEqual(self.page.locator('[data-id="A1"] .subtitle').count(), 0)
         links = self.page.locator("#instructionLinks a")
@@ -88,7 +88,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
                 )
             )
             self.assertEqual(link.get_attribute("rel"), "noopener noreferrer")
-        self.search("B4")
+        self.select_node("B4")
         self.assertIn("включён", self.page.locator("#detailStatus").inner_text())
         self.assertFalse(self.page.locator("#instructions").is_visible())
         colors = {}
@@ -116,7 +116,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
             lamp.wait_for(state="attached")
             self.assertEqual(lamp.locator("title").text_content(), label)
             colors[state] = lamp.locator(".status-light").get_attribute("fill")
-            self.search("A1")
+            self.select_node("A1")
             self.assertEqual(self.page.locator("#instructionLinks a").count(), 5)
             self.page.unroute("**/api/get_module_map_infrastructure")
         self.assertEqual(len({colors[state] for state in ("on", "off", "unknown")}), 3)
@@ -139,7 +139,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.assertEqual(len(set(identifiers)), 49)
         for code in identifiers:
             with self.subTest(code=code):
-                self.page.locator("#fit").click()
+                self.page.keyboard.press("Home")
                 self.page.evaluate(
                     "() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))"
                 )
@@ -155,18 +155,16 @@ class ManagerMapBrowserTests(unittest.TestCase):
                     self.page.mouse.click(point["x"], point["y"])
                 self.assertEqual(self.page.locator("#detailCode").inner_text(), code)
                 self.assertTrue(self.page.locator("#detailDescription").inner_text())
-        self.search("L19")
+        self.select_node("L19")
         self.assertIn("F1 ↔ F2", self.page.locator("#detailFacts").inner_text())
         self.page.locator("#related button").filter(has_text="F2 ·").click()
         self.assertEqual(self.page.locator("#detailCode").inner_text(), "F2")
         self.page.keyboard.press("Escape")
         self.assertFalse(self.page.locator("#detail").is_visible())
-        self.page.locator("#fit").click()
+        self.page.keyboard.press("Home")
         self.page.locator('[data-id="E4"]').focus()
         self.page.keyboard.press("Space")
         self.assertEqual(self.page.locator("#detailCode").inner_text(), "E4")
-        self.search("несуществующий элемент")
-        self.page.get_by_text("Ничего не найдено").wait_for()
         self.assertEqual(
             [request for request in requests if "/api/" in request[1]],
             [],
@@ -174,12 +172,14 @@ class ManagerMapBrowserTests(unittest.TestCase):
         )
         self.assertEqual(self.errors, [])
 
-    def test_fit_text_bounds_pan_zoom_hash_and_fullscreen(self) -> None:
+    def test_fit_text_bounds_pan_zoom_and_hash(self) -> None:
         self.login()
+        self.assertEqual(self.page.locator("nav.toolbar, #search, #fullscreen").count(), 0)
+        self.assertEqual(self.page.locator("#viewport").bounding_box()["y"], 0)
         for width, height in ((1366, 768), (1920, 1080), (3840, 2160)):
             with self.subTest(width=width):
                 self.page.set_viewport_size({"width": width, "height": height})
-                self.page.locator("#fit").click()
+                self.page.keyboard.press("Home")
                 self.page.wait_for_timeout(100)
                 outside = self.page.evaluate("""() => {
                     const v=document.querySelector('#viewport').getBoundingClientRect();
@@ -205,7 +205,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
                 }""")
                 self.assertEqual(overflow, [])
         self.page.set_viewport_size({"width": 1920, "height": 1080})
-        self.page.locator("#fit").click()
+        self.page.keyboard.press("Home")
         self.page.wait_for_timeout(100)
         before = self.page.locator("#stage").get_attribute("transform")
         self.page.mouse.move(30, 110)
@@ -214,20 +214,22 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.page.mouse.up()
         self.assertNotEqual(self.page.locator("#stage").get_attribute("transform"), before)
         zoom = self.page.locator("#map").get_attribute("data-zoom")
-        self.page.locator("#zoomIn").click()
+        self.page.keyboard.press("+")
         self.assertNotEqual(self.page.locator("#map").get_attribute("data-zoom"), zoom)
-        self.page.locator("#zoomReset").click()
-        self.assertEqual(self.page.locator("#map").get_attribute("data-zoom"), "1")
+        zoom_before_wheel = float(self.page.locator("#map").get_attribute("data-zoom"))
         self.page.mouse.move(550, 350)
         anchor_script = """() => new DOMPoint(550,350).matrixTransform(
             document.querySelector('#stage').getScreenCTM().inverse()).toJSON()"""
         anchor_before = self.page.evaluate(anchor_script)
         self.page.mouse.wheel(0, -250)
-        self.page.wait_for_function("Number(document.querySelector('#map').dataset.zoom)>1")
+        self.page.wait_for_function(
+            "before => Number(document.querySelector('#map').dataset.zoom)>before",
+            arg=zoom_before_wheel,
+        )
         anchor_after = self.page.evaluate(anchor_script)
         self.assertAlmostEqual(anchor_before["x"], anchor_after["x"], places=3)
         self.assertAlmostEqual(anchor_before["y"], anchor_after["y"], places=3)
-        self.page.locator("#fit").click()
+        self.page.keyboard.press("Home")
         self.page.wait_for_timeout(100)
         point = self.page.locator('[data-id="L19"] .wire-hit').evaluate("""path => {
             const p=path.getPointAtLength(path.getTotalLength()*.2);
@@ -236,9 +238,6 @@ class ManagerMapBrowserTests(unittest.TestCase):
         }""")
         self.page.mouse.click(point["x"], point["y"])
         self.assertEqual(self.page.locator("#detailCode").inner_text(), "L19")
-        self.page.locator("#fullscreen").click()
-        self.assertTrue(self.page.evaluate("!!document.fullscreenElement"))
-        self.page.locator("#fullscreen").click()
         self.page.evaluate("location.hash='L7'")
         self.page.wait_for_function("document.querySelector('#detailCode').textContent==='L7'")
         self.assertIn("B4 → A2", self.page.locator("#detailFacts").inner_text())
