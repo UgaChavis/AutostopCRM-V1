@@ -245,10 +245,12 @@ async def exercise_employee_permission_refresh(
         async with viewer.expect_response("**/api/list_employees?*") as roster_info:
             await viewer.click("#employeesButton")
         roster = _api_data(await (await roster_info.value).json())
-        assert roster["meta"]["references_only"] is True
+        assert roster.get("meta", {}).get("references_only") is not True
+        assert isinstance(roster["summary"], list)
+        assert isinstance(roster["detail_rows"], list)
         await viewer.wait_for_selector("#employeesReadOnlyNotice", state="visible")
         assert not await viewer.locator("#employeeSaveButton").is_visible()
-        assert not any("/api/get_payroll_report" in url for url in requests)
+        await viewer.wait_for_selector("#employeesReportPanel", state="visible")
         assert not await viewer.locator("#cashboxesButton").is_visible()
         module_path = await viewer.evaluate("() => BOARD_MODULE_MANIFEST.payroll")
         assert any(url.endswith(module_path) for url in requests)
