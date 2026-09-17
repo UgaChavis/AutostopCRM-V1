@@ -1,7 +1,7 @@
 services:
   searxng:
     container_name: autostop-searxng
-    image: docker.io/searxng/searxng@sha256:800a5e3757df04f59e6bd6c622f15de2edbfa47f5591c5b82d4a8ff3b938a845
+    image: docker.io/searxng/searxng@sha256:a31763b7af3caf6ae9aac1816ba774214eb550252e06a4998f276ded8d60461b
     user: "977:977"
     init: true
     restart: always
@@ -39,7 +39,7 @@ services:
 
   crawl4ai:
     container_name: autostop-crawl4ai
-    image: docker.io/unclecode/crawl4ai@sha256:bd36741e7bdd35ddc1a05d9183e1d6d8cefb61dd640d944a25d026b76e917690
+    image: docker.io/unclecode/crawl4ai@sha256:84751dab794259db05d5bd4e5c766a8041a65f0554326e4516e620abdf2fa18b
     user: "appuser"
     init: true
     restart: always
