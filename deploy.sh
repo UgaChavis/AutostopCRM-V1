@@ -1150,6 +1150,10 @@ preflight_j1_browser_resources() {
     return 2
   fi
   if (( maintenance_started == 1 )); then
+    if (( $(remaining_release_budget) < 65 )); then
+      echo "ERROR: J1 browser activation has insufficient release budget for its 60-second preflight." >&2
+      return 2
+    fi
     run_release sleep 60
   else
     timeout --signal=TERM --kill-after=5 65s sleep 60 </dev/null
@@ -1165,6 +1169,18 @@ preflight_j1_browser_resources() {
   fi
   if (( swap_in_before != swap_in_after || swap_out_before != swap_out_after )); then
     echo "ERROR: J1 browser activation requires zero swap I/O for 60 seconds." >&2
+    return 2
+  fi
+  # Re-read capacity after the quiet window: a browser must never claim the
+  # last GiB merely because the host was healthy a minute earlier.
+  memory_available="$(read_j1_browser_memory_kib "MemAvailable")"
+  swap_free="$(read_j1_browser_memory_kib "SwapFree")"
+  if ! [[ "$memory_available" =~ ^[0-9]+$ ]] || (( memory_available < J1_BROWSER_MIN_MEM_AVAILABLE_KIB )); then
+    echo "ERROR: J1 browser activation no longer has at least 2 GiB MemAvailable." >&2
+    return 2
+  fi
+  if ! [[ "$swap_free" =~ ^[0-9]+$ ]] || (( swap_free < J1_BROWSER_MIN_SWAP_FREE_KIB )); then
+    echo "ERROR: J1 browser activation no longer has at least 1 GiB SwapFree." >&2
     return 2
   fi
 }
@@ -1228,6 +1244,63 @@ restore_j1_browser_state() {
     echo "ROLLBACK CRITICAL: J1 browser unit remained active unexpectedly." >&2
     return 2
   fi
+}
+
+rollback_j1_browser_only() {
+  # Restore browser files without reactivating a marker from another Manager SHA.
+
+  if systemctl is-active --quiet "$J1_BROWSER_UNIT_NAME"; then
+    run_maintenance systemctl stop "$J1_BROWSER_UNIT_NAME" || return $?
+  fi
+  if systemctl is-active --quiet "$J1_BROWSER_UNIT_NAME"; then
+    echo "ERROR: candidate J1 browser stack remained active after its rollback." >&2
+    return 2
+  fi
+  run_maintenance systemctl disable "$J1_BROWSER_UNIT_NAME" >/dev/null 2>&1 || true
+  # A pre-release marker is intentionally not restored: it is bound to the
+  # former Manager revision and must remain invalid under the new release.
+  run_maintenance rm -f -- "$J1_BROWSER_MARKER_PATH" || return $?
+  if (( j1_browser_previous_unit_present == 1 )); then
+    if [[ ! -f "$j1_browser_backup_dir/previous.service" ]]; then
+      echo "ERROR: previous J1 browser unit snapshot is missing." >&2
+      return 2
+    fi
+    run_maintenance install -o root -g root -m 0644 \
+      "$j1_browser_backup_dir/previous.service" "$J1_BROWSER_UNIT_PATH" || return $?
+  else
+    run_maintenance rm -f -- "$J1_BROWSER_UNIT_PATH" || return $?
+  fi
+  run_maintenance systemctl daemon-reload || return $?
+  if systemctl is-enabled --quiet "$J1_BROWSER_UNIT_NAME"; then
+    echo "ERROR: candidate J1 browser unit remained enabled after its rollback." >&2
+    return 2
+  fi
+}
+
+activate_j1_browser_optional() {
+  local target_dir="$1"
+  # Browser rendering is additive. A resource shortage or verifier rejection
+  # leaves static J1 and the already-validated CRM/Manager release intact.
+  if ! preflight_j1_browser_resources; then
+    echo "WARN: J1 browser activation skipped; static J1 remains available." >&2
+    return 0
+  fi
+  if ! snapshot_j1_browser_state; then
+    echo "WARN: J1 browser activation skipped; previous browser state was not safe to snapshot." >&2
+    return 0
+  fi
+  j1_browser_activation_attempted=1
+  if ! activate_j1_browser "$target_dir"; then
+    echo "WARN: J1 browser activation failed; rolling back browser stack only." >&2
+    if ! rollback_j1_browser_only; then
+      echo "ERROR: J1 browser stack could not be safely stopped; full release rollback is required." >&2
+      return 2
+    fi
+    j1_browser_activation_attempted=0
+    echo "WARN: J1 browser remains safely disabled; its prior marker belongs to another Manager revision." >&2
+    return 0
+  fi
+  assert_release_budget
 }
 
 rollback_release() {
@@ -1474,15 +1547,9 @@ if [[ "$J1_ACTIVATE_ON_DEPLOY" == "1" ]]; then
   assert_release_budget
 fi
 if [[ "$J1_BROWSER_ACTIVATE_ON_DEPLOY" == "1" ]]; then
-  # CRM is already healthy but its write marker remains armed. Check the host
-  # immediately before this separate stack can reserve Chromium memory.
-  preflight_j1_browser_resources
-  snapshot_j1_browser_state
-  # Mark the attempt before installation so any partial replacement restores
-  # only the previous browser unit, marker and running state on rollback.
-  j1_browser_activation_attempted=1
-  activate_j1_browser "$manager_release_dir"
-  assert_release_budget
+  # Browser activation is an optional capability after the static release has
+  # passed its protected checks. Its own failure must not discard CRM/Manager.
+  activate_j1_browser_optional "$manager_release_dir"
 fi
 
 # Public site/auth/health probes are non-mutating and run while the marker is
