@@ -45,6 +45,12 @@ MANAGER_MCP_ACTIVATE_ON_DEPLOY="${AUTOSTOP_MANAGER_MCP_ACTIVATE_ON_DEPLOY:-0}"
 J1_ACTIVATE_ON_DEPLOY="${AUTOSTOP_J1_ACTIVATE_ON_DEPLOY:-0}"
 J1_UNIT_NAME="autostop-j1.service"
 J1_UNIT_PATH="/etc/systemd/system/$J1_UNIT_NAME"
+J1_BROWSER_ACTIVATE_ON_DEPLOY="${AUTOSTOP_J1_BROWSER_ACTIVATE_ON_DEPLOY:-0}"
+J1_BROWSER_UNIT_NAME="autostop-j1-browser.service"
+J1_BROWSER_UNIT_PATH="/etc/systemd/system/$J1_BROWSER_UNIT_NAME"
+J1_BROWSER_MARKER_PATH="/run/autostop-j1-browser-attestation/isolation-ready"
+J1_BROWSER_MIN_MEM_AVAILABLE_KIB=2097152
+J1_BROWSER_MIN_SWAP_FREE_KIB=1048576
 MAINTENANCE_MARKER_HOST="${AUTOSTOP_MAINTENANCE_MARKER_HOST:-$CRM_DATA_DIR/.agent-gateway-maintenance}"
 PUBLIC_SITE_URL="${AUTOSTOP_PUBLIC_SITE_URL:-https://crm.autostopcrm.ru}"
 PUBLIC_MCP_URL="${AUTOSTOP_PUBLIC_MCP_URL:-https://crm.autostopcrm.ru/mcp}"
@@ -111,6 +117,11 @@ if [[ "$MANAGER_MCP_ACTIVATE_ON_DEPLOY" != "0" \
 fi
 if [[ "$J1_ACTIVATE_ON_DEPLOY" != "0" && "$J1_ACTIVATE_ON_DEPLOY" != "1" ]]; then
   echo "ERROR: AUTOSTOP_J1_ACTIVATE_ON_DEPLOY must be 0 or 1." >&2
+  exit 2
+fi
+if [[ "$J1_BROWSER_ACTIVATE_ON_DEPLOY" != "0" \
+  && "$J1_BROWSER_ACTIVATE_ON_DEPLOY" != "1" ]]; then
+  echo "ERROR: AUTOSTOP_J1_BROWSER_ACTIVATE_ON_DEPLOY must be 0 or 1." >&2
   exit 2
 fi
 for retention_count in "$RELEASE_IMAGE_RETENTION_COUNT" "$ROLLBACK_IMAGE_RETENTION_COUNT"; do
@@ -349,6 +360,12 @@ j1_worker_previous_unit_present=0
 j1_worker_previous_active=0
 j1_worker_previous_enabled=0
 j1_worker_backup_dir="$BACKUP_ROOT/.j1-worker-rollback-$release_id"
+j1_browser_activation_attempted=0
+j1_browser_previous_unit_present=0
+j1_browser_previous_active=0
+j1_browser_previous_enabled=0
+j1_browser_previous_marker_present=0
+j1_browser_backup_dir="$BACKUP_ROOT/.j1-browser-rollback-$release_id"
 
 cleanup_owned_premaintenance_artifacts() {
   if (( maintenance_started != 0 || premaintenance_cleanup_done != 0 )); then
@@ -1053,6 +1070,166 @@ restore_j1_worker_state() {
   fi
 }
 
+j1_browser_marker_is_sealed() {
+  local marker_path="${1:-$J1_BROWSER_MARKER_PATH}"
+  [[ -f "$marker_path" && ! -L "$marker_path" \
+    && "$(stat -c '%u:%g:%a' "$marker_path" 2>/dev/null)" == "0:0:600" ]]
+}
+
+snapshot_j1_browser_state() {
+  if [[ -L "$J1_BROWSER_UNIT_PATH" || ( -e "$J1_BROWSER_UNIT_PATH" && ! -f "$J1_BROWSER_UNIT_PATH" ) ]]; then
+    echo "ERROR: existing J1 browser systemd unit is not a regular file." >&2
+    return 2
+  fi
+  if [[ -e "$J1_BROWSER_MARKER_PATH" || -L "$J1_BROWSER_MARKER_PATH" ]] \
+    && ! j1_browser_marker_is_sealed "$J1_BROWSER_MARKER_PATH"; then
+    echo "ERROR: existing J1 browser attestation is not a root-owned 0600 regular file." >&2
+    return 2
+  fi
+  run_release install -d -m 0700 "$j1_browser_backup_dir"
+  if [[ -f "$J1_BROWSER_UNIT_PATH" ]]; then
+    run_release install -o root -g root -m 0600 "$J1_BROWSER_UNIT_PATH" "$j1_browser_backup_dir/previous.service"
+    j1_browser_previous_unit_present=1
+  fi
+  if j1_browser_marker_is_sealed "$J1_BROWSER_MARKER_PATH"; then
+    run_release install -o root -g root -m 0600 \
+      "$J1_BROWSER_MARKER_PATH" "$j1_browser_backup_dir/previous.marker"
+    j1_browser_previous_marker_present=1
+  fi
+  if systemctl is-active --quiet "$J1_BROWSER_UNIT_NAME"; then
+    j1_browser_previous_active=1
+  fi
+  if systemctl is-enabled --quiet "$J1_BROWSER_UNIT_NAME"; then
+    j1_browser_previous_enabled=1
+  fi
+  if (( j1_browser_previous_unit_present == 0 \
+      && (j1_browser_previous_active == 1 || j1_browser_previous_enabled == 1) )); then
+    echo "ERROR: active or enabled J1 browser unit has no restorable unit file." >&2
+    return 2
+  fi
+}
+
+read_j1_browser_memory_kib() {
+  local field="$1"
+  awk -v field="$field" '$1 == field ":" && $2 ~ /^[0-9]+$/ { print $2; exit }' /proc/meminfo
+}
+
+read_j1_browser_swap_io() {
+  awk '
+    $1 == "pswpin" && $2 ~ /^[0-9]+$/ { input = $2; found_input = 1 }
+    $1 == "pswpout" && $2 ~ /^[0-9]+$/ { output = $2; found_output = 1 }
+    END {
+      if (found_input && found_output) {
+        print input " " output
+      } else {
+        exit 1
+      }
+    }
+  ' /proc/vmstat
+}
+
+preflight_j1_browser_resources() {
+  local memory_available swap_free swap_before swap_after swap_in_before swap_out_before swap_in_after swap_out_after
+  memory_available="$(read_j1_browser_memory_kib "MemAvailable")"
+  swap_free="$(read_j1_browser_memory_kib "SwapFree")"
+  if ! [[ "$memory_available" =~ ^[0-9]+$ ]] || (( memory_available < J1_BROWSER_MIN_MEM_AVAILABLE_KIB )); then
+    echo "ERROR: J1 browser activation requires at least 2 GiB MemAvailable." >&2
+    return 2
+  fi
+  if ! [[ "$swap_free" =~ ^[0-9]+$ ]] || (( swap_free < J1_BROWSER_MIN_SWAP_FREE_KIB )); then
+    echo "ERROR: J1 browser activation requires at least 1 GiB SwapFree." >&2
+    return 2
+  fi
+  if ! swap_before="$(read_j1_browser_swap_io)"; then
+    echo "ERROR: J1 browser activation could not read swap I/O counters." >&2
+    return 2
+  fi
+  read -r swap_in_before swap_out_before <<<"$swap_before"
+  if ! [[ "$swap_in_before" =~ ^[0-9]+$ && "$swap_out_before" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: J1 browser activation received invalid swap I/O counters." >&2
+    return 2
+  fi
+  if (( maintenance_started == 1 )); then
+    run_release sleep 60
+  else
+    timeout --signal=TERM --kill-after=5 65s sleep 60 </dev/null
+  fi
+  if ! swap_after="$(read_j1_browser_swap_io)"; then
+    echo "ERROR: J1 browser activation could not re-read swap I/O counters." >&2
+    return 2
+  fi
+  read -r swap_in_after swap_out_after <<<"$swap_after"
+  if ! [[ "$swap_in_after" =~ ^[0-9]+$ && "$swap_out_after" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: J1 browser activation received invalid swap I/O counters." >&2
+    return 2
+  fi
+  if (( swap_in_before != swap_in_after || swap_out_before != swap_out_after )); then
+    echo "ERROR: J1 browser activation requires zero swap I/O for 60 seconds." >&2
+    return 2
+  fi
+}
+
+activate_j1_browser() {
+  local target_dir="$1"
+  local active_manager_dir expected_manager_dir installer
+  active_manager_dir="$(readlink -f "$MANAGER_CURRENT_LINK")"
+  expected_manager_dir="$(readlink -f "$target_dir")"
+  if [[ "$active_manager_dir" != "$expected_manager_dir" ]]; then
+    echo "ERROR: J1 browser activation source is not the expected Manager release." >&2
+    return 2
+  fi
+  installer="$MANAGER_CURRENT_LINK/scripts/install-j1-browser-stack.sh"
+  if [[ ! -x "$installer" || -L "$installer" ]]; then
+    echo "ERROR: active Manager J1 browser installer is unavailable." >&2
+    return 2
+  fi
+  run_release "$installer" --replace-unit --activate
+}
+
+restore_j1_browser_state() {
+  # The candidate stack has already been stopped. Restore the old unit and
+  # its exact ready/not-ready state only after the Manager current link is back.
+  run_maintenance systemctl disable "$J1_BROWSER_UNIT_NAME" >/dev/null 2>&1 || true
+  if (( j1_browser_previous_unit_present == 1 )); then
+    if [[ ! -f "$j1_browser_backup_dir/previous.service" ]]; then
+      echo "ROLLBACK CRITICAL: previous J1 browser unit snapshot is missing." >&2
+      return 2
+    fi
+    run_maintenance install -o root -g root -m 0644 \
+      "$j1_browser_backup_dir/previous.service" "$J1_BROWSER_UNIT_PATH" || return $?
+  else
+    run_maintenance rm -f "$J1_BROWSER_UNIT_PATH" || return $?
+  fi
+  run_maintenance systemctl daemon-reload || return $?
+  if (( j1_browser_previous_enabled == 1 )); then
+    run_maintenance systemctl enable "$J1_BROWSER_UNIT_NAME" || return $?
+  elif systemctl is-enabled --quiet "$J1_BROWSER_UNIT_NAME"; then
+    echo "ROLLBACK CRITICAL: J1 browser unit remained enabled unexpectedly." >&2
+    return 2
+  fi
+  if (( j1_browser_previous_active == 1 )); then
+    run_maintenance systemctl start "$J1_BROWSER_UNIT_NAME" || return $?
+    run_maintenance systemctl is-active --quiet "$J1_BROWSER_UNIT_NAME" || return $?
+    if (( j1_browser_previous_marker_present == 1 )); then
+      if [[ ! -f "$j1_browser_backup_dir/previous.marker" ]] \
+        || ! j1_browser_marker_is_sealed "$j1_browser_backup_dir/previous.marker"; then
+        echo "ROLLBACK CRITICAL: previous J1 browser attestation snapshot is missing or invalid." >&2
+        return 2
+      fi
+      if [[ -e "$J1_BROWSER_MARKER_PATH" || -L "$J1_BROWSER_MARKER_PATH" ]] \
+        && ! j1_browser_marker_is_sealed "$J1_BROWSER_MARKER_PATH"; then
+        echo "ROLLBACK CRITICAL: restored J1 browser attestation path is unsafe." >&2
+        return 2
+      fi
+      run_maintenance install -o root -g root -m 0600 \
+        "$j1_browser_backup_dir/previous.marker" "$J1_BROWSER_MARKER_PATH" || return $?
+    fi
+  elif systemctl is-active --quiet "$J1_BROWSER_UNIT_NAME"; then
+    echo "ROLLBACK CRITICAL: J1 browser unit remained active unexpectedly." >&2
+    return 2
+  fi
+}
+
 rollback_release() {
   local original_status="$1"
   local rollback_ok=1
@@ -1066,6 +1243,10 @@ rollback_release() {
     echo "ROLLBACK CRITICAL: maintenance marker could not be re-armed." >&2
     rollback_ok=0
     marker_rearmed=0
+  fi
+  if (( ${j1_browser_activation_attempted:-0} == 1 )) \
+    && systemctl is-active --quiet "$J1_BROWSER_UNIT_NAME"; then
+    run_maintenance systemctl stop "$J1_BROWSER_UNIT_NAME" || rollback_ok=0
   fi
   if (( ${j1_worker_activation_attempted:-0} == 1 )) \
     && systemctl is-active --quiet "$J1_UNIT_NAME"; then
@@ -1122,6 +1303,9 @@ rollback_release() {
   activate_manager_snapshot "$previous_manager_dir" || rollback_ok=0
   if (( ${j1_worker_activation_attempted:-0} == 1 )); then
     restore_j1_worker_state || rollback_ok=0
+  fi
+  if (( ${j1_browser_activation_attempted:-0} == 1 )); then
+    restore_j1_browser_state || rollback_ok=0
   fi
   if (( ${manager_mcp_activation_attempted:-0} == 1 )); then
     activate_manager_native_mcp "$previous_manager_dir" maintenance || rollback_ok=0
@@ -1289,6 +1473,17 @@ if [[ "$J1_ACTIVATE_ON_DEPLOY" == "1" ]]; then
   activate_j1_worker "$manager_release_dir"
   assert_release_budget
 fi
+if [[ "$J1_BROWSER_ACTIVATE_ON_DEPLOY" == "1" ]]; then
+  # CRM is already healthy but its write marker remains armed. Check the host
+  # immediately before this separate stack can reserve Chromium memory.
+  preflight_j1_browser_resources
+  snapshot_j1_browser_state
+  # Mark the attempt before installation so any partial replacement restores
+  # only the previous browser unit, marker and running state on rollback.
+  j1_browser_activation_attempted=1
+  activate_j1_browser "$manager_release_dir"
+  assert_release_budget
+fi
 
 # Public site/auth/health probes are non-mutating and run while the marker is
 # still active. Removing the marker is the final fallible release action.
@@ -1328,6 +1523,11 @@ remove_manager_crm_mcp_backup_if_safe || true
 if [[ -d "$j1_worker_backup_dir" ]]; then
   rm -rf -- "$j1_worker_backup_dir" || {
     echo "WARN: committed J1 unit snapshot cleanup failed at $j1_worker_backup_dir." >&2
+  }
+fi
+if [[ -d "$j1_browser_backup_dir" ]]; then
+  rm -rf -- "$j1_browser_backup_dir" || {
+    echo "WARN: committed J1 browser unit snapshot cleanup failed at $j1_browser_backup_dir." >&2
   }
 fi
 
