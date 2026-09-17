@@ -122,7 +122,7 @@
     'use strict';
     const ns = 'http://www.w3.org/2000/svg';
     const $ = id => document.getElementById(id);
-    const colors = {A:'#83a9bb',agent:'#5fb9c6',B:'#83a9bb',C:'#b8a27a',D:'#a398bb',E:'#bc9290',F:'#91aa98',N:'#a2b4c3'};
+    const colors = {A:'#83a9bb',agent:'#5fb9c6',B:'#83a9bb',C:'#b8a27a',D:'#a398bb',E:'#bc9290',F:'#91aa98',J:'#78caa6',N:'#a2b4c3'};
     const indicatorStates = {on:{color:'#71ad86',label:'Включён'},off:{color:'#bb6868',label:'Выключен'},unknown:{color:'#bba65e',label:'Состояние неизвестно'}};
     const indicatorFor = n => n.id==='B4' ? indicatorStates[n.indicator]||indicatorStates.unknown : null;
     const icons = {
@@ -138,6 +138,7 @@
       database:'M3 6 C3 0 25 0 25 6 C25 12 3 12 3 6 V22 C3 29 25 29 25 22 V6 M3 14 C3 21 25 21 25 14',
       car:'M3 14 L7 4 H21 L25 14 V25 H21 V21 H7 V25 H3 Z M3 14 H25 M7 17 H10 M18 17 H21',
       cloud:'M7 23 C-2 23 -1 10 7 10 C8 -2 25 0 24 12 C33 13 29 25 22 23 Z',
+      globe:'M14 2 A12 12 0 1 1 14 26 A12 12 0 1 1 14 2 M2 14 H26 M14 2 C7 8 7 20 14 26 M14 2 C21 8 21 20 14 26',
       cart:'M1 3 H5 L9 19 H24 L28 8 H7 M13 25 A2 2 0 1 1 9 25 A2 2 0 1 1 13 25 M25 25 A2 2 0 1 1 21 25 A2 2 0 1 1 25 25',
       box:'M2 8 L14 1 L26 8 V22 L14 29 L2 22 Z M2 8 L14 15 L26 8 M14 15 V29 M8 5 L20 12'
     };
@@ -202,7 +203,7 @@
       stage.append(g);
     }
     function renderEdge(r) {
-      const colorGroup=r.id==='L12'?'D':(nodes.get(r.from).tone||nodes.get(r.from).group);
+      const colorGroup=r.tone||(r.id==='L12'?'D':(nodes.get(r.from).tone||nodes.get(r.from).group));
       const color = colors[colorGroup];
       const g = el('g',{class:`edge ${r.kind}`,'data-id':r.id,tabindex:0,role:'button','aria-label':`${r.id}: ${r.from} ${r.direction==='both'?'↔':'→'} ${r.to}, ${r.label}`,'aria-pressed':'false',style:`--color:${color}`});
       g.append(el('title',{},`${r.id} · ${r.label}`));
@@ -305,6 +306,22 @@
     }
     function drawDiagram(id) {
       $('detailSources').hidden=true;
+      if(id==='J1') {
+        const labels=['Запрос','Поиск','Корпус','Проверка источников'];
+        const chain=document.createElement('div');chain.className='flow-chain';
+        labels.forEach((label,index)=>{
+          if(index) {
+            const connector=document.createElement('span');connector.className='flow-connector';
+            connector.setAttribute('aria-hidden','true');chain.append(connector);
+          }
+          const group=document.createElement('div');group.className='flow-group';
+          const step=document.createElement('div');step.className='flow-step';
+          step.style.setProperty('--step-color',colors.J);step.textContent=label;
+          group.append(step);chain.append(group);
+        });
+        $('detailDiagram').replaceChildren(chain);
+        return;
+      }
       if(id==='E1') {
         drawFlow(['E4','E5','E7','E6','E9'].map(step=>[step]));
         $('detailSources').textContent='Источники: vPIC / PartsAPI · каталоги и поставщики · веб-шлюз';
@@ -393,7 +410,7 @@
         const result=await response.json();
         if(!result.ok||result.data?.schema_version!=='autostopmanager.infrastructure-map.v1') throw new Error('data');
         data=result.data; nodes=new Map(data.elements.map(n=>[n.id,n])); items=new Map([...data.elements,...data.relations].map(n=>[n.id,n]));
-        if(nodes.size!==32||items.size!==54||data.relations.length!==22||data.relations.some(r=>!nodes.has(r.from)||!nodes.has(r.to))) throw new Error('data');
+        if(nodes.size!==33||items.size!==56||data.relations.length!==23||data.relations.some(r=>!nodes.has(r.from)||!nodes.has(r.to))) throw new Error('data');
         render(); $('state').hidden=true; $('map').removeAttribute('hidden'); $('hint').hidden=false;
         requestAnimationFrame(()=>{fit();hashSelection();});
       } catch(error) {

@@ -42,6 +42,9 @@ MANAGER_CONTAINER_DIR="${AUTOSTOP_MANAGER_CONTAINER_DIR:-/opt/AutostopManager}"
 MANAGER_RELEASE_PYTHON="$MANAGER_SOURCE_DIR/.venv/bin/python"
 MANAGER_CRM_MCP_ENV="/opt/AutostopManager/.crm-mcp.env"
 MANAGER_MCP_ACTIVATE_ON_DEPLOY="${AUTOSTOP_MANAGER_MCP_ACTIVATE_ON_DEPLOY:-0}"
+J1_ACTIVATE_ON_DEPLOY="${AUTOSTOP_J1_ACTIVATE_ON_DEPLOY:-0}"
+J1_UNIT_NAME="autostop-j1.service"
+J1_UNIT_PATH="/etc/systemd/system/$J1_UNIT_NAME"
 MAINTENANCE_MARKER_HOST="${AUTOSTOP_MAINTENANCE_MARKER_HOST:-$CRM_DATA_DIR/.agent-gateway-maintenance}"
 PUBLIC_SITE_URL="${AUTOSTOP_PUBLIC_SITE_URL:-https://crm.autostopcrm.ru}"
 PUBLIC_MCP_URL="${AUTOSTOP_PUBLIC_MCP_URL:-https://crm.autostopcrm.ru/mcp}"
@@ -104,6 +107,10 @@ fi
 if [[ "$MANAGER_MCP_ACTIVATE_ON_DEPLOY" != "0" \
   && "$MANAGER_MCP_ACTIVATE_ON_DEPLOY" != "1" ]]; then
   echo "ERROR: AUTOSTOP_MANAGER_MCP_ACTIVATE_ON_DEPLOY must be 0 or 1." >&2
+  exit 2
+fi
+if [[ "$J1_ACTIVATE_ON_DEPLOY" != "0" && "$J1_ACTIVATE_ON_DEPLOY" != "1" ]]; then
+  echo "ERROR: AUTOSTOP_J1_ACTIVATE_ON_DEPLOY must be 0 or 1." >&2
   exit 2
 fi
 for retention_count in "$RELEASE_IMAGE_RETENTION_COUNT" "$ROLLBACK_IMAGE_RETENTION_COUNT"; do
@@ -337,6 +344,11 @@ premaintenance_cleanup_done=0
 manager_crm_mcp_snapshot_created=0
 manager_crm_mcp_synced=0
 manager_mcp_activation_attempted=0
+j1_worker_activation_attempted=0
+j1_worker_previous_unit_present=0
+j1_worker_previous_active=0
+j1_worker_previous_enabled=0
+j1_worker_backup_dir="$BACKUP_ROOT/.j1-worker-rollback-$release_id"
 
 cleanup_owned_premaintenance_artifacts() {
   if (( maintenance_started != 0 || premaintenance_cleanup_done != 0 )); then
@@ -971,6 +983,76 @@ activate_manager_native_mcp() {
   fi
 }
 
+snapshot_j1_worker_state() {
+  if [[ -L "$J1_UNIT_PATH" || ( -e "$J1_UNIT_PATH" && ! -f "$J1_UNIT_PATH" ) ]]; then
+    echo "ERROR: existing J1 systemd unit is not a regular file." >&2
+    return 2
+  fi
+  run_release install -d -m 0700 "$j1_worker_backup_dir"
+  if [[ -f "$J1_UNIT_PATH" ]]; then
+    run_release install -m 0600 "$J1_UNIT_PATH" "$j1_worker_backup_dir/previous.service"
+    j1_worker_previous_unit_present=1
+  fi
+  if systemctl is-active --quiet "$J1_UNIT_NAME"; then
+    j1_worker_previous_active=1
+  fi
+  if systemctl is-enabled --quiet "$J1_UNIT_NAME"; then
+    j1_worker_previous_enabled=1
+  fi
+  if (( j1_worker_previous_unit_present == 0 \
+      && (j1_worker_previous_active == 1 || j1_worker_previous_enabled == 1) )); then
+    echo "ERROR: active or enabled J1 unit has no restorable unit file." >&2
+    return 2
+  fi
+}
+
+activate_j1_worker() {
+  local target_dir="$1"
+  local active_manager_dir expected_manager_dir installer
+  active_manager_dir="$(readlink -f "$MANAGER_CURRENT_LINK")"
+  expected_manager_dir="$(readlink -f "$target_dir")"
+  if [[ "$active_manager_dir" != "$expected_manager_dir" ]]; then
+    echo "ERROR: J1 worker activation source is not the expected Manager release." >&2
+    return 2
+  fi
+  installer="$MANAGER_CURRENT_LINK/scripts/install-j1-worker.sh"
+  if [[ ! -x "$installer" || -L "$installer" ]]; then
+    echo "ERROR: active Manager J1 installer is unavailable." >&2
+    return 2
+  fi
+  run_release "$installer" --replace-unit --activate
+}
+
+restore_j1_worker_state() {
+  # The candidate has already been stopped. Restore the exact previous unit,
+  # enablement and running state only after the Manager current link is back.
+  run_maintenance systemctl disable "$J1_UNIT_NAME" >/dev/null 2>&1 || true
+  if (( j1_worker_previous_unit_present == 1 )); then
+    if [[ ! -f "$j1_worker_backup_dir/previous.service" ]]; then
+      echo "ROLLBACK CRITICAL: previous J1 unit snapshot is missing." >&2
+      return 2
+    fi
+    run_maintenance install -o root -g root -m 0644 \
+      "$j1_worker_backup_dir/previous.service" "$J1_UNIT_PATH" || return $?
+  else
+    run_maintenance rm -f "$J1_UNIT_PATH" || return $?
+  fi
+  run_maintenance systemctl daemon-reload || return $?
+  if (( j1_worker_previous_enabled == 1 )); then
+    run_maintenance systemctl enable "$J1_UNIT_NAME" || return $?
+  elif systemctl is-enabled --quiet "$J1_UNIT_NAME"; then
+    echo "ROLLBACK CRITICAL: J1 worker remained enabled unexpectedly." >&2
+    return 2
+  fi
+  if (( j1_worker_previous_active == 1 )); then
+    run_maintenance systemctl start "$J1_UNIT_NAME" || return $?
+    run_maintenance systemctl is-active --quiet "$J1_UNIT_NAME" || return $?
+  elif systemctl is-active --quiet "$J1_UNIT_NAME"; then
+    echo "ROLLBACK CRITICAL: J1 worker remained active unexpectedly." >&2
+    return 2
+  fi
+}
+
 rollback_release() {
   local original_status="$1"
   local rollback_ok=1
@@ -984,6 +1066,10 @@ rollback_release() {
     echo "ROLLBACK CRITICAL: maintenance marker could not be re-armed." >&2
     rollback_ok=0
     marker_rearmed=0
+  fi
+  if (( ${j1_worker_activation_attempted:-0} == 1 )) \
+    && systemctl is-active --quiet "$J1_UNIT_NAME"; then
+    run_maintenance systemctl stop "$J1_UNIT_NAME" || rollback_ok=0
   fi
   # Restore the stable reference before any rollback operation can exhaust the
   # reserve. Retagging does not affect the running container, while it prevents
@@ -1034,6 +1120,9 @@ rollback_release() {
     restore_manager_crm_mcp_configuration || rollback_ok=0
   fi
   activate_manager_snapshot "$previous_manager_dir" || rollback_ok=0
+  if (( ${j1_worker_activation_attempted:-0} == 1 )); then
+    restore_j1_worker_state || rollback_ok=0
+  fi
   if (( ${manager_mcp_activation_attempted:-0} == 1 )); then
     activate_manager_native_mcp "$previous_manager_dir" maintenance || rollback_ok=0
   fi
@@ -1192,6 +1281,14 @@ if [[ "$MANAGER_MCP_ACTIVATE_ON_DEPLOY" == "1" ]]; then
   activate_manager_native_mcp "$manager_release_dir" release
   assert_release_budget
 fi
+if [[ "$J1_ACTIVATE_ON_DEPLOY" == "1" ]]; then
+  snapshot_j1_worker_state
+  # Rollback must restore the old unit even if candidate installation succeeds
+  # but worker startup or the probe fails partway through.
+  j1_worker_activation_attempted=1
+  activate_j1_worker "$manager_release_dir"
+  assert_release_budget
+fi
 
 # Public site/auth/health probes are non-mutating and run while the marker is
 # still active. Removing the marker is the final fallible release action.
@@ -1228,6 +1325,11 @@ auth_rotated=0
 remove_auth_backup_if_safe || true
 manager_crm_mcp_synced=0
 remove_manager_crm_mcp_backup_if_safe || true
+if [[ -d "$j1_worker_backup_dir" ]]; then
+  rm -rf -- "$j1_worker_backup_dir" || {
+    echo "WARN: committed J1 unit snapshot cleanup failed at $j1_worker_backup_dir." >&2
+  }
+fi
 
 # Retention is deliberately post-success and best effort: cleanup can never
 # roll back or interrupt a healthy release after public writes reopen. The

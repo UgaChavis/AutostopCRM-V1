@@ -144,8 +144,8 @@ class ManagerMapBrowserTests(unittest.TestCase):
         identifiers = self.page.locator("[data-id]").evaluate_all(
             "elements => elements.map(el => el.dataset.id)"
         )
-        self.assertEqual(len(identifiers), 54)
-        self.assertEqual(len(set(identifiers)), 54)
+        self.assertEqual(len(identifiers), 56)
+        self.assertEqual(len(set(identifiers)), 56)
         for code in identifiers:
             with self.subTest(code=code):
                 self.close_detail()
@@ -207,6 +207,23 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.select_node("E1")
         self.page.locator(".detail-backdrop").click(position={"x": 5, "y": 5})
         self.assertFalse(dialog.is_visible())
+        self.assertEqual(self.errors, [])
+
+    def test_j1_is_a_direct_independent_research_module(self) -> None:
+        self.login()
+        j1 = self.page.locator('[data-id="J1"]')
+        self.assertEqual(j1.locator("title").first.text_content(), "J1 · Интернет-исследования")
+        self.select_node("J1")
+        self.assertEqual(self.page.locator("#detailTitle").inner_text(), "Интернет-исследования")
+        self.assertEqual(
+            self.page.locator("#detailDiagram .flow-step").all_inner_texts(),
+            ["Запрос", "Поиск", "Корпус", "Проверка источников"],
+        )
+        self.reveal_details()
+        related = self.page.locator("#related button").all_inner_texts()
+        self.assertTrue(any(text.startswith("A2 ·") for text in related))
+        self.assertTrue(any(text.startswith("L25 ·") for text in related))
+        self.assertFalse(any(text.startswith("E1 ·") for text in related))
         self.assertEqual(self.errors, [])
 
     def test_fit_text_bounds_pan_zoom_and_hash(self) -> None:
@@ -297,7 +314,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
     def test_removed_hashes_open_current_map(self) -> None:
         self.page.goto(self.runtime.base_url + "/module-map#C1")
         self.login()
-        self.assertEqual(self.page.locator("[data-id]").count(), 54)
+        self.assertEqual(self.page.locator("[data-id]").count(), 56)
         self.assertFalse(self.page.locator("#detail").is_visible())
         self.assertEqual(self.page.evaluate("location.hash"), "")
         for code in ("L8", "L9"):
@@ -306,7 +323,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
                 self.page.wait_for_function(
                     "location.hash==='' && document.querySelector('#detail').hidden"
                 )
-                self.assertEqual(self.page.locator("[data-id]").count(), 54)
+                self.assertEqual(self.page.locator("[data-id]").count(), 56)
         self.assertEqual(self.errors, [])
 
     def test_failed_load_can_retry_without_exposing_partial_map(self) -> None:
@@ -321,7 +338,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.assertEqual(self.page.locator("[data-id]").count(), 0)
         self.page.unroute("**/api/get_module_map_infrastructure")
         self.login()
-        self.assertEqual(self.page.locator("[data-id]").count(), 54)
+        self.assertEqual(self.page.locator("[data-id]").count(), 56)
         self.assertEqual(self.errors, [])
 
 
