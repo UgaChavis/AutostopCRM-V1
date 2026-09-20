@@ -243,7 +243,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.assertEqual(self.page.locator("#detailTitle").inner_text(), "Интернет-исследования")
         self.assertEqual(
             self.page.locator("#detailDiagram .flow-step").all_inner_texts(),
-            ["Запрос", "Поиск", "Корпус", "Проверка источников"],
+            ["Профиль", "Поиск", "Корпус", "Отчёт A–D"],
         )
         self.reveal_details()
         related = self.page.locator("#related button").all_inner_texts()
