@@ -63,6 +63,7 @@
     .flow-connector::after { content:""; position:absolute; right:0; top:-4px; border:4px solid transparent; border-left-color:#91a8b8; transform:translateX(8px); }
     .flow-connector.is-both::before { content:""; position:absolute; left:0; top:-4px; border:4px solid transparent; border-right-color:#91a8b8; transform:translateX(-8px); }
     .flow-connector.is-plain::after { display:none; }
+    .detail-purpose { margin:14px 2px 0; color:#d0dbe3; font-size:13px; line-height:1.5; }
     .detail-sources { margin:14px 2px 0; color:#aebcc8; font-size:12px; line-height:1.45; }
     .detail-more { margin-top:22px; border-top:1px solid #465666; color:#b8c5d0; }
     .detail-more summary { width:max-content; padding:15px 0 0; cursor:pointer; }
@@ -107,6 +108,7 @@
         </header>
         <p class="detail-lead" id="detailDescription"></p>
         <div class="detail-diagram" id="detailDiagram" role="group" aria-label="Схема взаимодействия модуля"></div>
+        <p class="detail-purpose" id="detailPurpose" hidden></p>
         <p class="detail-sources" id="detailSources" hidden></p>
         <details class="detail-more" id="detailMore"><summary>Подробнее</summary><div class="detail-more-body">
           <dl id="detailFacts"></dl>
@@ -365,6 +367,8 @@
       }
       $('instructions').hidden=!$('instructionLinks').childElementCount;
       $('detailDescription').textContent=item.description.match(/^.*?[.!?](?:\s|$)/)?.[0]?.trim()||item.description;
+      const purpose=typeof item.purpose==='string'?item.purpose.trim():'';
+      $('detailPurpose').textContent=purpose; $('detailPurpose').hidden=!purpose;
       $('detailFacts').replaceChildren(); $('related').replaceChildren(); $('detailMore').open=false;
       drawDiagram(id);
       if(item.from) {

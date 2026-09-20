@@ -209,6 +209,32 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.assertFalse(dialog.is_visible())
         self.assertEqual(self.errors, [])
 
+    def test_e1_child_purposes_are_visible_below_their_diagram(self) -> None:
+        from minimal_kanban.web_assets import MODULE_MAP_INFRASTRUCTURE
+
+        self.login()
+        purposes = {
+            item["id"]: item["purpose"]
+            for item in MODULE_MAP_INFRASTRUCTURE["elements"]
+            if item.get("parent") == "E1"
+        }
+        self.assertEqual(set(purposes), {"E4", "E5", "E7", "E6", "E9"})
+        for code, purpose in purposes.items():
+            with self.subTest(code=code):
+                self.select_node(code)
+                purpose_element = self.page.locator("#detailPurpose")
+                self.assertTrue(purpose_element.is_visible())
+                self.assertEqual(purpose_element.inner_text(), purpose)
+                diagram_box = self.page.locator("#detailDiagram").bounding_box()
+                purpose_box = purpose_element.bounding_box()
+                self.assertIsNotNone(diagram_box)
+                self.assertIsNotNone(purpose_box)
+                self.assertGreater(
+                    purpose_box["y"],
+                    diagram_box["y"] + diagram_box["height"],
+                )
+        self.assertEqual(self.errors, [])
+
     def test_j1_is_a_direct_independent_research_module(self) -> None:
         self.login()
         j1 = self.page.locator('[data-id="J1"]')

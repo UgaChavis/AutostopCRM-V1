@@ -115,6 +115,8 @@ class ModuleMapTests(unittest.TestCase):
             [node["id"] for node in self.data["elements"] if node.get("parent") == "E1"],
             ["E4", "E5", "E7", "E6", "E9"],
         )
+        for code in ("E4", "E5", "E7", "E6", "E9"):
+            self.assertRegex(self.nodes[code]["purpose"], r"[А-Яа-яЁё]")
         self.assertEqual(self.nodes["E7"]["title"], "Интернет-проверка детали")
         self.assertEqual(self.nodes["E8"]["title"], "Веб-шлюз")
         self.assertEqual(self.nodes["E9"]["title"], "Рыночная оценка детали")
@@ -167,6 +169,15 @@ class ModuleMapTests(unittest.TestCase):
         self.assertNotRegex(str(self.data), r"/opt/|/root/|\b\d{1,3}(?:\.\d{1,3}){3}\b")
         self.assertEqual(len(re.findall(r"\bfetch\(", MODULE_MAP_HTML)), 1)
         self.assertNotIn("setInterval", MODULE_MAP_HTML)
+
+    def test_e1_child_purpose_is_rendered_below_the_diagram(self) -> None:
+        self.assertIn('id="detailPurpose"', MODULE_MAP_HTML)
+        self.assertLess(
+            MODULE_MAP_HTML.index('id="detailDiagram"'),
+            MODULE_MAP_HTML.index('id="detailPurpose"'),
+        )
+        self.assertIn("const purpose=typeof item.purpose", MODULE_MAP_HTML)
+        self.assertIn("$('detailPurpose').hidden=!purpose", MODULE_MAP_HTML)
 
     def test_board_opens_same_route_with_manager_copy(self) -> None:
         self.assertIn('href="/module-map"', BOARD_WEB_APP_CONTRACT_TEXT)
