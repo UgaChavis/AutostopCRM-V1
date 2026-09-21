@@ -146,13 +146,13 @@ class CoordinatedReleaseStateTests(unittest.TestCase):
                     runner=systemctl,
                 )
             self.assertGreaterEqual(chown.call_count, 1)
-            self.assertTrue(all(call.args[1:3] == (0, 0) for call in chown.call_args_list))
-            self.assertTrue(
-                any(
-                    Path(call.args[0]).name.startswith(".registry.restore-")
-                    for call in chown.call_args_list
-                )
-            )
+            registry_chowns = [
+                call
+                for call in chown.call_args_list
+                if Path(call.args[0]).name.startswith(".registry.restore-")
+            ]
+            self.assertEqual(len(registry_chowns), 1)
+            self.assertEqual(registry_chowns[0].args[1:3], (0, 0))
 
             self.assertTrue(restored["scheduler_database_restored"])
             self.assertEqual(paths["unit"].read_text(encoding="utf-8"), "old-unit\n")
