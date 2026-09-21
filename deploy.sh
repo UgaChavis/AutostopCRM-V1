@@ -817,6 +817,17 @@ run_maintenance() {
   timeout --signal=TERM --kill-after=5 "${command_budget}s" "$@" </dev/null
 }
 
+run_maintenance_from_stdin() {
+  local remaining command_budget
+  remaining="$(remaining_budget)"
+  command_budget=$(( remaining - 5 ))
+  if (( command_budget <= 0 )); then
+    echo "ERROR: maintenance budget exhausted before command: $1" >&2
+    return 1
+  fi
+  timeout --signal=TERM --kill-after=5 "${command_budget}s" "$@"
+}
+
 run_release() {
   local remaining command_budget
   remaining="$(remaining_release_budget)"
@@ -826,6 +837,17 @@ run_release() {
     return 1
   fi
   timeout --signal=TERM --kill-after=5 "${command_budget}s" "$@" </dev/null
+}
+
+run_release_from_stdin() {
+  local remaining command_budget
+  remaining="$(remaining_release_budget)"
+  command_budget=$(( remaining - 5 ))
+  if (( command_budget <= 0 )); then
+    echo "ERROR: release budget exhausted; starting bounded rollback." >&2
+    return 1
+  fi
+  timeout --signal=TERM --kill-after=5 "${command_budget}s" "$@"
 }
 
 assert_release_budget() {
@@ -1127,9 +1149,11 @@ capture_safe_work_telegram_status() {
     return 2
   fi
   if [[ "$budget_mode" == "release" ]]; then
-    run_release "$duty_script" --status | run_release "${validator[@]}" >"$output"
+    run_release "$duty_script" --status \
+      | run_release_from_stdin "${validator[@]}" >"$output"
   else
-    run_maintenance "$duty_script" --status | run_maintenance "${validator[@]}" >"$output"
+    run_maintenance "$duty_script" --status \
+      | run_maintenance_from_stdin "${validator[@]}" >"$output"
   fi
 }
 
@@ -1705,11 +1729,12 @@ rollback_release() {
   else
     echo "ROLLBACK CRITICAL: auth recovery is incomplete; private snapshot remains at $auth_backup_dir." >&2
   fi
-  if (( ${manager_crm_mcp_snapshot_created:-0} == 1 \
-      && ${manager_crm_mcp_synced:-0} == 0 )); then
-    remove_manager_crm_mcp_backup_if_safe || true
-  else
-    echo "ROLLBACK CRITICAL: Manager CRM MCP recovery is incomplete; private snapshot remains at $manager_crm_mcp_backup_dir." >&2
+  if (( ${manager_crm_mcp_snapshot_created:-0} == 1 )); then
+    if (( ${manager_crm_mcp_synced:-0} == 0 )); then
+      remove_manager_crm_mcp_backup_if_safe || true
+    else
+      echo "ROLLBACK CRITICAL: Manager CRM MCP recovery is incomplete; private snapshot remains at $manager_crm_mcp_backup_dir." >&2
+    fi
   fi
   if (( rollback_ok == 0 )); then
     echo "ROLLBACK completed with warnings; inspect protected data and auth state." >&2

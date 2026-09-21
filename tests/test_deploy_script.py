@@ -41,6 +41,33 @@ def _posix_bash_available() -> bool:
 
 
 class DeployScriptTests(unittest.TestCase):
+    @unittest.skipUnless(_posix_bash_available(), "a working POSIX bash is required")
+    def test_budgeted_stdin_wrappers_preserve_pipeline_input(self) -> None:
+        script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+
+        def function_source(name: str) -> str:
+            start = script.index(f"{name}() {{")
+            return script[start : script.index("\n}\n", start) + 3]
+
+        harness = f"""
+set -Eeuo pipefail
+remaining_budget() {{ printf '%s\n' 100; }}
+remaining_release_budget() {{ printf '%s\n' 100; }}
+{function_source("run_maintenance_from_stdin")}
+{function_source("run_release_from_stdin")}
+printf '%s' payload-maintenance | run_maintenance_from_stdin /bin/cat | cmp - <(printf '%s' payload-maintenance)
+printf '%s' payload-release | run_release_from_stdin /bin/cat | cmp - <(printf '%s' payload-release)
+"""
+
+        completed = subprocess.run(
+            ["bash", "-c", harness],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
     def test_dependency_pins_are_shared_without_build_tools_in_runtime(self) -> None:
         manifests = sorted(PROJECT_ROOT.glob("requirements*.txt"))
         pins = [
@@ -244,6 +271,16 @@ class DeployScriptTests(unittest.TestCase):
                 'timeout --signal=TERM --kill-after=5 "${command_budget}s" "$@" </dev/null'
             ),
             2,
+        )
+        self.assertIn("run_release_from_stdin()", script)
+        self.assertIn("run_maintenance_from_stdin()", script)
+        self.assertIn(
+            'run_release_from_stdin "${validator[@]}" >"$output"',
+            script,
+        )
+        self.assertIn(
+            'run_maintenance_from_stdin "${validator[@]}" >"$output"',
+            script,
         )
         self.assertIn("run_release docker compose stop", script)
         self.assertIn("run_maintenance env AUTOSTOP_RELEASE_IMAGE", script)
@@ -970,6 +1007,10 @@ fi
         )
         self.assertLess(stable_tag, marker_removal)
         self.assertIn("ROLLBACK INCOMPLETE: maintenance marker remains", rollback)
+        self.assertIn(
+            "if (( ${manager_crm_mcp_snapshot_created:-0} == 1 )); then",
+            rollback,
+        )
 
     @unittest.skipUnless(_posix_bash_available(), "a working POSIX bash is required")
     def test_failed_rollback_stop_never_touches_protected_state(self) -> None:
