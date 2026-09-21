@@ -252,7 +252,6 @@ _CHECKPOINT_ROUTE_PATHS = {
 }
 _TECHNICAL_MAINTENANCE_ROUTE_PATHS = {
     "/api/change_feed/bootstrap",
-    "/api/change_feed/readiness",
     "/api/change_feed/ack",
 }
 _MAINTENANCE_SAFE_WRITE_ROUTE_PATHS = {"/api/update_personal_board_preferences"}

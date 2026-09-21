@@ -22,6 +22,7 @@ if str(SRC) not in sys.path:
 from minimal_kanban.api.server import ApiServer  # noqa: E402
 from minimal_kanban.deployment_security import release_smoke_proof  # noqa: E402
 from minimal_kanban.models import AuditEvent, utc_now_iso  # noqa: E402
+from minimal_kanban.operator_auth import OperatorAuthService  # noqa: E402
 from minimal_kanban.services.card_service import CardService  # noqa: E402
 from minimal_kanban.services.change_feed_service import ChangeFeedService  # noqa: E402
 from minimal_kanban.services.errors import ServiceError  # noqa: E402
@@ -742,9 +743,16 @@ class ChangeFeedHttpContractTests(ChangeFeedTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.card_service = CardService(self.store, self.logger)
+        self.operator_service = OperatorAuthService(
+            self.store,
+            self.card_service,
+            users_file=self.base_dir / "users.json",
+            logger=self.logger,
+        )
         self.server = ApiServer(
             self.card_service,
             self.logger,
+            operator_service=self.operator_service,
             start_port=0,
             fallback_limit=10,
             bearer_token="feed-secret",
@@ -866,6 +874,19 @@ class ChangeFeedHttpContractTests(ChangeFeedTestCase):
             self.assertEqual(
                 ["event-maintenance"], [event["event_id"] for event in page["data"]["events"]]
             )
+
+            status, readiness = self.post(
+                "/api/change_feed/readiness",
+                {},
+                extra_headers={
+                    "Authorization": f"Bearer {mcp_token}",
+                    "X-Autostop-Automation-Protocol": "crm_digest_v1",
+                },
+            )
+            self.assertEqual(200, status, readiness)
+            self.assertEqual("crm_change_feed_readiness_v1", readiness["data"]["format"])
+            self.assertEqual("manager.crm_digest_v1", readiness["data"]["consumer_id"])
+            self.assertFalse(readiness["data"]["consumer_registered"])
 
             smoke_headers = {
                 "X-Autostop-Agent-Identity": "codex-owner-agent",
