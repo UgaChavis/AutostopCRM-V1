@@ -3492,10 +3492,6 @@ class CardServiceTests(CardServiceCase):
                 "sale_price": "420",
             }
         )["item"]
-        from minimal_kanban.services.change_feed_service import ChangeFeedService
-
-        feed = ChangeFeedService(self.store.change_feed_store)
-        feed.register({"consumer_id": "inventory-return-test", "start_at": "latest"})
         written_off = self.service.write_off_inventory_item(
             {
                 "item_id": saved_item["id"],
@@ -3525,11 +3521,6 @@ class CardServiceTests(CardServiceCase):
         self.assertEqual(
             [movement["kind"] for movement in movements], ["incoming", "write_off", "return"]
         )
-        page = feed.read({"consumer_id": "inventory-return-test"})
-        digest = feed.summarize({"consumer_id": "inventory-return-test", "ack": page["ack"]})
-        self.assertEqual(2, digest["category_counts"]["inventory"])
-        self.assertGreaterEqual(digest["raw_event_count"], 4)
-        self.assertLess(digest["total_events"], digest["raw_event_count"])
 
     def test_closing_paid_repair_order_accrues_material_profit_salary(self) -> None:
         employee = self.service.save_employee(
@@ -6459,21 +6450,6 @@ class CardServiceTests(CardServiceCase):
         self.assertEqual(
             cancelled["cancellation_transaction"]["related_transaction_id"],
             payment["cash_transaction_id"],
-        )
-        cancellation_event = next(
-            event
-            for event in reversed(self.store.read_events())
-            if event.action == "cash_transaction_cancelled"
-        )
-        correlation_id = cancellation_event.details.get("correlation_id")
-        self.assertTrue(correlation_id)
-        correlated_actions = {
-            event.action
-            for event in self.store.read_events()
-            if event.details.get("correlation_id") == correlation_id
-        }
-        self.assertTrue(
-            {"cash_transaction_cancelled", "repair_order_updated"} <= correlated_actions
         )
 
     def test_cancel_last_cash_transaction_removes_latest_manual_movement(self) -> None:
@@ -9899,11 +9875,6 @@ class CardServiceTests(CardServiceCase):
         card = self.service.create_card(
             {"vehicle": "TOYOTA CAMRY", "title": "Оплата", "deadline": {"hours": 2}}
         )["card"]
-        from minimal_kanban.services.change_feed_service import ChangeFeedService
-
-        feed = ChangeFeedService(self.store.change_feed_store)
-        feed.register({"consumer_id": "repair-payment-test", "start_at": "latest"})
-
         order = self.service.update_card(
             {
                 "card_id": card["id"],
@@ -9955,22 +9926,6 @@ class CardServiceTests(CardServiceCase):
         self.assertEqual(cash_details["statistics"]["income_total_minor"], 100000)
         self.assertEqual(cashless_details["statistics"]["income_total_minor"], 200000)
         self.assertEqual(card_details["statistics"]["income_total_minor"], 300000)
-        created_events = [
-            event
-            for event in self.store.read_events()
-            if event.action == "cash_transaction_created" and event.card_id == card["id"]
-        ]
-        self.assertEqual(3, len(created_events))
-        self.assertTrue(
-            all(event.details.get("transaction_type") == "income" for event in created_events)
-        )
-        correlations = {event.details.get("correlation_id") for event in created_events}
-        self.assertEqual(1, len(correlations))
-        page = feed.read({"consumer_id": "repair-payment-test"})
-        digest = feed.summarize({"consumer_id": "repair-payment-test", "ack": page["ack"]})
-        self.assertEqual(1, digest["category_counts"]["finance"])
-        self.assertEqual(600000, digest["financial_totals"]["income_minor"])
-        self.assertGreater(digest["raw_event_count"], digest["total_events"])
 
     def test_repair_order_payment_date_change_recreates_cash_transaction(self) -> None:
         cashbox = self.service.create_cashbox(

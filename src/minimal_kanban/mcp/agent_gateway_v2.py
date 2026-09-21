@@ -88,6 +88,7 @@ from .oauth_provider import (
 )
 from .raw_capability_discovery import discovery_phrase, raw_capability_discovery_score
 from .raw_gateway import (
+    CHANGE_FEED_ROUTES,
     OPTIMISTIC_WRITE_NAMES,
     RAW_API_ROUTES,
     VERSIONED_WRITE_NAMES,
@@ -2711,14 +2712,7 @@ def register_agent_gateway_v2(
                     _envelope(ok=False, status="blocked", warnings=[argument_error]),
                     label="call_raw_capability",
                 )
-        if virtual_route in {
-            "/api/get_completion_act_form",
-            "/api/change_feed/bootstrap",
-            "/api/change_feed/read",
-            "/api/change_feed/ack",
-            "/api/change_feed/register",
-            "/api/change_feed/summarize",
-        }:
+        if virtual_route == "/api/get_completion_act_form" or virtual_route in CHANGE_FEED_ROUTES:
             validation_errors = virtual_api_argument_errors(virtual_route, arguments or {})
             if validation_errors:
                 return _tool_result(

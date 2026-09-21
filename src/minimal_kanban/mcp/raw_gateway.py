@@ -8,22 +8,19 @@ from typing import Any
 
 from ..api.route_registry import PROXIED_WRITE_ROUTES
 from ..json_safety import find_mapping as _find_mapping
-from ..storage.change_feed_store import (
-    CHANGE_FEED_CONSUMER_MAX_LENGTH,
-    CHANGE_FEED_PAGE_DEFAULT,
-    CHANGE_FEED_PAGE_MAX,
-    CHANGE_FEED_TOKEN_MAX_LENGTH,
+from .change_feed_gateway import (
+    CHANGE_FEED_ACK_ROUTE,
+    CHANGE_FEED_BOOTSTRAP_ROUTE,
+    CHANGE_FEED_READ_ROUTE,
+    CHANGE_FEED_REGISTER_ROUTE,
+    CHANGE_FEED_ROUTES,
+    CHANGE_FEED_SUMMARIZE_ROUTE,
+    CHANGE_FEED_WRITE_ROUTES,
+    change_feed_schema,
+    verify_change_feed_checkpoint_readback,
 )
 
 RAW_API_PREFIX = "api:"
-CHANGE_FEED_BOOTSTRAP_ROUTE = "/api/change_feed/bootstrap"
-CHANGE_FEED_READ_ROUTE = "/api/change_feed/read"
-CHANGE_FEED_ACK_ROUTE = "/api/change_feed/ack"
-CHANGE_FEED_REGISTER_ROUTE = "/api/change_feed/register"
-CHANGE_FEED_SUMMARIZE_ROUTE = "/api/change_feed/summarize"
-CHANGE_FEED_WRITE_ROUTES = frozenset(
-    {CHANGE_FEED_BOOTSTRAP_ROUTE, CHANGE_FEED_ACK_ROUTE, CHANGE_FEED_REGISTER_ROUTE}
-)
 RAW_API_WRITE_ROUTES = (
     PROXIED_WRITE_ROUTES - {"/api/get_repair_order", "/api/reset_employee_salary_balance"}
 ) | CHANGE_FEED_WRITE_ROUTES
@@ -88,79 +85,6 @@ DESTRUCTIVE_CAPABILITY_NAMES = frozenset(
     }
 )
 VirtualInvoker = Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]]
-
-
-def _change_feed_schema(route: str) -> dict[str, Any] | None:
-    consumer = {
-        "type": "string",
-        "minLength": 1,
-        "maxLength": CHANGE_FEED_CONSUMER_MAX_LENGTH,
-        "pattern": r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$",
-    }
-    properties: dict[str, Any] = {"consumer_id": consumer}
-    required = ["consumer_id"]
-    if route == CHANGE_FEED_READ_ROUTE:
-        properties.update(
-            {
-                "cursor": {
-                    "anyOf": [
-                        {
-                            "type": "string",
-                            "minLength": 1,
-                            "maxLength": CHANGE_FEED_TOKEN_MAX_LENGTH,
-                        },
-                        {"type": "null"},
-                    ],
-                    "default": None,
-                    "description": "Opaque replay cursor returned by the preceding page.",
-                },
-                "limit": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": CHANGE_FEED_PAGE_MAX,
-                    "default": CHANGE_FEED_PAGE_DEFAULT,
-                },
-            }
-        )
-    elif route in {CHANGE_FEED_ACK_ROUTE, CHANGE_FEED_SUMMARIZE_ROUTE}:
-        properties["ack"] = {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": CHANGE_FEED_TOKEN_MAX_LENGTH,
-            "description": "Opaque ACK token returned with one delivered page.",
-        }
-        required.append("ack")
-    elif route == CHANGE_FEED_REGISTER_ROUTE:
-        properties["start_at"] = {
-            "type": "string",
-            "enum": ["latest", "beginning"],
-            "default": "latest",
-        }
-    elif route != CHANGE_FEED_BOOTSTRAP_ROUTE:
-        return None
-    return {
-        "$id": f"autostopcrm-agent-gateway:{route}",
-        "title": route,
-        "type": "object",
-        "description": {
-            CHANGE_FEED_BOOTSTRAP_ROUTE: (
-                "Read the durable feed checkpoint without opening or acknowledging a delivery."
-            ),
-            CHANGE_FEED_READ_ROUTE: (
-                "Read one replay-safe ordered CRM change-feed page without advancing ACK state."
-            ),
-            CHANGE_FEED_ACK_ROUTE: ("Explicitly acknowledge one contiguous CRM change-feed page."),
-            CHANGE_FEED_REGISTER_ROUTE: (
-                "Atomically register a typed feed consumer at the latest checkpoint or beginning."
-            ),
-            CHANGE_FEED_SUMMARIZE_ROUTE: (
-                "Freeze a bounded PII-free digest for one exact unacknowledged feed page."
-            ),
-        }[route],
-        "properties": properties,
-        "required": required,
-        "additionalProperties": False,
-    }
 
 
 def _completion_act_form_schema() -> dict[str, Any]:
@@ -1193,51 +1117,11 @@ async def verify_virtual_api_write_readback(
             },
         }
 
-    if operation in {
-        f"api:{CHANGE_FEED_BOOTSTRAP_ROUTE}",
-        f"api:{CHANGE_FEED_ACK_ROUTE}",
-        f"api:{CHANGE_FEED_REGISTER_ROUTE}",
-    }:
-        consumer_id = str(arguments.get("consumer_id") or "").strip()
-        expected = _find_mapping(result, "consumer_id", consumer_id) if consumer_id else None
-        readback = (
-            await invoke(
-                f"api:{CHANGE_FEED_BOOTSTRAP_ROUTE}",
-                {"consumer_id": consumer_id},
-            )
-            if consumer_id
-            else {}
-        )
-        actual = _find_mapping(readback, "consumer_id", consumer_id) if consumer_id else None
-        expected_generation = str((expected or {}).get("generation") or "")
-        expected_acked = (expected or {}).get("acked_sequence")
-        passed = bool(
-            result.get("ok")
-            and readback.get("ok")
-            and expected_generation
-            and expected_acked is not None
-            and str((actual or {}).get("generation") or "") == expected_generation
-            and (actual or {}).get("acked_sequence") == expected_acked
-        )
-        return {
-            "required": True,
-            "passed": passed,
-            "check": (
-                "exact_change_feed_ack_checkpoint"
-                if operation == f"api:{CHANGE_FEED_ACK_ROUTE}"
-                else (
-                    "exact_change_feed_registration_checkpoint"
-                    if operation == f"api:{CHANGE_FEED_REGISTER_ROUTE}"
-                    else "exact_change_feed_bootstrap_checkpoint"
-                )
-            ),
-            "evidence": {
-                "consumer_id": consumer_id,
-                "generation": expected_generation,
-                "acked_sequence": expected_acked,
-                "readback_ok": bool(readback.get("ok")),
-            },
-        }
+    change_feed_readback = await verify_change_feed_checkpoint_readback(
+        operation, arguments, result, invoke
+    )
+    if change_feed_readback is not None:
+        return change_feed_readback
 
     card_id = str(arguments.get("card_id") or "").strip()
     if operation == "api:/api/set_card_ai_autofill":
@@ -1315,9 +1199,9 @@ def schema_hash(schema: Mapping[str, Any]) -> str:
 def virtual_api_schema(route: str) -> dict[str, Any]:
     """Bind raw-schema confirmation to one exact internal API route."""
 
-    change_feed_schema = _change_feed_schema(route)
-    if change_feed_schema is not None:
-        return change_feed_schema
+    feed_schema = change_feed_schema(route)
+    if feed_schema is not None:
+        return feed_schema
     completion_act_schema = _completion_act_schema(route)
     if completion_act_schema is not None:
         return completion_act_schema
@@ -1445,6 +1329,7 @@ __all__ = [
     "CHANGE_FEED_BOOTSTRAP_ROUTE",
     "CHANGE_FEED_READ_ROUTE",
     "CHANGE_FEED_REGISTER_ROUTE",
+    "CHANGE_FEED_ROUTES",
     "CHANGE_FEED_SUMMARIZE_ROUTE",
     "CHANGE_FEED_WRITE_ROUTES",
     "DESTRUCTIVE_CAPABILITY_MARKERS",
