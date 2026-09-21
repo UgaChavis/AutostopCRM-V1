@@ -570,7 +570,7 @@ snapshot_manager_commit {shlex.quote(str(source))} {shlex.quote(str(target))} {s
         backup_verify = script.index(
             'scripts/agent_release_backup.py verify --backup-dir "$backup_dir"'
         )
-        cleanup_preview = script.index("scripts/cleanup_audit_probe_consumer.py", backup_verify)
+        cleanup_preview = script.index("-m scripts.cleanup_audit_probe_consumer", backup_verify)
         cleanup_apply = script.index('--backup-dir "$backup_dir"', cleanup_preview)
         activation = script.index('activate_manager_snapshot "$manager_release_dir"', cleanup_apply)
         self.assertLess(backup_verify, cleanup_preview)
@@ -589,7 +589,7 @@ snapshot_manager_commit {shlex.quote(str(source))} {shlex.quote(str(target))} {s
         telegram_pause = release.index("set_work_telegram_duty 0 release", registry_backup)
         crm_stop = release.index("docker compose stop", telegram_pause)
         protected_backup = release.index("scripts/agent_release_backup.py create", crm_stop)
-        audit_cleanup = release.index("scripts/cleanup_audit_probe_consumer.py", protected_backup)
+        audit_cleanup = release.index("-m scripts.cleanup_audit_probe_consumer", protected_backup)
         manager_activate = release.index(
             'activate_manager_snapshot "$manager_release_dir"', audit_cleanup
         )

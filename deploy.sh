@@ -1858,9 +1858,9 @@ if [[ -f "$CRM_DATA_DIR/change_feed.sqlite3" ]]; then
 fi
 
 if [[ -f "$CRM_DATA_DIR/change_feed.sqlite3" ]]; then
-  run_release "$PYTHON_BIN" scripts/cleanup_audit_probe_consumer.py \
+  run_release "$PYTHON_BIN" -m scripts.cleanup_audit_probe_consumer \
     --database "$CRM_DATA_DIR/change_feed.sqlite3"
-  run_release "$PYTHON_BIN" scripts/cleanup_audit_probe_consumer.py \
+  run_release "$PYTHON_BIN" -m scripts.cleanup_audit_probe_consumer \
     --database "$CRM_DATA_DIR/change_feed.sqlite3" \
     --backup-dir "$backup_dir" \
     --apply
