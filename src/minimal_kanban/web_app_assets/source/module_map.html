@@ -75,6 +75,66 @@
     .instructions li { margin:8px 0; line-height:1.5; }
     .related { display:flex; flex-wrap:wrap; gap:8px; }
     .related button { padding:7px 9px; text-align:left; font-size:12px; }
+    .automation-layer { position:absolute; inset:0; z-index:6; display:flex; justify-content:flex-end; }
+    .automation-backdrop { position:absolute; inset:0; background:rgba(10,15,21,.76); }
+    .automation-drawer { position:relative; display:flex; flex-direction:column; width:min(720px,calc(100% - 40px)); height:100%; overflow:hidden; background:#222a33; border-left:1px solid #61707f; box-shadow:-28px 0 85px rgba(0,0,0,.42); }
+    .automation-drawer:focus { outline:none; }
+    .automation-header { flex:none; display:flex; justify-content:space-between; align-items:flex-start; gap:20px; padding:25px 28px 20px; border-bottom:1px solid #465666; background:#252d37; }
+    .automation-heading { min-width:0; }
+    .automation-code { color:#86bd9c; font-size:12px; letter-spacing:.08em; }
+    .automation-header h1 { margin:5px 0 4px; font-size:clamp(23px,3vw,29px); line-height:1.2; }
+    .automation-subtitle { margin:0; color:#aebbc6; line-height:1.4; }
+    .automation-scroll { flex:1; min-height:0; overflow:auto; padding:20px 28px 34px; }
+    .automation-state-bar { display:flex; flex-wrap:wrap; align-items:center; gap:9px 14px; min-height:42px; margin-bottom:18px; padding:10px 13px; color:#b9c6cf; background:#29323c; border:1px solid #455563; border-radius:9px; }
+    .automation-state-bar[data-state="ready"] { border-color:#4c765e; }
+    .automation-state-bar[data-state="stale"],.automation-state-bar[data-state="applying"] { border-color:#81713f; color:#dacb98; }
+    .automation-state-bar[data-state="error"],.automation-state-bar[data-state="offline"] { border-color:#8e5555; color:#e3aaaa; }
+    .automation-state-bar .actual-lamp { margin-right:-4px; }
+    .automation-meta { margin-left:auto; color:#8f9ca8; font-size:12px; }
+    .automation-section { margin-top:24px; }
+    .automation-section:first-of-type { margin-top:0; }
+    .automation-section-header { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:11px; }
+    .automation-section h2 { margin:0; font-size:16px; color:#dce5eb; }
+    .automation-count { color:#91a0ad; font-size:12px; }
+    .automation-list { display:grid; gap:10px; }
+    .automation-empty { margin:0; padding:17px; color:#9facb8; text-align:center; border:1px dashed #4d5b68; border-radius:10px; }
+    .automation-card { padding:15px; background:#28323c; border:1px solid #465666; border-radius:11px; }
+    .automation-card.is-applying { border-color:#8b7944; }
+    .automation-card.is-error { border-color:#8d5555; }
+    .automation-card-head { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; }
+    .automation-name { min-width:0; }
+    .automation-name h3 { margin:0; color:#e6ebef; font-size:15px; overflow-wrap:anywhere; }
+    .automation-template { margin-top:4px; color:#8f9ca8; font-size:12px; }
+    .actual-state { display:inline-flex; align-items:center; gap:7px; margin-top:9px; color:#aebac4; font-size:12px; }
+    .actual-lamp { display:inline-block; flex:none; width:9px; height:9px; border-radius:50%; background:#7e8993; box-shadow:0 0 9px currentColor; }
+    .actual-lamp[data-state="on"] { color:#78b88e; background:#78b88e; }
+    .actual-lamp[data-state="off"] { color:#7e8993; background:#7e8993; box-shadow:none; }
+    .actual-lamp[data-state="applying"],.actual-lamp[data-state="stale"] { color:#ccb56b; background:#ccb56b; }
+    .actual-lamp[data-state="error"] { color:#d27474; background:#d27474; }
+    .automation-switch { flex:none; display:inline-flex; align-items:center; gap:9px; min-width:110px; justify-content:flex-end; padding:4px 0; border:0; background:transparent; }
+    .automation-switch:hover { border-color:transparent; }
+    .switch-track { position:relative; display:block; width:42px; height:23px; border:1px solid #697784; border-radius:999px; background:#39434d; }
+    .switch-track::after { content:""; position:absolute; left:3px; top:3px; width:15px; height:15px; border-radius:50%; background:#aab4bd; transition:transform .16s ease,background .16s ease; }
+    .automation-switch[aria-checked="true"] .switch-track { border-color:#5c9370; background:#345a43; }
+    .automation-switch[aria-checked="true"] .switch-track::after { transform:translateX(19px); background:#a8d9b8; }
+    .switch-copy { color:#bdc8d1; font-size:12px; }
+    .automation-schedule { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin-top:13px; padding-top:12px; border-top:1px solid #3d4a56; color:#aebac4; font-size:12px; }
+    .automation-schedule button { margin-left:auto; padding:5px 8px; font-size:12px; }
+    .automation-error-copy { margin:10px 0 0; color:#e0a0a0; font-size:12px; line-height:1.4; }
+    .schedule-form,.automation-wizard { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; margin-top:12px; padding:13px; background:#202832; border:1px solid #526171; border-radius:9px; }
+    .automation-wizard { grid-template-columns:1fr 1fr; margin:0 0 14px; }
+    .automation-wizard h3,.automation-wizard p { grid-column:1/-1; margin:0; }
+    .automation-wizard h3 { font-size:15px; }
+    .automation-wizard p { color:#aebac4; font-size:12px; line-height:1.45; }
+    .field { display:grid; gap:6px; min-width:0; color:#bdc8d1; font-size:12px; }
+    .field-wide { grid-column:1/-1; }
+    input,select { width:100%; color:#edf1f4; background:#1d252d; border:1px solid #526171; border-radius:7px; padding:8px 9px; font:inherit; }
+    .form-actions { grid-column:1/-1; display:flex; justify-content:flex-end; gap:8px; }
+    .primary-action { border-color:#629075; background:#304d3b; }
+    .timer-card,.readiness-card { display:flex; align-items:flex-start; gap:11px; padding:12px 13px; background:#252f39; border:1px solid #414f5b; border-radius:9px; }
+    .timer-card h3,.readiness-card h3 { margin:0; font-size:13px; }
+    .timer-card p,.readiness-card p { margin:4px 0 0; color:#9eabb6; font-size:12px; line-height:1.45; }
+    .automation-offline { padding:24px 18px; color:#b7c2cb; text-align:center; background:#28323c; border:1px solid #53616e; border-radius:11px; line-height:1.55; }
     .state { position:absolute; left:50%; top:45%; transform:translate(-50%,-50%); max-width:420px; width:85%; padding:22px; text-align:center; background:var(--panel); border:1px solid var(--border); border-radius:12px; line-height:1.6; }
     .hint { position:absolute; left:16px; bottom:10px; color:#929daa; font-size:11px; pointer-events:none; }
     .sr-only { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
@@ -88,6 +148,13 @@
       .flow-connector::after { right:-4px; top:auto; bottom:-8px; border:4px solid transparent; border-top-color:#91a8b8; transform:none; }
       .flow-connector.is-both::before { left:-4px; top:-8px; border:4px solid transparent; border-bottom-color:#91a8b8; transform:none; }
       .hint { display:none; }
+      .automation-drawer { width:100%; border:0; }
+      .automation-header { padding:18px 18px 15px; }
+      .automation-scroll { padding:15px 16px 28px; }
+      .automation-wizard { grid-template-columns:1fr; }
+      .automation-wizard>* { grid-column:1; }
+      .automation-card-head { align-items:center; }
+      .automation-meta { width:100%; margin-left:20px; }
     }
     @media(prefers-reduced-motion:reduce) { * { scroll-behavior:auto; } }
   </style>
@@ -117,6 +184,31 @@
         </div></details>
       </section>
     </div>
+    <div class="automation-layer" id="automationLayer" hidden>
+      <div class="automation-backdrop" id="automationBackdrop"></div>
+      <section class="automation-drawer" id="automationDrawer" role="dialog" aria-modal="true" aria-labelledby="automationTitle" aria-describedby="automationSubtitle" tabindex="-1" hidden>
+        <header class="automation-header">
+          <div class="automation-heading"><span class="automation-code">G1 · УПРАВЛЕНИЕ</span><h1 id="automationTitle">Центр автоматизаций</h1><p class="automation-subtitle" id="automationSubtitle">Требуемый режим, фактическое состояние и расписание заданий Manager.</p></div>
+          <button class="detail-close" id="closeAutomation" type="button" aria-label="Закрыть Центр автоматизаций">×</button>
+        </header>
+        <div class="automation-scroll">
+          <div class="automation-state-bar" id="automationState" data-state="loading" role="status"><span class="actual-lamp" id="automationStateLamp" data-state="stale"></span><strong id="automationStateTitle">Получаем состояние…</strong><span id="automationStateMessage"></span><span class="automation-meta" id="automationUpdated"></span></div>
+          <section class="automation-section" aria-labelledby="automationJobsTitle">
+            <div class="automation-section-header"><div><h2 id="automationJobsTitle">Задания</h2><span class="automation-count" id="automationJobsCount"></span></div><button id="addAutomation" type="button" disabled>Добавить задание</button></div>
+            <form class="automation-wizard" id="automationWizard" hidden>
+              <h3>Новое задание из шаблона</h3><p id="templateHelp">Выберите разрешённый тип. Новое задание создаётся выключенным.</p>
+              <label class="field field-wide">Тип задания<select id="templateSelect" required aria-describedby="templateHelp"></select></label>
+              <label class="field">Название<input id="templateName" type="text" maxlength="80" required autocomplete="off"></label>
+              <label class="field">Период, минут<input id="templateMinutes" type="number" min="1" max="1440" step="1" required inputmode="numeric"></label>
+              <div class="form-actions"><button id="cancelAutomation" type="button">Отмена</button><button class="primary-action" type="submit">Создать выключенным</button></div>
+            </form>
+            <div class="automation-list" id="automationJobs"></div>
+          </section>
+          <section class="automation-section" aria-labelledby="systemTimersTitle"><div class="automation-section-header"><h2 id="systemTimersTitle">Системные таймеры</h2><span class="automation-count" id="systemTimersCount"></span></div><div class="automation-list" id="systemTimers"></div></section>
+          <section class="automation-section" aria-labelledby="readinessTitle"><div class="automation-section-header"><h2 id="readinessTitle">Готовность</h2><span class="automation-count" id="readinessCount"></span></div><div class="automation-list" id="readiness"></div></section>
+        </div>
+      </section>
+    </div>
   </main>
   <p id="announce" class="sr-only" aria-live="polite"></p>
   <script>
@@ -124,9 +216,13 @@
     'use strict';
     const ns = 'http://www.w3.org/2000/svg';
     const $ = id => document.getElementById(id);
-    const colors = {A:'#83a9bb',agent:'#5fb9c6',B:'#83a9bb',C:'#b8a27a',D:'#a398bb',E:'#bc9290',F:'#91aa98',J:'#78caa6',N:'#a2b4c3'};
-    const indicatorStates = {on:{color:'#71ad86',label:'Включён'},off:{color:'#bb6868',label:'Выключен'},unknown:{color:'#bba65e',label:'Состояние неизвестно'}};
-    const indicatorFor = n => n.id==='B4' ? indicatorStates[n.indicator]||indicatorStates.unknown : null;
+    const colors = {A:'#83a9bb',agent:'#5fb9c6',B:'#83a9bb',C:'#b8a27a',D:'#a398bb',E:'#bc9290',F:'#91aa98',G:'#78b895',J:'#78caa6',N:'#a2b4c3'};
+    const indicatorStates = {
+      on:{color:'#71ad86',label:'Включён'},off:{color:'#bb6868',label:'Выключен'},disabled:{color:'#7e8993',label:'Все задания выключены'},
+      applying:{color:'#c6ae61',label:'Применение изменений'},error:{color:'#cf7070',label:'Есть ошибка'},offline:{color:'#bba65e',label:'Нет связи'},unknown:{color:'#bba65e',label:'Состояние неизвестно'}
+    };
+    let automationMapState='unknown';
+    const indicatorFor = n => n.id==='G1' ? indicatorStates[automationMapState] : n.id==='B4' ? indicatorStates[n.indicator]||indicatorStates.unknown : null;
     const icons = {
       terminal:'M3 6 L10 12 L3 18 M14 19 H23',
       document:'M5 2 H16 L23 9 V26 H5 Z M16 2 V9 H23 M9 14 H19 M9 19 H19',
@@ -144,8 +240,10 @@
       cart:'M1 3 H5 L9 19 H24 L28 8 H7 M13 25 A2 2 0 1 1 9 25 A2 2 0 1 1 13 25 M25 25 A2 2 0 1 1 21 25 A2 2 0 1 1 25 25',
       box:'M2 8 L14 1 L26 8 V22 L14 29 L2 22 Z M2 8 L14 15 L26 8 M14 15 V29 M8 5 L20 12'
     };
+    const AUTOMATION_POLL_MS=5000;
     let data, items = new Map(), nodes = new Map(), stage, selected = '', zoom = 1, tx = 0, ty = 0, fitMode = true;
     let pointer = null, suppressClick = false, loading = false, previousFocus = null;
+    let automationStatus=null,automationRequest=null,automationPollTimer=0,automationPending=null,automationLastError='';
     const el = (name, attrs={}, content) => {
       const result = document.createElementNS(ns,name);
       Object.entries(attrs).forEach(([key,value]) => result.setAttribute(key,String(value)));
@@ -283,6 +381,215 @@
       }
       return ids;
     }
+    function operatorHeaders(json=false) {
+      const headers={Accept:'application/json'};
+      let token='';try {token=localStorage.getItem('kanban-operator-session')||'';} catch(_error) { /* Session may be unavailable in a restricted browser. */ }
+      if(token) headers['X-Operator-Session']=token;
+      if(json) headers['Content-Type']='application/json';
+      return headers;
+    }
+    const lower=value=>String(value??'').trim().toLocaleLowerCase('ru');
+    const boolState=value=>value===true||['on','enabled','true','1'].includes(lower(value));
+    function normalizeSchedule(value={}) {
+      if(typeof value==='string') return {kind:'text',label:value,every_minutes:null,timezone:''};
+      const every=Number(value.every_minutes??value.interval_minutes??value.minutes);
+      return {
+        kind:lower(value.kind||value.type||'interval')||'interval',
+        every_minutes:Number.isFinite(every)&&every>0?Math.round(every):null,
+        timezone:String(value.timezone||value.tz||''),
+        label:String(value.label||value.text||'')
+      };
+    }
+    function normalizeAutomationStatus(payload) {
+      const source=payload?.data&&typeof payload.data==='object'?payload.data:payload;
+      if(!source||typeof source!=='object'||!Array.isArray(source.jobs)||!Array.isArray(source.system_timers)||!Array.isArray(source.readiness)||!Array.isArray(source.templates)) throw new Error('data');
+      const jobs=source.jobs.map((job,index)=>{
+        const id=String(job.job_id??job.id??'').trim();
+        if(!id) throw new Error('data');
+        const desiredRaw=job.desired_state??job.desired??job.enabled;
+        return {
+          id,name:String(job.name||job.display_name||id),templateId:String(job.template_id||job.type||''),
+          desired:boolState(desiredRaw)?'on':'off',actual:job.applying===true?'applying':lower(job.actual_state||job.state||'unknown')||'unknown',
+          revision:job.revision??job.version??null,schedule:normalizeSchedule(job.schedule||{}),
+          lastRun:String(job.last_run_at||''),nextRun:String(job.next_run_at||''),error:String(job.error||job.error_message||job.error_code||''),order:index
+        };
+      });
+      const systemTimers=source.system_timers.map((timer,index)=>({
+        id:String(timer.id||timer.timer_id||`system-${index+1}`),name:String(timer.name||timer.display_name||timer.id||'Системный таймер'),
+        actual:lower(timer.actual_state||timer.state||'unknown')||'unknown',schedule:normalizeSchedule(timer.schedule??timer.schedule_text??{kind:'interval',every_minutes:timer.period_minutes}),
+        lastRun:String(timer.last_run_at||''),nextRun:String(timer.next_run_at||''),detail:String(timer.detail||timer.description||'')
+      }));
+      const readiness=source.readiness.map((check,index)=>({
+        id:String(check.id||`check-${index+1}`),label:String(check.label||check.name||check.id||'Проверка'),
+        state:lower(check.state||check.status||'unknown')||'unknown',detail:String(check.detail||check.message||'')
+      }));
+      const templates=source.templates.map(template=>({
+        id:String(template.template_id||template.id||'').trim(),name:String(template.name||template.display_name||template.id||''),
+        description:String(template.description||''),defaultMinutes:Number(template.default_every_minutes??template.schedule?.every_minutes??20),
+        minMinutes:Number(template.min_every_minutes??1),maxMinutes:Number(template.max_every_minutes??1440)
+      })).filter(template=>template.id);
+      return {
+        generatedAt:String(source.generated_at||''),canManage:source.can_manage===true,
+        controller:source.controller&&typeof source.controller==='object'?source.controller:{state:'unknown'},
+        jobs,systemTimers,readiness,templates
+      };
+    }
+    function actualMeta(value) {
+      const state=lower(value);
+      if(['ready','idle','scheduled','healthy','ok','pass','available','running','success','on','enabled'].includes(state)) return {lamp:'on',label:state==='running'?'Выполняется':'Работает'};
+      if(['off','disabled','stopped','paused'].includes(state)) return {lamp:'off',label:'Выключено'};
+      if(['applying','pending','starting','stopping','backoff','queued'].includes(state)) return {lamp:'applying',label:'Применяется'};
+      if(['error','failed','blocked','unhealthy'].includes(state)) return {lamp:'error',label:'Ошибка'};
+      return {lamp:'stale',label:state==='stale'?'Данные устарели':'Неизвестно'};
+    }
+    function scheduleText(schedule) {
+      if(schedule.label) return schedule.label;
+      if(schedule.kind==='interval'&&schedule.every_minutes) return `Каждые ${schedule.every_minutes} мин.`;
+      return schedule.kind==='cron'?'По расписанию cron':'Расписание не задано';
+    }
+    function displayTime(value) {
+      if(!value) return '—';const date=new Date(value);if(Number.isNaN(date.getTime())) return '—';
+      return new Intl.DateTimeFormat('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).format(date);
+    }
+    function htmlElement(tag,className='',textValue='') {
+      const element=document.createElement(tag);if(className)element.className=className;if(textValue)element.textContent=textValue;return element;
+    }
+    function controllerState() {return lower(automationStatus?.controller?.state||automationStatus?.controller?.actual_state||'unknown')||'unknown';}
+    function automationIsStale() {return automationStatus?.controller?.stale===true||['stale','offline','unavailable','unknown'].includes(controllerState());}
+    function automationCanMutate() {return Boolean(automationStatus?.canManage&&!automationIsStale()&&!automationLastError&&!automationPending&&!automationRequest&&!automationStatus.jobs.some(job=>actualMeta(job.actual).lamp==='applying'));}
+    function desiredMismatch(job) {
+      const meta=actualMeta(job.actual);
+      return job.desired==='on'?meta.lamp==='off':meta.lamp==='on'||meta.lamp==='applying';
+    }
+    function automationAggregateState() {
+      if(automationLastError) return 'offline';
+      if(!automationStatus) return 'unknown';
+      if(['error','failed','unhealthy'].includes(controllerState())||automationStatus.jobs.some(job=>actualMeta(job.actual).lamp==='error')||automationStatus.readiness.some(check=>['error','failed','blocked'].includes(check.state))) return 'error';
+      if(automationPending||automationIsStale()||automationStatus.jobs.some(job=>actualMeta(job.actual).lamp==='applying')||automationStatus.jobs.some(desiredMismatch)) return 'applying';
+      return automationStatus.jobs.some(job=>job.desired==='on')?'on':'disabled';
+    }
+    function updateAutomationMapLamp() {
+      automationMapState=automationAggregateState();
+      const node=stage?.querySelector('[data-id="G1"]'),indicator=indicatorStates[automationMapState]||indicatorStates.unknown;
+      if(!node)return;
+      node.setAttribute('aria-label',`G1: Центр автоматизаций. ${indicator.label}`);
+      const title=node.querySelector('.status-indicator title'),lights=node.querySelectorAll('.status-indicator circle');
+      if(title)title.textContent=indicator.label;
+      lights.forEach(light=>light.setAttribute('fill',indicator.color));
+    }
+    function setAutomationBanner(state,title,message='') {
+      $('automationState').dataset.state=state;$('automationStateLamp').dataset.state=state==='ready'?'on':state==='offline'||state==='error'?'error':'stale';
+      $('automationStateTitle').textContent=title;$('automationStateMessage').textContent=message;
+    }
+    function appendActualState(parent,value,prefix='Факт') {
+      const meta=actualMeta(value),wrap=htmlElement('div','actual-state');
+      const lamp=htmlElement('span','actual-lamp');lamp.dataset.state=meta.lamp;lamp.setAttribute('aria-hidden','true');
+      wrap.append(lamp,document.createTextNode(prefix?`${prefix}: ${meta.label}`:meta.label));parent.append(wrap);return meta;
+    }
+    function renderAutomationJob(job,canMutate) {
+      const card=htmlElement('article','automation-card');card.dataset.jobId=job.id;
+      const meta=actualMeta(job.actual);if(meta.lamp==='error')card.classList.add('is-error');
+      if(automationPending?.jobId===job.id)card.classList.add('is-applying');
+      const head=htmlElement('div','automation-card-head'),name=htmlElement('div','automation-name');
+      name.append(htmlElement('h3','',job.name));
+      if(job.templateId)name.append(htmlElement('div','automation-template',`Тип: ${job.templateId}`));
+      appendActualState(name,job.actual);
+      const toggle=htmlElement('button','automation-switch');toggle.type='button';toggle.role='switch';toggle.dataset.jobId=job.id;
+      toggle.setAttribute('aria-checked',String(job.desired==='on'));toggle.setAttribute('aria-label',`${job.name}: требуемый режим ${job.desired==='on'?'включён':'выключен'}`);
+      toggle.disabled=!canMutate;const track=htmlElement('span','switch-track');track.setAttribute('aria-hidden','true');
+      toggle.append(htmlElement('span','switch-copy',job.desired==='on'?'Требуется: вкл':'Требуется: выкл'),track);
+      toggle.addEventListener('click',()=>performAutomationControl({operation:'set_enabled',job_id:job.id,expected_revision:job.revision,enabled:job.desired!=='on'},job.id));
+      head.append(name,toggle);card.append(head);
+      const schedule=htmlElement('div','automation-schedule');
+      schedule.append(htmlElement('span','',scheduleText(job.schedule)),htmlElement('span','',`Следующий: ${displayTime(job.nextRun)}`));
+      const edit=htmlElement('button','','Изменить период');edit.type='button';edit.disabled=!canMutate||job.schedule.kind!=='interval';schedule.append(edit);card.append(schedule);
+      const form=htmlElement('form','schedule-form');form.hidden=true;
+      const field=htmlElement('label','field', 'Период, минут');const input=document.createElement('input');input.type='number';input.min='1';input.max='1440';input.step='1';input.required=true;input.value=String(job.schedule.every_minutes||20);field.append(input);
+      const submit=htmlElement('button','primary-action','Сохранить');submit.type='submit';form.append(field,submit);card.append(form);
+      edit.addEventListener('click',()=>{form.hidden=!form.hidden;if(!form.hidden)input.focus();});
+      form.addEventListener('submit',event=>{event.preventDefault();const minutes=Number(input.value);if(!Number.isInteger(minutes)||minutes<1||minutes>1440)return;performAutomationControl({operation:'set_schedule',job_id:job.id,expected_revision:job.revision,schedule:{kind:'interval',every_minutes:minutes,timezone:job.schedule.timezone||undefined}},job.id);});
+      if(job.error)card.append(htmlElement('p','automation-error-copy',job.error));
+      return card;
+    }
+    function syncAutomationWizard() {
+      const select=$('templateSelect'),current=select.value;select.replaceChildren();
+      for(const template of automationStatus?.templates||[]) {const option=document.createElement('option');option.value=template.id;option.textContent=template.name;select.append(option);}
+      if([...select.options].some(option=>option.value===current))select.value=current;
+      updateWizardFields();
+    }
+    function updateWizardFields() {
+      const template=(automationStatus?.templates||[]).find(item=>item.id===$('templateSelect').value);
+      if(!template)return;
+      if(!$('templateName').value||$('templateName').dataset.template!==template.id){$('templateName').value=template.name;$('templateName').dataset.template=template.id;}
+      $('templateMinutes').min=String(Number.isFinite(template.minMinutes)?template.minMinutes:1);
+      $('templateMinutes').max=String(Number.isFinite(template.maxMinutes)?template.maxMinutes:1440);
+      $('templateMinutes').value=String(Number.isFinite(template.defaultMinutes)?template.defaultMinutes:20);
+      $('templateHelp').textContent=template.description||'Новое задание создаётся выключенным.';
+    }
+    function renderAutomation() {
+      const jobs=$('automationJobs'),timers=$('systemTimers'),readiness=$('readiness');jobs.replaceChildren();timers.replaceChildren();readiness.replaceChildren();
+      const status=automationStatus,state=automationAggregateState();
+      if(!status) {
+        setAutomationBanner(automationLastError?'offline':'loading',automationLastError?'Нет связи с Manager':'Получаем состояние…',automationLastError||'');
+        jobs.append(htmlElement('div','automation-offline',automationLastError?'Состояние заданий не подтверждено. Повторим запрос, пока панель открыта.':'Загружаем задания…'));
+        $('automationJobsCount').textContent='';$('systemTimersCount').textContent='';$('readinessCount').textContent='';$('addAutomation').disabled=true;updateAutomationMapLamp();return;
+      }
+      if(automationPending)setAutomationBanner('applying','Применяем изменение','Ждём подтверждённое состояние сервера…');
+      else if(automationLastError)setAutomationBanner('error','Состояние не подтверждено',automationLastError);
+      else if(automationIsStale())setAutomationBanner('stale','Данные устарели','Управление временно заблокировано до свежего readback.');
+      else if(!status.canManage)setAutomationBanner('ready','Режим просмотра','Изменять задания может только администратор.');
+      else if(state==='error')setAutomationBanner('error','Есть ошибка','Проверьте задания и готовность контура.');
+      else if(state==='applying')setAutomationBanner('applying','Изменение применяется','Ждём совпадения требуемого и фактического режима.');
+      else setAutomationBanner('ready','Состояние подтверждено','Переключатели показывают требуемый режим, лампы — фактический.');
+      $('automationUpdated').textContent=status.generatedAt?`Обновлено ${displayTime(status.generatedAt)}`:'';
+      const canMutate=automationCanMutate();
+      $('automationJobsCount').textContent=String(status.jobs.length);$('systemTimersCount').textContent=String(status.systemTimers.length);$('readinessCount').textContent=String(status.readiness.length);
+      $('addAutomation').disabled=!canMutate||!status.templates.length;
+      if(!status.jobs.length)jobs.append(htmlElement('p','automation-empty','Пользовательских заданий пока нет.'));
+      status.jobs.slice().sort((a,b)=>a.order-b.order).forEach(job=>jobs.append(renderAutomationJob(job,canMutate)));
+      if(!status.systemTimers.length)timers.append(htmlElement('p','automation-empty','Системные таймеры не зарегистрированы.'));
+      status.systemTimers.forEach(timer=>{const card=htmlElement('article','timer-card'),copy=htmlElement('div');appendActualState(card,timer.actual,'');copy.append(htmlElement('h3','',timer.name),htmlElement('p','',`${scheduleText(timer.schedule)} · следующий ${displayTime(timer.nextRun)}`));if(timer.detail)copy.append(htmlElement('p','',timer.detail));card.append(copy);timers.append(card);});
+      if(!status.readiness.length)readiness.append(htmlElement('p','automation-empty','Проверки готовности не опубликованы.'));
+      status.readiness.forEach(check=>{const card=htmlElement('article','readiness-card'),copy=htmlElement('div');appendActualState(card,check.state,'');copy.append(htmlElement('h3','',check.label));if(check.detail)copy.append(htmlElement('p','',check.detail));card.append(copy);readiness.append(card);});
+      if(!$('automationWizard').hidden)syncAutomationWizard();updateAutomationMapLamp();
+    }
+    async function automationRequestJson(path,options={}) {
+      const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),15000);
+      try {
+        const response=await fetch(path,{credentials:'same-origin',cache:'no-store',...options,headers:{...operatorHeaders(Boolean(options.body)),...(options.headers||{})},signal:controller.signal});
+        let result={};try {result=await response.json();} catch(_error) { /* The status below remains authoritative. */ }
+        if(response.status===401||response.status===403)throw new Error('Доступ к Центру автоматизаций запрещён.');
+        if(!response.ok||result.ok===false)throw new Error(String(result.error?.message||result.message||`Ошибка ${response.status}`));
+        return result;
+      } catch(error) {if(error.name==='AbortError')throw new Error('Manager не ответил вовремя.');throw error;} finally {clearTimeout(timeout);}
+    }
+    function scheduleAutomationPoll() {
+      clearTimeout(automationPollTimer);automationPollTimer=0;
+      if(!$('automationLayer').hidden)automationPollTimer=setTimeout(()=>refreshAutomationStatus(),AUTOMATION_POLL_MS);
+    }
+    async function refreshAutomationStatus() {
+      if($('automationLayer').hidden||automationRequest)return automationRequest;
+      clearTimeout(automationPollTimer);automationPollTimer=0;
+      if(!automationStatus){automationLastError='';renderAutomation();}
+      const request=(async()=>{
+        try {automationStatus=normalizeAutomationStatus(await automationRequestJson('/api/automation_center/status',{method:'GET'}));automationLastError='';}
+        catch(error){automationLastError=error.message||'Не удалось получить состояние.';}
+      })();automationRequest=request;
+      try {await request;} finally {if(automationRequest===request)automationRequest=null;renderAutomation();scheduleAutomationPoll();}
+      return request;
+    }
+    async function performAutomationControl(command,jobId='') {
+      if(!automationCanMutate())return;
+      clearTimeout(automationPollTimer);automationPollTimer=0;automationPending={jobId,operation:command.operation};automationLastError='';renderAutomation();
+      const request=(async()=>{
+        try {
+          await automationRequestJson('/api/automation_center/control',{method:'POST',body:JSON.stringify({command_id:globalThis.crypto?.randomUUID?.()||`${Date.now()}-${Math.random().toString(16).slice(2)}`,...command})});
+          automationStatus=normalizeAutomationStatus(await automationRequestJson('/api/automation_center/status',{method:'GET'}));automationLastError='';
+          $('announce').textContent='Изменение подтверждено сервером.';
+        } catch(error) {automationLastError=error.message||'Не удалось подтвердить изменение.';$('announce').textContent='Изменение не подтверждено сервером.';}
+      })();automationRequest=request;
+      try {await request;} finally {if(automationRequest===request)automationRequest=null;automationPending=null;renderAutomation();scheduleAutomationPoll();}
+    }
     function flowStep(id, current=false) {
       const item=nodes.get(id), step=document.createElement(current?'div':'button');
       step.className=`flow-step${current?' is-current':''}`;
@@ -348,10 +655,24 @@
       if(outgoing.length) connectors.push(linked.some(relation=>relation.from===id&&outgoing.includes(relation.to)&&relation.direction==='both')?'both':'forward');
       drawFlow(groups,connectors);
     }
+    function markMapSelection(id,related) {
+      stage.querySelectorAll('[data-id]').forEach(group=>{
+        const active=group.dataset.id===id;group.classList.toggle('is-selected',active);group.classList.toggle('is-related',related.has(group.dataset.id));group.setAttribute('aria-pressed',String(active));
+      });
+    }
+    function openAutomationCenter(focus=false) {
+      const id='G1',item=items.get(id),related=relationships(id);selected=id;
+      if($('automationLayer').hidden&&$('detailLayer').hidden)previousFocus=document.activeElement;
+      $('detail').hidden=true;$('detailLayer').hidden=true;$('automationLayer').hidden=false;$('automationDrawer').hidden=false;$('viewport').inert=true;
+      markMapSelection(id,related);history.replaceState(null,'',`#${id}`);$('announce').textContent='Открыт Центр автоматизаций';renderAutomation();
+      requestAnimationFrame(()=>{if(focus)center(id);$('automationDrawer').focus({preventScroll:true});refreshAutomationStatus();});
+    }
     function select(id, focus=false) {
       if(!items.has(id)) { clearSelection(); return; }
+      if(id==='G1') {openAutomationCenter(focus);return;}
       selected=id; const item=items.get(id), related=relationships(id);
-      if($('detailLayer').hidden) previousFocus=document.activeElement;
+      if($('detailLayer').hidden&&$('automationLayer').hidden) previousFocus=document.activeElement;
+      $('automationDrawer').hidden=true;$('automationLayer').hidden=true;clearTimeout(automationPollTimer);automationPollTimer=0;
       $('detailLayer').hidden=false; $('detail').hidden=false; $('viewport').inert=true;
       $('detailCode').textContent=id; $('detailTitle').textContent=item.title||item.label;
       const indicator=indicatorFor(item);
@@ -381,9 +702,7 @@
         button.type='button'; button.textContent=`${other} · ${target.title||target.label}`;
         button.addEventListener('click',()=>select(other,true)); $('related').append(button);
       });
-      stage.querySelectorAll('[data-id]').forEach(g=>{
-        const active=g.dataset.id===id;g.classList.toggle('is-selected',active);g.classList.toggle('is-related',related.has(g.dataset.id));g.setAttribute('aria-pressed',String(active));
-      });
+      markMapSelection(id,related);
       history.replaceState(null,'',`#${id}`); $('announce').textContent=`Выбран ${id}: ${item.title||item.label}`;
       requestAnimationFrame(()=>{
         if(focus) center(id);
@@ -391,7 +710,7 @@
       });
     }
     function clearSelection() {
-      selected=''; $('detail').hidden=true; $('detailLayer').hidden=true; $('viewport').inert=false;
+      selected=''; $('detail').hidden=true; $('detailLayer').hidden=true;$('automationDrawer').hidden=true;$('automationLayer').hidden=true;$('automationWizard').hidden=true;clearTimeout(automationPollTimer);automationPollTimer=0;$('viewport').inert=false;
       if(stage) stage.querySelectorAll('[data-id]').forEach(g=>{g.classList.remove('is-selected','is-related');g.setAttribute('aria-pressed','false');});
       history.replaceState(null,'',location.pathname+location.search);
     }
@@ -405,16 +724,13 @@
       $('retry').hidden=true; $('loginLink').hidden=true; $('stateText').textContent='Загрузка карты…';
       const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),15000);
       try {
-        const headers={Accept:'application/json'};
-        let token='';try {token=localStorage.getItem('kanban-operator-session')||'';} catch(_error) { /* Session may be unavailable in a restricted browser. */ }
-        if(token) headers['X-Operator-Session']=token;
-        const response=await fetch('/api/get_module_map_infrastructure',{method:'GET',headers,credentials:'same-origin',cache:'no-store',signal:controller.signal});
+        const response=await fetch('/api/get_module_map_infrastructure',{method:'GET',headers:operatorHeaders(),credentials:'same-origin',cache:'no-store',signal:controller.signal});
         if(response.status===401||response.status===403) throw new Error('auth');
         if(!response.ok) throw new Error('network');
         const result=await response.json();
         if(!result.ok||result.data?.schema_version!=='autostopmanager.infrastructure-map.v1') throw new Error('data');
         data=result.data; nodes=new Map(data.elements.map(n=>[n.id,n])); items=new Map([...data.elements,...data.relations].map(n=>[n.id,n]));
-        if(nodes.size!==33||items.size!==56||data.relations.length!==23||data.relations.some(r=>!nodes.has(r.from)||!nodes.has(r.to))) throw new Error('data');
+        if(nodes.size!==data.elements.length||items.size!==data.elements.length+data.relations.length||!nodes.has('G1')||data.relations.some(r=>!nodes.has(r.from)||!nodes.has(r.to))) throw new Error('data');
         render(); $('state').hidden=true; $('map').removeAttribute('hidden'); $('hint').hidden=false;
         requestAnimationFrame(()=>{fit();hashSelection();});
       } catch(error) {
@@ -462,14 +778,28 @@
     $('map').addEventListener('lostpointercapture',endPan);
     $('closeDetail').addEventListener('click',closeDetail);
     $('detailBackdrop').addEventListener('click',closeDetail);
+    $('closeAutomation').addEventListener('click',closeDetail);
+    $('automationBackdrop').addEventListener('click',closeDetail);
+    $('addAutomation').addEventListener('click',()=>{
+      if(!automationCanMutate()||!automationStatus?.templates.length)return;
+      $('automationWizard').hidden=false;syncAutomationWizard();$('templateSelect').focus();
+    });
+    $('cancelAutomation').addEventListener('click',()=>{$('automationWizard').hidden=true;$('addAutomation').focus();});
+    $('templateSelect').addEventListener('change',updateWizardFields);
+    $('automationWizard').addEventListener('submit',event=>{
+      event.preventDefault();const template=(automationStatus?.templates||[]).find(item=>item.id===$('templateSelect').value),name=$('templateName').value.trim(),minutes=Number($('templateMinutes').value);
+      if(!template||!name||!Number.isInteger(minutes)||minutes<template.minMinutes||minutes>template.maxMinutes)return;
+      $('automationWizard').hidden=true;performAutomationControl({operation:'create_from_template',template_id:template.id,name,schedule:{kind:'interval',every_minutes:minutes}},'');
+    });
     $('retry').addEventListener('click',load);
     document.addEventListener('keydown',event=>{
       if(event.key==='Escape'&&selected){event.preventDefault();closeDetail();return;}
       if(selected&&event.key==='Tab') {
-        const controls=[...$('detail').querySelectorAll('button,summary,a[href]')].filter(element=>element.getClientRects().length);
+        const dialog=selected==='G1'?$('automationDrawer'):$('detail');
+        const controls=[...dialog.querySelectorAll('button:not([disabled]),summary,a[href],input:not([disabled]),select:not([disabled])')].filter(element=>element.getClientRects().length);
         const first=controls[0],last=controls.at(-1);
-        if(event.shiftKey&&(document.activeElement===first||document.activeElement===$('detail'))) {event.preventDefault();last?.focus();}
-        else if(!event.shiftKey&&(document.activeElement===last||document.activeElement===$('detail'))) {event.preventDefault();first?.focus();}
+        if(event.shiftKey&&(document.activeElement===first||document.activeElement===dialog)) {event.preventDefault();last?.focus();}
+        else if(!event.shiftKey&&(document.activeElement===last||document.activeElement===dialog)) {event.preventDefault();first?.focus();}
         return;
       }
       if(selected)return;
@@ -478,6 +808,8 @@
       if(event.key==='+'||event.key==='='){event.preventDefault();zoomAt(zoom*1.2);}
       if(event.key==='-'){event.preventDefault();zoomAt(zoom/1.2);}
     });
+    window.addEventListener('focus',()=>{if(!$('automationLayer').hidden)refreshAutomationStatus();});
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!$('automationLayer').hidden)refreshAutomationStatus();});
     window.addEventListener('hashchange',()=>{if(data)hashSelection();});
     new ResizeObserver(()=>{if(data&&fitMode)fit();}).observe($('viewport'));
     load();

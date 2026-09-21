@@ -140,6 +140,23 @@
       "compact": true
     },
     {
+      "id": "G1",
+      "title": "Центр автоматизаций",
+      "x": 330,
+      "y": 790,
+      "width": 300,
+      "height": 96,
+      "description": "Интерактивный центр периодических заданий Manager: показывает требуемый и фактический режим, системные таймеры и готовность контура.",
+      "group": "G",
+      "kind": "module",
+      "lines": [
+        "Задания · таймеры · готовность"
+      ],
+      "icon": "bell",
+      "indicator": "unknown",
+      "control_surface": "automation_center"
+    },
+    {
       "id": "C2",
       "title": "CRM MCP-коннектор",
       "x": 680,
@@ -568,7 +585,7 @@
       "label": "JSON-RPC WebSocket",
       "protocol": "JSON-RPC / локальный WebSocket",
       "description": "Wake-адаптер инициирует ход агента по событию.",
-      "path": "M222 826 H420 Q595 826 595 665 V205 Q595 160 700 132",
+      "path": "M222 826 H270 V950 H595 V205 Q595 160 700 132",
       "label_x": 565,
       "label_y": 520,
       "direction": "forward",
@@ -788,6 +805,50 @@
       "direction": "both",
       "kind": "exchange",
       "tone": "J"
+    },
+    {
+      "id": "L26",
+      "from": "A2",
+      "to": "G1",
+      "label": "Управление заданиями",
+      "protocol": "HTTPS / JSON",
+      "description": "CRM показывает состояние автоматизаций Manager и передаёт подтверждённые команды управления.",
+      "path": "M650 110 H620 V790",
+      "label_x": 525,
+      "label_y": 350,
+      "direction": "both",
+      "kind": "exchange",
+      "tone": "G",
+      "label_max_width": 150
+    },
+    {
+      "id": "L27",
+      "from": "C3",
+      "to": "G1",
+      "label": "Изменения CRM",
+      "protocol": "Change feed",
+      "description": "Проверенные изменения CRM поступают в задания Центра автоматизаций для формирования кратких сводок.",
+      "path": "M685 715 H655 V838 H630",
+      "label_x": 655,
+      "label_y": 748,
+      "direction": "forward",
+      "kind": "event",
+      "tone": "G",
+      "show_label": false
+    },
+    {
+      "id": "L28",
+      "from": "G1",
+      "to": "B1",
+      "label": "Краткий отчёт",
+      "protocol": "Telegram API",
+      "description": "Готовая сводка передаётся через Telegram-мост в разрешённый личный диалог владельца.",
+      "path": "M400 790 V720 H280 V496",
+      "label_x": 282,
+      "label_y": 746,
+      "direction": "forward",
+      "kind": "event",
+      "tone": "G"
     }
   ]
 }

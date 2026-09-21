@@ -144,10 +144,12 @@ class ManagerMapBrowserTests(unittest.TestCase):
         identifiers = self.page.locator("[data-id]").evaluate_all(
             "elements => elements.map(el => el.dataset.id)"
         )
-        self.assertEqual(len(identifiers), 56)
-        self.assertEqual(len(set(identifiers)), 56)
+        self.assertEqual(len(identifiers), 60)
+        self.assertEqual(len(set(identifiers)), 60)
         for code in identifiers:
             with self.subTest(code=code):
+                if code == "G1":
+                    continue
                 self.close_detail()
                 self.page.keyboard.press("Home")
                 self.page.evaluate(
@@ -207,6 +209,228 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.select_node("E1")
         self.page.locator(".detail-backdrop").click(position={"x": 5, "y": 5})
         self.assertFalse(dialog.is_visible())
+        self.assertEqual(self.errors, [])
+
+    def test_automation_center_control_requires_server_readback(self) -> None:
+        self.login()
+        state = {
+            "generated_at": "2026-09-21T12:00:00Z",
+            "can_manage": True,
+            "controller": {"state": "healthy", "heartbeat_at": "2026-09-21T12:00:00Z"},
+            "jobs": [
+                {
+                    "job_id": "crm-digest",
+                    "name": "Сводка изменений CRM",
+                    "template_id": "crm_change_digest",
+                    "desired_state": "off",
+                    "actual_state": "disabled",
+                    "revision": 7,
+                    "schedule": {
+                        "kind": "interval",
+                        "every_minutes": 20,
+                        "timezone": "Asia/Krasnoyarsk",
+                    },
+                    "next_run_at": "2026-09-21T12:20:00Z",
+                }
+            ],
+            "system_timers": [
+                {
+                    "id": "lease-reaper",
+                    "name": "Освобождение зависших запусков",
+                    "actual_state": "healthy",
+                    "schedule": {"kind": "interval", "every_minutes": 1},
+                }
+            ],
+            "readiness": [{"id": "telegram", "label": "Telegram-доставка", "state": "healthy"}],
+            "templates": [
+                {
+                    "id": "crm_change_digest",
+                    "name": "Сводка изменений CRM",
+                    "description": "Краткая сводка новых событий CRM.",
+                    "default_every_minutes": 20,
+                    "min_every_minutes": 5,
+                    "max_every_minutes": 1440,
+                }
+            ],
+        }
+        traffic: list[tuple[str, object]] = []
+
+        def automation_route(route, request) -> None:
+            if request.method == "POST":
+                payload = request.post_data_json
+                traffic.append(("POST", payload))
+                self.assertIn("command_id", payload)
+                self.assertNotIn("source", payload)
+                if payload["operation"] == "set_enabled":
+                    self.assertEqual(payload["job_id"], "crm-digest")
+                    self.assertEqual(payload["expected_revision"], 7)
+                    self.assertTrue(payload["enabled"])
+                    state["jobs"][0].update(desired_state="on", actual_state="idle", revision=8)
+                elif payload["operation"] == "set_schedule":
+                    self.assertEqual(payload["job_id"], "crm-digest")
+                    self.assertEqual(payload["expected_revision"], 8)
+                    self.assertEqual(payload["schedule"]["every_minutes"], 30)
+                    state["jobs"][0]["schedule"]["every_minutes"] = 30
+                    state["jobs"][0]["revision"] = 9
+                elif payload["operation"] == "create_from_template":
+                    self.assertEqual(payload["template_id"], "crm_change_digest")
+                    self.assertEqual(payload["name"], "Вечерняя сводка")
+                    self.assertEqual(payload["schedule"]["every_minutes"], 45)
+                    state["jobs"].append(
+                        {
+                            "job_id": "evening-digest",
+                            "name": payload["name"],
+                            "template_id": payload["template_id"],
+                            "desired_state": "off",
+                            "actual_state": "disabled",
+                            "revision": 1,
+                            "schedule": payload["schedule"],
+                        }
+                    )
+                else:
+                    self.fail(f"unexpected operation: {payload['operation']}")
+                route.fulfill(json={"ok": True, "data": {"accepted": True}})
+                return
+            traffic.append(("GET", None))
+            route.fulfill(json={"ok": True, "data": state})
+
+        self.page.route("**/api/automation_center/**", automation_route)
+        self.select_node("G1")
+        drawer = self.page.locator("#automationDrawer")
+        drawer.wait_for(state="visible")
+        self.page.get_by_text("Состояние подтверждено").wait_for()
+        toggle = self.page.locator('[data-job-id="crm-digest"] [role="switch"]')
+        self.assertEqual(toggle.get_attribute("aria-checked"), "false")
+        self.assertEqual(
+            self.page.locator('[data-job-id="crm-digest"] .actual-lamp').first.get_attribute(
+                "data-state"
+            ),
+            "off",
+        )
+        toggle.click()
+        self.page.wait_for_function(
+            "document.querySelector('[data-job-id=\"crm-digest\"] [role=\"switch\"]').getAttribute('aria-checked')==='true'"
+        )
+        self.assertEqual([method for method, _payload in traffic[:3]], ["GET", "POST", "GET"])
+        self.assertEqual(
+            self.page.locator('[data-job-id="crm-digest"] .actual-lamp').first.get_attribute(
+                "data-state"
+            ),
+            "on",
+        )
+        self.assertEqual(
+            self.page.locator('[data-id="G1"] .status-indicator title').text_content(),
+            "Включён",
+        )
+        self.page.locator('[data-job-id="crm-digest"]').get_by_text("Изменить период").click()
+        schedule_input = self.page.locator('[data-job-id="crm-digest"] .schedule-form input')
+        schedule_input.fill("30")
+        self.page.locator('[data-job-id="crm-digest"] .schedule-form').get_by_text(
+            "Сохранить"
+        ).click()
+        self.page.locator('[data-job-id="crm-digest"]').get_by_text("Каждые 30 мин.").wait_for()
+
+        self.page.locator("#addAutomation").click()
+        self.assertEqual(self.page.locator("#templateSelect option").count(), 1)
+        self.page.locator("#templateName").fill("Вечерняя сводка")
+        self.page.locator("#templateMinutes").fill("45")
+        self.page.locator("#automationWizard").get_by_text("Создать выключенным").click()
+        self.page.locator('.automation-card[data-job-id="evening-digest"]').wait_for()
+        self.assertEqual(
+            self.page.locator('[data-job-id="evening-digest"] [role="switch"]').get_attribute(
+                "aria-checked"
+            ),
+            "false",
+        )
+        self.assertEqual(
+            [method for method, _payload in traffic[:7]],
+            ["GET", "POST", "GET", "POST", "GET", "POST", "GET"],
+        )
+        self.page.keyboard.press("Escape")
+        self.assertFalse(drawer.is_visible())
+        self.assertEqual(self.page.evaluate("document.activeElement?.dataset.id"), "G1")
+        self.page.keyboard.press("Enter")
+        drawer.wait_for(state="visible")
+        self.page.locator("#automationBackdrop").click(position={"x": 4, "y": 4})
+        self.assertFalse(drawer.is_visible())
+        self.assertEqual(self.errors, [])
+
+    def test_automation_center_mobile_read_only_stale_and_offline_states(self) -> None:
+        self.login()
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        mode = {"offline": False, "state": "healthy", "can_manage": False}
+        status = {
+            "generated_at": "2026-09-21T12:00:00Z",
+            "controller": {"state": "healthy"},
+            "jobs": [
+                {
+                    "id": "crm-digest",
+                    "name": "Сводка изменений CRM",
+                    "desired_state": "on",
+                    "actual_state": "idle",
+                    "revision": 2,
+                    "schedule": {"kind": "interval", "every_minutes": 20},
+                }
+            ],
+            "system_timers": [],
+            "readiness": [],
+            "templates": [{"id": "crm_change_digest", "name": "Сводка изменений CRM"}],
+        }
+
+        def automation_route(route, _request) -> None:
+            if mode["offline"]:
+                route.fulfill(status=503, json={"ok": False, "message": "unavailable"})
+                return
+            status["can_manage"] = mode["can_manage"]
+            status["controller"]["state"] = mode["state"]
+            route.fulfill(json={"ok": True, "data": status})
+
+        self.page.route("**/api/automation_center/status", automation_route)
+        self.select_node("G1")
+        self.page.get_by_text("Режим просмотра").wait_for()
+        drawer_box = self.page.locator("#automationDrawer").bounding_box()
+        self.assertIsNotNone(drawer_box)
+        self.assertAlmostEqual(drawer_box["x"], 0, delta=1)
+        self.assertAlmostEqual(drawer_box["width"], 390, delta=1)
+        self.assertAlmostEqual(drawer_box["height"], 844, delta=1)
+        self.assertTrue(
+            self.page.locator('[data-job-id="crm-digest"] [role="switch"]').is_disabled()
+        )
+        self.assertTrue(self.page.locator("#addAutomation").is_disabled())
+
+        mode.update(state="stale", can_manage=True)
+        self.page.evaluate("window.dispatchEvent(new Event('focus'))")
+        self.page.get_by_text("Данные устарели").wait_for()
+        self.assertTrue(
+            self.page.locator('[data-job-id="crm-digest"] [role="switch"]').is_disabled()
+        )
+
+        mode["state"] = "healthy"
+        status["jobs"][0]["actual_state"] = "applying"
+        self.page.evaluate("window.dispatchEvent(new Event('focus'))")
+        self.page.get_by_text("Изменение применяется").wait_for()
+        self.assertTrue(
+            self.page.locator('[data-job-id="crm-digest"] [role="switch"]').is_disabled()
+        )
+
+        status["jobs"][0]["actual_state"] = "error"
+        self.page.evaluate("window.dispatchEvent(new Event('focus'))")
+        self.page.locator("#automationStateTitle").get_by_text("Есть ошибка").wait_for()
+        self.assertTrue(
+            self.page.locator('.automation-card[data-job-id="crm-digest"]').evaluate(
+                "element => element.classList.contains('is-error')"
+            )
+        )
+
+        mode["offline"] = True
+        self.page.evaluate("window.dispatchEvent(new Event('focus'))")
+        self.page.get_by_text("Состояние не подтверждено").wait_for()
+        self.assertEqual(
+            self.page.locator('[data-id="G1"] .status-indicator title').text_content(),
+            "Нет связи",
+        )
+        self.page.keyboard.press("Escape")
+        self.assertFalse(self.page.locator("#automationDrawer").is_visible())
         self.assertEqual(self.errors, [])
 
     def test_e1_child_purposes_are_visible_below_their_diagram(self) -> None:
@@ -340,7 +564,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
     def test_removed_hashes_open_current_map(self) -> None:
         self.page.goto(self.runtime.base_url + "/module-map#C1")
         self.login()
-        self.assertEqual(self.page.locator("[data-id]").count(), 56)
+        self.assertEqual(self.page.locator("[data-id]").count(), 60)
         self.assertFalse(self.page.locator("#detail").is_visible())
         self.assertEqual(self.page.evaluate("location.hash"), "")
         for code in ("L8", "L9"):
@@ -349,7 +573,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
                 self.page.wait_for_function(
                     "location.hash==='' && document.querySelector('#detail').hidden"
                 )
-                self.assertEqual(self.page.locator("[data-id]").count(), 56)
+                self.assertEqual(self.page.locator("[data-id]").count(), 60)
         self.assertEqual(self.errors, [])
 
     def test_failed_load_can_retry_without_exposing_partial_map(self) -> None:
@@ -364,7 +588,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.assertEqual(self.page.locator("[data-id]").count(), 0)
         self.page.unroute("**/api/get_module_map_infrastructure")
         self.login()
-        self.assertEqual(self.page.locator("[data-id]").count(), 56)
+        self.assertEqual(self.page.locator("[data-id]").count(), 60)
         self.assertEqual(self.errors, [])
 
 

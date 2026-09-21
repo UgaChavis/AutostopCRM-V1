@@ -32,6 +32,7 @@ class ModuleMapTests(unittest.TestCase):
                 "D": 5,
                 "E": 9,
                 "F": 5,
+                "G": 1,
                 "J": 1,
                 "N": 2,
             }.items()
@@ -39,11 +40,11 @@ class ModuleMapTests(unittest.TestCase):
         }
         self.assertEqual(self.data["schema_version"], "autostopmanager.infrastructure-map.v1")
         self.assertEqual(set(self.nodes), expected - {"N1", "N2", "C1"})
-        self.assertEqual(len(self.data["elements"]), 33)
+        self.assertEqual(len(self.data["elements"]), 34)
         edges = {item["id"]: item for item in self.data["relations"]}
-        self.assertEqual(len(self.data["relations"]), 23)
-        self.assertEqual(len(self.nodes) + len(edges), 56)
-        self.assertEqual(set(edges), {f"L{i}" for i in range(1, 26)} - {"L8", "L9"})
+        self.assertEqual(len(self.data["relations"]), 26)
+        self.assertEqual(len(self.nodes) + len(edges), 60)
+        self.assertEqual(set(edges), {f"L{i}" for i in range(1, 29)} - {"L8", "L9"})
         pairs = {
             "L1": ("A1", "A2"),
             "L2": ("A2", "A3"),
@@ -68,15 +69,19 @@ class ModuleMapTests(unittest.TestCase):
             "L23": ("E6", "E9"),
             "L24": ("E9", "E8"),
             "L25": ("A2", "J1"),
+            "L26": ("A2", "G1"),
+            "L27": ("C3", "G1"),
+            "L28": ("G1", "B1"),
         }
         for code, pair in pairs.items():
             edge = edges[code]
             self.assertEqual((edge["from"], edge["to"]), pair)
             index = int(code[1:])
             self.assertEqual(
-                edge["direction"], "forward" if index in {1, 6, 7, 20, 21, 23} else "both"
+                edge["direction"],
+                "forward" if index in {1, 6, 7, 20, 21, 23, 27, 28} else "both",
             )
-            self.assertEqual(edge["kind"], "event" if index in {6, 7} else "exchange")
+            self.assertEqual(edge["kind"], "event" if index in {6, 7, 27, 28} else "exchange")
         self.assertEqual(edges["L10"]["path"], "M830 132 V425")
         self.assertIn("OAuth 2.1", edges["L10"]["protocol"])
         for code in ("L20", "L21", "L22", "L23", "L24"):
@@ -86,6 +91,10 @@ class ModuleMapTests(unittest.TestCase):
         self.assertEqual(edges["L24"]["path"], "M1588 682.5 H1630 V605 H1650")
         self.assertEqual(edges["L25"]["path"], "M1010 72 H1550 V97 H1590")
         self.assertEqual(edges["L25"].get("tone"), "J")
+        self.assertEqual(self.nodes["G1"].get("control_surface"), "automation_center")
+        self.assertEqual(self.nodes["G1"].get("indicator"), "unknown")
+        for code in ("L26", "L27", "L28"):
+            self.assertEqual(edges[code].get("tone"), "G")
 
     def test_hierarchy_geometry_and_russian_descriptions(self) -> None:
         edges = {item["id"]: item for item in self.data["relations"]}
@@ -160,15 +169,30 @@ class ModuleMapTests(unittest.TestCase):
         for item in self.data["elements"]:
             self.assertNotIn(item["description"], MODULE_MAP_HTML)
         self.assertIn("/api/get_module_map_infrastructure", MODULE_MAP_HTML)
-        self.assertIn(
-            "nodes.size!==33||items.size!==56||data.relations.length!==23", MODULE_MAP_HTML
-        )
+        self.assertIn("nodes.size!==data.elements.length", MODULE_MAP_HTML)
+        self.assertIn("!nodes.has('G1')", MODULE_MAP_HTML)
         self.assertIn("X-Operator-Session", MODULE_MAP_HTML)
         self.assertIn("kanban-operator-session", MODULE_MAP_HTML)
         self.assertIn("response.status===401||response.status===403", MODULE_MAP_HTML)
         self.assertNotRegex(str(self.data), r"/opt/|/root/|\b\d{1,3}(?:\.\d{1,3}){3}\b")
-        self.assertEqual(len(re.findall(r"\bfetch\(", MODULE_MAP_HTML)), 1)
+        self.assertEqual(len(re.findall(r"\bfetch\(", MODULE_MAP_HTML)), 2)
         self.assertNotIn("setInterval", MODULE_MAP_HTML)
+        self.assertIn("const AUTOMATION_POLL_MS=5000", MODULE_MAP_HTML)
+        self.assertIn(
+            "if($('automationLayer').hidden||automationRequest)return automationRequest",
+            MODULE_MAP_HTML,
+        )
+        self.assertIn(
+            "if(!$('automationLayer').hidden)automationPollTimer=setTimeout",
+            MODULE_MAP_HTML,
+        )
+        self.assertIn("/api/automation_center/status", MODULE_MAP_HTML)
+        self.assertIn("/api/automation_center/control", MODULE_MAP_HTML)
+        self.assertIn("toggle.role='switch'", MODULE_MAP_HTML)
+        self.assertIn(
+            "automationStatus=normalizeAutomationStatus(await automationRequestJson",
+            MODULE_MAP_HTML,
+        )
 
     def test_e1_child_purpose_is_rendered_below_the_diagram(self) -> None:
         self.assertIn('id="detailPurpose"', MODULE_MAP_HTML)

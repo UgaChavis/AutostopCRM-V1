@@ -54,8 +54,8 @@ prices, orders, deletion, new external recipients, deployment, and secrets.
 Board settings open **«Открыть инфраструктуру менеджера»** at `/module-map`.
 The public HTML is a shell; `GET /api/get_module_map_infrastructure` still requires
 an operator session and returns `autostopmanager.infrastructure-map.v1`.
-The source dataset is `web_app_assets/source/manager_infrastructure.json`: 32 stable
-element IDs and 22 connection IDs, with coordinates, nesting, descriptions and
+The source dataset is `web_app_assets/source/manager_infrastructure.json`: 34 stable
+element IDs and 26 connection IDs, with coordinates, nesting, descriptions and
 protocols. Update that dataset to change descriptions or layout. The former
 application/IT maps and their snapshots are retired. Removed IDs `N1`, `N2`, `C1`,
 `L8`, and `L9` are not reused. The Codex-to-CRM route is `A2` → `L10` → `C2` →
@@ -71,8 +71,12 @@ invalid values). It does not switch or poll the wake adapter. `A1.links` lists
 the main Manager instructions on GitHub for the read-only detail panel.
 
 The map supports keyboard selection, pan/zoom, and a read-only detail panel.
-Selecting an element never invokes a business operation or polls a
-provider. `#L10` or `#L7` links focus a specific element after authentication;
+The `G1` automation center is the explicit exception: while its drawer is open,
+it polls `/api/automation_center/status` every five seconds and lets an authorized
+administrator submit typed commands to `/api/automation_center/control`. Desired
+switches and actual-state lamps stay separate; every mutation is followed by a
+fresh server readback. Other map elements never invoke a business operation or
+poll a provider. `#L10`, `#L7`, or `#G1` links focus a specific element after authentication;
 obsolete hashes clear the selection and show the map normally.
 Browser regression tests use a disposable local CRM with synthetic data:
 `python -m unittest tests.test_module_map tests.test_module_map_browser -v`.
