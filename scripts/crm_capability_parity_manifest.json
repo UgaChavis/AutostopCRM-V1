@@ -8,7 +8,8 @@
   ],
   "http_route_sources": [
     "src/minimal_kanban/api/server.py",
-    "src/minimal_kanban/api/change_feed.py"
+    "src/minimal_kanban/api/change_feed.py",
+    "src/minimal_kanban/api/automation_center.py"
   ],
   "presentation_http_routes": {
     "/": {
@@ -32,6 +33,20 @@
     }
   },
   "special_http_coverage": {
+    "/api/automation_center/control": {
+      "backend_kind": "registered_admin_manager_proxy_write",
+      "gateway_kind": "manager_mcp_proxy",
+      "gateway_tool": "manager_automation_control",
+      "operation": "manager_automation_control",
+      "readback_class": "manager_scheduler_cas_readback"
+    },
+    "/api/automation_center/status": {
+      "backend_kind": "registered_operator_manager_proxy_read",
+      "gateway_kind": "manager_mcp_proxy",
+      "gateway_tool": "manager_automations",
+      "operation": "manager_automations",
+      "readback_class": "manager_scheduler_status"
+    },
     "/api/attachment": {
       "backend_kind": "authenticated_binary_get",
       "backend_source": "src/minimal_kanban/api/server.py",
@@ -67,6 +82,33 @@
       "gateway_tool": "call_raw_capability",
       "operation": "api:/api/change_feed/read",
       "readback_class": "replay_safe_ordered_change_feed_page"
+    },
+    "/api/change_feed/readiness": {
+      "backend_kind": "authenticated_internal_scheduler_read",
+      "backend_source": "src/minimal_kanban/api/change_feed.py",
+      "backend_evidence_pattern": "CHANGE_FEED_READINESS_ROUTE = \"/api/change_feed/readiness\"",
+      "gateway_kind": "manager_mcp_proxy",
+      "gateway_tool": "manager_automations",
+      "operation": "manager_automations",
+      "readback_class": "manager_scheduler_status"
+    },
+    "/api/change_feed/register": {
+      "backend_kind": "authenticated_feed_checkpoint_write",
+      "backend_source": "src/minimal_kanban/api/change_feed.py",
+      "backend_evidence_pattern": "CHANGE_FEED_REGISTER_ROUTE = \"/api/change_feed/register\"",
+      "gateway_kind": "guarded_virtual_api",
+      "gateway_tool": "call_raw_capability",
+      "operation": "api:/api/change_feed/register",
+      "readback_class": "exact_change_feed_registration_checkpoint"
+    },
+    "/api/change_feed/summarize": {
+      "backend_kind": "authenticated_replay_safe_feed_read",
+      "backend_source": "src/minimal_kanban/api/change_feed.py",
+      "backend_evidence_pattern": "CHANGE_FEED_SUMMARIZE_ROUTE = \"/api/change_feed/summarize\"",
+      "gateway_kind": "guarded_virtual_api",
+      "gateway_tool": "call_raw_capability",
+      "operation": "api:/api/change_feed/summarize",
+      "readback_class": "frozen_privacy_safe_change_digest"
     },
     "/api/fetch_shared_file": {
       "backend_kind": "registered_json_binary_read",

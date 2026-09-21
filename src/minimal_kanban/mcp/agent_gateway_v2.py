@@ -2716,6 +2716,8 @@ def register_agent_gateway_v2(
             "/api/change_feed/bootstrap",
             "/api/change_feed/read",
             "/api/change_feed/ack",
+            "/api/change_feed/register",
+            "/api/change_feed/summarize",
         }:
             validation_errors = virtual_api_argument_errors(virtual_route, arguments or {})
             if validation_errors:

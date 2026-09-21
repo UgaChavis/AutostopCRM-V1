@@ -27,6 +27,7 @@ from ..config import (
     get_api_host,
     get_api_port,
     get_api_port_fallback_limit,
+    get_automation_center_enabled,
     get_mcp_bearer_token,
 )
 from ..deployment_security import (
@@ -47,6 +48,7 @@ from ..operator_permissions import (
     operator_has_permission,
 )
 from ..performance import request_performance_trace
+from ..services.automation_center_service import AutomationCenterService
 from ..services.card_service import CardService
 from ..services.change_feed_service import ChangeFeedService
 from ..services.errors import ServiceError
@@ -67,7 +69,9 @@ from ..web_assets import (
     MODULE_MAP_HTML,
     MODULE_MAP_INFRASTRUCTURE,
 )
+from .automation_center import build_automation_center_routes
 from .change_feed import (
+    AUTOMATION_CHANGE_FEED_ROUTES,
     build_change_feed_routes,
 )
 from .route_registry import (
@@ -1290,9 +1294,24 @@ class AuthenticationPolicy:
         request_id: str,
         query: dict | None = None,
     ) -> bool:
+        setattr(handler, "_automation_feed_authenticated", False)
+        route = urlsplit(handler.path).path
+        automation_protocol = str(
+            handler.headers.get("X-Autostop-Automation-Protocol", "") or ""
+        ).strip()
+        automation_token = str(get_mcp_bearer_token() or "").strip()
+        auth_header = handler.headers.get("Authorization", "")
+        if (
+            route in AUTOMATION_CHANGE_FEED_ROUTES
+            and not self.is_proxied_request(handler)
+            and automation_protocol == "crm_digest_v1"
+            and automation_token
+            and hmac.compare_digest(auth_header, f"Bearer {automation_token}")
+        ):
+            setattr(handler, "_automation_feed_authenticated", True)
+            return True
         if not self._bearer_token:
             return True
-        auth_header = handler.headers.get("Authorization", "")
         if hmac.compare_digest(auth_header, f"Bearer {self._bearer_token}"):
             return True
         try:
@@ -1398,6 +1417,11 @@ class AuthenticationPolicy:
             if session is None:
                 session = self._trusted_agent_session(handler, route, payload)
         next_payload = self._payload_with_session(route, payload, session)
+        next_payload.pop("_automation_service", None)
+        if route in AUTOMATION_CHANGE_FEED_ROUTES and bool(
+            getattr(handler, "_automation_feed_authenticated", False)
+        ):
+            next_payload["_automation_service"] = True
         if route != "/api/login_operator" and session is None and self.is_proxied_request(handler):
             self._reject(
                 handler,
@@ -2105,11 +2129,13 @@ class ApiServer:
         bearer_token: str | None = None,
         shared_files_service: SharedFilesService | None = None,
         change_feed_service: ChangeFeedService | None = None,
+        automation_center_service: AutomationCenterService | None = None,
         clipboard_file_provider: Callable[[], Iterable[Path | str]] | None = None,
     ) -> None:
         self._service = service
         self._shared_files_service = shared_files_service
         self._change_feed_service = change_feed_service
+        self._automation_center_service = automation_center_service
         self._logger = logger
         self._thread: threading.Thread | None = None
         self._server: ThreadingHTTPServer | None = None
@@ -2341,14 +2367,35 @@ class ApiServer:
             shared_files_service,
             paste_shared_files_from_clipboard=paste_shared_files_from_clipboard,
         )
+        if get_automation_center_enabled():
+
+            def legacy_scheduler_deprecated(_payload: dict | None = None) -> dict:
+                raise ServiceError(
+                    "agent_scheduler_deprecated",
+                    "Старый prompt-планировщик доступен только для чтения; используйте Центр автоматизаций.",
+                    status_code=HTTPStatus.GONE,
+                )
+
+            for legacy_route in (
+                "/api/save_agent_scheduled_task",
+                "/api/delete_agent_scheduled_task",
+                "/api/pause_agent_scheduled_task",
+                "/api/resume_agent_scheduled_task",
+                "/api/run_agent_scheduled_task",
+            ):
+                service_routes[legacy_route] = legacy_scheduler_deprecated
         feed_routes = build_change_feed_routes(change_feed_service)
+        automation_center_service = self._automation_center_service or AutomationCenterService()
+        self._automation_center_service = automation_center_service
+        automation_routes = build_automation_center_routes(automation_center_service)
         operator_routes = build_operator_routes(operator_service) if operator_service else {}
         route_specs = merge_route_specs(
             build_route_specs(service_routes, registry="service"),
             build_route_specs(feed_routes, registry="change_feed"),
+            build_route_specs(automation_routes, registry="automation_center"),
             build_route_specs(operator_routes, registry="operator"),
         )
-        routes = {**service_routes, **feed_routes, **operator_routes}
+        routes = {**service_routes, **feed_routes, **automation_routes, **operator_routes}
         proxied_write_routes = {
             path
             for path, spec in route_specs.items()

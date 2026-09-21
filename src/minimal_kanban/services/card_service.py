@@ -6566,7 +6566,13 @@ class CardService(
         attestation_run_id: str = "",
         operation: str = "update",
         operator_session: dict[str, Any] | None = None,
+        digest_correlation_id: str = "",
     ) -> bool:
+        digest_correlation_id = normalize_text(
+            digest_correlation_id,
+            default=f"repair-order-update:{uuid.uuid4()}",
+            limit=128,
+        )
         previous_order = RepairOrder.from_dict(card.repair_order.to_storage_dict())
         value = self._repair_order_payload_with_immutable_number(card, value)
         order = self._prepared_repair_order(
@@ -6621,6 +6627,7 @@ class CardService(
                 actor_name,
                 source,
                 attestation_run_id=attestation_run_id,
+                digest_correlation_id=digest_correlation_id,
             )
         payroll_sync: dict[str, Any] = {"changed": False, "entries": []}
         if settings is not None:
@@ -6666,6 +6673,7 @@ class CardService(
                 "paid_total": order.prepayment_amount(),
                 "payment_status": order.payment_status(),
                 "payroll_repair_order_entries": len(payroll_sync.get("entries") or []),
+                "correlation_id": digest_correlation_id,
             },
         )
         for payroll_entry in payroll_sync.get("entries") or []:
@@ -6692,6 +6700,7 @@ class CardService(
                     "percent": payroll_entry.get("percent"),
                     "amount_minor": payroll_entry.get("amount_minor"),
                     "related_accrual_id": payroll_entry.get("related_accrual_id"),
+                    "correlation_id": digest_correlation_id,
                 },
             )
         return True
@@ -7143,6 +7152,7 @@ class CardService(
         source: str,
         *,
         attestation_run_id: str = "",
+        digest_correlation_id: str,
     ) -> RepairOrder:
         attestation_mode = bool(
             _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
@@ -7226,6 +7236,7 @@ class CardService(
                     "cashbox_id": existing_transaction.cashbox_id,
                     "repair_order_number": next_order.number or previous_order.number,
                     "amount_minor": existing_transaction.amount_minor,
+                    "correlation_id": digest_correlation_id,
                 },
             )
 
@@ -7282,8 +7293,10 @@ class CardService(
                     "cashbox_id": cashbox.id,
                     "cashbox_name": cashbox.name,
                     "repair_order_number": next_order.number,
+                    "transaction_type": transaction.direction,
                     "amount_minor": transaction.amount_minor,
                     "amount_display": format_money_minor(transaction.amount_minor),
+                    "correlation_id": digest_correlation_id,
                 },
             )
 

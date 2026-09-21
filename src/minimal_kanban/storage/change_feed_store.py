@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 from uuid import uuid4
 
 from .change_feed_projection import (
@@ -23,7 +24,7 @@ from .change_feed_projection import (
     project_crm_state,
 )
 
-CHANGE_FEED_SCHEMA_VERSION = 3
+CHANGE_FEED_SCHEMA_VERSION = 4
 CHANGE_FEED_PAGE_DEFAULT = 25
 CHANGE_FEED_PAGE_MAX = 25
 CHANGE_FEED_CONSUMER_MAX_LENGTH = 64
@@ -39,6 +40,11 @@ _CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]+")
 _ENTITY_RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("client_vehicle_", "client_vehicle", ("client_vehicle_id", "vehicle_id")),
     ("cash_transaction_", "cash_transaction", ("cash_transaction_id", "transaction_id")),
+    (
+        "inventory_write_off_",
+        "inventory_movement",
+        ("inventory_movement_id", "movement_id", "item_id"),
+    ),
     ("inventory_movement_", "inventory_movement", ("inventory_movement_id", "movement_id")),
     ("inventory_item_", "inventory_item", ("inventory_item_id", "item_id")),
     ("repair_order_", "repair_order", ("repair_order_id", "order_id", "card_id")),
@@ -158,6 +164,7 @@ def compact_change_event(event: Mapping[str, Any]) -> dict[str, Any] | None:
     change_type, tombstone = _change_type(action)
     correlation_source = safe_details.get("correlation_id") or safe_details.get("run_id")
     idempotency_source = safe_details.get("idempotency_key") or source_event_id
+    summary = _compact_summary_fact(action, entity_type, entity_id, safe_details)
     return {
         "source_event_id": source_event_id,
         "occurred_at": occurred_at,
@@ -169,7 +176,80 @@ def compact_change_event(event: Mapping[str, Any]) -> dict[str, Any] | None:
         "correlation_ref": _opaque_ref("corr", correlation_source or source_event_id),
         "idempotency_ref": _opaque_ref("idem", idempotency_source),
         "producer": "audit_event",
+        "summary_json": json.dumps(
+            summary, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ),
     }
+
+
+def _safe_integer(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return parsed if abs(parsed) <= 10**15 else None
+
+
+def _compact_summary_fact(
+    action: str,
+    entity_type: str,
+    entity_id: str,
+    details: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Keep only allowlisted, non-personal facts needed by the owner digest."""
+
+    fact: dict[str, Any] = {}
+    if action == "card_moved" or (entity_type == "card" and action.endswith("_moved")):
+        fact["category"] = "movement"
+        before = details.get("before_column") or details.get("from_column")
+        after = details.get("after_column") or details.get("to_column") or details.get("column")
+        if before:
+            fact["from_ref"] = _opaque_ref("column", before)
+        if after:
+            fact["to_ref"] = _opaque_ref("column", after)
+    elif entity_type.startswith("repair_order"):
+        fact["category"] = "repair_order"
+    elif entity_type == "cash_transaction" or action.startswith("cash_transaction_"):
+        fact["category"] = "finance"
+        raw_direction = (
+            str(
+                details.get("transaction_type")
+                or details.get("kind")
+                or details.get("direction")
+                or ""
+            )
+            .strip()
+            .casefold()
+        )
+        if "cancel" in action or "deleted" in action:
+            direction = "cancel"
+        elif "refund" in action or raw_direction in {"refund", "return"}:
+            direction = "refund"
+        elif raw_direction in {"income", "expense", "transfer"}:
+            direction = raw_direction
+        else:
+            direction = "unknown"
+        fact["direction"] = direction
+        amount_minor = _safe_integer(details.get("amount_minor"))
+        if amount_minor is not None:
+            fact["amount_minor"] = amount_minor
+    elif entity_type in {"inventory_movement", "inventory_item"}:
+        fact["category"] = "inventory"
+        if "write_off" in action or "written_off" in action:
+            fact["movement"] = "write_off"
+        elif "return" in action:
+            fact["movement"] = "return"
+        elif "replenish" in action or "received" in action or "created" in action:
+            fact["movement"] = "receipt"
+        else:
+            fact["movement"] = "update"
+    else:
+        fact["category"] = "other"
+    if entity_type in {"card", "repair_order"} and entity_id:
+        fact["crm_path"] = "/?card_id=" + quote(entity_id, safe="")
+    return fact
 
 
 class ChangeFeedStore:
@@ -237,7 +317,8 @@ class ChangeFeedStore:
                     tombstone INTEGER NOT NULL CHECK (tombstone IN (0, 1)),
                     correlation_ref TEXT NOT NULL DEFAULT '',
                     idempotency_ref TEXT NOT NULL DEFAULT '',
-                    producer TEXT NOT NULL DEFAULT 'audit_event'
+                    producer TEXT NOT NULL DEFAULT 'audit_event',
+                    summary_json TEXT NOT NULL DEFAULT '{}'
                 );
                 CREATE TABLE IF NOT EXISTS seen_sources (
                     source_event_id TEXT PRIMARY KEY,
@@ -265,7 +346,8 @@ class ChangeFeedStore:
                     tombstone INTEGER NOT NULL CHECK (tombstone IN (0, 1)),
                     correlation_ref TEXT NOT NULL DEFAULT '',
                     idempotency_ref TEXT NOT NULL DEFAULT '',
-                    producer TEXT NOT NULL DEFAULT 'audit_event'
+                    producer TEXT NOT NULL DEFAULT 'audit_event',
+                    summary_json TEXT NOT NULL DEFAULT '{}'
                 );
                 CREATE TABLE IF NOT EXISTS entity_state (
                     entity_type TEXT NOT NULL,
@@ -307,6 +389,20 @@ class ChangeFeedStore:
                     signature TEXT,
                     PRIMARY KEY(source_type, source_id)
                 );
+                CREATE TABLE IF NOT EXISTS digest_snapshots (
+                    digest_id TEXT PRIMARY KEY,
+                    consumer_id TEXT NOT NULL,
+                    generation TEXT NOT NULL,
+                    from_sequence INTEGER NOT NULL CHECK (from_sequence > 0),
+                    through_sequence INTEGER NOT NULL CHECK (through_sequence >= from_sequence),
+                    delivery_high_water INTEGER NOT NULL CHECK (delivery_high_water >= through_sequence),
+                    ack_hash TEXT NOT NULL,
+                    content_hash TEXT NOT NULL,
+                    snapshot_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(consumer_id, generation, from_sequence, through_sequence),
+                    FOREIGN KEY(consumer_id) REFERENCES consumers(consumer_id) ON DELETE CASCADE
+                );
                 """
             )
             self._ensure_column(connection, "events", "correlation_ref", "TEXT NOT NULL DEFAULT ''")
@@ -326,6 +422,10 @@ class ChangeFeedStore:
                 "producer",
                 "TEXT NOT NULL DEFAULT 'audit_event'",
             )
+            self._ensure_column(connection, "events", "summary_json", "TEXT NOT NULL DEFAULT '{}'")
+            self._ensure_column(
+                connection, "pending_events", "summary_json", "TEXT NOT NULL DEFAULT '{}'"
+            )
             defaults = {
                 "schema_version": str(CHANGE_FEED_SCHEMA_VERSION),
                 "generation": str(uuid4()),
@@ -339,7 +439,7 @@ class ChangeFeedStore:
                 "INSERT OR IGNORE INTO metadata(key, value) VALUES (?, ?)", defaults.items()
             )
             version = self._metadata(connection, "schema_version")
-            if version in {"1", "2"}:
+            if version in {"1", "2", "3"}:
                 self._set_metadata(connection, "schema_version", CHANGE_FEED_SCHEMA_VERSION)
                 version = str(CHANGE_FEED_SCHEMA_VERSION)
             if version != str(CHANGE_FEED_SCHEMA_VERSION):
@@ -637,8 +737,8 @@ class ChangeFeedStore:
             INSERT INTO pending_events(
                 ordinal, state_fingerprint, source_event_id, occurred_at, action,
                 entity_type, entity_id, change_type, tombstone, correlation_ref,
-                idempotency_ref, producer
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                idempotency_ref, producer, summary_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 ordinal,
@@ -653,6 +753,7 @@ class ChangeFeedStore:
                 event["correlation_ref"],
                 event["idempotency_ref"],
                 event["producer"],
+                str(event.get("summary_json") or "{}"),
             ),
         )
 
@@ -680,6 +781,7 @@ class ChangeFeedStore:
             "correlation_ref": _opaque_ref("corr", state_fingerprint),
             "idempotency_ref": _opaque_ref("idem", state_fingerprint),
             "producer": producer,
+            "summary_json": "{}",
         }
 
     def _stage_entity_changes(
@@ -1174,13 +1276,17 @@ class ChangeFeedStore:
             return None
         high_water = int(ChangeFeedStore._metadata(connection, "high_water"))
         sequence = high_water + 1
+        try:
+            summary_json = str(event["summary_json"] or "{}")
+        except (IndexError, KeyError):
+            summary_json = "{}"
         connection.execute(
             """
             INSERT INTO events(
                 sequence, source_event_id, occurred_at, action, entity_type,
                 entity_id, change_type, tombstone, correlation_ref, idempotency_ref,
-                producer
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                producer, summary_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 sequence,
@@ -1194,6 +1300,7 @@ class ChangeFeedStore:
                 event["correlation_ref"],
                 event["idempotency_ref"],
                 event["producer"],
+                summary_json,
             ),
         )
         connection.execute(
@@ -1227,13 +1334,14 @@ class ChangeFeedStore:
                 """
                 INSERT INTO events(
                     sequence, source_event_id, occurred_at, action, entity_type,
-                    entity_id, change_type, tombstone, correlation_ref, idempotency_ref, producer
+                    entity_id, change_type, tombstone, correlation_ref, idempotency_ref, producer,
+                    summary_json
                 )
                 SELECT ? + ROW_NUMBER() OVER (ORDER BY pending.ordinal),
                     pending.source_event_id, pending.occurred_at, pending.action,
                     pending.entity_type, pending.entity_id, pending.change_type,
                     pending.tombstone, pending.correlation_ref, pending.idempotency_ref,
-                    pending.producer
+                    pending.producer, pending.summary_json
                 FROM pending_events AS pending
                 WHERE pending.state_fingerprint = ? AND NOT EXISTS (
                     SELECT 1 FROM seen_sources WHERE source_event_id = pending.source_event_id
@@ -1405,6 +1513,27 @@ class ChangeFeedStore:
             raise RuntimeError("Failed to initialize change-feed consumer.")
         return int(row["acked_sequence"])
 
+    def readiness(self, consumer_id: object) -> dict[str, Any]:
+        """Return technical health without registering or mutating a consumer."""
+
+        consumer = _validated_consumer_id(consumer_id)
+        with self._connection() as connection:
+            status = self._status(connection)
+            registered = connection.execute(
+                "SELECT 1 FROM consumers WHERE consumer_id = ?", (consumer,)
+            ).fetchone()
+            pending = connection.execute(
+                "SELECT 1 FROM deliveries WHERE consumer_id = ?", (consumer,)
+            ).fetchone()
+            pending_stage = bool(self._metadata(connection, "pending_fingerprint"))
+        return {
+            **status,
+            "consumer_id": consumer,
+            "consumer_registered": registered is not None,
+            "pending_delivery": pending is not None,
+            "pending_publish": pending_stage,
+        }
+
     def bootstrap(self, consumer_id: object) -> dict[str, Any]:
         consumer = _validated_consumer_id(consumer_id)
         with self._transaction(immediate=True) as connection:
@@ -1422,6 +1551,353 @@ class ChangeFeedStore:
                 ),
                 "has_unacked": acked_sequence < int(status["high_water"]),
             }
+
+    def register_consumer(
+        self, consumer_id: object, *, start_at: object = "latest"
+    ) -> dict[str, Any]:
+        """Atomically create a consumer checkpoint without replaying history by default."""
+
+        consumer = _validated_consumer_id(consumer_id)
+        normalized_start = str(start_at or "latest").strip().casefold()
+        if normalized_start not in {"latest", "beginning"}:
+            raise ChangeFeedProtocolError(
+                "invalid_start_at", "start_at must be 'latest' or 'beginning'.", 400
+            )
+        with self._transaction(immediate=True) as connection:
+            status = self._status(connection)
+            existing = connection.execute(
+                "SELECT acked_sequence FROM consumers WHERE consumer_id = ?", (consumer,)
+            ).fetchone()
+            created = existing is None
+            if created:
+                acked_sequence = int(status["high_water"]) if normalized_start == "latest" else 0
+                connection.execute(
+                    "INSERT INTO consumers(consumer_id, acked_sequence) VALUES (?, ?)",
+                    (consumer, acked_sequence),
+                )
+            else:
+                acked_sequence = int(existing["acked_sequence"])
+            pending = connection.execute(
+                "SELECT window_high_water FROM deliveries WHERE consumer_id = ?", (consumer,)
+            ).fetchone()
+            return {
+                **status,
+                "consumer_id": consumer,
+                "acked_sequence": acked_sequence,
+                "pending_high_water": (
+                    int(pending["window_high_water"]) if pending is not None else None
+                ),
+                "has_unacked": acked_sequence < int(status["high_water"]),
+                "created": created,
+                "start_at": normalized_start if created else "existing",
+            }
+
+    @staticmethod
+    def _event_summary_fact(row: sqlite3.Row) -> dict[str, Any]:
+        try:
+            parsed = json.loads(str(row["summary_json"] or "{}"))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            parsed = {}
+        fact = parsed if isinstance(parsed, dict) else {}
+        entity_type = str(row["entity_type"])
+        category = str(fact.get("category") or "")
+        if not category:
+            if entity_type.startswith("repair_order"):
+                category = "repair_order"
+            elif entity_type == "cash_transaction":
+                category = "finance"
+            elif entity_type in {"inventory_item", "inventory_movement"}:
+                category = "inventory"
+            elif entity_type in {"card", "client_vehicle"} and str(row["change_type"]) == "move":
+                category = "movement"
+            else:
+                category = "other"
+        result = {"category": category}
+        for key in ("direction", "amount_minor", "movement", "from_ref", "to_ref", "crm_path"):
+            if key in fact:
+                result[key] = fact[key]
+        if "crm_path" not in result:
+            entity_id = str(row["entity_id"])
+            if entity_type == "card":
+                result["crm_path"] = "/?card_id=" + quote(entity_id, safe="")
+            elif entity_type.startswith("repair_order"):
+                card_id = entity_id.split(":", 1)[0]
+                if card_id:
+                    result["crm_path"] = "/?card_id=" + quote(card_id, safe="")
+        return result
+
+    def summarize_delivery(self, consumer_id: object, ack_token: object) -> dict[str, Any]:
+        """Freeze one repeatable, PII-free digest for the complete pending window."""
+
+        consumer = _validated_consumer_id(consumer_id)
+        with self._transaction() as connection:
+            secret = self._secret(connection)
+            decoded = self._decode_token(ack_token, kind="ack", secret=secret)
+            generation = self._metadata(connection, "generation")
+            if not hmac.compare_digest(str(decoded.get("generation") or ""), generation):
+                raise ChangeFeedProtocolError(
+                    "stale_generation", "The change-feed generation has changed."
+                )
+            if decoded.get("consumer") != consumer:
+                raise ChangeFeedProtocolError(
+                    "ack_consumer_mismatch", "The ACK belongs to another consumer.", 400
+                )
+            token_start = self._token_sequence(decoded, "start", code="invalid_ack")
+            token_through = self._token_sequence(decoded, "through", code="invalid_ack")
+            window = self._token_sequence(decoded, "window", code="invalid_ack")
+            pending = connection.execute(
+                "SELECT window_high_water FROM deliveries WHERE consumer_id = ?", (consumer,)
+            ).fetchone()
+            if pending is None or int(pending["window_high_water"]) != window:
+                raise ChangeFeedProtocolError(
+                    "stale_ack", "The delivery represented by this ACK is no longer active."
+                )
+            consumer_row = connection.execute(
+                "SELECT acked_sequence FROM consumers WHERE consumer_id = ?", (consumer,)
+            ).fetchone()
+            if consumer_row is None:
+                raise ChangeFeedProtocolError(
+                    "stale_ack", "The delivery represented by this ACK is no longer active."
+                )
+            acked_sequence = int(consumer_row["acked_sequence"])
+            start = acked_sequence + 1
+            through = window
+            if (
+                token_start < start
+                or token_through < token_start
+                or token_through > through
+                or start > through
+            ):
+                raise ChangeFeedProtocolError("invalid_ack", "The ACK range is invalid.", 400)
+            delivery_ack = self._encode_token(
+                {
+                    "kind": "ack",
+                    "generation": generation,
+                    "consumer": consumer,
+                    "start": start,
+                    "through": through,
+                    "window": window,
+                },
+                secret=secret,
+            )
+            digest_identity = "|".join((consumer, generation, str(start), str(through)))
+            digest_id = "digest-" + hashlib.sha256(digest_identity.encode("utf-8")).hexdigest()[:32]
+            existing = connection.execute(
+                "SELECT snapshot_json, content_hash FROM digest_snapshots WHERE digest_id = ?",
+                (digest_id,),
+            ).fetchone()
+            if existing is not None:
+                snapshot = json.loads(str(existing["snapshot_json"]))
+                return {
+                    **snapshot,
+                    "ack": delivery_ack,
+                    "content_hash": str(existing["content_hash"]),
+                    "replayed": True,
+                }
+            statistics = connection.execute(
+                """
+                SELECT COUNT(*) AS event_count, MIN(sequence) AS first_sequence,
+                       MAX(sequence) AS last_sequence
+                FROM events WHERE sequence BETWEEN ? AND ?
+                """,
+                (start, through),
+            ).fetchone()
+            raw_event_count = int(statistics["event_count"])
+            if (
+                raw_event_count != through - start + 1
+                or int(statistics["first_sequence"] or 0) != start
+                or int(statistics["last_sequence"] or 0) != through
+            ):
+                raise ChangeFeedProtocolError(
+                    "feed_gap", "The durable change feed contains a sequence gap.", 503
+                )
+
+            category_counts = {
+                "movement": 0,
+                "repair_order": 0,
+                "finance": 0,
+                "inventory": 0,
+                "other": 0,
+            }
+            financial_totals: dict[str, int] = {
+                "income_minor": 0,
+                "expense_minor": 0,
+                "refund_minor": 0,
+                "cancel_minor": 0,
+                "unknown_amount_events": 0,
+            }
+            details: list[dict[str, Any]] = []
+            logical_events = 0
+            omitted_groups = 0
+            current_key = ""
+            current_item: dict[str, Any] | None = None
+            current_money: set[tuple[str, str, int]] = set()
+            current_finance_known = False
+            current_finance_unknown = False
+            category_priority = {
+                "finance": 5,
+                "inventory": 4,
+                "movement": 3,
+                "repair_order": 2,
+                "other": 1,
+            }
+
+            def finish_group() -> None:
+                nonlocal current_item, logical_events, omitted_groups
+                nonlocal current_finance_known, current_finance_unknown
+                if current_item is None:
+                    return
+                category = str(current_item.get("category") or "other")
+                category_counts[category] += 1
+                logical_events += 1
+                if category == "finance" and current_finance_unknown and not current_finance_known:
+                    financial_totals["unknown_amount_events"] += 1
+                if len(details) < 12:
+                    details.append(current_item)
+                else:
+                    omitted_groups += 1
+                current_item = None
+
+            rows = connection.execute(
+                """
+                SELECT events.*,
+                       COALESCE(NULLIF(correlation_ref, ''), NULLIF(idempotency_ref, ''),
+                                'sequence:' || sequence) AS digest_group_key
+                FROM events
+                WHERE sequence BETWEEN ? AND ?
+                ORDER BY digest_group_key COLLATE BINARY, sequence
+                """,
+                (start, through),
+            )
+            while batch := rows.fetchmany(256):
+                for row in batch:
+                    group_key = str(row["digest_group_key"])
+                    fact = self._event_summary_fact(row)
+                    category = str(fact.get("category") or "other")
+                    if category not in category_counts:
+                        category = "other"
+                    if current_item is None or group_key != current_key:
+                        finish_group()
+                        current_key = group_key
+                        current_item = {
+                            "category": category,
+                            "count": 0,
+                            "actions": [],
+                            "crm_path": fact.get("crm_path"),
+                        }
+                        current_money = set()
+                        current_finance_known = False
+                        current_finance_unknown = False
+                    if category_priority[category] > category_priority.get(
+                        str(current_item.get("category") or "other"), 0
+                    ):
+                        current_item["category"] = category
+                    if not current_item.get("crm_path") and fact.get("crm_path"):
+                        current_item["crm_path"] = fact["crm_path"]
+                    current_item["count"] += 1
+                    action = str(row["action"])
+                    if action not in current_item["actions"] and len(current_item["actions"]) < 4:
+                        current_item["actions"].append(action)
+                    if category == "finance":
+                        direction = str(fact.get("direction") or "unknown")
+                        amount = fact.get("amount_minor")
+                        if isinstance(amount, int) and not isinstance(amount, bool):
+                            current_finance_known = True
+                            money_key = (str(row["entity_id"]), direction, amount)
+                            if money_key not in current_money:
+                                if len(current_money) >= 64:
+                                    raise ChangeFeedProtocolError(
+                                        "digest_group_too_large",
+                                        "A correlated digest group exceeds the safe bound.",
+                                        503,
+                                    )
+                                current_money.add(money_key)
+                                total_key = f"{direction}_minor"
+                                if total_key in financial_totals:
+                                    financial_totals[total_key] += amount
+                                else:
+                                    current_finance_unknown = True
+                        else:
+                            current_finance_unknown = True
+                    for key in ("direction", "movement", "from_ref", "to_ref"):
+                        if key in fact and key not in current_item:
+                            current_item[key] = fact[key]
+            finish_group()
+            snapshot = {
+                "format": "crm_change_digest_v1",
+                "digest_id": digest_id,
+                "generation": generation,
+                "consumer_id": consumer,
+                "from_sequence": start,
+                "through_sequence": through,
+                "delivery_high_water": window,
+                "total_events": logical_events,
+                "raw_event_count": raw_event_count,
+                "category_counts": category_counts,
+                "financial_totals": financial_totals,
+                "items": details,
+                "omitted_groups": omitted_groups,
+                "created_at": datetime.now(UTC).isoformat(),
+            }
+            snapshot_json = json.dumps(
+                snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            )
+            content_hash = hashlib.sha256(snapshot_json.encode("utf-8")).hexdigest()
+
+        with self._transaction(immediate=True) as connection:
+            if self._metadata(connection, "generation") != generation:
+                raise ChangeFeedProtocolError(
+                    "stale_generation", "The change-feed generation has changed."
+                )
+            pending = connection.execute(
+                "SELECT window_high_water FROM deliveries WHERE consumer_id = ?", (consumer,)
+            ).fetchone()
+            if (
+                pending is None
+                or int(pending["window_high_water"]) != window
+                or self._ensure_consumer(connection, consumer) != start - 1
+            ):
+                raise ChangeFeedProtocolError(
+                    "stale_ack", "The delivery represented by this ACK is no longer active."
+                )
+            existing = connection.execute(
+                "SELECT snapshot_json, content_hash FROM digest_snapshots WHERE digest_id = ?",
+                (digest_id,),
+            ).fetchone()
+            if existing is not None:
+                stored = json.loads(str(existing["snapshot_json"]))
+                return {
+                    **stored,
+                    "ack": delivery_ack,
+                    "content_hash": str(existing["content_hash"]),
+                    "replayed": True,
+                }
+            connection.execute(
+                """
+                INSERT INTO digest_snapshots(
+                    digest_id, consumer_id, generation, from_sequence, through_sequence,
+                    delivery_high_water, ack_hash, content_hash, snapshot_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    digest_id,
+                    consumer,
+                    generation,
+                    start,
+                    through,
+                    window,
+                    hashlib.sha256(delivery_ack.encode("utf-8")).hexdigest(),
+                    content_hash,
+                    snapshot_json,
+                    snapshot["created_at"],
+                ),
+            )
+        return {
+            **snapshot,
+            "ack": delivery_ack,
+            "content_hash": content_hash,
+            "replayed": False,
+        }
 
     @staticmethod
     def _row_event(row: sqlite3.Row) -> dict[str, Any]:

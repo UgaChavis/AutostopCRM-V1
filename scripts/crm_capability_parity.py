@@ -14,6 +14,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from minimal_kanban.api.automation_center import build_automation_center_routes  # noqa: E402
+from minimal_kanban.api.change_feed import build_change_feed_routes  # noqa: E402
 from minimal_kanban.api.route_registry import (  # noqa: E402
     build_operator_routes,
     build_route_specs,
@@ -72,6 +74,7 @@ WRITE_OPERATION_OVERRIDES = frozenset(
         "/api/set_card_ai_autofill",
         "/api/change_feed/ack",
         "/api/change_feed/bootstrap",
+        "/api/change_feed/register",
     }
 )
 WORKFLOW_ROUTE_ALIASES = {
@@ -256,11 +259,23 @@ def discover_backend_routes() -> dict[str, dict[str, str]]:
         paste_shared_files_from_clipboard=shared_files.paste_shared_files_from_clipboard,
     )
     operator_routes = build_operator_routes(_FakeService())
-    overlap = set(service_routes) & set(operator_routes)
+    change_feed_routes = build_change_feed_routes(_FakeService())
+    automation_routes = build_automation_center_routes(_FakeService())
+    registries = (
+        ("service", service_routes),
+        ("operator", operator_routes),
+        ("change_feed", change_feed_routes),
+        ("automation_center", automation_routes),
+    )
+    all_routes: set[str] = set()
+    overlap: set[str] = set()
+    for _registry, routes in registries:
+        overlap |= all_routes & set(routes)
+        all_routes.update(routes)
     if overlap:
-        raise ValueError(f"Service/operator route overlap: {sorted(overlap)}")
+        raise ValueError(f"Backend route overlap: {sorted(overlap)}")
     discovered: dict[str, dict[str, str]] = {}
-    for registry, routes in (("service", service_routes), ("operator", operator_routes)):
+    for registry, routes in registries:
         specs = build_route_specs(routes, registry=registry)
         for route, spec in specs.items():
             discovered[route] = {
@@ -447,6 +462,21 @@ def _verify_special_gateway(
     gateway_tool = str(special.get("gateway_tool") or "")
     mcp_tool = str(special.get("mcp_tool") or "")
     operation = str(special.get("operation") or mcp_tool)
+    if kind == "manager_mcp_proxy":
+        expected_tool = {
+            "/api/automation_center/status": "manager_automations",
+            "/api/automation_center/control": "manager_automation_control",
+            "/api/change_feed/readiness": "manager_automations",
+        }.get(route)
+        if expected_tool and gateway_tool == expected_tool and operation == expected_tool:
+            return True, []
+        return False, [
+            _issue(
+                "manager_mcp_proxy_invalid",
+                route,
+                "Automation Center routes must map to their typed Manager MCP tool.",
+            )
+        ]
     if kind == "permanent_gateway_tool":
         if gateway_tool == operation and gateway_tool in PERMANENT_AGENT_GATEWAY_TOOL_NAMES:
             return True, []

@@ -120,8 +120,9 @@
     .switch-copy { color:#bdc8d1; font-size:12px; }
     .automation-schedule { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin-top:13px; padding-top:12px; border-top:1px solid #3d4a56; color:#aebac4; font-size:12px; }
     .automation-schedule button { margin-left:auto; padding:5px 8px; font-size:12px; }
+    .automation-schedule button+button { margin-left:0; }
     .automation-error-copy { margin:10px 0 0; color:#e0a0a0; font-size:12px; line-height:1.4; }
-    .schedule-form,.automation-wizard { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; margin-top:12px; padding:13px; background:#202832; border:1px solid #526171; border-radius:9px; }
+    .schedule-form,.automation-wizard { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:10px; margin-top:12px; padding:13px; background:#202832; border:1px solid #526171; border-radius:9px; }
     .automation-wizard { grid-template-columns:1fr 1fr; margin:0 0 14px; }
     .automation-wizard h3,.automation-wizard p { grid-column:1/-1; margin:0; }
     .automation-wizard h3 { font-size:15px; }
@@ -134,6 +135,9 @@
     .timer-card,.readiness-card { display:flex; align-items:flex-start; gap:11px; padding:12px 13px; background:#252f39; border:1px solid #414f5b; border-radius:9px; }
     .timer-card h3,.readiness-card h3 { margin:0; font-size:13px; }
     .timer-card p,.readiness-card p { margin:4px 0 0; color:#9eabb6; font-size:12px; line-height:1.45; }
+    .timer-card.is-managed { display:block; padding:15px; background:#28323c; border-color:#465666; }
+    .timer-card.is-managed h3 { font-size:15px; }
+    .timer-lock { margin-top:9px; color:#9eabb6; font-size:12px; }
     .automation-offline { padding:24px 18px; color:#b7c2cb; text-align:center; background:#28323c; border:1px solid #53616e; border-radius:11px; line-height:1.55; }
     .state { position:absolute; left:50%; top:45%; transform:translate(-50%,-50%); max-width:420px; width:85%; padding:22px; text-align:center; background:var(--panel); border:1px solid var(--border); border-radius:12px; line-height:1.6; }
     .hint { position:absolute; left:16px; bottom:10px; color:#929daa; font-size:11px; pointer-events:none; }
@@ -151,8 +155,8 @@
       .automation-drawer { width:100%; border:0; }
       .automation-header { padding:18px 18px 15px; }
       .automation-scroll { padding:15px 16px 28px; }
-      .automation-wizard { grid-template-columns:1fr; }
-      .automation-wizard>* { grid-column:1; }
+      .automation-wizard,.schedule-form { grid-template-columns:1fr; }
+      .automation-wizard>*,.schedule-form>* { grid-column:1; }
       .automation-card-head { align-items:center; }
       .automation-meta { width:100%; margin-left:20px; }
     }
@@ -194,18 +198,22 @@
         <div class="automation-scroll">
           <div class="automation-state-bar" id="automationState" data-state="loading" role="status"><span class="actual-lamp" id="automationStateLamp" data-state="stale"></span><strong id="automationStateTitle">Получаем состояние…</strong><span id="automationStateMessage"></span><span class="automation-meta" id="automationUpdated"></span></div>
           <section class="automation-section" aria-labelledby="automationJobsTitle">
-            <div class="automation-section-header"><div><h2 id="automationJobsTitle">Задания</h2><span class="automation-count" id="automationJobsCount"></span></div><button id="addAutomation" type="button" disabled>Добавить задание</button></div>
+            <div class="automation-section-header"><div><h2 id="automationJobsTitle">Регламентные задания</h2><span class="automation-count" id="automationJobsCount"></span></div><button id="addAutomation" type="button" disabled>Добавить задание</button></div>
             <form class="automation-wizard" id="automationWizard" hidden>
               <h3>Новое задание из шаблона</h3><p id="templateHelp">Выберите разрешённый тип. Новое задание создаётся выключенным.</p>
               <label class="field field-wide">Тип задания<select id="templateSelect" required aria-describedby="templateHelp"></select></label>
               <label class="field">Название<input id="templateName" type="text" maxlength="80" required autocomplete="off"></label>
               <label class="field">Период, минут<input id="templateMinutes" type="number" min="1" max="1440" step="1" required inputmode="numeric"></label>
+              <label class="field">Часовой пояс<input id="templateTimezone" type="text" maxlength="64" required value="Asia/Krasnoyarsk" autocomplete="off"></label>
+              <label class="field">Активное окно<select id="templateWindowMode"><option value="24/7">24/7</option><option value="custom">По часам</option></select></label>
+              <label class="field template-window-time" hidden>Начало<input id="templateWindowStart" type="time" value="08:00"></label>
+              <label class="field template-window-time" hidden>Окончание<input id="templateWindowEnd" type="time" value="20:00"></label>
               <div class="form-actions"><button id="cancelAutomation" type="button">Отмена</button><button class="primary-action" type="submit">Создать выключенным</button></div>
             </form>
             <div class="automation-list" id="automationJobs"></div>
           </section>
           <section class="automation-section" aria-labelledby="systemTimersTitle"><div class="automation-section-header"><h2 id="systemTimersTitle">Системные таймеры</h2><span class="automation-count" id="systemTimersCount"></span></div><div class="automation-list" id="systemTimers"></div></section>
-          <section class="automation-section" aria-labelledby="readinessTitle"><div class="automation-section-header"><h2 id="readinessTitle">Готовность</h2><span class="automation-count" id="readinessCount"></span></div><div class="automation-list" id="readiness"></div></section>
+          <section class="automation-section" aria-labelledby="readinessTitle"><div class="automation-section-header"><h2 id="readinessTitle">Готовность инфраструктуры</h2><span class="automation-count" id="readinessCount"></span></div><div class="automation-list" id="readiness"></div></section>
         </div>
       </section>
     </div>
@@ -390,13 +398,19 @@
     }
     const lower=value=>String(value??'').trim().toLocaleLowerCase('ru');
     const boolState=value=>value===true||['on','enabled','true','1'].includes(lower(value));
+    function normalizeActiveWindow(value) {
+      if(value==='24/7'||value==null)return '24/7';
+      if(typeof value==='object'&&/^\d{2}:\d{2}$/.test(String(value.start||''))&&/^\d{2}:\d{2}$/.test(String(value.end||'')))return {start:String(value.start),end:String(value.end)};
+      return '24/7';
+    }
     function normalizeSchedule(value={}) {
-      if(typeof value==='string') return {kind:'text',label:value,every_minutes:null,timezone:''};
+      if(typeof value==='string') return {kind:'text',label:value,every_minutes:null,timezone:'',active_window:'24/7'};
       const every=Number(value.every_minutes??value.interval_minutes??value.minutes);
       return {
         kind:lower(value.kind||value.type||'interval')||'interval',
         every_minutes:Number.isFinite(every)&&every>0?Math.round(every):null,
         timezone:String(value.timezone||value.tz||''),
+        active_window:normalizeActiveWindow(value.active_window),
         label:String(value.label||value.text||'')
       };
     }
@@ -407,26 +421,37 @@
         const id=String(job.job_id??job.id??'').trim();
         if(!id) throw new Error('data');
         const desiredRaw=job.desired_state??job.desired??job.enabled;
+        const revision=job.revision??job.version??null,appliedRevision=job.applied_revision??revision,reconcile=lower(job.reconcile_state||'');
         return {
           id,name:String(job.name||job.display_name||id),templateId:String(job.template_id||job.type||''),
-          desired:boolState(desiredRaw)?'on':'off',actual:job.applying===true?'applying':lower(job.actual_state||job.state||'unknown')||'unknown',
-          revision:job.revision??job.version??null,schedule:normalizeSchedule(job.schedule||{}),
-          lastRun:String(job.last_run_at||''),nextRun:String(job.next_run_at||''),error:String(job.error||job.error_message||job.error_code||''),order:index
+          desired:boolState(desiredRaw)?'on':'off',actual:job.applying===true||reconcile==='pending'||reconcile==='drift'||revision!==appliedRevision?'applying':lower(job.actual_state||job.state||'unknown')||'unknown',
+          revision,appliedRevision,schedule:normalizeSchedule(job.schedule||{}),
+          lastRun:String(job.last_attempt_at||job.last_run_at||''),nextRun:String(job.next_run_at||''),error:String(job.error||job.error_message||job.error_code||''),order:index
         };
       });
-      const systemTimers=source.system_timers.map((timer,index)=>({
-        id:String(timer.id||timer.timer_id||`system-${index+1}`),name:String(timer.name||timer.display_name||timer.id||'Системный таймер'),
-        actual:lower(timer.actual_state||timer.state||'unknown')||'unknown',schedule:normalizeSchedule(timer.schedule??timer.schedule_text??{kind:'interval',every_minutes:timer.period_minutes}),
-        lastRun:String(timer.last_run_at||''),nextRun:String(timer.next_run_at||''),detail:String(timer.detail||timer.description||'')
-      }));
+      const systemTimers=source.system_timers.map((timer,index)=>{
+        const id=String(timer.id||timer.timer_id||`system-${index+1}`);
+        const desiredRaw=timer.desired_state??timer.desired??timer.enabled;
+        const reconcile=lower(timer.reconcile_state||''),timerError=String(timer.error||timer.error_message||timer.error_code||'');
+        return {
+          id,name:String(timer.name||timer.display_name||timer.unit||timer.id||'Системный таймер'),
+          desired:boolState(desiredRaw)?'on':'off',actual:timer.applying===true||reconcile==='drift'?'applying':timerError&&timerError!=='system_timer_drift'?'error':lower(timer.actual_state||timer.state||(timer.active===true?'on':timer.active===false?'off':'unknown'))||'unknown',
+          schedule:normalizeSchedule(timer.schedule??timer.schedule_text??{kind:'interval',every_minutes:timer.period_minutes}),
+          lastRun:String(timer.last_run_at||''),nextRun:String(timer.next_run_at||''),detail:String(timer.detail||timer.description||''),
+          error:timerError,revision:timer.revision??timer.version??null,
+          mutable:timer.mutable===true||lower(timer.control_mode)==='managed',locked:timer.locked===true||lower(timer.control_mode)==='read_only'
+        };
+      });
       const readiness=source.readiness.map((check,index)=>({
         id:String(check.id||`check-${index+1}`),label:String(check.label||check.name||check.id||'Проверка'),
         state:lower(check.state||check.status||'unknown')||'unknown',detail:String(check.detail||check.message||'')
       }));
       const templates=source.templates.map(template=>({
         id:String(template.template_id||template.id||'').trim(),name:String(template.name||template.display_name||template.id||''),
-        description:String(template.description||''),defaultMinutes:Number(template.default_every_minutes??template.schedule?.every_minutes??20),
-        minMinutes:Number(template.min_every_minutes??1),maxMinutes:Number(template.max_every_minutes??1440)
+        description:String(template.description||''),singleton:template.singleton===true,defaultMinutes:Number(template.default_every_minutes??template.schedule?.every_minutes??20),
+        minMinutes:Number(template.min_every_minutes??1),maxMinutes:Number(template.max_every_minutes??1440),
+        defaultTimezone:String(template.default_timezone??template.schedule?.timezone??'Asia/Krasnoyarsk'),
+        defaultActiveWindow:normalizeActiveWindow(template.default_active_window??template.schedule?.active_window)
       })).filter(template=>template.id);
       return {
         generatedAt:String(source.generated_at||''),canManage:source.can_manage===true,
@@ -436,15 +461,21 @@
     }
     function actualMeta(value) {
       const state=lower(value);
-      if(['ready','idle','scheduled','healthy','ok','pass','available','running','success','on','enabled'].includes(state)) return {lamp:'on',label:state==='running'?'Выполняется':'Работает'};
-      if(['off','disabled','stopped','paused'].includes(state)) return {lamp:'off',label:'Выключено'};
-      if(['applying','pending','starting','stopping','backoff','queued'].includes(state)) return {lamp:'applying',label:'Применяется'};
+      if(['ready','idle','scheduled','healthy','ok','pass','available','running','active','success','on','enabled'].includes(state)) return {lamp:'on',label:state==='running'?'Выполняется':'Работает'};
+      if(['off','disabled','stopped','paused','inactive'].includes(state)) return {lamp:'off',label:'Выключено'};
+      if(['applying','pending','starting','stopping','backoff','queued','held'].includes(state)) return {lamp:'applying',label:state==='held'?'Глобальная пауза':'Применяется'};
       if(['error','failed','blocked','unhealthy'].includes(state)) return {lamp:'error',label:'Ошибка'};
       return {lamp:'stale',label:state==='stale'?'Данные устарели':'Неизвестно'};
     }
+    function availableAutomationTemplates() {
+      return (automationStatus?.templates||[]).filter(template=>!template.singleton||!automationStatus.jobs.some(job=>job.templateId===template.id));
+    }
     function scheduleText(schedule) {
       if(schedule.label) return schedule.label;
-      if(schedule.kind==='interval'&&schedule.every_minutes) return `Каждые ${schedule.every_minutes} мин.`;
+      if(schedule.kind==='interval'&&schedule.every_minutes) {
+        const window=schedule.active_window==='24/7'?'24/7':`${schedule.active_window.start}–${schedule.active_window.end}`;
+        return [`Каждые ${schedule.every_minutes} мин.`,window,schedule.timezone].filter(Boolean).join(' · ');
+      }
       return schedule.kind==='cron'?'По расписанию cron':'Расписание не задано';
     }
     function displayTime(value) {
@@ -455,8 +486,9 @@
       const element=document.createElement(tag);if(className)element.className=className;if(textValue)element.textContent=textValue;return element;
     }
     function controllerState() {return lower(automationStatus?.controller?.state||automationStatus?.controller?.actual_state||'unknown')||'unknown';}
+    function automationIsHeld() {return automationStatus?.controller?.hold?.enabled===true||controllerState()==='held';}
     function automationIsStale() {return automationStatus?.controller?.stale===true||['stale','offline','unavailable','unknown'].includes(controllerState());}
-    function automationCanMutate() {return Boolean(automationStatus?.canManage&&!automationIsStale()&&!automationLastError&&!automationPending&&!automationRequest&&!automationStatus.jobs.some(job=>actualMeta(job.actual).lamp==='applying'));}
+    function automationCanMutate() {return Boolean(automationStatus?.canManage&&!automationIsHeld()&&!automationIsStale()&&!automationLastError&&!automationPending&&!automationRequest&&!automationStatus.jobs.some(job=>actualMeta(job.actual).lamp==='applying'));}
     function desiredMismatch(job) {
       const meta=actualMeta(job.actual);
       return job.desired==='on'?meta.lamp==='off':meta.lamp==='on'||meta.lamp==='applying';
@@ -464,9 +496,11 @@
     function automationAggregateState() {
       if(automationLastError) return 'offline';
       if(!automationStatus) return 'unknown';
-      if(['error','failed','unhealthy'].includes(controllerState())||automationStatus.jobs.some(job=>actualMeta(job.actual).lamp==='error')||automationStatus.readiness.some(check=>['error','failed','blocked'].includes(check.state))) return 'error';
-      if(automationPending||automationIsStale()||automationStatus.jobs.some(job=>actualMeta(job.actual).lamp==='applying')||automationStatus.jobs.some(desiredMismatch)) return 'applying';
-      return automationStatus.jobs.some(job=>job.desired==='on')?'on':'disabled';
+      if(automationIsHeld()) return 'applying';
+      if(['error','failed','unhealthy'].includes(controllerState())||automationStatus.jobs.some(job=>actualMeta(job.actual).lamp==='error')||automationStatus.systemTimers.some(timer=>actualMeta(timer.actual).lamp==='error')||automationStatus.readiness.some(check=>['error','failed','blocked'].includes(check.state))) return 'error';
+      if(automationPending||automationIsStale()||automationStatus.jobs.some(job=>['applying','stale'].includes(actualMeta(job.actual).lamp))||automationStatus.systemTimers.some(timer=>['applying','stale'].includes(actualMeta(timer.actual).lamp))||automationStatus.jobs.some(desiredMismatch)||automationStatus.systemTimers.some(desiredMismatch)||automationStatus.readiness.some(check=>!['ready','ok','healthy','pass','available','configured','error','failed','blocked','unhealthy'].includes(check.state))) return 'applying';
+      if(!automationStatus.canManage&&automationStatus.controller?.overall_state)return lower(automationStatus.controller.overall_state)==='on'?'on':lower(automationStatus.controller.overall_state)==='off'?'disabled':lower(automationStatus.controller.overall_state);
+      return automationStatus.jobs.some(job=>job.desired==='on')||automationStatus.systemTimers.some(timer=>timer.desired==='on')?'on':'disabled';
     }
     function updateAutomationMapLamp() {
       automationMapState=automationAggregateState();
@@ -486,6 +520,18 @@
       const lamp=htmlElement('span','actual-lamp');lamp.dataset.state=meta.lamp;lamp.setAttribute('aria-hidden','true');
       wrap.append(lamp,document.createTextNode(prefix?`${prefix}: ${meta.label}`:meta.label));parent.append(wrap);return meta;
     }
+    function buildScheduleForm(schedule,{minimum=5,maximum=1440,onSubmit}) {
+      const form=htmlElement('form','schedule-form');form.hidden=true;
+      const periodField=htmlElement('label','field','Период, минут'),period=document.createElement('input');period.type='number';period.min=String(minimum);period.max=String(maximum);period.step='1';period.required=true;period.value=String(schedule.every_minutes||20);periodField.append(period);
+      const timezoneField=htmlElement('label','field','Часовой пояс'),timezone=document.createElement('input');timezone.type='text';timezone.maxLength=64;timezone.required=true;timezone.autocomplete='off';timezone.value=schedule.timezone||'Asia/Krasnoyarsk';timezoneField.append(timezone);
+      const modeField=htmlElement('label','field','Активное окно'),mode=document.createElement('select');mode.append(new Option('24/7','24/7'),new Option('По часам','custom'));mode.value=schedule.active_window==='24/7'?'24/7':'custom';modeField.append(mode);
+      const startField=htmlElement('label','field','Начало'),start=document.createElement('input');start.type='time';start.required=true;start.value=schedule.active_window==='24/7'?'08:00':schedule.active_window.start;startField.append(start);
+      const endField=htmlElement('label','field','Окончание'),end=document.createElement('input');end.type='time';end.required=true;end.value=schedule.active_window==='24/7'?'20:00':schedule.active_window.end;endField.append(end);
+      const syncWindow=()=>{const always=mode.value==='24/7';startField.hidden=always;endField.hidden=always;start.disabled=always;end.disabled=always;};mode.addEventListener('change',syncWindow);syncWindow();
+      const actions=htmlElement('div','form-actions'),submit=htmlElement('button','primary-action','Сохранить');submit.type='submit';actions.append(submit);form.append(periodField,timezoneField,modeField,startField,endField,actions);
+      form.addEventListener('submit',event=>{event.preventDefault();const minutes=Number(period.value),tz=timezone.value.trim();if(!Number.isInteger(minutes)||minutes<minimum||minutes>maximum||!tz)return;const activeWindow=mode.value==='24/7'?'24/7':{start:start.value,end:end.value};if(activeWindow!=='24/7'&&(!activeWindow.start||!activeWindow.end))return;onSubmit({kind:'interval',every_minutes:minutes,timezone:tz,active_window:activeWindow});});
+      return {form,first:period};
+    }
     function renderAutomationJob(job,canMutate) {
       const card=htmlElement('article','automation-card');card.dataset.jobId=job.id;
       const meta=actualMeta(job.actual);if(meta.lamp==='error')card.classList.add('is-error');
@@ -501,21 +547,52 @@
       toggle.addEventListener('click',()=>performAutomationControl({operation:'set_enabled',job_id:job.id,expected_revision:job.revision,enabled:job.desired!=='on'},job.id));
       head.append(name,toggle);card.append(head);
       const schedule=htmlElement('div','automation-schedule');
-      schedule.append(htmlElement('span','',scheduleText(job.schedule)),htmlElement('span','',`Следующий: ${displayTime(job.nextRun)}`));
-      const edit=htmlElement('button','','Изменить период');edit.type='button';edit.disabled=!canMutate||job.schedule.kind!=='interval';schedule.append(edit);card.append(schedule);
-      const form=htmlElement('form','schedule-form');form.hidden=true;
-      const field=htmlElement('label','field', 'Период, минут');const input=document.createElement('input');input.type='number';input.min='1';input.max='1440';input.step='1';input.required=true;input.value=String(job.schedule.every_minutes||20);field.append(input);
-      const submit=htmlElement('button','primary-action','Сохранить');submit.type='submit';form.append(field,submit);card.append(form);
-      edit.addEventListener('click',()=>{form.hidden=!form.hidden;if(!form.hidden)input.focus();});
-      form.addEventListener('submit',event=>{event.preventDefault();const minutes=Number(input.value);if(!Number.isInteger(minutes)||minutes<1||minutes>1440)return;performAutomationControl({operation:'set_schedule',job_id:job.id,expected_revision:job.revision,schedule:{kind:'interval',every_minutes:minutes,timezone:job.schedule.timezone||undefined}},job.id);});
+      schedule.append(htmlElement('span','',scheduleText(job.schedule)),htmlElement('span','',`Последняя: ${displayTime(job.lastRun)}`),htmlElement('span','',`Следующая: ${displayTime(job.nextRun)}`));
+      const edit=htmlElement('button','','Изменить расписание');edit.type='button';edit.disabled=!canMutate||job.schedule.kind!=='interval';schedule.append(edit);card.append(schedule);
+      const archive=htmlElement('button','','Архивировать');archive.type='button';archive.disabled=!canMutate||job.desired!=='off'||meta.lamp==='applying';schedule.append(archive);
+      const template=(automationStatus?.templates||[]).find(item=>item.id===job.templateId),minimum=Number.isFinite(template?.minMinutes)?template.minMinutes:5,maximum=Number.isFinite(template?.maxMinutes)?template.maxMinutes:1440;
+      const editor=buildScheduleForm(job.schedule,{minimum,maximum,onSubmit:newSchedule=>performAutomationControl({operation:'set_schedule',job_id:job.id,expected_revision:job.revision,schedule:newSchedule},job.id)});card.append(editor.form);
+      edit.addEventListener('click',()=>{editor.form.hidden=!editor.form.hidden;if(!editor.form.hidden)editor.first.focus();});
+      archive.addEventListener('click',()=>{if(globalThis.confirm(`Архивировать выключенное задание «${job.name}»?`))performAutomationControl({operation:'archive',job_id:job.id,expected_revision:job.revision},job.id);});
       if(job.error)card.append(htmlElement('p','automation-error-copy',job.error));
       return card;
     }
+    function renderSystemTimer(timer,canMutate) {
+      if(!timer.mutable) {
+        const card=htmlElement('article','timer-card'),copy=htmlElement('div');card.dataset.timerId=timer.id;appendActualState(card,timer.actual,'');
+        copy.append(htmlElement('h3','',timer.name),htmlElement('p','',`${scheduleText(timer.schedule)} · последняя ${displayTime(timer.lastRun)} · следующая ${displayTime(timer.nextRun)}`));
+        copy.append(htmlElement('div','timer-lock',timer.detail||'Системный, только чтение.'));
+        if(timer.error)copy.append(htmlElement('p','automation-error-copy',timer.error));card.append(copy);return card;
+      }
+      const card=htmlElement('article','timer-card is-managed');card.dataset.timerId=timer.id;
+      const meta=actualMeta(timer.actual);if(meta.lamp==='error')card.classList.add('is-error');
+      if(automationPending?.jobId===timer.id)card.classList.add('is-applying');
+      const head=htmlElement('div','automation-card-head'),name=htmlElement('div','automation-name');
+      name.append(htmlElement('h3','',timer.name),htmlElement('div','automation-template','Тип: системный таймер'));appendActualState(name,timer.actual);
+      const toggle=htmlElement('button','automation-switch');toggle.type='button';toggle.role='switch';toggle.dataset.timerId=timer.id;
+      toggle.setAttribute('aria-checked',String(timer.desired==='on'));toggle.setAttribute('aria-label',`${timer.name}: требуемый режим ${timer.desired==='on'?'включён':'выключен'}`);
+      toggle.disabled=!canMutate;const track=htmlElement('span','switch-track');track.setAttribute('aria-hidden','true');
+      toggle.append(htmlElement('span','switch-copy',timer.desired==='on'?'Требуется: вкл':'Требуется: выкл'),track);
+      toggle.addEventListener('click',()=>performAutomationControl({operation:'set_enabled',timer_id:timer.id,expected_revision:timer.revision,enabled:timer.desired!=='on'},timer.id));
+      head.append(name,toggle);card.append(head);
+      const schedule=htmlElement('div','automation-schedule');schedule.append(htmlElement('span','',scheduleText(timer.schedule)),htmlElement('span','',`Последняя: ${displayTime(timer.lastRun)}`),htmlElement('span','',`Следующая: ${displayTime(timer.nextRun)}`));
+      const edit=htmlElement('button','','Изменить период');edit.type='button';edit.disabled=!canMutate||timer.schedule.kind!=='interval';schedule.append(edit);card.append(schedule);
+      const form=htmlElement('form','schedule-form');form.hidden=true;const field=htmlElement('label','field','Период, минут');const input=document.createElement('input');
+      input.type='number';input.min='5';input.max='1440';input.step='1';input.required=true;input.value=String(timer.schedule.every_minutes||15);field.append(input);
+      const submit=htmlElement('button','primary-action','Сохранить');submit.type='submit';form.append(field,submit);card.append(form);
+      edit.addEventListener('click',()=>{form.hidden=!form.hidden;if(!form.hidden)input.focus();});
+      form.addEventListener('submit',event=>{event.preventDefault();const minutes=Number(input.value);if(!Number.isInteger(minutes)||minutes<5||minutes>1440)return;performAutomationControl({operation:'set_schedule',timer_id:timer.id,expected_revision:timer.revision,schedule:{kind:'interval',every_minutes:minutes}},timer.id);});
+      if(timer.detail)card.append(htmlElement('div','timer-lock',timer.detail));if(timer.error)card.append(htmlElement('p','automation-error-copy',timer.error));return card;
+    }
     function syncAutomationWizard() {
       const select=$('templateSelect'),current=select.value;select.replaceChildren();
-      for(const template of automationStatus?.templates||[]) {const option=document.createElement('option');option.value=template.id;option.textContent=template.name;select.append(option);}
+      for(const template of availableAutomationTemplates()) {const option=document.createElement('option');option.value=template.id;option.textContent=template.name;select.append(option);}
       if([...select.options].some(option=>option.value===current))select.value=current;
       updateWizardFields();
+    }
+    function syncTemplateWindowFields() {
+      const always=$('templateWindowMode').value==='24/7';
+      document.querySelectorAll('.template-window-time').forEach(field=>{field.hidden=always;field.querySelector('input').disabled=always;});
     }
     function updateWizardFields() {
       const template=(automationStatus?.templates||[]).find(item=>item.id===$('templateSelect').value);
@@ -524,6 +601,10 @@
       $('templateMinutes').min=String(Number.isFinite(template.minMinutes)?template.minMinutes:1);
       $('templateMinutes').max=String(Number.isFinite(template.maxMinutes)?template.maxMinutes:1440);
       $('templateMinutes').value=String(Number.isFinite(template.defaultMinutes)?template.defaultMinutes:20);
+      $('templateTimezone').value=template.defaultTimezone||'Asia/Krasnoyarsk';
+      $('templateWindowMode').value=template.defaultActiveWindow==='24/7'?'24/7':'custom';
+      if(template.defaultActiveWindow!=='24/7'){$('templateWindowStart').value=template.defaultActiveWindow.start;$('templateWindowEnd').value=template.defaultActiveWindow.end;}
+      syncTemplateWindowFields();
       $('templateHelp').textContent=template.description||'Новое задание создаётся выключенным.';
     }
     function renderAutomation() {
@@ -536,6 +617,7 @@
       }
       if(automationPending)setAutomationBanner('applying','Применяем изменение','Ждём подтверждённое состояние сервера…');
       else if(automationLastError)setAutomationBanner('error','Состояние не подтверждено',automationLastError);
+      else if(automationIsHeld())setAutomationBanner('applying','Глобальная пауза','Запуски и управление временно остановлены на время обслуживания.');
       else if(automationIsStale())setAutomationBanner('stale','Данные устарели','Управление временно заблокировано до свежего readback.');
       else if(!status.canManage)setAutomationBanner('ready','Режим просмотра','Изменять задания может только администратор.');
       else if(state==='error')setAutomationBanner('error','Есть ошибка','Проверьте задания и готовность контура.');
@@ -544,11 +626,11 @@
       $('automationUpdated').textContent=status.generatedAt?`Обновлено ${displayTime(status.generatedAt)}`:'';
       const canMutate=automationCanMutate();
       $('automationJobsCount').textContent=String(status.jobs.length);$('systemTimersCount').textContent=String(status.systemTimers.length);$('readinessCount').textContent=String(status.readiness.length);
-      $('addAutomation').disabled=!canMutate||!status.templates.length;
+      $('addAutomation').disabled=!canMutate||!availableAutomationTemplates().length;
       if(!status.jobs.length)jobs.append(htmlElement('p','automation-empty','Пользовательских заданий пока нет.'));
       status.jobs.slice().sort((a,b)=>a.order-b.order).forEach(job=>jobs.append(renderAutomationJob(job,canMutate)));
       if(!status.systemTimers.length)timers.append(htmlElement('p','automation-empty','Системные таймеры не зарегистрированы.'));
-      status.systemTimers.forEach(timer=>{const card=htmlElement('article','timer-card'),copy=htmlElement('div');appendActualState(card,timer.actual,'');copy.append(htmlElement('h3','',timer.name),htmlElement('p','',`${scheduleText(timer.schedule)} · следующий ${displayTime(timer.nextRun)}`));if(timer.detail)copy.append(htmlElement('p','',timer.detail));card.append(copy);timers.append(card);});
+      status.systemTimers.forEach(timer=>timers.append(renderSystemTimer(timer,canMutate)));
       if(!status.readiness.length)readiness.append(htmlElement('p','automation-empty','Проверки готовности не опубликованы.'));
       status.readiness.forEach(check=>{const card=htmlElement('article','readiness-card'),copy=htmlElement('div');appendActualState(card,check.state,'');copy.append(htmlElement('h3','',check.label));if(check.detail)copy.append(htmlElement('p','',check.detail));card.append(copy);readiness.append(card);});
       if(!$('automationWizard').hidden)syncAutomationWizard();updateAutomationMapLamp();
@@ -567,8 +649,8 @@
       clearTimeout(automationPollTimer);automationPollTimer=0;
       if(!$('automationLayer').hidden)automationPollTimer=setTimeout(()=>refreshAutomationStatus(),AUTOMATION_POLL_MS);
     }
-    async function refreshAutomationStatus() {
-      if($('automationLayer').hidden||automationRequest)return automationRequest;
+    async function refreshAutomationStatus(force=false) {
+      if(($('automationLayer').hidden&&!force)||automationRequest)return automationRequest;
       clearTimeout(automationPollTimer);automationPollTimer=0;
       if(!automationStatus){automationLastError='';renderAutomation();}
       const request=(async()=>{
@@ -732,7 +814,7 @@
         data=result.data; nodes=new Map(data.elements.map(n=>[n.id,n])); items=new Map([...data.elements,...data.relations].map(n=>[n.id,n]));
         if(nodes.size!==data.elements.length||items.size!==data.elements.length+data.relations.length||!nodes.has('G1')||data.relations.some(r=>!nodes.has(r.from)||!nodes.has(r.to))) throw new Error('data');
         render(); $('state').hidden=true; $('map').removeAttribute('hidden'); $('hint').hidden=false;
-        requestAnimationFrame(()=>{fit();hashSelection();});
+        requestAnimationFrame(()=>{fit();hashSelection();refreshAutomationStatus(true);});
       } catch(error) {
         data=undefined;items.clear();nodes.clear();
         $('state').hidden=false; $('map').setAttribute('hidden',''); $('hint').hidden=true;
@@ -786,10 +868,12 @@
     });
     $('cancelAutomation').addEventListener('click',()=>{$('automationWizard').hidden=true;$('addAutomation').focus();});
     $('templateSelect').addEventListener('change',updateWizardFields);
+    $('templateWindowMode').addEventListener('change',syncTemplateWindowFields);
     $('automationWizard').addEventListener('submit',event=>{
-      event.preventDefault();const template=(automationStatus?.templates||[]).find(item=>item.id===$('templateSelect').value),name=$('templateName').value.trim(),minutes=Number($('templateMinutes').value);
-      if(!template||!name||!Number.isInteger(minutes)||minutes<template.minMinutes||minutes>template.maxMinutes)return;
-      $('automationWizard').hidden=true;performAutomationControl({operation:'create_from_template',template_id:template.id,name,schedule:{kind:'interval',every_minutes:minutes}},'');
+      event.preventDefault();const template=(automationStatus?.templates||[]).find(item=>item.id===$('templateSelect').value),name=$('templateName').value.trim(),minutes=Number($('templateMinutes').value),timezone=$('templateTimezone').value.trim();
+      if(!template||!name||!timezone||!Number.isInteger(minutes)||minutes<template.minMinutes||minutes>template.maxMinutes)return;
+      const activeWindow=$('templateWindowMode').value==='24/7'?'24/7':{start:$('templateWindowStart').value,end:$('templateWindowEnd').value};if(activeWindow!=='24/7'&&(!activeWindow.start||!activeWindow.end))return;
+      $('automationWizard').hidden=true;performAutomationControl({operation:'create_from_template',template_id:template.id,name,schedule:{kind:'interval',every_minutes:minutes,timezone,active_window:activeWindow}},'');
     });
     $('retry').addEventListener('click',load);
     document.addEventListener('keydown',event=>{

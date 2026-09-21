@@ -32,6 +32,7 @@ DEFAULT_OPENAI_PROVIDER = "openai"
 DEFAULT_OPENAI_MODEL = "gpt-5.4-mini"
 DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 30
+DEFAULT_AUTOMATION_CONTROL_SOCKET = "/run/autostop-manager-automation/control.sock"
 
 
 def get_app_data_dir() -> Path:
@@ -214,6 +215,17 @@ def get_mcp_tunnel_url() -> str | None:
 def get_mcp_public_endpoint_url() -> str | None:
     value = (os.environ.get("MINIMAL_KANBAN_MCP_PUBLIC_ENDPOINT_URL") or "").strip().rstrip("/")
     return value or None
+
+
+def get_automation_control_socket() -> Path:
+    raw_value = (
+        os.environ.get("AUTOSTOP_AUTOMATION_CONTROL_SOCKET") or DEFAULT_AUTOMATION_CONTROL_SOCKET
+    ).strip()
+    return Path(raw_value or DEFAULT_AUTOMATION_CONTROL_SOCKET)
+
+
+def get_automation_center_enabled() -> bool:
+    return _read_env_bool("AUTOSTOP_AUTOMATION_CENTER_ENABLED", False)
 
 
 def get_board_api_url() -> str | None:

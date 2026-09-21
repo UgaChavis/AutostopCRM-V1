@@ -564,13 +564,16 @@ snapshot_manager_commit {shlex.quote(str(source))} {shlex.quote(str(target))} {s
         feed_auth_probe = release.index("probe_manager_crm_feed_auth", scheduler_restart)
         restarted_readback = release.index("capture_manager_automation_status", feed_auth_probe)
         final_feed = release.index("verify-feed", crm_start)
-        telegram_restore = release.index(
-            'set_work_telegram_duty "$work_telegram_inbound_before"', final_feed
-        )
-        final_held_readback = release.index("--expect-held", telegram_restore)
+        telegram_effects = release.index("verify-telegram-effects", final_feed)
+        final_held_readback = release.index("--expect-held", telegram_effects)
         unhold = release.index("release-hold", final_held_readback)
         released_readback = release.index("--expect-released", unhold)
         open_writes = release.index('rm -f "$MAINTENANCE_MARKER_HOST"', released_readback)
+        marked_success = release.index("deployment_succeeded=1", open_writes)
+        trap_removed = release.index("trap - EXIT", marked_success)
+        telegram_restore = release.index(
+            'set_work_telegram_duty "$work_telegram_inbound_before"', trap_removed
+        )
 
         self.assertLess(snapshot, hold)
         self.assertLess(hold, registry_backup)
@@ -585,10 +588,13 @@ snapshot_manager_commit {shlex.quote(str(source))} {shlex.quote(str(target))} {s
         self.assertLess(scheduler_restart, feed_auth_probe)
         self.assertLess(feed_auth_probe, restarted_readback)
         self.assertLess(restarted_readback, final_held_readback)
-        self.assertLess(final_feed, telegram_restore)
+        self.assertLess(final_feed, telegram_effects)
         self.assertLess(final_held_readback, unhold)
         self.assertLess(unhold, released_readback)
         self.assertLess(released_readback, open_writes)
+        self.assertLess(open_writes, marked_success)
+        self.assertLess(marked_success, trap_removed)
+        self.assertLess(trap_removed, telegram_restore)
 
         self.assertIn('--manager-revision "$manager_revision"', script)
         self.assertIn('--crm-revision "$crm_revision"', script)

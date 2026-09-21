@@ -4,6 +4,7 @@ import base64
 import json
 import logging
 import os
+import sqlite3
 import stat
 import sys
 import tempfile
@@ -77,6 +78,27 @@ class ChangeFeedTestCase(unittest.TestCase):
 
 
 class ChangeFeedStorageContractTests(ChangeFeedTestCase):
+    def test_readiness_probe_is_technical_and_does_not_register_consumer(self) -> None:
+        self.append_event("event-before-readiness")
+        database = self.base_dir / "change_feed.sqlite3"
+
+        with self.assertRaises(ServiceError) as forbidden:
+            self.feed.readiness({})
+        self.assertEqual("change_feed_readiness_forbidden", forbidden.exception.code)
+
+        result = self.feed.readiness({"_automation_service": True})
+        self.assertEqual("crm_change_feed_readiness_v1", result["format"])
+        self.assertEqual("manager.crm_digest_v1", result["consumer_id"])
+        self.assertFalse(result["consumer_registered"])
+        self.assertFalse(result["pending_delivery"])
+        self.assertEqual(1, result["high_water"])
+        with sqlite3.connect(database) as connection:
+            count = connection.execute(
+                "SELECT COUNT(*) FROM consumers WHERE consumer_id = ?",
+                ("manager.crm_digest_v1",),
+            ).fetchone()[0]
+        self.assertEqual(0, count)
+
     def test_sequence_is_monotonic_gapless_duplicate_safe_and_projection_is_compact(self) -> None:
         private_name = "PRIVATE-CUSTOMER-NAME"
         private_phone = "+79999999999"
@@ -331,6 +353,186 @@ class ChangeFeedStorageContractTests(ChangeFeedTestCase):
 
 
 class ChangeFeedDeliveryContractTests(ChangeFeedTestCase):
+    def test_register_latest_is_atomic_idempotent_and_does_not_replay_history(self) -> None:
+        self.append_event("event-before-registration")
+
+        registered = self.feed.register({"consumer_id": "crm-digest", "start_at": "latest"})
+        repeated = self.feed.register({"consumer_id": "crm-digest", "start_at": "beginning"})
+
+        self.assertTrue(registered["created"])
+        self.assertEqual(1, registered["acked_sequence"])
+        self.assertFalse(registered["has_unacked"])
+        self.assertFalse(repeated["created"])
+        self.assertEqual(1, repeated["acked_sequence"])
+
+        self.append_event("event-after-registration")
+        page = self.feed.read({"consumer_id": "crm-digest"})
+        self.assertEqual(
+            ["event-after-registration"], [event["event_id"] for event in page["events"]]
+        )
+
+    def test_digest_snapshot_is_repeatable_correlated_bounded_and_does_not_ack(self) -> None:
+        private_value = "+79999999999-PRIVATE-VIN"
+        correlation = "payment-correlation-1"
+        events = list(self.store.read_events())
+        events.extend(
+            [
+                AuditEvent(
+                    id="cash-event",
+                    timestamp=utc_now_iso(),
+                    actor_name="OWNER",
+                    source="api",
+                    action="cash_transaction_created",
+                    message=private_value,
+                    details={
+                        "cash_transaction_id": "cash-1",
+                        "correlation_id": correlation,
+                        "transaction_type": "income",
+                        "amount_minor": 12500,
+                        "phone": private_value,
+                    },
+                    card_id="card-safe",
+                ),
+                AuditEvent(
+                    id="repair-payment-event",
+                    timestamp=utc_now_iso(),
+                    actor_name="OWNER",
+                    source="api",
+                    action="repair_order_payment_created",
+                    message=private_value,
+                    details={"correlation_id": correlation, "repair_order_id": "card-safe"},
+                    card_id="card-safe",
+                ),
+            ]
+        )
+        self.store.write_events(events)
+        page = self.feed.read({"consumer_id": "crm-digest"})
+
+        first = self.feed.summarize({"consumer_id": "crm-digest", "ack": page["ack"]})
+        second = self.feed.summarize({"consumer_id": "crm-digest", "ack": page["ack"]})
+
+        self.assertFalse(first["replayed"])
+        self.assertTrue(second["replayed"])
+        self.assertEqual(first["digest_id"], second["digest_id"])
+        self.assertEqual(first["content_hash"], second["content_hash"])
+        self.assertEqual(1, first["total_events"])
+        self.assertEqual(2, first["raw_event_count"])
+        self.assertEqual(1, len(first["items"]))
+        self.assertEqual("/?card_id=card-safe", first["items"][0]["crm_path"])
+        self.assertEqual(1, first["category_counts"]["finance"])
+        self.assertEqual(12500, first["financial_totals"]["income_minor"])
+        self.assertEqual(0, self.feed.bootstrap({"consumer_id": "crm-digest"})["acked_sequence"])
+        self.assertNotIn(
+            private_value.encode("utf-8"), (self.base_dir / "change_feed.sqlite3").read_bytes()
+        )
+
+    def test_deleted_cash_transaction_is_one_correlated_cancellation(self) -> None:
+        correlation = "cash-cancel-correlation"
+        events = list(self.store.read_events())
+        events.extend(
+            [
+                AuditEvent(
+                    id="cash-deleted",
+                    timestamp=utc_now_iso(),
+                    actor_name="OWNER",
+                    source="api",
+                    action="cash_transaction_deleted",
+                    message="cancelled",
+                    details={
+                        "cash_transaction_id": "cash-1",
+                        "direction": "income",
+                        "amount_minor": 10000,
+                        "correlation_id": correlation,
+                    },
+                    card_id="card-1",
+                ),
+                AuditEvent(
+                    id="repair-updated-for-cancel",
+                    timestamp=utc_now_iso(),
+                    actor_name="OWNER",
+                    source="api",
+                    action="repair_order_updated",
+                    message="payment removed",
+                    details={"repair_order_id": "card-1", "correlation_id": correlation},
+                    card_id="card-1",
+                ),
+            ]
+        )
+        self.store.write_events(events)
+
+        page = self.feed.read({"consumer_id": "cancel-digest"})
+        digest = self.feed.summarize({"consumer_id": "cancel-digest", "ack": page["ack"]})
+
+        self.assertEqual(1, digest["total_events"])
+        self.assertEqual(2, digest["raw_event_count"])
+        self.assertEqual(1, digest["category_counts"]["finance"])
+        self.assertEqual(10000, digest["financial_totals"]["cancel_minor"])
+        self.assertEqual(0, digest["financial_totals"]["income_minor"])
+
+    def test_digest_coalesces_the_entire_delivery_into_one_ack(self) -> None:
+        for index in range(3):
+            self.append_event(f"event-coalesced-{index}")
+        page = self.feed.read({"consumer_id": "crm-digest", "limit": 1})
+
+        digest = self.feed.summarize({"consumer_id": "crm-digest", "ack": page["ack"]})
+        acknowledged = self.feed.ack({"consumer_id": "crm-digest", "ack": digest["ack"]})
+
+        self.assertEqual(3, digest["total_events"])
+        self.assertEqual(3, digest["through_sequence"])
+        self.assertNotEqual(page["ack"], digest["ack"])
+        self.assertTrue(acknowledged["delivery_complete"])
+        self.assertEqual(3, acknowledged["acked_sequence"])
+
+    def test_large_window_digest_streams_without_holding_the_writer_lock(self) -> None:
+        for index in range(80):
+            self.append_event(f"event-stream-{index}", card_id=f"card-{index}")
+        page = self.feed.read({"consumer_id": "crm-stream", "limit": 1})
+        window = page["delivery_high_water"]
+        original = ChangeFeedStore._event_summary_fact
+        wrote_during_summary = False
+
+        def summarize_row(row: sqlite3.Row) -> dict:
+            nonlocal wrote_during_summary
+            if not wrote_during_summary:
+                with sqlite3.connect(
+                    self.store.change_feed_store.path, timeout=1, isolation_level=None
+                ) as writer:
+                    writer.execute("PRAGMA journal_mode = WAL")
+                    writer.execute("BEGIN IMMEDIATE")
+                    sequence = window + 1
+                    writer.execute(
+                        """
+                        INSERT INTO events(
+                            sequence, source_event_id, occurred_at, action, entity_type,
+                            entity_id, change_type, tombstone, correlation_ref,
+                            idempotency_ref, producer, summary_json
+                        ) VALUES (?, ?, ?, 'card_updated', 'card', 'later-card',
+                                  'update', 0, ?, ?, 'test', '{}')
+                        """,
+                        (
+                            sequence,
+                            "event-written-during-summary",
+                            utc_now_iso(),
+                            f"corr-{sequence}",
+                            f"idem-{sequence}",
+                        ),
+                    )
+                    writer.execute(
+                        "UPDATE metadata SET value = ? WHERE key = 'high_water'",
+                        (str(sequence),),
+                    )
+                    writer.commit()
+                wrote_during_summary = True
+            return original(row)
+
+        with patch.object(ChangeFeedStore, "_event_summary_fact", side_effect=summarize_row):
+            digest = self.feed.summarize({"consumer_id": "crm-stream", "ack": page["ack"]})
+
+        self.assertTrue(wrote_during_summary)
+        self.assertEqual(window, digest["raw_event_count"])
+        self.assertEqual(window, digest["through_sequence"])
+        self.assertEqual(window + 1, self.feed.bootstrap({"consumer_id": "later"})["high_water"])
+
     def test_bootstrap_does_not_open_or_ack_owner_delivery(self) -> None:
         self.append_event("event-1")
 
@@ -607,6 +809,27 @@ class ChangeFeedHttpContractTests(ChangeFeedTestCase):
         legacy_after = self.card_service.get_board_events({"event_limit": 10})
         self.assertEqual(legacy_before["events"], legacy_after["events"])
         self.assertEqual("event-http", legacy_after["events"][0]["id"])
+
+    def test_registration_and_digest_summary_http_contract(self) -> None:
+        self.append_event("historical-http")
+        status, registered = self.post(
+            "/api/change_feed/register",
+            {"consumer_id": "crm-digest-http", "start_at": "latest"},
+        )
+        self.assertEqual(200, status)
+        self.assertEqual("crm_change_feed_registration_v1", registered["data"]["format"])
+        self.assertEqual(1, registered["data"]["acked_sequence"])
+
+        self.append_event("new-http")
+        status, page = self.post("/api/change_feed/read", {"consumer_id": "crm-digest-http"})
+        self.assertEqual(200, status)
+        status, digest = self.post(
+            "/api/change_feed/summarize",
+            {"consumer_id": "crm-digest-http", "ack": page["data"]["ack"]},
+        )
+        self.assertEqual(200, status)
+        self.assertEqual("crm_change_digest_v1", digest["data"]["format"])
+        self.assertEqual(1, digest["data"]["total_events"])
 
     def test_maintenance_blocks_checkpoint_writes_but_keeps_feed_reads_available(self) -> None:
         self.append_event("event-maintenance")

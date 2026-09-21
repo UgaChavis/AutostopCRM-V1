@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from uuid import uuid4
 
 from .. import models as model_helpers
 from ..models import (
@@ -101,6 +102,7 @@ class CardServiceCashboxCancellationMixin:
                 transaction_kind=_CASH_TRANSACTION_KIND_CANCELLATION,
                 related_transaction_id=transaction.id,
             )
+            digest_correlation_id = f"cash-cancel:{transaction.id}:{cancellation.id}:{uuid4().hex}"
             transaction.transaction_kind = _CASH_TRANSACTION_KIND_CANCELLED
             response_meta: dict[str, object] = {
                 "cancelled": True,
@@ -134,6 +136,7 @@ class CardServiceCashboxCancellationMixin:
                     actor_name,
                     source,
                     settings=settings,
+                    digest_correlation_id=digest_correlation_id,
                 )
                 self._touch_card(linked_card, actor_name)
                 self._refresh_card_ai_fingerprint_if_agent_changed(linked_card, actor_name, source)
@@ -156,6 +159,7 @@ class CardServiceCashboxCancellationMixin:
                     "repair_order_payment_id": linked_payment.id
                     if linked_payment is not None
                     else None,
+                    "correlation_id": digest_correlation_id,
                 },
             )
             self._refresh_cashbox_updated_at(cashbox, transactions)

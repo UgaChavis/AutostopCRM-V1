@@ -128,6 +128,8 @@ services:
       MINIMAL_KANBAN_MCP_ALLOWED_HOSTS: "${AUTOSTOP_MCP_ALLOWED_HOSTS:-}"
       MINIMAL_KANBAN_MCP_ALLOWED_ORIGINS: "${AUTOSTOP_MCP_ALLOWED_ORIGINS:-}"
       AUTOSTOP_MANAGER_PATH: "${AUTOSTOP_MANAGER_CONTAINER_DIR:-/opt/AutostopManager}"
+      AUTOSTOP_AUTOMATION_CENTER_ENABLED: "${AUTOSTOP_AUTOMATION_CENTER_ENABLED:-1}"
+      AUTOSTOP_AUTOMATION_CONTROL_SOCKET: "/run/autostop-manager-automation/control.sock"
       AUTOSTOP_STORE_API_URL: "${AUTOSTOP_STORE_API_URL:-http://autostop-app:8000}"
       AUTOSTOP_STORE_READ_TOKEN: "${AUTOSTOP_STORE_READ_TOKEN:-}"
       AUTOSTOP_STORE_QUOTE_TOKEN: "${AUTOSTOP_STORE_QUOTE_TOKEN:-}"
@@ -146,6 +148,7 @@ services:
       - "${AUTOSTOP_DATA_DIR:-./data}:/home/autostop/.minimal-kanban"
       - "${AUTOSTOP_MANAGER_HOST_DIR:-/opt/autostop-manager-releases/current}:${AUTOSTOP_MANAGER_CONTAINER_DIR:-/opt/AutostopManager}:ro"
       - "${AUTOSTOP_MANAGER_DATA_HOST_DIR:-../AutostopManager/data}:${AUTOSTOP_MANAGER_CONTAINER_DIR:-/opt/AutostopManager}/data"
+      - "${AUTOSTOP_AUTOMATION_SOCKET_HOST_DIR:-/run/autostop-manager-automation}:/run/autostop-manager-automation:ro"
     networks:
       - default
       - autostop-store-agent

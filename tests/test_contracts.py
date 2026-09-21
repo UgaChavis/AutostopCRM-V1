@@ -9,6 +9,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from minimal_kanban.api.automation_center import build_automation_center_routes  # noqa: E402
+from minimal_kanban.api.change_feed import build_change_feed_routes  # noqa: E402
 from minimal_kanban.api.route_registry import (  # noqa: E402
     ADMIN_ONLY_ROUTES,
     EMPLOYEES_CASHBOXES_PERMISSION_ROUTES,
@@ -239,7 +241,15 @@ EXPECTED_OPERATOR_ROUTES = {
 EXPECTED_CHANGE_FEED_ROUTES = {
     "/api/change_feed/ack",
     "/api/change_feed/bootstrap",
+    "/api/change_feed/readiness",
     "/api/change_feed/read",
+    "/api/change_feed/register",
+    "/api/change_feed/summarize",
+}
+
+EXPECTED_AUTOMATION_CENTER_ROUTES = {
+    "/api/automation_center/status",
+    "/api/automation_center/control",
 }
 
 EXPECTED_SMOKE_SCENARIOS = (
@@ -331,7 +341,12 @@ class ContractSnapshotTests(unittest.TestCase):
             service,
             paste_shared_files_from_clipboard=service.paste_shared_files_from_clipboard,
         )
-        all_routes = set(service_routes) | set(build_operator_routes(service))
+        all_routes = (
+            set(service_routes)
+            | set(build_operator_routes(service))
+            | set(build_change_feed_routes(service))
+            | set(build_automation_center_routes(service))
+        )
 
         self.assertLessEqual(PROXIED_WRITE_ROUTES, all_routes)
         self.assertLessEqual(OPERATOR_SESSION_ROUTES, all_routes)
@@ -345,15 +360,22 @@ class ContractSnapshotTests(unittest.TestCase):
             paste_shared_files_from_clipboard=service.paste_shared_files_from_clipboard,
         )
         operator_routes = build_operator_routes(service)
-        change_feed_routes = {path: service.handler for path in EXPECTED_CHANGE_FEED_ROUTES}
+        change_feed_routes = build_change_feed_routes(service)
+        automation_routes = build_automation_center_routes(service)
+        self.assertEqual(EXPECTED_CHANGE_FEED_ROUTES, set(change_feed_routes))
+        self.assertEqual(EXPECTED_AUTOMATION_CENTER_ROUTES, set(automation_routes))
         specs = merge_route_specs(
             build_route_specs(service_routes, registry="service"),
             build_route_specs(operator_routes, registry="operator"),
             build_route_specs(change_feed_routes, registry="change_feed"),
+            build_route_specs(automation_routes, registry="automation_center"),
         )
 
         expected_policy_paths = (
-            set(service_routes) | set(operator_routes) | EXPECTED_CHANGE_FEED_ROUTES
+            set(service_routes)
+            | set(operator_routes)
+            | EXPECTED_CHANGE_FEED_ROUTES
+            | EXPECTED_AUTOMATION_CENTER_ROUTES
         )
         self.assertEqual(expected_policy_paths, set(specs))
         self.assertEqual(frozenset(expected_policy_paths), ROUTE_POLICY_PATHS)

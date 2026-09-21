@@ -325,6 +325,7 @@
       "rationale": "Scheduled-task and queue durability belongs to the attached Manager agent runtime; CRM delegates without changing CRM business state.",
       "routes": [
         "/api/agent_enqueue_task",
+        "/api/automation_center/control",
         "/api/delete_agent_scheduled_task",
         "/api/pause_agent_scheduled_task",
         "/api/resume_agent_scheduled_task",
@@ -332,6 +333,10 @@
         "/api/save_agent_scheduled_task"
       ],
       "route_evidence": {
+        "/api/automation_center/control": {
+          "source": "src/minimal_kanban/services/automation_center_service.py",
+          "pattern": "def control(self, payload: dict[str, Any] | None = None)"
+        },
         "/api/agent_enqueue_task": {
           "source": "src/minimal_kanban/services/card_service.py",
           "pattern": "return self._agent_control.agent_enqueue_task(payload)"
@@ -359,6 +364,10 @@
       },
       "test_evidence": [
         {
+          "source": "tests/test_automation_center.py",
+          "pattern": "test_control_requires_admin_allowlist_command_id_and_ignores_browser_actor"
+        },
+        {
           "source": "tests/test_change_feed_producers.py",
           "pattern": "test_agent_runtime_routes_are_external_authority_and_do_not_forge_crm_events"
         }
@@ -368,10 +377,11 @@
       "name": "change_feed_consumer_checkpoint_boundary",
       "kind": "infrastructure_exemption",
       "producer": "none",
-      "rationale": "Bootstrap and ACK mutate only owner delivery checkpoints; emitting them into the same feed would create an infinite self-observation loop.",
+      "rationale": "Bootstrap, registration and ACK mutate only owner delivery checkpoints; emitting them into the same feed would create an infinite self-observation loop.",
       "routes": [
         "/api/change_feed/ack",
-        "/api/change_feed/bootstrap"
+        "/api/change_feed/bootstrap",
+        "/api/change_feed/register"
       ],
       "route_evidence": {
         "/api/change_feed/ack": {
@@ -381,6 +391,10 @@
         "/api/change_feed/bootstrap": {
           "source": "src/minimal_kanban/api/change_feed.py",
           "pattern": "CHANGE_FEED_BOOTSTRAP_ROUTE = \"/api/change_feed/bootstrap\""
+        },
+        "/api/change_feed/register": {
+          "source": "src/minimal_kanban/api/change_feed.py",
+          "pattern": "CHANGE_FEED_REGISTER_ROUTE = \"/api/change_feed/register\""
         }
       },
       "test_evidence": [
@@ -391,6 +405,10 @@
         {
           "source": "tests/test_change_feed.py",
           "pattern": "test_ack_is_ordered_idempotent_and_final_page_closes_delivery"
+        },
+        {
+          "source": "tests/test_change_feed.py",
+          "pattern": "test_register_latest_is_atomic_idempotent_and_does_not_replay_history"
         }
       ]
     },

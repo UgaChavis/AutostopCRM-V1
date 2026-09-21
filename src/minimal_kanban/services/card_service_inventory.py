@@ -211,6 +211,7 @@ class CardServiceInventoryMixin:
             self._ensure_not_archived(card)
             self._ensure_inventory_card_expected_updated_at(card, payload)
             movement_id = str(uuid.uuid4())
+            digest_correlation_id = f"inventory-write-off:{movement_id}"
             rows = [row.to_dict() for row in card.repair_order.materials]
             row_index = self._inventory_target_row_index(payload.get("row_index"), rows)
             if row_index == len(rows) and len(rows) >= REPAIR_ORDER_ROWS_LIMIT:
@@ -258,6 +259,7 @@ class CardServiceInventoryMixin:
                 cashboxes=bundle["cashboxes"],
                 cash_transactions=bundle["cash_transactions"],
                 settings=bundle["settings"],
+                digest_correlation_id=digest_correlation_id,
             )
             updated_item = InventoryItem(
                 id=item.id,
@@ -298,6 +300,7 @@ class CardServiceInventoryMixin:
                     "quantity": quantity_text,
                     "unit": updated_item.unit,
                     "row_index": row_index,
+                    "correlation_id": digest_correlation_id,
                 },
             )
             numbering_changed = self._synchronize_repair_order_numbers(cards)
@@ -341,6 +344,7 @@ class CardServiceInventoryMixin:
                     "Нужно передать movement_id для возврата.",
                     details={"field": "movement_id"},
                 )
+            digest_correlation_id = f"inventory-return:{uuid.uuid4()}"
             bundle = self._read_bundle_for_update("cashboxes")
             cards = bundle["cards"]
             columns = bundle["columns"]
@@ -422,6 +426,7 @@ class CardServiceInventoryMixin:
                         cashboxes=bundle["cashboxes"],
                         cash_transactions=bundle["cash_transactions"],
                         settings=bundle["settings"],
+                        digest_correlation_id=digest_correlation_id,
                     )
             movement = self._build_inventory_movement(
                 item=updated_item,
@@ -452,6 +457,7 @@ class CardServiceInventoryMixin:
                     "movement_id": movement.id,
                     "related_movement_id": source_movement.id,
                     "quantity": source_movement.quantity,
+                    "correlation_id": digest_correlation_id,
                 },
             )
             numbering_changed = self._synchronize_repair_order_numbers(cards)

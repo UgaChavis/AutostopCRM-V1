@@ -49,8 +49,10 @@ ALLOWED_EXEMPTIONS = {
     "infrastructure_exemption": frozenset(
         {
             "/api/agent_enqueue_task",
+            "/api/automation_center/control",
             "/api/change_feed/ack",
             "/api/change_feed/bootstrap",
+            "/api/change_feed/register",
             "/api/delete_agent_scheduled_task",
             "/api/pause_agent_scheduled_task",
             "/api/resume_agent_scheduled_task",

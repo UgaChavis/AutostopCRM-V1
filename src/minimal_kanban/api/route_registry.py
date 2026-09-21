@@ -110,6 +110,8 @@ _PROXIED_WRITE_ROUTE_PATHS = {
     "/api/paste_shared_files_from_clipboard",
     "/api/update_shared_file_position",
     "/api/open_card",
+    "/api/automation_center/control",
+    "/api/change_feed/register",
 }
 
 _OPERATOR_SESSION_ROUTE_PATHS = {
@@ -119,6 +121,7 @@ _OPERATOR_SESSION_ROUTE_PATHS = {
     "/api/get_display_dashboard",
     "/api/open_card",
     "/api/reset_employee_salary_balance",
+    "/api/automation_center/status",
 }
 
 _ADMIN_ONLY_ROUTE_PATHS = {
@@ -129,6 +132,7 @@ _ADMIN_ONLY_ROUTE_PATHS = {
     "/api/get_operator_user_report",
     "/api/correct_repair_order_number",
     "/api/finance_audit/apply_safe_fixes",
+    "/api/automation_center/control",
 }
 
 EMPLOYEES_CASHBOXES_PERMISSION_ROUTES = frozenset(
@@ -236,6 +240,7 @@ _READONLY_GET_ROUTE_PATHS = frozenset(
         "/api/list_inventory_items",
         "/api/get_inventory_item",
         "/api/list_inventory_movements",
+        "/api/automation_center/status",
     }
 )
 
@@ -247,6 +252,7 @@ _CHECKPOINT_ROUTE_PATHS = {
 }
 _TECHNICAL_MAINTENANCE_ROUTE_PATHS = {
     "/api/change_feed/bootstrap",
+    "/api/change_feed/readiness",
     "/api/change_feed/ack",
 }
 _MAINTENANCE_SAFE_WRITE_ROUTE_PATHS = {"/api/update_personal_board_preferences"}
@@ -255,6 +261,8 @@ _POST_ONLY_READ_ROUTE_PATHS = frozenset(
         "/api/audit_client_links",
         "/api/audit_repair_order_consistency",
         "/api/change_feed/read",
+        "/api/change_feed/readiness",
+        "/api/change_feed/summarize",
         "/api/fetch_shared_file",
         "/api/get_card_attachment",
         "/api/get_card_context",

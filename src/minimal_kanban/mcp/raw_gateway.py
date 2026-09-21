@@ -19,7 +19,11 @@ RAW_API_PREFIX = "api:"
 CHANGE_FEED_BOOTSTRAP_ROUTE = "/api/change_feed/bootstrap"
 CHANGE_FEED_READ_ROUTE = "/api/change_feed/read"
 CHANGE_FEED_ACK_ROUTE = "/api/change_feed/ack"
-CHANGE_FEED_WRITE_ROUTES = frozenset({CHANGE_FEED_BOOTSTRAP_ROUTE, CHANGE_FEED_ACK_ROUTE})
+CHANGE_FEED_REGISTER_ROUTE = "/api/change_feed/register"
+CHANGE_FEED_SUMMARIZE_ROUTE = "/api/change_feed/summarize"
+CHANGE_FEED_WRITE_ROUTES = frozenset(
+    {CHANGE_FEED_BOOTSTRAP_ROUTE, CHANGE_FEED_ACK_ROUTE, CHANGE_FEED_REGISTER_ROUTE}
+)
 RAW_API_WRITE_ROUTES = (
     PROXIED_WRITE_ROUTES - {"/api/get_repair_order", "/api/reset_employee_salary_balance"}
 ) | CHANGE_FEED_WRITE_ROUTES
@@ -32,6 +36,7 @@ RAW_API_READ_ROUTES = frozenset(
         "/api/export_operator_activity",
         "/api/finance_audit",
         CHANGE_FEED_READ_ROUTE,
+        CHANGE_FEED_SUMMARIZE_ROUTE,
         "/api/get_ai_chat_knowledge",
         "/api/get_board_revision",
         "/api/get_display_dashboard",
@@ -117,7 +122,7 @@ def _change_feed_schema(route: str) -> dict[str, Any] | None:
                 },
             }
         )
-    elif route == CHANGE_FEED_ACK_ROUTE:
+    elif route in {CHANGE_FEED_ACK_ROUTE, CHANGE_FEED_SUMMARIZE_ROUTE}:
         properties["ack"] = {
             "type": "string",
             "minLength": 1,
@@ -125,6 +130,12 @@ def _change_feed_schema(route: str) -> dict[str, Any] | None:
             "description": "Opaque ACK token returned with one delivered page.",
         }
         required.append("ack")
+    elif route == CHANGE_FEED_REGISTER_ROUTE:
+        properties["start_at"] = {
+            "type": "string",
+            "enum": ["latest", "beginning"],
+            "default": "latest",
+        }
     elif route != CHANGE_FEED_BOOTSTRAP_ROUTE:
         return None
     return {
@@ -139,6 +150,12 @@ def _change_feed_schema(route: str) -> dict[str, Any] | None:
                 "Read one replay-safe ordered CRM change-feed page without advancing ACK state."
             ),
             CHANGE_FEED_ACK_ROUTE: ("Explicitly acknowledge one contiguous CRM change-feed page."),
+            CHANGE_FEED_REGISTER_ROUTE: (
+                "Atomically register a typed feed consumer at the latest checkpoint or beginning."
+            ),
+            CHANGE_FEED_SUMMARIZE_ROUTE: (
+                "Freeze a bounded PII-free digest for one exact unacknowledged feed page."
+            ),
         }[route],
         "properties": properties,
         "required": required,
@@ -1179,6 +1196,7 @@ async def verify_virtual_api_write_readback(
     if operation in {
         f"api:{CHANGE_FEED_BOOTSTRAP_ROUTE}",
         f"api:{CHANGE_FEED_ACK_ROUTE}",
+        f"api:{CHANGE_FEED_REGISTER_ROUTE}",
     }:
         consumer_id = str(arguments.get("consumer_id") or "").strip()
         expected = _find_mapping(result, "consumer_id", consumer_id) if consumer_id else None
@@ -1207,7 +1225,11 @@ async def verify_virtual_api_write_readback(
             "check": (
                 "exact_change_feed_ack_checkpoint"
                 if operation == f"api:{CHANGE_FEED_ACK_ROUTE}"
-                else "exact_change_feed_bootstrap_checkpoint"
+                else (
+                    "exact_change_feed_registration_checkpoint"
+                    if operation == f"api:{CHANGE_FEED_REGISTER_ROUTE}"
+                    else "exact_change_feed_bootstrap_checkpoint"
+                )
             ),
             "evidence": {
                 "consumer_id": consumer_id,
@@ -1422,6 +1444,8 @@ __all__ = [
     "CHANGE_FEED_ACK_ROUTE",
     "CHANGE_FEED_BOOTSTRAP_ROUTE",
     "CHANGE_FEED_READ_ROUTE",
+    "CHANGE_FEED_REGISTER_ROUTE",
+    "CHANGE_FEED_SUMMARIZE_ROUTE",
     "CHANGE_FEED_WRITE_ROUTES",
     "DESTRUCTIVE_CAPABILITY_MARKERS",
     "DESTRUCTIVE_CAPABILITY_NAMES",

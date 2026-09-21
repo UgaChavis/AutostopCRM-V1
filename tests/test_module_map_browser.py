@@ -221,7 +221,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
                 {
                     "job_id": "crm-digest",
                     "name": "Сводка изменений CRM",
-                    "template_id": "crm_change_digest",
+                    "template_id": "crm_digest_v1",
                     "desired_state": "off",
                     "actual_state": "disabled",
                     "revision": 7,
@@ -229,27 +229,43 @@ class ManagerMapBrowserTests(unittest.TestCase):
                         "kind": "interval",
                         "every_minutes": 20,
                         "timezone": "Asia/Krasnoyarsk",
+                        "active_window": "24/7",
                     },
                     "next_run_at": "2026-09-21T12:20:00Z",
                 }
             ],
             "system_timers": [
                 {
-                    "id": "lease-reaper",
-                    "name": "Освобождение зависших запусков",
+                    "id": "managed-health",
+                    "name": "Проверка рабочих компьютеров",
+                    "control_mode": "managed",
+                    "mutable": True,
+                    "desired_state": "on",
                     "actual_state": "healthy",
-                    "schedule": {"kind": "interval", "every_minutes": 1},
-                }
+                    "revision": 3,
+                    "schedule": {"kind": "interval", "every_minutes": 15},
+                },
+                {
+                    "id": "backup",
+                    "name": "Резервная копия CRM",
+                    "control_mode": "read_only",
+                    "locked": True,
+                    "desired_state": "on",
+                    "actual_state": "healthy",
+                    "schedule": {"kind": "text", "label": "Ежедневно"},
+                },
             ],
             "readiness": [{"id": "telegram", "label": "Telegram-доставка", "state": "healthy"}],
             "templates": [
                 {
-                    "id": "crm_change_digest",
+                    "id": "crm_digest_v1",
                     "name": "Сводка изменений CRM",
                     "description": "Краткая сводка новых событий CRM.",
                     "default_every_minutes": 20,
                     "min_every_minutes": 5,
                     "max_every_minutes": 1440,
+                    "default_timezone": "Asia/Krasnoyarsk",
+                    "default_active_window": "24/7",
                 }
             ],
         }
@@ -261,7 +277,20 @@ class ManagerMapBrowserTests(unittest.TestCase):
                 traffic.append(("POST", payload))
                 self.assertIn("command_id", payload)
                 self.assertNotIn("source", payload)
-                if payload["operation"] == "set_enabled":
+                if payload["operation"] == "set_enabled" and "timer_id" in payload:
+                    self.assertEqual(payload["timer_id"], "managed-health")
+                    self.assertEqual(payload["expected_revision"], 3)
+                    self.assertFalse(payload["enabled"])
+                    state["system_timers"][0].update(
+                        desired_state="off", actual_state="disabled", revision=4
+                    )
+                elif payload["operation"] == "set_schedule" and "timer_id" in payload:
+                    self.assertEqual(payload["timer_id"], "managed-health")
+                    self.assertEqual(payload["expected_revision"], 4)
+                    self.assertEqual(payload["schedule"]["every_minutes"], 10)
+                    state["system_timers"][0]["schedule"]["every_minutes"] = 10
+                    state["system_timers"][0]["revision"] = 5
+                elif payload["operation"] == "set_enabled":
                     self.assertEqual(payload["job_id"], "crm-digest")
                     self.assertEqual(payload["expected_revision"], 7)
                     self.assertTrue(payload["enabled"])
@@ -270,12 +299,19 @@ class ManagerMapBrowserTests(unittest.TestCase):
                     self.assertEqual(payload["job_id"], "crm-digest")
                     self.assertEqual(payload["expected_revision"], 8)
                     self.assertEqual(payload["schedule"]["every_minutes"], 30)
-                    state["jobs"][0]["schedule"]["every_minutes"] = 30
+                    self.assertEqual(payload["schedule"]["timezone"], "Asia/Krasnoyarsk")
+                    self.assertEqual(
+                        payload["schedule"]["active_window"],
+                        {"start": "09:00", "end": "18:30"},
+                    )
+                    state["jobs"][0]["schedule"] = payload["schedule"]
                     state["jobs"][0]["revision"] = 9
                 elif payload["operation"] == "create_from_template":
-                    self.assertEqual(payload["template_id"], "crm_change_digest")
+                    self.assertEqual(payload["template_id"], "crm_digest_v1")
                     self.assertEqual(payload["name"], "Вечерняя сводка")
                     self.assertEqual(payload["schedule"]["every_minutes"], 45)
+                    self.assertEqual(payload["schedule"]["timezone"], "Asia/Krasnoyarsk")
+                    self.assertEqual(payload["schedule"]["active_window"], "24/7")
                     state["jobs"].append(
                         {
                             "job_id": "evening-digest",
@@ -322,13 +358,29 @@ class ManagerMapBrowserTests(unittest.TestCase):
             self.page.locator('[data-id="G1"] .status-indicator title').text_content(),
             "Включён",
         )
-        self.page.locator('[data-job-id="crm-digest"]').get_by_text("Изменить период").click()
-        schedule_input = self.page.locator('[data-job-id="crm-digest"] .schedule-form input')
+        self.page.locator('[data-job-id="crm-digest"]').get_by_text("Изменить расписание").click()
+        schedule_form = self.page.locator('[data-job-id="crm-digest"] .schedule-form')
+        schedule_input = schedule_form.locator('input[type="number"]')
         schedule_input.fill("30")
-        self.page.locator('[data-job-id="crm-digest"] .schedule-form').get_by_text(
-            "Сохранить"
-        ).click()
+        schedule_form.locator("select").select_option("custom")
+        schedule_form.locator('input[type="time"]').nth(0).fill("09:00")
+        schedule_form.locator('input[type="time"]').nth(1).fill("18:30")
+        schedule_form.get_by_text("Сохранить").click()
         self.page.locator('[data-job-id="crm-digest"]').get_by_text("Каждые 30 мин.").wait_for()
+
+        timer = self.page.locator('[data-timer-id="managed-health"]')
+        timer_toggle = timer.get_by_role("switch")
+        self.assertEqual(timer_toggle.get_attribute("aria-checked"), "true")
+        timer_toggle.click()
+        self.page.wait_for_function(
+            "document.querySelector('[data-timer-id=\"managed-health\"] [role=\"switch\"]').getAttribute('aria-checked')==='false'"
+        )
+        timer.get_by_text("Изменить период").click()
+        timer.locator(".schedule-form input").fill("10")
+        timer.locator(".schedule-form").get_by_text("Сохранить").click()
+        timer.get_by_text("Каждые 10 мин.").wait_for()
+        self.assertEqual(self.page.locator('[data-timer-id="backup"] [role="switch"]').count(), 0)
+        self.assertIn("только чтение", self.page.locator('[data-timer-id="backup"]').inner_text())
 
         self.page.locator("#addAutomation").click()
         self.assertEqual(self.page.locator("#templateSelect option").count(), 1)
@@ -343,8 +395,20 @@ class ManagerMapBrowserTests(unittest.TestCase):
             "false",
         )
         self.assertEqual(
-            [method for method, _payload in traffic[:7]],
-            ["GET", "POST", "GET", "POST", "GET", "POST", "GET"],
+            [method for method, _payload in traffic[:11]],
+            [
+                "GET",
+                "POST",
+                "GET",
+                "POST",
+                "GET",
+                "POST",
+                "GET",
+                "POST",
+                "GET",
+                "POST",
+                "GET",
+            ],
         )
         self.page.keyboard.press("Escape")
         self.assertFalse(drawer.is_visible())
@@ -374,7 +438,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
             ],
             "system_timers": [],
             "readiness": [],
-            "templates": [{"id": "crm_change_digest", "name": "Сводка изменений CRM"}],
+            "templates": [{"id": "crm_digest_v1", "name": "Сводка изменений CRM"}],
         }
 
         def automation_route(route, _request) -> None:
@@ -431,6 +495,78 @@ class ManagerMapBrowserTests(unittest.TestCase):
         )
         self.page.keyboard.press("Escape")
         self.assertFalse(self.page.locator("#automationDrawer").is_visible())
+        self.assertEqual(self.errors, [])
+
+    def test_automation_center_unknown_runtime_is_yellow_and_inactive_timer_is_off(self) -> None:
+        self.login()
+        status = {
+            "generated_at": "2026-09-21T12:00:00Z",
+            "can_manage": True,
+            "controller": {"state": "healthy"},
+            "jobs": [
+                {
+                    "id": "crm-digest",
+                    "name": "Сводка изменений CRM",
+                    "desired_state": "off",
+                    "actual_state": "unknown",
+                    "revision": 1,
+                    "applied_revision": 1,
+                    "schedule": {"kind": "interval", "every_minutes": 20},
+                }
+            ],
+            "system_timers": [
+                {
+                    "id": "managed-health",
+                    "name": "Проверка рабочих компьютеров",
+                    "desired_state": "off",
+                    "actual_state": "unknown",
+                    "control_mode": "managed",
+                    "revision": 2,
+                    "schedule": {"kind": "interval", "every_minutes": 15},
+                },
+                {
+                    "id": "managed-cleanup",
+                    "name": "Очистка рабочих компьютеров",
+                    "desired_state": "off",
+                    "actual_state": "inactive",
+                    "control_mode": "managed",
+                    "revision": 1,
+                    "schedule": {"kind": "interval", "every_minutes": 60},
+                },
+            ],
+            "readiness": [
+                {
+                    "id": "crm_change_feed",
+                    "label": "Лента CRM",
+                    "state": "ready",
+                }
+            ],
+            "templates": [],
+        }
+
+        self.page.route(
+            "**/api/automation_center/status",
+            lambda route, _request: route.fulfill(json={"ok": True, "data": status}),
+        )
+        self.select_node("G1")
+        self.page.locator("#automationStateTitle").get_by_text("Изменение применяется").wait_for()
+        self.assertEqual(
+            self.page.locator('[data-id="G1"] .status-indicator title').text_content(),
+            "Применение изменений",
+        )
+        self.assertEqual(
+            self.page.locator('[data-timer-id="managed-health"] .actual-lamp').first.get_attribute(
+                "data-state"
+            ),
+            "stale",
+        )
+        self.assertEqual(
+            self.page.locator('[data-timer-id="managed-cleanup"] .actual-lamp').first.get_attribute(
+                "data-state"
+            ),
+            "off",
+        )
+
         self.assertEqual(self.errors, [])
 
     def test_e1_child_purposes_are_visible_below_their_diagram(self) -> None:

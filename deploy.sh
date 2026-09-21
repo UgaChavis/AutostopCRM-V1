@@ -1995,10 +1995,8 @@ if [[ -n "$automation_feed_baseline" ]]; then
     --database "$CRM_DATA_DIR/change_feed.sqlite3" \
     --baseline "$automation_feed_baseline"
 fi
-set_work_telegram_duty "$work_telegram_inbound_before" release
-work_telegram_duty_paused=0
 capture_safe_work_telegram_status \
-  "$work_telegram_inbound_before" "$manager_revision" release \
+  0 "$manager_revision" release \
   "$automation_telegram_status"
 run_release "$PYTHON_BIN" scripts/check_automation_center_release.py \
   verify-telegram-effects \
@@ -2036,6 +2034,18 @@ maintenance_elapsed="$(elapsed_seconds)"
 run_release rm -f "$MAINTENANCE_MARKER_HOST"
 deployment_succeeded=1
 trap - EXIT
+
+# Inbound duty is the only post-commit state restoration.  Keeping it paused
+# until the rollback trap is gone makes it impossible for an owner message to
+# trigger an outbound reply while this release is still protected/in flight.
+# A failure here leaves the already healthy release open and inbound paused;
+# it must never roll back a system that may now have accepted live commands.
+set_work_telegram_duty "$work_telegram_inbound_before" release
+work_telegram_duty_paused=0
+capture_safe_work_telegram_status \
+  "$work_telegram_inbound_before" "$manager_revision" release \
+  "$automation_telegram_status"
+
 auth_rotated=0
 remove_auth_backup_if_safe || true
 manager_crm_mcp_synced=0

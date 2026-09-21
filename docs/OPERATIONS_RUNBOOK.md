@@ -721,16 +721,18 @@ The bounded release flow:
    change-feed checkpoints and exact public surface;
 9. synchronizes the Manager CRM credential, restarts the scheduler under the
    same hold, proves the live process credential against the non-mutating feed
-   readiness route, and re-reads Manager readiness. It restores the previous
-   Telegram inbound-duty mode, proves no idempotency/outbox change, verifies
+   readiness route, and re-reads Manager readiness. While Telegram inbound
+   remains paused, it proves no idempotency/outbox change, verifies
    the digest is still OFF with zero runs/outbox rows, and compares all five
    timer modes plus the three managed periods with the preflight baseline;
 10. installs the watchdog only through a separately authorized opt-in;
    otherwise leaves it disabled or absent. It releases the scheduler hold only
    after the exact readbacks above, proves released CRM/Manager readiness, then
    tags the healthy release as stable and removes the maintenance marker as the
-   final fallible release action;
-11. after success is marked and the rollback trap is removed, best-effort
+   final protected release action;
+11. after success is marked and the rollback trap is removed, restores the
+   previous Telegram inbound-duty mode with an exact status readback. A failure
+   leaves inbound paused and does not roll back an already open system. Then best-effort
    retention prunes only validated old backup directories, Manager release
    snapshots, and exact CRM release/rollback image tags. Current and rollback
    references are always protected; retention failure cannot roll back or stop

@@ -179,9 +179,10 @@ class ModuleMapTests(unittest.TestCase):
         self.assertNotIn("setInterval", MODULE_MAP_HTML)
         self.assertIn("const AUTOMATION_POLL_MS=5000", MODULE_MAP_HTML)
         self.assertIn(
-            "if($('automationLayer').hidden||automationRequest)return automationRequest",
+            "if(($('automationLayer').hidden&&!force)||automationRequest)return automationRequest",
             MODULE_MAP_HTML,
         )
+        self.assertIn("hashSelection();refreshAutomationStatus(true)", MODULE_MAP_HTML)
         self.assertIn(
             "if(!$('automationLayer').hidden)automationPollTimer=setTimeout",
             MODULE_MAP_HTML,
@@ -189,6 +190,8 @@ class ModuleMapTests(unittest.TestCase):
         self.assertIn("/api/automation_center/status", MODULE_MAP_HTML)
         self.assertIn("/api/automation_center/control", MODULE_MAP_HTML)
         self.assertIn("toggle.role='switch'", MODULE_MAP_HTML)
+        self.assertIn("timer_id:timer.id", MODULE_MAP_HTML)
+        self.assertIn("minutes<5||minutes>1440", MODULE_MAP_HTML)
         self.assertIn(
             "automationStatus=normalizeAutomationStatus(await automationRequestJson",
             MODULE_MAP_HTML,
