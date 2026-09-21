@@ -499,7 +499,10 @@ snapshot_manager_commit {shlex.quote(str(source))} {shlex.quote(str(target))} {s
             knowledge_sync,
         )
 
-        self.assertIn('MANAGER_RELEASE_PYTHON="$MANAGER_SOURCE_DIR/.venv/bin/python"', script)
+        self.assertIn(
+            'MANAGER_RELEASE_PYTHON="${AUTOSTOP_MANAGER_RELEASE_PYTHON:-$MANAGER_SOURCE_DIR/.venv/bin/python}"',
+            script,
+        )
         self.assertIn('if [[ ! -x "$MANAGER_RELEASE_PYTHON" ]]', script)
         self.assertIn('PYTHONPATH="$MANAGER_CURRENT_LINK"', sync)
         self.assertIn("PYTHONSAFEPATH=1", sync)
@@ -524,6 +527,101 @@ snapshot_manager_commit {shlex.quote(str(source))} {shlex.quote(str(target))} {s
         self.assertIn("AUTOSTOP_MANAGER_DB` is mandatory for preflight", runbook)
         self.assertIn("Never run a bare", runbook)
         self.assertIn("`knowledge-sync` against the persistent Manager DB", runbook)
+
+    def test_deploy_cleans_only_audit_probe_after_verified_backup(self) -> None:
+        script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+        backup_verify = script.index(
+            'scripts/agent_release_backup.py verify --backup-dir "$backup_dir"'
+        )
+        cleanup_preview = script.index("scripts/cleanup_audit_probe_consumer.py", backup_verify)
+        cleanup_apply = script.index('--backup-dir "$backup_dir"', cleanup_preview)
+        activation = script.index('activate_manager_snapshot "$manager_release_dir"', cleanup_apply)
+        self.assertLess(backup_verify, cleanup_preview)
+        self.assertLess(cleanup_preview, cleanup_apply)
+        self.assertLess(cleanup_apply, activation)
+
+    def test_automation_center_release_is_held_backed_up_and_read_back_before_open(
+        self,
+    ) -> None:
+        script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+        release = script[script.index("maintenance_started=1") :]
+
+        snapshot = release.index("coordinated_release_state.py capture")
+        hold = release.index("automation_release_attempt_key", snapshot)
+        registry_backup = release.index("backup-manager-automation-state.py", hold)
+        telegram_pause = release.index("set_work_telegram_duty 0 release", registry_backup)
+        crm_stop = release.index("docker compose stop", telegram_pause)
+        protected_backup = release.index("scripts/agent_release_backup.py create", crm_stop)
+        audit_cleanup = release.index("scripts/cleanup_audit_probe_consumer.py", protected_backup)
+        manager_activate = release.index(
+            'activate_manager_snapshot "$manager_release_dir"', audit_cleanup
+        )
+        scheduler_activate = release.index("activate_manager_automation", manager_activate)
+        telegram_activate = release.index("activate_work_telegram_release", scheduler_activate)
+        crm_start = release.index("docker compose up", telegram_activate)
+        credential_sync = release.index("sync_manager_crm_mcp_configuration", crm_start)
+        scheduler_restart = release.index("activate_manager_automation", credential_sync)
+        feed_auth_probe = release.index("probe_manager_crm_feed_auth", scheduler_restart)
+        restarted_readback = release.index("capture_manager_automation_status", feed_auth_probe)
+        final_feed = release.index("verify-feed", crm_start)
+        telegram_restore = release.index(
+            'set_work_telegram_duty "$work_telegram_inbound_before"', final_feed
+        )
+        final_held_readback = release.index("--expect-held", telegram_restore)
+        unhold = release.index("release-hold", final_held_readback)
+        released_readback = release.index("--expect-released", unhold)
+        open_writes = release.index('rm -f "$MAINTENANCE_MARKER_HOST"', released_readback)
+
+        self.assertLess(snapshot, hold)
+        self.assertLess(hold, registry_backup)
+        self.assertLess(registry_backup, telegram_pause)
+        self.assertLess(crm_stop, protected_backup)
+        self.assertLess(protected_backup, audit_cleanup)
+        self.assertLess(audit_cleanup, manager_activate)
+        self.assertLess(scheduler_activate, telegram_activate)
+        self.assertLess(telegram_activate, crm_start)
+        self.assertLess(crm_start, credential_sync)
+        self.assertLess(credential_sync, scheduler_restart)
+        self.assertLess(scheduler_restart, feed_auth_probe)
+        self.assertLess(feed_auth_probe, restarted_readback)
+        self.assertLess(restarted_readback, final_held_readback)
+        self.assertLess(final_feed, telegram_restore)
+        self.assertLess(final_held_readback, unhold)
+        self.assertLess(unhold, released_readback)
+        self.assertLess(released_readback, open_writes)
+
+        self.assertIn('--manager-revision "$manager_revision"', script)
+        self.assertIn('--crm-revision "$crm_revision"', script)
+        self.assertIn('--crm-version "$CRM_APP_VERSION"', script)
+        self.assertIn("verify_active_crm_image", release)
+        self.assertIn("verify_automation_socket_mount", release)
+        self.assertIn("scripts/probe_manager_crm_feed_auth.py", script)
+        self.assertIn("--require-dependencies-ready", script)
+        self.assertNotIn("send-owner-notification", release)
+
+    def test_automation_center_rollback_reholds_and_restores_before_reopening(
+        self,
+    ) -> None:
+        script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+        rollback = script[script.index("rollback_release() {") : script.index("\non_exit() {")]
+
+        guard = rollback.index("guard_coordinated_rollback")
+        stop_crm = rollback.index("docker compose stop")
+        stop_candidates = rollback.index("stop-candidates", stop_crm)
+        manager_restore = rollback.index('activate_manager_snapshot "$previous_manager_dir"')
+        coordinated_restore = rollback.index("restore_coordinated_release_state", manager_restore)
+        crm_restart = rollback.index("docker compose up", coordinated_restore)
+        health = rollback.index('wait_for_health "$rollback_image"', crm_restart)
+        unhold = rollback.index("release-hold", health)
+        open_writes = rollback.index('rm -f "$MAINTENANCE_MARKER_HOST"', unhold)
+
+        self.assertLess(guard, stop_crm)
+        self.assertLess(stop_crm, stop_candidates)
+        self.assertLess(stop_candidates, manager_restore)
+        self.assertLess(manager_restore, coordinated_restore)
+        self.assertLess(coordinated_restore, crm_restart)
+        self.assertLess(health, unhold)
+        self.assertLess(unhold, open_writes)
 
     def test_deploy_runs_isolated_candidate_manager_knowledge_preflight_before_maintenance(
         self,

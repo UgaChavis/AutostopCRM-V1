@@ -581,6 +581,14 @@ atomically writes only `AUTOSTOP_CRM_MCP_URL` and
 server `.env`, snapshots the previous Manager file, and restores it during a
 rollback. It never prints either credential.
 
+The Automation Center scheduler is then restarted under the same owned global
+hold. Before the hold can be released, the deploy compares the URL and bearer
+in the root-only file with the running scheduler's `/proc/<MainPID>/environ`
+without logging either value, calls the authenticated non-mutating
+`POST /api/change_feed/readiness`, and performs a fresh scheduler status and
+dependency readback. The readiness route does not register the digest consumer,
+open a delivery, or advance an ACK.
+
 The default `AUTOSTOP_MANAGER_MCP_ACTIVATE_ON_DEPLOY=0` preserves the existing
 CRM-only deploy behavior. Before E7 may use E8 live, use `=1` in an authorized
 coordinated deploy, or restart the active Manager native MCP with its
@@ -682,13 +690,21 @@ The bounded release flow:
    the live/previous release;
 3. provisions stable encrypted OAuth and rotates the internal compatibility
    bearer with a private rollback copy, without editing Codex configuration;
-4. creates the maintenance marker and stops only `autostopcrm`;
+4. creates the maintenance marker; snapshots the scheduler DB/unit/config,
+   all five timer enabled/active states and managed timer periods, the work
+   Telegram release/duty assets and authoritative root-owned `owner.json`;
+   acquires a unique attempt-owned scheduler hold and waits for quiescence;
+   records a private Telegram idempotency/outbox baseline, pauses only inbound
+   duty, and then stops only `autostopcrm`;
 5. creates and verifies an atomic backup of CRM state/audit data and Manager
-   SQLite;
-6. atomically activates the sealed candidate Manager snapshot, confirms the
-   active identity under the release deadline, then runs `knowledge-sync` and
-   `knowledge-audit` from it against the
-   persistent Manager DB; this happens only after the verified backup and
+   SQLite. Only after that backup it removes the exact `audit-probe` consumer
+   and delivery when its ACK is still zero; feed event count and high-water
+   remain protected by before/after readback;
+6. atomically activates the sealed candidate Manager snapshot, installs the
+   scheduler under the owned hold, adopts current timer state without changing
+   it, seeds singleton `crm_digest_v1` as OFF, confirms the active identities,
+   then runs `knowledge-sync` and `knowledge-audit` from it against the
+   persistent Manager DB. This happens only after the verified backup and
    before CRM start, so any failure uses the existing rollback for both the DB
    and `current` symlink;
 7. starts the prebuilt image, proves only CRM and App share the Store network,
@@ -703,22 +719,35 @@ The bounded release flow:
    called by the public smoke; mandatory public API and OAuth checks and the
    exhaustive maintenance-safe 24-tool Gateway smoke must verify the
    change-feed checkpoints and exact public surface;
-9. installs the watchdog only through a separately authorized opt-in;
-   otherwise leaves it disabled or absent, then tags the healthy release as
-   stable and removes the maintenance marker as the final fallible release
-   action;
-10. after success is marked and the rollback trap is removed, best-effort
+9. synchronizes the Manager CRM credential, restarts the scheduler under the
+   same hold, proves the live process credential against the non-mutating feed
+   readiness route, and re-reads Manager readiness. It restores the previous
+   Telegram inbound-duty mode, proves no idempotency/outbox change, verifies
+   the digest is still OFF with zero runs/outbox rows, and compares all five
+   timer modes plus the three managed periods with the preflight baseline;
+10. installs the watchdog only through a separately authorized opt-in;
+   otherwise leaves it disabled or absent. It releases the scheduler hold only
+   after the exact readbacks above, proves released CRM/Manager readiness, then
+   tags the healthy release as stable and removes the maintenance marker as the
+   final fallible release action;
+11. after success is marked and the rollback trap is removed, best-effort
    retention prunes only validated old backup directories, Manager release
    snapshots, and exact CRM release/rollback image tags. Current and rollback
    references are always protected; retention failure cannot roll back or stop
    the healthy release.
 
-Any failure or maintenance-budget overrun attempts a bounded rollback of
-changed protected data, Manager release, auth configuration, and the previous
-image. Rollback restores protected state only after the candidate container is
-proven stopped; if stop fails, state/feed/Manager data remain untouched and the
-maintenance marker stays active. The marker also remains if rollback cannot
-prove a healthy recovery.
+Any failure or maintenance-budget overrun before production is reopened first
+re-establishes an owned scheduler hold (or stops the scheduler fail-closed),
+disables Telegram inbound duty, and attempts a bounded rollback of changed
+protected data, Manager release, scheduler DB/unit/config, timer states and
+drop-ins, work Telegram release/config/duty, auth configuration, and the
+previous image. A first installation restores scheduler absence. Rollback
+restores protected state only after the candidate container and coordinated
+services are proven stopped; if stop fails, state/feed/Manager data remain
+untouched and the maintenance marker stays active. The marker also remains if
+rollback cannot prove a healthy recovery. After the marker has been removed,
+subsequent recovery starts a new maintenance window and backup rather than
+destroying owner commands accepted by the open production system.
 
 Commonly reviewed settings:
 

@@ -39,9 +39,17 @@ MANAGER_DEPLOY_BRANCH="AutostopManager"
 MANAGER_RELEASE_ROOT="${AUTOSTOP_MANAGER_RELEASE_ROOT:-/opt/autostop-manager-releases}"
 MANAGER_CURRENT_LINK="${AUTOSTOP_MANAGER_CURRENT_LINK:-$MANAGER_RELEASE_ROOT/current}"
 MANAGER_CONTAINER_DIR="${AUTOSTOP_MANAGER_CONTAINER_DIR:-/opt/AutostopManager}"
-MANAGER_RELEASE_PYTHON="$MANAGER_SOURCE_DIR/.venv/bin/python"
+MANAGER_RELEASE_PYTHON="${AUTOSTOP_MANAGER_RELEASE_PYTHON:-$MANAGER_SOURCE_DIR/.venv/bin/python}"
 MANAGER_CRM_MCP_ENV="/opt/AutostopManager/.crm-mcp.env"
 MANAGER_MCP_ACTIVATE_ON_DEPLOY="${AUTOSTOP_MANAGER_MCP_ACTIVATE_ON_DEPLOY:-0}"
+AUTOMATION_SERVICE_NAME="autostop-manager-scheduler.service"
+AUTOMATION_STATE_DIR="/var/lib/autostop-manager-scheduler"
+AUTOMATION_DB="$AUTOMATION_STATE_DIR/registry.sqlite3"
+AUTOMATION_SOCKET="/run/autostop-manager-automation/control.sock"
+WORK_TELEGRAM_RELEASE_LINK="/opt/autostop-work-telegram-releases/current"
+WORK_TELEGRAM_STATE_DIR="/var/lib/autostop-work-telegram"
+WORK_TELEGRAM_RUNTIME_DIR="/run/autostop-work-telegram"
+WORK_TELEGRAM_OWNER_CONFIG="/etc/autostop-work-telegram/owner.json"
 J1_ACTIVATE_ON_DEPLOY="${AUTOSTOP_J1_ACTIVATE_ON_DEPLOY:-0}"
 J1_UNIT_NAME="autostop-j1.service"
 J1_UNIT_PATH="/etc/systemd/system/$J1_UNIT_NAME"
@@ -309,6 +317,14 @@ manager_revision="$(
     "AutoStopManager" "$MANAGER_SOURCE_DIR" "$MANAGER_DEPLOY_BRANCH" \
     "$MANAGER_DEPLOY_REMOTE" "$MANAGER_DEPLOY_BRANCH"
 )"
+CRM_APP_VERSION="$(
+  PYTHONPATH="$ROOT_DIR/src" "$PYTHON_BIN" -c \
+    'from minimal_kanban import __version__; print(__version__)'
+)"
+if [[ -z "$CRM_APP_VERSION" || ${#CRM_APP_VERSION} -gt 64 ]]; then
+  echo "ERROR: CRM application version is unavailable or invalid." >&2
+  exit 2
+fi
 
 "$PYTHON_BIN" scripts/configure_mcp_oauth.py ensure --env-file "$ROOT_DIR/.env"
 set -a
@@ -333,6 +349,7 @@ docker compose config --quiet
 release_timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 release_revision="${crm_revision:0:12}"
 release_id="${release_timestamp}-${release_revision}-$$"
+automation_release_attempt_key="automation:${release_id}:${manager_revision:0:12}"
 release_image_tag="${AUTOSTOP_RELEASE_IMAGE:-autostopcrm:${release_revision}}"
 release_image=""
 release_image_tag_previous_id=""
@@ -366,6 +383,22 @@ j1_browser_previous_active=0
 j1_browser_previous_enabled=0
 j1_browser_previous_marker_present=0
 j1_browser_backup_dir="$BACKUP_ROOT/.j1-browser-rollback-$release_id"
+automation_snapshot_root="$BACKUP_ROOT/.automation-rollback-$release_id"
+automation_snapshot_dir="$automation_snapshot_root/state"
+automation_registry_backup="$automation_snapshot_dir/registry-held.sqlite3"
+automation_hold_readback="$automation_snapshot_dir/hold.json"
+automation_manager_status="$automation_snapshot_dir/manager-status.json"
+automation_telegram_status="$automation_snapshot_dir/telegram-status.json"
+automation_telegram_effects="$automation_snapshot_dir/telegram-effects.json"
+automation_feed_baseline=""
+automation_snapshot_captured=0
+automation_registry_preexisting=0
+automation_hold_acquired=0
+automation_scheduler_activation_attempted=0
+work_telegram_inbound_before=0
+work_telegram_duty_paused=0
+work_telegram_release_attempted=0
+automation_registry_backup_ready=0
 
 cleanup_owned_premaintenance_artifacts() {
   if (( maintenance_started != 0 || premaintenance_cleanup_done != 0 )); then
@@ -1000,6 +1033,202 @@ activate_manager_native_mcp() {
   fi
 }
 
+run_automation_release_module() {
+  local source_dir="$1"
+  local budget_mode="$2"
+  local operation="$3"
+  local attempt_key="$4"
+  local -a command=(
+    env
+    "PYTHONPATH=$source_dir"
+    PYTHONSAFEPATH=1
+    PYTHONDONTWRITEBYTECODE=1
+    AUTOSTOP_MANAGER_ENV_FILE=/dev/null
+    "AUTOSTOP_AUTOMATION_DB=$AUTOMATION_DB"
+    "AUTOSTOP_AUTOMATION_CONTROL_SOCKET=$AUTOMATION_SOCKET"
+    "$MANAGER_RELEASE_PYTHON" -m autostop_manager.automation_release
+    "$operation" --release-attempt-key "$attempt_key"
+  )
+  if [[ "$budget_mode" == "release" ]]; then
+    run_release "${command[@]}"
+  else
+    run_maintenance "${command[@]}"
+  fi
+}
+
+capture_manager_automation_status() {
+  local source_dir="$1"
+  local budget_mode="$2"
+  local output="$3"
+  local -a command=(
+    env
+    "PYTHONPATH=$source_dir"
+    PYTHONSAFEPATH=1
+    PYTHONDONTWRITEBYTECODE=1
+    AUTOSTOP_MANAGER_ENV_FILE=/dev/null
+    "AUTOSTOP_AUTOMATION_CONTROL_SOCKET=$AUTOMATION_SOCKET"
+    "$MANAGER_RELEASE_PYTHON" -m autostop_manager.automation_control status
+  )
+  if [[ "$budget_mode" == "release" ]]; then
+    run_release "${command[@]}" >"$output"
+  else
+    run_maintenance "${command[@]}" >"$output"
+  fi
+}
+
+validate_manager_automation_status() {
+  local input="$1"
+  local expected_hold="$2"
+  local budget_mode="$3"
+  local readiness_mode="${4:-}"
+  local -a command=(
+    "$PYTHON_BIN" scripts/check_automation_center_release.py manager
+    --input "$input"
+    --manager-revision "$manager_revision"
+    --crm-revision "$crm_revision"
+    --crm-version "$CRM_APP_VERSION"
+    --release-attempt-key "$automation_release_attempt_key"
+    --baseline-snapshot "$automation_snapshot_dir"
+    "$expected_hold"
+  )
+  if [[ "$readiness_mode" == "require-dependencies-ready" ]]; then
+    command+=(--require-dependencies-ready)
+  fi
+  if [[ "$budget_mode" == "release" ]]; then
+    run_release "${command[@]}"
+  else
+    run_maintenance "${command[@]}"
+  fi
+}
+
+capture_safe_work_telegram_status() {
+  local expected_inbound="$1"
+  local expected_revision="$2"
+  local budget_mode="$3"
+  local output="$4"
+  local duty_script="$WORK_TELEGRAM_RELEASE_LINK/scripts/set-work-telegram-duty.sh"
+  local -a validator=(
+    "$PYTHON_BIN" scripts/check_automation_center_release.py telegram
+    --release-link "$WORK_TELEGRAM_RELEASE_LINK"
+    --owner-config "$WORK_TELEGRAM_OWNER_CONFIG"
+  )
+  if [[ "$expected_inbound" == "1" ]]; then
+    validator+=(--expect-inbound)
+  elif [[ "$expected_inbound" == "any" ]]; then
+    validator+=(--allow-either-inbound)
+  else
+    validator+=(--expect-outbound-only)
+  fi
+  if [[ -n "$expected_revision" ]]; then
+    validator+=(--expected-revision "$expected_revision")
+  fi
+  if [[ ! -x "$duty_script" || -L "$duty_script" ]]; then
+    echo "ERROR: work Telegram duty controller is unavailable." >&2
+    return 2
+  fi
+  if [[ "$budget_mode" == "release" ]]; then
+    run_release "$duty_script" --status | run_release "${validator[@]}" >"$output"
+  else
+    run_maintenance "$duty_script" --status | run_maintenance "${validator[@]}" >"$output"
+  fi
+}
+
+safe_telegram_status_has_inbound() {
+  local input="$1"
+  "$PYTHON_BIN" -c \
+    'import json,sys; value=json.load(open(sys.argv[1], encoding="utf-8")); sys.exit(0 if value.get("inbound_enabled") is True else 1)' \
+    "$input"
+}
+
+set_work_telegram_duty() {
+  local enabled="$1"
+  local budget_mode="$2"
+  local duty_script="$WORK_TELEGRAM_RELEASE_LINK/scripts/set-work-telegram-duty.sh"
+  local option="--disable"
+  [[ "$enabled" == "1" ]] && option="--enable"
+  if [[ ! -x "$duty_script" || -L "$duty_script" ]]; then
+    echo "ERROR: work Telegram duty controller is unavailable." >&2
+    return 2
+  fi
+  if [[ "$budget_mode" == "release" ]]; then
+    run_release "$duty_script" "$option"
+  else
+    run_maintenance "$duty_script" "$option"
+  fi
+}
+
+activate_manager_automation() {
+  local installer="$MANAGER_CURRENT_LINK/scripts/install-manager-automation.sh"
+  if [[ ! -x "$installer" || -L "$installer" ]]; then
+    echo "ERROR: active Manager Automation Center installer is unavailable." >&2
+    return 2
+  fi
+  automation_scheduler_activation_attempted=1
+  run_release "$installer" \
+    --activate-under-hold \
+    --replace-unit \
+    --manager-revision "$manager_revision" \
+    --crm-revision "$crm_revision" \
+    --crm-version "$CRM_APP_VERSION" \
+    --release-attempt-key "$automation_release_attempt_key"
+}
+
+probe_manager_crm_feed_auth() {
+  run_release "$PYTHON_BIN" scripts/probe_manager_crm_feed_auth.py \
+    --manager-env "$MANAGER_CRM_MCP_ENV" \
+    --unit "$AUTOMATION_SERVICE_NAME"
+}
+
+activate_work_telegram_release() {
+  work_telegram_release_attempted=1
+  run_release "$MANAGER_SOURCE_DIR/scripts/deploy_telegram_bridge.sh" \
+    --account work --no-start "$manager_revision"
+  local wake_installer="$WORK_TELEGRAM_RELEASE_LINK/scripts/install-codex-wake.sh"
+  if [[ ! -x "$wake_installer" || -L "$wake_installer" ]]; then
+    echo "ERROR: candidate work Telegram wake installer is unavailable." >&2
+    return 2
+  fi
+  run_release "$wake_installer"
+}
+
+prepare_work_telegram_candidate() {
+  local dependency_installer="$MANAGER_SOURCE_DIR/scripts/install-telegram-bridge.sh"
+  local model_installer="$MANAGER_SOURCE_DIR/scripts/provision-telegram-transcription-model.sh"
+  if [[ ! -x "$dependency_installer" || -L "$dependency_installer" \
+    || ! -x "$model_installer" || -L "$model_installer" ]]; then
+    echo "ERROR: work Telegram candidate installers are unavailable." >&2
+    return 2
+  fi
+  run_release "$dependency_installer" --account work --revision "$manager_revision"
+  run_release "$model_installer" --account work --revision "$manager_revision"
+}
+
+verify_active_crm_image() {
+  local active_container active_image active_revision
+  active_container="$(run_release env AUTOSTOP_RELEASE_IMAGE="$release_image" docker compose ps -q "$SERVICE_NAME")"
+  [[ -n "$active_container" ]] || return 1
+  active_image="$(run_release docker inspect --format '{{.Image}}' "$active_container")"
+  [[ "$active_image" == "$release_image" ]] || return 1
+  active_revision="$(
+    run_release docker image inspect \
+      --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' \
+      "$active_image"
+  )"
+  [[ "$active_revision" == "$crm_revision" ]]
+}
+
+verify_automation_socket_mount() {
+  local active_container mount_readback
+  active_container="$(run_release env AUTOSTOP_RELEASE_IMAGE="$release_image" docker compose ps -q "$SERVICE_NAME")"
+  [[ -n "$active_container" ]] || return 1
+  mount_readback="$(
+    run_release docker inspect --format \
+      '{{range .Mounts}}{{if eq .Destination "/run/autostop-manager-automation"}}{{.Source}}|{{.RW}}{{end}}{{end}}' \
+      "$active_container"
+  )"
+  [[ "$mount_readback" == "/run/autostop-manager-automation|false" ]]
+}
+
 snapshot_j1_worker_state() {
   if [[ -L "$J1_UNIT_PATH" || ( -e "$J1_UNIT_PATH" && ! -f "$J1_UNIT_PATH" ) ]]; then
     echo "ERROR: existing J1 systemd unit is not a regular file." >&2
@@ -1303,6 +1532,61 @@ activate_j1_browser_optional() {
   assert_release_budget
 }
 
+guard_coordinated_rollback() {
+  if (( automation_snapshot_captured != 1 )); then
+    return 0
+  fi
+  # Usually the original release hold is still active. If it was already
+  # released immediately before a later pre-open failure, acquire a distinct
+  # rollback attempt. If neither CAS path is available, stopping the scheduler
+  # is the fail-closed fallback.
+  if run_automation_release_module \
+    "$manager_release_dir" maintenance hold "$automation_release_attempt_key" \
+    >/dev/null 2>&1; then
+    automation_hold_acquired=1
+  elif run_automation_release_module \
+    "$manager_release_dir" maintenance hold "${automation_release_attempt_key}:rollback" \
+    >/dev/null 2>&1; then
+    automation_hold_acquired=1
+  else
+    run_maintenance systemctl stop "$AUTOMATION_SERVICE_NAME" >/dev/null 2>&1 || true
+    if systemctl is-active --quiet "$AUTOMATION_SERVICE_NAME"; then
+      echo "ROLLBACK CRITICAL: scheduler could not be held or stopped." >&2
+      return 2
+    fi
+  fi
+  if (( work_telegram_duty_paused != 1 )); then
+    if set_work_telegram_duty 0 maintenance >/dev/null 2>&1; then
+      work_telegram_duty_paused=1
+    else
+      run_maintenance systemctl stop autostop-codex-wake.service || true
+      run_maintenance systemctl stop autostop-work-telegram.service || return $?
+    fi
+  fi
+}
+
+restore_coordinated_release_state() {
+  if (( automation_snapshot_captured != 1 )); then
+    return 0
+  fi
+  local -a command=(
+    "$PYTHON_BIN" scripts/coordinated_release_state.py restore
+    --snapshot "$automation_snapshot_dir"
+  )
+  if (( automation_registry_preexisting == 1 )); then
+    if (( automation_registry_backup_ready != 1 )) \
+      || [[ ! -f "$automation_registry_backup" ]]; then
+      echo "ROLLBACK CRITICAL: scheduler registry backup is unavailable." >&2
+      return 2
+    fi
+    command+=(--database-backup "$automation_registry_backup")
+  fi
+  run_maintenance "${command[@]}" || return $?
+  work_telegram_duty_paused=0
+  work_telegram_release_attempted=0
+  automation_scheduler_activation_attempted=0
+}
+
 rollback_release() {
   local original_status="$1"
   local rollback_ok=1
@@ -1316,6 +1600,10 @@ rollback_release() {
     echo "ROLLBACK CRITICAL: maintenance marker could not be re-armed." >&2
     rollback_ok=0
     marker_rearmed=0
+  fi
+  if ! guard_coordinated_rollback; then
+    echo "ROLLBACK CRITICAL: coordinated scheduler/Telegram guard failed." >&2
+    rollback_ok=0
   fi
   if (( ${j1_browser_activation_attempted:-0} == 1 )) \
     && systemctl is-active --quiet "$J1_BROWSER_UNIT_NAME"; then
@@ -1339,6 +1627,10 @@ rollback_release() {
     echo "ROLLBACK CRITICAL: candidate CRM could not be stopped; protected data remains untouched and maintenance stays active; the auth snapshot is preserved." >&2
     set -e
     return "$original_status"
+  fi
+  if (( automation_snapshot_captured == 1 )); then
+    run_maintenance "$PYTHON_BIN" scripts/coordinated_release_state.py \
+      stop-candidates || rollback_ok=0
   fi
   if (( marker_rearmed == 0 )); then
     echo "ROLLBACK CRITICAL: CRM remains stopped because write protection is unavailable." >&2
@@ -1374,6 +1666,9 @@ rollback_release() {
     restore_manager_crm_mcp_configuration || rollback_ok=0
   fi
   activate_manager_snapshot "$previous_manager_dir" || rollback_ok=0
+  if (( automation_snapshot_captured == 1 )); then
+    restore_coordinated_release_state || rollback_ok=0
+  fi
   if (( ${j1_worker_activation_attempted:-0} == 1 )); then
     restore_j1_worker_state || rollback_ok=0
   fi
@@ -1388,6 +1683,11 @@ rollback_release() {
   if wait_for_health "$rollback_image" 0; then
     # Never reopen writes after an incomplete protected-data, Manager, auth,
     # image, or health rollback, even when the old container itself is healthy.
+    if (( rollback_ok == 1 && automation_registry_preexisting == 1 )); then
+      run_automation_release_module \
+        "$previous_manager_dir" maintenance release-hold \
+        "$automation_release_attempt_key" || rollback_ok=0
+    fi
     if (( rollback_ok == 1 )); then
       run_maintenance rm -f "$MAINTENANCE_MARKER_HOST" || rollback_ok=0
     fi
@@ -1459,6 +1759,50 @@ maintenance_started=1
 printf -v maintenance_started_at '%(%s)T' -1
 run_release install -D -m 600 /dev/null "$MAINTENANCE_MARKER_HOST"
 
+if [[ -f "$AUTOMATION_DB" && ! -L "$AUTOMATION_DB" ]]; then
+  automation_registry_preexisting=1
+fi
+run_release install -d -o root -g root -m 0700 "$automation_snapshot_root"
+run_release "$PYTHON_BIN" scripts/coordinated_release_state.py capture \
+  --output "$automation_snapshot_dir"
+automation_snapshot_captured=1
+run_release "$PYTHON_BIN" scripts/coordinated_release_state.py verify \
+  --snapshot "$automation_snapshot_dir"
+run_release "$PYTHON_BIN" scripts/check_automation_center_release.py \
+  capture-telegram-effects \
+  --state-dir "$WORK_TELEGRAM_STATE_DIR" \
+  --runtime-dir "$WORK_TELEGRAM_RUNTIME_DIR" \
+  --output "$automation_telegram_effects"
+capture_safe_work_telegram_status any "" release "$automation_telegram_status"
+if safe_telegram_status_has_inbound "$automation_telegram_status"; then
+  work_telegram_inbound_before=1
+fi
+
+# Acquire the scheduler hold before any schema/install mutation. The command
+# owns the hold with this unique release attempt and returns only after leases
+# and sending outbox claims are quiescent.
+run_automation_release_module \
+  "$manager_release_dir" release hold "$automation_release_attempt_key" \
+  >"$automation_hold_readback"
+run_release "$PYTHON_BIN" scripts/check_automation_center_release.py hold \
+  --input "$automation_hold_readback" \
+  --release-attempt-key "$automation_release_attempt_key"
+automation_hold_acquired=1
+run_release "$MANAGER_RELEASE_PYTHON" \
+  "$manager_release_dir/scripts/backup-manager-automation-state.py" \
+  --source "$AUTOMATION_DB" --output "$automation_registry_backup"
+automation_registry_backup_ready=1
+
+# Pause only inbound duty. The local outbound transport remains active for its
+# readiness probe, but this release never invokes a send operation.
+set_work_telegram_duty 0 release
+work_telegram_duty_paused=1
+capture_safe_work_telegram_status 0 "" release "$automation_telegram_status"
+# Prepare dependencies and the local transcription model only after the live
+# Telegram links/config have a rollback snapshot and inbound duty is paused.
+# This does not read chats or send a message.
+prepare_work_telegram_candidate
+
 echo "Maintenance window started; stopping only $SERVICE_NAME."
 run_release docker compose stop --timeout 20 "$SERVICE_NAME"
 assert_release_budget
@@ -1472,12 +1816,55 @@ backup_dir="$BACKUP_ROOT/$release_id"
 run_release "$PYTHON_BIN" scripts/agent_release_backup.py verify --backup-dir "$backup_dir"
 assert_release_budget
 
+run_release mv -T "$automation_snapshot_dir" "$backup_dir/coordinated-release-state"
+automation_snapshot_dir="$backup_dir/coordinated-release-state"
+automation_registry_backup="$automation_snapshot_dir/registry-held.sqlite3"
+automation_hold_readback="$automation_snapshot_dir/hold.json"
+automation_manager_status="$automation_snapshot_dir/manager-status.json"
+automation_telegram_status="$automation_snapshot_dir/telegram-status.json"
+automation_telegram_effects="$automation_snapshot_dir/telegram-effects.json"
+run_release rmdir "$automation_snapshot_root"
+
+automation_feed_baseline="$backup_dir/automation-feed-baseline.json"
+if [[ -f "$CRM_DATA_DIR/change_feed.sqlite3" ]]; then
+  run_release "$PYTHON_BIN" scripts/check_automation_center_release.py capture-feed \
+    --database "$CRM_DATA_DIR/change_feed.sqlite3" \
+    --output "$automation_feed_baseline"
+fi
+
+if [[ -f "$CRM_DATA_DIR/change_feed.sqlite3" ]]; then
+  run_release "$PYTHON_BIN" scripts/cleanup_audit_probe_consumer.py \
+    --database "$CRM_DATA_DIR/change_feed.sqlite3"
+  run_release "$PYTHON_BIN" scripts/cleanup_audit_probe_consumer.py \
+    --database "$CRM_DATA_DIR/change_feed.sqlite3" \
+    --backup-dir "$backup_dir" \
+    --apply
+fi
+assert_release_budget
+
 activate_manager_snapshot "$manager_release_dir"
 # Knowledge sync intentionally changes the persistent Manager index only after
 # its verified rollback backup exists and the immutable candidate is current.
 # Any failure exits under the armed maintenance trap, which restores both the
 # Manager SQLite and the previous current symlink before CRM is restarted.
 sync_current_manager_knowledge
+assert_release_budget
+
+# Scheduler activation is bound to the sealed Manager/CRM revisions and starts
+# under the already-owned hold. Its installer adopts the five live timers only
+# when absent and seeds the singleton digest strictly OFF.
+activate_manager_automation
+capture_manager_automation_status \
+  "$MANAGER_CURRENT_LINK" release "$automation_manager_status"
+validate_manager_automation_status "$automation_manager_status" --expect-held release
+assert_release_budget
+
+# Switch the work bridge while inbound duty is paused. The deploy script owns
+# its immutable runtime rollback; the coordinated snapshot covers any later
+# candidate failure. This performs only status/self-checks, never a send.
+activate_work_telegram_release
+capture_safe_work_telegram_status \
+  0 "$manager_revision" release "$automation_telegram_status"
 assert_release_budget
 
 # The hardened image runs without root. Migrate only the two persisted data
@@ -1500,6 +1887,18 @@ if ! wait_for_health "$release_image"; then
 fi
 assert_release_budget
 validate_store_network 1 run_release
+verify_active_crm_image
+verify_automation_socket_mount
+
+run_release docker compose exec -T "$SERVICE_NAME" python \
+  scripts/check_automation_center_release.py crm \
+  --base-url http://127.0.0.1:41731 \
+  --username "$AUTOSTOP_SMOKE_OPERATOR_USERNAME" \
+  --password "$AUTOSTOP_SMOKE_OPERATOR_PASSWORD" \
+  --manager-revision "$manager_revision" \
+  --socket /run/autostop-manager-automation/control.sock \
+  --manager-revision-path "$MANAGER_CONTAINER_DIR/REVISION" \
+  --expect-held
 
 run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_live_connector.py \
   --strict \
@@ -1530,6 +1929,20 @@ run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_mcp_oaut
 # separate root-only environment file, with a recoverable pre-sync snapshot.
 sync_manager_crm_mcp_configuration
 assert_release_budget
+
+# The scheduler was first started while the previous Manager credential file
+# was still installed. Restart it under the same owned hold so the live process
+# imports the just-synchronised bearer, then prove the exact process credential
+# can access CRM's non-mutating change-feed readiness route. The probe neither
+# registers the digest consumer nor creates a delivery/ACK.
+activate_manager_automation
+probe_manager_crm_feed_auth
+capture_manager_automation_status \
+  "$MANAGER_CURRENT_LINK" release "$automation_manager_status"
+validate_manager_automation_status \
+  "$automation_manager_status" --expect-held release require-dependencies-ready
+assert_release_budget
+
 if [[ "$MANAGER_MCP_ACTIVATE_ON_DEPLOY" == "1" ]]; then
   # The active Manager installer owns its bounded listener/native-MCP probe.
   # Mark the attempt first so rollback restores the previous service even when
@@ -1575,6 +1988,46 @@ if [[ "$INSTALL_WATCHDOG" == "1" ]]; then
     echo "WARN: watchdog install skipped; root and systemctl are required." >&2
   fi
 fi
+
+# Reconcile every release invariant immediately before opening production.
+if [[ -n "$automation_feed_baseline" ]]; then
+  run_release "$PYTHON_BIN" scripts/check_automation_center_release.py verify-feed \
+    --database "$CRM_DATA_DIR/change_feed.sqlite3" \
+    --baseline "$automation_feed_baseline"
+fi
+set_work_telegram_duty "$work_telegram_inbound_before" release
+work_telegram_duty_paused=0
+capture_safe_work_telegram_status \
+  "$work_telegram_inbound_before" "$manager_revision" release \
+  "$automation_telegram_status"
+run_release "$PYTHON_BIN" scripts/check_automation_center_release.py \
+  verify-telegram-effects \
+  --state-dir "$WORK_TELEGRAM_STATE_DIR" \
+  --runtime-dir "$WORK_TELEGRAM_RUNTIME_DIR" \
+  --baseline "$automation_telegram_effects"
+capture_manager_automation_status \
+  "$MANAGER_CURRENT_LINK" release "$automation_manager_status"
+validate_manager_automation_status \
+  "$automation_manager_status" --expect-held release require-dependencies-ready
+
+# The hold is released only after CRM, Manager, timers, feed and Telegram have
+# passed exact readback. If the final marker removal fails, rollback reacquires
+# a new owned hold before touching code or state.
+run_automation_release_module \
+  "$MANAGER_CURRENT_LINK" release release-hold "$automation_release_attempt_key"
+automation_hold_acquired=0
+capture_manager_automation_status \
+  "$MANAGER_CURRENT_LINK" release "$automation_manager_status"
+validate_manager_automation_status "$automation_manager_status" --expect-released release
+run_release docker compose exec -T "$SERVICE_NAME" python \
+  scripts/check_automation_center_release.py crm \
+  --base-url http://127.0.0.1:41731 \
+  --username "$AUTOSTOP_SMOKE_OPERATOR_USERNAME" \
+  --password "$AUTOSTOP_SMOKE_OPERATOR_PASSWORD" \
+  --manager-revision "$manager_revision" \
+  --socket /run/autostop-manager-automation/control.sock \
+  --manager-revision-path "$MANAGER_CONTAINER_DIR/REVISION" \
+  --expect-released
 
 assert_release_budget
 run_release docker tag "$release_image" "$STABLE_IMAGE"
