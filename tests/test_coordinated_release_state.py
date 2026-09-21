@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import stat
 import subprocess
+import tempfile
+import unittest
 from pathlib import Path
 
 from scripts.coordinated_release_state import (
@@ -94,95 +96,99 @@ def _layout(
     }
 
 
-def test_capture_verify_and_restore_exact_files_links_database_and_services(
-    tmp_path: Path,
-) -> None:
-    layout, paths = _layout(tmp_path)
-    states = {
-        "scheduler.service": {
-            "load_state": "loaded",
-            "active_state": "active",
-            "unit_file_state": "enabled",
-        },
-        "telegram.service": {
-            "load_state": "loaded",
-            "active_state": "inactive",
-            "unit_file_state": "disabled",
-        },
-    }
-    systemctl = FakeSystemctl(states)
-    backup_root = tmp_path / "backups"
-    backup_root.mkdir(mode=0o700)
-    snapshot = backup_root / "coordinated"
+class CoordinatedReleaseStateTests(unittest.TestCase):
+    def test_capture_verify_and_restore_exact_files_links_database_and_services(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tmp_path = Path(directory)
+            layout, paths = _layout(tmp_path)
+            states = {
+                "scheduler.service": {
+                    "load_state": "loaded",
+                    "active_state": "active",
+                    "unit_file_state": "enabled",
+                },
+                "telegram.service": {
+                    "load_state": "loaded",
+                    "active_state": "inactive",
+                    "unit_file_state": "disabled",
+                },
+            }
+            systemctl = FakeSystemctl(states)
+            backup_root = tmp_path / "backups"
+            backup_root.mkdir(mode=0o700)
+            snapshot = backup_root / "coordinated"
 
-    result = capture(snapshot, layout=layout, runner=systemctl)
-    assert result["scheduler_database_preexisting"] is True
-    assert verify(snapshot, layout=layout)["ok"] is True
+            result = capture(snapshot, layout=layout, runner=systemctl)
+            self.assertTrue(result["scheduler_database_preexisting"])
+            self.assertTrue(verify(snapshot, layout=layout)["ok"])
 
-    database_backup = backup_root / "registry-backup.sqlite3"
-    database_backup.write_bytes(b"held-online-backup")
-    os.chmod(database_backup, 0o600)
-    paths["unit"].write_text("candidate-unit\n", encoding="utf-8")
-    paths["owner"].write_text("candidate-target\n", encoding="utf-8")
-    (paths["unit"].parent / "optional.env").write_text("candidate\n", encoding="utf-8")
-    paths["current"].unlink()
-    paths["current"].symlink_to(paths["release_b"])
-    paths["database"].write_bytes(b"migrated")
-    Path(f"{paths['database']}-wal").write_bytes(b"wal")
-    states["scheduler.service"].update(active_state="inactive", unit_file_state="disabled")
-    states["telegram.service"].update(active_state="active", unit_file_state="enabled")
+            database_backup = backup_root / "registry-backup.sqlite3"
+            database_backup.write_bytes(b"held-online-backup")
+            os.chmod(database_backup, 0o600)
+            paths["unit"].write_text("candidate-unit\n", encoding="utf-8")
+            paths["owner"].write_text("candidate-target\n", encoding="utf-8")
+            (paths["unit"].parent / "optional.env").write_text("candidate\n", encoding="utf-8")
+            paths["current"].unlink()
+            paths["current"].symlink_to(paths["release_b"])
+            paths["database"].write_bytes(b"migrated")
+            Path(f"{paths['database']}-wal").write_bytes(b"wal")
+            states["scheduler.service"].update(active_state="inactive", unit_file_state="disabled")
+            states["telegram.service"].update(active_state="active", unit_file_state="enabled")
 
-    restored = restore(
-        snapshot,
-        database_backup=database_backup,
-        layout=layout,
-        runner=systemctl,
-    )
+            restored = restore(
+                snapshot,
+                database_backup=database_backup,
+                layout=layout,
+                runner=systemctl,
+            )
 
-    assert restored["scheduler_database_restored"] is True
-    assert paths["unit"].read_text(encoding="utf-8") == "old-unit\n"
-    assert paths["owner"].read_text(encoding="utf-8") == "private-target\n"
-    assert stat.S_IMODE(paths["unit"].stat().st_mode) == 0o640
-    assert not (paths["unit"].parent / "optional.env").exists()
-    assert paths["current"].resolve() == paths["release_a"]
-    assert paths["database"].read_bytes() == b"held-online-backup"
-    assert not Path(f"{paths['database']}-wal").exists()
-    assert states["scheduler.service"]["active_state"] == "active"
-    assert states["scheduler.service"]["unit_file_state"] == "enabled"
-    assert states["telegram.service"]["active_state"] == "inactive"
-    assert states["telegram.service"]["unit_file_state"] == "disabled"
+            self.assertTrue(restored["scheduler_database_restored"])
+            self.assertEqual(paths["unit"].read_text(encoding="utf-8"), "old-unit\n")
+            self.assertEqual(paths["owner"].read_text(encoding="utf-8"), "private-target\n")
+            self.assertEqual(stat.S_IMODE(paths["unit"].stat().st_mode), 0o640)
+            self.assertFalse((paths["unit"].parent / "optional.env").exists())
+            self.assertEqual(paths["current"].resolve(), paths["release_a"])
+            self.assertEqual(paths["database"].read_bytes(), b"held-online-backup")
+            self.assertFalse(Path(f"{paths['database']}-wal").exists())
+            self.assertEqual(states["scheduler.service"]["active_state"], "active")
+            self.assertEqual(states["scheduler.service"]["unit_file_state"], "enabled")
+            self.assertEqual(states["telegram.service"]["active_state"], "inactive")
+            self.assertEqual(states["telegram.service"]["unit_file_state"], "disabled")
 
+    def test_first_install_rollback_restores_absence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tmp_path = Path(directory)
+            layout, paths = _layout(tmp_path, database_present=False)
+            paths["unit"].unlink()
+            paths["current"].unlink()
+            states = {
+                unit: {
+                    "load_state": "not-found",
+                    "active_state": "inactive",
+                    "unit_file_state": "disabled",
+                }
+                for unit in layout.services
+            }
+            systemctl = FakeSystemctl(states)
+            backup_root = tmp_path / "backups"
+            backup_root.mkdir(mode=0o700)
+            snapshot = backup_root / "coordinated"
+            capture(snapshot, layout=layout, runner=systemctl)
 
-def test_first_install_rollback_restores_absence(tmp_path: Path) -> None:
-    layout, paths = _layout(tmp_path, database_present=False)
-    paths["unit"].unlink()
-    paths["current"].unlink()
-    states = {
-        unit: {
-            "load_state": "not-found",
-            "active_state": "inactive",
-            "unit_file_state": "disabled",
-        }
-        for unit in layout.services
-    }
-    systemctl = FakeSystemctl(states)
-    backup_root = tmp_path / "backups"
-    backup_root.mkdir(mode=0o700)
-    snapshot = backup_root / "coordinated"
-    capture(snapshot, layout=layout, runner=systemctl)
+            paths["unit"].write_text("candidate\n", encoding="utf-8")
+            paths["current"].symlink_to(paths["release_b"])
+            paths["database"].write_bytes(b"created-by-release")
 
-    paths["unit"].write_text("candidate\n", encoding="utf-8")
-    paths["current"].symlink_to(paths["release_b"])
-    paths["database"].write_bytes(b"created-by-release")
+            result = restore(
+                snapshot,
+                database_backup=None,
+                layout=layout,
+                runner=systemctl,
+            )
 
-    result = restore(
-        snapshot,
-        database_backup=None,
-        layout=layout,
-        runner=systemctl,
-    )
-
-    assert result["first_install_absence_restored"] is True
-    assert not paths["unit"].exists()
-    assert not paths["current"].exists()
-    assert not paths["database"].exists()
+            self.assertTrue(result["first_install_absence_restored"])
+            self.assertFalse(paths["unit"].exists())
+            self.assertFalse(paths["current"].exists())
+            self.assertFalse(paths["database"].exists())
