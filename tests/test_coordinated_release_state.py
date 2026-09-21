@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from scripts.coordinated_release_state import (
     Artifact,
@@ -137,11 +138,20 @@ class CoordinatedReleaseStateTests(unittest.TestCase):
             states["scheduler.service"].update(active_state="inactive", unit_file_state="disabled")
             states["telegram.service"].update(active_state="active", unit_file_state="enabled")
 
-            restored = restore(
-                snapshot,
-                database_backup=database_backup,
-                layout=layout,
-                runner=systemctl,
+            with mock.patch("scripts.coordinated_release_state.os.chown") as chown:
+                restored = restore(
+                    snapshot,
+                    database_backup=database_backup,
+                    layout=layout,
+                    runner=systemctl,
+                )
+            self.assertGreaterEqual(chown.call_count, 1)
+            self.assertTrue(all(call.args[1:3] == (0, 0) for call in chown.call_args_list))
+            self.assertTrue(
+                any(
+                    Path(call.args[0]).name.startswith(".registry.restore-")
+                    for call in chown.call_args_list
+                )
             )
 
             self.assertTrue(restored["scheduler_database_restored"])
