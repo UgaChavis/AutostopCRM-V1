@@ -500,6 +500,9 @@ def stop_candidate_services(
     ):
         if unit not in layout.services:
             continue
+        state = _read_service_state(unit, runner)
+        if state["load_state"] == "not-found":
+            continue
         result = runner(("systemctl", "stop", unit))
         if result.returncode != 0:
             raise RuntimeError("coordinated_release_service_stop_failed")

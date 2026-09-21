@@ -13,6 +13,7 @@ from scripts.coordinated_release_state import (
     ReleaseLayout,
     capture,
     restore,
+    stop_candidate_services,
     verify,
 )
 
@@ -98,6 +99,100 @@ def _layout(
 
 
 class CoordinatedReleaseStateTests(unittest.TestCase):
+    def test_stop_candidates_skips_only_unit_confirmed_not_found(self) -> None:
+        states = {
+            "autostop-codex-wake.service": {
+                "load_state": "loaded",
+                "active_state": "active",
+                "unit_file_state": "enabled",
+            },
+            "autostop-work-telegram.service": {
+                "load_state": "loaded",
+                "active_state": "active",
+                "unit_file_state": "enabled",
+            },
+            "autostop-manager-scheduler.service": {
+                "load_state": "not-found",
+                "active_state": "inactive",
+                "unit_file_state": "disabled",
+            },
+        }
+        systemctl = FakeSystemctl(states)
+        layout = ReleaseLayout(services=tuple(states))
+
+        result = stop_candidate_services(layout=layout, runner=systemctl)
+
+        self.assertEqual(
+            result["stopped"],
+            [
+                "autostop-codex-wake.service",
+                "autostop-work-telegram.service",
+            ],
+        )
+        self.assertIn(
+            (
+                "systemctl",
+                "show",
+                "autostop-manager-scheduler.service",
+                *(
+                    "--property=LoadState",
+                    "--property=ActiveState",
+                    "--property=UnitFileState",
+                    "--property=TimersCalendar",
+                    "--property=TimersMonotonic",
+                    "--no-pager",
+                ),
+            ),
+            systemctl.calls,
+        )
+        self.assertNotIn(
+            ("systemctl", "stop", "autostop-manager-scheduler.service"),
+            systemctl.calls,
+        )
+
+    def test_stop_candidates_preserves_loaded_unit_stop_failure(self) -> None:
+        class FailingStopSystemctl(FakeSystemctl):
+            def __call__(self, command: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+                if command == ("systemctl", "stop", "autostop-work-telegram.service"):
+                    self.calls.append(command)
+                    return subprocess.CompletedProcess(command, 1, "", "stop failed")
+                return super().__call__(command)
+
+        states = {
+            unit: {
+                "load_state": "loaded",
+                "active_state": "active",
+                "unit_file_state": "enabled",
+            }
+            for unit in (
+                "autostop-codex-wake.service",
+                "autostop-work-telegram.service",
+                "autostop-manager-scheduler.service",
+            )
+        }
+        systemctl = FailingStopSystemctl(states)
+        layout = ReleaseLayout(services=tuple(states))
+
+        with self.assertRaisesRegex(RuntimeError, "coordinated_release_service_stop_failed"):
+            stop_candidate_services(layout=layout, runner=systemctl)
+
+    def test_stop_candidates_fails_closed_without_exact_load_state(self) -> None:
+        commands: list[tuple[str, ...]] = []
+
+        def unavailable_systemctl(
+            command: tuple[str, ...],
+        ) -> subprocess.CompletedProcess[str]:
+            commands.append(command)
+            return subprocess.CompletedProcess(command, 1, "", "show failed")
+
+        layout = ReleaseLayout(services=("autostop-codex-wake.service",))
+
+        with self.assertRaisesRegex(RuntimeError, "coordinated_release_service_state_unavailable"):
+            stop_candidate_services(layout=layout, runner=unavailable_systemctl)
+
+        self.assertEqual(len(commands), 1)
+        self.assertEqual(commands[0][:3], ("systemctl", "show", "autostop-codex-wake.service"))
+
     def test_capture_verify_and_restore_exact_files_links_database_and_services(
         self,
     ) -> None:
