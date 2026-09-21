@@ -198,7 +198,9 @@ class OperatorAuthService:
                 }
             )
             state["sessions"] = self._limit_sessions_per_user(state["sessions"])
-            self._write_state(state)
+            # Session rotation and login-time credential upgrades are auth state,
+            # not CRM business changes.
+            self._write_state(state, sync_change_feed=False)
             snapshot = deepcopy(user)
         profile = self._build_profile_payload(snapshot, token=token)
         self._record_activity_safe(
@@ -222,7 +224,7 @@ class OperatorAuthService:
                 item for item in state["sessions"] if item.get("token") != session["token"]
             ]
             if len(state["sessions"]) != before:
-                self._write_state(state)
+                self._write_state(state, sync_change_feed=False)
         self._record_activity_safe(
             username=session["username"],
             module="auth",
@@ -1680,7 +1682,7 @@ class OperatorAuthService:
         retained_reversed.reverse()
         return retained_reversed
 
-    def _write_state(self, state: dict[str, Any]) -> None:
+    def _write_state(self, state: dict[str, Any], *, sync_change_feed: bool = True) -> None:
         payload = self._state_payload_text(state)
         temp_file = self._users_file.with_name(
             f".{self._users_file.name}.{secrets.token_hex(8)}.tmp"
@@ -1688,7 +1690,8 @@ class OperatorAuthService:
         try:
             temp_file.write_bytes(payload.encode("utf-8"))
             temp_file.replace(self._users_file)
-            self._sync_change_feed(state)
+            if sync_change_feed:
+                self._sync_change_feed(state)
         finally:
             temp_file.unlink(missing_ok=True)
 

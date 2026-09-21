@@ -56,6 +56,34 @@ class OperatorUserRevisionTests(unittest.TestCase):
         state = self.service._read_normalized_state()
         return next(user for user in state["users"] if user["username"] == username)
 
+    def test_login_and_logout_do_not_reconcile_business_change_feed(self) -> None:
+        with patch("minimal_kanban.operator_auth._verify_password", return_value=True):
+            logged_in = self.service.login({"username": "admin", "password": "test"})
+
+        self.service._sync_change_feed.assert_not_called()
+
+        self.service.logout({"_operator_session": logged_in["session"]})
+
+        self.service._sync_change_feed.assert_not_called()
+
+        with (
+            patch("minimal_kanban.operator_auth._verify_password", return_value=False),
+            patch.object(self.service, "_can_upgrade_default_admin_password", return_value=True),
+        ):
+            self.service.login({"username": "admin", "password": "new-password"})
+
+        self.service._sync_change_feed.assert_not_called()
+
+        self.service.save_user(
+            {
+                "_operator_session": self.admin_session,
+                "username": "ADMIN",
+                "role": "admin",
+            }
+        )
+
+        self.service._sync_change_feed.assert_called_once()
+
     def test_concurrent_user_saves_timestamp_inside_lock_and_follow_commit_order(self) -> None:
         logger = logging.getLogger(f"test.operator_user_revision.peer.{self._testMethodName}")
         second = self._new_service(logger)
