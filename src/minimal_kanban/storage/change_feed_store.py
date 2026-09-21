@@ -984,19 +984,35 @@ class ChangeFeedStore:
         self,
         producer: str,
         projected: Mapping[tuple[str, str], ProjectedEntity],
+        *,
+        projection_version: str | None = None,
     ) -> None:
         source = _bounded_text(producer, limit=48)
         if not source:
             raise ValueError("external producer is required")
+        version = (
+            _bounded_text(projection_version, limit=32) if projection_version is not None else ""
+        )
+        if projection_version is not None and not version:
+            raise ValueError("external projection version is required")
         initialized_key = f"external_initialized:{source}"
+        version_key = f"external_projection_version:{source}"
         with self._transaction(immediate=True) as connection:
             row = connection.execute(
                 "SELECT value FROM metadata WHERE key = ?", (initialized_key,)
             ).fetchone()
             if row is not None and str(row["value"]) == "1":
-                return
+                if not version:
+                    return
+                version_row = connection.execute(
+                    "SELECT value FROM metadata WHERE key = ?", (version_key,)
+                ).fetchone()
+                if version_row is not None and str(version_row["value"]) == version:
+                    return
             self._replace_external_entity_state(connection, source, projected)
             self._set_metadata(connection, initialized_key, "1")
+            if version:
+                self._set_metadata(connection, version_key, version)
 
     def reconcile_external_projection(
         self,

@@ -38,7 +38,10 @@ from .operator_permissions import (
 )
 from .services.card_service import CardService
 from .services.errors import ServiceError
-from .storage.change_feed_projection import project_operator_users
+from .storage.change_feed_projection import (
+    OPERATOR_USER_PROJECTION_VERSION,
+    project_operator_users,
+)
 from .storage.file_lock import ProcessFileLock
 from .storage.json_store import JsonStore
 from .storage.limited_io import read_bytes_limited, read_text_limited
@@ -1703,7 +1706,11 @@ class OperatorAuthService:
         projected = project_operator_users(state)
         try:
             if initialize:
-                self._change_feed_store.initialize_external_projection("operator_users", projected)
+                self._change_feed_store.initialize_external_projection(
+                    "operator_users",
+                    projected,
+                    projection_version=OPERATOR_USER_PROJECTION_VERSION,
+                )
             else:
                 self._change_feed_store.reconcile_external_projection("operator_users", projected)
         except Exception as exc:  # pragma: no cover - next feed read reconciles users file

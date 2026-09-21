@@ -10,7 +10,7 @@ from typing import Any
 
 _TECHNICAL_ID_PATTERN = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
 _PRIVATE_VIEWER_SETTING_KEYS = frozenset({"_cashbox_notification_seen_by_users"})
-_PRIVATE_OPERATOR_USER_KEYS = frozenset({"board_preferences"})
+OPERATOR_USER_PROJECTION_VERSION = "2"
 _SOURCE_DIGEST_CACHE_MAX_ENTRIES = 8192
 _SOURCE_DIGEST_CACHE_MAX_CHARS = 512
 SourceKey = tuple[str, str]
@@ -649,7 +649,12 @@ def project_operator_users(state: object) -> dict[tuple[str, str], ProjectedEnti
             projected,
             entity_type="operator_user",
             entity_id=entity_id,
-            content=_without(user, "username", "updated_at", *_PRIVATE_OPERATOR_USER_KEYS),
+            content={
+                "created_at": user.get("created_at"),
+                "employee_id": user.get("employee_id"),
+                "permissions": user.get("permissions"),
+                "role": user.get("role"),
+            },
             routing={"role": user.get("role")},
         )
     return projected
