@@ -41,7 +41,7 @@ def _timer_baseline(tmp_path: Path) -> Path:
             "load_state": "loaded",
             "active_state": "active" if enabled else "inactive",
             "unit_file_state": "enabled" if enabled else "disabled",
-            "timers_monotonic": "{ OnUnitActiveUSec=20min }"
+            "timers_monotonic": "{ OnUnitActiveUSec=20min }\n{ OnBootUSec=7min }"
             if timer_id in release_check.MANAGED_TIMERS
             else "",
             "timers_calendar": "",

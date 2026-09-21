@@ -11,6 +11,7 @@ from unittest import mock
 from scripts.coordinated_release_state import (
     Artifact,
     ReleaseLayout,
+    _read_service_state,
     capture,
     restore,
     stop_candidate_services,
@@ -99,6 +100,26 @@ def _layout(
 
 
 class CoordinatedReleaseStateTests(unittest.TestCase):
+    def test_service_state_preserves_repeated_timer_properties(self) -> None:
+        def repeated_timer_state(
+            command: tuple[str, ...],
+        ) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                "LoadState=loaded\n"
+                "ActiveState=active\n"
+                "UnitFileState=enabled\n"
+                "TimersMonotonic={ OnUnitActiveUSec=5min ; next_elapse=5min }\n"
+                "TimersMonotonic={ OnBootUSec=7min ; next_elapse=7min }\n",
+                "",
+            )
+
+        state = _read_service_state("example.timer", repeated_timer_state)
+
+        self.assertIn("OnUnitActiveUSec=5min", state["timers_monotonic"])
+        self.assertIn("OnBootUSec=7min", state["timers_monotonic"])
+
     def test_stop_candidates_skips_only_unit_confirmed_not_found(self) -> None:
         states = {
             "autostop-codex-wake.service": {

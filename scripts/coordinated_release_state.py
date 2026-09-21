@@ -202,7 +202,10 @@ def _read_service_state(unit: str, runner: Runner) -> dict[str, str]:
             "TimersCalendar",
             "TimersMonotonic",
         }:
-            values[key] = value
+            if key in {"TimersCalendar", "TimersMonotonic"} and values.get(key):
+                values[key] = f"{values[key]}\n{value}"[:4096]
+            else:
+                values[key] = value
     load_state = values.get("LoadState", "")
     if load_state == "not-found":
         return {
