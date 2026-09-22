@@ -81,30 +81,22 @@ SCRIPT_INSTRUCTION_FILES = {
     "docker-compose.yml",
 }
 
-MANAGER_CANONICAL_DOCS = (
-    "AGENTS.md",
-    "README.md",
-    "docs/agent/board_cleanup_autopilot_playbook.md",
-    "docs/agent/command_routes.json",
-    "docs/agent/crm_manager_data_playbook.md",
+MANAGER_MCP_CATALOG_PATHS = (
     "docs/agent/crm_mcp_catalog.json",
-    "docs/agent/deployment_runbook.md",
-    "docs/agent/knowledge_map.json",
-    "docs/agent/knowledge_shelves.md",
     "docs/agent/manager_mcp_catalog.json",
-    "docs/agent/manager_rules.json",
-    "docs/agent/service_management_sources.json",
 )
 
-MANAGER_GATEWAY_INSTRUCTION_DOCS = (
+# This deliberately stays independent from AutostopManager.TEXT_DOCUMENTS.
+# The runtime inventory is authoritative for the complete active set, while
+# this minimum prevents one Manager edit from silently deleting both an
+# operational document and its inventory entry.
+MANAGER_REQUIRED_INSTRUCTION_PATHS = (
     "AGENTS.md",
-    "README.md",
-    "docs/agent/board_cleanup_autopilot_playbook.md",
-    "docs/agent/command_routes.json",
-    "docs/agent/crm_manager_data_playbook.md",
+    ".agents/skills/manage-owner-telegram/SKILL.md",
+    ".agents/skills/manage-autostop-store/SKILL.md",
+    ".agents/skills/manage-fst-vpn/SKILL.md",
+    "docs/agent/operations.md",
     "docs/agent/deployment_runbook.md",
-    "docs/agent/manager_rules.json",
-    "docs/agent/service_management_sources.json",
 )
 
 MANAGER_GATEWAY_FORBIDDEN_TEXT_PATTERNS = (
@@ -947,30 +939,39 @@ def _manager_catalog_issues(
     )
 
 
-def _registered_surface_fingerprints(root: Path, manager_root: Path) -> dict[str, str]:
+def _registered_runtime_contract(root: Path, manager_root: Path) -> dict[str, Any]:
     probe = r"""
 import hashlib, json, logging, sys
 crm_root, manager_root = sys.argv[1:3]
 sys.path[:0] = [f"{crm_root}/src", manager_root]
+from autostop_manager.diagnostics import TEXT_DOCUMENTS
 from autostop_manager.mcp_server import build_server
 from minimal_kanban.mcp.client import BoardApiClient
 from minimal_kanban.mcp.server import create_mcp_server
-def digest(server):
+def surface(server):
     tools = sorted(server._tool_manager.list_tools(), key=lambda item: item.name)
-    surface = [{"name": item.name, "inputSchema": item.parameters} for item in tools]
-    value = json.dumps(surface, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(value.encode()).hexdigest()
+    schemas = [{"name": item.name, "inputSchema": item.parameters} for item in tools]
+    value = json.dumps(schemas, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return {
+        "tool_names": [item.name for item in tools],
+        "schema_fingerprint": hashlib.sha256(value.encode()).hexdigest(),
+    }
 manager = build_server()
 crm = create_mcp_server(
     BoardApiClient("http://127.0.0.1:9"), logging.getLogger("schema-probe"),
     host="127.0.0.1", port=41831, path="/mcp", bearer_token="schema-probe",
     public_endpoint_url="https://crm.example/mcp",
 )
-print(json.dumps({"manager": digest(manager), "crm": digest(crm)}))
+print(json.dumps({
+    "instruction_files": list(TEXT_DOCUMENTS),
+    "manager": surface(manager),
+    "crm": surface(crm),
+}))
 """
     environment = os.environ.copy()
     environment.update(
         {
+            "AUTOSTOP_MANAGER_ENV_FILE": "/dev/null",
             "AUTOSTOP_AGENT_GATEWAY_ENABLED": "1",
             "AUTOSTOP_AGENT_GATEWAY_WRITES_ENABLED": "1",
             "AUTOSTOP_AGENT_GATEWAY_FINANCE_ENABLED": "1",
@@ -991,34 +992,69 @@ print(json.dumps({"manager": digest(manager), "crm": digest(crm)}))
         timeout=GIT_COMMAND_TIMEOUT_SECONDS,
     )
     payload = json.loads(completed.stdout)
-    if not isinstance(payload, dict) or any(
-        re.fullmatch(r"[0-9a-f]{64}", str(payload.get(key) or "")) is None
-        for key in ("manager", "crm")
+    if not isinstance(payload, dict):
+        raise ValueError("registered runtime contract probe returned invalid data")
+    instruction_files = payload.get("instruction_files")
+    if (
+        not isinstance(instruction_files, list)
+        or not instruction_files
+        or len(instruction_files) != len(set(instruction_files))
+        or any(
+            not isinstance(item, str)
+            or not item
+            or Path(item).is_absolute()
+            or ".." in Path(item).parts
+            for item in instruction_files
+        )
     ):
-        raise ValueError("registered MCP schema fingerprint probe returned invalid data")
-    return {key: str(payload[key]) for key in ("manager", "crm")}
+        raise ValueError("registered runtime instruction inventory is invalid")
+    for surface_name in ("manager", "crm"):
+        surface_payload = payload.get(surface_name)
+        if not isinstance(surface_payload, dict):
+            raise ValueError("registered runtime MCP surface is invalid")
+        tool_names = surface_payload.get("tool_names")
+        fingerprint = surface_payload.get("schema_fingerprint")
+        if (
+            not isinstance(tool_names, list)
+            or not tool_names
+            or not all(isinstance(item, str) and item for item in tool_names)
+            or tool_names != sorted(set(tool_names))
+            or re.fullmatch(r"[0-9a-f]{64}", str(fingerprint or "")) is None
+        ):
+            raise ValueError("registered runtime MCP surface is invalid")
+    return payload
 
 
-def _manager_gateway_instruction_issues(manager_root: Path) -> list[Issue]:
+def _manager_instruction_issues(
+    manager_root: Path,
+    instruction_files: tuple[str, ...] | list[str],
+) -> list[Issue]:
     issues: list[Issue] = []
-    for relative_path in MANAGER_GATEWAY_INSTRUCTION_DOCS:
-        path = manager_root / relative_path
-        if not path.exists():
-            continue
-        text = _read_text(path)
-        for code, pattern, detail in MANAGER_GATEWAY_FORBIDDEN_TEXT_PATTERNS:
-            if pattern.search(text):
-                issues.append(Issue(code, _display_path(path, manager_root), detail))
-    return issues
-
-
-def _manager_doc_forbidden_issues(manager_root: Path) -> list[Issue]:
-    issues: list[Issue] = []
-    for relative_path in MANAGER_CANONICAL_DOCS:
+    for relative_path in instruction_files:
         path = manager_root / relative_path
         if path.exists():
-            issues.extend(scan_forbidden_text(path, _read_text(path), root=manager_root))
+            text = _read_text(path)
+            issues.extend(scan_forbidden_text(path, text, root=manager_root))
+            for code, pattern, detail in MANAGER_GATEWAY_FORBIDDEN_TEXT_PATTERNS:
+                if pattern.search(text):
+                    issues.append(Issue(code, _display_path(path, manager_root), detail))
     return issues
+
+
+def _discover_manager_skill_instructions(manager_root: Path) -> tuple[str, ...]:
+    root = manager_root.resolve()
+    skills_root = manager_root / ".agents" / "skills"
+    if not skills_root.is_dir():
+        return ()
+    discovered: list[str] = []
+    for path in sorted(skills_root.glob("*/SKILL.md")):
+        try:
+            resolved = path.resolve(strict=True)
+        except OSError:
+            continue
+        if path.is_file() and resolved.is_relative_to(root):
+            discovered.append(path.relative_to(manager_root).as_posix())
+    return tuple(discovered)
 
 
 def _check_api_guide_required_routes(root: Path) -> list[Issue]:
@@ -1650,41 +1686,66 @@ def _check_manager_docs_and_catalogs(
     manager_root: Path,
 ) -> list[Issue]:
     issues: list[Issue] = _check_required(
-        MANAGER_CANONICAL_DOCS,
+        MANAGER_MCP_CATALOG_PATHS,
         manager_root,
         "AutostopManager",
     )
-
-    manager_tools_path = manager_root / "autostop_manager" / "mcp_tools.py"
-
-    if not manager_tools_path.exists():
-        return issues + [
-            Issue("missing_manager_source", str(manager_tools_path), "manager MCP source missing")
-        ]
-
-    manager_tools = extract_decorated_tool_names(manager_tools_path)
-    gateway_tools = load_gateway_expected_tools(root)
     try:
-        fingerprints = _registered_surface_fingerprints(root, manager_root)
+        runtime_contract = _registered_runtime_contract(root, manager_root)
     except (OSError, ValueError, json.JSONDecodeError, subprocess.SubprocessError) as exc:
-        fingerprints = {"manager": "", "crm": ""}
         issues.append(
             Issue(
-                "mcp_catalog_schema_probe_failed",
+                "manager_runtime_contract_probe_failed",
                 str(manager_root),
                 type(exc).__name__,
             )
         )
+        return issues
+
+    instruction_files = runtime_contract["instruction_files"]
+    manager_surface = runtime_contract["manager"]
+    crm_surface = runtime_contract["crm"]
+    independent_instruction_files = tuple(
+        dict.fromkeys(
+            [
+                *MANAGER_REQUIRED_INSTRUCTION_PATHS,
+                *_discover_manager_skill_instructions(manager_root),
+            ]
+        )
+    )
+    runtime_instruction_set = set(instruction_files)
+    missing_from_runtime = sorted(set(independent_instruction_files) - runtime_instruction_set)
+    if missing_from_runtime:
+        issues.append(
+            Issue(
+                "manager_instruction_inventory_missing_required",
+                str(manager_root),
+                f"runtime inventory missing required instructions: {missing_from_runtime}",
+            )
+        )
+    issues.extend(
+        _check_required(
+            MANAGER_REQUIRED_INSTRUCTION_PATHS,
+            manager_root,
+            "AutostopManager",
+        )
+    )
+    issues.extend(_check_required(instruction_files, manager_root, "AutostopManager"))
     issues.extend(
         _manager_catalog_issues(
             manager_root / "docs" / "agent" / "manager_mcp_catalog.json",
-            manager_tools,
-            gateway_tools,
-            fingerprints,
+            set(manager_surface["tool_names"]),
+            set(crm_surface["tool_names"]),
+            {
+                "manager": manager_surface["schema_fingerprint"],
+                "crm": crm_surface["schema_fingerprint"],
+            },
         )
     )
-    issues.extend(_manager_doc_forbidden_issues(manager_root))
-    issues.extend(_manager_gateway_instruction_issues(manager_root))
+    instruction_scan_files = tuple(
+        dict.fromkeys([*independent_instruction_files, *instruction_files])
+    )
+    issues.extend(_manager_instruction_issues(manager_root, instruction_scan_files))
     return issues
 
 

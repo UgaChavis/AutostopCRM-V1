@@ -110,13 +110,22 @@ class DocsAuditTests(unittest.TestCase):
 
         self.assertEqual([], issues)
 
-    def test_manager_audit_does_not_restore_intentionally_removed_legacy_maps(self) -> None:
+    def test_manager_instruction_scan_uses_explicit_runtime_inventory(self) -> None:
         module = load_docs_audit_module()
 
-        removed = {"docs/agent/knowledge_base_index.md", "docs/agent/phone_flow.json"}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manager_root = Path(temp_dir)
+            (manager_root / "AGENTS.md").write_text(
+                "Do not use bootstrap_context.\n",
+                encoding="utf-8",
+            )
+            retired = manager_root / "docs" / "agent" / "knowledge_base_index.md"
+            retired.parent.mkdir(parents=True)
+            retired.write_text("Use start_manager_run.\n", encoding="utf-8")
 
-        self.assertTrue(removed.isdisjoint(module.MANAGER_CANONICAL_DOCS))
-        self.assertTrue(removed.isdisjoint(module.MANAGER_GATEWAY_INSTRUCTION_DOCS))
+            issues = module._manager_instruction_issues(manager_root, ["AGENTS.md"])
+
+        self.assertEqual({"direct_legacy_crm_instruction"}, {issue.code for issue in issues})
 
     def test_docker_image_keeps_canonical_root_docs_for_server_audit(self) -> None:
         dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
@@ -611,6 +620,10 @@ class DocsAuditTests(unittest.TestCase):
             "estimate_repair_work_cost"
         ]
         gateway_tools = module.load_gateway_expected_tools(ROOT)
+        instruction_files = [
+            *module.MANAGER_REQUIRED_INSTRUCTION_PATHS,
+            "docs/agent/j1_web_research.md",
+        ]
 
         def fingerprint(tools: list[str] | set[str]) -> str:
             names = sorted(tools)
@@ -636,28 +649,10 @@ class DocsAuditTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             manager_root = Path(temp_dir)
-            source_dir = manager_root / "autostop_manager"
             docs_dir = manager_root / "docs" / "agent"
-            source_dir.mkdir(parents=True)
             docs_dir.mkdir(parents=True)
 
-            tool_source = [
-                "class DummyServer:",
-                "    def tool(self, **kwargs): pass",
-                "server = DummyServer()",
-            ]
-            for tool_name in manager_tools:
-                tool_source.extend(
-                    [
-                        f"@server.tool(name={tool_name!r})",
-                        f"def {tool_name}():",
-                        "    return {}",
-                        "",
-                    ]
-                )
-            (source_dir / "mcp_tools.py").write_text("\n".join(tool_source), encoding="utf-8")
-
-            for relative_path in module.MANAGER_CANONICAL_DOCS:
+            for relative_path in [*instruction_files, *module.MANAGER_MCP_CATALOG_PATHS]:
                 path = manager_root / relative_path
                 path.parent.mkdir(parents=True, exist_ok=True)
                 if path.name == "manager_mcp_catalog.json":
@@ -675,15 +670,114 @@ class DocsAuditTests(unittest.TestCase):
 
             with patch.object(
                 module,
-                "_registered_surface_fingerprints",
+                "_registered_runtime_contract",
                 return_value={
-                    "manager": fingerprint(manager_tools),
-                    "crm": fingerprint(gateway_tools),
+                    "instruction_files": instruction_files,
+                    "manager": {
+                        "tool_names": sorted(manager_tools),
+                        "schema_fingerprint": fingerprint(manager_tools),
+                    },
+                    "crm": {
+                        "tool_names": sorted(gateway_tools),
+                        "schema_fingerprint": fingerprint(gateway_tools),
+                    },
                 },
             ):
                 issues = module._check_manager_docs_and_catalogs(ROOT, manager_root)
 
         self.assertEqual([], issues)
+
+    def test_manager_audit_rejects_required_doc_removed_from_runtime_and_disk(self) -> None:
+        module = load_docs_audit_module()
+        removed = "docs/agent/operations.md"
+        instruction_files = [
+            path for path in module.MANAGER_REQUIRED_INSTRUCTION_PATHS if path != removed
+        ]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manager_root = Path(temp_dir)
+            for relative_path in [*instruction_files, *module.MANAGER_MCP_CATALOG_PATHS]:
+                path = manager_root / relative_path
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(
+                    "{}\n" if path.suffix == ".json" else "ok\n",
+                    encoding="utf-8",
+                )
+
+            with (
+                patch.object(
+                    module,
+                    "_registered_runtime_contract",
+                    return_value={
+                        "instruction_files": instruction_files,
+                        "manager": {
+                            "tool_names": ["manager_a"],
+                            "schema_fingerprint": "a" * 64,
+                        },
+                        "crm": {
+                            "tool_names": ["crm_a"],
+                            "schema_fingerprint": "b" * 64,
+                        },
+                    },
+                ),
+                patch.object(module, "_manager_catalog_issues", return_value=[]),
+            ):
+                issues = module._check_manager_docs_and_catalogs(ROOT, manager_root)
+
+        self.assertIn(
+            "manager_instruction_inventory_missing_required",
+            {issue.code for issue in issues},
+        )
+        self.assertTrue(
+            any(issue.code == "missing_canonical_doc" and issue.path == removed for issue in issues)
+        )
+
+    def test_manager_runtime_contract_probe_is_one_isolated_snapshot(self) -> None:
+        module = load_docs_audit_module()
+        payload = {
+            "instruction_files": ["AGENTS.md", "docs/agent/deployment_runbook.md"],
+            "manager": {
+                "tool_names": ["manager_a", "manager_b"],
+                "schema_fingerprint": "a" * 64,
+            },
+            "crm": {
+                "tool_names": ["crm_a"],
+                "schema_fingerprint": "b" * 64,
+            },
+        }
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=json.dumps(payload),
+            stderr="",
+        )
+
+        with patch.object(module.subprocess, "run", return_value=completed) as run:
+            result = module._registered_runtime_contract(ROOT, Path("/tmp/manager"))
+
+        self.assertEqual(payload, result)
+        self.assertEqual("/dev/null", run.call_args.kwargs["env"]["AUTOSTOP_MANAGER_ENV_FILE"])
+        probe = run.call_args.args[0][2]
+        self.assertIn("from autostop_manager.diagnostics import TEXT_DOCUMENTS", probe)
+        self.assertIn('"tool_names"', probe)
+
+    def test_manager_runtime_contract_probe_rejects_unsafe_inventory(self) -> None:
+        module = load_docs_audit_module()
+        payload = {
+            "instruction_files": ["../outside.md"],
+            "manager": {"tool_names": ["manager_a"], "schema_fingerprint": "a" * 64},
+            "crm": {"tool_names": ["crm_a"], "schema_fingerprint": "b" * 64},
+        }
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=json.dumps(payload),
+            stderr="",
+        )
+
+        with patch.object(module.subprocess, "run", return_value=completed):
+            with self.assertRaisesRegex(ValueError, "instruction inventory"):
+                module._registered_runtime_contract(ROOT, Path("/tmp/manager"))
 
     def test_sibling_manager_checkout_is_not_audit_input_without_flag(self) -> None:
         module = load_docs_audit_module()
@@ -1194,7 +1288,7 @@ class DocsAuditTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = module._manager_gateway_instruction_issues(manager_root)
+            issues = module._manager_instruction_issues(manager_root, ["AGENTS.md"])
 
         self.assertEqual(
             {"retired_manager_lifecycle_tool", "direct_legacy_crm_instruction"},
