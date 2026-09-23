@@ -358,6 +358,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
             self.page.locator('[data-id="G1"] .status-indicator title').text_content(),
             "Включён",
         )
+        self.page.locator('[data-job-id="crm-digest"] .automation-parameters summary').click()
         self.page.locator('[data-job-id="crm-digest"]').get_by_text("Изменить расписание").click()
         schedule_form = self.page.locator('[data-job-id="crm-digest"] .schedule-form')
         schedule_input = schedule_form.locator('input[type="number"]')
@@ -366,8 +367,11 @@ class ManagerMapBrowserTests(unittest.TestCase):
         schedule_form.locator('input[type="time"]').nth(0).fill("09:00")
         schedule_form.locator('input[type="time"]').nth(1).fill("18:30")
         schedule_form.get_by_text("Сохранить").click()
-        self.page.locator('[data-job-id="crm-digest"]').get_by_text("Каждые 30 мин.").wait_for()
+        self.page.locator('[data-job-id="crm-digest"]').get_by_text(
+            "Каждые 30 мин.", exact=True
+        ).wait_for()
 
+        self.page.locator("#systemTimersGroup summary").first.click()
         timer = self.page.locator('[data-timer-id="managed-health"]')
         timer_toggle = timer.get_by_role("switch")
         self.assertEqual(timer_toggle.get_attribute("aria-checked"), "true")
@@ -375,11 +379,13 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.page.wait_for_function(
             "document.querySelector('[data-timer-id=\"managed-health\"] [role=\"switch\"]').getAttribute('aria-checked')==='false'"
         )
+        timer.locator(".automation-parameters summary").click()
         timer.get_by_text("Изменить период").click()
         timer.locator(".schedule-form input").fill("10")
         timer.locator(".schedule-form").get_by_text("Сохранить").click()
-        timer.get_by_text("Каждые 10 мин.").wait_for()
+        timer.get_by_text("Каждые 10 мин.", exact=True).wait_for()
         self.assertEqual(self.page.locator('[data-timer-id="backup"] [role="switch"]').count(), 0)
+        self.page.locator('[data-timer-id="backup"] .automation-parameters summary').click()
         self.assertIn("только чтение", self.page.locator('[data-timer-id="backup"]').inner_text())
 
         self.page.locator("#addAutomation").click()

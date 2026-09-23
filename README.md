@@ -60,6 +60,8 @@ protocols. Update that dataset to change descriptions or layout. The former
 application/IT maps and their snapshots are retired. Removed IDs `N1`, `N2`, `C1`,
 `L8`, and `L9` are not reused. The Codex-to-CRM route is `A2` → `L10` → `C2` →
 `L11` → `C3`; the direct MCP/HTTPS route keeps OAuth 2.1.
+`compact_label` keeps the full relation text in its detail card while showing only
+the relation ID on the overview.
 `L6` connects the work account to the compact wake node without a visible label.
 `E9` is the read-only market-price research child of `E1`: Codex explores public
 pages through `E8`, then assesses comparable price evidence. It does not create

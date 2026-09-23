@@ -6,7 +6,7 @@
   <link rel="icon" type="image/png" href="/favicon.png">
   <title>Инфраструктура менеджера · AutoStop</title>
   <style>
-    :root { color-scheme: dark; --bg:#1d2229; --panel:#252c35; --ink:#e5e9ee; --muted:#bac2cd; --border:#45515e; }
+    :root { color-scheme: dark; --bg:#15222e; --panel:#202e3b; --ink:#e8eef3; --muted:#adbdca; --border:#496073; }
     * { box-sizing:border-box; }
     html,body { height:100%; margin:0; overflow:hidden; }
     body { background:var(--bg); color:var(--ink); font:14px "Segoe UI",Arial,sans-serif; display:flex; flex-direction:column; }
@@ -19,25 +19,29 @@
     a { color:#bed6e5; }
     [hidden] { display:none !important; }
     .workspace { flex:1; min-height:0; display:flex; position:relative; }
-    .viewport { min-width:0; flex:1; overflow:hidden; position:relative; }
+    .viewport { min-width:0; flex:1; overflow:hidden; position:relative; background-color:#14212c; background-image:radial-gradient(circle,rgba(112,151,174,.19) .75px,transparent 1px),radial-gradient(ellipse at 50% 46%,#1b2c39 0%,#14232f 68%,#111d28 100%); background-size:23px 23px,100% 100%; }
     #map { display:block; width:100%; height:100%; touch-action:none; user-select:none; cursor:grab; }
     #map.is-panning { cursor:grabbing; }
     #map [data-id] { cursor:pointer; outline:none; }
-    .card { fill:var(--panel); stroke:var(--color); stroke-width:1.7; }
-    .node .badge { fill:#202831; stroke:var(--color); stroke-width:1.5; }
+    .card { fill:#1e2c39; stroke:var(--color); stroke-width:1.45; filter:drop-shadow(0 3px 7px rgba(1,9,16,.23)); }
+    .node[data-id="A2"]>.card { fill:#203140; }
+    .node[data-id="G1"]>.card { fill:#1c3435; filter:drop-shadow(0 0 9px rgba(86,217,163,.18)); }
+    .node .badge { fill:#172733; stroke:var(--color); stroke-width:1.35; }
     .node text { fill:var(--ink); font-family:"Segoe UI",Arial,sans-serif; }
     .node .code { fill:var(--color); font-weight:600; font-size:17px; }
-    .node .subtitle { fill:var(--muted); }
+    .node .subtitle { fill:#a6b7c7; }
     .node.is-selected>.card,.node:focus-visible>.card { stroke:#f0f6fc; stroke-width:3; }
+    .workspace:has(.automation-layer:not([hidden])) .node[data-id="G1"].is-selected>.card { stroke:var(--color); stroke-width:1.7; }
     .node.is-related>.card { stroke-width:2.6; }
-    .node:hover>.card { fill:#303a46; }
-    .wire { fill:none; stroke:var(--color); stroke-width:1.8; }
-    .event .wire { stroke-dasharray:7 6; }
+    .node:hover>.card { fill:#2a3e4e; }
+    .wire { fill:none; stroke:var(--color); stroke-width:1.45; stroke-linecap:round; stroke-linejoin:round; opacity:.9; }
+    .event .wire { stroke-dasharray:6 7; }
     .wire-hit { fill:none; stroke:transparent; stroke-width:16; pointer-events:stroke; }
     .edge:hover .wire,.edge:focus-visible .wire,.edge.is-selected .wire { stroke:#eef6ff; stroke-width:3; }
     .edge.is-related .wire { stroke-width:2.8; }
-    .edge-label { fill:#202831; stroke:#657789; stroke-width:1; }
-    .edge text { fill:var(--ink); font-family:"Segoe UI",Arial,sans-serif; }
+    .edge-label { fill:#1b2b39; stroke:#557087; stroke-width:1; }
+    .edge text { fill:#dce7ee; font-family:"Segoe UI",Arial,sans-serif; }
+    .connection-port { fill:var(--color); stroke:#172631; stroke-width:1.2; pointer-events:none; }
     .edge.is-selected .edge-label,.edge:focus-visible .edge-label { stroke:#eef6ff; stroke-width:2; }
     .detail-layer { position:absolute; inset:0; z-index:5; display:grid; place-items:center; padding:24px; }
     .detail-backdrop { position:absolute; inset:0; background:rgba(10,15,21,.76); }
@@ -76,51 +80,78 @@
     .related { display:flex; flex-wrap:wrap; gap:8px; }
     .related button { padding:7px 9px; text-align:left; font-size:12px; }
     .automation-layer { position:absolute; inset:0; z-index:6; display:flex; justify-content:flex-end; }
-    .automation-backdrop { position:absolute; inset:0; background:rgba(10,15,21,.76); }
-    .automation-drawer { position:relative; display:flex; flex-direction:column; width:min(720px,calc(100% - 40px)); height:100%; overflow:hidden; background:#222a33; border-left:1px solid #61707f; box-shadow:-28px 0 85px rgba(0,0,0,.42); }
+    .automation-backdrop { position:absolute; inset:0; background:rgba(10,15,21,.43); }
+    .automation-drawer { position:relative; display:flex; flex-direction:column; width:min(680px,calc(100% - 36px)); height:100%; overflow:hidden; background:#1d2a36; border-left:1px solid #496077; box-shadow:-18px 0 56px rgba(0,0,0,.3); }
     .automation-drawer:focus { outline:none; }
-    .automation-header { flex:none; display:flex; justify-content:space-between; align-items:flex-start; gap:20px; padding:25px 28px 20px; border-bottom:1px solid #465666; background:#252d37; }
+    .automation-header { flex:none; display:flex; justify-content:space-between; align-items:flex-start; gap:18px; padding:37px 32px 22px; border-bottom:1px solid #3b5064; background:#1b2834; }
     .automation-heading { min-width:0; }
-    .automation-code { color:#86bd9c; font-size:12px; letter-spacing:.08em; }
-    .automation-header h1 { margin:5px 0 4px; font-size:clamp(23px,3vw,29px); line-height:1.2; }
-    .automation-subtitle { margin:0; color:#aebbc6; line-height:1.4; }
-    .automation-scroll { flex:1; min-height:0; overflow:auto; padding:20px 28px 34px; }
-    .automation-state-bar { display:flex; flex-wrap:wrap; align-items:center; gap:9px 14px; min-height:42px; margin-bottom:18px; padding:10px 13px; color:#b9c6cf; background:#29323c; border:1px solid #455563; border-radius:9px; }
-    .automation-state-bar[data-state="ready"] { border-color:#4c765e; }
+    .automation-code { color:#7cc9a8; font-size:11px; font-weight:600; letter-spacing:.09em; }
+    .automation-header h1 { margin:15px 0 6px; font-size:clamp(25px,3vw,33px); line-height:1.17; }
+    .automation-subtitle { margin:0; color:#aebbc8; font-size:14px; line-height:1.45; }
+    .automation-scroll { flex:1; min-height:0; overflow:auto; padding:20px 31px 34px; scrollbar-color:#607183 transparent; }
+    .automation-state-bar { display:grid; grid-template-columns:26px minmax(0,1fr) auto; align-items:center; gap:12px; min-height:76px; margin-bottom:16px; padding:12px 14px; color:#c5d1dc; background:#223440; border:1px solid #466657; border-radius:10px; }
     .automation-state-bar[data-state="stale"],.automation-state-bar[data-state="applying"] { border-color:#81713f; color:#dacb98; }
     .automation-state-bar[data-state="error"],.automation-state-bar[data-state="offline"] { border-color:#8e5555; color:#e3aaaa; }
-    .automation-state-bar .actual-lamp { margin-right:-4px; }
-    .automation-meta { margin-left:auto; color:#8f9ca8; font-size:12px; }
-    .automation-section { margin-top:24px; }
-    .automation-section:first-of-type { margin-top:0; }
-    .automation-section-header { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:11px; }
-    .automation-section h2 { margin:0; font-size:16px; color:#dce5eb; }
-    .automation-count { color:#91a0ad; font-size:12px; }
-    .automation-list { display:grid; gap:10px; }
-    .automation-empty { margin:0; padding:17px; color:#9facb8; text-align:center; border:1px dashed #4d5b68; border-radius:10px; }
-    .automation-card { padding:15px; background:#28323c; border:1px solid #465666; border-radius:11px; }
+    .automation-state-bar>.actual-lamp { display:grid; place-items:center; width:26px; height:26px; margin:0; background:#6edcaf; color:#142b2a; box-shadow:none; font-size:18px; font-weight:700; }
+    .automation-state-bar>.actual-lamp[data-state="on"] { background:#6edcaf; color:#142b2a; }
+    .automation-state-bar>.actual-lamp::after { content:'✓'; }
+    .automation-state-bar>.actual-lamp[data-state="stale"] { background:#cbb66c; }
+    .automation-state-bar>.actual-lamp[data-state="stale"]::after { content:'…'; line-height:0; }
+    .automation-state-bar>.actual-lamp[data-state="error"] { background:#d68080; }
+    .automation-state-bar>.actual-lamp[data-state="error"]::after { content:'!'; }
+    .automation-state-copy { min-width:0; display:grid; gap:4px; }
+    .automation-state-copy strong { color:#e5edf3; font-size:16px; }
+    .automation-state-copy span { font-size:13px; line-height:1.4; }
+    .automation-meta { color:#9caab6; font-size:11px; white-space:nowrap; }
+    .automation-group { position:relative; border-bottom:1px solid #3b5063; }
+    .automation-group>summary { display:flex; align-items:center; gap:28px; min-height:116px; padding:19px 0; cursor:pointer; list-style:none; }
+    .automation-group[open]>summary { min-height:59px; padding:12px 0; }
+    .automation-group>summary::-webkit-details-marker,.automation-parameters>summary::-webkit-details-marker { display:none; }
+    .automation-group>summary:hover h2,.automation-parameters>summary:hover { color:#fff; }
+    .automation-group-icon { flex:none; width:25px; height:25px; color:#bed7e8; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+    .automation-group-heading { min-width:0; flex:1; }
+    .automation-group-heading h2 { display:inline; margin:0; color:#e2eaf0; font-size:18px; line-height:1.3; }
+    .automation-count { margin-left:8px; color:#aebac6; font-size:14px; }
+    .automation-summary { display:block; margin-top:5px; color:#aebbc8; font-size:12px; line-height:1.4; }
+    .automation-group>summary::after,.automation-parameters>summary::before { content:''; flex:none; width:8px; height:8px; border-right:2px solid #c7d7e2; border-bottom:2px solid #c7d7e2; transform:rotate(-45deg); transition:transform .16s ease; }
+    .automation-group[open]>summary::after { transform:rotate(45deg); }
+    .automation-group-body { padding:0 0 33px; }
+    .automation-section-actions { position:absolute; right:27px; top:20px; display:flex; justify-content:flex-end; margin:0; }
+    .automation-section-actions button { padding:5px 9px; color:#bed7e8; background:transparent; border-color:#496073; font-size:12px; }
+    .automation-list { display:grid; gap:9px; }
+    .automation-empty { margin:0; padding:17px; color:#9facb8; text-align:center; border:1px dashed #4d5b68; border-radius:9px; }
+    .automation-card { padding:19px 19px 23px; background:#243342; border:1px solid #4a6176; border-radius:10px; }
     .automation-card.is-applying { border-color:#8b7944; }
     .automation-card.is-error { border-color:#8d5555; }
-    .automation-card-head { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; }
+    .automation-card-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
     .automation-name { min-width:0; }
-    .automation-name h3 { margin:0; color:#e6ebef; font-size:15px; overflow-wrap:anywhere; }
-    .automation-template { margin-top:4px; color:#8f9ca8; font-size:12px; }
-    .actual-state { display:inline-flex; align-items:center; gap:7px; margin-top:9px; color:#aebac4; font-size:12px; }
+    .automation-name h3 { margin:0; color:#e8eef3; font-size:15px; line-height:1.35; overflow-wrap:anywhere; }
+    .automation-template { color:#a7b6c3; font-size:12px; }
+    .automation-card-subline { display:flex; flex-wrap:wrap; align-items:center; gap:5px 9px; margin-top:6px; color:#adbbc8; font-size:12px; }
+    .automation-card-subline>.actual-state { margin:0; }
+    .actual-state { display:inline-flex; align-items:center; gap:7px; margin-top:7px; color:#adbbc8; font-size:12px; }
     .actual-lamp { display:inline-block; flex:none; width:9px; height:9px; border-radius:50%; background:#7e8993; box-shadow:0 0 9px currentColor; }
     .actual-lamp[data-state="on"] { color:#78b88e; background:#78b88e; }
     .actual-lamp[data-state="off"] { color:#7e8993; background:#7e8993; box-shadow:none; }
     .actual-lamp[data-state="applying"],.actual-lamp[data-state="stale"] { color:#ccb56b; background:#ccb56b; }
     .actual-lamp[data-state="error"] { color:#d27474; background:#d27474; }
-    .automation-switch { flex:none; display:inline-flex; align-items:center; gap:9px; min-width:110px; justify-content:flex-end; padding:4px 0; border:0; background:transparent; }
+    .automation-switch { flex:none; display:inline-flex; align-items:center; gap:9px; justify-content:flex-end; padding:3px 0; border:0; background:transparent; }
     .automation-switch:hover { border-color:transparent; }
     .switch-track { position:relative; display:block; width:42px; height:23px; border:1px solid #697784; border-radius:999px; background:#39434d; }
     .switch-track::after { content:""; position:absolute; left:3px; top:3px; width:15px; height:15px; border-radius:50%; background:#aab4bd; transition:transform .16s ease,background .16s ease; }
     .automation-switch[aria-checked="true"] .switch-track { border-color:#5c9370; background:#345a43; }
     .automation-switch[aria-checked="true"] .switch-track::after { transform:translateX(19px); background:#a8d9b8; }
-    .switch-copy { color:#bdc8d1; font-size:12px; }
-    .automation-schedule { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin-top:13px; padding-top:12px; border-top:1px solid #3d4a56; color:#aebac4; font-size:12px; }
-    .automation-schedule button { margin-left:auto; padding:5px 8px; font-size:12px; }
-    .automation-schedule button+button { margin-left:0; }
+    .switch-copy { color:#bdcbd5; font-size:12px; white-space:nowrap; }
+    .automation-parameters { margin-top:17px; border-top:1px solid #3f5264; }
+    .automation-parameters>summary { display:flex; align-items:center; gap:11px; width:max-content; max-width:100%; padding:15px 2px 1px; color:#b9cbd9; font-size:12px; cursor:pointer; list-style:none; }
+    .automation-parameters>summary::before { width:6px; height:6px; transform:rotate(-45deg); }
+    .automation-parameters[open]>summary::before { transform:rotate(45deg); }
+    .automation-parameter-body { padding-top:13px; }
+    .automation-schedule { display:grid; grid-template-columns:minmax(110px,auto) minmax(0,1fr); gap:8px 12px; margin:0; color:#bdcbd6; font-size:12px; line-height:1.45; }
+    .automation-schedule dt { color:#8fa3b3; }
+    .automation-schedule dd { margin:0; overflow-wrap:anywhere; }
+    .automation-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
+    .automation-actions button { padding:6px 9px; font-size:12px; }
     .automation-error-copy { margin:10px 0 0; color:#e0a0a0; font-size:12px; line-height:1.4; }
     .schedule-form,.automation-wizard { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:10px; margin-top:12px; padding:13px; background:#202832; border:1px solid #526171; border-radius:9px; }
     .automation-wizard { grid-template-columns:1fr 1fr; margin:0 0 14px; }
@@ -132,12 +163,13 @@
     input,select { width:100%; color:#edf1f4; background:#1d252d; border:1px solid #526171; border-radius:7px; padding:8px 9px; font:inherit; }
     .form-actions { grid-column:1/-1; display:flex; justify-content:flex-end; gap:8px; }
     .primary-action { border-color:#629075; background:#304d3b; }
-    .timer-card,.readiness-card { display:flex; align-items:flex-start; gap:11px; padding:12px 13px; background:#252f39; border:1px solid #414f5b; border-radius:9px; }
-    .timer-card h3,.readiness-card h3 { margin:0; font-size:13px; }
-    .timer-card p,.readiness-card p { margin:4px 0 0; color:#9eabb6; font-size:12px; line-height:1.45; }
-    .timer-card.is-managed { display:block; padding:15px; background:#28323c; border-color:#465666; }
-    .timer-card.is-managed h3 { font-size:15px; }
-    .timer-lock { margin-top:9px; color:#9eabb6; font-size:12px; }
+    .timer-card,.readiness-card { padding:13px 15px; background:#23313e; border:1px solid #405569; border-radius:9px; }
+    .timer-card h3,.readiness-card h3 { margin:0; font-size:14px; line-height:1.35; }
+    .timer-card p,.readiness-card p { margin:5px 0 0; color:#a9b8c6; font-size:12px; line-height:1.45; }
+    .timer-card.is-managed { background:#243342; }
+    .timer-lock { color:#a9b8c6; font-size:12px; }
+    .readiness-card { display:flex; align-items:center; gap:10px; }
+    .readiness-card .actual-state { margin:0; }
     .automation-offline { padding:24px 18px; color:#b7c2cb; text-align:center; background:#28323c; border:1px solid #53616e; border-radius:11px; line-height:1.55; }
     .state { position:absolute; left:50%; top:45%; transform:translate(-50%,-50%); max-width:420px; width:85%; padding:22px; text-align:center; background:var(--panel); border:1px solid var(--border); border-radius:12px; line-height:1.6; }
     .hint { position:absolute; left:16px; bottom:10px; color:#929daa; font-size:11px; pointer-events:none; }
@@ -158,7 +190,12 @@
       .automation-wizard,.schedule-form { grid-template-columns:1fr; }
       .automation-wizard>*,.schedule-form>* { grid-column:1; }
       .automation-card-head { align-items:center; }
-      .automation-meta { width:100%; margin-left:20px; }
+      .automation-state-bar { grid-template-columns:26px minmax(0,1fr); }
+      .automation-meta { grid-column:2; }
+      .automation-switch { flex-wrap:wrap; }
+      .automation-group>summary { min-height:84px; gap:15px; }
+      .automation-group[open]>summary { min-height:64px; }
+      .automation-section-actions { position:static; margin:0 0 12px; }
     }
     @media(prefers-reduced-motion:reduce) { * { scroll-behavior:auto; } }
   </style>
@@ -196,9 +233,11 @@
           <button class="detail-close" id="closeAutomation" type="button" aria-label="Закрыть Центр автоматизаций">×</button>
         </header>
         <div class="automation-scroll">
-          <div class="automation-state-bar" id="automationState" data-state="loading" role="status"><span class="actual-lamp" id="automationStateLamp" data-state="stale"></span><strong id="automationStateTitle">Получаем состояние…</strong><span id="automationStateMessage"></span><span class="automation-meta" id="automationUpdated"></span></div>
-          <section class="automation-section" aria-labelledby="automationJobsTitle">
-            <div class="automation-section-header"><div><h2 id="automationJobsTitle">Регламентные задания</h2><span class="automation-count" id="automationJobsCount"></span></div><button id="addAutomation" type="button" disabled>Добавить задание</button></div>
+          <div class="automation-state-bar" id="automationState" data-state="loading" role="status"><span class="actual-lamp" id="automationStateLamp" data-state="stale" aria-hidden="true"></span><div class="automation-state-copy"><strong id="automationStateTitle">Получаем состояние…</strong><span id="automationStateMessage"></span></div><span class="automation-meta" id="automationUpdated"></span></div>
+          <details class="automation-group" id="automationJobsGroup" open>
+            <summary><svg class="automation-group-icon" viewBox="0 0 26 26" aria-hidden="true"><rect x="3" y="2" width="20" height="22" rx="2"/><path d="M8 8h10M8 13h10M8 18h7"/></svg><span class="automation-group-heading"><h2 id="automationJobsTitle">Регламентные задания</h2><span class="automation-count" id="automationJobsCount"></span></span></summary>
+            <div class="automation-group-body">
+            <div class="automation-section-actions"><button id="addAutomation" type="button" disabled>Добавить задание</button></div>
             <form class="automation-wizard" id="automationWizard" hidden>
               <h3>Новое задание из шаблона</h3><p id="templateHelp">Выберите разрешённый тип. Новое задание создаётся выключенным.</p>
               <label class="field field-wide">Тип задания<select id="templateSelect" required aria-describedby="templateHelp"></select></label>
@@ -211,9 +250,10 @@
               <div class="form-actions"><button id="cancelAutomation" type="button">Отмена</button><button class="primary-action" type="submit">Создать выключенным</button></div>
             </form>
             <div class="automation-list" id="automationJobs"></div>
-          </section>
-          <section class="automation-section" aria-labelledby="systemTimersTitle"><div class="automation-section-header"><h2 id="systemTimersTitle">Системные таймеры</h2><span class="automation-count" id="systemTimersCount"></span></div><div class="automation-list" id="systemTimers"></div></section>
-          <section class="automation-section" aria-labelledby="readinessTitle"><div class="automation-section-header"><h2 id="readinessTitle">Готовность инфраструктуры</h2><span class="automation-count" id="readinessCount"></span></div><div class="automation-list" id="readiness"></div></section>
+            </div>
+          </details>
+          <details class="automation-group" id="systemTimersGroup"><summary><svg class="automation-group-icon" viewBox="0 0 26 26" aria-hidden="true"><circle cx="13" cy="13" r="10"/><path d="M13 7v7l5 3"/></svg><span class="automation-group-heading"><h2 id="systemTimersTitle">Системные таймеры</h2><span class="automation-count" id="systemTimersCount"></span><span class="automation-summary" id="systemTimersSummary"></span></span></summary><div class="automation-group-body"><div class="automation-list" id="systemTimers"></div></div></details>
+          <details class="automation-group" id="readinessGroup"><summary><svg class="automation-group-icon" viewBox="0 0 26 26" aria-hidden="true"><ellipse cx="13" cy="5" rx="9" ry="3"/><path d="M4 5v8c0 2 4 3 9 3s9-1 9-3V5M4 13v8c0 2 4 3 9 3s9-1 9-3v-8"/></svg><span class="automation-group-heading"><h2 id="readinessTitle">Готовность инфраструктуры</h2><span class="automation-count" id="readinessCount"></span><span class="automation-summary" id="readinessSummary"></span></span></summary><div class="automation-group-body"><div class="automation-list" id="readiness"></div></div></details>
         </div>
       </section>
     </div>
@@ -224,7 +264,7 @@
     'use strict';
     const ns = 'http://www.w3.org/2000/svg';
     const $ = id => document.getElementById(id);
-    const colors = {A:'#83a9bb',agent:'#5fb9c6',B:'#83a9bb',C:'#b8a27a',D:'#a398bb',E:'#bc9290',F:'#91aa98',G:'#78b895',J:'#78caa6',N:'#a2b4c3'};
+    const colors = {A:'#79b9d9',agent:'#5ecde9',B:'#73c4e8',C:'#dfb461',D:'#b497de',E:'#ec8492',F:'#8ed6ad',G:'#68dba8',J:'#7adbb1',N:'#a2c2d5'};
     const indicatorStates = {
       on:{color:'#71ad86',label:'Включён'},off:{color:'#bb6868',label:'Выключен'},disabled:{color:'#7e8993',label:'Все задания выключены'},
       applying:{color:'#c6ae61',label:'Применение изменений'},error:{color:'#cf7070',label:'Есть ошибка'},offline:{color:'#bba65e',label:'Нет связи'},unknown:{color:'#bba65e',label:'Состояние неизвестно'}
@@ -320,7 +360,7 @@
       if (r.direction==='both') attrs['marker-start']=attrs['marker-end'];
       g.append(el('path',attrs));
       if(r.show_label===false) {stage.append(g);return;}
-      const label = r.label;
+      const label = r.compact_label?'':r.label;
       const labelLines = linesFor(label,r.label_max_width||220,14);
       const w=label?55+Math.max(...labelLines.map(t=>measure(t,14))):42;
       const h=Math.max(28,labelLines.length*17+10), x=r.label_x-w/2, y=r.label_y-h/2;
@@ -328,6 +368,22 @@
       textLines(g,[r.id],x+7,y+19,15,'','600');
       if(label) textLines(g,labelLines,x+46,y+19,14);
       stage.append(g);
+    }
+    function renderConnectionPorts() {
+      const portLayer=el('g',{'aria-hidden':true,'pointer-events':'none'}),seen=new Set();
+      for(const r of data.relations) {
+        const path=stage.querySelector(`.edge[data-id="${r.id}"] .wire-hit`);
+        if(!path)continue;
+        const colorGroup=r.tone||(r.id==='L12'?'D':(nodes.get(r.from).tone||nodes.get(r.from).group));
+        for(const [id,length] of [[r.from,0],[r.to,path.getTotalLength()]]) {
+          if(id!=='A2'&&id!=='G1')continue;
+          const point=path.getPointAtLength(length),key=`${id}:${Math.round(point.x)}:${Math.round(point.y)}`;
+          if(seen.has(key))continue;
+          seen.add(key);
+          portLayer.append(el('circle',{class:'connection-port',cx:point.x,cy:point.y,r:4.4,style:`--color:${colors[colorGroup]}`}));
+        }
+      }
+      stage.append(portLayer);
     }
     function render() {
       $('map').replaceChildren();
@@ -342,6 +398,7 @@
       data.elements.filter(n=>!n.parent).forEach(renderNode);
       nestedRelations.forEach(renderEdge);
       data.elements.filter(n=>n.parent).forEach(renderNode);
+      renderConnectionPorts();
     }
     function applyTransform() {
       if (!stage) return;
@@ -520,6 +577,44 @@
       const lamp=htmlElement('span','actual-lamp');lamp.dataset.state=meta.lamp;lamp.setAttribute('aria-hidden','true');
       wrap.append(lamp,document.createTextNode(prefix?`${prefix}: ${meta.label}`:meta.label));parent.append(wrap);return meta;
     }
+    function shortScheduleText(schedule) {
+      return schedule.kind==='interval'&&schedule.every_minutes?`Каждые ${schedule.every_minutes} мин.`:scheduleText(schedule);
+    }
+    function appendScheduleFacts(parent,entry) {
+      const facts=htmlElement('dl','automation-schedule');
+      for(const [label,value] of [['Расписание',scheduleText(entry.schedule)],['Последний запуск',displayTime(entry.lastRun)],['Следующий запуск',displayTime(entry.nextRun)]]) {
+        facts.append(htmlElement('dt','',label),htmlElement('dd','',value));
+      }
+      parent.append(facts);
+    }
+    function snapshotAutomationList(list,key) {
+      const cards=new Map(),active=document.activeElement;let focus=null;
+      for(const card of list.children) {
+        const id=card.dataset[key];if(!id)continue;
+        const details=card.querySelector('.automation-parameters'),form=card.querySelector('.schedule-form');
+        const controls=[...card.querySelectorAll('button,input,select,summary')];
+        cards.set(id,{expanded:Boolean(details?.open),formOpen:Boolean(form&&!form.hidden),revision:card.dataset.revision,values:form&&!form.hidden?[...form.querySelectorAll('input,select')].map(field=>field.value):[]});
+        if(card.contains(active))focus={id,index:controls.indexOf(active),selectionStart:active instanceof HTMLInputElement&&active.type==='text'?active.selectionStart:null,selectionEnd:active instanceof HTMLInputElement&&active.type==='text'?active.selectionEnd:null};
+      }
+      return {cards,focus};
+    }
+    function restoreAutomationCard(card,saved,canMutate=false) {
+      if(!saved)return;
+      const details=card.querySelector('.automation-parameters'),form=card.querySelector('.schedule-form');
+      if(details)details.open=saved.expanded;
+      if(form&&saved.formOpen&&canMutate&&saved.revision===card.dataset.revision) {
+        form.hidden=false;
+        [...form.querySelectorAll('input,select')].forEach((field,index)=>{if(saved.values[index]!==undefined)field.value=saved.values[index];});
+        form.querySelector('select')?.dispatchEvent(new Event('change'));
+      }
+    }
+    function restoreAutomationFocus(list,key,focus) {
+      if(!focus||focus.index<0)return;
+      const card=[...list.children].find(item=>item.dataset[key]===focus.id),target=card?.querySelectorAll('button,input,select,summary')[focus.index];
+      if(!target||target.disabled||!target.getClientRects().length)return;
+      target.focus({preventScroll:true});
+      if(target instanceof HTMLInputElement&&focus.selectionStart!==null&&focus.selectionEnd!==null&&target.type==='text')target.setSelectionRange(focus.selectionStart,focus.selectionEnd);
+    }
     function buildScheduleForm(schedule,{minimum=5,maximum=1440,onSubmit}) {
       const form=htmlElement('form','schedule-form');form.hidden=true;
       const periodField=htmlElement('label','field','Период, минут'),period=document.createElement('input');period.type='number';period.min=String(minimum);period.max=String(maximum);period.step='1';period.required=true;period.value=String(schedule.every_minutes||20);periodField.append(period);
@@ -532,63 +627,69 @@
       form.addEventListener('submit',event=>{event.preventDefault();const minutes=Number(period.value),tz=timezone.value.trim();if(!Number.isInteger(minutes)||minutes<minimum||minutes>maximum||!tz)return;const activeWindow=mode.value==='24/7'?'24/7':{start:start.value,end:end.value};if(activeWindow!=='24/7'&&(!activeWindow.start||!activeWindow.end))return;onSubmit({kind:'interval',every_minutes:minutes,timezone:tz,active_window:activeWindow});});
       return {form,first:period};
     }
-    function renderAutomationJob(job,canMutate) {
-      const card=htmlElement('article','automation-card');card.dataset.jobId=job.id;
+    function renderAutomationJob(job,canMutate,saved) {
+      const card=htmlElement('article','automation-card');card.dataset.jobId=job.id;card.dataset.revision=String(job.revision);
       const meta=actualMeta(job.actual);if(meta.lamp==='error')card.classList.add('is-error');
       if(automationPending?.jobId===job.id)card.classList.add('is-applying');
       const head=htmlElement('div','automation-card-head'),name=htmlElement('div','automation-name');
       name.append(htmlElement('h3','',job.name));
-      if(job.templateId)name.append(htmlElement('div','automation-template',`Тип: ${job.templateId}`));
-      appendActualState(name,job.actual);
+      const subline=htmlElement('div','automation-card-subline');appendActualState(subline,job.actual);
+      subline.append(htmlElement('span','', '·'),htmlElement('span','',shortScheduleText(job.schedule)));name.append(subline);
       const toggle=htmlElement('button','automation-switch');toggle.type='button';toggle.role='switch';toggle.dataset.jobId=job.id;
       toggle.setAttribute('aria-checked',String(job.desired==='on'));toggle.setAttribute('aria-label',`${job.name}: требуемый режим ${job.desired==='on'?'включён':'выключен'}`);
       toggle.disabled=!canMutate;const track=htmlElement('span','switch-track');track.setAttribute('aria-hidden','true');
       toggle.append(htmlElement('span','switch-copy',job.desired==='on'?'Требуется: вкл':'Требуется: выкл'),track);
       toggle.addEventListener('click',()=>performAutomationControl({operation:'set_enabled',job_id:job.id,expected_revision:job.revision,enabled:job.desired!=='on'},job.id));
       head.append(name,toggle);card.append(head);
-      const schedule=htmlElement('div','automation-schedule');
-      schedule.append(htmlElement('span','',scheduleText(job.schedule)),htmlElement('span','',`Последняя: ${displayTime(job.lastRun)}`),htmlElement('span','',`Следующая: ${displayTime(job.nextRun)}`));
-      const edit=htmlElement('button','','Изменить расписание');edit.type='button';edit.disabled=!canMutate||job.schedule.kind!=='interval';schedule.append(edit);card.append(schedule);
-      const archive=htmlElement('button','','Архивировать');archive.type='button';archive.disabled=!canMutate||job.desired!=='off'||meta.lamp==='applying';schedule.append(archive);
+      const details=htmlElement('details','automation-parameters'),summary=htmlElement('summary','','Параметры'),body=htmlElement('div','automation-parameter-body');details.append(summary);
+      if(job.templateId)body.append(htmlElement('div','automation-template',`Тип: ${job.templateId}`));
+      appendScheduleFacts(body,job);
+      const actions=htmlElement('div','automation-actions');
+      const edit=htmlElement('button','','Изменить расписание');edit.type='button';edit.disabled=!canMutate||job.schedule.kind!=='interval';actions.append(edit);
+      const archive=htmlElement('button','','Архивировать');archive.type='button';archive.disabled=!canMutate||job.desired!=='off'||meta.lamp==='applying';actions.append(archive);body.append(actions);
       const template=(automationStatus?.templates||[]).find(item=>item.id===job.templateId),minimum=Number.isFinite(template?.minMinutes)?template.minMinutes:5,maximum=Number.isFinite(template?.maxMinutes)?template.maxMinutes:1440;
-      const editor=buildScheduleForm(job.schedule,{minimum,maximum,onSubmit:newSchedule=>performAutomationControl({operation:'set_schedule',job_id:job.id,expected_revision:job.revision,schedule:newSchedule},job.id)});card.append(editor.form);
+      const editor=buildScheduleForm(job.schedule,{minimum,maximum,onSubmit:newSchedule=>performAutomationControl({operation:'set_schedule',job_id:job.id,expected_revision:job.revision,schedule:newSchedule},job.id)});body.append(editor.form);details.append(body);card.append(details);
       edit.addEventListener('click',()=>{editor.form.hidden=!editor.form.hidden;if(!editor.form.hidden)editor.first.focus();});
       archive.addEventListener('click',()=>{if(globalThis.confirm(`Архивировать выключенное задание «${job.name}»?`))performAutomationControl({operation:'archive',job_id:job.id,expected_revision:job.revision},job.id);});
       if(job.error)card.append(htmlElement('p','automation-error-copy',job.error));
+      restoreAutomationCard(card,saved,canMutate);
       return card;
     }
-    function renderSystemTimer(timer,canMutate) {
+    function renderSystemTimer(timer,canMutate,saved) {
       if(!timer.mutable) {
-        const card=htmlElement('article','timer-card'),copy=htmlElement('div');card.dataset.timerId=timer.id;appendActualState(card,timer.actual,'');
-        copy.append(htmlElement('h3','',timer.name),htmlElement('p','',`${scheduleText(timer.schedule)} · последняя ${displayTime(timer.lastRun)} · следующая ${displayTime(timer.nextRun)}`));
-        copy.append(htmlElement('div','timer-lock',timer.detail||'Системный, только чтение.'));
-        if(timer.error)copy.append(htmlElement('p','automation-error-copy',timer.error));card.append(copy);return card;
+        const card=htmlElement('article','timer-card');card.dataset.timerId=timer.id;
+        card.append(htmlElement('h3','',timer.name));const subline=htmlElement('div','automation-card-subline');appendActualState(subline,timer.actual,'');subline.append(htmlElement('span','','·'),htmlElement('span','',shortScheduleText(timer.schedule)));card.append(subline);
+        const details=htmlElement('details','automation-parameters'),body=htmlElement('div','automation-parameter-body');details.append(htmlElement('summary','','Подробнее'));appendScheduleFacts(body,timer);
+        body.append(htmlElement('div','timer-lock',timer.detail||'Системный, только чтение.'));details.append(body);card.append(details);
+        if(timer.error)card.append(htmlElement('p','automation-error-copy',timer.error));restoreAutomationCard(card,saved);return card;
       }
-      const card=htmlElement('article','timer-card is-managed');card.dataset.timerId=timer.id;
+      const card=htmlElement('article','timer-card is-managed');card.dataset.timerId=timer.id;card.dataset.revision=String(timer.revision);
       const meta=actualMeta(timer.actual);if(meta.lamp==='error')card.classList.add('is-error');
       if(automationPending?.jobId===timer.id)card.classList.add('is-applying');
       const head=htmlElement('div','automation-card-head'),name=htmlElement('div','automation-name');
-      name.append(htmlElement('h3','',timer.name),htmlElement('div','automation-template','Тип: системный таймер'));appendActualState(name,timer.actual);
+      name.append(htmlElement('h3','',timer.name));const subline=htmlElement('div','automation-card-subline');appendActualState(subline,timer.actual);subline.append(htmlElement('span','','·'),htmlElement('span','',shortScheduleText(timer.schedule)));name.append(subline);
       const toggle=htmlElement('button','automation-switch');toggle.type='button';toggle.role='switch';toggle.dataset.timerId=timer.id;
       toggle.setAttribute('aria-checked',String(timer.desired==='on'));toggle.setAttribute('aria-label',`${timer.name}: требуемый режим ${timer.desired==='on'?'включён':'выключен'}`);
       toggle.disabled=!canMutate;const track=htmlElement('span','switch-track');track.setAttribute('aria-hidden','true');
       toggle.append(htmlElement('span','switch-copy',timer.desired==='on'?'Требуется: вкл':'Требуется: выкл'),track);
       toggle.addEventListener('click',()=>performAutomationControl({operation:'set_enabled',timer_id:timer.id,expected_revision:timer.revision,enabled:timer.desired!=='on'},timer.id));
       head.append(name,toggle);card.append(head);
-      const schedule=htmlElement('div','automation-schedule');schedule.append(htmlElement('span','',scheduleText(timer.schedule)),htmlElement('span','',`Последняя: ${displayTime(timer.lastRun)}`),htmlElement('span','',`Следующая: ${displayTime(timer.nextRun)}`));
-      const edit=htmlElement('button','','Изменить период');edit.type='button';edit.disabled=!canMutate||timer.schedule.kind!=='interval';schedule.append(edit);card.append(schedule);
+      const details=htmlElement('details','automation-parameters'),body=htmlElement('div','automation-parameter-body');details.append(htmlElement('summary','','Параметры'));appendScheduleFacts(body,timer);
+      const actions=htmlElement('div','automation-actions'),edit=htmlElement('button','','Изменить период');edit.type='button';edit.disabled=!canMutate||timer.schedule.kind!=='interval';actions.append(edit);body.append(actions);
       const form=htmlElement('form','schedule-form');form.hidden=true;const field=htmlElement('label','field','Период, минут');const input=document.createElement('input');
       input.type='number';input.min='5';input.max='1440';input.step='1';input.required=true;input.value=String(timer.schedule.every_minutes||15);field.append(input);
-      const submit=htmlElement('button','primary-action','Сохранить');submit.type='submit';form.append(field,submit);card.append(form);
+      const submit=htmlElement('button','primary-action','Сохранить');submit.type='submit';form.append(field,submit);body.append(form);
       edit.addEventListener('click',()=>{form.hidden=!form.hidden;if(!form.hidden)input.focus();});
       form.addEventListener('submit',event=>{event.preventDefault();const minutes=Number(input.value);if(!Number.isInteger(minutes)||minutes<5||minutes>1440)return;performAutomationControl({operation:'set_schedule',timer_id:timer.id,expected_revision:timer.revision,schedule:{kind:'interval',every_minutes:minutes}},timer.id);});
-      if(timer.detail)card.append(htmlElement('div','timer-lock',timer.detail));if(timer.error)card.append(htmlElement('p','automation-error-copy',timer.error));return card;
+      if(timer.detail)body.append(htmlElement('div','timer-lock',timer.detail));details.append(body);card.append(details);
+      if(timer.error)card.append(htmlElement('p','automation-error-copy',timer.error));restoreAutomationCard(card,saved,canMutate);return card;
     }
-    function syncAutomationWizard() {
+    function syncAutomationWizard(preserveInput=false) {
       const select=$('templateSelect'),current=select.value;select.replaceChildren();
       for(const template of availableAutomationTemplates()) {const option=document.createElement('option');option.value=template.id;option.textContent=template.name;select.append(option);}
-      if([...select.options].some(option=>option.value===current))select.value=current;
-      updateWizardFields();
+      const kept=[...select.options].some(option=>option.value===current);
+      if(kept)select.value=current;
+      if(!preserveInput||!kept)updateWizardFields();
     }
     function syncTemplateWindowFields() {
       const always=$('templateWindowMode').value==='24/7';
@@ -608,12 +709,15 @@
       $('templateHelp').textContent=template.description||'Новое задание создаётся выключенным.';
     }
     function renderAutomation() {
-      const jobs=$('automationJobs'),timers=$('systemTimers'),readiness=$('readiness');jobs.replaceChildren();timers.replaceChildren();readiness.replaceChildren();
+      const jobs=$('automationJobs'),timers=$('systemTimers'),readiness=$('readiness');
+      const jobState=snapshotAutomationList(jobs,'jobId'),timerState=snapshotAutomationList(timers,'timerId');
+      jobs.replaceChildren();timers.replaceChildren();readiness.replaceChildren();
       const status=automationStatus,state=automationAggregateState();
       if(!status) {
         setAutomationBanner(automationLastError?'offline':'loading',automationLastError?'Нет связи с Manager':'Получаем состояние…',automationLastError||'');
         jobs.append(htmlElement('div','automation-offline',automationLastError?'Состояние заданий не подтверждено. Повторим запрос, пока панель открыта.':'Загружаем задания…'));
-        $('automationJobsCount').textContent='';$('systemTimersCount').textContent='';$('readinessCount').textContent='';$('addAutomation').disabled=true;updateAutomationMapLamp();return;
+        $('automationJobsCount').textContent='';$('systemTimersCount').textContent='';$('readinessCount').textContent='';
+        $('systemTimersSummary').textContent='';$('readinessSummary').textContent='';$('addAutomation').disabled=true;updateAutomationMapLamp();return;
       }
       if(automationPending)setAutomationBanner('applying','Применяем изменение','Ждём подтверждённое состояние сервера…');
       else if(automationLastError)setAutomationBanner('error','Состояние не подтверждено',automationLastError);
@@ -626,14 +730,21 @@
       $('automationUpdated').textContent=status.generatedAt?`Обновлено ${displayTime(status.generatedAt)}`:'';
       const canMutate=automationCanMutate();
       $('automationJobsCount').textContent=String(status.jobs.length);$('systemTimersCount').textContent=String(status.systemTimers.length);$('readinessCount').textContent=String(status.readiness.length);
+      const timerCounts={on:0,off:0,error:0,other:0};status.systemTimers.forEach(timer=>{const lamp=actualMeta(timer.actual).lamp;timerCounts[lamp in timerCounts?lamp:'other']++;});
+      $('systemTimersSummary').textContent=status.systemTimers.length?`${timerCounts.on} ${timerCounts.on===1?'работает':'работают'} · ${timerCounts.off} ${timerCounts.off===1?'выключен':'выключены'}${timerCounts.error?` · ошибки: ${timerCounts.error}`:''}${timerCounts.other?` · уточняются: ${timerCounts.other}`:''}`:'Нет таймеров';
+      const readyStates=new Set(['ready','ok','healthy','pass','available','configured','running','active','on','enabled']),readyCount=status.readiness.filter(check=>readyStates.has(check.state)).length;
+      const readinessN=status.readiness.length,readinessForm=new Intl.PluralRules('ru').select(readinessN),readinessWord=readinessForm==='one'?'проверка':readinessForm==='few'?'проверки':'проверок';
+      $('readinessSummary').textContent=readinessN?(readyCount===readinessN?`${readinessN} ${readinessWord}`:`Готовы: ${readyCount} из ${readinessN}`):'Нет проверок';
       $('addAutomation').disabled=!canMutate||!availableAutomationTemplates().length;
       if(!status.jobs.length)jobs.append(htmlElement('p','automation-empty','Пользовательских заданий пока нет.'));
-      status.jobs.slice().sort((a,b)=>a.order-b.order).forEach(job=>jobs.append(renderAutomationJob(job,canMutate)));
+      status.jobs.slice().sort((a,b)=>a.order-b.order).forEach(job=>jobs.append(renderAutomationJob(job,canMutate,jobState.cards.get(job.id))));
       if(!status.systemTimers.length)timers.append(htmlElement('p','automation-empty','Системные таймеры не зарегистрированы.'));
-      status.systemTimers.forEach(timer=>timers.append(renderSystemTimer(timer,canMutate)));
+      status.systemTimers.forEach(timer=>timers.append(renderSystemTimer(timer,canMutate,timerState.cards.get(timer.id))));
       if(!status.readiness.length)readiness.append(htmlElement('p','automation-empty','Проверки готовности не опубликованы.'));
       status.readiness.forEach(check=>{const card=htmlElement('article','readiness-card'),copy=htmlElement('div');appendActualState(card,check.state,'');copy.append(htmlElement('h3','',check.label));if(check.detail)copy.append(htmlElement('p','',check.detail));card.append(copy);readiness.append(card);});
-      if(!$('automationWizard').hidden)syncAutomationWizard();updateAutomationMapLamp();
+      if(!$('automationWizard').hidden)syncAutomationWizard(true);
+      restoreAutomationFocus(jobs,'jobId',jobState.focus);restoreAutomationFocus(timers,'timerId',timerState.focus);
+      updateAutomationMapLamp();
     }
     async function automationRequestJson(path,options={}) {
       const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),15000);
@@ -744,7 +855,9 @@
     }
     function openAutomationCenter(focus=false) {
       const id='G1',item=items.get(id),related=relationships(id);selected=id;
-      if($('automationLayer').hidden&&$('detailLayer').hidden)previousFocus=document.activeElement;
+      const wasClosed=$('automationLayer').hidden;
+      if(wasClosed&&$('detailLayer').hidden)previousFocus=document.activeElement;
+      if(wasClosed){$('automationJobsGroup').open=true;$('systemTimersGroup').open=false;$('readinessGroup').open=false;}
       $('detail').hidden=true;$('detailLayer').hidden=true;$('automationLayer').hidden=false;$('automationDrawer').hidden=false;$('viewport').inert=true;
       markMapSelection(id,related);history.replaceState(null,'',`#${id}`);$('announce').textContent='Открыт Центр автоматизаций';renderAutomation();
       requestAnimationFrame(()=>{if(focus)center(id);$('automationDrawer').focus({preventScroll:true});refreshAutomationStatus();});
