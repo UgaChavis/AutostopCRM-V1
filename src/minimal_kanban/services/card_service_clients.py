@@ -1139,6 +1139,7 @@ class CardServiceClientsMixin:
                 phone_keys.update(self._phone_match_keys(value))
             index[client_id] = {
                 "searchable": searchable,
+                "searchable_counts": self._search_value_counts(searchable),
                 "compact_searchable": compact_searchable,
                 "phone_keys": phone_keys,
             }
@@ -1157,6 +1158,7 @@ class CardServiceClientsMixin:
             return 0
         related_searchable = indexed_fields.get("searchable", [])
         related_compact_searchable = indexed_fields.get("compact_searchable", [])
+        related_searchable_counts = indexed_fields.get("searchable_counts")
         related_phone_keys = indexed_fields.get("phone_keys", set())
         score = 0
         for variant in query_variants:
@@ -1166,6 +1168,7 @@ class CardServiceClientsMixin:
                 variant,
                 related_searchable=related_searchable,
                 related_compact_searchable=related_compact_searchable,
+                related_searchable_counts=related_searchable_counts,
             )
         score += self._score_client_related_phone_match(
             query_digits=query_digits,
@@ -1180,16 +1183,22 @@ class CardServiceClientsMixin:
         *,
         related_searchable: list[str],
         related_compact_searchable: list[str],
+        related_searchable_counts: dict[str, int] | None = None,
     ) -> int:
         score = 0
         parts, compact_variant = _prepared_search_variant(variant)
-        for value in related_searchable:
+        searchable_values = (
+            related_searchable_counts.items()
+            if related_searchable_counts is not None
+            else ((value, 1) for value in related_searchable)
+        )
+        for value, count in searchable_values:
             if value == variant:
-                score += 7
+                score += 7 * count
             elif variant in value:
-                score += 5
+                score += 5 * count
             elif all(part in value for part in parts):
-                score += 3
+                score += 3 * count
         if compact_variant and any(
             compact_variant in value for value in related_compact_searchable
         ):
@@ -1659,12 +1668,15 @@ class CardServiceClientsMixin:
                 for value in [*searchable, *vehicle_searchable]
                 if value
             ]
+            compact_searchable = list(dict.fromkeys(compact_searchable))
             phone_variants: set[str] = set()
             for phone in [client.phone, *client.phones]:
                 phone_variants.update(self._phone_search_variants(phone))
             index[client.id] = {
                 "searchable": searchable,
+                "searchable_counts": self._search_value_counts(searchable),
                 "vehicle_searchable": vehicle_searchable,
+                "vehicle_searchable_counts": self._search_value_counts(vehicle_searchable),
                 "compact_searchable": compact_searchable,
                 "digits_blob": self._client_search_digits_blob(client),
                 "direct_digit_values": self._client_direct_digit_values(client),
@@ -1675,6 +1687,12 @@ class CardServiceClientsMixin:
         self._client_search_index_signature = signature
         self._client_search_index = index
         return index
+
+    def _search_value_counts(self, values: list[str]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for value in values:
+            counts[value] = counts.get(value, 0) + 1
+        return counts
 
     def _client_vehicle_search_vin(self, value: Any) -> str:
         raw = normalize_text(value, default="", limit=160).upper()
@@ -1840,12 +1858,16 @@ class CardServiceClientsMixin:
         searchable = indexed.get("searchable", [])
         vehicle_searchable = indexed.get("vehicle_searchable", [])
         compact_searchable = indexed.get("compact_searchable", [])
+        searchable_counts = indexed.get("searchable_counts")
+        vehicle_searchable_counts = indexed.get("vehicle_searchable_counts")
         score = 0
         score += self._score_client_text_variants(
             query_variants,
             searchable=searchable,
             vehicle_searchable=vehicle_searchable,
             compact_searchable=compact_searchable,
+            searchable_counts=searchable_counts,
+            vehicle_searchable_counts=vehicle_searchable_counts,
         )
         if len(query_digits) >= 4:
             phone_digits = " ".join(re.sub(r"\D+", "", phone) for phone in client.phones)
@@ -1876,6 +1898,8 @@ class CardServiceClientsMixin:
         searchable: list[str],
         vehicle_searchable: list[str],
         compact_searchable: list[str],
+        searchable_counts: dict[str, int] | None = None,
+        vehicle_searchable_counts: dict[str, int] | None = None,
     ) -> int:
         score = 0
         for variant in query_variants:
@@ -1886,6 +1910,8 @@ class CardServiceClientsMixin:
                 searchable=searchable,
                 vehicle_searchable=vehicle_searchable,
                 compact_searchable=compact_searchable,
+                searchable_counts=searchable_counts,
+                vehicle_searchable_counts=vehicle_searchable_counts,
             )
         return score
 
@@ -1896,23 +1922,35 @@ class CardServiceClientsMixin:
         searchable: list[str],
         vehicle_searchable: list[str],
         compact_searchable: list[str],
+        searchable_counts: dict[str, int] | None = None,
+        vehicle_searchable_counts: dict[str, int] | None = None,
     ) -> int:
         score = 0
         parts, compact_variant = _prepared_search_variant(variant)
-        for value in searchable:
+        searchable_values = (
+            searchable_counts.items()
+            if searchable_counts is not None
+            else ((value, 1) for value in searchable)
+        )
+        for value, count in searchable_values:
             if value == variant:
-                score += 8
+                score += 8 * count
             elif variant in value:
-                score += 4
+                score += 4 * count
             elif all(part in value for part in parts):
-                score += 2
-        for value in vehicle_searchable:
+                score += 2 * count
+        vehicle_values = (
+            vehicle_searchable_counts.items()
+            if vehicle_searchable_counts is not None
+            else ((value, 1) for value in vehicle_searchable)
+        )
+        for value, count in vehicle_values:
             if value == variant:
-                score += 7
+                score += 7 * count
             elif variant in value:
-                score += 5
+                score += 5 * count
             elif all(part in value for part in parts):
-                score += 3
+                score += 3 * count
         if compact_variant and any(compact_variant in value for value in compact_searchable):
             score += 5
         return score
