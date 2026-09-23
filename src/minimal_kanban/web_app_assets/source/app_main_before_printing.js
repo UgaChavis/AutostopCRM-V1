@@ -13716,12 +13716,12 @@
       const desired = snapshot.columns.filter((column) => column.id !== PARTS_STORE_COLUMN_ID).map((column, index) => ({
         key: column.id,
         cards: cardsByColumn.get(column.id) || [],
-        signature: JSON.stringify([column, index, snapshot.columns.length, cardsByColumn.get(column.id) || []]),
+        signature: JSON.stringify([column, index, snapshot.columns.length, (cardsByColumn.get(column.id) || []).length]),
         html: () => renderBoardColumnHtml(column, index, snapshot, cardsByColumn),
       }));
       if (extraBoardColumnIsOpen()) {
         const cards = extraBoardColumnCards(snapshot);
-        desired.push({key: '__extra__', cards, signature: JSON.stringify([extraBoardColumnPreferences(), state.boardScale, cards]), html: () => renderExtraBoardColumnHtml(snapshot)});
+        desired.push({key: '__extra__', cards, signature: JSON.stringify([extraBoardColumnPreferences(), state.boardScale, cards.length]), html: () => renderExtraBoardColumnHtml(snapshot)});
       }
       if (partsStoreColumnIsOpen()) {
         const partsStoreColumn = snapshot.columns.find((column) => column.id === PARTS_STORE_COLUMN_ID);
@@ -13730,7 +13730,7 @@
           desired.push({
             key: PARTS_STORE_COLUMN_ID,
             cards,
-            signature: JSON.stringify([partsStoreColumn, state.boardScale, cards]),
+            signature: JSON.stringify([partsStoreColumn, state.boardScale, cards.length]),
             html: () => renderBoardColumnHtml(partsStoreColumn, snapshot.columns.length - 1, snapshot, cardsByColumn),
           });
         }
@@ -13744,6 +13744,12 @@
           template.innerHTML = item.html();
           node = reconcileBoardSection(node, template.content.firstElementChild, item.cards);
           state.boardRenderedSections.set(node, item.signature);
+        } else {
+          const currentList = node.querySelector('.column__cards');
+          if (currentList) {
+            const variant = node.dataset.virtualColumn ? JSON.stringify(extraBoardColumnPreferences()) : '';
+            reconcileBoardCards(currentList, currentList, item.cards, variant);
+          }
         }
         if (els.board.children[index] !== node) els.board.insertBefore(node, els.board.children[index] || null);
       });
