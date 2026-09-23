@@ -62,9 +62,38 @@ class CardServiceClientsMixin:
             payload = payload or {}
             query = normalize_text(payload.get("query"), default="", limit=240)
             limit = self._validated_limit(payload.get("limit"), default=10, maximum=100)
-            bundle = self._store.read_bundle()
-            clients = self._ordered_clients(bundle["clients"])
-            matches = self._rank_client_matches(clients, query, bundle["cards"])
+            bundle, revision = self._store.read_bundle_with_signature()
+            # The store replaces its read bundle after a save or external reload.
+            # Keep the already normalized search fields for that exact version.
+            # Including bundle identity also handles a replacement with an equal
+            # file signature (for example an externally restored state file).
+            cache_key = (revision, id(bundle))
+            prepared = getattr(self, "_client_search_prepared", None)
+            if prepared is None or prepared[0] != cache_key:
+                clients = self._ordered_clients(bundle["clients"])
+                client_index = self._client_search_index_for(
+                    clients, signature=("store", *cache_key)
+                )
+                related_fields = self._client_related_vehicle_fields_index_for(
+                    clients,
+                    bundle["cards"],
+                    client_signature=("store", *cache_key),
+                )
+                related_index = self._client_related_search_index(related_fields)
+                prepared = (cache_key, clients, client_index, related_fields, related_index)
+                self._client_search_prepared = prepared
+            _, clients, client_index, related_fields, related_index = prepared
+            matches = (
+                [(1, client) for client in clients]
+                if not query
+                else self._rank_client_matches(
+                    clients,
+                    query,
+                    client_search_index=client_index,
+                    related_fields_by_client_id=related_fields,
+                    related_search_index_by_client_id=related_index,
+                )
+            )
             selected = [client for _, client in matches[:limit]]
             related_cards_by_client_id = self._client_related_cards_map(selected, bundle["cards"])
             return {

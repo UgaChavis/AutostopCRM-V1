@@ -117,6 +117,7 @@ from .card_attachments import _ATTACHMENT_XML_READ_MAX_BYTES as _ATTACHMENT_XML_
 from .card_attachments import _OLE_MAGIC as _OLE_MAGIC
 from .card_attachments import CardAttachmentsMixin
 from .card_ordering import ordered_active_card_ids_by_column
+from .card_search_index import CardSearchIndex
 from .card_service_bulk import CardServiceBulkMixin
 from .card_service_clients import CardServiceClientsMixin
 from .card_service_dashboard import (
@@ -457,7 +458,11 @@ class CardService(
             validated_optional_tag=self._validated_optional_tag,
             validated_optional_indicator=self._validated_optional_indicator,
             validated_optional_status=self._validated_optional_status,
-            search_card_match=self._search_card_match,
+            card_search_index=CardSearchIndex(
+                self._prepare_card_search_fields,
+                self._prepare_card_search_query,
+                self._match_prepared_card_search,
+            ),
             find_card=self._find_card,
             events_for_card=self._events_for_card,
             fail=self._fail,
@@ -5590,15 +5595,23 @@ class CardService(
     def _search_card_match(self, card: Card, query: str) -> tuple[int, list[str]]:
         if not query:
             return 0, []
+        prepared_query = self._prepare_card_search_query(query)
+        if not prepared_query[1]:
+            return 0, []
+        return self._match_prepared_card_search(
+            self._prepare_card_search_fields(card), prepared_query
+        )
+
+    def _prepare_card_search_query(self, query: str) -> tuple[list[str], list[list[str]]]:
         query_variants = self._search_text_variants(query)
         query_token_variants = [
             [token for token in variant.split() if token.strip()]
             for variant in query_variants
             if variant
         ]
-        if not query_token_variants:
-            return 0, []
+        return query_variants, query_token_variants
 
+    def _prepare_card_search_fields(self, card: Card) -> dict[str, list[str]]:
         profile = card.vehicle_profile
         repair_order = card.repair_order
         searchable_fields = {
@@ -5645,11 +5658,20 @@ class CardService(
             "repair_order_works": " ".join(row.name for row in repair_order.works),
             "repair_order_materials": " ".join(row.name for row in repair_order.materials),
         }
-        normalized_fields = {
+        return {
             name: self._search_text_variants(value)
             for name, value in searchable_fields.items()
             if value
         }
+
+    def _match_prepared_card_search(
+        self,
+        normalized_fields: dict[str, list[str]],
+        prepared_query: tuple[list[str], list[list[str]]],
+    ) -> tuple[int, list[str]]:
+        query_variants, query_token_variants = prepared_query
+        if not query_token_variants:
+            return 0, []
         searchable_values = [value for values in normalized_fields.values() for value in values]
         matched_query_tokens = next(
             (
@@ -5660,12 +5682,6 @@ class CardService(
             None,
         )
         if matched_query_tokens is None:
-            return 0, []
-
-        if not any(
-            all(any(token in value for value in searchable_values) for token in tokens)
-            for tokens in query_token_variants
-        ):
             return 0, []
 
         score = 0

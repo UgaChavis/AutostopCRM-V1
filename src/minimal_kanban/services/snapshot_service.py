@@ -27,6 +27,7 @@ from ..models import (
     utc_now_iso,
 )
 from ..storage.json_store import JsonStore
+from .card_search_index import CardSearchIndex
 from .journal_labels import day_label, month_label, week_label
 from .operator_visibility import (
     operator_can_access_employees_cashboxes,
@@ -315,7 +316,7 @@ class SnapshotService:
         validated_optional_tag: Callable[[Any], str | None],
         validated_optional_indicator: Callable[[Any], str | None],
         validated_optional_status: Callable[[Any], str | None],
-        search_card_match: Callable[[Card, str], tuple[int, list[str]]],
+        card_search_index: CardSearchIndex,
         find_card: Callable[[list[Card], str | None], Card],
         events_for_card: Callable[[list[AuditEvent], str], list[AuditEvent]],
         fail: Callable[..., None],
@@ -339,7 +340,7 @@ class SnapshotService:
         self._validated_optional_tag = validated_optional_tag
         self._validated_optional_indicator = validated_optional_indicator
         self._validated_optional_status = validated_optional_status
-        self._search_card_match = search_card_match
+        self._card_search_index = card_search_index
         self._find_card = find_card
         self._events_for_card = events_for_card
         self._hydrate_event_details = hydrate_event_details
@@ -1323,7 +1324,7 @@ class SnapshotService:
                 payload, "include_archived", default=False
             )
             limit = self._validated_limit(payload.get("limit"), default=20, maximum=100)
-            bundle = self._store.read_bundle()
+            bundle, signature = self._store.read_bundle_with_signature()
             columns = bundle["columns"]
             events = visible_audit_events(payload, bundle["events"])
             viewer_username = self._viewer_username(payload)
@@ -1340,6 +1341,7 @@ class SnapshotService:
                     details={"fields": ["query", "column", "tag", "indicator", "status"]},
                 )
 
+            match_card = self._card_search_index.matcher(bundle, signature, query)
             matches: list[tuple[int, Card, list[str]]] = []
             for card in bundle["cards"]:
                 if card.archived and not include_archived:
@@ -1348,13 +1350,11 @@ class SnapshotService:
                     continue
                 if tag and tag not in card.tag_labels():
                     continue
-                card_status = card.status()
-                if status and card_status != status:
+                if status and card.status() != status:
                     continue
-                card_indicator = card.indicator()
-                if indicator and card_indicator != indicator:
+                if indicator and card.indicator() != indicator:
                     continue
-                score, fields = self._search_card_match(card, query)
+                score, fields = match_card(card)
                 if query and score <= 0:
                     continue
                 matches.append((score, card, fields))

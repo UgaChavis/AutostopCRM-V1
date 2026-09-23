@@ -585,7 +585,7 @@ class BrowserSmokeScriptTests(unittest.TestCase):
         self.assertIn("page.expect_download()", script)
         self.assertIn('startswith(b"%PDF")', script)
         self.assertIn("_pdf_file_is_parseable(Path(download_path))", script)
-        self.assertIn('page.keyboard.press("Enter")', script)
+        self.assertIn('gear.press("Enter")', script)
         self.assertIn('data-completion-act-item-action="duplicate"', script)
         self.assertIn('data-completion-act-item-action="up"', script)
         self.assertIn('data-completion-act-item-action="remove"', script)

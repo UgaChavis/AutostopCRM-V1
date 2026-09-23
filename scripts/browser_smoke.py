@@ -1031,6 +1031,8 @@ async def _exercise_personal_extra_board_column(page: Any, runtime: TempRuntime)
                 .filter((card) => !card.closest('[data-virtual-column]'));
               const children = Array.from(board?.children || []);
               const addColumn = children.find((node) => node.classList.contains('board-add-column'));
+              const partsStoreColumn = children.find((node) => node.dataset.columnId === 'parts_store');
+              const followingColumn = partsStoreColumn || addColumn;
               return Boolean(
                 virtualColumn &&
                 virtualCards.length === 1 &&
@@ -1038,7 +1040,8 @@ async def _exercise_personal_extra_board_column(page: Any, runtime: TempRuntime)
                 virtualCards[0].getAttribute('draggable') === 'false' &&
                 virtualCards[0].textContent.includes('НАДО ЧТО ТО СДЕЛАТЬ') &&
                 virtualCards[0].textContent.includes('+1') &&
-                children.indexOf(virtualColumn) === children.indexOf(addColumn) - 1
+                children.indexOf(virtualColumn) === children.indexOf(followingColumn) - 1 &&
+                (!partsStoreColumn || children.indexOf(partsStoreColumn) === children.indexOf(addColumn) - 1)
               );
             }""",
             card_id,
@@ -1124,8 +1127,7 @@ async def _exercise_completion_act_editor(page: Any, runtime: TempRuntime) -> bo
             and response.url.split("?", 1)[0].endswith("/api/get_completion_act_form")
         )
     ) as get_form_response_info:
-        await gear.focus()
-        await page.keyboard.press("Enter")
+        await gear.press("Enter")
     get_form_response = await get_form_response_info.value
     expected_date = str(
         (_api_data(await get_form_response.json()).get("form") or {}).get("document_date") or ""
