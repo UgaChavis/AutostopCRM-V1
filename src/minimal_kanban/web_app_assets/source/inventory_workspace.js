@@ -94,8 +94,9 @@
       return normalized || '-';
     }
 
-    function inventoryMovementItemName(movement) {
-      const item = inventoryItemById(movement?.item_id);
+    function inventoryMovementItemName(movement, itemsById = null) {
+      const itemId = String(movement?.item_id || '').trim();
+      const item = itemsById ? (itemsById.get(itemId) || null) : inventoryItemById(itemId);
       return item?.name || movement?.item_name || movement?.item_id || '-';
     }
 
@@ -118,11 +119,11 @@
       return delta && delta !== '0' ? quantity + ' (' + delta + ')' : quantity;
     }
 
-    function inventoryMovementRowHtml(movement) {
+    function inventoryMovementRowHtml(movement, itemsById = null) {
       return '<tr>'
         + '<td class="inventory-table__mono">' + escapeHtml(formatDate(movement?.created_at || '')) + '</td>'
         + '<td>' + escapeHtml(inventoryMovementKindText(movement?.kind)) + '</td>'
-        + '<td>' + escapeHtml(inventoryMovementItemName(movement)) + '</td>'
+        + '<td>' + escapeHtml(inventoryMovementItemName(movement, itemsById)) + '</td>'
         + '<td class="inventory-table__number">' + escapeHtml(inventoryMovementQuantityText(movement)) + '</td>'
         + '<td class="inventory-table__number">' + escapeHtml(inventoryMovementPriceText(movement)) + '</td>'
         + '<td class="inventory-table__mono">' + escapeHtml(inventoryMovementCardText(movement)) + '</td>'
@@ -180,8 +181,13 @@
         els.inventoryMovementsBody.innerHTML = '<tr><td colspan="7" class="cashboxes-empty">ЗАГРУЖАЮ ДВИЖЕНИЯ...</td></tr>';
         return;
       }
+      const itemsById = new Map();
+      (Array.isArray(state.inventoryItems) ? state.inventoryItems : []).forEach((item) => {
+        const itemId = inventoryItemId(item);
+        if (itemId && !itemsById.has(itemId)) itemsById.set(itemId, item);
+      });
       els.inventoryMovementsBody.innerHTML = movements.length
-        ? movements.map((movement) => inventoryMovementRowHtml(movement)).join('')
+        ? movements.map((movement) => inventoryMovementRowHtml(movement, itemsById)).join('')
         : '<tr><td colspan="7" class="cashboxes-empty">ДВИЖЕНИЙ ПОКА НЕТ.</td></tr>';
     }
 

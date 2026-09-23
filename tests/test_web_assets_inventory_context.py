@@ -108,6 +108,23 @@ renderInventory();assert.equal(movements,1,'full inventory render duplicated the
 """,
         )
 
+    def test_movement_item_name_index_preserves_lookup_and_fallback(self) -> None:
+        self.run_node(
+            functions(
+                "inventory_workspace.js",
+                "inventoryItemId",
+                "inventoryItemById",
+                "inventoryMovementItemName",
+            ),
+            """
+state.inventoryItems=[{id:' item-A ',name:'First match'},{id:'item-A',name:'Duplicate'}];
+const index=new Map();for(const item of state.inventoryItems){const id=inventoryItemId(item);if(id&&!index.has(id))index.set(id,item);}
+assert.equal(inventoryMovementItemName({item_id:'item-A'},index),'First match');
+assert.equal(inventoryMovementItemName({item_id:' missing ',item_name:'Saved name'},index),'Saved name');
+assert.equal(inventoryMovementItemName({item_id:' missing '},index),' missing ');
+""",
+        )
+
     def test_inventory_movement_stale_finally_does_not_clear_new_loading(self) -> None:
         self.run_node(
             self.inventory_functions("loadInventoryMovements"),
