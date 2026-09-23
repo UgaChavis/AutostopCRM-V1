@@ -531,6 +531,24 @@
       }, new Map());
     }
 
+    function payrollDetailRowsForEmployee(employeeId) {
+      const normalizedId = String(employeeId || '').trim();
+      if (!normalizedId) return [];
+      const rows = Array.isArray(state.payrollReport?.detail_rows) ? state.payrollReport.detail_rows : [];
+      if (state.payrollDetailRowsIndexSource !== rows) {
+        const index = new Map();
+        for (const row of rows) {
+          const id = String(row?.employee_id || '').trim();
+          if (!id) continue;
+          if (!index.has(id)) index.set(id, []);
+          index.get(id).push(row);
+        }
+        state.payrollDetailRowsIndexSource = rows;
+        state.payrollDetailRowsIndex = index;
+      }
+      return state.payrollDetailRowsIndex.get(normalizedId) || [];
+    }
+
     function renderEmployeeProfileMeta() {
       if (!els.employeesMeta) return;
       const selectedEmployee = selectedEmployeeRecord();
@@ -650,8 +668,7 @@
     function renderEmployeesDetails() {
       const selectedId = state.employeesReportDetailsOpen ? String(state.activeEmployeeId || '').trim() : '';
       const selectedEmployee = selectedId ? selectedEmployeeRecord() : null;
-      const rows = Array.isArray(state.payrollReport?.detail_rows) ? state.payrollReport.detail_rows : [];
-      const visibleRows = selectedId ? rows.filter((item) => String(item.employee_id || '').trim() === selectedId) : [];
+      const visibleRows = selectedId ? payrollDetailRowsForEmployee(selectedId) : [];
       if (els.employeesReportMeta) {
         els.employeesReportMeta.textContent = selectedEmployee
           ? ('Детализация: ' + String(selectedEmployee.name || 'СОТРУДНИК').toUpperCase())

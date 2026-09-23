@@ -195,3 +195,40 @@ function setStatus(){}
             cwd=ROOT,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_payroll_detail_index_matches_report_order_and_rebuilds_on_report_change(self) -> None:
+        workspace = (SOURCE / "payroll_workspace.js").read_text(encoding="utf-8")
+        helper = workspace[
+            workspace.index("    function payrollDetailRowsForEmployee(") : workspace.index(
+                "    function renderEmployeeProfileMeta()"
+            )
+        ]
+        script = (
+            """
+const assert=require('node:assert/strict');
+const firstRows=[
+  {employee_id:' E1 ',row:1},{employee_id:'E2',row:2},{employee_id:'E1',row:3},
+  {employee_id:'',row:4},{}
+];
+const state={payrollReport:{detail_rows:firstRows}};
+"""
+            + helper
+            + """
+assert.deepEqual(payrollDetailRowsForEmployee('E1').map(row=>row.row),[1,3]);
+assert.deepEqual(payrollDetailRowsForEmployee(' E2 ').map(row=>row.row),[2]);
+assert.deepEqual(payrollDetailRowsForEmployee('missing'),[]);
+const secondRows=[{employee_id:'E1',row:5}];
+state.payrollReport={detail_rows:secondRows};
+assert.deepEqual(payrollDetailRowsForEmployee('E1'),secondRows);
+"""
+        )
+        result = subprocess.run(
+            ["node"],
+            input=script,
+            encoding="utf-8",
+            text=True,
+            capture_output=True,
+            timeout=15,
+            cwd=ROOT,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

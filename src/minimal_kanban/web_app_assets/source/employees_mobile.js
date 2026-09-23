@@ -12,10 +12,7 @@
     }
 
     function mobileEmployeeDetailRows(employeeId) {
-      const normalizedId = String(employeeId || '').trim();
-      if (!normalizedId) return [];
-      return (Array.isArray(state.payrollReport?.detail_rows) ? state.payrollReport.detail_rows : [])
-        .filter((row) => String(row?.employee_id || '').trim() === normalizedId);
+      return payrollDetailRowsForEmployee(employeeId);
     }
 
     function mobileEmployeeAccrualTitle(row) {
