@@ -1,10 +1,19 @@
+    function invalidateEmployeeNamesReference() {
+      state.employeeNamesRevision = (state.employeeNamesRevision || 0) + 1;
+      state.employeeNamesPromise = null;
+      state.employeeNamesLoadedMonth = '';
+      state.employeeNames = null;
+    }
+
     function invalidateEmployeesReference() {
       state.employeesReferenceRevision = (state.employeesReferenceRevision || 0) + 1;
       state.employeesReferencePromise = null;
       state.employeesLoadedMonth = '';
+      invalidateEmployeeNamesReference();
     }
 
     function applyEmployeesReferenceData(data, month) {
+      invalidateEmployeeNamesReference();
       state.employees = Array.isArray(data?.employees) ? data.employees : [];
       state.employeesLoadedMonth = month;
       if (!state.employeeCreateMode && !state.activeEmployeeId && state.employees.length) {
@@ -15,33 +24,39 @@
       }
     }
 
-    async function loadEmployeesReference({ month: requestedMonth = '', apply = true, force = false } = {}) {
+    async function loadEmployeesReference({ month: requestedMonth = '', apply = true, force = false, referencesOnly = false } = {}) {
       const viewerStateGeneration = state.viewerStateGeneration;
       const session = state.operatorSessionToken;
       const accessRevision = state.employeesCashboxesAccessRevision;
       const referenceRevision = state.employeesReferenceRevision || 0;
+      const namesRevision = referencesOnly ? (state.employeeNamesRevision || 0) : null;
       const month = String(requestedMonth || state.payrollMonth || currentPayrollMonthValue()).trim();
-      if (!force && state.employeesLoadedMonth === month && Array.isArray(state.employees)) {
-        return { employees: state.employees, meta: { cached: true, month } };
+      const loadedMonthKey = referencesOnly ? 'employeeNamesLoadedMonth' : 'employeesLoadedMonth';
+      const employeesKey = referencesOnly ? 'employeeNames' : 'employees';
+      const promiseKey = referencesOnly ? 'employeeNamesPromise' : 'employeesReferencePromise';
+      if (!force && state[loadedMonthKey] === month && Array.isArray(state[employeesKey])) {
+        return { employees: state[employeesKey], meta: { cached: true, month, references_only: referencesOnly } };
       }
       let request = null;
+      const pending = state[promiseKey];
       if (
-        state.employeesReferencePromise
-        && state.employeesReferencePromise.month === month
-        && state.employeesReferencePromise.viewerStateGeneration === viewerStateGeneration
-        && state.employeesReferencePromise.session === session
-        && state.employeesReferencePromise.accessRevision === accessRevision
-        && state.employeesReferencePromise.referenceRevision === referenceRevision
+        pending
+        && pending.month === month
+        && pending.viewerStateGeneration === viewerStateGeneration
+        && pending.session === session
+        && pending.accessRevision === accessRevision
+        && pending.referenceRevision === referenceRevision
+        && pending.namesRevision === namesRevision
       ) {
-        request = state.employeesReferencePromise.promise;
+        request = pending.promise;
       } else {
-        request = api('/api/list_employees?month=' + encodeURIComponent(month))
+        request = api('/api/list_employees?month=' + encodeURIComponent(month) + (referencesOnly ? '&references_only=true' : ''))
           .finally(() => {
-            if (state.employeesReferencePromise?.promise === request) {
-              state.employeesReferencePromise = null;
+            if (state[promiseKey]?.promise === request) {
+              state[promiseKey] = null;
             }
           });
-        state.employeesReferencePromise = { month, viewerStateGeneration, session, accessRevision, referenceRevision, promise: request };
+        state[promiseKey] = { month, viewerStateGeneration, session, accessRevision, referenceRevision, namesRevision, promise: request };
       }
       const data = await request;
       if (
@@ -49,9 +64,15 @@
         || session !== state.operatorSessionToken
         || accessRevision !== state.employeesCashboxesAccessRevision
         || referenceRevision !== (state.employeesReferenceRevision || 0)
+        || (referencesOnly && namesRevision !== (state.employeeNamesRevision || 0))
       ) return data;
       const activeMonth = state.payrollMonth || currentPayrollMonthValue();
-      if (apply && month === activeMonth) applyEmployeesReferenceData(data, month);
+      if (apply && month === activeMonth) {
+        if (referencesOnly) {
+          state.employeeNames = Array.isArray(data?.employees) ? data.employees : [];
+          state.employeeNamesLoadedMonth = month;
+        } else applyEmployeesReferenceData(data, month);
+      }
       return data;
     }
 

@@ -340,6 +340,28 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
             self.assertEqual(bundle["cards"][0].id, "smoke-card")
             self.assertTrue(bundle["settings"]["has_seen_onboarding"])
             self.assertTrue(all(card.column in original_columns for card in bundle["cards"]))
+            self.assertEqual(metadata["payroll_counts"]["employees"], 24)
+            self.assertEqual(metadata["payroll_counts"]["shift_accruals"], 2880)
+            self.assertEqual(metadata["payroll_counts"]["order_reversals"], 124)
+            self.assertEqual(len(bundle["settings"]["employees"]), 24)
+            self.assertEqual(len(bundle["settings"]["employee_shift_accruals"]), 2880)
+            accruals = bundle["settings"]["employee_repair_order_accruals"]
+            active_ids = {item["id"] for item in accruals if item["kind"] == "accrual"}
+            self.assertTrue(
+                all(
+                    item["related_accrual_id"] in active_ids
+                    for item in accruals
+                    if item["kind"] == "reversal"
+                )
+            )
+            self.assertTrue(
+                all(
+                    transaction.employee_id
+                    and transaction.transaction_kind in {"salary_payout", "salary_advance"}
+                    for transaction in bundle["cash_transactions"]
+                )
+            )
+            self.assertTrue(all(card.repair_order.works for card in bundle["cards"][1:]))
 
     def test_source_root_selects_application_and_rejects_already_imported_other_copy(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

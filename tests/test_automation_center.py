@@ -229,6 +229,7 @@ class AutomationCenterServiceTests(unittest.TestCase):
         self.assertEqual("blocked", control.maintenance_behavior)
 
 
+@unittest.skipUnless(hasattr(socket, "AF_UNIX"), "Unix-domain sockets are unavailable")
 class AutomationControlClientTests(unittest.TestCase):
     def test_bounded_protocol_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

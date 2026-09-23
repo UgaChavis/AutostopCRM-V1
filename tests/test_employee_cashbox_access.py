@@ -375,6 +375,51 @@ class EmployeeCashboxAccessApiTests(unittest.TestCase):
         self.assertNotIn("transactions_total", cashboxes["data"]["meta"])
         self.assertIsNone(cashboxes["data"]["notification"])
 
+    def test_explicit_employee_references_skip_payroll_and_preserve_read_permission(self) -> None:
+        for headers, can_read in (
+            (self.admin_headers, False),
+            (self.allowed_headers, True),
+            (self.read_only_headers, True),
+            (self.restricted_headers, False),
+        ):
+            with (
+                self.subTest(can_read=can_read),
+                patch.object(
+                    self.api.service,
+                    "_build_payroll_report",
+                    side_effect=AssertionError("payroll called"),
+                ),
+                patch.object(
+                    self.api.service,
+                    "_build_employee_salary_balance_summary",
+                    side_effect=AssertionError("balance called"),
+                ),
+            ):
+                status, response = self.api.request(
+                    "/api/list_employees?references_only=true&month=2026-09",
+                    method="GET",
+                    headers=headers,
+                )
+                self.assertEqual(status, 200, response)
+                data = response["data"]
+                self.assertTrue(data["meta"]["references_only"])
+                self.assertEqual(data["month"], "2026-09")
+                self.assertEqual(data["summary"], {})
+                self.assertEqual(data["detail_rows"], [])
+                employee = next(x for x in data["employees"] if x["id"] == self.employee["id"])
+                fields = {"id", "name", "position", "is_active"}
+                if can_read:
+                    fields.add("work_percent")
+                    self.assertEqual(employee["work_percent"], self.employee["work_percent"])
+                self.assertEqual(set(employee), fields)
+
+        status, response = self.api.request(
+            "/api/list_employees?references_only=false", method="GET", headers=self.allowed_headers
+        )
+        self.assertEqual(status, 200)
+        self.assertNotIn("meta", response["data"])
+        self.assertIn("balance_total", response["data"]["employees"][0])
+
     def test_employees_read_only_operator_sees_full_payroll_without_write_access(self) -> None:
         employee_id = self.employee["id"]
         self.api.service.create_employee_shift_accrual(

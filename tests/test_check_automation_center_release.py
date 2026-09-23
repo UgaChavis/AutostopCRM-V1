@@ -125,6 +125,7 @@ def _manager_status(
     }
 
 
+@unittest.skipUnless(os.name == "posix", "Release checks require POSIX ownership and permissions")
 class AutomationCenterReleaseCheckTests(unittest.TestCase):
     def test_feed_baseline_proves_business_events_unchanged_and_probe_absent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

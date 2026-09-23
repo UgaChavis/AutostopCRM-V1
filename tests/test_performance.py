@@ -12,6 +12,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.performance import (  # noqa: E402
+    MeasuredRLock,
     RequestPerformanceTrace,
     record_timing,
     request_performance_trace,
@@ -22,6 +23,7 @@ class RequestPerformanceTraceTests(unittest.TestCase):
     def test_server_timing_contains_complete_finite_contract(self) -> None:
         trace = RequestPerformanceTrace()
         trace.add("service_lock", 1.25)
+        trace.add("service_lock_hold", 4.25)
         trace.add("store_lock", 2.5)
         trace.add("file_lock", 3.75)
         trace.add("audit_archive", 4.0)
@@ -43,6 +45,7 @@ class RequestPerformanceTraceTests(unittest.TestCase):
             "total",
             "lock",
             "service_lock",
+            "service_lock_hold",
             "store_lock",
             "file_lock",
             "audit_archive",
@@ -60,6 +63,7 @@ class RequestPerformanceTraceTests(unittest.TestCase):
         }
         self.assertEqual(set(parsed), expected_names)
         self.assertAlmostEqual(parsed["lock"], 7.5)
+        self.assertAlmostEqual(parsed["service_lock_hold"], 4.2)
         self.assertTrue(all(math.isfinite(value) and value >= 0 for value in parsed.values()))
 
     def test_context_resets_after_success_and_exception(self) -> None:
@@ -96,6 +100,39 @@ class RequestPerformanceTraceTests(unittest.TestCase):
             thread.join()
 
         self.assertEqual(sorted(results), [11.0, 22.0])
+
+    def test_reentrant_lock_records_one_outermost_hold(self) -> None:
+        lock = MeasuredRLock("service_lock")
+        with request_performance_trace() as trace:
+            with lock:
+                with lock:
+                    self.assertNotIn("service_lock_hold", trace.durations_ms)
+                self.assertNotIn("service_lock_hold", trace.durations_ms)
+            self.assertEqual(trace.counts["service_lock_hold"], 1)
+            self.assertGreaterEqual(trace.durations_ms["service_lock_hold"], 0)
+            self.assertEqual(trace.counts["service_lock"], 2)
+
+    def test_failed_nonblocking_acquire_does_not_record_hold(self) -> None:
+        lock = MeasuredRLock("service_lock")
+        entered = threading.Event()
+        release = threading.Event()
+
+        def holder() -> None:
+            with lock:
+                entered.set()
+                release.wait(timeout=5)
+
+        worker = threading.Thread(target=holder)
+        worker.start()
+        try:
+            self.assertTrue(entered.wait(timeout=5))
+            with request_performance_trace() as trace:
+                self.assertFalse(lock.acquire(blocking=False))
+                self.assertEqual(trace.counts["service_lock"], 1)
+                self.assertNotIn("service_lock_hold", trace.durations_ms)
+        finally:
+            release.set()
+            worker.join(timeout=5)
 
 
 if __name__ == "__main__":

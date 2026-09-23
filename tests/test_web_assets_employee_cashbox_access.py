@@ -104,7 +104,7 @@ class EmployeeCashboxAccessWebAssetTests(unittest.TestCase):
             "async function loadMobileMoreModules(", "function renderMobileShell("
         )
         self.assertIn(
-            "if (operatorCanViewEmployees()) tasks.push(loadEmployeesReference());",
+            "if (operatorCanViewEmployees()) tasks.push(loadEmployeesReference({ referencesOnly: true }));",
             loader,
         )
 

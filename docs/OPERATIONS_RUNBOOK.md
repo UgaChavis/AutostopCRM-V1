@@ -645,8 +645,12 @@ git merge --ff-only origin/autostopcrm-v1
 git -C /opt/AutostopManager status --short --branch
 git -C /opt/AutostopManager fetch origin AutostopManager
 git -C /opt/AutostopManager merge --ff-only origin/AutostopManager
-# Run the `run_manager_release_gates` subshell from the canonical Manager
-# deployment runbook. It exports AUTOSTOP_MANAGER_DB to a disposable tmp DB.
+cd /opt/AutostopManager
+./scripts/release-gates.sh
+.venv/bin/python -m autostop_manager.cli store-conductor-release-gate
+# Dry-run; use --apply only if the Manager runbook calls for migration.
+.venv/bin/python scripts/remove-learning-hooks.py
+cd /opt/autostopcrm
 docker network inspect --format '{{.Internal}}' autostop-store-agent
 docker network inspect --format '{{range .Containers}}{{println .Name}}{{end}}' autostop-store-agent
 ```

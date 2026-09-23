@@ -306,6 +306,9 @@
       employees: [],
       employeesLoadedMonth: '',
       employeesReferencePromise: null,
+      employeeNames: null,
+      employeeNamesLoadedMonth: '',
+      employeeNamesPromise: null,
       employeesWorkspaceLoadGeneration: 0,
       activeEmployeeId: '',
       employeeCreateMode: false,
@@ -2154,7 +2157,8 @@
         throw error;
       }
       finishApiPerf();
-      if (payload?.data?.meta?.references_only === true && operatorCanAccessEmployeesCashboxes()) {
+      if (payload?.data?.meta?.references_only === true && operatorCanAccessEmployeesCashboxes()
+        && !/[?&]references_only=true(?:&|$)/.test(path)) {
         void refreshOperatorProfileAfterPermissionMismatch(requestOperatorSessionToken, path);
       }
       notifyCashboxesMutation(path, request.method);
@@ -2683,6 +2687,9 @@
       state.employees = [];
       state.employeesLoadedMonth = '';
       state.employeesReferencePromise = null;
+      state.employeeNames = null;
+      state.employeeNamesLoadedMonth = '';
+      state.employeeNamesPromise = null;
       state.activeEmployeeId = '';
       state.employeeCreateMode = false;
       state.employeesReportDetailsOpen = false;
@@ -3003,7 +3010,7 @@
       claimOperatorUserEditorIntent();
       const intentGeneration = claimOperatorBindingIntent();
       try {
-        await loadEmployeesReference();
+        await loadEmployeesReference({ referencesOnly: true });
         if (
           !context.isCurrent()
           || state.operatorEmployeeBindingIntentGeneration !== intentGeneration
@@ -5031,7 +5038,7 @@
     }
 
     async function reloadOperatorAdminUsers({ openModal = false, isCurrent = () => true } = {}) {
-      await loadEmployeesReference();
+      await loadEmployeesReference({ referencesOnly: true });
       if (!isCurrent()) return null;
       return loadModalData('/api/list_operator_users', {
         openModal,
@@ -7330,7 +7337,7 @@
 
     function mobileMoreModuleRows() {
       const clients = Array.isArray(state.clients) ? state.clients : [];
-      const employees = Array.isArray(state.employees) ? state.employees : [];
+      const employees = Array.isArray(state.employeeNames) ? state.employeeNames : (state.employees || []);
       const activeEmployees = employees.filter((employee) => Boolean(employee?.is_active)).length;
       const archiveCount = archivedCardsTotal();
       const files = Array.isArray(state.sharedFiles) ? state.sharedFiles : [];
@@ -7419,7 +7426,7 @@
           loadArchive(false, { force }),
           loadSharedFiles({ openModal: false }),
         ];
-        if (operatorCanViewEmployees()) tasks.push(loadEmployeesReference());
+        if (operatorCanViewEmployees()) tasks.push(loadEmployeesReference({ referencesOnly: true }));
         const results = await Promise.allSettled(tasks);
         if (!isCurrent()) return null;
         const failed = results.filter((item) => item.status === 'rejected');
@@ -10810,7 +10817,7 @@
 
     function repairOrderExecutorOptionsHtml(selectedId, selectedName = '') {
       const options = ['<option value="">—</option>'];
-      const employees = Array.isArray(state.employees) ? state.employees.filter((item) => item && item.is_active) : [];
+      const employees = (Array.isArray(state.employeeNames) ? state.employeeNames : (state.employees || [])).filter((item) => item && item.is_active);
       const rendered = new Set();
       employees.forEach((employee) => {
         const employeeId = String(employee.id || '').trim();
@@ -11603,7 +11610,7 @@
       pushModal('repair-order', els.repairOrderModal, { parentKey: state.repairOrderParentLayer || '' });
       applyRepairOrderToForm(order);
       try {
-        const employeesRequest = loadEmployeesReference();
+        const employeesRequest = loadEmployeesReference({ referencesOnly: true });
         const repairOrderRequest = preloadedRepairOrderData
           ? Promise.resolve(preloadedRepairOrderData)
           : cardId
@@ -11681,7 +11688,7 @@
     async function addRepairOrderRow(section) {
       const isCurrent = captureCardEditingContext();
       if (section === 'materials') {
-        await loadEmployeesReference();
+        await loadEmployeesReference({ referencesOnly: true });
       }
       if (!isCurrent()) return;
       const body = repairOrderRowsBody(section);

@@ -11,6 +11,14 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+PRINTING_METRICS = (
+    "shell_ms",
+    "documents_ms",
+    "preview_ms",
+    "service_lock_wait_ms",
+    "service_lock_hold_ms",
+)
+PRINTING_REDUCTION_TARGETS = {"shell_ms": 0.75, "documents_ms": 0.5, "service_lock_wait_ms": 0.8}
 
 
 def compare_rows(baseline, candidate):
@@ -21,27 +29,65 @@ def compare_rows(baseline, candidate):
             for row in result["rows"]:
                 if row.get("skipped"):
                     continue
-                grouped.setdefault(row["scenario"], {}).setdefault(label, []).append(row["p95_ms"])
+                scenario = row["scenario"]
+                grouped.setdefault((scenario, "duration_ms"), {}).setdefault(label, []).append(
+                    row["p95_ms"]
+                )
+                if scenario in {"printing.immediate", "printing.concurrent_payroll"}:
+                    for metric in PRINTING_METRICS:
+                        grouped.setdefault((scenario, metric), {})
+                        value = row.get(metric, {}).get("p95_ms")
+                        if value is not None:
+                            grouped[(scenario, metric)].setdefault(label, []).append(value)
     comparisons = []
-    for scenario, values in sorted(grouped.items()):
+    for (scenario, metric), values in sorted(grouped.items()):
+        if (
+            metric == "service_lock_hold_ms"
+            and not values.get("baseline")
+            and candidate
+            and len(values.get("candidate", [])) == len(candidate)
+        ):
+            comparisons.append(
+                {
+                    "scenario": scenario,
+                    "metric": metric,
+                    "status": "not_comparable",
+                    "reason": "baseline_telemetry_unavailable",
+                    "candidate_p95_ms": statistics.median(values["candidate"]),
+                    "candidate_series_p95": values["candidate"],
+                }
+            )
+            continue
         if (
             len(values.get("baseline", [])) != len(baseline)
             or len(values.get("candidate", [])) != len(candidate)
             or not baseline
             or not candidate
         ):
-            comparisons.append({"scenario": scenario, "status": "missing"})
+            comparisons.append({"scenario": scenario, "metric": metric, "status": "missing"})
             continue
         before = statistics.median(values["baseline"])
         after = statistics.median(values["candidate"])
-        ceiling = before + 2 if before < 10 else before * 1.1
+        reduction = (
+            PRINTING_REDUCTION_TARGETS.get(metric)
+            if scenario == "printing.concurrent_payroll"
+            else None
+        )
+        ceiling = (
+            before * (1 - reduction)
+            if reduction is not None
+            else (before + 2 if before < 10 else before * 1.1)
+        )
+        ceiling = round(ceiling, 9)
         comparisons.append(
             {
                 "scenario": scenario,
+                "metric": metric,
                 "baseline_p95_ms": before,
                 "candidate_p95_ms": after,
                 "change_percent": round((after / before - 1) * 100, 2) if before else None,
                 "regression_ceiling_ms": round(ceiling, 3),
+                "required_reduction_percent": reduction * 100 if reduction is not None else 0,
                 "status": "passed" if after <= ceiling else "regressed",
                 "baseline_series_p95": values["baseline"],
                 "candidate_series_p95": values["candidate"],
@@ -58,6 +104,11 @@ def main(argv=None):
     parser.add_argument("--series", type=int, default=3)
     parser.add_argument("--iterations", type=int, default=20)
     parser.add_argument("--scale", type=int, choices=(1, 2, 4), default=1)
+    parser.add_argument(
+        "--scenario",
+        action="append",
+        help="Panel scenario to measure with the candidate harness; may be repeated.",
+    )
     browser_modes = parser.add_mutually_exclusive_group()
     browser_modes.add_argument("--browser", action="store_true")
     browser_modes.add_argument("--panels", action="store_true")
@@ -66,6 +117,8 @@ def main(argv=None):
         parser.error("invalid bounded series/iterations")
     if args.panels and args.scale != 1:
         parser.error("panel measurements currently require scale 1")
+    if args.scenario and not args.panels:
+        parser.error("scenario selection requires --panels")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     evidence = {"baseline": [], "candidate": []}
     for series in range(1, args.series + 1):
@@ -98,6 +151,8 @@ def main(argv=None):
                     "--iterations",
                     str(args.iterations),
                 ]
+                for scenario in args.scenario or []:
+                    command.extend(("--scenario", scenario))
             elif args.browser:
                 command += [
                     "--local-temp-server",
@@ -143,13 +198,16 @@ def main(argv=None):
         "series": args.series,
         "iterations": args.iterations,
         "scale": args.scale,
+        "scenarios": args.scenario,
         "comparisons": compare_rows(evidence["baseline"], evidence["candidate"]),
     }
     (args.output_dir / "comparison.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
-    return int(any(row["status"] != "passed" for row in summary["comparisons"]))
+    return int(
+        any(row["status"] not in {"passed", "not_comparable"} for row in summary["comparisons"])
+    )
 
 
 if __name__ == "__main__":

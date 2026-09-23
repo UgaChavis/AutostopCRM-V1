@@ -1,7 +1,7 @@
 function operatorEmployeeById(employeeId) {
 	const id = String(employeeId || '').trim();
 	if (!id) return null;
-	return (Array.isArray(state.employees) ? state.employees : []).find((item) => String(item?.id || '').trim() === id) || null;
+	return (Array.isArray(state.employeeNames) ? state.employeeNames : (state.employees || [])).find((item) => String(item?.id || '').trim() === id) || null;
 }
 
 function operatorEmployeeBoundUsername(employeeId, exceptUsername = '') {
@@ -26,7 +26,7 @@ function operatorUserEmployeeLabel(user) {
 function operatorUserEmployeeOptionsHtml(selectedId = '', username = '') {
 	const selected = String(selectedId || '').trim();
 	const userKey = String(username || '').trim().toUpperCase();
-	const employees = Array.isArray(state.employees) ? state.employees : [];
+	const employees = Array.isArray(state.employeeNames) ? state.employeeNames : (state.employees || []);
 	const rendered = new Set();
 	const options = ['<option value="">НЕ ПРИВЯЗАН</option>'];
 	employees.forEach((employee) => {

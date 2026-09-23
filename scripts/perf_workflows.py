@@ -18,6 +18,7 @@ import time
 import urllib.parse
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -595,6 +596,7 @@ def seed_browser_scale(runtime: Any, *, scale: int = 1) -> dict[str, Any]:
 
     bundle = runtime.state_store.read_bundle()
     state = build_synthetic_current_production_state(scale=scale)
+    payroll_counts = seed_synthetic_payroll_history(state, scale=scale)
     state["columns"] = [column.to_dict() for column in bundle["columns"]]
     for index, card in enumerate(state["cards"]):
         card["column"] = state["columns"][index % len(state["columns"])]["id"]
@@ -608,11 +610,125 @@ def seed_browser_scale(runtime: Any, *, scale: int = 1) -> dict[str, Any]:
             else value
             for key, value in bundle.items()
         }
+        merged["settings"] = dict(bundle["settings"])
+        for key in ("employees", "employee_shift_accruals", "employee_repair_order_accruals"):
+            merged["settings"][key] = list(bundle["settings"].get(key, [])) + list(
+                seed["settings"].get(key, [])
+            )
         runtime.state_store.write_bundle(**merged)
     return {
         "profile": SYNTHETIC_STATE_PROFILE,
         "state_bytes": (Path(runtime.temp_dir.name) / "state.json").stat().st_size,
         "counts": {key: len(merged[key]) for key in SYNTHETIC_STATE_COUNTS},
+        "payroll_counts": payroll_counts,
+    }
+
+
+def seed_synthetic_payroll_history(state: dict[str, Any], *, scale: int = 1) -> dict[str, int]:
+    """Add reproducible employee history to synthetic data, never to a business store."""
+    anchor = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0)
+    employees = [
+        {
+            "id": f"perf-employee-{index:03d}",
+            "name": f"Perf employee {index:03d}",
+            "position": "Механик",
+            "is_active": True,
+            "salary_mode": "salary_plus_percent",
+            "base_salary": "40000",
+            "work_percent": "25",
+            "material_percent": "10",
+            "repair_order_percent": "1",
+            "created_at": "2020-01-01T00:00:00+00:00",
+        }
+        for index in range(24 * scale)
+    ]
+    shifts = []
+    for index in range(2880 * scale):
+        employee = employees[index % len(employees)]
+        timestamp = (anchor - timedelta(days=(index // len(employees)) % 180)).isoformat()
+        shifts.append(
+            {
+                "id": f"perf-shift-{index:05d}",
+                "employee_id": employee["id"],
+                "employee_name": employee["name"],
+                "amount_minor": 100000 + index,
+                "created_at": timestamp,
+                "updated_at": timestamp,
+                "note": "Synthetic shift",
+                "actor_name": "PERF",
+                "source": "system",
+            }
+        )
+    accruals = []
+    for index, card in enumerate(state["cards"]):
+        employee = employees[index % len(employees)]
+        moment = anchor - timedelta(days=index % 180)
+        number = f"PERF-{index:04d}"
+        card["repair_order"] = {
+            "number": number,
+            "status": "closed",
+            "closed_at": moment.strftime("%d.%m.%Y %H:%M"),
+            "works": [
+                {
+                    "id": f"perf-work-{index:04d}",
+                    "name": "Synthetic payroll work",
+                    "quantity": "1",
+                    "price": "4000",
+                    "total": "4000",
+                    "executor_id": employee["id"],
+                    "executor_name": employee["name"],
+                    "work_executor_id_snapshot": employee["id"],
+                    "work_executor_name_snapshot": employee["name"],
+                    "work_percent_snapshot": "25",
+                    "salary_amount": "1000",
+                    "salary_accrued_at": moment.isoformat(),
+                }
+            ],
+        }
+        accrual = {
+            "id": f"perf-accrual-{index:04d}",
+            "kind": "accrual",
+            "employee_id": employee["id"],
+            "employee_name": employee["name"],
+            "card_id": card["id"],
+            "repair_order_number": number,
+            "base_amount_minor": 400000,
+            "percent": "1",
+            "amount_minor": 4000,
+            "created_at": moment.isoformat(),
+            "qualified_at": moment.isoformat(),
+            "actor_name": "PERF",
+            "source": "system",
+        }
+        accruals.append(accrual)
+        if index % 5 == 0:
+            accruals.append(
+                {
+                    **accrual,
+                    "id": f"perf-reversal-{index:04d}",
+                    "kind": "reversal",
+                    "related_accrual_id": accrual["id"],
+                    "created_at": (moment + timedelta(minutes=1)).isoformat(),
+                }
+            )
+    for index, transaction in enumerate(state["cash_transactions"]):
+        employee = employees[index % len(employees)]
+        transaction.update(
+            employee_id=employee["id"],
+            employee_name=employee["name"],
+            direction="expense",
+            transaction_kind="salary_payout" if index % 2 else "salary_advance",
+            created_at=(anchor - timedelta(days=index % 180)).isoformat(),
+        )
+    state["settings"].update(
+        employees=employees, employee_shift_accruals=shifts, employee_repair_order_accruals=accruals
+    )
+    return {
+        "employees": len(employees),
+        "shift_accruals": len(shifts),
+        "order_accruals": sum(item["kind"] == "accrual" for item in accruals),
+        "order_reversals": sum(item["kind"] == "reversal" for item in accruals),
+        "salary_transactions": len(state["cash_transactions"]),
     }
 
 

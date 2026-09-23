@@ -11,6 +11,7 @@ from time import perf_counter
 
 SERVER_TIMING_ORDER = (
     "service_lock",
+    "service_lock_hold",
     "store_lock",
     "file_lock",
     "audit_archive",
@@ -104,11 +105,12 @@ def measure_timing(name: str) -> Iterator[None]:
 
 
 class MeasuredRLock:
-    """RLock-compatible wrapper that attributes request-scoped wait time."""
+    """RLock-compatible wrapper that attributes wait and outermost hold time."""
 
     def __init__(self, metric_name: str) -> None:
         self._lock = threading.RLock()
         self._metric_name = metric_name
+        self._local = threading.local()
 
     def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
         started_at = perf_counter()
@@ -117,10 +119,28 @@ class MeasuredRLock:
         else:
             acquired = self._lock.acquire(blocking, timeout)
         record_timing(self._metric_name, (perf_counter() - started_at) * 1000)
+        if acquired:
+            depth = getattr(self._local, "depth", 0)
+            if depth == 0:
+                self._local.held_since = perf_counter()
+                self._local.trace = _CURRENT_TRACE.get()
+            self._local.depth = depth + 1
         return acquired
 
     def release(self) -> None:
+        depth = getattr(self._local, "depth", 0)
+        if depth == 1:
+            held_ms = (perf_counter() - self._local.held_since) * 1000
+            trace = self._local.trace
+            self._lock.release()
+            self._local.depth = 0
+            self._local.trace = None
+            if trace is not None:
+                trace.add(f"{self._metric_name}_hold", held_ms)
+            return
         self._lock.release()
+        if depth > 1:
+            self._local.depth = depth - 1
 
     def __enter__(self) -> MeasuredRLock:
         self.acquire()

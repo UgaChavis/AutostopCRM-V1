@@ -4,6 +4,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,7 +18,7 @@ class CleanupAuditProbeConsumerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.database = Path(self.temp_dir.name) / "change_feed.sqlite3"
-        with sqlite3.connect(self.database) as connection:
+        with closing(sqlite3.connect(self.database)) as connection, connection:
             connection.executescript(
                 """
                 CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -58,7 +59,7 @@ class CleanupAuditProbeConsumerTests(unittest.TestCase):
         self.assertTrue(applied["applied"])
         self.assertTrue(applied["verified"])
         self.assertFalse(absent["present"])
-        with sqlite3.connect(self.database) as connection:
+        with closing(sqlite3.connect(self.database)) as connection, connection:
             self.assertEqual(2, connection.execute("SELECT COUNT(*) FROM events").fetchone()[0])
             self.assertEqual(
                 "2",
@@ -84,7 +85,7 @@ class CleanupAuditProbeConsumerTests(unittest.TestCase):
             )
 
     def test_refuses_nonzero_checkpoint(self) -> None:
-        with sqlite3.connect(self.database) as connection:
+        with closing(sqlite3.connect(self.database)) as connection, connection:
             connection.execute(
                 "UPDATE consumers SET acked_sequence = 1 WHERE consumer_id = 'audit-probe'"
             )
@@ -99,7 +100,7 @@ class CleanupAuditProbeConsumerTests(unittest.TestCase):
     def test_apply_requires_verified_backup_and_refuses_snapshot_cascade(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "verified_backup_required"):
             cleanup_audit_probe(self.database, apply=True)
-        with sqlite3.connect(self.database) as connection:
+        with closing(sqlite3.connect(self.database)) as connection, connection:
             connection.execute(
                 "INSERT INTO digest_snapshots VALUES('digest-probe', 'audit-probe', 'hash')"
             )
@@ -112,7 +113,7 @@ class CleanupAuditProbeConsumerTests(unittest.TestCase):
             )
 
     def test_legacy_schema_without_digest_snapshots_is_supported(self) -> None:
-        with sqlite3.connect(self.database) as connection:
+        with closing(sqlite3.connect(self.database)) as connection, connection:
             connection.execute("DROP TABLE digest_snapshots")
 
         preview = cleanup_audit_probe(self.database, apply=False)
@@ -126,7 +127,7 @@ class CleanupAuditProbeConsumerTests(unittest.TestCase):
         self.assertTrue(preview["present"])
         self.assertEqual(0, preview["digest_snapshots"])
         self.assertTrue(applied["verified"])
-        with sqlite3.connect(self.database) as connection:
+        with closing(sqlite3.connect(self.database)) as connection, connection:
             self.assertEqual(
                 0,
                 connection.execute(

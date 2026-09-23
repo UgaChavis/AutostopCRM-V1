@@ -51,6 +51,8 @@ class WebAssetsRuntimeTests(unittest.TestCase):
                 [NODE, str(script_path)],
                 cwd=ROOT,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 capture_output=True,
                 check=False,
                 timeout=10,
@@ -1036,7 +1038,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
         )
         employee_loaders = _source_section(
             self.source,
-            "function applyEmployeesReferenceData",
+            "function invalidateEmployeeNamesReference()",
             "function refreshRepairOrderEmployeeSelects(",
         )
         self._run_node(
@@ -1202,7 +1204,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
     def test_employee_workspace_loads_in_parallel_and_latest_month_wins(self) -> None:
         employee_loaders = _source_section(
             self.source,
-            "function applyEmployeesReferenceData",
+            "function invalidateEmployeeNamesReference()",
             "function refreshRepairOrderEmployeeSelects(",
         )
         employee_workspace = _source_section(
@@ -1456,7 +1458,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             self.source, "function employeeAsyncContext(", "const EMPLOYEE_INCENTIVE_DEFINITIONS ="
         ) + _source_section(
             self.source,
-            "function invalidateEmployeesReference()",
+            "function invalidateEmployeeNamesReference()",
             "function applyEmployeesReferenceData(",
         )
         permission_helper = _source_section(
@@ -1690,7 +1692,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             self.source, "function employeeAsyncContext(", "const EMPLOYEE_INCENTIVE_DEFINITIONS ="
         ) + _source_section(
             self.source,
-            "function invalidateEmployeesReference()",
+            "function invalidateEmployeeNamesReference()",
             "function applyEmployeesReferenceData(",
         )
         permission_helper = _source_section(

@@ -354,6 +354,12 @@ unrelated password or employee-binding changes do not conflict.
 - `list_employees` without either employee permission and `list_cashboxes`
   without management permission remain authenticated reference lookups with
   `meta.references_only=true`, omitting their financial details.
+- `GET /api/list_employees?references_only=true` explicitly requests the lightweight
+  employee lookup for repair orders and operator bindings. It returns `id`, `name`,
+  `position`, and `is_active`; `work_percent` is included only for an operator session
+  with employee read access. No payroll report or balance is calculated; `summary`
+  is empty, `detail_rows` is empty, and `meta.references_only` is true. Omitting the
+  flag or sending `references_only=false` preserves the existing full-read contract.
 - Payroll report routes and `list_employees` retain salary fields for employee
   readers. Other responses and snapshots continue to omit private payroll fields
   and employee/cashbox events for sessions without management permission.

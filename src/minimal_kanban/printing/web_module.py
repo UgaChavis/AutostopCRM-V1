@@ -3,6 +3,7 @@ from .web_async_context import (
     PRINTING_BROWSER_LIFECYCLE_SCRIPT,
     PRINTING_JOB_SCRIPT,
 )
+from .web_workspace_loading import PRINTING_WORKSPACE_LOADING_SCRIPT
 
 PRINTING_WEB_MODULE_STYLE = r"""
     #repairOrderPrintModal {
@@ -580,7 +581,7 @@ PRINTING_WEB_MODULE_HTML = r"""
       </div>
       <div class="dialog__foot repair-order-print-footer dialog__floating-actions">
         <div class="repair-order-print-preview__meta" id="repairOrderPrintFooterMeta">PDF генерируется из шаблона и текущих данных заказ-наряда.</div>
-        <div class="repair-order-print-footer__actions"><button class="btn btn--ghost" id="repairOrderPrintExportButton" type="button">PDF</button><button class="btn" id="repairOrderPrintRunButton" type="button">ПЕЧАТЬ</button></div>
+        <div class="repair-order-print-footer__actions"><button class="btn btn--ghost" id="repairOrderPrintRetryButton" type="button" hidden>ПОВТОРИТЬ</button><button class="btn btn--ghost" id="repairOrderPrintExportButton" type="button">PDF</button><button class="btn" id="repairOrderPrintRunButton" type="button">ПЕЧАТЬ</button></div>
       </div>
     </div>
   </div>
@@ -799,6 +800,7 @@ _PRINTING_SCRIPT_PART1 = r"""
       pageIndexByDocument: {},
       previewToken: 0,
       isPrintRunning: false,
+      isWorkspaceLoading: false,
       zoomMode: 'fit',
       zoom: 1,
       mode: 'card',
@@ -836,6 +838,7 @@ _PRINTING_SCRIPT_PART1 = r"""
     let manualPrintPreviewTimer = null;
     let regulatedPrintPreviewTimer = null;
     let completionActPreviewTimer = null;
+    let currentPrintLoadShell = null;
 
     const printEls = {
       modal: document.getElementById('repairOrderPrintModal'),
@@ -1393,7 +1396,7 @@ _PRINTING_SCRIPT_PART1 = r"""
       if (printEls.modeSelect) printEls.modeSelect.value = nextMode;
       if (printEls.manualForm) printEls.manualForm.hidden = !repairOrderPrintIsManualMode();
       if (printEls.regulatedOverridesForm) printEls.regulatedOverridesForm.hidden = repairOrderPrintIsManualMode();
-      if (printEls.footerMeta && !repairOrderPrintState.previewByDocument?.[repairOrderPrintActiveDocument()]) {
+      if (printEls.footerMeta && !repairOrderPrintState.isWorkspaceLoading && !repairOrderPrintState.previewByDocument?.[repairOrderPrintActiveDocument()]) {
         printEls.footerMeta.textContent = repairOrderPrintIsManualMode()
           ? 'PDF генерируется из стандартного шаблона AutoStop без карточки CRM.'
           : 'PDF генерируется из шаблона и текущих данных заказ-наряда.';
@@ -1674,7 +1677,7 @@ _PRINTING_SCRIPT_PART2 = r"""
         printEls.printerSelect.disabled = !hasPrinters;
       }
       if (printEls.printButton) {
-        printEls.printButton.disabled = !repairOrderPrintWorkspaceDocuments().length;
+        printEls.printButton.disabled = repairOrderPrintState.isWorkspaceLoading || repairOrderPrintState.isPrintRunning || !repairOrderPrintWorkspaceDocuments().length;
         printEls.printButton.title = hasPrinters
           ? 'Откроет системное окно печати браузера. При сбое будет использован выбранный серверный принтер.'
           : 'Откроет системное окно печати браузера. Серверные принтеры не найдены.';
@@ -1771,28 +1774,6 @@ _PRINTING_SCRIPT_PART2 = r"""
       cancelPendingCompletionActPreview();
     }
 
-    async function loadRepairOrderPrintWorkspace({ openModal = false, preserveSelection = false, prepared = null } = {}) {
-      invalidatePrintWorkspaceContext();
-      repairOrderPrintState.mode = 'card';
-      syncRepairOrderPrintMode();
-      let operation = capturePrintOperation('', { card: false });
-      const cardId = await operation.wait(requireRepairOrderCardId());
-      if (!cardId || cardId !== completionActActiveCardId()) return null;
-      operation = capturePrintOperation();
-      if (prepared && (prepared.cardId !== cardId || !prepared.isCurrent())) return null;
-      const data = prepared
-        ? await operation.wait(prepared.promise)
-        : await operation.request('/api/get_repair_order_print_workspace', {
-          method: 'POST',
-          body: { card_id: cardId, source: 'ui', repair_order: readRepairOrderFromForm() },
-        });
-      if (prepared && !prepared.isCurrent()) return null;
-      applyRepairOrderPrintWorkspace(data, { preserveSelection });
-      if (openModal) printEls.modal.classList.add('is-open');
-      await operation.wait(refreshRepairOrderPrintPreview());
-      return data;
-    }
-
     async function openManualDocumentPrintWorkspace() {
       invalidatePrintWorkspaceContext();
       repairOrderPrintState.mode = 'manual';
@@ -1834,6 +1815,8 @@ _PRINTING_SCRIPT_PART2 = r"""
         await operation.wait(loadRepairOrderPrintWorkspace({ openModal: true, preserveSelection: Boolean(repairOrderPrintState.workspace), prepared }));
       } catch (error) {
         if (!operation.current() || error?.code === 'stale_print_operation') return;
+        if (prepared && !prepared.isCurrent()) return;
+        prepared?.shell?.fail(error);
         setStatus(error.message, true);
       }
     }
@@ -1843,6 +1826,8 @@ _PRINTING_SCRIPT_PART2 = r"""
         printEls.completionActModal?.classList.contains('is-open') &&
         !closeCompletionActEditor()
       ) return;
+      currentPrintLoadShell?.close();
+      currentPrintLoadShell = null;
       invalidatePrintWorkspaceContext();
       printEls.modal.classList.remove('is-open');
       cancelPendingRepairOrderPrintPreview();
@@ -3353,6 +3338,7 @@ _PRINTING_SCRIPT_PART3 += (
 PRINTING_WEB_MODULE_SCRIPT = (
     PRINTING_ASYNC_CONTEXT_SCRIPT
     + _PRINTING_SCRIPT_PART1
+    + PRINTING_WORKSPACE_LOADING_SCRIPT
     + _PRINTING_SCRIPT_PART2
     + _PRINTING_SCRIPT_PART3
 )

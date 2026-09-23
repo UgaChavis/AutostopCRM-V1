@@ -15,6 +15,13 @@ from typing import Any
 import perf_workflows as perf
 
 PANELS = ("printing", "inventory", "payroll", "cash_journal")
+PRINTING_SCENARIOS = ("printing.immediate", "printing.concurrent_payroll")
+SCENARIOS = (
+    *(f"cold_panel.{panel}" for panel in PANELS),
+    *PRINTING_SCENARIOS,
+    "startup.mobile_cold_authenticated",
+    "clients.query",
+)
 DESKTOP = {"width": 1440, "height": 960}
 MOBILE = {"width": 390, "height": 844}
 CARD_OPEN_SIDE_EFFECT_DELAY_MS = 700
@@ -230,6 +237,100 @@ async def open_panel(page: Any, panel: str) -> None:
         raise ValueError("unknown panel")
 
 
+async def install_printing_milestones(page: Any) -> None:
+    """Observe the same DOM milestones on baseline and candidate without app hooks."""
+    await page.evaluate("""() => {
+      const result = window.__autostopPrintMeasurement = {};
+      let clicked = 0, orderClicked = 0;
+      const check = () => {
+        if (!clicked) return;
+        const elapsed = performance.now() - clicked;
+        const modal = document.querySelector('#repairOrderPrintModal');
+        if (modal?.classList.contains('is-open') && !modal.hidden && result.shell_ms == null)
+          result.shell_ms = elapsed;
+        if (modal?.querySelector('[data-print-document]') && result.documents_ms == null)
+          result.documents_ms = elapsed;
+        if ((document.querySelector('#repairOrderPrintPreviewFrame')?.contentDocument?.body?.innerText || '')
+          .includes('Smoke client work')) {
+          result.preview_ms = elapsed;
+          observer.disconnect();document.removeEventListener('click', onClick, true);
+        } else requestAnimationFrame(check);
+      };
+      const onClick = event => {
+        if (event.target.closest?.('#repairOrderButton')) orderClicked = performance.now();
+        if (event.target.closest?.('#repairOrderPrintButton') && !clicked) {
+          clicked = performance.now();result.order_to_print_ms = clicked - orderClicked;check();
+        }
+      };
+      const observer = new MutationObserver(() => {
+        if (!clicked || result.preview_ms != null) return;
+        const modal = document.querySelector('#repairOrderPrintModal');
+        const elapsed = performance.now() - clicked;
+        if (modal?.classList.contains('is-open') && !modal.hidden && result.shell_ms == null)
+          result.shell_ms = elapsed;
+        if (modal?.querySelector('[data-print-document]') && result.documents_ms == null)
+          result.documents_ms = elapsed;
+      });
+      observer.observe(document.body, {childList:true,subtree:true,attributes:true});
+      document.addEventListener('click', onClick, true);
+    }""")
+
+
+async def open_immediate_printing(page: Any, *, payroll_client: Any = None) -> dict[str, Any]:
+    from browser_smoke_support import _wait_modal_open
+
+    await install_printing_milestones(page)
+    await page.click("#repairOrderButton")
+    await _wait_modal_open(page, "#repairOrderModal")
+    competitor = None
+    if payroll_client is not None:
+
+        async def payroll_request() -> dict[str, Any]:
+            started = time.perf_counter()
+            response = await payroll_client.get("/api/list_employees", timeout=120000)
+            if response.status != 200 or not (await response.json()).get("ok"):
+                raise RuntimeError("concurrent payroll request failed")
+            return {
+                "concurrent_payroll_ms": round((time.perf_counter() - started) * 1000, 3),
+                "concurrent_payroll_timing": perf._sanitize_server_timing(
+                    response.headers.get("server-timing", "")
+                ),
+            }
+
+        competitor = asyncio.create_task(payroll_request())
+        # Allow the independent HTTP session to dispatch before the print click.
+        await asyncio.sleep(0.01)
+    overlap = competitor is not None and not competitor.done()
+    try:
+        await page.click("#repairOrderPrintButton")
+        await page.wait_for_function(
+            "() => window.__autostopPrintMeasurement?.preview_ms != null", timeout=120000
+        )
+        result = await page.evaluate("() => window.__autostopPrintMeasurement")
+    finally:
+        if competitor is not None:
+            competitor_metrics = await competitor
+    if competitor is not None:
+        result.update(payroll_inflight_before_print=overlap, **competitor_metrics)
+    return result
+
+
+def server_timing_total(timings: list[str], name: str) -> float:
+    total = 0.0
+    for header in timings:
+        for metric in header.split(","):
+            pieces = metric.strip().split(";")
+            if pieces[0] != name:
+                continue
+            for piece in pieces[1:]:
+                if piece.startswith("dur="):
+                    try:
+                        total += float(piece[4:])
+                    except ValueError:
+                        pass
+    return round(total, 3)
+
+
 def is_query_response(response: Any, query: str) -> bool:
     parsed = urllib.parse.urlsplit(response.url)
     return (
@@ -387,7 +488,13 @@ async def sample_action(
 
 
 async def cold_sample(
-    browser: Any, session: dict[str, Any], runtime: Any, scenario: str, events: dict[str, int]
+    browser: Any,
+    session: dict[str, Any],
+    runtime: Any,
+    scenario: str,
+    events: dict[str, int],
+    *,
+    payroll_client: Any = None,
 ) -> dict[str, Any]:
     mobile = scenario == "startup.mobile_cold_authenticated"
     context = await browser.new_context(
@@ -397,18 +504,46 @@ async def cold_sample(
         page = await context.new_page()
         responses: list[dict[str, Any]] = []
         activity = observe_page(page, responses, events)
+        milestones = {}
         if not mobile:
             await board_ready(page, runtime)
-            panel = scenario.rsplit(".", 1)[1]
-            await prepare_panel(page, runtime, panel, activity=activity)
+            if scenario in PRINTING_SCENARIOS:
+                from browser_smoke_support import _wait_modal_open
+
+                activity.set_phase("preparation")
+                await page.click(f'#board .card[data-card-id="{runtime.client_card_id}"]')
+                await _wait_modal_open(page, "#cardModal")
+                await settle_printing_preparation(page, activity)
+            else:
+                panel = scenario.rsplit(".", 1)[1]
+                await prepare_panel(page, runtime, panel, activity=activity)
 
         async def action(_index: int) -> None:
             if mobile:
                 await board_ready(page, runtime, mobile=True)
+            elif scenario in PRINTING_SCENARIOS:
+                milestones.update(
+                    await open_immediate_printing(
+                        page,
+                        payroll_client=(
+                            payroll_client if scenario == "printing.concurrent_payroll" else None
+                        ),
+                    )
+                )
             else:
                 await open_panel(page, panel)
 
-        return await sample_action(page, scenario, action, responses, activity=activity)
+        sample = await sample_action(page, scenario, action, responses, activity=activity)
+        if scenario in PRINTING_SCENARIOS:
+            sample.update(milestones)
+            sample["service_lock_wait_ms"] = server_timing_total(
+                sample["server_timing"], "service_lock"
+            )
+            if any("service_lock_hold;" in header for header in sample["server_timing"]):
+                sample["service_lock_hold_ms"] = server_timing_total(
+                    sample["server_timing"], "service_lock_hold"
+                )
+        return sample
     finally:
         await perf.close_with_timeout(context.close())
 
@@ -417,6 +552,21 @@ def summarize(scenario: str, samples: list[dict[str, Any]]) -> dict[str, Any]:
     result = perf.summarize_samples(samples, scenario=scenario)
     result["samples"] = samples
     result["api_request_scope"] = "requests_started_during_action"
+    for metric in (
+        "shell_ms",
+        "documents_ms",
+        "preview_ms",
+        "service_lock_wait_ms",
+        "service_lock_hold_ms",
+    ):
+        values = [{"duration_ms": sample[metric]} for sample in samples if metric in sample]
+        if values:
+            summary = perf.summarize_samples(values, scenario=scenario)
+            result[metric] = {key: summary[key] for key in ("avg_ms", "p50_ms", "p95_ms")}
+    if any("payroll_inflight_before_print" in sample for sample in samples):
+        result["payroll_overlap_samples"] = sum(
+            bool(sample.get("payroll_inflight_before_print")) for sample in samples
+        )
     return result
 
 
@@ -431,7 +581,11 @@ async def run_browser(args: argparse.Namespace) -> dict[str, Any]:
     events = dict.fromkeys(
         ("page_error_count", "console_error_count", "failed_request_count", "http_error_count"), 0
     )
-    report: dict[str, Any] = {"events": events, "series": []}
+    report: dict[str, Any] = {
+        "events": events,
+        "series": [],
+        "service_lock_hold_source": "native_server_timing_when_available",
+    }
     try:
         report["fixture"] = (
             perf.seed_browser_scale(runtime)
@@ -451,19 +605,43 @@ async def run_browser(args: argparse.Namespace) -> dict[str, Any]:
                     session = await context.storage_state()
                 finally:
                     await perf.close_with_timeout(context.close())
+                payroll_client = await playwright.request.new_context(
+                    base_url=runtime.base_url, extra_http_headers=runtime.auth_headers
+                )
+                login = await payroll_client.post(
+                    "/api/login_operator", data={"username": "admin", "password": "admin"}
+                )
+                login_payload = await login.json()
+                if login.status != 200 or not login_payload.get("ok"):
+                    raise RuntimeError("payroll benchmark session login failed")
+                await payroll_client.dispose()
+                payroll_client = await playwright.request.new_context(
+                    base_url=runtime.base_url,
+                    extra_http_headers={
+                        **runtime.auth_headers,
+                        "X-Operator-Session": login_payload["data"]["session"]["token"],
+                    },
+                )
                 for series in range(args.series):
                     rows = []
                     report["series"].append({"number": series + 1, "rows": rows})
-                    for scenario in [
-                        *(f"cold_panel.{panel}" for panel in PANELS),
-                        "startup.mobile_cold_authenticated",
-                    ]:
+                    selected = args.scenario or SCENARIOS
+                    for scenario in (name for name in selected if name != "clients.query"):
                         samples = []
                         for _index in range(args.iterations):
                             samples.append(
-                                await cold_sample(browser, session, runtime, scenario, events)
+                                await cold_sample(
+                                    browser,
+                                    session,
+                                    runtime,
+                                    scenario,
+                                    events,
+                                    payroll_client=payroll_client,
+                                )
                             )
                         rows.append(summarize(scenario, samples))
+                    if "clients.query" not in selected:
+                        continue
                     context = await browser.new_context(viewport=DESKTOP, storage_state=session)
                     try:
                         page = await context.new_page()
@@ -488,6 +666,8 @@ async def run_browser(args: argparse.Namespace) -> dict[str, Any]:
                     finally:
                         await perf.close_with_timeout(context.close())
             finally:
+                if "payroll_client" in locals():
+                    await payroll_client.dispose()
                 await perf.close_with_timeout(browser.close())
     finally:
         runtime.close()
@@ -501,6 +681,12 @@ def main() -> int:
     parser.add_argument("--source-root", default="")
     parser.add_argument("--iterations", type=positive_count, default=20)
     parser.add_argument("--series", type=positive_count, default=1)
+    parser.add_argument(
+        "--scenario",
+        action="append",
+        choices=SCENARIOS,
+        help="Run only selected scenarios; may be repeated.",
+    )
     parser.add_argument(
         "--synthetic-state-profile",
         choices=("smoke", perf.SYNTHETIC_STATE_PROFILE),
@@ -521,7 +707,7 @@ def main() -> int:
             report.update(scenario=error.scenario, error_type=error.error_type)
     report["environment"] = environment
     report["method"] = (
-        "fresh context per cold sample; authenticated session; unmodified polling; printing preparation side effects drained; requests attributed by start phase; input-to-response-and-render query"
+        "fresh context per cold sample; authenticated sessions; unmodified polling; cold panels drain preparation; immediate printing overlaps order hydration; concurrent payroll uses a separate operator session; DOM milestones start at print click; requests attributed by start phase; input-to-response-and-render query"
     )
     print(perf.serialize_report(report))
     return 0 if report["ok"] else 1

@@ -131,6 +131,7 @@ BOOLEAN_QUERY_KEYS = frozenset(
         "overwrite",
         "overwrite_card_fields",
         "redact_private",
+        "references_only",
         "refresh_summary",
         "sync_fields",
         "sync_linked_cards",

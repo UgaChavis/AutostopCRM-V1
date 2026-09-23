@@ -58,6 +58,10 @@ let writes=0;async function api(){writes++;return {ok:true};}
   const viewer=capturePrintOperation();state.viewerStateGeneration++;
   assert.equal(viewer.current(),false);
   const card=capturePrintOperation();state.editingId='B';assert.equal(card.current(),false);
+  for(const field of ['operatorSessionToken','cardEditingGeneration','cardHydrationSeq']){
+    const context=capturePrintOperation();state[field]=(state[field]||0)+1;
+    assert.equal(context.current(),false,field);
+  }
   assert.equal(writes,1);
 })().catch(error=>{console.error(error);process.exitCode=1;});
 """
@@ -220,6 +224,9 @@ function syncRepairOrderPrintPrinterState(){printEls.printButton.disabled=repair
             + function_source("runRepairOrderPrintJob")
             + """
 (async()=>{
+  repairOrderPrintState.isWorkspaceLoading=true;pending=Promise.resolve({});
+  await runRepairOrderPrintJob();assert.equal(writes,0);assert.equal(repairOrderPrintState.isPrintRunning,false);
+  repairOrderPrintState.isWorkspaceLoading=false;
   for(const change of [()=>state.editingId+='B',()=>invalidatePrintWorkspaceContext(),()=>repairOrderPrintState.activeDocumentId+='X']){
     pending=new Promise(resolve=>settle=resolve);const old=runRepairOrderPrintJob();
     change();settle({});await old;

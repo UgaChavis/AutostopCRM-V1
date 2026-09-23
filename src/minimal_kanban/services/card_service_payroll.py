@@ -31,6 +31,7 @@ from ..repair_order import REPAIR_ORDER_STATUS_CLOSED, RepairOrder, RepairOrderR
 from ..vehicle_profile import normalize_license_plate
 from .card_service_dashboard import DASHBOARD_VISIBLE_FIELD, is_administrative_position
 from .card_service_salary_ledger import CardServiceSalaryLedgerMixin
+from .employee_list_report import build_full_employee_list
 from .payroll_active_periods import (
     employee_active_periods_after_state_change,
     employee_active_periods_for_save,
@@ -1895,13 +1896,17 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
             }
 
     def list_employees(self, payload: dict | None = None) -> dict:
+        payload = payload or {}
+        month = self._validated_payroll_month(payload.get("month"))
         with self._lock:
-            payload = payload or {}
             bundle = self._store.read_bundle()
             employees = self._employees_from_settings(bundle["settings"])
             operator_session = payload.get("_operator_session")
-            if isinstance(operator_session, dict) and not operator_has_permission(
+            can_read_payroll = isinstance(operator_session, dict) and operator_has_permission(
                 operator_session, EMPLOYEES_READ_ACCESS_PERMISSION
+            )
+            if normalize_bool(payload.get("references_only"), default=False) or (
+                isinstance(operator_session, dict) and not can_read_payroll
             ):
                 return {
                     "employees": [
@@ -1910,62 +1915,24 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
                             "name": employee["name"],
                             "position": employee["position"],
                             "is_active": employee["is_active"],
+                            **(
+                                {
+                                    "work_percent": self._employee_with_current_payroll_term(
+                                        employee
+                                    )["work_percent"]
+                                }
+                                if can_read_payroll
+                                else {}
+                            ),
                         }
                         for employee in employees
                     ],
-                    "month": self._validated_payroll_month(payload.get("month")),
+                    "month": month,
                     "summary": {},
                     "detail_rows": [],
                     "meta": {"references_only": True},
                 }
-            employees_by_id = {item["id"]: item for item in employees}
-            shift_accruals = self._employee_shift_accruals_from_settings(
-                bundle["settings"], employees_by_id=employees_by_id
-            )
-            repair_order_accruals = self._employee_repair_order_accruals_from_settings(
-                bundle["settings"], employees_by_id=employees_by_id
-            )
-            salary_balance_resets = self._employee_salary_balance_resets_from_settings(
-                bundle["settings"], employees_by_id=employees_by_id
-            )
-            month = self._validated_payroll_month(payload.get("month"))
-            report = self._build_payroll_report(
-                bundle["cards"],
-                employees,
-                shift_accruals=shift_accruals,
-                repair_order_accruals=repair_order_accruals,
-                month=month,
-            )
-            cashboxes = bundle["cashboxes"]
-            cash_transactions = bundle["cash_transactions"]
-            employee_balances = {
-                employee["id"]: self._build_employee_salary_balance_summary(
-                    bundle["cards"],
-                    cashboxes,
-                    cash_transactions,
-                    employee,
-                    shift_accruals=shift_accruals,
-                    repair_order_accruals=repair_order_accruals,
-                    salary_balance_resets=salary_balance_resets,
-                    months=6,
-                )["balance_total"]
-                for employee in employees
-            }
-            employees = [
-                self._employee_with_current_payroll_term(
-                    {
-                        **employee,
-                        "balance_total": employee_balances.get(employee["id"], "0"),
-                    }
-                )
-                for employee in employees
-            ]
-            return {
-                "employees": employees,
-                "month": month,
-                "summary": report["summary"],
-                "detail_rows": report["detail_rows"],
-            }
+            return build_full_employee_list(self, bundle, month)
 
     def save_employee(self, payload: dict | None = None) -> dict:
         with self._lock:

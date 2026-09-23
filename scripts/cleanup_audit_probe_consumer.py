@@ -4,6 +4,7 @@ import argparse
 import json
 import sqlite3
 from collections.abc import Callable
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -167,7 +168,7 @@ def cleanup_audit_probe(
         connection.close()
 
     if apply:
-        with sqlite3.connect(resolved, timeout=10) as readback:
+        with closing(sqlite3.connect(resolved, timeout=10)) as readback:
             remaining_consumer = readback.execute(
                 "SELECT COUNT(*) FROM consumers WHERE consumer_id = ?",
                 (AUDIT_PROBE_CONSUMER,),

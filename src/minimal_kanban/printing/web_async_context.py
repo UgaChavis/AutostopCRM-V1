@@ -37,6 +37,9 @@ PRINTING_ASYNC_CONTEXT_SCRIPT = r"""
 
     function capturePrintOperation(scope = '', { card = true, workspace = true, mode = true, template = false, inspection = false, selection = false } = {}) {
       const viewer = state.viewerStateGeneration;
+      const session = state.operatorSessionToken;
+      const editing = state.cardEditingGeneration || 0;
+      const hydration = state.cardHydrationSeq || 0;
       const workspaceGeneration = printWorkspaceGeneration;
       const templateGeneration = printTemplateGeneration;
       const inspectionGeneration = printInspectionGeneration;
@@ -47,6 +50,8 @@ PRINTING_ASYNC_CONTEXT_SCRIPT = r"""
       const token = {};
       if (scope) printOperationTokens.set(scope, token);
       const current = () => viewer === state.viewerStateGeneration
+        && session === state.operatorSessionToken
+        && (!card || (editing === (state.cardEditingGeneration || 0) && hydration === (state.cardHydrationSeq || 0)))
         && (!workspace || workspaceGeneration === printWorkspaceGeneration)
         && (!card || cardId === String(state.editingId || state.activeCard?.id || ''))
         && (!mode || printMode === repairOrderPrintState.mode)
@@ -146,6 +151,7 @@ PRINTING_JOB_SCRIPT = r"""
     async function runRepairOrderPrintJob() {
       const operation = capturePrintOperation('', { selection: true });
       if (repairOrderPrintState.isPrintRunning) return;
+      if (repairOrderPrintState.isWorkspaceLoading || !repairOrderPrintState.workspace) return;
       printJobOwner = operation;
       repairOrderPrintState.isPrintRunning = true;
       if (printEls.printButton) printEls.printButton.disabled = true;

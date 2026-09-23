@@ -11,6 +11,7 @@ import tempfile
 import unittest
 import urllib.error
 import urllib.request
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
@@ -93,7 +94,7 @@ class ChangeFeedStorageContractTests(ChangeFeedTestCase):
         self.assertFalse(result["consumer_registered"])
         self.assertFalse(result["pending_delivery"])
         self.assertEqual(1, result["high_water"])
-        with sqlite3.connect(database) as connection:
+        with closing(sqlite3.connect(database)) as connection:
             count = connection.execute(
                 "SELECT COUNT(*) FROM consumers WHERE consumer_id = ?",
                 ("manager.crm_digest_v1",),
@@ -495,8 +496,10 @@ class ChangeFeedDeliveryContractTests(ChangeFeedTestCase):
         def summarize_row(row: sqlite3.Row) -> dict:
             nonlocal wrote_during_summary
             if not wrote_during_summary:
-                with sqlite3.connect(
-                    self.store.change_feed_store.path, timeout=1, isolation_level=None
+                with closing(
+                    sqlite3.connect(
+                        self.store.change_feed_store.path, timeout=1, isolation_level=None
+                    )
                 ) as writer:
                     writer.execute("PRAGMA journal_mode = WAL")
                     writer.execute("BEGIN IMMEDIATE")

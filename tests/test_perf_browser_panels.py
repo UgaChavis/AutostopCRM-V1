@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import json
 import sys
@@ -271,6 +272,75 @@ class PerfBrowserPanelsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(summary["p95_ms"], 19.0)
         self.assertIs(summary["samples"], samples)
         self.assertEqual(summary["api_request_scope"], "requests_started_during_action")
+
+    async def test_immediate_printing_overlaps_full_payroll_and_retains_dom_milestones(
+        self,
+    ) -> None:
+        calls = []
+        release = asyncio.Event()
+
+        async def click(selector):
+            calls.append(selector)
+            if selector == "#repairOrderPrintButton":
+                release.set()
+
+        async def get(path, **kwargs):
+            calls.append(path)
+            await release.wait()
+            return SimpleNamespace(
+                status=200,
+                json=AsyncMock(return_value={"ok": True}),
+                headers={"server-timing": "service_lock;dur=123, service_lock_hold;dur=45"},
+            )
+
+        page = SimpleNamespace(
+            click=click,
+            wait_for_selector=AsyncMock(),
+            wait_for_function=AsyncMock(),
+            evaluate=AsyncMock(
+                side_effect=[None, {"shell_ms": 2, "documents_ms": 124, "preview_ms": 150}]
+            ),
+        )
+        client = SimpleNamespace(get=get)
+        with patch.object(sys, "path", [str(SCRIPT_DIR), *sys.path]):
+            result = await self.module.open_immediate_printing(page, payroll_client=client)
+        self.assertEqual(
+            calls, ["#repairOrderButton", "/api/list_employees", "#repairOrderPrintButton"]
+        )
+        self.assertTrue(result["payroll_inflight_before_print"])
+        self.assertEqual(result["shell_ms"], 2)
+        self.assertEqual(result["documents_ms"], 124)
+        self.assertEqual(result["preview_ms"], 150)
+        self.assertIn("service_lock;dur=123", result["concurrent_payroll_timing"])
+
+    def test_printing_summaries_keep_milestones_and_lock_time_separate(self) -> None:
+        samples = [
+            {
+                "duration_ms": n * 10,
+                "shell_ms": n,
+                "documents_ms": n * 2,
+                "preview_ms": n * 3,
+                "service_lock_wait_ms": n * 4,
+                "payroll_inflight_before_print": n % 2 == 0,
+            }
+            for n in range(1, 21)
+        ]
+        result = self.module.summarize("printing.concurrent_payroll", samples)
+        self.assertEqual(result["shell_ms"]["p95_ms"], 19)
+        self.assertEqual(result["documents_ms"]["p95_ms"], 38)
+        self.assertEqual(result["preview_ms"]["p95_ms"], 57)
+        self.assertEqual(result["service_lock_wait_ms"]["p95_ms"], 76)
+        self.assertEqual(result["payroll_overlap_samples"], 10)
+        self.assertEqual(
+            self.module.server_timing_total(
+                [
+                    "service_lock;dur=2.1, service_lock_hold;dur=50",
+                    "service_lock;dur=3.2",
+                ],
+                "service_lock",
+            ),
+            5.3,
+        )
 
 
 if __name__ == "__main__":

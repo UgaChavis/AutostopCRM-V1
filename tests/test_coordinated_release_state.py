@@ -99,6 +99,7 @@ def _layout(
     }
 
 
+@unittest.skipUnless(os.name == "posix", "Release state requires POSIX ownership and permissions")
 class CoordinatedReleaseStateTests(unittest.TestCase):
     def test_service_state_preserves_repeated_timer_properties(self) -> None:
         def repeated_timer_state(

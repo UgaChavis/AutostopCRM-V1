@@ -157,6 +157,7 @@
       "scope": "files",
       "paths": [
         "src/minimal_kanban/services/card_service_payroll.py",
+        "src/minimal_kanban/services/employee_list_report.py",
         "src/minimal_kanban/services/payroll_report_text.py",
         "src/minimal_kanban/services/payroll_active_periods.py",
         "src/minimal_kanban/services/payroll_constants.py",
@@ -224,7 +225,8 @@
         "src/minimal_kanban/printing/document_rendering.py",
         "src/minimal_kanban/printing/template_engine.py",
         "src/minimal_kanban/printing/web_module.py",
-        "src/minimal_kanban/printing/web_async_context.py"
+        "src/minimal_kanban/printing/web_async_context.py",
+        "src/minimal_kanban/printing/web_workspace_loading.py"
       ],
       "minimum_percent": 83.5,
       "baseline": {
