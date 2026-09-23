@@ -15,6 +15,10 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from minimal_kanban.models import (  # noqa: E402
+    _parse_business_datetime_cached,
+    clear_business_timezone_cache,
+)
 from minimal_kanban.services.card_service import CardService  # noqa: E402
 from minimal_kanban.storage.json_store import JsonStore  # noqa: E402
 
@@ -195,6 +199,43 @@ class ListEmployeesSnapshotTests(unittest.TestCase):
         self.assertEqual(before_write["employees"][0]["balance_total"], "0")
         after_write = self.service.list_employees({"month": "2026-09"})
         self.assertEqual(after_write["employees"][0]["balance_total"], "123.45")
+
+    def test_list_employees_is_identical_with_cold_and_warm_datetime_parse_cache(self) -> None:
+        employee = self.service.save_employee(
+            {
+                "name": "Сотрудник кэша",
+                "salary_mode": "salary_plus_percent",
+                "base_salary": "40000",
+            }
+        )["employee"]
+        bundle = self.store.read_bundle()
+        settings = dict(bundle["settings"])
+        timestamp = "2026-09-16T12:00:00+07:00"
+        settings["employee_shift_accruals"] = [
+            {
+                "id": f"cache-shift-{index:03d}",
+                "employee_id": employee["id"],
+                "employee_name": employee["name"],
+                "amount_minor": 10000 + index,
+                "created_at": timestamp,
+                "updated_at": timestamp,
+                "note": "Синтетическая смена",
+                "actor_name": "TEST",
+                "source": "system",
+            }
+            for index in range(24)
+        ]
+        self.store.write_bundle(**{**bundle, "settings": settings})
+
+        clear_business_timezone_cache()
+        cold = self.service.list_employees({"month": "2026-09"})
+        cold_cache_info = _parse_business_datetime_cached.cache_info()
+        warm = self.service.list_employees({"month": "2026-09"})
+        warm_cache_info = _parse_business_datetime_cached.cache_info()
+
+        self.assertEqual(cold, warm)
+        self.assertGreater(cold_cache_info.hits, 0)
+        self.assertGreater(warm_cache_info.hits, cold_cache_info.hits)
 
 
 if __name__ == "__main__":

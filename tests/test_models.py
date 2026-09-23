@@ -4,6 +4,7 @@ import math
 import os
 import sys
 import unittest
+from datetime import UTC, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -17,6 +18,7 @@ from minimal_kanban.models import (  # noqa: E402
     Card,
     InventoryMovement,
     _clamp_ratio,
+    _parse_business_datetime_cached,
     _rgb_to_rgba,
     business_timezone,
     calculate_deadline_progress_bucket,
@@ -86,6 +88,35 @@ class ModelsTests(unittest.TestCase):
         ):
             parsed = parse_business_datetime("26.07.2026 14:35")
         self.assertEqual(parsed.isoformat(), "2026-07-26T14:35:00+07:00")
+
+    def test_business_datetime_parse_cache_is_timezone_keyed(self) -> None:
+        clear_business_timezone_cache()
+        zones = {
+            "Asia/Krasnoyarsk": timezone(timedelta(hours=7), "Asia/Krasnoyarsk"),
+            "UTC": UTC,
+        }
+        with patch("minimal_kanban.models.ZoneInfo", side_effect=lambda name: zones[name]):
+            with patch.dict(
+                os.environ,
+                {
+                    "AUTOSTOPCRM_BUSINESS_TIMEZONE": "Asia/Krasnoyarsk",
+                    "AUTOSTOPCRM_TIMEZONE": "",
+                },
+                clear=False,
+            ):
+                krasnoyarsk = parse_business_datetime("26.07.2026 14:35")
+                repeated = parse_business_datetime("26.07.2026 14:35")
+            with patch.dict(
+                os.environ,
+                {"AUTOSTOPCRM_BUSINESS_TIMEZONE": "UTC", "AUTOSTOPCRM_TIMEZONE": ""},
+                clear=False,
+            ):
+                utc = parse_business_datetime("26.07.2026 14:35")
+
+        self.assertIs(krasnoyarsk, repeated)
+        self.assertEqual(krasnoyarsk.isoformat(), "2026-07-26T14:35:00+07:00")
+        self.assertEqual(utc.isoformat(), "2026-07-26T14:35:00+00:00")
+        self.assertEqual(_parse_business_datetime_cached.cache_info().hits, 1)
 
     def test_clamp_ratio_rejects_non_finite_and_invalid_values(self) -> None:
         self.assertEqual(_clamp_ratio(True), 0.0)

@@ -125,26 +125,26 @@ def _business_timezone_for_name(timezone_name: str):
         return datetime.now().astimezone().tzinfo or UTC
 
 
-def clear_business_timezone_cache() -> None:
-    _business_timezone_for_name.cache_clear()
-
-
-def business_timezone():
+def _business_timezone_name() -> str:
     timezone_name = (
         os.environ.get("AUTOSTOPCRM_BUSINESS_TIMEZONE")
         or os.environ.get("AUTOSTOPCRM_TIMEZONE")
         or DEFAULT_BUSINESS_TIMEZONE
     )
-    return _business_timezone_for_name(str(timezone_name).strip() or DEFAULT_BUSINESS_TIMEZONE)
+    return str(timezone_name).strip() or DEFAULT_BUSINESS_TIMEZONE
 
 
-def parse_business_datetime(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    raw = str(value).strip()
-    if not raw:
-        return None
-    business_tz = business_timezone()
+def clear_business_timezone_cache() -> None:
+    _business_timezone_for_name.cache_clear()
+    _parse_business_datetime_cached.cache_clear()
+
+
+def business_timezone():
+    return _business_timezone_for_name(_business_timezone_name())
+
+
+def _parse_business_datetime(raw: str, timezone_name: str) -> datetime | None:
+    business_tz = _business_timezone_for_name(timezone_name)
     for date_format in ("%d.%m.%Y %H:%M", "%d.%m.%y %H:%M", "%d.%m.%Y", "%d.%m.%y"):
         try:
             return datetime.strptime(raw, date_format).replace(tzinfo=business_tz)
@@ -157,6 +157,23 @@ def parse_business_datetime(value: str | None) -> datetime | None:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=business_tz)
     return parsed
+
+
+@lru_cache(maxsize=8192)
+def _parse_business_datetime_cached(raw: str, timezone_name: str) -> datetime | None:
+    return _parse_business_datetime(raw, timezone_name)
+
+
+def parse_business_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    timezone_name = _business_timezone_name()
+    if len(raw) > 128:
+        return _parse_business_datetime(raw, timezone_name)
+    return _parse_business_datetime_cached(raw, timezone_name)
 
 
 def parse_datetime(value: str | None) -> datetime | None:
