@@ -13,6 +13,7 @@ from email.message import Message
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
+from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -24,6 +25,7 @@ from minimal_kanban.api.server import (  # noqa: E402
     AuthenticationPolicy,
     OperatorLoginLimiter,
 )
+from minimal_kanban.models import Card  # noqa: E402
 from minimal_kanban.operator_permissions import (  # noqa: E402
     SALARY_BALANCE_RESET_PERMISSION,
 )
@@ -40,11 +42,12 @@ class ApiTransportContractTests(unittest.TestCase):
         logger.handlers.clear()
         logger.addHandler(logging.StreamHandler(self.log_output))
         logger.propagate = False
+        self.store = JsonStore(
+            state_file=Path(self.temp_dir.name) / "state.json",
+            logger=logger,
+        )
         self.service = CardService(
-            JsonStore(
-                state_file=Path(self.temp_dir.name) / "state.json",
-                logger=logger,
-            ),
+            self.store,
             logger,
             attachments_dir=Path(self.temp_dir.name) / "attachments",
             repair_orders_dir=Path(self.temp_dir.name) / "repair-orders",
@@ -185,6 +188,75 @@ class ApiTransportContractTests(unittest.TestCase):
         self.assertEqual(
             "operator_auth_unavailable",
             protected_payload["error"]["code"],
+        )
+
+    def test_repair_order_number_search_reaches_archived_orders_beyond_limit(self) -> None:
+        state = self.store.read_bundle()
+        created_at = "2024-01-01T10:00:00+00:00"
+        cards = [
+            Card.from_dict(
+                {
+                    "id": f"archived-repair-order-{number}",
+                    "title": "Закрытая работа",
+                    "description": "",
+                    "column": "inbox",
+                    "archived": True,
+                    "created_at": created_at,
+                    "updated_at": created_at,
+                    "deadline_timestamp": "2024-01-02T10:00:00+00:00",
+                    "repair_order": {
+                        "number": str(number),
+                        "status": "closed",
+                        "opened_at": created_at,
+                        "closed_at": "2024-01-02T09:00:00+00:00",
+                        "client": "Клиент №489" if number == 489 else f"Клиент {number}",
+                    },
+                }
+            )
+            for number in [*range(1, 812), 1489]
+        ]
+        self.store.write_bundle(
+            columns=state["columns"],
+            cards=cards,
+            stickies=state["stickies"],
+            events=state["events"],
+            settings=state["settings"],
+        )
+        auth = {"Authorization": "Bearer transport-test-token"}
+        base = "/api/list_repair_orders?status=closed&limit=300&compact=true&redact_private=true"
+
+        status, first_page = self._get(base + "&sort_by=number&sort_dir=desc", headers=auth)
+        first_ids = {item["card_id"] for item in first_page["data"]["repair_orders"]}
+        self.assertEqual(200, status)
+        self.assertEqual(300, len(first_ids))
+        self.assertNotIn("archived-repair-order-489", first_ids)
+        self.assertEqual(812, first_page["data"]["meta"]["archived_total"])
+
+        status, found = self._get(
+            base + "&sort_by=number&sort_dir=desc&query=489&search_field=number",
+            headers=auth,
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(
+            ["archived-repair-order-489"],
+            [item["card_id"] for item in found["data"]["repair_orders"]],
+        )
+        self.assertEqual(1, found["data"]["meta"]["total"])
+
+        status, open_orders = self._get(
+            "/api/list_repair_orders?status=open&limit=300&query=489&search_field=number",
+            headers=auth,
+        )
+        self.assertEqual(200, status)
+        self.assertEqual([], open_orders["data"]["repair_orders"])
+
+        status, selected_client = self._get(
+            base + f"&query={quote('Клиент №489')}&search_field=client", headers=auth
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(
+            ["archived-repair-order-489"],
+            [item["card_id"] for item in selected_client["data"]["repair_orders"]],
         )
 
     def test_service_error_preserves_public_envelope(self) -> None:

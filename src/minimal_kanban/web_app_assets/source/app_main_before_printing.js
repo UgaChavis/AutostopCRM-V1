@@ -2466,7 +2466,8 @@
         repairOrderPaymentVerificationPending: '',
         repairOrderWriteVerificationPending: '',
         repairOrdersFilter: 'open', repairOrdersQuery: '', repairOrdersRemoteQuery: '',
-        repairOrdersSearchField: 'summary', repairOrdersSortBy: 'number', repairOrdersSortDir: 'desc',
+        repairOrdersSearchField: 'summary',
+        repairOrdersSortBy: 'number', repairOrdersSortDir: 'desc',
         repairOrdersItems: [], repairOrdersMetaState: null, repairOrdersSearchLoading: false,
         sharedFiles: [], sharedFilesActiveId: '', sharedFilesStorage: null,
         sharedFilesClipboardId: '', sharedFilesContextPoint: null, sharedFilesDrag: null,
@@ -13293,7 +13294,10 @@
       params.set('status', normalizeRepairOrderStatus(state.repairOrdersFilter));
       params.set('sort_by', normalizeRepairOrdersSortBy(state.repairOrdersSortBy));
       params.set('sort_dir', normalizeRepairOrdersSortDir(state.repairOrdersSortDir));
-      if (state.repairOrdersRemoteQuery) params.set('query', state.repairOrdersRemoteQuery);
+      if (state.repairOrdersRemoteQuery) {
+        params.set('query', state.repairOrdersRemoteQuery);
+        params.set('search_field', normalizeRepairOrdersSearchField(state.repairOrdersSearchField));
+      }
       return '/api/list_repair_orders?' + params.toString();
     }
 
@@ -13307,7 +13311,7 @@
         window.clearTimeout(state.repairOrdersLoadTimer);
         state.repairOrdersLoadTimer = null;
       }
-      setRepairOrdersSearchLoading(false);
+      setRepairOrdersSearchLoading(Boolean(String(state.repairOrdersQuery || '').trim()));
       updateRepairOrdersTabs();
       await loadRepairOrders(openModal);
     }
@@ -13381,91 +13385,16 @@
       return fallback || normalized || '0';
     };
 
-    function repairOrdersDisplayedDateForItem(item, isClosedView = repairOrdersIsClosedView()) {
-      const openedAt = repairOrderListDateDisplayValue(item?.opened_at || item?.created_at || item?.date || item?.updated_at);
-      const closedAt = repairOrderListDateDisplayValue(item?.closed_at);
-      return isClosedView ? (closedAt || openedAt || '-') : (openedAt || closedAt || '-');
-    }
-
-    function repairOrdersNormalizeSearchText(value) {
-      return String(value ?? '')
-        .toLowerCase()
-        .replace(/ё/g, 'е')
-        .replace(/[^a-zа-я0-9]+/gi, ' ')
-        .trim()
-        .replace(/\s+/g, ' ');
-    }
-
-    function repairOrdersCompactSearchText(value) {
-      return String(value ?? '')
-        .toLowerCase()
-        .replace(/ё/g, 'е')
-        .replace(/[^a-zа-я0-9]+/gi, '');
-    }
-
-    function repairOrdersSearchTokens(value) {
-      const normalized = repairOrdersNormalizeSearchText(value);
-      return normalized ? normalized.split(' ').filter(Boolean) : [];
-    }
-
-    function repairOrdersSearchableText(item, field = state.repairOrdersSearchField) {
-      const normalizedField = normalizeRepairOrdersSearchField(field);
-      if (normalizedField === 'number') return String(item?.number || '').trim();
-      if (normalizedField === 'date') return repairOrdersDisplayedDateForItem(item);
-      if (normalizedField === 'client') return String(item?.client || '').trim();
-      if (normalizedField === 'phone') return String(item?.phone || '').trim();
-      if (normalizedField === 'vehicle') return String(item?.vehicle || '').trim();
-      if (normalizedField === 'license_plate') {
-        return [
-          item?.license_plate,
-          item?.summary,
-          item?.reason,
-          item?.heading,
-        ].filter(Boolean).join(' ');
-      }
-      return [
-        item?.summary,
-        item?.reason,
-        item?.heading,
-        item?.vehicle,
-        item?.client,
-      ].filter(Boolean).join(' ');
-    }
-
-    function repairOrdersMatchesSummarySearch(item, query) {
-      const normalizedQuery = repairOrdersNormalizeSearchText(query);
-      if (!normalizedQuery) return true;
-      const haystack = repairOrdersNormalizeSearchText(repairOrdersSearchableText(item, 'summary'));
-      if (!haystack) return false;
-      if (haystack.includes(normalizedQuery)) return true;
-      const hayTokens = haystack.split(' ').filter(Boolean);
-      const queryTokens = repairOrdersSearchTokens(query);
-      if (!queryTokens.length) return true;
-      return queryTokens.every((token) => hayTokens.some((word) => word.includes(token) || token.includes(word)));
-    }
-
-    function repairOrdersMatchesFieldSearch(item, field, query) {
-      const normalizedField = normalizeRepairOrdersSearchField(field);
-      const normalizedQuery = repairOrdersNormalizeSearchText(query);
-      if (!normalizedQuery) return true;
-      if (normalizedField === 'summary') return repairOrdersMatchesSummarySearch(item, query);
-      const fieldText = repairOrdersSearchableText(item, normalizedField);
-      const normalizedFieldText = repairOrdersNormalizeSearchText(fieldText);
-      if (normalizedFieldText.includes(normalizedQuery)) return true;
-      const compactQuery = repairOrdersCompactSearchText(query);
-      if (!compactQuery) return false;
-      const compactFieldText = repairOrdersCompactSearchText(fieldText);
-      return compactFieldText.includes(compactQuery);
-    }
-
     function filterRepairOrdersItems(items = state.repairOrdersItems) {
-      const query = String(state.repairOrdersQuery || '').trim();
-      if (!query) return Array.isArray(items) ? items : [];
-      return (Array.isArray(items) ? items : []).filter((item) => repairOrdersMatchesFieldSearch(item, state.repairOrdersSearchField, query));
+      return Array.isArray(items) ? items : [];
     }
 
     function repairOrdersEmptyStateText() {
-      if (String(state.repairOrdersQuery || '').trim()) return 'ПО ПОИСКУ НИЧЕГО НЕ НАЙДЕНО.';
+      if (String(state.repairOrdersQuery || '').trim()) {
+        if (state.repairOrdersSearchLoading) return 'ПОИСК ЗАКАЗ-НАРЯДОВ…';
+        return 'ПО ПОИСКУ НИЧЕГО НЕ НАЙДЕНО.';
+      }
+      if (state.repairOrdersSearchLoading) return 'ЗАГРУЗКА ЗАКАЗ-НАРЯДОВ…';
       const status = normalizeRepairOrderStatus(state.repairOrdersFilter);
       if (status === 'closed') return 'АРХИВ ЗАКАЗ-НАРЯДОВ ПУСТ.';
       if (status === 'ready') return 'ГОТОВЫХ ЗАКАЗ-НАРЯДОВ ПОКА НЕТ.';
@@ -13527,6 +13456,7 @@
       if (meta.status === 'open' || meta.status === 'ready' || meta.status === 'closed') state.repairOrdersFilter = meta.status;
       state.repairOrdersSortBy = normalizeRepairOrdersSortBy(meta.sort_by || state.repairOrdersSortBy);
       state.repairOrdersSortDir = normalizeRepairOrdersSortDir(meta.sort_dir || state.repairOrdersSortDir);
+      state.repairOrdersRemoteQuery = String(meta.query || '').trim();
       state.repairOrdersItems = Array.isArray(items) ? items : [];
       state.repairOrdersMetaState = meta;
       updateRepairOrdersTabs();
@@ -13547,7 +13477,7 @@
     }
 
     loadRepairOrders = async function(openModal = false) {
-      state.repairOrdersRemoteQuery = '';
+      state.repairOrdersRemoteQuery = String(state.repairOrdersQuery || '').trim();
       const requestSeq = (state.repairOrdersRequestSeq || 0) + 1;
       state.repairOrdersRequestSeq = requestSeq;
       const viewerStateGeneration = state.viewerStateGeneration;
@@ -13561,6 +13491,7 @@
         isCurrent,
         onSuccess: renderRepairOrders,
         onError: (error) => {
+          setRepairOrdersSearchLoading(false);
           setModalListError(
             els.repairOrdersMeta,
             els.repairOrdersList,
@@ -13573,13 +13504,15 @@
 
     function applyRepairOrdersSearch() {
       if (state.repairOrdersLoadTimer) window.clearTimeout(state.repairOrdersLoadTimer);
+      invalidateRepairOrdersRequests();
       setRepairOrdersSearchLoading(true);
+      if (!String(state.repairOrdersQuery || '').trim()) {
+        loadRepairOrders(false);
+        return;
+      }
       state.repairOrdersLoadTimer = window.setTimeout(() => {
         state.repairOrdersLoadTimer = null;
-        window.requestAnimationFrame(() => {
-          renderRepairOrdersView();
-          setRepairOrdersSearchLoading(false);
-        });
+        loadRepairOrders(false);
       }, 1000);
     }
 
@@ -13597,10 +13530,16 @@
         window.clearTimeout(state.repairOrdersLoadTimer);
         state.repairOrdersLoadTimer = null;
       }
-      setRepairOrdersSearchLoading(false);
       state.repairOrdersSearchField = nextField;
       syncRepairOrdersLayout();
-      renderRepairOrdersView();
+      if (String(state.repairOrdersQuery || '').trim()) {
+        invalidateRepairOrdersRequests();
+        setRepairOrdersSearchLoading(true);
+        loadRepairOrders(false);
+      } else {
+        setRepairOrdersSearchLoading(false);
+        renderRepairOrdersView();
+      }
     }
 
     function handleRepairOrdersSortChange() {
@@ -13608,7 +13547,7 @@
         window.clearTimeout(state.repairOrdersLoadTimer);
         state.repairOrdersLoadTimer = null;
       }
-      setRepairOrdersSearchLoading(false);
+      setRepairOrdersSearchLoading(Boolean(String(state.repairOrdersQuery || '').trim()));
       state.repairOrdersSortBy = normalizeRepairOrdersSortBy(els.repairOrdersSortBy?.value);
       state.repairOrdersSortDir = normalizeRepairOrdersSortDir(els.repairOrdersSortDir?.value);
       loadRepairOrders(false);

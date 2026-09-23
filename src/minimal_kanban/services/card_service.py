@@ -130,6 +130,12 @@ from .card_service_finance import (
 )
 from .card_service_inventory import CardServiceInventoryMixin
 from .card_service_payroll import CardServicePayrollMixin
+from .card_service_repair_order_search import (
+    SEARCH_SEPARATOR_PATTERN as _SEARCH_SEPARATOR_PATTERN,
+)
+from .card_service_repair_order_search import (
+    CardServiceRepairOrderSearchMixin,
+)
 from .column_service import ColumnService
 from .errors import ServiceError
 from .finance_read_core import FinanceReadCore
@@ -174,7 +180,6 @@ _MANAGER_WAIT_PAYMENT_TAG_ALIASES = {
 }
 
 
-_SEARCH_SEPARATOR_PATTERN = re.compile(r"[\W_]+", re.UNICODE)
 _SEARCH_LATIN_TO_CYRILLIC_PATTERNS: tuple[tuple[str, str], ...] = (
     ("shch", "щ"),
     ("sch", "щ"),
@@ -388,6 +393,7 @@ def _json_dumps(
 class CardService(
     CardAttachmentsMixin,
     RepairOrderArtifactsMixin,
+    CardServiceRepairOrderSearchMixin,
     CardServiceBulkMixin,
     CardServiceFinanceMixin,
     CardServiceInventoryMixin,
@@ -1421,6 +1427,7 @@ class CardService(
                     details={"field": "number"},
                 )
             exact_number = exact_number.strip() if isinstance(exact_number, str) else ""
+            search_field = self._validated_repair_order_search_field(payload.get("search_field"))
             sort_by = self._validated_repair_order_sort_by(payload.get("sort_by"))
             sort_dir = self._validated_repair_order_sort_direction(payload.get("sort_dir"))
             compact = self._validated_optional_bool(payload, "compact", default=False)
@@ -1435,11 +1442,7 @@ class CardService(
                 self._cleanup_repair_orders_directory(cards)
             except Exception:
                 self._logger.exception("repair_order_directory_cleanup_failed")
-            ranked_cards = [
-                card
-                for card in sorted(cards, key=self._repair_order_sort_key, reverse=True)
-                if self._card_has_repair_order(card)
-            ]
+            ranked_cards = [card for card in cards if self._card_has_repair_order(card)]
             inconsistent_cards = [
                 card
                 for card in ranked_cards
@@ -1481,7 +1484,12 @@ class CardService(
                     for card in ordered_cards
                     if str(card.repair_order.number or "").strip() == exact_number
                 ]
-            filtered_cards = self._filter_repair_order_cards(ordered_cards, query=query)
+            filtered_cards = self._filter_repair_order_cards(
+                ordered_cards,
+                query=query,
+                search_field=search_field,
+                status_filter=status_filter,
+            )
             sorted_cards = sorted(
                 filtered_cards,
                 key=lambda card: self._repair_order_list_sort_key(card, sort_by=sort_by),
@@ -1504,9 +1512,15 @@ class CardService(
                     "has_more": len(sorted_cards) > limit,
                     "status": status_filter,
                     "query": query,
+                    "search_field": search_field,
                     "applied_filters": {
                         **({"card_id": exact_card_id} if exact_card_id else {}),
                         **({"number": exact_number} if exact_number else {}),
+                        **(
+                            {"search_field": search_field}
+                            if query and search_field != "all"
+                            else {}
+                        ),
                         "status": status_filter,
                     },
                     "sort_by": sort_by,
@@ -9222,29 +9236,6 @@ class CardService(
             self._repair_order_list_summary(card),
             " ".join(tag.label for tag in order.tags),
         ]
-
-    def _filter_repair_order_cards(self, cards: list[Card], *, query: str) -> list[Card]:
-        normalized_query = self._normalize_search_text(query)
-        if not normalized_query:
-            return list(cards)
-        tokens = [token for token in normalized_query.split() if token]
-        if not tokens:
-            return list(cards)
-        filtered: list[Card] = []
-        for card in cards:
-            haystack = " ".join(
-                normalized
-                for normalized in (
-                    self._normalize_search_text(value)
-                    for value in self._repair_order_search_values(card)
-                )
-                if normalized
-            )
-            if not haystack:
-                continue
-            if all(token in haystack for token in tokens):
-                filtered.append(card)
-        return filtered
 
     def _serialize_repair_order_compact_item(
         self, card: Card, *, redact_private: bool

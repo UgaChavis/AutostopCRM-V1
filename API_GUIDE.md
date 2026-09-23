@@ -239,6 +239,11 @@ available for low-payload diagnostics. Works, materials, statuses, and payments 
 changed through repair-order service routes so validation and audit records
 remain consistent.
 
+An optional `search_field` scopes `query` before sorting and `limit` to
+`number`, `date`, `client`, `phone`, `vehicle`, `summary`, or `license_plate`.
+`search_field=number` matches the complete normalized repair-order number;
+omitting the field keeps the legacy search across all repair-order text.
+
 Closed repair orders are read-only. Use this correction sequence:
 
 1. `GET /api/preview_repair_order_reopen?card_id=...&expected_updated_at=...`;

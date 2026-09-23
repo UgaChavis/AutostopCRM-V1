@@ -85,9 +85,29 @@ class RepairOrderWorkspaceContractTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
-            "if (state.repairOrdersRemoteQuery) params.set('query', state.repairOrdersRemoteQuery);",
+            "if (state.repairOrdersRemoteQuery) {",
             BOARD_WEB_APP_HTML,
         )
+        self.assertIn(
+            "params.set('query', state.repairOrdersRemoteQuery);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "params.set('search_field', normalizeRepairOrdersSearchField(state.repairOrdersSearchField));",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "state.repairOrdersRemoteQuery = String(state.repairOrdersQuery || '').trim();",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("loadRepairOrders(false);", BOARD_WEB_APP_HTML)
+        self.assertIn("ПОИСК ЗАКАЗ-НАРЯДОВ…", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "if (state.repairOrdersSearchLoading) return 'ЗАГРУЗКА ЗАКАЗ-НАРЯДОВ…';",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("if (!String(state.repairOrdersQuery || '').trim()) {", BOARD_WEB_APP_HTML)
+        self.assertIn("return 'ПО ПОИСКУ НИЧЕГО НЕ НАЙДЕНО.';", BOARD_WEB_APP_HTML)
         self.assertIn("repairOrdersSortBy: 'number'", BOARD_WEB_APP_HTML)
         self.assertIn("repairOrdersSortDir: 'desc'", BOARD_WEB_APP_HTML)
         self.assertIn(
