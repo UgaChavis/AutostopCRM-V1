@@ -1932,7 +1932,19 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
                     "detail_rows": [],
                     "meta": {"references_only": True},
                 }
-            return build_full_employee_list(self, bundle, month)
+            # JsonStore reuses a mutable bundle between reads. Take one independent,
+            # consistent snapshot while the service lock is held; payroll may then
+            # run without blocking unrelated CRM requests or reading a newer write.
+            snapshot = deepcopy(
+                {
+                    "settings": bundle["settings"],
+                    "cards": bundle["cards"],
+                    "cashboxes": bundle["cashboxes"],
+                    "cash_transactions": bundle["cash_transactions"],
+                }
+            )
+
+        return build_full_employee_list(self, snapshot, month)
 
     def save_employee(self, payload: dict | None = None) -> dict:
         with self._lock:

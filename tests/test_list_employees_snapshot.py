@@ -3,9 +3,12 @@ from __future__ import annotations
 import logging
 import sys
 import tempfile
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -155,6 +158,43 @@ class ListEmployeesSnapshotTests(unittest.TestCase):
         self.assertEqual(
             self.service.list_employees({"month": month}), self._old_full_result(month)
         )
+
+    def test_full_report_releases_lock_and_uses_one_consistent_snapshot(self) -> None:
+        employee = self.service.save_employee({"name": "Сотрудник снимка", "salary_mode": "none"})[
+            "employee"
+        ]
+        report_started = threading.Event()
+        allow_report = threading.Event()
+        build_report = self.service._build_payroll_report
+
+        def delayed_report(*args, **kwargs):
+            report_started.set()
+            if not allow_report.wait(5):
+                raise AssertionError("report did not resume")
+            return build_report(*args, **kwargs)
+
+        with patch.object(self.service, "_build_payroll_report", side_effect=delayed_report):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                full = executor.submit(self.service.list_employees, {"month": "2026-09"})
+                self.assertTrue(report_started.wait(5))
+                try:
+                    reference = executor.submit(
+                        self.service.list_employees,
+                        {"references_only": True, "month": "2026-09"},
+                    )
+                    self.assertEqual(
+                        reference.result(timeout=2)["employees"][0]["id"], employee["id"]
+                    )
+                    self.service.create_employee_shift_accrual(
+                        {"employee_id": employee["id"], "amount_minor": 12345}
+                    )
+                finally:
+                    allow_report.set()
+                before_write = full.result(timeout=5)
+
+        self.assertEqual(before_write["employees"][0]["balance_total"], "0")
+        after_write = self.service.list_employees({"month": "2026-09"})
+        self.assertEqual(after_write["employees"][0]["balance_total"], "123.45")
 
 
 if __name__ == "__main__":
