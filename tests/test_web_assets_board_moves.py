@@ -139,13 +139,18 @@ function captureViewerRequestContext(){const generation=state.viewerStateGenerat
 
 @unittest.skipUnless(shutil.which("node"), "Node.js is required")
 class BoardRenderFastPathTests(unittest.TestCase):
-    def run_render_trace(self, render_board: str) -> dict[str, object]:
+    def run_render_trace(
+        self, render_board: str, *, scenario: str | None = None, targeted_render: str = ""
+    ) -> dict[str, object]:
         source = read_board_source("app_main_before_printing.js")
         sorting_and_grouping = section(
-            source, "    function sortBoardCards(", "    function sortedCardsForBoardColumn("
+            source, "    function sortBoardCards(", "    function renderBoardColumnHtml("
         )
         reconcile_cards = section(
             source, "    function reconcileBoardCards(", "    function reconcileBoardSection("
+        )
+        signature_helper = section(
+            source, "    function boardSectionSignature(", "    function renderBoardColumnById("
         )
         setup = r"""
 const assert=require('node:assert/strict');
@@ -160,15 +165,15 @@ function makeList(initial=[]) {
 function makeCard(id,title) {
   return {dataset:{cardId:id},title,textContent:title,parent:null,remove(){if(!this.parent)return;const index=this.parent.children.indexOf(this);if(index>=0)this.parent.children.splice(index,1);this.parent=null;}};
 }
-function makeSection(id) {
+function makeSection(id,headCount=0) {
   const list=makeList();
-  return {dataset:{columnId:id},isColumn:true,list,querySelector(selector){return selector==='.column__cards'?this.list:null;}};
+  return {dataset:{columnId:id},isColumn:true,list,headCount,querySelector(selector){return selector==='.column__cards'?this.list:null;}};
 }
-const board={children:[],querySelectorAll(){return this.children.filter(node=>node.isColumn);},querySelector(selector){return selector==='.board-add-column'||selector==='#stickyLayer'?{}:null;},insertBefore(node,before){const old=this.children.indexOf(node);if(old>=0)this.children.splice(old,1);const index=before?this.children.indexOf(before):this.children.length;this.children.splice(index,0,node);},insertAdjacentHTML(){}};
+const board={children:[],querySelectorAll(){return this.children.filter(node=>node.isColumn);},querySelector(selector){if(selector==='.board-add-column'||selector==='#stickyLayer')return {};const match=selector.match(/^\[data-column-id="([^"]+)"\]$/);return match?this.children.find(node=>node.dataset.columnId===match[1])||null:null;},insertBefore(node,before){const old=this.children.indexOf(node);if(old>=0)this.children.splice(old,1);const index=before?this.children.indexOf(before):this.children.length;this.children.splice(index,0,node);},insertAdjacentHTML(){}};
 const document={createElement(){
   const template={content:{children:[],firstElementChild:null},set innerHTML(html){
     const sectionMatch=html.match(/<section[^>]*data-column-id="([^"]+)"/);
-    if(sectionMatch){this.content.firstElementChild=makeSection(sectionMatch[1]);return;}
+    if(sectionMatch){this.content.firstElementChild=makeSection(sectionMatch[1],Number(html.match(/data-card-count="(\d+)"/)?.[1]||0));return;}
     this.content.children=Array.from(html.matchAll(/<article data-card-id="([^"]+)" data-title="([^"]*)"><\/article>/g),match=>makeCard(match[1],match[2]));
   }};
   return template;
@@ -179,17 +184,18 @@ const PARTS_STORE_COLUMN_ID='parts_store';
 function perfStart(){return null;}function perfEnd(){}
 function extraBoardColumnIsOpen(){return false;}function partsStoreColumnIsOpen(){return false;}
 function renderStickies(){}function renderMobileShell(){}
-function renderBoardColumnHtml(column){sectionHtmlCalls++;return '<section data-column-id="'+column.id+'"></section>';}
+function renderBoardColumnHtml(column,index,snapshot,cardsByColumn){sectionHtmlCalls++;return '<section data-column-id="'+column.id+'" data-card-count="'+sortedCardsForBoardColumn(snapshot,column.id,cardsByColumn).length+'"></section>';}
 function renderBoardCardHtml(card){cardHtmlCalls.push(card.id);return '<article data-card-id="'+card.id+'" data-title="'+card.title+'"></article>';}
 function reconcileBoardSection(current,next,cards){
   const currentList=current?.querySelector('.column__cards');
   const nextList=next.querySelector('.column__cards');
   if(!current||!currentList||!nextList){if(nextList)reconcileBoardCards(nextList,nextList,cards);return next;}
+  current.headCount=next.headCount;
   reconcileBoardCards(currentList,nextList,cards);
   return current;
 }
 """
-        scenario = r"""
+        default_scenario = r"""
 renderBoard();
 const sectionNode=board.children[0];
 const [originalA,originalB]=sectionNode.list.children;
@@ -211,7 +217,13 @@ console.log(JSON.stringify(report));
 """
         result = subprocess.run(
             ["node"],
-            input=setup + sorting_and_grouping + reconcile_cards + render_board + scenario,
+            input=setup
+            + sorting_and_grouping
+            + reconcile_cards
+            + signature_helper
+            + targeted_render
+            + render_board
+            + (scenario or default_scenario),
             text=True,
             encoding="utf-8",
             capture_output=True,
@@ -227,12 +239,10 @@ console.log(JSON.stringify(report));
         source = read_board_source("app_main_before_printing.js")
         render_board = section(source, "    function renderBoard() {", "    function setTab(")
         optimized_signature = (
-            "signature: JSON.stringify([column, index, snapshot.columns.length, "
-            "(cardsByColumn.get(column.id) || []).length]),"
+            "signature: boardSectionSignature(column, index, snapshot, cards.length),"
         )
         old_signature = (
-            "signature: JSON.stringify([column, index, snapshot.columns.length, "
-            "cardsByColumn.get(column.id) || []]),"
+            "signature: JSON.stringify([column, index, snapshot.columns.length, cards]),"
         )
         self.assertIn(optimized_signature, render_board)
 
@@ -251,3 +261,37 @@ console.log(JSON.stringify(report));
         self.assertEqual(optimized["emptyPlaceholderKept"], True)
         self.assertEqual(optimized["sectionHtmlCalls"], 1)
         self.assertEqual(previous_signature["sectionHtmlCalls"], 3)
+
+    def test_targeted_column_render_updates_full_render_signature(self) -> None:
+        source = read_board_source("app_main_before_printing.js")
+        targeted_render = section(
+            source, "    function renderBoardColumnById(", "    function renderBoard() {"
+        )
+        render_board = section(source, "    function renderBoard() {", "    function setTab(")
+        scenario = r"""
+state.snapshot={...state.snapshot,columns:[{id:'parts_store',label:'PARTS'},...state.snapshot.columns]};
+renderBoard();
+const sectionNode=board.children[0];
+const initialHeadCount=sectionNode.headCount;
+const twoCards=state.snapshot.cards;
+const threeCards=[...twoCards,{id:'c',title:'C',column:'inbox',position:2}];
+state.snapshot={...state.snapshot,cards:threeCards};
+renderBoardColumnById('inbox');
+const targetedHeadCount=sectionNode.headCount;
+state.snapshot={...state.snapshot,cards:twoCards};
+renderBoard();
+const revertedHeadCount=sectionNode.headCount;
+state.snapshot={...state.snapshot,cards:threeCards};
+renderBoardColumnById('inbox');
+const callsBeforeUnchangedRender=sectionHtmlCalls;
+renderBoard();
+console.log(JSON.stringify({initialHeadCount,targetedHeadCount,revertedHeadCount,unchangedSectionRenders:sectionHtmlCalls-callsBeforeUnchangedRender,cardIds:sectionNode.list.children.map(node=>node.dataset.cardId)}));
+"""
+        result = self.run_render_trace(
+            render_board, scenario=scenario, targeted_render=targeted_render
+        )
+        self.assertEqual(result["initialHeadCount"], 2)
+        self.assertEqual(result["targetedHeadCount"], 3)
+        self.assertEqual(result["revertedHeadCount"], 2)
+        self.assertEqual(result["unchangedSectionRenders"], 0)
+        self.assertEqual(result["cardIds"], ["a", "b", "c"])

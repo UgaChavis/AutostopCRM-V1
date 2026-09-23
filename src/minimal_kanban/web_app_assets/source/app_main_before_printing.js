@@ -2698,6 +2698,8 @@
       state.payrollMonth = '';
       state.payrollReport = null;
       state.payrollReportMonth = '';
+      state.payrollDetailRowsIndexSource = null;
+      state.payrollDetailRowsIndex = null;
       state.activeEmployeeSalaryId = '';
       state.activeEmployeeSalaryReconciliationReportId = '';
       state.employeeSalarySheet = null;
@@ -13679,6 +13681,12 @@
       return currentSection;
     }
 
+    function boardSectionSignature(column, index, snapshot, cardCount) {
+      return JSON.stringify(column.id === PARTS_STORE_COLUMN_ID
+        ? [column, state.boardScale, cardCount]
+        : [column, index, snapshot.columns.length, cardCount]);
+    }
+
     function renderBoardColumnById(columnId, cardsByColumn = null) {
       const snapshot = state.snapshot;
       if (!snapshot || !columnId) return false;
@@ -13690,11 +13698,16 @@
       if (columnIndex < 0) return false;
       const currentSection = els.board.querySelector('[data-column-id="' + columnId + '"]');
       if (!currentSection) return false;
+      const column = snapshot.columns[columnIndex];
+      const visibleIndex = snapshot.columns.slice(0, columnIndex).filter((item) => item.id !== PARTS_STORE_COLUMN_ID).length;
       const template = document.createElement('template');
-      template.innerHTML = renderBoardColumnHtml(snapshot.columns[columnIndex], columnIndex, snapshot, cardsByColumn);
+      template.innerHTML = renderBoardColumnHtml(column, visibleIndex, snapshot, cardsByColumn);
       const nextSection = template.content.firstElementChild;
       if (!nextSection) return false;
-      reconcileBoardSection(currentSection, nextSection, sortedCardsForBoardColumn(snapshot, columnId, cardsByColumn));
+      const cards = sortedCardsForBoardColumn(snapshot, columnId, cardsByColumn);
+      if (reconcileBoardSection(currentSection, nextSection, cards) !== currentSection) return false;
+      if (!(state.boardRenderedSections instanceof WeakMap)) state.boardRenderedSections = new WeakMap();
+      state.boardRenderedSections.set(currentSection, boardSectionSignature(column, visibleIndex, snapshot, cards.length));
       return true;
     }
 
@@ -13713,12 +13726,15 @@
       const cardsByColumn = buildBoardCardsByColumn(snapshot);
       if (!(state.boardRenderedSections instanceof WeakMap)) state.boardRenderedSections = new WeakMap();
       const currentSections = new Map(Array.from(els.board.querySelectorAll(':scope > .column')).map((node) => [node.dataset.columnId || '__extra__', node]));
-      const desired = snapshot.columns.filter((column) => column.id !== PARTS_STORE_COLUMN_ID).map((column, index) => ({
-        key: column.id,
-        cards: cardsByColumn.get(column.id) || [],
-        signature: JSON.stringify([column, index, snapshot.columns.length, (cardsByColumn.get(column.id) || []).length]),
-        html: () => renderBoardColumnHtml(column, index, snapshot, cardsByColumn),
-      }));
+      const desired = snapshot.columns.filter((column) => column.id !== PARTS_STORE_COLUMN_ID).map((column, index) => {
+        const cards = cardsByColumn.get(column.id) || [];
+        return {
+          key: column.id,
+          cards,
+          signature: boardSectionSignature(column, index, snapshot, cards.length),
+          html: () => renderBoardColumnHtml(column, index, snapshot, cardsByColumn),
+        };
+      });
       if (extraBoardColumnIsOpen()) {
         const cards = extraBoardColumnCards(snapshot);
         desired.push({key: '__extra__', cards, signature: JSON.stringify([extraBoardColumnPreferences(), state.boardScale, cards.length]), html: () => renderExtraBoardColumnHtml(snapshot)});
@@ -13730,7 +13746,7 @@
           desired.push({
             key: PARTS_STORE_COLUMN_ID,
             cards,
-            signature: JSON.stringify([partsStoreColumn, state.boardScale, cards.length]),
+            signature: boardSectionSignature(partsStoreColumn, snapshot.columns.length - 1, snapshot, cards.length),
             html: () => renderBoardColumnHtml(partsStoreColumn, snapshot.columns.length - 1, snapshot, cardsByColumn),
           });
         }

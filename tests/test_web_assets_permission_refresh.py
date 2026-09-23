@@ -87,3 +87,26 @@ function finishOperatorUserSaveMutation(){}
 (async()=>{await saveOperatorUser();assert.equal(calls.length,1);assert.equal(Object.hasOwn(calls[0],'permissions'),false);})().catch(e=>{console.error(e);process.exitCode=1});
 """
         )
+
+    def test_clearing_employee_access_releases_payroll_detail_index(self) -> None:
+        source = read_board_source("app_main_before_printing.js")
+        code = section(
+            source,
+            "    function clearEmployeesCashboxesModuleState() {",
+            "    function syncEmployeesCashboxesAccessUi(",
+        )
+        self.run_js(
+            """
+const assert=require('node:assert/strict');
+const rows=[{employee_id:'E1',amount:'100.00'}];
+const state={employeesWorkspaceLoadGeneration:0,payrollReport:{detail_rows:rows},payrollDetailRowsIndexSource:rows,payrollDetailRowsIndex:new Map([['E1',rows]])};
+const els={};
+"""
+            + code
+            + """
+clearEmployeesCashboxesModuleState();
+assert.equal(state.payrollReport,null);
+assert.equal(state.payrollDetailRowsIndexSource,null);
+assert.equal(state.payrollDetailRowsIndex,null);
+"""
+        )
