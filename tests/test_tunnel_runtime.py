@@ -9,7 +9,7 @@ import tempfile
 import unittest
 import urllib.error
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, mock_open, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -723,6 +723,70 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
         self.assertIsNone(self.controller._normalize_pid(10**30))
         self.assertEqual(self.controller._normalize_pid(12.0), 12)
         self.assertEqual(self.controller._normalize_pid("42"), 42)
+
+    def test_query_linux_process_identity_parses_stat_after_last_closing_paren(self) -> None:
+        stat_payload = b"4242 (cloudflared (child)) S " + b" ".join([b"1"] * 18 + [b"9876"])
+        with (
+            patch.object(Path, "open", mock_open(read_data=stat_payload)) as open_mock,
+            patch(
+                "minimal_kanban.tunnel_runtime.os.readlink",
+                return_value="/usr/bin/cloudflared",
+            ) as readlink_mock,
+        ):
+            identity = self.controller._query_linux_process_identity(4242)
+
+        self.assertEqual(
+            identity,
+            {"executable": "/usr/bin/cloudflared", "started": "linux-proc:9876"},
+        )
+        open_mock.assert_called_once_with("rb")
+        readlink_mock.assert_called_once_with(Path("/proc") / "4242" / "exe")
+
+    def test_query_linux_process_identity_rejects_malformed_proc_stat(self) -> None:
+        invalid_payloads = (
+            ("empty", b""),
+            ("oversized", b"x" * 8193),
+            ("missing_closing_paren", b"4242 cloudflared S 1 2"),
+            ("too_few_fields", b"4242 (cloudflared) S 1 2"),
+            (
+                "nonnumeric_start_ticks",
+                b"4242 (cloudflared) S " + b" ".join([b"1"] * 18 + [b"invalid"]),
+            ),
+            (
+                "non_ascii_start_ticks",
+                b"4242 (cloudflared) S " + b" ".join([b"1"] * 18 + [b"\xff"]),
+            ),
+            ("zero_start_ticks", b"4242 (cloudflared) S " + b" ".join([b"1"] * 18 + [b"0"])),
+        )
+
+        for label, payload in invalid_payloads:
+            with self.subTest(payload=label):
+                with (
+                    patch.object(Path, "open", mock_open(read_data=payload)),
+                    patch("minimal_kanban.tunnel_runtime.os.readlink") as readlink_mock,
+                ):
+                    identity = self.controller._query_linux_process_identity(4242)
+
+                self.assertIsNone(identity)
+                readlink_mock.assert_not_called()
+
+    def test_query_linux_process_identity_fails_closed_on_proc_io_errors(self) -> None:
+        valid_payload = b"4242 (cloudflared) S " + b" ".join([b"1"] * 18 + [b"9876"])
+
+        with (
+            patch.object(Path, "open", side_effect=OSError("stat unavailable")),
+            patch("minimal_kanban.tunnel_runtime.os.readlink") as readlink_mock,
+        ):
+            self.assertIsNone(self.controller._query_linux_process_identity(4242))
+        readlink_mock.assert_not_called()
+
+        with (
+            patch.object(Path, "open", mock_open(read_data=valid_payload)),
+            patch(
+                "minimal_kanban.tunnel_runtime.os.readlink", side_effect=OSError("exe unavailable")
+            ),
+        ):
+            self.assertIsNone(self.controller._query_linux_process_identity(4242))
 
     def test_write_persisted_state_creates_parent_and_writes_valid_json(self) -> None:
         state_path = Path(self.temp_dir.name) / "nested" / "tunnel-state.json"
