@@ -184,6 +184,61 @@ class AgentReleaseBackupTests(unittest.TestCase):
 
             self.assertFalse(destination.exists())
 
+    def test_copy_sqlite_rejects_symlink_file_type_before_open(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.sqlite3"
+            destination = root / "backup.sqlite3"
+            source.write_bytes(b"not opened")
+            symlink_stat = SimpleNamespace(st_mode=stat.S_IFLNK)
+
+            with (
+                patch.object(type(source), "lstat", autospec=True, return_value=symlink_stat),
+                patch.object(self.module.sqlite3, "connect") as connect,
+                self.assertRaisesRegex(self.module.BackupError, "regular file"),
+            ):
+                self.module._copy_sqlite(source, destination)
+
+            connect.assert_not_called()
+            self.assertFalse(destination.exists())
+
+    def test_backup_rejects_symlinked_change_feed_database(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            crm_data, manager_db, output_root = self._fixture(root)
+            source = crm_data / "change_feed.sqlite3"
+            external = root / "external-change-feed.sqlite3"
+            source.replace(external)
+            symlink_or_skip(self, source, external)
+
+            with self.assertRaisesRegex(self.module.BackupError, "regular file"):
+                self.module.create_backup(
+                    output_root=output_root,
+                    crm_data_dir=crm_data,
+                    manager_db=manager_db,
+                    backup_id="symlinked-change-feed",
+                )
+
+            self.assertFalse((output_root / "symlinked-change-feed").exists())
+
+    def test_backup_rejects_symlinked_manager_database(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            crm_data, manager_db, output_root = self._fixture(root)
+            external = root / "external-manager.sqlite3"
+            manager_db.replace(external)
+            symlink_or_skip(self, manager_db, external)
+
+            with self.assertRaisesRegex(self.module.BackupError, "regular file"):
+                self.module.create_backup(
+                    output_root=output_root,
+                    crm_data_dir=crm_data,
+                    manager_db=manager_db,
+                    backup_id="symlinked-manager-db",
+                )
+
+            self.assertFalse((output_root / "symlinked-manager-db").exists())
+
     def test_legacy_completion_act_backup_metadata_matches_opened_source(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

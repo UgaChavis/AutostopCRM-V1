@@ -437,8 +437,15 @@ def _sqlite_integrity_check(path: Path) -> None:
 
 
 def _copy_sqlite(source: Path, destination: Path) -> bool:
-    if not source.is_file():
+    try:
+        source_stat = source.lstat()
+    except FileNotFoundError:
         return False
+    except OSError as exc:
+        raise BackupError(f"SQLite source is not a regular readable file: {source}") from exc
+    if not stat.S_ISREG(source_stat.st_mode) or stat.S_ISLNK(source_stat.st_mode):
+        raise BackupError(f"SQLite source is not a regular file: {source}")
+
     source_connection = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
     destination_connection = sqlite3.connect(destination)
     try:
