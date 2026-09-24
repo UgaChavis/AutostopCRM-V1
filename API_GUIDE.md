@@ -249,20 +249,24 @@ Closed repair orders are read-only. Use this correction sequence:
 1. `GET /api/preview_repair_order_reopen?card_id=...&expected_updated_at=...`;
 2. `POST /api/reopen_repair_order` with `card_id`, `expected_updated_at`, a
    supported `reason_code`, non-empty `reason_note`, and `idempotency_key`;
-3. edit allowed work/material fields while payments stay read-only;
+3. edit allowed work/material fields; existing payments stay read-only, while a
+   new payment may be appended with a unique ID and a selected customer-payment
+   cashbox. Staff or unknown cashboxes are rejected rather than substituted;
 4. `POST /api/set_repair_order_status` with `status=closed`, the latest
    `expected_updated_at`, and a new `idempotency_key`.
 
 `GET /api/get_repair_order_cycles?card_id=...` returns immutable posting
 cycles. Reopening reverses payroll postings and temporarily removes the order
 from closed-order revenue; re-closing posts current payroll once and recognizes
-the corrected amount in the original closing period. It never edits payment
-or cash transaction IDs and never returns inventory. A material linked to an
+the corrected amount in the original closing period. It preserves existing
+payment and cash transaction IDs and never returns inventory. An appended
+payment creates one new linked cash transaction. A material linked to an
 active `inventory_movement_id` must first use the warehouse return operation.
 
 Stable correction errors include `repair_order_not_closed`,
 `repair_order_correction_active`, `repair_order_closed_read_only`,
-`repair_order_payment_locked`, `inventory_material_movement_active`,
+`repair_order_payment_locked`, `repair_order_payment_cashbox_invalid`,
+`inventory_material_movement_active`,
 `repair_order_revision_conflict`, and `repair_order_reopen_reason_required`.
 
 Use CRM print routes for repair orders, acts, invoices, invoice-facturas, UPD,

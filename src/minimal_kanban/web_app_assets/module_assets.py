@@ -16,6 +16,7 @@ _LAZY_GROUPS = {
     "board_moves": ("board_moves.js",),
     "payroll": ("employees_markup.js", "payroll_workspace.js", "employees_mobile.js"),
     "inventory": ("inventory_workspace.js",),
+    "cashbox_ops": ("cashbox_transactions.js", "cashbox_transfer.js"),
     "cash_journal": ("cash_journal.js",),
     "auxiliary": (
         "display_dashboard_workspace.js",
@@ -72,6 +73,23 @@ _AUXILIARY_SHARED_NAMES = (
     "stripDescriptionFormatting",
     "syncMobileMorePanelChrome",
     "withAccessToken",
+)
+
+_CASHBOX_OPS_SHARED_NAMES = (
+    "CASHBOX_CANCEL_REASON_MIN_LENGTH",
+    "cashboxBalanceDisplay",
+    "cashboxBalanceMinor",
+    "cashboxBalanceSign",
+    "cashboxExpenseNoteIsValid",
+    "cashboxFormatMinorAmount",
+    "cashboxTransactionById",
+    "cashboxTransactionCanBeCancelled",
+    "escapeHtml",
+    "loadMoreCashboxTransactions",
+    "maybeOpenModal",
+    "popModal",
+    "refreshCashboxesAfterMoneyMutation",
+    "repairOrderParseNumber",
 )
 
 
@@ -148,6 +166,12 @@ def _module_script(group: str, source: str, public_names: set[str]) -> str:
             + "".join(f"      {name},\n" for name in _AUXILIARY_SHARED_NAMES)
             + "    } = context.shared;\n"
         )
+    if group == "cashbox_ops":
+        shared_context = (
+            "    const {\n"
+            + "".join(f"      {name},\n" for name in _CASHBOX_OPS_SHARED_NAMES)
+            + "    } = context.shared;\n"
+        )
     return (
         f"window.registerBoardModule({json.dumps(group)}, function(context) {{\n"
         "    const {state, els, api, setStatus} = context;\n"
@@ -197,6 +221,14 @@ def build_board_module_assets(
         contract_text.replace(
             read_board_source("app_main_before_printing.js"),
             read_board_source("app_main_before_printing.js", proxies=proxies),
+        )
+        .replace(
+            _read_source_chunk("cashbox_transactions.js"),
+            proxies["cashbox_transactions.js"],
+        )
+        .replace(
+            _read_source_chunk("cashbox_transfer.js"),
+            proxies["cashbox_transfer.js"],
         )
         .replace(
             _read_source_chunk("cash_journal.js"),

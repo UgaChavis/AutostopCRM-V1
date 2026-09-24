@@ -14,6 +14,10 @@
     const CASHBOX_TRANSACTION_PAGE_SIZE = 100;
     const CASHBOX_EXPENSE_NOTE_MIN_LENGTH = 10;
     const CASHBOX_CANCEL_REASON_MIN_LENGTH = 10;
+
+    function cashboxExpenseNoteIsValid(note) {
+      return String(note || '').trim().length >= CASHBOX_EXPENSE_NOTE_MIN_LENGTH;
+    }
     const BOARD_SEARCH_CACHE_TTL_MS = 20000;
     const PERF_STORAGE_KEY = 'autostop-perf';
     const CARD_JOURNAL_INITIAL_LIMIT = 50;
@@ -370,6 +374,22 @@
     };
 
     function buildBoardModuleSharedContext(name) {
+      if (name === 'cashbox_ops') return {
+        CASHBOX_CANCEL_REASON_MIN_LENGTH,
+        cashboxBalanceDisplay,
+        cashboxBalanceMinor,
+        cashboxBalanceSign,
+        cashboxExpenseNoteIsValid,
+        cashboxFormatMinorAmount,
+        cashboxTransactionById,
+        cashboxTransactionCanBeCancelled,
+        escapeHtml,
+        loadMoreCashboxTransactions,
+        maybeOpenModal,
+        popModal,
+        refreshCashboxesAfterMoneyMutation,
+        repairOrderParseNumber,
+      };
       if (name !== 'auxiliary') return {};
       return {
         ATTACHMENT_MIME_TO_EXTENSION,
@@ -6481,29 +6501,35 @@
     }
 
     function mobileRepairOrderPaymentCashboxItems() {
-      return (Array.isArray(state.cashboxes) ? state.cashboxes : [])
+      const items = (Array.isArray(state.cashboxes) ? state.cashboxes : [])
         .filter((item) => String(item?.id || '').trim())
         .slice()
         .sort((left, right) => String(left?.name || '').localeCompare(String(right?.name || ''), 'ru'));
+      const savedOrder = state.mobileRepairOrderCard?.repair_order;
+      const correctionActive = Boolean(savedOrder?.correction_active
+        || Object.keys(savedOrder?.active_correction || {}).length);
+      return correctionActive
+        ? items.filter((item) => Boolean(repairOrderPaymentCashboxBucket(item?.name || '')))
+        : items;
     }
 
     function renderMobileRepairOrderPaymentCashboxes(selectedId = '') {
       if (!els.mobileRepairOrderPaymentCashbox) return;
       const normalizedSelectedId = String(selectedId || els.mobileRepairOrderPaymentCashbox.value || '').trim();
       const items = mobileRepairOrderPaymentCashboxItems();
+      const allowedSelectedId = items.some((item) => String(item?.id || '').trim() === normalizedSelectedId)
+        ? normalizedSelectedId : '';
       els.mobileRepairOrderPaymentCashbox.innerHTML = items.length
         ? '<option value="">Выберите кассу</option>' + items.map((item) => {
             const itemId = String(item?.id || '').trim();
-            const selected = itemId === normalizedSelectedId ? ' selected' : '';
+            const selected = itemId === allowedSelectedId ? ' selected' : '';
             const name = String(item?.name || 'Касса');
             const balance = cashboxBalanceDisplay(item);
             const label = balance ? (name + ' · ' + balance) : name;
             return '<option value="' + escapeHtml(itemId) + '"' + selected + '>' + escapeHtml(label) + '</option>';
           }).join('')
         : '<option value="">Кассы не загружены</option>';
-      if (!normalizedSelectedId && items.length && !els.mobileRepairOrderPaymentCashbox.value) {
-        els.mobileRepairOrderPaymentCashbox.value = String(items[0]?.id || '').trim();
-      }
+      if (normalizedSelectedId && !allowedSelectedId) els.mobileRepairOrderPaymentCashbox.value = '';
     }
 
     async function ensureMobileRepairOrderPaymentCashboxes(isCurrent = () => true) {
@@ -6537,6 +6563,11 @@
       const paidAt = String(normalized.paid_at || '').trim() || 'Дата не указана';
       const note = String(normalized.note || '').trim() || 'Без комментария';
       const method = repairOrderPaymentMethodLabel(normalized.payment_method || 'cash');
+      const savedOrder = state.mobileRepairOrderCard?.repair_order;
+      const correctionActive = Boolean(savedOrder?.correction_active
+        || Object.keys(savedOrder?.active_correction || {}).length);
+      const savedPayment = (savedOrder?.payments || []).some((item) => String(item?.id || '').trim() === paymentId);
+      const removeDisabled = correctionActive && savedPayment ? ' disabled' : '';
       return '<div class="mobile-repair-order-payment-row" data-mobile-repair-order-payment-row'
           + ' data-mobile-repair-order-payment-id="' + escapeHtml(paymentId) + '"'
           + ' data-mobile-repair-order-payment-amount="' + escapeHtml(normalized.amount) + '"'
@@ -6551,7 +6582,7 @@
           + '<div class="mobile-repair-order-payment-row__line"><span>' + escapeHtml(note) + '</span><strong>' + escapeHtml(repairOrderFormatRubles(normalized.amount ?? 0)) + '</strong></div>'
           + '<div class="mobile-repair-order-payment-row__meta">' + escapeHtml(method + ' · ' + cashboxName + ' · ' + paidAt) + '</div>'
         + '</div>'
-        + '<button class="mobile-action mobile-action--ghost mobile-repair-order-payment-remove" type="button" data-mobile-repair-order-payment-remove="' + escapeHtml(paymentId) + '" title="Удалить оплату">×</button>'
+        + '<button class="mobile-action mobile-action--ghost mobile-repair-order-payment-remove" type="button" data-mobile-repair-order-payment-remove="' + escapeHtml(paymentId) + '" title="Удалить оплату"' + removeDisabled + '>×</button>'
       + '</div>';
     }
 
@@ -6582,6 +6613,16 @@
     }
 
     function addMobileRepairOrderPayment() {
+      const savedOrder = state.mobileRepairOrderCard?.repair_order;
+      const correctionActive = Boolean(savedOrder?.correction_active
+        || Object.keys(savedOrder?.active_correction || {}).length);
+      if (correctionActive) {
+        const savedIds = new Set((savedOrder?.payments || []).map((item) => String(item?.id || '').trim()));
+        if (readMobileRepairOrderPayments().some((item) => !savedIds.has(item.id))) {
+          setStatus('СОХРАНИТЕ ТЕКУЩУЮ ДОПЛАТУ ПЕРЕД СЛЕДУЮЩЕЙ.', true);
+          return;
+        }
+      }
       const amount = String(els.mobileRepairOrderPaymentAmount?.value || '').trim();
       const parsedAmount = repairOrderParseNumber(amount);
       if (parsedAmount === null || parsedAmount <= 0) {
@@ -6617,6 +6658,12 @@
     function removeMobileRepairOrderPayment(paymentId) {
       const normalizedPaymentId = String(paymentId || '').trim();
       if (!normalizedPaymentId) return;
+      const savedOrder = state.mobileRepairOrderCard?.repair_order;
+      if ((savedOrder?.correction_active || Object.keys(savedOrder?.active_correction || {}).length)
+          && (savedOrder?.payments || []).some((item) => String(item?.id || '').trim() === normalizedPaymentId)) {
+        setStatus('ПРЕЖНЮЮ ОПЛАТУ НЕЛЬЗЯ УДАЛИТЬ ВО ВРЕМЯ КОРРЕКТИРОВКИ.', true);
+        return;
+      }
       renderMobileRepairOrderPayments(readMobileRepairOrderPayments().filter((item) => item.id !== normalizedPaymentId));
       renderMobileRepairOrderTotals();
     }
@@ -6720,15 +6767,18 @@
       renderMobileRepairOrderPayments(order.payments);
       renderMobileRepairOrderTotals();
       els.mobileRepairOrderDetail.querySelectorAll('input, textarea, select').forEach((field) => {
-        const paymentField = Boolean(field.closest('.mobile-repair-order-payments'));
-        field.disabled = busy || closed || (correctionActive && paymentField);
+        field.disabled = busy || closed;
       });
       els.mobileRepairOrderDetail.querySelectorAll('[data-mobile-repair-order-add-row], [data-mobile-repair-order-remove-row]').forEach((button) => {
         button.disabled = busy || closed;
       });
-      els.mobileRepairOrderDetail.querySelectorAll('[data-mobile-repair-order-payment-remove], #mobileRepairOrderAddPaymentButton').forEach((button) => {
-        button.disabled = busy || closed || correctionActive;
+      els.mobileRepairOrderDetail.querySelectorAll('[data-mobile-repair-order-payment-remove]').forEach((button) => {
+        const paymentId = String(button.getAttribute('data-mobile-repair-order-payment-remove') || '').trim();
+        const savedPayment = (state.mobileRepairOrderCard?.repair_order?.payments || [])
+          .some((item) => String(item?.id || '').trim() === paymentId);
+        button.disabled = busy || closed || (correctionActive && savedPayment);
       });
+      if (els.mobileRepairOrderAddPaymentButton) els.mobileRepairOrderAddPaymentButton.disabled = busy || closed;
       if (els.mobileRepairOrderSaveButton) {
         els.mobileRepairOrderSaveButton.disabled = busy;
         els.mobileRepairOrderSaveButton.textContent = busy
@@ -6848,6 +6898,7 @@
       state.mobileRepairOrderTab = 'client';
       state.mobileRepairOrderLoading = true;
       state.mobileRepairOrderSaving = false;
+      if (els.mobileRepairOrderPaymentCashbox) els.mobileRepairOrderPaymentCashbox.value = '';
       renderMobileShell();
       const context = captureMobileRepairOrderContext();
       const openRequest = {};
@@ -6896,6 +6947,13 @@
       }
       const repairOrder = readMobileRepairOrderDraft();
       const currentOrder = currentMobileRepairOrderDraft();
+      const previousPayments = (state.mobileRepairOrderCard?.repair_order?.payments || [])
+        .map((item) => ({ ...item }));
+      const savedPaymentIds = new Set(previousPayments
+        .map((item) => String(item?.id || '').trim()));
+      const addedPayments = (repairOrder.payments || [])
+        .filter((item) => item?.id && !savedPaymentIds.has(String(item.id).trim()));
+      const addedPaymentIds = addedPayments.map((item) => String(item.id).trim());
       const context = captureMobileRepairOrderContext();
       const expectedUpdatedAt = state.mobileRepairOrderCard?.updated_at || '';
       const saveRequest = {};
@@ -6974,11 +7032,9 @@
         delete repairOrderPatch.closed_at;
         delete repairOrderPatch.active_correction;
         delete repairOrderPatch.correction_active;
-        if (currentOrder.correction_active || Object.keys(currentOrder.active_correction || {}).length) {
-          delete repairOrderPatch.payment_method;
-          delete repairOrderPatch.prepayment;
-          delete repairOrderPatch.payments;
-        }
+        repairOrderPatch.payments = repairOrderPaymentsForSave(
+          repairOrderPatch.payments, state.mobileRepairOrderCard?.repair_order
+        );
         const data = await api('/api/update_repair_order', {
           method: 'POST',
           body: {
@@ -6995,6 +7051,30 @@
           repair_order: repairOrder,
         }, cardId);
         applyMobileRepairOrderCard(updatedCard, cardId, { persisted: true });
+        if (addedPaymentIds.length) {
+          const responsePayments = data?.card?.repair_order?.payments || data?.repair_order?.payments || [];
+          const responseHasNewPayment = Array.isArray(responsePayments)
+            && responsePayments.some((item) => addedPaymentIds.includes(String(item?.id || '').trim()));
+          const readback = await readRepairOrderAfterAmbiguousWrite({ ...context, isCurrent }, updatedCard);
+          if (!isCurrent()) return null;
+          if (readback) applyMobileRepairOrderCard(readback, cardId, { persisted: true });
+          const readbackPayments = readback?.repair_order?.payments || [];
+          const prefixUnchanged = repairOrderPaymentPrefixUnchanged(previousPayments, readback?.repair_order?.payments);
+          const confirmed = prefixUnchanged
+            && addedPayments.every((item) => repairOrderNewPaymentRecorded(readbackPayments, item));
+          if (!confirmed) {
+            if (!readback || responseHasNewPayment
+                || !prefixUnchanged
+                || readbackPayments.some((item) => addedPaymentIds.includes(String(item?.id || '').trim()))) {
+              markRepairOrderPaymentVerificationPending(cardId);
+              setStatus('РЕЗУЛЬТАТ ЗАПИСИ ОПЛАТЫ НЕ ОПРЕДЕЛЕН. НЕ ПОВТОРЯЙТЕ ОПЕРАЦИЮ; ЗАКРОЙТЕ И ОТКРОЙТЕ КАРТОЧКУ.', true);
+            } else {
+              setStatus('ОПЛАТА НЕ ЗАПИСАНА В ЗАКАЗ-НАРЯД И КАССУ.', true);
+            }
+            return null;
+          }
+          updatedCard = readback;
+        }
         const previousStatus = normalizeRepairOrderStatus(currentOrder.status);
         let statusWriteError = null;
         if (requestedStatus !== previousStatus) {
@@ -7035,12 +7115,33 @@
           setStatus('ПОЛЯ ЗАКАЗ-НАРЯДА СОХРАНЕНЫ, НО СМЕНА СТАТУСА НЕ ПОДТВЕРЖДЕНА: ' + statusWriteError.message, true);
         } else if (statusWriteError) {
           setStatus('ЗАКАЗ-НАРЯД СОХРАНЕН; СТАТУС ПОДТВЕРЖДЕН ПОВТОРНЫМ ЧТЕНИЕМ.', false);
+        } else if (addedPaymentIds.length) {
+          setStatus('ОПЛАТА СОХРАНЕНА В ЗАКАЗ-НАРЯДЕ И КАССЕ; ПОДТВЕРЖДЕНА ПОВТОРНЫМ ЧТЕНИЕМ.', false);
         } else {
           setStatus('ЗАКАЗ-НАРЯД СОХРАНЕН.', false);
         }
         return updatedCard;
       } catch (error) {
-        if (isCurrent()) setStatus(error.message, true);
+        if (!isCurrent()) return null;
+        if (addedPayments.length) {
+          const readback = await readRepairOrderAfterAmbiguousWrite({ ...context, isCurrent }, state.mobileRepairOrderCard);
+          if (!isCurrent()) return null;
+          if (readback) applyMobileRepairOrderCard(readback, cardId, { persisted: true });
+          const prefixUnchanged = repairOrderPaymentPrefixUnchanged(previousPayments, readback?.repair_order?.payments);
+          const confirmed = prefixUnchanged
+            && addedPayments.every((item) => repairOrderNewPaymentRecorded(readback?.repair_order?.payments, item));
+          if (confirmed) {
+            setStatus('ОПЛАТА СОХРАНЕНА В ЗАКАЗ-НАРЯДЕ И КАССЕ; ПОДТВЕРЖДЕНА ПОВТОРНЫМ ЧТЕНИЕМ.', false);
+            return readback;
+          }
+          if (!readback || !prefixUnchanged || (readback.repair_order?.payments || [])
+              .some((item) => addedPaymentIds.includes(String(item?.id || '').trim()))) {
+            markRepairOrderPaymentVerificationPending(cardId);
+            setStatus('РЕЗУЛЬТАТ ЗАПИСИ ОПЛАТЫ НЕ ОПРЕДЕЛЕН. НЕ ПОВТОРЯЙТЕ ОПЕРАЦИЮ; ЗАКРОЙТЕ И ОТКРОЙТЕ КАРТОЧКУ.', true);
+            return null;
+          }
+        }
+        setStatus(error.message, true);
         return null;
       } finally {
         if (state.mobileRepairOrderSaveRequest === saveRequest && context.isCurrent()) {
@@ -10043,17 +10144,23 @@
       return 'cash';
     }
 
-    function repairOrderPaymentCashboxBucket(name) {
-      const normalized = String(name ?? '').trim().toLowerCase();
-      if (normalized.includes('безнал') || normalized.includes('cashless') || normalized.includes('wire') || normalized.includes('bank')) return 'cashless';
-      if (normalized.includes('карта') || normalized.includes('мария')) return 'card';
-      return 'cash';
+    function repairOrderPaymentCashboxNames(bucket) {
+      if (bucket === 'cash') return ['наличный', 'наличные', 'касса наличных оплат'];
+      if (bucket === 'card') return ['на карту', 'карта', 'карта мария'];
+      if (bucket === 'cashless') return ['безналичный', 'безналичная касса', 'безнал'];
+      return [];
     }
 
-    function repairOrderPaymentCashboxLabel(bucket) {
-      if (bucket === 'cashless') return 'Безналичные';
-      if (bucket === 'card') return 'На карту';
-      return 'Наличные';
+    function repairOrderPaymentCashboxBucket(name) {
+      const normalized = String(name ?? '').trim().toLowerCase();
+      return ['cashless', 'card', 'cash'].find((bucket) =>
+        repairOrderPaymentCashboxNames(bucket).includes(normalized)
+      ) || '';
+    }
+
+    function repairOrderPaymentCashboxLabel(bucket, name = '') {
+      const method = bucket === 'cashless' ? 'Безналичные' : (bucket === 'card' ? 'На карту' : 'Наличные');
+      return String(name || '').trim() ? method + ' · ' + String(name).trim() : method;
     }
 
     function repairOrderPaymentCashboxItems() {
@@ -10064,7 +10171,10 @@
       const preferredItems = [];
       const usedIds = new Set();
       for (const bucket of buckets) {
-        const match = items.find((item) => {
+        const candidates = repairOrderPaymentCashboxNames(bucket)
+          .map((name) => items.find((item) => String(item?.name || '').trim().toLowerCase() === name))
+          .filter(Boolean);
+        const match = candidates.find((item) => {
           const itemId = String(item?.id || '').trim();
           if (!itemId || usedIds.has(itemId)) return false;
           return repairOrderPaymentCashboxBucket(item?.name || '') === bucket;
@@ -10139,6 +10249,38 @@
           'legacy-prepayment'
         ),
       ];
+    }
+
+    function repairOrderPaymentsForSave(payments, savedOrder) {
+      const correctionActive = Boolean(savedOrder?.correction_active
+        || Object.keys(savedOrder?.active_correction || {}).length);
+      if (!correctionActive) return payments;
+      const previousPayments = Array.isArray(savedOrder?.payments) ? savedOrder.payments : [];
+      return payments.map((payment, index) => {
+        const previous = previousPayments[index];
+        return previous && String(previous.id || '').trim() === String(payment.id || '').trim()
+          ? { ...previous }
+          : payment;
+      });
+    }
+
+    function repairOrderPaymentPrefixUnchanged(previousPayments, nextPayments) {
+      if (!Array.isArray(nextPayments)) return false;
+      const fields = ['id', 'amount', 'paid_at', 'note', 'payment_method', 'actor_name', 'cashbox_id', 'cashbox_name', 'cash_transaction_id'];
+      return previousPayments.every((previous, index) => {
+        const next = nextPayments[index];
+        return next && fields.every((field) => String(previous?.[field] ?? '') === String(next?.[field] ?? ''));
+      });
+    }
+
+    function repairOrderNewPaymentRecorded(payments, expected) {
+      return (Array.isArray(payments) ? payments : []).some((item) =>
+        String(item?.id || '').trim() === String(expected?.id || '').trim()
+        && repairOrderRoundMoney(repairOrderParseNumber(item?.amount) ?? -1)
+          === repairOrderRoundMoney(repairOrderParseNumber(expected?.amount) ?? -2)
+        && String(item?.cashbox_id || '').trim() === String(expected?.cashbox_id || '').trim()
+        && Boolean(String(item?.cash_transaction_id || '').trim())
+      );
     }
 
     function repairOrderPaymentsTotalValue(payments) {
@@ -10240,7 +10382,7 @@
       const options = preferredItems.map((item) => {
         const itemId = String(item?.id || '').trim();
         const isSelected = itemId && itemId === selected ? ' selected' : '';
-        return '<option value="' + escapeHtml(itemId) + '"' + isSelected + '>' + escapeHtml(repairOrderPaymentCashboxLabel(repairOrderPaymentCashboxBucket(item?.name || ''))) + '</option>';
+        return '<option value="' + escapeHtml(itemId) + '"' + isSelected + '>' + escapeHtml(repairOrderPaymentCashboxLabel(repairOrderPaymentCashboxBucket(item?.name || ''), item?.name || '')) + '</option>';
       });
       els.repairOrderPaymentCashbox.innerHTML = options.join('');
       if (!selected && preferredItems.length && !els.repairOrderPaymentCashbox.value) {
@@ -11180,7 +11322,9 @@
           + (latestText ? '<div class="repair-order-payments-subline">' + escapeHtml(latestText) + '</div>' : '');
       }
       if (els.repairOrderPaymentsList) {
-        const removeDisabled = state.repairOrderMutationRequest || repairOrderNeedsVerification() ? ' disabled' : '';
+        const correctionActive = Boolean(state.activeCard?.repair_order?.correction_active
+          || Object.keys(state.activeCard?.repair_order?.active_correction || {}).length);
+        const removeDisabled = state.repairOrderMutationRequest || repairOrderNeedsVerification() || correctionActive ? ' disabled' : '';
         els.repairOrderPaymentsList.innerHTML = payments.length ? payments.slice().reverse().map((item) => {
           const note = String(item?.note || '').trim() || 'Без комментария';
           const paidAt = String(item?.paid_at || '').trim() || 'Дата не указана';
@@ -11237,6 +11381,7 @@
         const cashboxes = await ensureRepairOrderPaymentCashboxes(context);
         if (!cashboxes || !context.isCurrent()) return;
         renderRepairOrderPayments();
+        syncRepairOrderEditingState(repairOrderCardDraft(state.activeCard, state.activeCard?.repair_order || {}));
         pushModal('repair-order-payments', els.repairOrderPaymentsModal, { parentKey: 'repair-order' });
         window.setTimeout(() => {
           if (workspaceCurrent() && els.repairOrderPaymentsModal?.classList?.contains('is-open')) {
@@ -11309,6 +11454,11 @@
     async function deleteRepairOrderPayment(paymentId) {
       const normalizedPaymentId = String(paymentId || '').trim();
       if (!normalizedPaymentId) return;
+      if (state.activeCard?.repair_order?.correction_active
+          || Object.keys(state.activeCard?.repair_order?.active_correction || {}).length) {
+        setStatus('Платежи нельзя удалять во время корректировки заказ-наряда.', true);
+        return;
+      }
       if (repairOrderNeedsVerification()) {
         setStatus(repairOrderVerificationMessage(), true);
         return;
@@ -11395,6 +11545,7 @@
       const mutation = beginRepairOrderMutation(cardId);
       if (!mutation) return;
       const { request, context } = mutation;
+      const previousPayments = (state.activeCard?.repair_order?.payments || []).map((item) => ({ ...item }));
       const selectedCashbox = selectedRepairOrderPaymentCashbox();
       const paymentMethod = repairOrderPaymentMethodFromCashboxName(selectedCashbox?.name || '', 'cash');
       const payment = normalizeRepairOrderPayment(
@@ -11425,10 +11576,32 @@
           }
           return;
         }
-        applyRepairOrderToForm(persisted.repairOrder);
+        const responseHasPayment = (persisted.repairOrder?.payments || [])
+          .some((item) => String(item?.id || '').trim() === payment.id);
+        const readback = await readRepairOrderAfterAmbiguousWrite(context, persisted.card);
+        if (!context.isCurrent()) return;
+        if (readback) applyRepairOrderCardUpdate(readback, readback.repair_order || {});
+        const recordedPayment = (readback?.repair_order?.payments || [])
+          .find((item) => String(item?.id || '').trim() === payment.id);
+        const prefixUnchanged = repairOrderPaymentPrefixUnchanged(previousPayments, readback?.repair_order?.payments);
+        const confirmed = repairOrderNewPaymentRecorded(readback?.repair_order?.payments, payment)
+          && prefixUnchanged;
+        if (!confirmed) {
+          if (!readback || responseHasPayment || recordedPayment || !prefixUnchanged) {
+            markRepairOrderPaymentVerificationPending(cardId);
+            state.repairOrderPayments = (state.repairOrderPayments || []).map((item) => (
+              item.id === payment.id ? { ...item, _saving: false, _uncertain: true } : item
+            ));
+            renderRepairOrderPayments();
+            setStatus('РЕЗУЛЬТАТ ЗАПИСИ ОПЛАТЫ НЕ ОПРЕДЕЛЕН. НЕ ПОВТОРЯЙТЕ ОПЕРАЦИЮ; ЗАКРОЙТЕ И ОТКРОЙТЕ КАРТОЧКУ.', true);
+          } else {
+            setStatus('Оплата не записана в заказ-наряд и кассу.', true);
+          }
+          return;
+        }
         if (els.repairOrderPaymentAmount) els.repairOrderPaymentAmount.value = '';
         if (els.repairOrderPaymentNote) els.repairOrderPaymentNote.value = '';
-        setStatus('Оплата сохранена в заказ-наряде и кассе.', false);
+        setStatus('Оплата сохранена в заказ-наряде и кассе; подтверждена повторным чтением.', false);
       } catch (error) {
         if (!context.isCurrent()) return;
         const resolvedCardId = cardId || String(state.activeCard?.id || state.editingId || '').trim();
@@ -11440,10 +11613,12 @@
           : null;
         if (!readContext.isCurrent()) return;
         if (readback) applyRepairOrderCardUpdate(readback, readback.repair_order || {});
-        const confirmed = Boolean(readback) && (readback.repair_order?.payments || [])
-          .some((item) => String(item?.id || '').trim() === payment.id);
-        const knownUnchanged = Boolean(readback) && !confirmed;
-        if (!readback) {
+        const recordedPayment = (readback?.repair_order?.payments || [])
+          .find((item) => String(item?.id || '').trim() === payment.id);
+        const prefixUnchanged = repairOrderPaymentPrefixUnchanged(previousPayments, readback?.repair_order?.payments);
+        const confirmed = repairOrderNewPaymentRecorded(readback?.repair_order?.payments, payment) && prefixUnchanged;
+        const knownUnchanged = Boolean(readback) && !recordedPayment && prefixUnchanged;
+        if (!readback || (recordedPayment && !confirmed)) {
           markRepairOrderPaymentVerificationPending(resolvedCardId || cardId);
           state.repairOrderPayments = (state.repairOrderPayments || []).map((item) => (
             item.id === payment.id ? { ...item, _saving: false, _uncertain: true } : item
@@ -11495,28 +11670,35 @@
 
     function syncRepairOrderEditingState(order) {
       const closed = normalizeRepairOrderStatus(order?.status) === 'closed';
-      const correctionActive = Boolean(order?.correction_active || Object.keys(order?.active_correction || {}).length);
+      const savedOrder = state.activeCard?.repair_order;
+      const correctionActive = Boolean(order?.correction_active
+        || Object.keys(order?.active_correction || {}).length
+        || savedOrder?.correction_active
+        || Object.keys(savedOrder?.active_correction || {}).length);
       const busy = Boolean(state.repairOrderMutationRequest || state.repairOrderLoading)
         || state.repairOrderWriteReady === false
         || repairOrderNeedsVerification();
       const paymentVerificationPending = repairOrderPaymentNeedsVerification();
       els.repairOrderModal?.querySelectorAll('input, textarea, select').forEach((control) => {
-        control.disabled = busy || closed || (correctionActive && control.closest('.repair-order-payments-form'));
+        control.disabled = busy || closed;
+      });
+      els.repairOrderPaymentsModal?.querySelectorAll('.repair-order-payments-form input, .repair-order-payments-form select').forEach((control) => {
+        control.disabled = busy || closed;
       });
       if (els.repairOrderSaveButton) els.repairOrderSaveButton.disabled = busy || closed;
       if (els.repairOrderAddWorkRowButton) els.repairOrderAddWorkRowButton.disabled = busy || closed;
       if (els.repairOrderAddMaterialRowButton) els.repairOrderAddMaterialRowButton.disabled = busy || closed;
       if (els.repairOrderTagAddButton) els.repairOrderTagAddButton.disabled = busy || closed;
-      if (els.repairOrderPaymentAddButton) els.repairOrderPaymentAddButton.disabled = busy || closed || correctionActive || paymentVerificationPending;
+      if (els.repairOrderPaymentAddButton) els.repairOrderPaymentAddButton.disabled = busy || closed || paymentVerificationPending;
       els.repairOrderModal?.querySelectorAll(
         '[data-add-repair-order-row], [data-remove-repair-order-row], [data-edit-repair-order-tag], [data-remove-repair-order-tag], [data-repair-order-work-salary-gear], [data-repair-order-work-salary-reset], [data-repair-order-work-salary-apply]'
       ).forEach((button) => { button.disabled = busy || closed; });
       if (els.repairOrderPaymentsButton) {
         els.repairOrderPaymentsButton.title = correctionActive
-          ? 'Платежи доступны только для просмотра во время корректировки.'
+          ? 'Во время корректировки можно добавить оплату, но нельзя удалить прежнюю.'
           : '';
       }
-      els.repairOrderModal?.querySelectorAll('[data-remove-repair-order-payment]').forEach((button) => {
+      els.repairOrderPaymentsModal?.querySelectorAll('[data-remove-repair-order-payment]').forEach((button) => {
         button.disabled = busy || closed || correctionActive || paymentVerificationPending;
       });
     }
@@ -11560,6 +11742,9 @@
     function readRepairOrderFromForm() {
       const paymentMethod = repairOrderPaymentMethodFromPayments(state.repairOrderPayments, 'cash');
       syncRepairOrderPaymentMethod(paymentMethod);
+      const payments = (state.repairOrderPayments || []).map((item, index) => normalizeRepairOrderPayment({
+        ...item,
+      }, item?.id || ('payment-' + (index + 1))));
       return normalizeRepairOrder({
         number: state.activeCard?.repair_order?.number || '',
         date: repairOrderCanonicalDateValue(els.repairOrderDate.value),
@@ -11574,9 +11759,7 @@
         mileage: els.repairOrderMileage.value,
         payment_method: paymentMethod,
         prepayment: repairOrderNumberToRaw(repairOrderPaymentsTotalValue(state.repairOrderPayments)),
-        payments: (state.repairOrderPayments || []).map((item, index) => normalizeRepairOrderPayment({
-          ...item,
-        }, item?.id || ('payment-' + (index + 1)))),
+        payments,
         reason: els.repairOrderReason.value,
         comment: els.repairOrderComment.value,
         client_information: els.repairOrderComment.value,
@@ -11743,11 +11926,9 @@
       delete repairOrderPatch.closed_at;
       delete repairOrderPatch.active_correction;
       delete repairOrderPatch.correction_active;
-      if (state.activeCard?.repair_order?.correction_active || Object.keys(state.activeCard?.repair_order?.active_correction || {}).length) {
-        delete repairOrderPatch.payment_method;
-        delete repairOrderPatch.prepayment;
-        delete repairOrderPatch.payments;
-      }
+      repairOrderPatch.payments = repairOrderPaymentsForSave(
+        repairOrderPatch.payments, state.activeCard?.repair_order
+      );
       const data = await api('/api/update_repair_order', {
         method: 'POST',
         body: {

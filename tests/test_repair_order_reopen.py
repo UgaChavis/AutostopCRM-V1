@@ -46,8 +46,8 @@ class RepairOrderReopenTests(unittest.TestCase):
             card.repair_order for card in self.store.read_bundle()["cards"] if card.id == card_id
         )
 
-    def _closed_order(self, employee_id: str) -> dict:
-        cashbox = self.service.create_cashbox({"name": "Наличные", "actor_name": "ADMIN"})[
+    def _closed_order(self, employee_id: str, *, cashbox_name: str = "Наличные") -> dict:
+        cashbox = self.service.create_cashbox({"name": cashbox_name, "actor_name": "ADMIN"})[
             "cashbox"
         ]
         card = self.service.create_card(
@@ -197,6 +197,208 @@ class RepairOrderReopenTests(unittest.TestCase):
         second_ledger = self.service.get_employee_salary_ledger({"employee_id": second["id"]})
         self.assertEqual(first_ledger["accrued_total"], "0")
         self.assertEqual(second_ledger["accrued_total"], "500")
+
+    def test_correction_accepts_new_cash_payment_and_can_then_close(self) -> None:
+        closed = self._closed_order(self._employee("Исполнитель")["id"], cashbox_name="Карта Мария")
+        card_id = closed["id"]
+        reopened = self.service.reopen_repair_order(
+            {
+                "card_id": card_id,
+                "expected_updated_at": closed["updated_at"],
+                "reason_code": "amount_error",
+                "reason_note": "Уточнена стоимость работы",
+                "idempotency_key": "reopen-add-payment",
+            }
+        )["card"]
+        work = dict(reopened["repair_order"]["works"][0])
+        work["price"] = "1500"
+        corrected = self.service.update_repair_order(
+            {
+                "card_id": card_id,
+                "expected_updated_at": reopened["updated_at"],
+                "repair_order": {"works": [work]},
+            }
+        )["card"]
+        self.assertEqual(corrected["repair_order"]["due_total"], "500")
+        with self.assertRaises(ServiceError) as premature_close:
+            self.service.set_repair_order_status(
+                {
+                    "card_id": card_id,
+                    "status": "closed",
+                    "expected_updated_at": corrected["updated_at"],
+                    "idempotency_key": "premature-close",
+                }
+            )
+        self.assertEqual(premature_close.exception.code, "repair_order_payment_required")
+
+        original_payment = corrected["repair_order"]["payments"][0]
+        original_cashbox_id = original_payment["cashbox_id"]
+        original_cash_transaction_id = original_payment["cash_transaction_id"]
+        cashbox_id = self.service.create_cashbox({"name": "Наличные", "actor_name": "ADMIN"})[
+            "cashbox"
+        ]["id"]
+        original_cash_before = self.service.get_cashbox(
+            {"cashbox_id": original_cashbox_id, "transaction_limit": 10}
+        )["transactions"]
+        cash_before = self.service.get_cashbox({"cashbox_id": cashbox_id, "transaction_limit": 10})[
+            "transactions"
+        ]
+        self.service.update_repair_order(
+            {
+                "card_id": card_id,
+                "expected_updated_at": corrected["updated_at"],
+                "repair_order": {
+                    "payments": [
+                        original_payment,
+                        {
+                            "id": "correction-cash-payment",
+                            "amount": "500",
+                            "paid_at": "19.08.2026 13:00",
+                            "cashbox_id": cashbox_id,
+                            "cashbox_name": "Наличные",
+                        },
+                    ]
+                },
+            }
+        )
+        reread = self.service.get_card({"card_id": card_id})["card"]
+        payments = reread["repair_order"]["payments"]
+        self.assertEqual(payments[0], original_payment)
+        self.assertEqual(payments[0]["payment_method"], "card")
+        self.assertEqual(payments[1]["id"], "correction-cash-payment")
+        self.assertEqual(payments[1]["cashbox_id"], cashbox_id)
+        self.assertEqual(payments[1]["payment_method"], "cash")
+        self.assertTrue(payments[1]["cash_transaction_id"])
+        self.assertNotEqual(payments[1]["cash_transaction_id"], original_cash_transaction_id)
+        self.assertEqual(reread["repair_order"]["prepayment"], "1500")
+        self.assertEqual(reread["repair_order"]["due_total"], "0")
+        cash_after = self.service.get_cashbox({"cashbox_id": cashbox_id, "transaction_limit": 10})[
+            "transactions"
+        ]
+        original_cash_after = self.service.get_cashbox(
+            {"cashbox_id": original_cashbox_id, "transaction_limit": 10}
+        )["transactions"]
+        self.assertEqual(original_cash_after, original_cash_before)
+        self.assertEqual(len(cash_after), len(cash_before) + 1)
+        self.assertEqual(
+            {item["id"] for item in cash_after} - {item["id"] for item in cash_before},
+            {payments[1]["cash_transaction_id"]},
+        )
+        added_cash_transaction = next(
+            item for item in cash_after if item["id"] == payments[1]["cash_transaction_id"]
+        )
+        self.assertEqual(added_cash_transaction["amount_minor"], 50000)
+        self.assertEqual(added_cash_transaction["direction"], "income")
+        self.assertEqual(added_cash_transaction["cashbox_id"], cashbox_id)
+
+        reclosed = self.service.set_repair_order_status(
+            {
+                "card_id": card_id,
+                "status": "closed",
+                "expected_updated_at": reread["updated_at"],
+                "idempotency_key": "reclose-after-payment",
+            }
+        )["card"]
+        self.assertFalse(reclosed["repair_order"]["correction_active"])
+        self.assertEqual(reclosed["repair_order"]["status"], "closed")
+
+    def test_correction_payment_append_rejects_changes_to_existing_entries(self) -> None:
+        closed = self._closed_order(self._employee("Исполнитель")["id"])
+        reopened = self.service.reopen_repair_order(
+            {
+                "card_id": closed["id"],
+                "expected_updated_at": closed["updated_at"],
+                "reason_code": "amount_error",
+                "reason_note": "Уточнена стоимость работы",
+                "idempotency_key": "reopen-protect-payments",
+            }
+        )["card"]
+        original = reopened["repair_order"]["payments"][0]
+        new_payment = {
+            "id": "new-cash-payment",
+            "amount": "100",
+            "paid_at": "19.08.2026 13:00",
+            "cashbox_id": original["cashbox_id"],
+        }
+        invalid_payments = (
+            [],
+            [{**original, "amount": "900"}, new_payment],
+            [new_payment, original],
+            [original, {**new_payment, "id": original["id"]}],
+            [original, {**new_payment, "cashbox_id": ""}],
+            [original, {**new_payment, "cash_transaction_id": "forged"}],
+            [original, new_payment, {**new_payment, "id": "another-payment"}],
+        )
+        cash_before = self.store.read_bundle()["cash_transactions"]
+        for payments in invalid_payments:
+            with self.subTest(payments=payments):
+                with self.assertRaises(ServiceError) as blocked:
+                    self.service.update_repair_order(
+                        {
+                            "card_id": closed["id"],
+                            "expected_updated_at": reopened["updated_at"],
+                            "repair_order": {"payments": payments},
+                        }
+                    )
+                self.assertEqual(blocked.exception.code, "repair_order_payment_locked")
+        staff_cashbox = self.service.create_cashbox(
+            {"name": "Касса сотрудника", "actor_name": "ADMIN"}
+        )["cashbox"]
+        with self.assertRaises(ServiceError) as wrong_cashbox:
+            self.service.update_repair_order(
+                {
+                    "card_id": closed["id"],
+                    "expected_updated_at": reopened["updated_at"],
+                    "repair_order": {
+                        "payments": [
+                            original,
+                            {**new_payment, "cashbox_id": staff_cashbox["id"]},
+                        ]
+                    },
+                }
+            )
+        self.assertEqual(wrong_cashbox.exception.code, "repair_order_payment_cashbox_invalid")
+        reread = self.service.get_card({"card_id": closed["id"]})["card"]
+        self.assertEqual(reread["repair_order"]["payments"], [original])
+        self.assertEqual(
+            [item.id for item in self.store.read_bundle()["cash_transactions"]],
+            [item.id for item in cash_before],
+        )
+
+    def test_correction_payment_limit_does_not_silently_drop_append(self) -> None:
+        closed = self._closed_order(self._employee("Исполнитель")["id"])
+        reopened = self.service.reopen_repair_order(
+            {
+                "card_id": closed["id"],
+                "expected_updated_at": closed["updated_at"],
+                "reason_code": "amount_error",
+                "reason_note": "Уточнена стоимость работы",
+                "idempotency_key": "reopen-payment-limit",
+            }
+        )["card"]
+        original = reopened["repair_order"]["payments"][0]
+        oversized_payments = [
+            original,
+            *(
+                {
+                    "id": f"new-payment-{index}",
+                    "amount": "1",
+                    "cashbox_id": original["cashbox_id"],
+                }
+                for index in range(200)
+            ),
+        ]
+        with self.assertRaises(ServiceError) as rejected:
+            self.service.update_repair_order(
+                {
+                    "card_id": closed["id"],
+                    "expected_updated_at": reopened["updated_at"],
+                    "repair_order": {"payments": oversized_payments},
+                }
+            )
+        self.assertEqual(rejected.exception.code, "validation_error")
+        reread = self.service.get_card({"card_id": closed["id"]})["card"]
+        self.assertEqual(reread["repair_order"]["payments"], [original])
 
     def test_closed_order_requires_semantic_reopen(self) -> None:
         employee = self._employee("Исполнитель")

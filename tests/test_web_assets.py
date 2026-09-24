@@ -3973,7 +3973,7 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
-            "payments: (state.repairOrderPayments || []).map((item, index) => normalizeRepairOrderPayment({",
+            "const payments = (state.repairOrderPayments || []).map((item, index) => normalizeRepairOrderPayment({",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(".repair-order-footer {", BOARD_WEB_APP_HTML)

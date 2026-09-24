@@ -5,10 +5,6 @@
       else els.cashboxNoteInput.removeAttribute('aria-invalid');
     }
 
-    function cashboxExpenseNoteIsValid(note) {
-      return String(note || '').trim().length >= CASHBOX_EXPENSE_NOTE_MIN_LENGTH;
-    }
-
     function handleCashboxNoteInput() {
       if (cashboxExpenseNoteIsValid(els.cashboxNoteInput?.value || '')) {
         setCashboxNoteInvalid(false);

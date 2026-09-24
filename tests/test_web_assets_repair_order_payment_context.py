@@ -19,6 +19,9 @@ def functions(*names: str) -> str:
         "repairOrderVerificationMessage",
         "markRepairOrderWriteVerificationPending",
         "clearRepairOrderVerificationPending",
+        "repairOrderPaymentsForSave",
+        "repairOrderPaymentPrefixUnchanged",
+        "repairOrderNewPaymentRecorded",
     )
     for name in dict.fromkeys((*dependencies, *names)):
         declaration = re.search(
@@ -100,6 +103,7 @@ function readRepairOrderFromForm(){return {...state.currentOrder,payments:(state
 async function requireRepairOrderCardId(){return String(state.editingId||state.activeCard?.id||'').trim();}
 function normalizeRepairOrderPayment(item,fallbackId){return {...item,id:String(item?.id||fallbackId||'').trim()};}
 function repairOrderParseNumber(value){const parsed=Number(String(value).replace(',','.'));return Number.isFinite(parsed)?parsed:null;}
+function repairOrderRoundMoney(value){return Math.round(value*100)/100;}
 function repairOrderNumberToRaw(value){return String(value);}
 function currentRepairOrderDateTime(){return '2026-09-09T10:00';}
 function selectedRepairOrderPaymentCashbox(){return state.cashboxes.find(item=>item.id===paymentCashbox.value)||null;}
@@ -309,7 +313,7 @@ api=async(path,options)=>{
   calls.push({path,options,operation});
   if(path==='/api/update_repair_order')throw new Error(operation+' response lost');
   if(path==='/api/get_repair_order'&&operation==='add')return {card:{
-    id:'A',updated_at:'r1',repair_order:{revision:'confirmed-add',status:'open',payments:[{id:'payment-1000',amount:'100'}]},
+    id:'A',updated_at:'r1',repair_order:{revision:'confirmed-add',status:'open',payments:[{id:'payment-1000',amount:'100',cashbox_id:'cashbox-A',cash_transaction_id:'transaction-1'}]},
   }};
   if(path==='/api/get_repair_order'&&operation==='delete')return {card:{
     id:'A',updated_at:'r2',repair_order:{revision:'confirmed-delete',status:'open',payments:[]},
@@ -335,6 +339,232 @@ assert.deepEqual(calls.map(call=>call.path),[
   '/api/update_repair_order','/api/get_repair_order','/api/update_repair_order','/api/get_repair_order',
 ]);
 assert.equal(state.repairOrderMutationRequest,null);
+""",
+        )
+
+    def test_correction_modal_keeps_add_enabled_and_confirms_cash_payment(self) -> None:
+        definitions = self.payment_functions(
+            "syncRepairOrderEditingState",
+            "ensureRepairOrderPaymentCashboxes",
+            "openRepairOrderPaymentsModal",
+            "deleteRepairOrderPayment",
+            "addRepairOrderPayment",
+            "persistRepairOrderRecord",
+        )
+        self.run_node(
+            definitions,
+            r"""
+Date.now=()=>1000;
+const oldPayment={id:'old-card',amount:'25400.00',paid_at:'15.09.2026 16:07',note:'',
+  payment_method:'card',actor_name:'MARIA',cashbox_id:'card-box',cashbox_name:'Карта Мария',cash_transaction_id:'old-transaction'};
+const savedOrder={status:'ready',active_correction:{id:'correction-1'},payments:[oldPayment]};
+state.activeCard={id:'A',updated_at:'r0',repair_order:savedOrder};
+state.currentOrder={...savedOrder,payments:[{...oldPayment,amount:'25400'}]};
+state.repairOrderPayments=[{...oldPayment,amount:'25400'}];
+state.cashboxes=[{id:'cashbox-A',name:'Наличные'}];
+const removeButton={disabled:false};
+const formControls=[paymentAmount,paymentCashbox,paymentNote];
+for(const control of [...formControls,removeButton])control.matches=()=>false;
+els.repairOrderPaymentsModal.querySelectorAll=(selector)=>{
+  if(selector==='[data-remove-repair-order-payment]')return [removeButton];
+  if(selector.startsWith('.repair-order-payments-form'))return formControls;
+  return [...formControls,els.repairOrderPaymentAddButton,removeButton].filter(Boolean);
+};
+els.repairOrderPaymentsButton={title:''};
+ensureRepairOrderPaymentsModalUi=()=>{els.repairOrderPaymentAddButton={disabled:true,matches:()=>false};};
+let savedCard=null;
+api=async(path,options)=>{
+  calls.push({path,options});
+  if(path==='/api/update_repair_order'){
+    const sent=options.body.repair_order.payments;
+    assert.equal(sent.length,2);
+    assert.equal(sent[0].amount,'25400.00','correction changed the old payment');
+    assert.equal(sent[0].cash_transaction_id,'old-transaction');
+    assert.equal(sent[1].id,'payment-1000');
+    assert.equal(sent[1].cashbox_id,'cashbox-A');
+    savedCard={id:'A',updated_at:'r1',repair_order:{...savedOrder,payments:[sent[0],
+      {...sent[1],cash_transaction_id:'new-transaction'}]}};
+    return {card:savedCard};
+  }
+  if(path==='/api/get_repair_order')return {card:savedCard};
+  throw new Error('unexpected request '+path);
+};
+
+await openRepairOrderPaymentsModal();
+assert.equal(els.repairOrderPaymentAddButton.disabled,false,'lazy modal blocked the new payment');
+assert.equal(removeButton.disabled,true,'old payment became removable');
+assert.ok(formControls.every(control=>control.disabled===false));
+await addRepairOrderPayment();
+assert.deepEqual(calls.map(call=>call.path),['/api/update_repair_order','/api/get_repair_order']);
+assert.equal(state.repairOrderPayments.length,2);
+assert.deepEqual(state.activeCard.repair_order.payments[0],oldPayment);
+assert.equal(state.activeCard.repair_order.payments[1].cash_transaction_id,'new-transaction');
+assert.equal(paymentAmount.value,'');
+assert.equal(state.repairOrderPaymentVerificationPending,'');
+assert.ok(statuses.at(-1).message.includes('подтверждена повторным чтением'));
+assert.equal(statuses.at(-1).isError,false);
+await deleteRepairOrderPayment('old-card');
+assert.equal(calls.length,2,'correction allowed deleting the old payment');
+assert.equal(statuses.at(-1).isError,true);
+""",
+        )
+
+    def test_payment_pickers_only_offer_named_payment_cashboxes(self) -> None:
+        definitions = functions(
+            "repairOrderPaymentCashboxNames",
+            "repairOrderPaymentCashboxBucket",
+            "repairOrderPaymentCashboxLabel",
+            "repairOrderPaymentCashboxItems",
+            "renderRepairOrderPaymentCashboxOptions",
+            "mobileRepairOrderPaymentCashboxItems",
+            "renderMobileRepairOrderPaymentCashboxes",
+        )
+        self.run_node(
+            definitions,
+            r"""
+function escapeHtml(value){return String(value);}
+function cashboxBalanceDisplay(){return '';}
+state.cashboxes=[
+  {id:'staff-A',name:'Алексей Снаб'},
+  {id:'cashbox-A',name:'Наличный'},
+  {id:'card-A',name:'Карта Мария'},
+  {id:'bank-A',name:'Безналичный'},
+  {id:'staff-B',name:'Илья'},
+];
+assert.deepEqual(repairOrderPaymentCashboxItems().map(item=>item.id),['cashbox-A','bank-A','card-A']);
+assert.equal(mobileRepairOrderPaymentCashboxItems().length,5);
+els.repairOrderPaymentCashbox.value='cashbox-A';
+renderRepairOrderPaymentCashboxOptions('cashbox-A');
+assert.ok(els.repairOrderPaymentCashbox.innerHTML.includes('Наличные · Наличный'));
+assert.ok(!els.repairOrderPaymentCashbox.innerHTML.includes('Алексей Снаб'));
+els.mobileRepairOrderPaymentCashbox={value:'',innerHTML:''};
+renderMobileRepairOrderPaymentCashboxes();
+assert.equal(els.mobileRepairOrderPaymentCashbox.value,'','mobile silently selected a cashbox');
+assert.ok(els.mobileRepairOrderPaymentCashbox.innerHTML.includes('Наличный'));
+assert.ok(els.mobileRepairOrderPaymentCashbox.innerHTML.includes('Алексей Снаб'));
+state.mobileRepairOrderCard={repair_order:{status:'ready',active_correction:{id:'correction-1'},payments:[]}};
+assert.deepEqual(mobileRepairOrderPaymentCashboxItems().map(item=>item.id),['bank-A','card-A','cashbox-A']);
+els.mobileRepairOrderPaymentCashbox.value='staff-A';
+renderMobileRepairOrderPaymentCashboxes();
+assert.equal(els.mobileRepairOrderPaymentCashbox.value,'','active correction retained a staff cashbox');
+assert.ok(!els.mobileRepairOrderPaymentCashbox.innerHTML.includes('Алексей Снаб'));
+assert.ok(els.mobileRepairOrderPaymentCashbox.innerHTML.includes('Наличный'));
+state.mobileRepairOrderCard={repair_order:{status:'ready',payments:[]}};
+assert.equal(mobileRepairOrderPaymentCashboxItems().length,5,'ordinary orders lost the existing cashbox list');
+state.cashboxes.push(
+  {id:'card-staff',name:'Карта Алексея'},
+  {id:'bank-other',name:'Безналичный временный'},
+);
+assert.equal(repairOrderPaymentCashboxBucket('Карта Алексея'),'');
+assert.equal(repairOrderPaymentCashboxBucket('Безналичный временный'),'');
+assert.deepEqual(repairOrderPaymentCashboxItems().map(item=>item.id),['cashbox-A','bank-A','card-A']);
+state.cashboxes=state.cashboxes.filter(item=>item.id!=='cashbox-A');
+assert.deepEqual(repairOrderPaymentCashboxItems().map(item=>item.id),['bank-A','card-A']);
+state.cashboxes=state.cashboxes.filter(item=>!['bank-A','card-A'].includes(item.id));
+assert.deepEqual(repairOrderPaymentCashboxItems(),[],'noncanonical card or cashless reached the payment picker');
+""",
+        )
+
+    def test_success_response_without_payment_never_reports_cash_saved(self) -> None:
+        definitions = self.payment_functions("addRepairOrderPayment", "persistRepairOrderRecord")
+        self.run_node(
+            definitions,
+            r"""
+Date.now=()=>1000;
+state.activeCard.repair_order={status:'ready',active_correction:{id:'correction-1'},payments:[]};
+state.currentOrder=state.activeCard.repair_order;
+const unchanged={id:'A',updated_at:'r0',repair_order:state.activeCard.repair_order};
+api=async(path,options)=>{
+  calls.push({path,options});
+  if(path==='/api/update_repair_order')return {card:unchanged};
+  if(path==='/api/get_repair_order')return {card:unchanged};
+  throw new Error('unexpected request '+path);
+};
+await addRepairOrderPayment();
+assert.deepEqual(calls.map(call=>call.path),['/api/update_repair_order','/api/get_repair_order']);
+assert.equal(state.repairOrderPayments.length,0);
+assert.equal(paymentAmount.value,'100','failed payment cleared the amount');
+assert.equal(statuses.at(-1).isError,true);
+assert.ok(statuses.at(-1).message.includes('не записана'));
+assert.equal(state.repairOrderPaymentVerificationPending,'');
+""",
+        )
+
+    def test_payment_without_cash_transaction_stays_unconfirmed(self) -> None:
+        definitions = self.payment_functions("addRepairOrderPayment", "persistRepairOrderRecord")
+        self.run_node(
+            definitions,
+            r"""
+Date.now=()=>1000;
+state.activeCard.repair_order={status:'ready',active_correction:{id:'correction-1'},payments:[]};
+state.currentOrder=state.activeCard.repair_order;
+let responseCard=null;
+api=async(path,options)=>{
+  calls.push({path,options});
+  if(path==='/api/update_repair_order'){
+    responseCard={id:'A',updated_at:'r1',repair_order:{...state.currentOrder,
+      payments:options.body.repair_order.payments}};
+    return {card:responseCard};
+  }
+  if(path==='/api/get_repair_order')return {card:responseCard};
+  throw new Error('unexpected request '+path);
+};
+await addRepairOrderPayment();
+assert.equal(state.repairOrderPaymentVerificationPending,'A');
+assert.equal(paymentAmount.value,'100');
+assert.equal(statuses.at(-1).isError,true);
+assert.ok(statuses.at(-1).message.includes('НЕ ОПРЕДЕЛЕН'));
+assert.ok(!statuses.some(item=>!item.isError&&item.message.includes('Оплата сохранена')));
+await addRepairOrderPayment();
+assert.equal(calls.length,2,'unconfirmed payment was submitted twice');
+""",
+        )
+
+    def test_mobile_correction_add_preserves_old_payment_and_verifies_cash(self) -> None:
+        definitions = self.payment_functions("saveMobileRepairOrder")
+        self.run_node(
+            definitions,
+            r"""
+const oldPayment={id:'old-card',amount:'25400.00',paid_at:'15.09.2026 16:07',note:'',
+  payment_method:'card',actor_name:'MARIA',cashbox_id:'card-box',cashbox_name:'Карта Мария',cash_transaction_id:'old-transaction'};
+const newPayment={id:'mobile-payment-1000',amount:'69890',paid_at:'24.09.2026 12:00',note:'',
+  payment_method:'cash',actor_name:'MARIA',cashbox_id:'cashbox-A',cashbox_name:'Наличные',cash_transaction_id:''};
+const savedOrder={status:'ready',active_correction:{id:'correction-1'},payments:[oldPayment]};
+state.mobileRepairOrderCardId='A';state.mobileRepairOrderLoading=false;state.mobileRepairOrderSaving=false;
+state.mobileRepairOrderCard={id:'A',updated_at:'r0',repair_order:savedOrder};
+state.activeCard=state.mobileRepairOrderCard;
+els.mobileRepairOrderSaveButton={disabled:false,textContent:''};
+els.mobileRepairOrderStatusSelect={value:'ready'};
+function currentMobileRepairOrderDraft(){return savedOrder;}
+function readMobileRepairOrderDraft(){return {...savedOrder,payments:[{...oldPayment,amount:'25400'},newPayment]};}
+function captureMobileRepairOrderContext(){return {cardId:'A',actorName:'actor-A',isCurrent:()=>true};}
+function lockMobileRepairOrderEditor(){}
+function renderMobileRepairOrderDetail(){}
+function applyMobileRepairOrderCard(card){state.mobileRepairOrderCard=card;state.activeCard=card;return card;}
+let savedCard=null;
+api=async(path,options)=>{
+  calls.push({path,options});
+  if(path==='/api/update_repair_order'){
+    const sent=options.body.repair_order.payments;
+    assert.equal(sent.length,2);
+    assert.equal(sent[0].amount,'25400.00');
+    assert.equal(sent[0].cash_transaction_id,'old-transaction');
+    assert.equal(sent[1].cashbox_id,'cashbox-A');
+    savedCard={id:'A',updated_at:'r1',repair_order:{...savedOrder,payments:[sent[0],
+      {...sent[1],cash_transaction_id:'new-transaction'}]}};
+    return {card:savedCard};
+  }
+  if(path==='/api/get_repair_order')return {card:savedCard};
+  throw new Error('unexpected request '+path);
+};
+const result=await saveMobileRepairOrder();
+assert.equal(result?.id,'A');
+assert.deepEqual(calls.map(call=>call.path),['/api/update_repair_order','/api/get_repair_order']);
+assert.deepEqual(state.mobileRepairOrderCard.repair_order.payments[0],oldPayment);
+assert.equal(state.mobileRepairOrderCard.repair_order.payments[1].cash_transaction_id,'new-transaction');
+assert.equal(state.repairOrderPaymentVerificationPending,'');
+assert.equal(statuses.at(-1).isError,false);
+assert.ok(statuses.at(-1).message.includes('ПОДТВЕРЖДЕНА ПОВТОРНЫМ ЧТЕНИЕМ'));
 """,
         )
 

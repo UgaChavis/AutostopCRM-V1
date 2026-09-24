@@ -351,6 +351,7 @@ function cacheFullCard(card){cached.push(card);}
 function setStatus(message,isError){statuses.push({message,isError});}
 function readMobileRepairOrderDraft(){return {status:draftStatus,works:[],materials:[],payments:[]};}
 function currentMobileRepairOrderDraft(){return {status:currentStatus};}
+function repairOrderPaymentsForSave(payments){return payments;}
 function normalizeRepairOrderStatus(value){return value||'open';}
 function applySavedCardLocalPatch(card){localPatches.push(card);}
 function refreshRepairOrderEntry(card){repaired.push(card);}

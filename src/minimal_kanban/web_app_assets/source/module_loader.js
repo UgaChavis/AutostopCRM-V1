@@ -207,6 +207,9 @@
       const generation = state.viewerStateGeneration;
       const session = state.operatorSessionToken;
       const cardId = state.editingId;
+      const cashboxId = name === 'cashbox_ops' ? String(state.activeCashbox?.cashbox?.id || '') : null;
+      const cashboxModal = name === 'cashbox_ops'
+        ? (state.modalStack || []).find((entry) => entry?.key === 'cashboxes') : null;
       const cardEditingGeneration = state.cardEditingGeneration || 0;
       const cardHydrationSeq = state.cardHydrationSeq || 0;
       const payrollOpen = name === 'payroll' && method === 'openEmployeesModal';
@@ -230,6 +233,7 @@
       let argumentKey = '';
       try { argumentKey = JSON.stringify(args); } catch (_) { /* Event objects can contain cycles. */ }
       const invocationKey = JSON.stringify([method, generation, session, cardId, month,
+        cashboxId,
         payrollOpen ? state.employeesCashboxesAccessRevision : null,
         printingOpen ? cardEditingGeneration : null,
         printingOpen ? cardHydrationSeq : null,
@@ -252,6 +256,10 @@
       const invocation = pending.then((module) => {
         if (generation !== state.viewerStateGeneration || session !== state.operatorSessionToken
           || !intentIsCurrent()) return false;
+        if (cashboxId !== null && (
+          cashboxId !== String(state.activeCashbox?.cashbox?.id || '')
+          || (cashboxModal && !(state.modalStack || []).includes(cashboxModal))
+        )) return false;
         if (prepared && !prepared.isCurrent()) return false;
         if (name === 'printing' && (
           cardId !== state.editingId

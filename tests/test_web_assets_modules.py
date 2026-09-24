@@ -92,7 +92,15 @@ assert.deepEqual(calls, [null, prepared, unsaved]);
 
         self.assertEqual(
             set(BOARD_WEB_APP_MODULE_MANIFEST),
-            {"printing", "payroll", "inventory", "cash_journal", "auxiliary", "board_moves"},
+            {
+                "printing",
+                "payroll",
+                "inventory",
+                "cashbox_ops",
+                "cash_journal",
+                "auxiliary",
+                "board_moves",
+            },
         )
         for path, source in BOARD_WEB_APP_MODULES.items():
             raw = source.encode("utf-8")
@@ -186,7 +194,7 @@ assert.deepEqual(calls, [null, prepared, unsaved]);
             shared_names | {"api", "els", "setStatus", "state"},
         )
 
-        builder_start = eager_source.index("    function buildBoardModuleSharedContext(name) {")
+        builder_start = eager_source.index("      if (name !== 'auxiliary') return {};")
         builder_end = eager_source.index("    const SNAPSHOT_POLL_INTERVAL_MS", builder_start)
         builder_names = set(
             re.findall(
@@ -196,6 +204,140 @@ assert.deepEqual(calls, [null, prepared, unsaved]);
             )
         )
         self.assertEqual(builder_names, shared_names)
+
+    def test_cashbox_ops_explicit_dependencies_and_event_proxies(self) -> None:
+        source_dir = ROOT / "src/minimal_kanban/web_app_assets/source"
+        eager_source = (source_dir / "app_main_before_printing.js").read_text(encoding="utf-8")
+        cashbox_source = "\n".join(
+            (source_dir / name).read_text(encoding="utf-8")
+            for name in ("cashbox_transactions.js", "cashbox_transfer.js")
+        )
+        definitions = set(
+            re.findall(r"^    (?:async )?function ([A-Za-z_$][\w$]*)\(", eager_source, re.MULTILINE)
+        ) | set(
+            re.findall(
+                r"^    (?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=", eager_source, re.MULTILINE
+            )
+        )
+        local_names = set(
+            re.findall(
+                r"^    (?:async )?function ([A-Za-z_$][\w$]*)\(", cashbox_source, re.MULTILINE
+            )
+        )
+        dependencies = (
+            set(re.findall(r"\b[A-Za-z_$][\w$]*\b", cashbox_source)) & definitions
+        ) - local_names
+        module = BOARD_WEB_APP_MODULES[BOARD_WEB_APP_MODULE_MANIFEST["cashbox_ops"]]
+        shared_match = re.search(
+            r"    const \{\n(?P<body>.*?)    \} = context\.shared;", module, re.DOTALL
+        )
+        self.assertIsNotNone(shared_match)
+        shared_names = set(
+            re.findall(r"^      ([A-Za-z_$][\w$]*),$", shared_match["body"], re.MULTILINE)
+        )
+        self.assertEqual(dependencies, shared_names | {"api", "els", "setStatus", "state"})
+        builder = eager_source.split("if (name === 'cashbox_ops') return {", 1)[1].split("};", 1)[0]
+        self.assertEqual(
+            set(re.findall(r"^        ([A-Za-z_$][\w$]*),$", builder, re.MULTILINE)), shared_names
+        )
+        self.assertIn("function cashboxExpenseNoteIsValid(note)", BOARD_WEB_APP_JS)
+        self.assertNotIn("function createCashboxTransaction(direction)", BOARD_WEB_APP_JS)
+        for name, binding in (
+            (
+                "createCashboxTransaction",
+                "els.cashboxIncomeButton.addEventListener('click', () => createCashboxTransaction('income'));",
+            ),
+            (
+                "createCashboxTransfer",
+                "els.cashboxTransferButton.addEventListener('click', createCashboxTransfer);",
+            ),
+            (
+                "submitCashboxTransactionCancellation",
+                "els.cashboxCancelConfirmButton?.addEventListener('click', submitCashboxTransactionCancellation);",
+            ),
+        ):
+            self.assertIn(
+                f'function {name}(...args) {{ return invokeBoardModule("cashbox_ops"',
+                BOARD_WEB_APP_JS,
+            )
+            self.assertIn(binding, BOARD_WEB_APP_JS)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required")
+    def test_cashbox_ops_cold_retry_and_warm_clicks(self) -> None:
+        loader = (ROOT / "src/minimal_kanban/web_app_assets/source/module_loader.js").read_text(
+            encoding="utf-8"
+        )
+        module = BOARD_WEB_APP_MODULES[BOARD_WEB_APP_MODULE_MANIFEST["cashbox_ops"]]
+        script = (
+            """
+const assert = require('node:assert/strict');
+const BOARD_MODULE_MANIFEST = {cashbox_ops:'/cashbox-ops.js'};
+const state = {
+  viewerStateGeneration:0, operatorSessionToken:'session', editingId:'',
+  activeCashbox:{cashbox:{id:'customer-cash'}}, actor:'ADMIN', modalStack:[{key:'cashboxes'}],
+};
+const input = value => ({value, classList:{toggle(){}}, setAttribute(){}, removeAttribute(){}, focus(){}});
+const els = {
+  cashboxAmountInput:input('100'), cashboxNoteInput:input(''),
+  cashboxIncomeButton:{disabled:false}, cashboxExpenseButton:{disabled:false},
+};
+const scripts = [], statuses = [], requests = [], refreshes = [];
+const window = {};
+const document = {
+  createElement(){return {remove(){this.removed=true;}};},
+  head:{appendChild(script){scripts.push(script);}},
+};
+async function api(path, options){requests.push({path, options});return {};}
+function setStatus(message, error){statuses.push({message, error});}
+function buildBoardModuleSharedContext(){return {
+  cashboxExpenseNoteIsValid:note=>String(note).trim().length>=10,
+  refreshCashboxesAfterMoneyMutation:async options=>refreshes.push(options),
+};}
+function claimMobileMorePanelIntent(){return {};}
+function isModalOpen(){return false;}
+"""
+            + loader
+            + "\nconst moduleSource = "
+            + json.dumps(module)
+            + ";\n"
+            + """
+(async()=>{
+  const failed=invokeBoardModule('cashbox_ops','createCashboxTransaction',['income']);
+  assert.equal(scripts.length,1);
+  scripts[0].onerror();
+  assert.equal(await failed,false);
+  assert.equal(requests.length,0);
+  assert.equal(statuses.at(-1).message,'Не удалось загрузить модуль. Повторите открытие.');
+  const cold=invokeBoardModule('cashbox_ops','createCashboxTransaction',['income']);
+  assert.equal(scripts.length,2);
+  eval(moduleSource);
+  scripts[1].onload();
+  await cold;
+  assert.equal(requests.length,1);
+  assert.equal(requests[0].path,'/api/create_cash_transaction');
+  assert.equal(requests[0].options.body.cashbox_id,'customer-cash');
+  assert.equal(requests[0].options.body.amount,'100');
+  assert.equal(refreshes.length,1);
+  els.cashboxAmountInput.value='200';
+  await invokeBoardModule('cashbox_ops','createCashboxTransaction',['income']);
+  assert.equal(scripts.length,2,'warm click loaded the module again');
+  assert.equal(requests.length,2);
+  assert.equal(requests[1].options.body.amount,'200');
+  boardModuleRecords.delete('cashbox_ops');
+  const stale=invokeBoardModule('cashbox_ops','createCashboxTransfer',[]);
+  state.modalStack=[];
+  state.activeCashbox={cashbox:{id:'another-cashbox'}};
+  eval(moduleSource);
+  scripts[2].onload();
+  assert.equal(await stale,false,'closed or changed cashbox ran a delayed action');
+  assert.equal(requests.length,2);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+"""
+        )
+        result = subprocess.run(
+            ["node"], input=script, text=True, capture_output=True, cwd=ROOT, timeout=15
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     @unittest.skipUnless(shutil.which("node"), "Node.js is required")
     def test_auxiliary_module_uses_explicit_context_for_live_entrypoints(self) -> None:

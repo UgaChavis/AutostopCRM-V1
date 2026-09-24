@@ -68,7 +68,9 @@ from ..printing.service import PrintModuleError, PrintModuleService
 from ..repair_order import (
     REPAIR_ORDER_COMMENT_LIMIT,
     REPAIR_ORDER_PAYMENT_METHOD_CARD,
+    REPAIR_ORDER_PAYMENT_METHOD_CASH,
     REPAIR_ORDER_PAYMENT_METHOD_CASHLESS,
+    REPAIR_ORDER_PAYMENTS_LIMIT,
     REPAIR_ORDER_STATUS_CLOSED,
     REPAIR_ORDER_STATUS_OPEN,
     REPAIR_ORDER_STATUS_READY,
@@ -6628,16 +6630,8 @@ class CardService(
                 status_code=409,
                 details={"card_id": card.id},
             )
-        if previous_order.active_correction and (
-            [item.to_storage_dict() for item in previous_order.payments]
-            != [item.to_storage_dict() for item in order.payments]
-        ):
-            self._fail(
-                "repair_order_payment_locked",
-                "Платежи нельзя изменять во время корректировки заказ-наряда.",
-                status_code=409,
-                details={"card_id": card.id},
-            )
+        if previous_order.active_correction:
+            self._ensure_correction_payments_append_only(card, previous_order, order)
         if previous_order.active_correction:
             self._ensure_correction_inventory_materials_unchanged(previous_order, order)
         self._ensure_repair_order_number_update_allowed(
@@ -7065,6 +7059,32 @@ class CardService(
             payment.cashbox_id or "",
         )
 
+    def _ensure_correction_payments_append_only(
+        self, card: Card, previous_order: RepairOrder, order: RepairOrder
+    ) -> None:
+        previous_payments = [item.to_storage_dict() for item in previous_order.payments]
+        next_payments = [item.to_storage_dict() for item in order.payments]
+        if next_payments == previous_payments:
+            return
+        new_payment = order.payments[-1] if order.payments else None
+        if (
+            len(next_payments) == len(previous_payments) + 1
+            and next_payments[:-1] == previous_payments
+            and new_payment is not None
+            and new_payment.id
+            and new_payment.id not in {item.id for item in previous_order.payments}
+            and new_payment.amount_value() > 0
+            and new_payment.cashbox_id
+            and not new_payment.cash_transaction_id
+        ):
+            return
+        self._fail(
+            "repair_order_payment_locked",
+            "Во время корректировки можно только добавить новый платёж; прежние платежи менять нельзя.",
+            status_code=409,
+            details={"card_id": card.id},
+        )
+
     def _repair_order_payment_target_cashbox(
         self,
         cashboxes: list[CashBox],
@@ -7098,6 +7118,21 @@ class CardService(
                 default=payment_method,
             )
         return None, payment_method
+
+    def _correction_customer_payment_method(self, card: Card, cashbox: CashBox) -> str:
+        name = cashbox.name.strip().casefold()
+        if name in {"наличный", "наличные", "касса наличных оплат"}:
+            return REPAIR_ORDER_PAYMENT_METHOD_CASH
+        if name in {"на карту", "карта", "карта мария"}:
+            return REPAIR_ORDER_PAYMENT_METHOD_CARD
+        if name in {"безналичный", "безналичная касса", "безнал"}:
+            return REPAIR_ORDER_PAYMENT_METHOD_CASHLESS
+        self._fail(
+            "repair_order_payment_cashbox_invalid",
+            "Для доплаты выберите кассу клиентских оплат: наличные, карта или безналичный расчёт.",
+            status_code=409,
+            details={"card_id": card.id, "cashbox_id": cashbox.id},
+        )
 
     def _cashbox_for_repair_order_payment_method(
         self, cashboxes: list[CashBox], payment_method: str
@@ -7194,7 +7229,14 @@ class CardService(
             RepairOrderPayment.from_dict(payment.to_storage_dict())
             for payment in next_order.payments
         ]
+        correction_existing_ids = (
+            {payment.id for payment in previous_order.payments}
+            if previous_order.active_correction
+            else set()
+        )
         for payment in next_payments:
+            if payment.id in correction_existing_ids:
+                continue
             exact_attestation_cashbox = (
                 self._find_cashbox(cashboxes, payment.cashbox_id)
                 if attestation_mode
@@ -7202,8 +7244,12 @@ class CardService(
                 and payment.note.startswith(attestation_run_id)
                 else None
             )
-            if exact_attestation_cashbox is not None and exact_attestation_cashbox.name.startswith(
-                f"{attestation_run_id}-"
+            if previous_order.active_correction:
+                cashbox = self._find_cashbox(cashboxes, payment.cashbox_id)
+                payment_method = self._correction_customer_payment_method(card, cashbox)
+            elif (
+                exact_attestation_cashbox is not None
+                and exact_attestation_cashbox.name.startswith(f"{attestation_run_id}-")
             ):
                 cashbox = exact_attestation_cashbox
                 payment_method = repair_order_payment_method_from_cashbox_name(
@@ -7271,6 +7317,8 @@ class CardService(
             )
 
         for payment in next_payments:
+            if payment.id in correction_existing_ids:
+                continue
             if not payment.id:
                 payment.id = f"payment-{uuid.uuid4().hex[:10]}"
             payment.actor_name = payment.actor_name or actor_name
@@ -7939,6 +7987,12 @@ class CardService(
                 "validation_error",
                 f"Поле {field_name} должно быть массивом оплат заказ-наряда.",
                 details={"field": field_name},
+            )
+        if len(value) > REPAIR_ORDER_PAYMENTS_LIMIT:
+            self._fail(
+                "validation_error",
+                f"Поле {field_name} превышает предел {REPAIR_ORDER_PAYMENTS_LIMIT} оплат.",
+                details={"field": field_name, "limit": REPAIR_ORDER_PAYMENTS_LIMIT},
             )
         payments = normalize_repair_order_payments(value)
         for index, payment in enumerate(payments, start=1):
