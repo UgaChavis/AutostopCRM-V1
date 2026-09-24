@@ -295,12 +295,24 @@ class AgentReleaseBackupTests(unittest.TestCase):
                 patch.object(
                     type(audit_dir),
                     "is_junction",
-                    autospec=True,
-                    side_effect=lambda path: path == junction,
+                    lambda path: path == junction,
+                    create=True,
                 ),
                 self.assertRaisesRegex(self.module.BackupError, "junction"),
             ):
                 self.module._copy_audit_archive(audit_dir, destination)
+
+    def test_junction_fallback_detects_windows_reparse_attribute(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "synthetic-junction"
+            windows_stat = SimpleNamespace(st_file_attributes=0x400)
+
+            with (
+                patch.object(type(path), "is_junction", None, create=True),
+                patch.object(type(path), "lstat", autospec=True, return_value=windows_stat),
+                patch.object(self.module.os, "name", "nt"),
+            ):
+                self.assertTrue(self.module._is_junction_or_reparse_point(path))
 
     def test_backup_rejects_junctioned_audit_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

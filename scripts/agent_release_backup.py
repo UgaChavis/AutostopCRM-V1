@@ -420,9 +420,8 @@ def _copy_audit_archive(audit_dir: Path, destination: Path) -> bool:
                 if source.name == ".audit-archive.lock":
                     continue
                 source_is_symlink = source.is_symlink()
-                is_junction = getattr(source, "is_junction", None)
-                if source_is_symlink or (is_junction is not None and is_junction()):
-                    link_type = "symlink" if source_is_symlink else "junction"
+                if source_is_symlink or _is_junction_or_reparse_point(source):
+                    link_type = "symlink" if source_is_symlink else "junction or reparse point"
                     raise BackupError(
                         f"Audit archive contains an unsupported {link_type}: {source}"
                     )
@@ -431,6 +430,20 @@ def _copy_audit_archive(audit_dir: Path, destination: Path) -> bool:
                 archive.add(source, arcname=source.relative_to(audit_dir), recursive=False)
     _fsync_file(destination)
     return True
+
+
+def _is_junction_or_reparse_point(path: Path) -> bool:
+    is_junction = getattr(path, "is_junction", None)
+    if is_junction is not None:
+        return bool(is_junction())
+    if os.name != "nt":
+        return False
+    try:
+        file_attributes = path.lstat().st_file_attributes
+    except (AttributeError, OSError) as exc:
+        raise BackupError(f"Audit archive entry could not be inspected: {path}") from exc
+    reparse_attribute = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return bool(file_attributes & reparse_attribute)
 
 
 def _sqlite_integrity_check(path: Path) -> None:
