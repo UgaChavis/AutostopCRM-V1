@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import json
 import logging
 import os
@@ -787,6 +788,90 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
             ),
         ):
             self.assertIsNone(self.controller._query_linux_process_identity(4242))
+
+    def test_query_windows_process_identity_reads_creation_time_and_image(self) -> None:
+        from ctypes import wintypes
+
+        kernel32 = Mock()
+        kernel32.OpenProcess.return_value = 4242
+        executable = r"C:\Tools\cloudflared.exe"
+
+        def get_process_times(_handle, created_pointer, *_other_times):
+            created = ctypes.cast(created_pointer, ctypes.POINTER(wintypes.FILETIME)).contents
+            created.dwHighDateTime = 2
+            created.dwLowDateTime = 3
+            return True
+
+        def query_image(_handle, _flags, buffer, size_pointer):
+            buffer.value = executable
+            size = ctypes.cast(size_pointer, ctypes.POINTER(wintypes.DWORD)).contents
+            size.value = len(executable)
+            return True
+
+        kernel32.GetProcessTimes.side_effect = get_process_times
+        kernel32.QueryFullProcessImageNameW.side_effect = query_image
+
+        with patch.object(ctypes, "WinDLL", return_value=kernel32, create=True):
+            identity = self.controller._query_windows_process_identity(4242)
+
+        self.assertEqual(
+            identity,
+            {"executable": executable, "started": "windows-filetime:8589934595"},
+        )
+        kernel32.OpenProcess.assert_called_once_with(0x1000, False, 4242)
+        kernel32.GetProcessTimes.assert_called_once()
+        kernel32.QueryFullProcessImageNameW.assert_called_once()
+        kernel32.CloseHandle.assert_called_once_with(4242)
+
+    def test_query_windows_process_identity_fails_closed_and_closes_open_handle(self) -> None:
+        from ctypes import wintypes
+
+        scenarios = (
+            ("open_denied", 0, True, True, 1, 1),
+            ("process_times_failed", 4242, False, True, 1, 1),
+            ("image_query_failed", 4242, True, False, 1, 1),
+            ("missing_creation_time", 4242, True, True, 0, 0),
+        )
+        for label, handle, times_ok, image_ok, high, low in scenarios:
+            with self.subTest(scenario=label):
+                kernel32 = Mock()
+                kernel32.OpenProcess.return_value = handle
+
+                def get_process_times(_handle, created_pointer, *_other_times):
+                    created = ctypes.cast(
+                        created_pointer, ctypes.POINTER(wintypes.FILETIME)
+                    ).contents
+                    created.dwHighDateTime = high
+                    created.dwLowDateTime = low
+                    return times_ok
+
+                def query_image(_handle, _flags, buffer, size_pointer):
+                    executable = r"C:\Tools\cloudflared.exe"
+                    buffer.value = executable
+                    size = ctypes.cast(size_pointer, ctypes.POINTER(wintypes.DWORD)).contents
+                    size.value = len(executable)
+                    return image_ok
+
+                kernel32.GetProcessTimes.side_effect = get_process_times
+                kernel32.QueryFullProcessImageNameW.side_effect = query_image
+
+                with patch.object(ctypes, "WinDLL", return_value=kernel32, create=True):
+                    identity = self.controller._query_windows_process_identity(4242)
+
+                self.assertIsNone(identity)
+                if handle:
+                    kernel32.CloseHandle.assert_called_once_with(handle)
+                else:
+                    kernel32.CloseHandle.assert_not_called()
+                if not handle or not times_ok:
+                    kernel32.QueryFullProcessImageNameW.assert_not_called()
+
+        with self.subTest(scenario="kernel32_unavailable"):
+            with patch.object(
+                ctypes, "WinDLL", side_effect=OSError("kernel32 unavailable"), create=True
+            ):
+                identity = self.controller._query_windows_process_identity(4242)
+            self.assertIsNone(identity)
 
     def test_write_persisted_state_creates_parent_and_writes_valid_json(self) -> None:
         state_path = Path(self.temp_dir.name) / "nested" / "tunnel-state.json"
