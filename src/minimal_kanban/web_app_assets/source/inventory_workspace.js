@@ -602,8 +602,6 @@
         : (items.length
           ? items.map((item) => inventoryRowHtml(item, { mobile: true })).join('')
           : '<div class="mobile-empty">ПОЗИЦИЙ ПОКА НЕТ.</div>');
-      renderInventoryForm();
-      renderMobileInventoryMovements();
     }
 
     function handleMobileInventorySearchInput() {

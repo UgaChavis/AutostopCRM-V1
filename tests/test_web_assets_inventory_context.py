@@ -97,14 +97,30 @@ assert.equal(modalCalls.length,renders);assert.deepEqual(statuses,[]);
 """,
         )
 
-    def test_full_inventory_render_updates_movements_only_once(self) -> None:
+    def test_full_inventory_render_updates_each_surface_once(self) -> None:
         self.run_node(
-            functions("inventory_workspace.js", "renderInventory", "renderInventoryItems"),
+            functions(
+                "inventory_workspace.js",
+                "renderInventory",
+                "renderInventoryItems",
+                "renderMobileInventory",
+            ),
             """
 function inventoryFilteredItems(){return [];} function renderInventoryWorkspace(){}
-function renderMobileInventory(){}
-let movements=0;renderInventoryMovements=()=>movements++;
-renderInventory();assert.equal(movements,1,'full inventory render duplicated the same movement DOM');
+const renders=[];
+const trackedElement=()=>{let html='';return {get innerHTML(){return html;},set innerHTML(value){html=value;}};};
+els.inventoryTableBody=trackedElement();els.mobileInventoryItemsList=trackedElement();
+renderInventoryWorkspace=()=>renders.push('workspace');
+renderInventoryMovements=()=>renders.push('desktop movements');
+renderMobileInventoryMovements=()=>renders.push('mobile movements');
+renderInventoryForm=()=>renders.push('form');
+renderRepairOrderInventoryPanel=()=>renders.push('repair-order panel');
+renderInventory();
+assert.deepEqual(renders.sort(),[
+ 'desktop movements','form','mobile movements','repair-order panel','workspace'
+].sort());
+assert.match(els.inventoryTableBody.innerHTML,/ЗАГРУЖАЮ СКЛАД/);
+assert.match(els.mobileInventoryItemsList.innerHTML,/СКЛАД ЗАГРУЖАЕТСЯ/);
 """,
         )
 
