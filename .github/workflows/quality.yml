@@ -26,7 +26,7 @@ concurrency:
 
 jobs:
   docker-runtime-assets:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     steps:
@@ -90,7 +90,7 @@ jobs:
 
   checks:
     name: ${{ matrix.suite }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -160,7 +160,7 @@ jobs:
 
       - name: Cache Chromium
         if: ${{ matrix.suite == 'browser-performance' }}
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: chromium-${{ runner.os }}-${{ hashFiles('requirements-runtime.txt') }}
@@ -295,12 +295,13 @@ jobs:
       - name: Stage 1 production-scale performance gates
         if: ${{ matrix.suite == 'browser-performance' }}
         run: |
+          # Keep the p95 sample large enough to resist isolated runner stalls.
           python scripts/perf_workflows.py \
             --synthetic-state-profile current-production \
             --stage1-only \
             --skip-browser \
             --warmup-iterations 2 \
-            --iterations 20 \
+            --iterations 40 \
             --max-backend-write-ms 600 \
             --max-storage-write-ms 550 \
             --max-revision-server-ms 20 \
@@ -351,7 +352,7 @@ jobs:
   quality:
     if: ${{ always() }}
     needs: [checks, docker-runtime-assets]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Require every release gate
