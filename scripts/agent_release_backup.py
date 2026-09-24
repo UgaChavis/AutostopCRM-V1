@@ -137,52 +137,17 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
     temp_path.replace(path)
 
 
-def _copy_state(state_file: Path, destination: Path) -> dict[str, int]:
+def _copy_state(state_file: Path, destination: Path) -> None:
     if not state_file.is_file():
         raise BackupError(f"CRM state file does not exist: {state_file}")
     lock = ProcessFileLock(state_file.with_suffix(".lock"), timeout_seconds=30.0)
     with lock.acquire():
-        try:
-            source_stat = state_file.lstat()
-        except FileNotFoundError as exc:
-            raise BackupError(f"CRM state file does not exist: {state_file}") from exc
-        if not stat.S_ISREG(source_stat.st_mode) or stat.S_ISLNK(source_stat.st_mode):
-            raise BackupError("CRM state file is not a regular file")
-
-        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
-        try:
-            descriptor = os.open(state_file, flags)
-        except OSError as exc:
-            raise BackupError("CRM state file changed while opening") from exc
-        try:
-            opened_stat = os.fstat(descriptor)
-            current_stat = state_file.lstat()
-            if (
-                not stat.S_ISREG(opened_stat.st_mode)
-                or opened_stat.st_dev != source_stat.st_dev
-                or opened_stat.st_ino != source_stat.st_ino
-                or not stat.S_ISREG(current_stat.st_mode)
-                or stat.S_ISLNK(current_stat.st_mode)
-                or current_stat.st_dev != opened_stat.st_dev
-                or current_stat.st_ino != opened_stat.st_ino
-            ):
-                raise BackupError("CRM state file changed while opening")
-            with os.fdopen(descriptor, "rb", closefd=False) as source_handle:
-                with destination.open("wb") as destination_handle:
-                    shutil.copyfileobj(source_handle, destination_handle, COPY_CHUNK_BYTES)
-        finally:
-            os.close(descriptor)
-
+        shutil.copyfile(state_file, destination)
         with destination.open("r", encoding="utf-8") as handle:
             payload = json.load(handle)
         if not isinstance(payload, dict):
             raise BackupError("CRM state backup is not a JSON object")
-        _fsync_file(destination)
-    return {
-        "mode": stat.S_IMODE(opened_stat.st_mode),
-        "uid": int(opened_stat.st_uid),
-        "gid": int(opened_stat.st_gid),
-    }
+    _fsync_file(destination)
 
 
 def _reject_json_constant(value: str) -> None:
@@ -220,9 +185,7 @@ def _validate_completion_act_forms_payload(payload: object) -> None:
                 raise BackupError(f"Completion act draft {field} is not a string: {cycle_key}")
 
 
-def _read_regular_file_bounded(
-    source: Path, *, max_bytes: int, label: str
-) -> tuple[bytes, dict[str, int]]:
+def _read_regular_file_bounded(source: Path, *, max_bytes: int, label: str) -> bytes:
     try:
         source_stat = source.lstat()
         if not stat.S_ISREG(source_stat.st_mode) or stat.S_ISLNK(source_stat.st_mode):
@@ -250,22 +213,18 @@ def _read_regular_file_bounded(
         raise BackupError(f"{label} is not a regular readable file: {source}") from exc
     if len(encoded) > max_bytes:
         raise BackupError(f"{label} exceeds the bounded backup size")
-    return encoded, {
-        "mode": stat.S_IMODE(opened_stat.st_mode),
-        "uid": int(opened_stat.st_uid),
-        "gid": int(opened_stat.st_gid),
-    }
+    return encoded
 
 
-def _copy_json_object(source: Path, destination: Path, *, label: str) -> dict[str, int] | None:
+def _copy_json_object(source: Path, destination: Path, *, label: str) -> bool:
     if source.parent.is_symlink():
         raise BackupError(f"{label} parent is not a regular directory: {source.parent}")
     if source.is_symlink():
         raise BackupError(f"{label} is not a regular file: {source}")
     if not source.exists():
-        return None
+        return False
     try:
-        encoded, restore_metadata = _read_regular_file_bounded(
+        encoded = _read_regular_file_bounded(
             source,
             max_bytes=COMPLETION_ACT_FORMS_MAX_BYTES,
             label=label,
@@ -281,7 +240,7 @@ def _copy_json_object(source: Path, destination: Path, *, label: str) -> dict[st
     _validate_completion_act_forms_payload(payload)
     destination.write_bytes(encoded)
     _fsync_file(destination)
-    return restore_metadata
+    return True
 
 
 def _completion_act_shard_inventory(directory: Path) -> tuple[list[Path], int]:
@@ -325,7 +284,7 @@ def _completion_act_shard_inventory(directory: Path) -> tuple[list[Path], int]:
 
 def _read_completion_act_shard(path: Path) -> tuple[str, dict[str, Any]]:
     try:
-        encoded, _ = _read_regular_file_bounded(
+        encoded = _read_regular_file_bounded(
             path,
             max_bytes=COMPLETION_ACT_FORM_RECORD_MAX_BYTES,
             label="Completion act draft shard",
@@ -389,7 +348,14 @@ def _copy_completion_act_forms_snapshot(
             _fsync_file(destination)
             return _completion_act_snapshot_metadata(shards)
         if legacy.exists() or legacy.is_symlink():
-            return _copy_json_object(legacy, destination, label="Completion act drafts")
+            metadata = (
+                _file_restore_metadata(legacy)
+                if legacy.is_file() and not legacy.is_symlink()
+                else None
+            )
+            if not _copy_json_object(legacy, destination, label="Completion act drafts"):
+                return None
+            return metadata
         return None
 
 
@@ -417,33 +383,13 @@ def _copy_audit_archive(audit_dir: Path, destination: Path) -> bool:
     with lock.acquire():
         with tarfile.open(destination, "w:gz") as archive:
             for source in sorted(audit_dir.rglob("*")):
-                if source.name == ".audit-archive.lock":
+                if source.name == ".audit-archive.lock" or not source.is_file():
                     continue
-                source_is_symlink = source.is_symlink()
-                if source_is_symlink or _is_junction_or_reparse_point(source):
-                    link_type = "symlink" if source_is_symlink else "junction or reparse point"
-                    raise BackupError(
-                        f"Audit archive contains an unsupported {link_type}: {source}"
-                    )
-                if not source.is_file():
-                    continue
+                if source.is_symlink():
+                    raise BackupError(f"Audit archive contains an unsupported symlink: {source}")
                 archive.add(source, arcname=source.relative_to(audit_dir), recursive=False)
     _fsync_file(destination)
     return True
-
-
-def _is_junction_or_reparse_point(path: Path) -> bool:
-    is_junction = getattr(path, "is_junction", None)
-    if is_junction is not None:
-        return bool(is_junction())
-    if os.name != "nt":
-        return False
-    try:
-        file_attributes = path.lstat().st_file_attributes
-    except (AttributeError, OSError) as exc:
-        raise BackupError(f"Audit archive entry could not be inspected: {path}") from exc
-    reparse_attribute = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
-    return bool(file_attributes & reparse_attribute)
 
 
 def _sqlite_integrity_check(path: Path) -> None:
@@ -457,15 +403,8 @@ def _sqlite_integrity_check(path: Path) -> None:
 
 
 def _copy_sqlite(source: Path, destination: Path) -> bool:
-    try:
-        source_stat = source.lstat()
-    except FileNotFoundError:
+    if not source.is_file():
         return False
-    except OSError as exc:
-        raise BackupError(f"SQLite source is not a regular readable file: {source}") from exc
-    if not stat.S_ISREG(source_stat.st_mode) or stat.S_ISLNK(source_stat.st_mode):
-        raise BackupError(f"SQLite source is not a regular file: {source}")
-
     source_connection = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
     destination_connection = sqlite3.connect(destination)
     try:
@@ -502,8 +441,9 @@ def create_backup(
         state_source = crm_data_dir / "state.json"
         if not state_source.is_file():
             raise BackupError(f"CRM state file does not exist: {state_source}")
+        state_restore_metadata = _file_restore_metadata(state_source)
         state_destination = temp_dir / STATE_BACKUP_NAME
-        state_restore_metadata = _copy_state(state_source, state_destination)
+        _copy_state(state_source, state_destination)
         artifacts: dict[str, Any] = {
             "state": _artifact(
                 state_destination,

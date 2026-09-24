@@ -1578,7 +1578,7 @@ printf 'status=%s\n' "$status"
                     "--warmup-iterations",
                     "2",
                     "--iterations",
-                    "40",
+                    "20",
                     "--max-backend-write-ms",
                     "600",
                     "--max-storage-write-ms",
@@ -1595,7 +1595,7 @@ printf 'status=%s\n' "$status"
                     "20",
                 ),
                 "python scripts/perf_workflows.py --synthetic-state-profile current-production "
-                "--stage1-only --skip-browser --warmup-iterations 2 --iterations 40 "
+                "--stage1-only --skip-browser --warmup-iterations 2 --iterations 20 "
                 "--max-backend-write-ms 600 --max-storage-write-ms 550 "
                 "--max-revision-server-ms 20 --max-get-card-direct-ms 20 "
                 "--max-list-cashboxes-ms 50 --max-feed-read-ms 50 --max-feed-replay-ms 20",

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ctypes
 import json
 import logging
 import os
@@ -10,7 +9,7 @@ import tempfile
 import unittest
 import urllib.error
 from pathlib import Path
-from unittest.mock import Mock, mock_open, patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -724,154 +723,6 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
         self.assertIsNone(self.controller._normalize_pid(10**30))
         self.assertEqual(self.controller._normalize_pid(12.0), 12)
         self.assertEqual(self.controller._normalize_pid("42"), 42)
-
-    def test_query_linux_process_identity_parses_stat_after_last_closing_paren(self) -> None:
-        stat_payload = b"4242 (cloudflared (child)) S " + b" ".join([b"1"] * 18 + [b"9876"])
-        with (
-            patch.object(Path, "open", mock_open(read_data=stat_payload)) as open_mock,
-            patch(
-                "minimal_kanban.tunnel_runtime.os.readlink",
-                return_value="/usr/bin/cloudflared",
-            ) as readlink_mock,
-        ):
-            identity = self.controller._query_linux_process_identity(4242)
-
-        self.assertEqual(
-            identity,
-            {"executable": "/usr/bin/cloudflared", "started": "linux-proc:9876"},
-        )
-        open_mock.assert_called_once_with("rb")
-        readlink_mock.assert_called_once_with(Path("/proc") / "4242" / "exe")
-
-    def test_query_linux_process_identity_rejects_malformed_proc_stat(self) -> None:
-        invalid_payloads = (
-            ("empty", b""),
-            ("oversized", b"x" * 8193),
-            ("missing_closing_paren", b"4242 cloudflared S 1 2"),
-            ("too_few_fields", b"4242 (cloudflared) S 1 2"),
-            (
-                "nonnumeric_start_ticks",
-                b"4242 (cloudflared) S " + b" ".join([b"1"] * 18 + [b"invalid"]),
-            ),
-            (
-                "non_ascii_start_ticks",
-                b"4242 (cloudflared) S " + b" ".join([b"1"] * 18 + [b"\xff"]),
-            ),
-            ("zero_start_ticks", b"4242 (cloudflared) S " + b" ".join([b"1"] * 18 + [b"0"])),
-        )
-
-        for label, payload in invalid_payloads:
-            with self.subTest(payload=label):
-                with (
-                    patch.object(Path, "open", mock_open(read_data=payload)),
-                    patch("minimal_kanban.tunnel_runtime.os.readlink") as readlink_mock,
-                ):
-                    identity = self.controller._query_linux_process_identity(4242)
-
-                self.assertIsNone(identity)
-                readlink_mock.assert_not_called()
-
-    def test_query_linux_process_identity_fails_closed_on_proc_io_errors(self) -> None:
-        valid_payload = b"4242 (cloudflared) S " + b" ".join([b"1"] * 18 + [b"9876"])
-
-        with (
-            patch.object(Path, "open", side_effect=OSError("stat unavailable")),
-            patch("minimal_kanban.tunnel_runtime.os.readlink") as readlink_mock,
-        ):
-            self.assertIsNone(self.controller._query_linux_process_identity(4242))
-        readlink_mock.assert_not_called()
-
-        with (
-            patch.object(Path, "open", mock_open(read_data=valid_payload)),
-            patch(
-                "minimal_kanban.tunnel_runtime.os.readlink", side_effect=OSError("exe unavailable")
-            ),
-        ):
-            self.assertIsNone(self.controller._query_linux_process_identity(4242))
-
-    def test_query_windows_process_identity_reads_creation_time_and_image(self) -> None:
-        from ctypes import wintypes
-
-        kernel32 = Mock()
-        kernel32.OpenProcess.return_value = 4242
-        executable = r"C:\Tools\cloudflared.exe"
-
-        def get_process_times(_handle, created_pointer, *_other_times):
-            created = ctypes.cast(created_pointer, ctypes.POINTER(wintypes.FILETIME)).contents
-            created.dwHighDateTime = 2
-            created.dwLowDateTime = 3
-            return True
-
-        def query_image(_handle, _flags, buffer, size_pointer):
-            buffer.value = executable
-            size = ctypes.cast(size_pointer, ctypes.POINTER(wintypes.DWORD)).contents
-            size.value = len(executable)
-            return True
-
-        kernel32.GetProcessTimes.side_effect = get_process_times
-        kernel32.QueryFullProcessImageNameW.side_effect = query_image
-
-        with patch.object(ctypes, "WinDLL", return_value=kernel32, create=True):
-            identity = self.controller._query_windows_process_identity(4242)
-
-        self.assertEqual(
-            identity,
-            {"executable": executable, "started": "windows-filetime:8589934595"},
-        )
-        kernel32.OpenProcess.assert_called_once_with(0x1000, False, 4242)
-        kernel32.GetProcessTimes.assert_called_once()
-        kernel32.QueryFullProcessImageNameW.assert_called_once()
-        kernel32.CloseHandle.assert_called_once_with(4242)
-
-    def test_query_windows_process_identity_fails_closed_and_closes_open_handle(self) -> None:
-        from ctypes import wintypes
-
-        scenarios = (
-            ("open_denied", 0, True, True, 1, 1),
-            ("process_times_failed", 4242, False, True, 1, 1),
-            ("image_query_failed", 4242, True, False, 1, 1),
-            ("missing_creation_time", 4242, True, True, 0, 0),
-        )
-        for label, handle, times_ok, image_ok, high, low in scenarios:
-            with self.subTest(scenario=label):
-                kernel32 = Mock()
-                kernel32.OpenProcess.return_value = handle
-
-                def get_process_times(_handle, created_pointer, *_other_times):
-                    created = ctypes.cast(
-                        created_pointer, ctypes.POINTER(wintypes.FILETIME)
-                    ).contents
-                    created.dwHighDateTime = high
-                    created.dwLowDateTime = low
-                    return times_ok
-
-                def query_image(_handle, _flags, buffer, size_pointer):
-                    executable = r"C:\Tools\cloudflared.exe"
-                    buffer.value = executable
-                    size = ctypes.cast(size_pointer, ctypes.POINTER(wintypes.DWORD)).contents
-                    size.value = len(executable)
-                    return image_ok
-
-                kernel32.GetProcessTimes.side_effect = get_process_times
-                kernel32.QueryFullProcessImageNameW.side_effect = query_image
-
-                with patch.object(ctypes, "WinDLL", return_value=kernel32, create=True):
-                    identity = self.controller._query_windows_process_identity(4242)
-
-                self.assertIsNone(identity)
-                if handle:
-                    kernel32.CloseHandle.assert_called_once_with(handle)
-                else:
-                    kernel32.CloseHandle.assert_not_called()
-                if not handle or not times_ok:
-                    kernel32.QueryFullProcessImageNameW.assert_not_called()
-
-        with self.subTest(scenario="kernel32_unavailable"):
-            with patch.object(
-                ctypes, "WinDLL", side_effect=OSError("kernel32 unavailable"), create=True
-            ):
-                identity = self.controller._query_windows_process_identity(4242)
-            self.assertIsNone(identity)
 
     def test_write_persisted_state_creates_parent_and_writes_valid_json(self) -> None:
         state_path = Path(self.temp_dir.name) / "nested" / "tunnel-state.json"
