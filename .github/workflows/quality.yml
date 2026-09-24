@@ -160,7 +160,7 @@ jobs:
 
       - name: Cache Chromium
         if: ${{ matrix.suite == 'browser-performance' }}
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: chromium-${{ runner.os }}-${{ hashFiles('requirements-runtime.txt') }}
