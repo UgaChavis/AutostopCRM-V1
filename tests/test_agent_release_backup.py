@@ -39,6 +39,22 @@ def symlink_or_skip(test_case: unittest.TestCase, link: Path, target: Path) -> N
         raise
 
 
+def junction_or_skip(test_case: unittest.TestCase, link: Path, target: Path) -> None:
+    if os.name != "nt":
+        test_case.skipTest("Windows junctions are unavailable")
+    try:
+        result = subprocess.run(
+            ["cmd.exe", "/c", "mklink", "/J", str(link), str(target)],
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+    except OSError:
+        test_case.skipTest("Windows junction creation is unavailable")
+    if result.returncode != 0:
+        test_case.skipTest("Windows junction creation is unavailable")
+
+
 class AgentReleaseBackupTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -261,6 +277,55 @@ class AgentReleaseBackupTests(unittest.TestCase):
                 self.assertRaisesRegex(self.module.BackupError, "symlink"),
             ):
                 self.module._copy_audit_archive(audit_dir, destination)
+
+    def test_copy_audit_archive_rejects_junction_before_file_filter(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            audit_dir = root / "audit-archive"
+            audit_dir.mkdir()
+            junction = audit_dir / "junction-audit"
+            junction.mkdir()
+            destination = root / "audit-archive.tar.gz"
+
+            with (
+                patch.object(
+                    type(audit_dir), "rglob", autospec=True, return_value=iter([junction])
+                ),
+                patch.object(type(audit_dir), "is_symlink", autospec=True, return_value=False),
+                patch.object(
+                    type(audit_dir),
+                    "is_junction",
+                    autospec=True,
+                    side_effect=lambda path: path == junction,
+                ),
+                self.assertRaisesRegex(self.module.BackupError, "junction"),
+            ):
+                self.module._copy_audit_archive(audit_dir, destination)
+
+    def test_backup_rejects_junctioned_audit_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            crm_data, manager_db, output_root = self._fixture(root)
+            external_audit_dir = root / "external-audit"
+            external_audit_dir.mkdir()
+            (external_audit_dir / "2026-09.jsonl").write_text(
+                '{"event_id":"synthetic-junction-target"}\n', encoding="utf-8"
+            )
+            junction_or_skip(
+                self,
+                crm_data / "audit-archive" / "nested",
+                external_audit_dir,
+            )
+
+            with self.assertRaisesRegex(self.module.BackupError, "junction"):
+                self.module.create_backup(
+                    output_root=output_root,
+                    crm_data_dir=crm_data,
+                    manager_db=manager_db,
+                    backup_id="junctioned-audit-directory",
+                )
+
+            self.assertFalse((output_root / "junctioned-audit-directory").exists())
 
     def test_backup_rejects_symlinked_audit_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

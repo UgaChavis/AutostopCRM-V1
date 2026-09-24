@@ -419,8 +419,13 @@ def _copy_audit_archive(audit_dir: Path, destination: Path) -> bool:
             for source in sorted(audit_dir.rglob("*")):
                 if source.name == ".audit-archive.lock":
                     continue
-                if source.is_symlink():
-                    raise BackupError(f"Audit archive contains an unsupported symlink: {source}")
+                source_is_symlink = source.is_symlink()
+                is_junction = getattr(source, "is_junction", None)
+                if source_is_symlink or (is_junction is not None and is_junction()):
+                    link_type = "symlink" if source_is_symlink else "junction"
+                    raise BackupError(
+                        f"Audit archive contains an unsupported {link_type}: {source}"
+                    )
                 if not source.is_file():
                     continue
                 archive.add(source, arcname=source.relative_to(audit_dir), recursive=False)
