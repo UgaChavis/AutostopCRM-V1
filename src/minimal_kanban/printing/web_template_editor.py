@@ -57,7 +57,7 @@ PRINTING_TEMPLATE_EDITOR_HELPERS_SCRIPT = r"""    function buildPrintTemplateVis
     }
 
     function readPrintTemplateEditorContent() {
-      syncPrintTemplateSourceFromVisualEditor();
+      // Visual edits already update the source; a reloading iframe can still contain old HTML.
       return printEls.templateContent?.value || '';
     }
 

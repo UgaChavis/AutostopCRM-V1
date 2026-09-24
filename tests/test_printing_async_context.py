@@ -34,6 +34,73 @@ class PrintingAsyncContextTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_template_source_edits_survive_preview_and_pending_iframe_reload(self) -> None:
+        input_bindings_start = PRINTING_WEB_MODULE_SCRIPT.index(
+            "    if (printEls.templateContent) printEls.templateContent.addEventListener('input'"
+        )
+        input_bindings_end = PRINTING_WEB_MODULE_SCRIPT.index(
+            "    document.addEventListener('click'", input_bindings_start
+        )
+        self.run_javascript(
+            """
+const assert=require('node:assert/strict');
+const state={viewerStateGeneration:0,editingId:'A'};
+const repairOrderPrintState={mode:'card',templateEditor:{documentType:'invoice'}};
+function element(extra={}){const listeners=new Map();return {...extra,
+  addEventListener(name,fn){listeners.set(name,[...(listeners.get(name)||[]),fn]);},
+  dispatch(name){for(const fn of listeners.get(name)||[]) fn();}};}
+const editor=element({innerHTML:'<p>OLD</p>'});
+const printEls={templateContent:element({value:'<p>OLD</p>',dataset:{dirty:'0'}}),
+  templateVisualEditorFrame:{srcdoc:'',contentDocument:{getElementById:()=>editor}},
+  templatePreviewMeta:{},templatePreviewFrame:{}};
+const timers=new Map(),requests=[];let nextTimer=0,printTemplatePreviewTimer=null;
+const window={setTimeout(fn){const id=++nextTimer;timers.set(id,fn);return id;},
+  clearTimeout(id){timers.delete(id);}};
+async function flushPreview(){const callbacks=[...timers.values()];timers.clear();
+  callbacks.forEach(fn=>fn());await new Promise(resolve=>setImmediate(resolve));}
+async function api(path,options){requests.push({path,options});return {documents:[{pages:[{html:'PREVIEW'}]}]};}
+function repairOrderPrintRequestPayload(data){return data;}
+function buildPrintTemplateEditorFallbackHtml(){return 'LOADING';}
+function printFiniteNumber(value){return Number(value);}
+"""
+            + PRINTING_ASYNC_CONTEXT_SCRIPT
+            + "\n".join(
+                function_source(name)
+                for name in (
+                    "buildPrintTemplateVisualEditorHtml",
+                    "renderPrintTemplateVisualEditor",
+                    "schedulePrintTemplatePreview",
+                    "syncPrintTemplateSourceFromVisualEditor",
+                    "readPrintTemplateEditorContent",
+                    "handlePrintTemplateVisualEditorLoad",
+                    "previewCurrentPrintTemplate",
+                )
+            )
+            + PRINTING_WEB_MODULE_SCRIPT[input_bindings_start:input_bindings_end]
+            + """
+(async()=>{
+  handlePrintTemplateVisualEditorLoad();
+  printEls.templateContent.value='<p>NEW SOURCE</p>';
+  printEls.templateContent.dispatch('input');
+  await flushPreview();
+  assert.equal(requests.at(-1).options.body.template_overrides.invoice,'<p>NEW SOURCE</p>');
+  assert.equal(printEls.templateContent.value,'<p>NEW SOURCE</p>');
+  assert.equal(printEls.templateContent.dataset.dirty,'1');
+  printEls.templateContent.dispatch('blur');
+  assert.ok(printEls.templateVisualEditorFrame.srcdoc);
+  assert.equal(editor.innerHTML,'<p>OLD</p>','iframe load is deliberately still pending');
+  await previewCurrentPrintTemplate();
+  assert.equal(requests.at(-1).options.body.template_overrides.invoice,'<p>NEW SOURCE</p>');
+  handlePrintTemplateVisualEditorLoad();
+  assert.equal(editor.innerHTML,'<p>NEW SOURCE</p>');
+  editor.innerHTML='<p>VISUAL EDIT</p>';editor.dispatch('input');
+  await flushPreview();
+  assert.equal(printEls.templateContent.value,'<p>VISUAL EDIT</p>');
+  assert.equal(requests.at(-1).options.body.template_overrides.invoice,'<p>VISUAL EDIT</p>');
+})().catch(error=>{console.error(error);process.exitCode=1;});
+"""
+        )
+
     def test_operation_request_tokens_and_editor_contexts_are_independent(self) -> None:
         self.run_javascript(
             """

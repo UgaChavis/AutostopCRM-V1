@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import tempfile
 from pathlib import Path
 from uuid import uuid4
@@ -20,6 +21,19 @@ SKILL_NAMES = (
 )
 
 
+def _is_link_like(path: Path) -> bool:
+    if path.is_symlink():
+        return True
+    junction_probe = getattr(path, "is_junction", None)
+    if junction_probe is not None:
+        return junction_probe()
+    # Python 3.11 has no Path.is_junction; reject every Windows reparse point.
+    return bool(
+        getattr(path.lstat(), "st_file_attributes", 0)
+        & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    )
+
+
 def manifest(directory: Path) -> dict[str, str]:
     """Read only plain trees; never traverse links or Windows junctions."""
     absolute = Path(os.path.abspath(directory))
@@ -29,7 +43,7 @@ def manifest(directory: Path) -> dict[str, str]:
     pending = [absolute]
     while pending:
         path = pending.pop()
-        if path.is_symlink() or path.is_junction():
+        if _is_link_like(path):
             raise ValueError(f"Skill paths cannot be links: {path}")
         if path.is_dir():
             pending.extend(path.iterdir())

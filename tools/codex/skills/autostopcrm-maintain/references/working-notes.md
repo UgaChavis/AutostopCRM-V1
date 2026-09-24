@@ -12,8 +12,10 @@ Choose only the notes relevant to the task.
   refresh only when measurements point there. Preserve durable saves, audit
   events, revision conflicts, and freshness. Synthetic timings are not live proof.
 - UI: browser sources and their assembler live in
-  `src/minimal_kanban/web_app_assets/`; Windows UI lives in
-  `src/minimal_kanban/ui/`. Verify the rendered changed flow and its adjacent
+  `src/minimal_kanban/web_app_assets/`; embedded print assets are assembled from
+  `src/minimal_kanban/printing/web_*.py`; Windows UI lives in
+  `src/minimal_kanban/ui/`. Keep print fragment order and shared JavaScript scope
+  when extracting code. Verify the rendered changed flow and its adjacent
   keyboard, mouse, loading, and refresh behavior; avoid changing business rules
   merely to simplify rendering.
 - Embedded agent: a nonempty `agent/system_prompt.md` in the effective app-data

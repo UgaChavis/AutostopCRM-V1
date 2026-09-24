@@ -135,15 +135,15 @@ draft saves and reset-to-defaults retain their replacement semantics.
 
 ## Release Checklist
 
-Documentation-only minimum:
+While editing documentation, run:
 
 ```powershell
-.\.venv\Scripts\python.exe -m ruff format --check scripts\docs_audit.py tests\test_docs_audit.py
-.\.venv\Scripts\python.exe -m ruff check scripts\docs_audit.py tests\test_docs_audit.py
-.\.venv\Scripts\python.exe -m unittest tests.test_docs_audit -v
 .\.venv\Scripts\python.exe scripts\docs_audit.py --format text
 .\.venv\Scripts\python.exe scripts\audit_localization.py
 ```
+
+Changes to the audit implementation also require its focused tests and Python
+checks. Before publishing the final shared change, use the CI profile below.
 
 `docs_audit.py` audits this repository only by default. Cross-repository and
 local-environment scans are opt-in:
@@ -293,6 +293,16 @@ Before the release-sized browser profile, run
 creating temp runtime state when Chromium, Qt PDF, `pdfinfo`, or `pdftotext` is
 missing. The mandatory `--profile core` does not require the PDF toolchain.
 
+When the release needs the full UI/PDF scenarios beyond core, run once:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\browser_smoke.py --profile full --attempts 1
+```
+
+Both profiles create a disposable local CRM with synthetic data. They provide
+local regression evidence; verify the deployed interface separately under
+[Production Verification](#production-verification).
+
 Set `AUTOSTOP_BROWSER_SMOKE_SCREENSHOT_DIR` to a new owned, ignored directory
 for each smoke run, then restore the caller's environment. Timer and dashboard
 screenshots and completion-act artifacts use that directory. When unset or blank,
@@ -374,11 +384,12 @@ Run timing comparisons without concurrent builds, tests or browser measurements.
 This timing helper does not replace the canonical branch-coverage CI gate.
 
 After deploy, use `check_live_connector.py` below for public HTTPS and auth.
-Measure the production backends from inside the running container so no
-credential appears in a process argument:
+Measure the production backends from inside the running container. Both probes
+read their bearer tokens from container environment variables, so no credential
+appears in a process argument:
 
 ```bash
-docker exec autostopcrm python scripts/perf_probe.py --base-url http://127.0.0.1:41731 --warmup-iterations 2 --iterations 20 --max-snapshot-gzip-ms 800 --max-snapshot-gzip-bytes 80000 --max-revision-ms 500 --max-revision-server-ms 20 --max-get-card-ms 150
+docker exec autostopcrm python scripts/perf_probe.py --base-url http://127.0.0.1:41731 --token-env MINIMAL_KANBAN_API_BEARER_TOKEN --warmup-iterations 2 --iterations 20 --max-snapshot-gzip-ms 800 --max-snapshot-gzip-bytes 80000 --max-revision-ms 500 --max-revision-server-ms 20 --max-get-card-ms 150
 docker exec autostopcrm python scripts/perf_mcp.py --mcp-url http://127.0.0.1:41831/mcp --token-env MINIMAL_KANBAN_MCP_BEARER_TOKEN --iterations 5
 ```
 
@@ -525,7 +536,8 @@ A Store-enabled release additionally provisions these server-local values:
 - `AUTOSTOP_STORE_API_URL=http://autostop-app:8000`;
 - `AUTOSTOP_STORE_READ_TOKEN` for pure reads;
 - `AUTOSTOP_STORE_QUOTE_TOKEN` for exact full quote and sourcing reads;
-- `AUTOSTOP_STORE_MANAGE_TOKEN` for the seven optimized named actions;
+- `AUTOSTOP_STORE_MANAGE_TOKEN` for the named management actions documented in
+  [the MCP guide](../MCP_GUIDE.md#store-boundary-and-quote-context);
 - `AUTOSTOP_STORE_OWNER_TOKEN` for owner-approved guarded parity with the
   existing Store employee API.
 
@@ -669,8 +681,9 @@ the server. The target is fixed in `deploy.sh` as
 ssh -i $env:AUTOSTOPCRM_SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes root@crm.autostopcrm.ru "cd /opt/autostopcrm && ./deploy.sh"
 ```
 
-Prerequisites in server `.env` include the six Gateway switches, the three
-Store adapter settings, distinct non-empty
+Prerequisites in server `.env` include the Gateway switches and Store URL/scoped
+tokens listed in [Production Authentication](#production-authentication),
+distinct non-empty
 `AUTOSTOP_CRAWL4AI_API_TOKEN` and `AUTOSTOP_CRAWL4AI_SECRET_KEY`, and
 `AUTOSTOP_SMOKE_OPERATOR_USERNAME` /
 `AUTOSTOP_SMOKE_OPERATOR_PASSWORD`. `deploy.sh` and Compose validation fail
@@ -817,18 +830,21 @@ probes occur only inside `deploy.sh` with
 a unique attempt id. The public smoke never invokes the generic Store owner
 transport and records no Store request body or Store data.
 
-After UI changes, run
-`.\.venv\Scripts\python.exe scripts\browser_smoke.py` and manually verify
-operator login, board/card changes, clients, repair orders and PDF export,
+After deploying UI changes, manually verify the affected flows on the live
+site: operator login, board/card changes, clients, repair orders and PDF export,
 inventory, cashboxes, payroll, files, archive, nested modal behavior, and
-anonymous write rejection. For shared-display changes, also open
+anonymous write rejection, as relevant to the release. Use owner-approved
+targets for any write verification. The local synthetic browser profile in
+[Release Checklist](#release-checklist) does not establish live UI health.
+For shared-display changes, also open
 `ОТКРЫТЬ ДАШБОРД` from board scale settings and verify the named `/dashboard`
 window at 1920x1080: the shared mechanics message board, protected message
 images, exactly four Monday-based weekly bars, the green current-week `ИДЁТ`
 state, no payroll or employee data, no scroll/overlap, a 401 from an anonymous
 `/api/get_display_dashboard` request, and retention/recovery after a temporary
-refresh error. The browser smoke saves
-`output/playwright/tv-dashboard-1920x1080.png` for this check.
+refresh error. The local full browser profile captures the same layout with
+synthetic data as `tv-dashboard-1920x1080.png` in
+`AUTOSTOP_BROWSER_SMOKE_SCREENSHOT_DIR`, or `output/playwright` when unset.
 
 ## Watchdog
 

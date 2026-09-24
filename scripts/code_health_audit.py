@@ -62,7 +62,7 @@ ALLOWED_LARGE_MODULES = {
         "payroll domain split target", 4297, 4297, "013"
     ),
     "src/minimal_kanban/services/snapshot_service.py": RatchetBudget(
-        "snapshot serialization split target", 2820, 2820, "018"
+        "snapshot service boundary after journal projection extraction", 1533, 1533, "018"
     ),
     "src/minimal_kanban/agent/runner.py": RatchetBudget(
         "autonomous agent orchestration boundary", 2592, 2592, "206"
@@ -74,7 +74,7 @@ ALLOWED_LARGE_MODULES = {
         "print rendering workflow split target", 4044, 4044, "014"
     ),
     "src/minimal_kanban/printing/web_module.py": RatchetBudget(
-        "embedded print UI asset split target", 2895, 2895, "021"
+        "embedded print UI assembly after editor extraction", 1708, 1708, "021"
     ),
     "tests/test_service.py": RatchetBudget(
         "legacy broad service coverage pending domain split", 12768, 12768, "003"
@@ -104,7 +104,7 @@ ALLOWED_LARGE_CLASSES = {
         "finance domain split target", 2904, 2904, "019"
     ),
     "src/minimal_kanban/services/snapshot_service.py:SnapshotService": RatchetBudget(
-        "snapshot serialization split target", 2527, 2527, "018"
+        "snapshot service boundary after journal projection extraction", 1452, 1452, "018"
     ),
     "tests/test_api.py:ApiServerTests": RatchetBudget(
         "legacy broad API coverage pending route split", 7245, 7245, "003"

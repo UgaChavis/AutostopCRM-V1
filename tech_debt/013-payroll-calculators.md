@@ -15,6 +15,13 @@ construction, sorting and revision hashing. The full employee ledger retains its
 rows and revision contract. `test_salary_balance_summary` owns equality across
 current and legacy accruals, payouts, advances and balance resets.
 
+The full `list_employees` response copies settings, cards, cashboxes and cash
+transactions under the service lock, then builds the report through
+`employee_list_report.build_full_employee_list` after releasing that lock.
+The references-only path remains bounded inside the lock. Preserve the single
+detached snapshot across report components; `tests/test_list_employees_snapshot.py`
+covers response equivalence, lock release, concurrent writes and parse-cache state.
+
 Preserve minor units/Decimal, ROUND_HALF_UP, deterministic cent balancing and
 legacy normalization. Presentation rounding must not alter ledger values.
 Keep revision checks and posting/reversal behavior.

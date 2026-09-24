@@ -4,6 +4,7 @@ import gzip
 import importlib.util
 import io
 import json
+import os
 import sys
 import unittest
 from contextlib import redirect_stdout
@@ -171,6 +172,30 @@ class PerfProbeTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Unsupported JSON constant: NaN"):
                 module.request_json("https://crm.autostopcrm.ru", "/api/health")
 
+    def test_request_json_sends_bearer_only_when_supplied(self) -> None:
+        module = load_perf_probe_module()
+        requests = []
+
+        def fake_open(request, *, timeout):
+            _ = timeout
+            requests.append(request)
+            return FakeHttpResponse(b'{"ok": true}')
+
+        with patch.object(module, "_urlopen_no_redirect", side_effect=fake_open):
+            module.request_json("http://127.0.0.1:41731", "/api/health")
+            module.request_json(
+                "http://127.0.0.1:41731", "/api/health", bearer_token="synthetic-token"
+            )
+
+        self.assertIsNone(requests[0].get_header("Authorization"))
+        self.assertEqual(requests[1].get_header("Authorization"), "Bearer synthetic-token")
+
+        with self.assertRaisesRegex(ValueError, "Invalid API bearer token") as error:
+            module.request_json(
+                "http://127.0.0.1:41731", "/api/health", bearer_token="hidden\nvalue"
+            )
+        self.assertNotIn("hidden", str(error.exception))
+
     def test_request_json_rejects_deeply_nested_response(self) -> None:
         module = load_perf_probe_module()
         deep_json = ("[" * 5000 + "0" + "]" * 5000).encode("utf-8")
@@ -268,6 +293,7 @@ class PerfProbeTests(unittest.TestCase):
             method="GET",
             payload=None,
             gzip_ok=False,
+            bearer_token="",
         ):
             _ = (
                 base_url,
@@ -277,6 +303,7 @@ class PerfProbeTests(unittest.TestCase):
                 method,
                 payload,
                 gzip_ok,
+                bearer_token,
             )
             if label == "snapshot.identity":
                 return {"data": {"cards": [{"id": "card-1"}]}}, [
@@ -323,6 +350,7 @@ class PerfProbeTests(unittest.TestCase):
 
         fake_server = FakeLocalServer()
         seen_base_urls: list[str] = []
+        seen_tokens: list[str] = []
 
         def fake_measure(
             base_url,
@@ -334,9 +362,11 @@ class PerfProbeTests(unittest.TestCase):
             method="GET",
             payload=None,
             gzip_ok=False,
+            bearer_token="",
         ):
-            _ = (path, iterations, warmup_iterations, method, payload, gzip_ok)
+            _ = (path, iterations, warmup_iterations, method, payload, gzip_ok, bearer_token)
             seen_base_urls.append(base_url)
+            seen_tokens.append(bearer_token)
             if label == "snapshot.identity":
                 return {"data": {"cards": [{"id": "card-1"}]}}, [
                     module.ProbeResult(label, 200, 10.0, 1000, "", "")
@@ -347,6 +377,7 @@ class PerfProbeTests(unittest.TestCase):
         with (
             patch.object(module, "start_local_temp_server", return_value=fake_server),
             patch.object(module, "measure", side_effect=fake_measure),
+            patch.dict(os.environ, {"MINIMAL_KANBAN_API_BEARER_TOKEN": "synthetic-token"}),
             patch.object(
                 sys,
                 "argv",
@@ -362,6 +393,44 @@ class PerfProbeTests(unittest.TestCase):
         self.assertTrue(payload["local_temp_server"])
         self.assertEqual(payload["base_url"], fake_server.base_url)
         self.assertEqual(set(seen_base_urls), {fake_server.base_url})
+        self.assertEqual(set(seen_tokens), {""})
+
+    def test_main_reads_remote_api_token_from_environment_without_printing_it(self) -> None:
+        module = load_perf_probe_module()
+        seen_tokens: list[str] = []
+
+        def fake_measure(
+            base_url,
+            label,
+            path,
+            *,
+            iterations,
+            warmup_iterations=0,
+            method="GET",
+            payload=None,
+            gzip_ok=False,
+            bearer_token="",
+        ):
+            _ = (base_url, path, iterations, warmup_iterations, method, payload, gzip_ok)
+            seen_tokens.append(bearer_token)
+            return {}, [module.ProbeResult(label, 200, 1.0, 16, "", "")]
+
+        stdout = io.StringIO()
+        with (
+            patch.object(module, "measure", side_effect=fake_measure),
+            patch.dict(os.environ, {"PERF_TEST_API_TOKEN": "synthetic-token"}),
+            patch.object(
+                sys,
+                "argv",
+                ["perf_probe.py", "--iterations", "1", "--token-env", "PERF_TEST_API_TOKEN"],
+            ),
+            redirect_stdout(stdout),
+        ):
+            exit_code = module.main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(seen_tokens, ["synthetic-token"] * 3)
+        self.assertNotIn("synthetic-token", stdout.getvalue())
 
     def test_main_reports_probe_errors_and_stops_temporary_server(self) -> None:
         module = load_perf_probe_module()

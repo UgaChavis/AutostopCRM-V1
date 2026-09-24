@@ -6,8 +6,7 @@ and credentials are in the [operations runbook](docs/OPERATIONS_RUNBOOK.md).
 
 ## Authentication
 
-- Public anonymous reads are rejected; Public anonymous writes must remain
-  blocked.
+- Public anonymous reads and writes are rejected.
 - Production uses owner-approved OAuth 2.1 authorization code with PKCE S256,
   administrator approval, short-lived access tokens, rotating refresh tokens,
   and exact audience/scope validation. Authorization is never silently granted.
@@ -39,18 +38,11 @@ authentication failed before tool execution; it does not establish a CRM tool
 failure. Do not disable authentication, restore retired bearer tokens, or
 expose hidden raw tools to work around stale client credentials or registration.
 
-## Natural Use And Safety
+## Tool Use
 
-Use enough relevant CRM, Store, and sanctioned conversation context to answer
-or find the real blocker. `agent_bootstrap`, `agent_search`,
-`agent_entity_context`, board reads, workflows, and raw capability discovery
-are available paths, not a required order. Use `get_runtime_status` only for
-runtime or auth diagnostics.
-
-There is no universal response template or dry-run. Native confirmation is
-required at real impact: money, published customer prices, orders,
-deletion/archive, a new external recipient, deployment, or secrets. Keep normal
-tool approvals for those actions; never bypass authorization or hidden tools.
+Follow the [MCP guide](MCP_GUIDE.md) for context selection, workflows and action
+guards. `agent_bootstrap` is optional; `get_runtime_status` is for runtime or
+authentication diagnostics. Client setup adds no mandatory tool sequence.
 
 OpenAI references: [Apps SDK authentication](https://developers.openai.com/apps-sdk/build/auth)
 and [MCP and Connectors](https://developers.openai.com/api/docs/guides/tools-connectors-mcp).

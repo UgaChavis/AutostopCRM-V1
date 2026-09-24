@@ -18,11 +18,12 @@ focused tests when a route is not described here.
   return bytes or HTML rather than a JSON envelope.
 
 When `MINIMAL_KANBAN_API_BEARER_TOKEN` is configured, non-static API and
-download routes require `Authorization: Bearer <token>`. The board shell,
-read-only `/dashboard` shell, favicons, and `/api/health` are static
-exceptions; the dashboard shell contains no business data. Requests arriving
-through the browser proxy also enforce operator-session and admin rules where
-applicable.
+download routes require `Authorization: Bearer <token>`. The board,
+`/dashboard` and `/module-map` shells, content-fingerprinted `/assets/board.*`
+resources, favicons, and `/api/health` are static exceptions. The shells contain
+no business data; the map topology and dashboard content use authenticated reads.
+Requests arriving through the browser proxy also enforce operator-session
+and admin rules where applicable.
 
 Successful JSON response:
 
@@ -110,9 +111,18 @@ an explicit `before_card_id` inserts before that card. Combining an anchor
 with `placement="end"` is a validation error. UI moves are queued in gesture
 order; after a failed write the browser refreshes state without retrying it.
 
-`/api/get_card_log` returns compact event details by default. Set
-`include_full_details=true` only for authorized maintenance/debugging; the
-service may hydrate archived `before`/`after` data from `audit-archive`.
+`/api/get_card_log` returns `meta.schema_version="card_journal.v2"` with newest
+events first. Both formats contain `entries`, the `timeline` alias, day/week/month
+groups, `totals`, and pagination metadata. The default `compact=false` format also
+contains raw `events`, `markdown` and its `text` alias. `compact=true` returns a
+smaller JSON projection and defaults to 50 events. An explicit `limit` is bounded
+at 1,000; without it, the full format returns all visible events.
+
+`include_full_details` independently controls archive hydration and defaults to
+false in both formats. Authorized maintenance/debugging may request it to load
+archived `before`/`after` data from `audit-archive`; `meta.include_full_details`
+reports the effective permission-checked value. Private events are filtered
+before hydration, limits, grouping, totals and Markdown generation.
 
 `set_card_board_summary` is a short board preview, not a private-data dump. The
 service enforces line and length limits; callers must not place phones, VINs,

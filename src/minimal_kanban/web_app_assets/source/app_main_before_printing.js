@@ -7597,6 +7597,7 @@
         loadInventoryItems(false);
       }
       if (state.mobileView === 'inventory') {
+        renderInventoryForm();
         loadInventoryMovements();
       }
       if (state.mobileView === 'repair-orders' && !state.repairOrdersMetaState && typeof loadRepairOrders === 'function') {

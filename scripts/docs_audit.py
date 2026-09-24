@@ -1128,7 +1128,19 @@ def _user_skills_root() -> Path:
 
 def _is_link_like(path: Path) -> bool:
     try:
-        return path.is_symlink() or path.is_junction()
+        if path.is_symlink():
+            return True
+        junction_probe = getattr(path, "is_junction", None)
+        if junction_probe is not None:
+            return junction_probe()
+        # Python 3.11 has no Path.is_junction; reject every Windows reparse point.
+        return bool(
+            getattr(path.lstat(), "st_file_attributes", 0)
+            & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        )
+    except FileNotFoundError:
+        # Strict resolution and regular-file checks report missing paths below.
+        return False
     except (OSError, RuntimeError):
         return True
 

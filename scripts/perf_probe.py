@@ -5,6 +5,7 @@ import gzip
 import json
 import logging
 import math
+import os
 import statistics
 import sys
 import tempfile
@@ -167,9 +168,14 @@ def request_json(
     method: str = "GET",
     payload: dict[str, Any] | None = None,
     gzip_ok: bool = False,
+    bearer_token: str = "",
     timeout: float = 15.0,
 ) -> tuple[dict[str, Any], ProbeResult]:
     headers = {"Content-Type": "application/json"}
+    if bearer_token:
+        if any(ord(char) < 32 or ord(char) == 127 for char in bearer_token):
+            raise ValueError("Invalid API bearer token")
+        headers["Authorization"] = f"Bearer {bearer_token}"
     data = None
     if gzip_ok:
         headers["Accept-Encoding"] = "gzip"
@@ -225,6 +231,7 @@ def measure(
     method: str = "GET",
     payload: dict[str, Any] | None = None,
     gzip_ok: bool = False,
+    bearer_token: str = "",
 ) -> tuple[dict[str, Any] | None, list[ProbeResult]]:
     results: list[ProbeResult] = []
     latest_payload: dict[str, Any] | None = None
@@ -235,6 +242,7 @@ def measure(
             method=method,
             payload=payload,
             gzip_ok=gzip_ok,
+            bearer_token=bearer_token,
         )
     for _ in range(max(1, iterations)):
         latest_payload, result = request_json(
@@ -243,6 +251,7 @@ def measure(
             method=method,
             payload=payload,
             gzip_ok=gzip_ok,
+            bearer_token=bearer_token,
         )
         results.append(
             ProbeResult(
@@ -463,6 +472,11 @@ def main() -> int:
     parser.add_argument("--iterations", default=3)
     parser.add_argument("--warmup-iterations", default=0)
     parser.add_argument("--card-id", default="")
+    parser.add_argument(
+        "--token-env",
+        default="MINIMAL_KANBAN_API_BEARER_TOKEN",
+        help="Read the API bearer from this environment variable, never a process argument.",
+    )
     parser.add_argument("--max-snapshot-identity-ms", default=0.0)
     parser.add_argument("--max-snapshot-identity-bytes", default=0.0)
     parser.add_argument("--max-snapshot-gzip-ms", default=0.0)
@@ -486,6 +500,11 @@ def main() -> int:
     try:
         local_server = start_local_temp_server() if args.local_temp_server else None
         base_url = local_server.base_url if local_server is not None else args.base_url
+        bearer_token = (
+            ""
+            if local_server is not None
+            else str(os.environ.get(args.token_env, "") or "").strip()
+        )
         rows: list[dict[str, Any]] = []
         snapshot_payload, results = measure(
             base_url,
@@ -493,6 +512,7 @@ def main() -> int:
             "/api/get_board_snapshot?compact=1&include_archive=0",
             iterations=iterations,
             warmup_iterations=warmup_iterations,
+            bearer_token=bearer_token,
         )
         rows.append(summarize(results))
 
@@ -503,6 +523,7 @@ def main() -> int:
             iterations=iterations,
             warmup_iterations=warmup_iterations,
             gzip_ok=True,
+            bearer_token=bearer_token,
         )
         rows.append(summarize(results))
 
@@ -512,6 +533,7 @@ def main() -> int:
             "/api/get_board_revision?compact=1&include_archive=0",
             iterations=iterations,
             warmup_iterations=warmup_iterations,
+            bearer_token=bearer_token,
         )
         rows.append(summarize(results))
 
@@ -525,6 +547,7 @@ def main() -> int:
                 warmup_iterations=warmup_iterations,
                 method="POST",
                 payload={"card_id": card_id},
+                bearer_token=bearer_token,
             )
             rows.append(summarize(results))
 

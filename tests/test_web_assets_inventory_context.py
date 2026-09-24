@@ -124,6 +124,60 @@ assert.match(els.mobileInventoryItemsList.innerHTML,/СКЛАД ЗАГРУЖАЕ
 """,
         )
 
+    def test_mobile_inventory_entry_refreshes_form_after_material_selection(self) -> None:
+        self.run_node(
+            functions("app_main_before_printing.js", "renderMobileShell", "setMobileView")
+            + functions(
+                "inventory_workspace.js",
+                "inventoryItemId",
+                "inventoryItemById",
+                "activeInventoryItem",
+                "inventoryDecimalText",
+                "inventorySearchMatches",
+                "inventoryFormRefs",
+                "syncInventoryForm",
+                "renderInventoryForm",
+                "inventoryPayloadFromForm",
+                "selectRepairOrderInventoryItem",
+                "renderMobileInventory",
+            ),
+            """
+const document={querySelectorAll(){return [];}};
+function normalizeMobileView(view){return view;}
+function claimMobileMorePanelIntent(){} function renderMobileStatus(){}
+function renderInventoryQuickState(){} function inventoryRowHtml(item){return item.id;}
+function loadInventoryItems(){throw new Error('loaded inventory should not be fetched again');}
+let movementLoads=0;function loadInventoryMovements(){movementLoads++;}
+els.mobileAppShell={dataset:{},contains(){return true;}};
+els.mobileInventoryItemsList={innerHTML:''};
+for(const suffix of ['NameInput','CatalogInput','UnitSelect','QuantityInput',
+  'ReplenishQuantityInput','CostPriceInput','SalePriceInput']){
+  els['mobileInventory'+suffix]={value:''};
+}
+els.mobileInventorySaveButton={};els.mobileInventoryReplenishButton={};
+Object.assign(state,{mobileLite:true,mobileView:'inventory',inventoryLoaded:true,
+  inventoryActiveId:'A',inventorySaving:false,actor:'synthetic',inventoryItems:[
+    {id:'A',name:'Part A',catalog_number:'SKU-A',unit:'шт',quantity:1,cost_price:10,sale_price:20,updated_at:'vA'},
+    {id:'B',name:'Part B',catalog_number:'SKU-B',unit:'л',quantity:3,cost_price:30,sale_price:40,updated_at:'vB'}]});
+renderInventoryForm();
+assert.equal(els.mobileInventoryNameInput.value,'Part A');
+state.mobileView='repair-orders';
+selectRepairOrderInventoryItem('B');
+assert.equal(state.inventoryActiveId,'B');
+assert.equal(els.mobileInventoryNameInput.value,'Part A');
+let formRenders=0;const renderForm=renderInventoryForm;
+renderInventoryForm=()=>{formRenders++;renderForm();};
+setMobileView('inventory');
+assert.equal(els.mobileInventoryNameInput.value,'Part B');
+assert.equal(els.mobileInventoryQuantityInput.value,'3');
+assert.equal(formRenders,1);
+assert.equal(movementLoads,1);
+assert.deepEqual(inventoryPayloadFromForm(),{
+  item_id:'B',expected_updated_at:'vB',name:'Part B',catalog_number:'SKU-B',unit:'л',
+  cost_price:'30',sale_price:'40',actor_name:'synthetic',source:'ui'});
+""",
+        )
+
     def test_movement_item_name_index_preserves_lookup_and_fallback(self) -> None:
         self.run_node(
             functions(

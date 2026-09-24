@@ -53,7 +53,11 @@ their preview-and-proof guard.
 
 Store adapter remains internal. `store_owner_capabilities` and `store_owner_api`
 are mounted owner capabilities behind the public 24-tool surface; callers use
-the Gateway rather than treating the Store as a second public MCP server.
+the named Gateway workflows. The generic `store_owner_api` transport is an
+internal dependency and is excluded from public raw discovery and execution.
+Customer estimate operations use `agent_inventory_workflow` with
+`operation="store_quote_conductor"`; its typed phases preserve the underlying
+revision, idempotency and action-proof checks for Store writes.
 
 Bounded Store discovery can provide relevant context across `store_part`,
 `store_quote_request`, `store_sourcing_offer`, `store_order`,

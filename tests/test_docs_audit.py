@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1218,6 +1219,76 @@ class DocsAuditTests(unittest.TestCase):
         )
         self.assertEqual("autostopcrm-maintain/references", descendant_issues[0].path)
         self.assertTrue(link_probe.called)
+
+    def test_python311_skill_audit_accepts_plain_tree_and_reports_missing_paths(self) -> None:
+        module = load_docs_audit_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            skills_root = Path(temp_dir) / "skills"
+            selected = skills_root / "autostopcrm-maintain"
+            selected.mkdir(parents=True)
+            (selected / "SKILL.md").write_text("CRM guidance\n", encoding="utf-8")
+            with patch.object(Path, "is_junction", None, create=True):
+                issues = module._scan_user_skill_doc_issues(
+                    ROOT, (Path(selected.name),), skills_root=skills_root
+                )
+                _, missing_issues = module._resolve_user_skill_paths(
+                    (Path("autostopcrm-missing"),), skills_root=skills_root
+                )
+            self.assertEqual([], issues)
+            self.assertEqual(["skill_path_missing"], [issue.code for issue in missing_issues])
+
+    def test_python311_skill_audit_rejects_reparse_entrypoint_before_reading(self) -> None:
+        module = load_docs_audit_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            selected = Path(temp_dir) / "autostopcrm-maintain"
+            selected.mkdir()
+            entrypoint = selected / "SKILL.md"
+            entrypoint.write_text("private skill guidance", encoding="utf-8")
+            original_lstat = Path.lstat
+
+            def fake_lstat(path: Path):
+                metadata = original_lstat(path)
+                if path != entrypoint:
+                    return metadata
+                return SimpleNamespace(
+                    st_mode=metadata.st_mode,
+                    st_file_attributes=0x400,
+                )
+
+            with (
+                patch.object(Path, "is_junction", None, create=True),
+                patch.object(Path, "lstat", fake_lstat),
+                patch.object(module, "_read_text") as read_text,
+            ):
+                issues = module._scan_user_skill_doc_issues(
+                    ROOT, (Path(selected.name),), skills_root=selected.parent
+                )
+            read_text.assert_not_called()
+            self.assertEqual(["skill_entry_symlink_forbidden"], [issue.code for issue in issues])
+
+    def test_python311_skill_audit_fails_closed_when_metadata_is_unreadable(self) -> None:
+        module = load_docs_audit_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            selected = Path(temp_dir) / "autostopcrm-maintain"
+            selected.mkdir()
+            (selected / "SKILL.md").write_text("CRM guidance\n", encoding="utf-8")
+            original_lstat = Path.lstat
+
+            def failing_lstat(path: Path):
+                if path == selected:
+                    raise PermissionError("metadata unavailable")
+                return original_lstat(path)
+
+            with (
+                patch.object(Path, "is_junction", None, create=True),
+                patch.object(Path, "lstat", failing_lstat),
+                patch.object(module, "_read_text") as read_text,
+            ):
+                issues = module._scan_user_skill_doc_issues(
+                    ROOT, (Path(selected.name),), skills_root=selected.parent
+                )
+            read_text.assert_not_called()
+            self.assertEqual(["skill_path_symlink_forbidden"], [issue.code for issue in issues])
 
     def test_crm_skill_read_failure_is_reported_without_content(self) -> None:
         module = load_docs_audit_module()

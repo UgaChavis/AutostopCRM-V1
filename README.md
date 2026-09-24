@@ -18,6 +18,8 @@ Use current code and focused checks first:
 
 The single [CRM development skill](https://github.com/UgaChavis/AutostopCRM-V1/blob/autostopcrm-v1/tools/codex/skills/autostopcrm-maintain/SKILL.md)
 is versioned here; the runbook describes checking or installing its local copy.
+The [technical-debt index](https://github.com/UgaChavis/AutostopCRM-V1/blob/autostopcrm-v1/tech_debt/README.md)
+maps current maintenance boundaries and their checks.
 
 Generated builds, release copies, screenshots, private bundles, and old plans
 are not sources of truth. For production, use the runbook to compare local,
@@ -32,22 +34,27 @@ Owner MCP client -> 24-tool Gateway v2 -> internal Store adapter -> Store API
 
 - `src/minimal_kanban/services/` owns business behavior;
   `storage/json_store.py` owns persistence and normalization.
+  `SnapshotService` owns journal reads, visibility filtering and response assembly;
+  `services/card_log_projection.py` formats the permitted events into entries,
+  groups, totals and Markdown.
 - `api/server.py` and `api/route_registry.py` own HTTP transport,
   authentication, and mutation classification.
 - `src/minimal_kanban/mcp/` owns the public Gateway v2, action guards, and the
   internal Store adapter. API, MCP, UI, and scripts use the same services.
 - `src/minimal_kanban/web_app_assets/source/` plus `assembler.py` own browser
-  assets; `module_assets.py` owns versioned on-demand panel bundles. `main.py`
-  and `main_mcp.py` are desktop and API/MCP entrypoints. The Qt/PySide6 window
-  hosts the browser UI, integration settings, and printing runtime; it is not a
-  second native CRM board.
+  assets; `module_assets.py` owns versioned on-demand panel bundles.
+- `printing/web_module.py` assembles the print markup and scripts in one shared
+  JavaScript scope. Its internal `web_styles.py`, `web_completion_act.py` and
+  `web_template_editor.py` own styles, the completion-act editor and template
+  editing; `web_async_context.py` and `web_workspace_loading.py` own asynchronous
+  context and workspace loading. The board assembler consumes the combined assets.
+- `main.py` and `main_mcp.py` are desktop and API/MCP entrypoints. The Qt/PySide6
+  window hosts the browser UI, integration settings, and printing runtime.
 - Detached service bundles prepare mutations before JsonStore commits them;
   derived repair-order text files are published after the authoritative save.
 
-The agent builds a customer goal from relevant CRM, Store, and sanctioned
-conversation context. A short quote signal can be enough to start. Routes and
-tools are suggestions, while native confirmation protects only money, published
-prices, orders, deletion, new external recipients, deployment, and secrets.
+Agent workflows, context selection and action guards are documented in the
+[MCP guide](MCP_GUIDE.md).
 
 ## Manager infrastructure map
 
