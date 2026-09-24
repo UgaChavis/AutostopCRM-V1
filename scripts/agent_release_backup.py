@@ -137,17 +137,52 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
     temp_path.replace(path)
 
 
-def _copy_state(state_file: Path, destination: Path) -> None:
+def _copy_state(state_file: Path, destination: Path) -> dict[str, int]:
     if not state_file.is_file():
         raise BackupError(f"CRM state file does not exist: {state_file}")
     lock = ProcessFileLock(state_file.with_suffix(".lock"), timeout_seconds=30.0)
     with lock.acquire():
-        shutil.copyfile(state_file, destination)
+        try:
+            source_stat = state_file.lstat()
+        except FileNotFoundError as exc:
+            raise BackupError(f"CRM state file does not exist: {state_file}") from exc
+        if not stat.S_ISREG(source_stat.st_mode) or stat.S_ISLNK(source_stat.st_mode):
+            raise BackupError("CRM state file is not a regular file")
+
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            descriptor = os.open(state_file, flags)
+        except OSError as exc:
+            raise BackupError("CRM state file changed while opening") from exc
+        try:
+            opened_stat = os.fstat(descriptor)
+            current_stat = state_file.lstat()
+            if (
+                not stat.S_ISREG(opened_stat.st_mode)
+                or opened_stat.st_dev != source_stat.st_dev
+                or opened_stat.st_ino != source_stat.st_ino
+                or not stat.S_ISREG(current_stat.st_mode)
+                or stat.S_ISLNK(current_stat.st_mode)
+                or current_stat.st_dev != opened_stat.st_dev
+                or current_stat.st_ino != opened_stat.st_ino
+            ):
+                raise BackupError("CRM state file changed while opening")
+            with os.fdopen(descriptor, "rb", closefd=False) as source_handle:
+                with destination.open("wb") as destination_handle:
+                    shutil.copyfileobj(source_handle, destination_handle, COPY_CHUNK_BYTES)
+        finally:
+            os.close(descriptor)
+
         with destination.open("r", encoding="utf-8") as handle:
             payload = json.load(handle)
         if not isinstance(payload, dict):
             raise BackupError("CRM state backup is not a JSON object")
-    _fsync_file(destination)
+        _fsync_file(destination)
+    return {
+        "mode": stat.S_IMODE(opened_stat.st_mode),
+        "uid": int(opened_stat.st_uid),
+        "gid": int(opened_stat.st_gid),
+    }
 
 
 def _reject_json_constant(value: str) -> None:
@@ -441,9 +476,8 @@ def create_backup(
         state_source = crm_data_dir / "state.json"
         if not state_source.is_file():
             raise BackupError(f"CRM state file does not exist: {state_source}")
-        state_restore_metadata = _file_restore_metadata(state_source)
         state_destination = temp_dir / STATE_BACKUP_NAME
-        _copy_state(state_source, state_destination)
+        state_restore_metadata = _copy_state(state_source, state_destination)
         artifacts: dict[str, Any] = {
             "state": _artifact(
                 state_destination,

@@ -13,6 +13,7 @@ import tempfile
 import unittest
 from contextlib import closing
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -149,6 +150,39 @@ class AgentReleaseBackupTests(unittest.TestCase):
             restored_forms = json.loads(completion_act_forms.read_text(encoding="utf-8"))
             self.assertIn("card-act-1:cycle:1", restored_forms)
             self.assertNotIn("candidate-only", restored_forms)
+
+    def test_backup_rejects_symlinked_state_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            crm_data, manager_db, output_root = self._fixture(root)
+            state_path = crm_data / "state.json"
+            external_state = root / "external-state.json"
+            state_path.replace(external_state)
+            symlink_or_skip(self, state_path, external_state)
+
+            with self.assertRaisesRegex(self.module.BackupError, "regular"):
+                self.module.create_backup(
+                    output_root=output_root,
+                    crm_data_dir=crm_data,
+                    manager_db=manager_db,
+                    backup_id="symlinked-state",
+                )
+
+            self.assertFalse((output_root / "symlinked-state").exists())
+
+    def test_copy_state_rejects_symlink_file_type_before_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            state_file = root / "state.json"
+            destination = root / "backup-state.json"
+            state_file.write_text("{}", encoding="utf-8")
+            symlink_stat = SimpleNamespace(st_mode=stat.S_IFLNK)
+
+            with patch.object(type(state_file), "lstat", autospec=True, return_value=symlink_stat):
+                with self.assertRaisesRegex(self.module.BackupError, "regular"):
+                    self.module._copy_state(state_file, destination)
+
+            self.assertFalse(destination.exists())
 
     def test_sharded_completion_act_store_round_trips_through_v3_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
