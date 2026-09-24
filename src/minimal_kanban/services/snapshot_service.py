@@ -292,6 +292,19 @@ def _event_counts(events: list[AuditEvent]) -> dict[str, int]:
     return counts
 
 
+def _validated_snapshot_options(service: Any, payload: dict) -> tuple[bool, bool, int]:
+    compact_cards = service._validated_optional_bool(payload, "compact", default=False)
+    include_archive = service._validated_optional_bool(payload, "include_archive", default=True)
+    archive_limit = (
+        service._validated_limit(
+            payload.get("archive_limit"), default=ARCHIVE_PREVIEW_LIMIT, maximum=50
+        )
+        if include_archive
+        else 0
+    )
+    return compact_cards, include_archive, archive_limit
+
+
 class SnapshotService:
     _event_counts = staticmethod(_event_counts)
 
@@ -692,16 +705,8 @@ class SnapshotService:
     ) -> dict | PreparedSnapshotData:
         with self._lock:
             payload = payload or {}
-            compact_cards = self._validated_optional_bool(payload, "compact", default=False)
-            include_archive = self._validated_optional_bool(
-                payload, "include_archive", default=True
-            )
-            archive_limit = (
-                self._validated_limit(
-                    payload.get("archive_limit"), default=ARCHIVE_PREVIEW_LIMIT, maximum=50
-                )
-                if include_archive
-                else 0
+            compact_cards, include_archive, archive_limit = _validated_snapshot_options(
+                self, payload
             )
             bundle, signature = self._store.read_bundle_with_signature()
             viewer_username = self._viewer_username(payload)
@@ -831,16 +836,8 @@ class SnapshotService:
     def get_board_revision(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            compact_cards = self._validated_optional_bool(payload, "compact", default=False)
-            include_archive = self._validated_optional_bool(
-                payload, "include_archive", default=True
-            )
-            archive_limit = (
-                self._validated_limit(
-                    payload.get("archive_limit"), default=ARCHIVE_PREVIEW_LIMIT, maximum=50
-                )
-                if include_archive
-                else 0
+            compact_cards, include_archive, archive_limit = _validated_snapshot_options(
+                self, payload
             )
             bundle, signature = self._store.read_bundle_with_signature()
             viewer_username = self._viewer_username(payload)
