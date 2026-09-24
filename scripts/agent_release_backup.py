@@ -220,7 +220,9 @@ def _validate_completion_act_forms_payload(payload: object) -> None:
                 raise BackupError(f"Completion act draft {field} is not a string: {cycle_key}")
 
 
-def _read_regular_file_bounded(source: Path, *, max_bytes: int, label: str) -> bytes:
+def _read_regular_file_bounded(
+    source: Path, *, max_bytes: int, label: str
+) -> tuple[bytes, dict[str, int]]:
     try:
         source_stat = source.lstat()
         if not stat.S_ISREG(source_stat.st_mode) or stat.S_ISLNK(source_stat.st_mode):
@@ -248,18 +250,22 @@ def _read_regular_file_bounded(source: Path, *, max_bytes: int, label: str) -> b
         raise BackupError(f"{label} is not a regular readable file: {source}") from exc
     if len(encoded) > max_bytes:
         raise BackupError(f"{label} exceeds the bounded backup size")
-    return encoded
+    return encoded, {
+        "mode": stat.S_IMODE(opened_stat.st_mode),
+        "uid": int(opened_stat.st_uid),
+        "gid": int(opened_stat.st_gid),
+    }
 
 
-def _copy_json_object(source: Path, destination: Path, *, label: str) -> bool:
+def _copy_json_object(source: Path, destination: Path, *, label: str) -> dict[str, int] | None:
     if source.parent.is_symlink():
         raise BackupError(f"{label} parent is not a regular directory: {source.parent}")
     if source.is_symlink():
         raise BackupError(f"{label} is not a regular file: {source}")
     if not source.exists():
-        return False
+        return None
     try:
-        encoded = _read_regular_file_bounded(
+        encoded, restore_metadata = _read_regular_file_bounded(
             source,
             max_bytes=COMPLETION_ACT_FORMS_MAX_BYTES,
             label=label,
@@ -275,7 +281,7 @@ def _copy_json_object(source: Path, destination: Path, *, label: str) -> bool:
     _validate_completion_act_forms_payload(payload)
     destination.write_bytes(encoded)
     _fsync_file(destination)
-    return True
+    return restore_metadata
 
 
 def _completion_act_shard_inventory(directory: Path) -> tuple[list[Path], int]:
@@ -319,7 +325,7 @@ def _completion_act_shard_inventory(directory: Path) -> tuple[list[Path], int]:
 
 def _read_completion_act_shard(path: Path) -> tuple[str, dict[str, Any]]:
     try:
-        encoded = _read_regular_file_bounded(
+        encoded, _ = _read_regular_file_bounded(
             path,
             max_bytes=COMPLETION_ACT_FORM_RECORD_MAX_BYTES,
             label="Completion act draft shard",
@@ -383,14 +389,7 @@ def _copy_completion_act_forms_snapshot(
             _fsync_file(destination)
             return _completion_act_snapshot_metadata(shards)
         if legacy.exists() or legacy.is_symlink():
-            metadata = (
-                _file_restore_metadata(legacy)
-                if legacy.is_file() and not legacy.is_symlink()
-                else None
-            )
-            if not _copy_json_object(legacy, destination, label="Completion act drafts"):
-                return None
-            return metadata
+            return _copy_json_object(legacy, destination, label="Completion act drafts")
         return None
 
 

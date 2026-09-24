@@ -184,6 +184,28 @@ class AgentReleaseBackupTests(unittest.TestCase):
 
             self.assertFalse(destination.exists())
 
+    def test_legacy_completion_act_backup_metadata_matches_opened_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            crm_data, _, _ = self._fixture(root)
+            printing_dir = crm_data / "printing"
+            source = printing_dir / "completion_act_forms.json"
+            destination = root / "backup-completion-act-forms.json"
+            expected_metadata = self.module._file_restore_metadata(source)
+
+            with patch.object(
+                self.module,
+                "_file_restore_metadata",
+                return_value={"mode": 0, "uid": 0, "gid": 0},
+            ):
+                metadata = self.module._copy_completion_act_forms_snapshot(
+                    printing_dir,
+                    destination,
+                )
+
+            self.assertEqual(metadata, expected_metadata)
+            self.assertEqual(destination.read_bytes(), source.read_bytes())
+
     def test_sharded_completion_act_store_round_trips_through_v3_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
