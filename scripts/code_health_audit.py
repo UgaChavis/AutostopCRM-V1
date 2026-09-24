@@ -74,7 +74,7 @@ ALLOWED_LARGE_MODULES = {
         "print rendering workflow split target", 4044, 4044, "014"
     ),
     "src/minimal_kanban/printing/web_module.py": RatchetBudget(
-        "embedded print UI asset split target", 3358, 3358, "021"
+        "embedded print UI asset split target", 2895, 2895, "021"
     ),
     "tests/test_service.py": RatchetBudget(
         "legacy broad service coverage pending domain split", 12768, 12768, "003"
