@@ -417,10 +417,12 @@ def _copy_audit_archive(audit_dir: Path, destination: Path) -> bool:
     with lock.acquire():
         with tarfile.open(destination, "w:gz") as archive:
             for source in sorted(audit_dir.rglob("*")):
-                if source.name == ".audit-archive.lock" or not source.is_file():
+                if source.name == ".audit-archive.lock":
                     continue
                 if source.is_symlink():
                     raise BackupError(f"Audit archive contains an unsupported symlink: {source}")
+                if not source.is_file():
+                    continue
                 archive.add(source, arcname=source.relative_to(audit_dir), recursive=False)
     _fsync_file(destination)
     return True

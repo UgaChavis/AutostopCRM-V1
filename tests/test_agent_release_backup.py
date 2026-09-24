@@ -239,6 +239,50 @@ class AgentReleaseBackupTests(unittest.TestCase):
 
             self.assertFalse((output_root / "symlinked-manager-db").exists())
 
+    def test_copy_audit_archive_rejects_symlinked_directory_before_file_filter(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            audit_dir = root / "audit-archive"
+            audit_dir.mkdir()
+            linked_dir = audit_dir / "linked-audit"
+            linked_dir.mkdir()
+            destination = root / "audit-archive.tar.gz"
+
+            with (
+                patch.object(
+                    type(audit_dir), "rglob", autospec=True, return_value=iter([linked_dir])
+                ),
+                patch.object(
+                    type(audit_dir),
+                    "is_symlink",
+                    autospec=True,
+                    side_effect=lambda path: path == linked_dir,
+                ),
+                self.assertRaisesRegex(self.module.BackupError, "symlink"),
+            ):
+                self.module._copy_audit_archive(audit_dir, destination)
+
+    def test_backup_rejects_symlinked_audit_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            crm_data, manager_db, output_root = self._fixture(root)
+            external_audit_dir = root / "external-audit"
+            external_audit_dir.mkdir()
+            (external_audit_dir / "2026-09.jsonl").write_text(
+                '{"event_id":"synthetic-outside"}\n', encoding="utf-8"
+            )
+            symlink_or_skip(self, crm_data / "audit-archive" / "nested", external_audit_dir)
+
+            with self.assertRaisesRegex(self.module.BackupError, "symlink"):
+                self.module.create_backup(
+                    output_root=output_root,
+                    crm_data_dir=crm_data,
+                    manager_db=manager_db,
+                    backup_id="symlinked-audit-directory",
+                )
+
+            self.assertFalse((output_root / "symlinked-audit-directory").exists())
+
     def test_legacy_completion_act_backup_metadata_matches_opened_source(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
