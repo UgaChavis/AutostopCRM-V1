@@ -15,6 +15,7 @@ if str(SRC) not in sys.path:
 
 from minimal_kanban.services import snapshot_service as snapshot_service_module  # noqa: E402
 from minimal_kanban.services.card_service import CardService  # noqa: E402
+from minimal_kanban.services.errors import ServiceError  # noqa: E402
 from minimal_kanban.services.snapshot_cache import (  # noqa: E402
     SNAPSHOT_CACHE_MAX_ENTRIES,
     PreparedSnapshotData,
@@ -60,6 +61,30 @@ class SnapshotCacheTests(unittest.TestCase):
             }
         )
         return str(result["card"]["id"])
+
+    def test_snapshot_and_revision_share_option_validation(self) -> None:
+        cases = (
+            ({}, False, True, snapshot_service_module.ARCHIVE_PREVIEW_LIMIT),
+            ({"compact": True, "include_archive": False, "archive_limit": 0}, True, False, 0),
+            ({"compact": False, "include_archive": True, "archive_limit": 2}, False, True, 2),
+            ({"include_archive": False, "archive_limit": -1}, False, False, 0),
+        )
+
+        for payload, compact, include_archive, archive_limit in cases:
+            with self.subTest(payload=payload):
+                snapshot = self.service.get_board_snapshot(payload)
+                revision = self.service.get_board_revision(payload)
+
+                self.assertEqual(snapshot["meta"]["revision"], revision["revision"])
+                for meta in (snapshot["meta"], revision["meta"]):
+                    self.assertEqual(meta["compact_cards"], compact)
+                    self.assertEqual(meta["include_archive"], include_archive)
+                    self.assertEqual(meta["archive_limit"], archive_limit)
+
+        for read in (self.service.get_board_snapshot, self.service.get_board_revision):
+            with self.subTest(read=read.__name__), self.assertRaises(ServiceError) as raised:
+                read({"include_archive": True, "archive_limit": 0})
+            self.assertEqual(raised.exception.code, "validation_error")
 
     def test_repeated_revision_uses_cached_revision(self) -> None:
         view = self._compact_view()
