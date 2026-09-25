@@ -49,11 +49,11 @@ class InlineScriptExtractor(HTMLParser):
         self._finish_inline_script()
 
     def close(self) -> None:
-        trailing_data = self.rawdata if self._in_inline_script else ""
         super().close()
         if self._in_inline_script:
-            if trailing_data:
-                self._chunks.append(trailing_data)
+            # Older HTMLParser versions leave unclosed script text buffered at EOF.
+            if self.rawdata:
+                self._chunks.append(self.rawdata)
             self._finish_inline_script()
 
 
