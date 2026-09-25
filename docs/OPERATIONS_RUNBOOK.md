@@ -601,12 +601,13 @@ without logging either value, calls the authenticated non-mutating
 dependency readback. The readiness route does not register the digest consumer,
 open a delivery, or advance an ACK.
 
-The default `AUTOSTOP_MANAGER_MCP_ACTIVATE_ON_DEPLOY=0` preserves the existing
-CRM-only deploy behavior. Before E7 may use E8 live, use `=1` in an authorized
-coordinated deploy, or restart the active Manager native MCP with its
-`scripts/install-manager-mcp.sh --replace-unit --activate` and complete its synthetic
-post-check. Do not copy the bearer into Manager's general `.env` or invoke E7
-until that restart has completed.
+The default `AUTOSTOP_MANAGER_MCP_ACTIVATE_ON_DEPLOY=1` activates the sealed
+Manager native MCP during the coordinated deploy, with a bounded probe and
+rollback. This also makes newly imported offline catalogs available through
+`search_offline_parts_catalogs` on the same update. Set `=0` only for an
+explicitly scoped CRM-only release; catalog search will then stay on the
+previous native MCP revision until a later activation. Do not copy the bearer
+into Manager's general `.env` or invoke E7 until activation has completed.
 
 ## GitHub-Only Publication
 
@@ -655,6 +656,7 @@ git status --short --branch
 git fetch origin autostopcrm-v1
 git merge --ff-only origin/autostopcrm-v1
 git -C /opt/AutostopManager status --short --branch
+git -C /opt/AutostopManager switch AutostopManager
 git -C /opt/AutostopManager fetch origin AutostopManager
 git -C /opt/AutostopManager merge --ff-only origin/AutostopManager
 cd /opt/AutostopManager
@@ -691,6 +693,14 @@ closed before maintenance when either Crawl4AI credential is absent or they
 are the same. Public HTTPS/API/MCP auth smoke is mandatory; there is no skip
 flag.
 
+The Manager catalog release is fetched separately from GitHub during the
+pre-maintenance phase. The server needs HTTPS access to GitHub Releases,
+`ripgrep`, Poppler (`pdfinfo`, `pdftotext`, `pdftoppm`), and Tesseract with
+English and Russian language data. The archive checksum is pinned in the
+Manager sync helper; the PDF/XLSX files and extracted text stay in the private
+cache beside the Manager DB. The first import may take several minutes and
+needs disk space for the download, extraction, and the normal release build.
+
 The bounded release flow:
 
 1. verifies exact branch/fetched-remote parity and full cleanliness for both
@@ -701,10 +711,14 @@ The bounded release flow:
    commit via `git archive HEAD`, then reruns only `knowledge-sync` and
    `knowledge-audit` from that sealed candidate snapshot in a disposable
    `mktemp` DB; this narrow gate does not replace the canonical full Manager
-   release gates. It then prebuilds an immutable CRM image before maintenance;
-   an early EXIT guard owns only this attempt's exact Manager paths and Docker
-   refs, so a pre-maintenance failure removes or restores them without touching
-   the live/previous release;
+   release gates. It then uses the same sealed Manager snapshot to synchronize
+   the pinned catalog release into the persistent private cache, verifies the
+   catalog files and text, and checks disk space again before prebuilding an
+   immutable CRM image. A catalog download or import failure occurs before the
+   maintenance window. Catalog additions are durable and remain after a later
+   code rollback; the importer is safe to repeat. An early EXIT guard owns only
+   this attempt's exact Manager paths and Docker refs, so a pre-maintenance
+   failure removes or restores them without touching the live/previous release;
 3. provisions stable encrypted OAuth and rotates the internal compatibility
    bearer with a private rollback copy, without editing Codex configuration;
 4. creates the maintenance marker; snapshots the scheduler DB/unit/config,
