@@ -7,6 +7,26 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class E8ManagerDeployTests(unittest.TestCase):
+    def test_catalog_sync_uses_sealed_manager_before_maintenance(self) -> None:
+        script = (ROOT / "deploy.sh").read_text(encoding="utf-8")
+
+        snapshot = script.index('snapshot_manager_commit "$MANAGER_SOURCE_DIR"')
+        knowledge = script.index("run_isolated_manager_knowledge_preflight", snapshot)
+        sync = script.index('catalog_sync_script="$manager_release_dir/scripts/', knowledge)
+        disk_check = script.index('require_disk_headroom "post-catalog"', sync)
+        maintenance = script.index("maintenance_started=1", disk_check)
+
+        self.assertLess(snapshot, knowledge)
+        self.assertLess(knowledge, sync)
+        self.assertLess(sync, disk_check)
+        self.assertLess(disk_check, maintenance)
+        self.assertIn('[[ ! -f "$catalog_sync_script" || -L "$catalog_sync_script" ]]', script)
+        self.assertIn('PYTHONPATH="$manager_release_dir"', script[sync:disk_check])
+        self.assertIn(
+            '--cache-root "$(dirname "$MANAGER_DB")/offline_parts_catalogs"',
+            script[sync:disk_check],
+        )
+
     def test_deploy_syncs_only_private_loopback_manager_config_after_crm_checks(self) -> None:
         script = (ROOT / "deploy.sh").read_text(encoding="utf-8")
 
