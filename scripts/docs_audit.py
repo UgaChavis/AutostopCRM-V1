@@ -55,6 +55,7 @@ DOCUMENTATION_SUFFIXES = (".md", ".txt", ".rst", ".adoc")
 
 REPOSITORY_SKILL = "tools/codex/skills/autostopcrm-maintain"
 ACTIVE_DOC_GLOBS = (
+    "docs/agent/module_operations/*.md",
     "tech_debt/*.md",
     f"{REPOSITORY_SKILL}/*.md",
     f"{REPOSITORY_SKILL}/references/*.md",
@@ -1618,6 +1619,54 @@ def _check_mcp_guide_gateway_surface(root: Path) -> list[Issue]:
     return issues
 
 
+def _check_crm_module_gateway_catalog(root: Path) -> list[Issue]:
+    path = root / "docs/agent/module_operations/crm_gateway.md"
+    if not path.exists():
+        return []
+    text = _read_text(path)
+    missing = sorted(name for name in load_gateway_expected_tools(root) if f"`{name}`" not in text)
+    if not missing:
+        return []
+    return [
+        Issue(
+            "crm_module_gateway_tools_missing",
+            _display_path(path, root),
+            f"module operations catalog omits public Gateway tools: {missing}",
+        )
+    ]
+
+
+def _check_crm_module_command_catalog(root: Path) -> list[Issue]:
+    path = root / "docs/agent/module_operations/crm_commands.md"
+    scripts_dir = root / "scripts"
+    if not path.exists() or not scripts_dir.is_dir():
+        return []
+    text = _read_text(path)
+    commands = {
+        script.name
+        for script in scripts_dir.iterdir()
+        if script.is_file() and script.suffix in {".ps1", ".sh"}
+    }
+    commands.update(
+        script.name
+        for script in scripts_dir.glob("*.py")
+        if re.search(
+            r"if\s+__name__\s*==\s*['\"]__main__['\"]",
+            _read_text(script),
+        )
+    )
+    missing = sorted(name for name in commands if name not in text)
+    if not missing:
+        return []
+    return [
+        Issue(
+            "crm_module_commands_missing",
+            _display_path(path, root),
+            f"module operations catalog omits executable scripts: {missing}",
+        )
+    ]
+
+
 def extract_decorated_tool_names(path: Path) -> set[str]:
     tree = ast.parse(_read_text(path), filename=str(path))
     tool_names: set[str] = set()
@@ -1799,6 +1848,8 @@ def audit(
     try:
         issues.extend(_check_crm_mcp_surface(root))
         issues.extend(_check_mcp_guide_gateway_surface(root))
+        issues.extend(_check_crm_module_gateway_catalog(root))
+        issues.extend(_check_crm_module_command_catalog(root))
         issues.extend(_check_store_gateway_docs_contract(root))
     except (OSError, SyntaxError, ValueError) as exc:
         issues.append(Issue("crm_mcp_audit_error", str(root), str(exc)))

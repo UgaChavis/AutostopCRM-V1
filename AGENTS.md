@@ -8,6 +8,8 @@ Authorization already given for this task remains valid through completion.
 Use [README.md](README.md) for architecture and the relevant contract or check;
 read deeper documentation only when it helps the task. Business rules belong
 in shared services, used by browser, Windows client, API, and MCP.
+For a module, tool, service, or release symptom, use the
+[CRM module operations catalog](docs/agent/module_operations/README.md).
 
 - Inspect the worktree and preserve unrelated user work. Keep secrets,
   production data, attachments, ledgers, and private context out of Git/output.

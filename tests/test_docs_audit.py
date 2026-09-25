@@ -43,6 +43,39 @@ class DocsAuditTests(unittest.TestCase):
 
         self.assertEqual([], issues)
 
+    def test_crm_module_gateway_card_tracks_public_tool_names(self) -> None:
+        module = load_docs_audit_module()
+        names = sorted(module.load_gateway_expected_tools(ROOT))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "docs/agent/module_operations/crm_gateway.md"
+            path.parent.mkdir(parents=True)
+            path.write_text(" ".join(f"`{name}`" for name in names[:-1]), encoding="utf-8")
+            issues = module._check_crm_module_gateway_catalog(Path(temp_dir))
+
+        self.assertEqual(["crm_module_gateway_tools_missing"], [item.code for item in issues])
+        self.assertIn(names[-1], issues[0].detail)
+
+    def test_crm_module_command_card_tracks_entrypoints(self) -> None:
+        module = load_docs_audit_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            scripts = root / "scripts"
+            scripts.mkdir()
+            (scripts / "example.py").write_text(
+                'if __name__ == "__main__":\n    pass\n', encoding="utf-8"
+            )
+            (scripts / "helper.py").write_text("def helper(): pass\n", encoding="utf-8")
+            (scripts / "operator.ps1").write_text("param()\n", encoding="utf-8")
+            path = root / "docs/agent/module_operations/crm_commands.md"
+            path.parent.mkdir(parents=True)
+            path.write_text("`example.py`\n", encoding="utf-8")
+
+            issues = module._check_crm_module_command_catalog(root)
+
+        self.assertEqual(["crm_module_commands_missing"], [item.code for item in issues])
+        self.assertIn("operator.ps1", issues[0].detail)
+        self.assertNotIn("helper.py", issues[0].detail)
+
     def test_crm_mcp_surface_unions_server_and_registrar_sources(self) -> None:
         module = load_docs_audit_module()
 

@@ -167,6 +167,10 @@ CANONICAL_DOCS = frozenset(
         "MCP_GUIDE.md",
         "README.md",
         "docs/OPERATIONS_RUNBOOK.md",
+        "docs/agent/module_operations/README.md",
+        "docs/agent/module_operations/crm_gateway.md",
+        "docs/agent/module_operations/crm_runtime.md",
+        "docs/agent/module_operations/crm_commands.md",
     }
 )
 DEPENDENCY_MANIFESTS = frozenset(
