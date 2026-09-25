@@ -13,6 +13,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from minimal_kanban.logging_setup import close_logger
 from minimal_kanban.services.card_service import CardService
 from minimal_kanban.storage.json_store import JsonStore
 
@@ -20,17 +21,16 @@ from minimal_kanban.storage.json_store import JsonStore
 class RepairOrderOpenedAtTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         self.state_file = Path(self.temp_dir.name) / "state.json"
         self.logger = logging.getLogger(f"test.repair_order_opened_at.{self._testMethodName}")
-        self.logger.handlers.clear()
+        close_logger(self.logger)
+        self.addCleanup(close_logger, self.logger)
         self.logger.addHandler(logging.NullHandler())
         self.logger.propagate = False
         self.service = CardService(
             JsonStore(state_file=self.state_file, logger=self.logger), self.logger
         )
-
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
 
     def _patch_time(self, moment: datetime):
         return (

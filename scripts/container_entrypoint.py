@@ -24,7 +24,6 @@ def main() -> int:
 
     entrypoint = ROOT / "main_mcp.py"
     os.execv(sys.executable, [sys.executable, str(entrypoint)])
-    return 70
 
 
 if __name__ == "__main__":

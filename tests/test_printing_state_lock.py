@@ -38,10 +38,8 @@ def _card(card_id: str) -> Card:
 class PrintingStateLockTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         self.base_dir = Path(self.temp_dir.name)
-
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
 
     def _assert_serialized_interleaving(
         self,

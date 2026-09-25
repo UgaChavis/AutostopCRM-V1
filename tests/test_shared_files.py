@@ -20,6 +20,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.api.server import ApiServer
+from minimal_kanban.logging_setup import close_logger
 from minimal_kanban.services.card_service import CardService, ServiceError
 from minimal_kanban.services.shared_files_service import (
     SHARED_FILES_MAX_UPLOAD_BYTES,
@@ -37,9 +38,10 @@ def b64(content: bytes) -> str:
 class SharedFilesServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         self.base_dir = Path(self.temp_dir.name)
         self.logger = logging.getLogger(f"test.shared_files.{self._testMethodName}")
-        self.logger.handlers.clear()
+        close_logger(self.logger)
         self.logger.addHandler(logging.NullHandler())
         self.logger.propagate = False
         self.service = SharedFilesService(
@@ -48,9 +50,6 @@ class SharedFilesServiceTests(unittest.TestCase):
             logger=self.logger,
             storage_limit_bytes=128,
         )
-
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
 
     def test_upload_shared_file_does_not_leave_partial_file_when_write_fails(self) -> None:
         original_write_bytes = Path.write_bytes
@@ -645,9 +644,10 @@ class SharedFilesServiceTests(unittest.TestCase):
 class SharedFilesApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         self.base_dir = Path(self.temp_dir.name)
         self.logger = logging.getLogger(f"test.shared_files.api.{self._testMethodName}")
-        self.logger.handlers.clear()
+        close_logger(self.logger)
         self.logger.addHandler(logging.NullHandler())
         self.logger.propagate = False
         self.store = JsonStore(state_file=self.base_dir / "state.json", logger=self.logger)
@@ -669,12 +669,9 @@ class SharedFilesApiTests(unittest.TestCase):
             clipboard_file_provider=lambda: list(self.clipboard_paths),
         )
         self.server.start()
+        self.addCleanup(self.server.stop)
         self.port = self.server.port
         self.base_url = self.server.base_url
-
-    def tearDown(self) -> None:
-        self.server.stop()
-        self.temp_dir.cleanup()
 
     def request(
         self, path: str, payload: dict | None = None, *, method: str = "POST"

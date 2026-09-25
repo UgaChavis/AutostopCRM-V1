@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from time import perf_counter
+from types import TracebackType
 
 SERVER_TIMING_ORDER = (
     "service_lock",
@@ -27,6 +28,13 @@ SERVER_TIMING_ORDER = (
 LOCK_TIMING_NAMES = ("service_lock", "store_lock", "file_lock")
 
 
+def _normalize_app_duration_ms(value: float) -> float:
+    normalized = float(value)
+    if not math.isfinite(normalized):
+        return 0.0
+    return max(normalized, 0.0)
+
+
 @dataclass
 class RequestPerformanceTrace:
     durations_ms: dict[str, float] = field(default_factory=lambda: defaultdict(float))
@@ -43,10 +51,7 @@ class RequestPerformanceTrace:
         self.counts[normalized_name] += 1
 
     def server_timing(self, *, app_duration_ms: float) -> str:
-        normalized_app_duration = float(app_duration_ms)
-        if not math.isfinite(normalized_app_duration):
-            normalized_app_duration = 0.0
-        normalized_app_duration = max(normalized_app_duration, 0.0)
+        normalized_app_duration = _normalize_app_duration_ms(app_duration_ms)
         lock_duration = sum(self.durations_ms.get(name, 0.0) for name in LOCK_TIMING_NAMES)
         values = [
             f"app;dur={normalized_app_duration:.1f}",
@@ -60,11 +65,9 @@ class RequestPerformanceTrace:
 
     def log_fields(self, *, app_duration_ms: float) -> str:
         lock_duration = sum(self.durations_ms.get(name, 0.0) for name in LOCK_TIMING_NAMES)
-        normalized_app_duration = float(app_duration_ms)
-        if not math.isfinite(normalized_app_duration):
-            normalized_app_duration = 0.0
+        normalized_app_duration = _normalize_app_duration_ms(app_duration_ms)
         values = [
-            f"total_ms={max(normalized_app_duration, 0.0):.1f}",
+            f"total_ms={normalized_app_duration:.1f}",
             f"lock_ms={lock_duration:.1f}",
         ]
         values.extend(
@@ -146,5 +149,10 @@ class MeasuredRLock:
         self.acquire()
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
         self.release()

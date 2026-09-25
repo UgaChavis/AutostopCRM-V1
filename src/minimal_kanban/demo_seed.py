@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import Any
 
-from .models import AuditEvent, Card, Column, utc_now
+from .models import AuditEvent, AuditSource, Card, Column, utc_now
 
 
 @dataclass(frozen=True, slots=True)
@@ -12,8 +13,8 @@ class DemoEventSpec:
     actor: str
     action: str
     message: str
-    details: dict
-    source: str = "ui"
+    details: dict[str, Any]
+    source: AuditSource = "ui"
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,9 +42,9 @@ def _event(
     actor: str,
     action: str,
     message: str,
-    details: dict | None = None,
+    details: dict[str, Any] | None = None,
     *,
-    source: str = "ui",
+    source: AuditSource = "ui",
 ) -> DemoEventSpec:
     return DemoEventSpec(
         hours_ago=hours_ago,
@@ -80,7 +81,7 @@ def _card(
     )
 
 
-def build_demo_board(existing_settings: dict | None = None) -> dict:
+def build_demo_board(existing_settings: dict[str, Any] | None = None) -> dict[str, Any]:
     settings = dict(existing_settings or {})
     settings["demo_seeded"] = True
 
@@ -131,7 +132,7 @@ def build_demo_board(existing_settings: dict | None = None) -> dict:
                     id=f"{spec.id}_event_{index}",
                     timestamp=(now - timedelta(hours=item.hours_ago)).isoformat(),
                     actor_name=item.actor,
-                    source=item.source,  # type: ignore[arg-type]
+                    source=item.source,
                     action=item.action,
                     message=item.message,
                     details=dict(item.details),

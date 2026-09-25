@@ -39,11 +39,9 @@ class RawCapabilityDiscoveryTests(unittest.IsolatedAsyncioTestCase):
         self.env = patch.dict("os.environ", GATEWAY_ENV, clear=False)
         self.manager_patch = patch("minimal_kanban.mcp.server._try_register_autostop_manager_tools")
         self.env.start()
+        self.addCleanup(self.env.stop)
         self.manager_register = self.manager_patch.start()
-
-    def tearDown(self) -> None:
-        self.manager_patch.stop()
-        self.env.stop()
+        self.addCleanup(self.manager_patch.stop)
 
     def _server(self):
         return create_mcp_server(
@@ -97,11 +95,9 @@ class RawGatewaySafetyTests(unittest.IsolatedAsyncioTestCase):
         self.env = patch.dict("os.environ", GATEWAY_ENV, clear=False)
         self.manager_patch = patch("minimal_kanban.mcp.server._try_register_autostop_manager_tools")
         self.env.start()
+        self.addCleanup(self.env.stop)
         self.manager_register = self.manager_patch.start()
-
-    def tearDown(self) -> None:
-        self.manager_patch.stop()
-        self.env.stop()
+        self.addCleanup(self.manager_patch.stop)
 
     def _server(self, board_api: FakeBoardApi | None = None, *, port: int = 41840):
         return create_mcp_server(

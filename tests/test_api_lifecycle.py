@@ -22,20 +22,21 @@ class ApiLifecycleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             logger = logging.getLogger("test.api.lifecycle")
             servers = []
+
+            def build_server(index: int) -> ApiServer:
+                instance_dir = Path(temporary) / str(index)
+                store = JsonStore(state_file=instance_dir / "state.json", logger=logger)
+                service = CardService(
+                    store,
+                    logger,
+                    attachments_dir=instance_dir / "attachments",
+                    repair_orders_dir=instance_dir / "repair-orders",
+                )
+                return ApiServer(service, logger, host="127.0.0.1", start_port=0, fallback_limit=1)
+
             try:
                 for index in range(2):
-                    store = JsonStore(
-                        state_file=Path(temporary) / str(index) / "state.json", logger=logger
-                    )
-                    service = CardService(
-                        store,
-                        logger,
-                        attachments_dir=Path(temporary) / str(index) / "attachments",
-                        repair_orders_dir=Path(temporary) / str(index) / "repair-orders",
-                    )
-                    server = ApiServer(
-                        service, logger, host="127.0.0.1", start_port=0, fallback_limit=1
-                    )
+                    server = build_server(index)
                     server.start()
                     servers.append(server)
                 first, second = servers

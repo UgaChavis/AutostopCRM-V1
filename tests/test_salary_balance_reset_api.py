@@ -27,10 +27,11 @@ RESET_PERMISSIONS = [
 class SalaryBalanceResetApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.api = api_test_module.ApiServerTests()
+        self.addCleanup(self._cleanup_api)
         self.api.setUp()
 
-    def tearDown(self) -> None:
-        self.api.tearDown()
+    def _cleanup_api(self) -> None:
+        self.assertTrue(self.api.doCleanups(), "API fixture cleanup failed")
 
     def test_operator_permission_roundtrip_is_persisted_and_revocable(self) -> None:
         status, logged_in = self.api.request(

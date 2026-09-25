@@ -71,6 +71,7 @@ PRIVATE_PAYROLL_SENTINEL = "PRIVATE-PAYROLL-SENTINEL"
 class EmployeeCashboxAccessApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.api = api_test_module.ApiServerTests()
+        self.addCleanup(self._cleanup_api)
         self.api.setUp()
         status, admin_login = self.api.request(
             "/api/login_operator",
@@ -106,8 +107,8 @@ class EmployeeCashboxAccessApiTests(unittest.TestCase):
             "employees-read-only", [EMPLOYEES_READ_ACCESS_PERMISSION]
         )
 
-    def tearDown(self) -> None:
-        self.api.tearDown()
+    def _cleanup_api(self) -> None:
+        self.assertTrue(self.api.doCleanups(), "API fixture cleanup failed")
 
     def _create_and_login(
         self,

@@ -8,6 +8,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+if __package__:
+    from tests.source_path_support import ensure_repository_root_path
+else:
+    from source_path_support import ensure_repository_root_path
+
+ensure_repository_root_path()
+
 from scripts.coordinated_release_state import (
     Artifact,
     ReleaseLayout,
@@ -319,3 +326,7 @@ class CoordinatedReleaseStateTests(unittest.TestCase):
             self.assertFalse(paths["unit"].exists())
             self.assertFalse(paths["current"].exists())
             self.assertFalse(paths["database"].exists())
+
+
+if __name__ == "__main__":
+    unittest.main()

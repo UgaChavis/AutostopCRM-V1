@@ -7,13 +7,14 @@ import unittest
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
+from types import ModuleType
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "finance_audit_report.py"
 
 
-def load_finance_audit_report_module():
+def load_finance_audit_report_module() -> ModuleType:
     spec = importlib.util.spec_from_file_location("finance_audit_report", SCRIPT_PATH)
     if spec is None or spec.loader is None:
         raise AssertionError("finance_audit_report.py is importable")
@@ -28,7 +29,7 @@ class FakeResponse:
         self.status = 200
         self._payload = payload
 
-    def __enter__(self):
+    def __enter__(self) -> FakeResponse:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
@@ -46,7 +47,7 @@ class RawResponse:
         self.status = 200
         self._body = body
 
-    def __enter__(self):
+    def __enter__(self) -> RawResponse:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
@@ -149,7 +150,7 @@ class FinanceAuditReportTests(unittest.TestCase):
         module = load_finance_audit_report_module()
 
         class HugeResponse:
-            def __enter__(self):
+            def __enter__(self) -> HugeResponse:
                 return self
 
             def __exit__(self, exc_type, exc, tb) -> None:

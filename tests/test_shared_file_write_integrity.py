@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 import logging
-import sys
 import tempfile
 import threading
 import unittest
@@ -10,7 +9,12 @@ from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+if __package__:
+    from tests.source_path_support import prepend_source_path
+else:
+    from source_path_support import prepend_source_path
+
+prepend_source_path()
 
 from minimal_kanban.services.errors import ServiceError  # noqa: E402
 from minimal_kanban.services.shared_files_service import SharedFilesService  # noqa: E402

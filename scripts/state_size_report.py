@@ -27,7 +27,7 @@ STATE_SIZE_REPORT_STATE_MAX_BYTES = 100 * 1024 * 1024
 STATE_SIZE_REPORT_MAX_BENCHMARK_ITERATIONS = 1000
 
 
-def json_bytes(value: Any) -> int:
+def json_bytes(value: object) -> int:
     return len(
         json.dumps(
             _json_safe_value(value),
@@ -42,7 +42,7 @@ def _reject_json_constant(value: str) -> None:
     raise ValueError(f"Unsupported JSON constant: {value}")
 
 
-def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
+def _json_safe_value(value: object, *, depth: int = 8) -> object:
     if depth <= 0:
         return str(value)
     if value is None or isinstance(value, (str, bool, int)):
@@ -119,6 +119,13 @@ def _read_state_text(state_file: Path) -> str:
     return raw.decode("utf-8")
 
 
+def _benchmark_logger() -> logging.Logger:
+    logger = logging.getLogger("state_size_report.benchmark")
+    if not any(isinstance(handler, logging.NullHandler) for handler in logger.handlers):
+        logger.addHandler(logging.NullHandler())
+    return logger
+
+
 def section_report(state: dict[str, Any]) -> list[dict[str, Any]]:
     sections: list[dict[str, Any]] = []
     for key in sorted(state.keys()):
@@ -154,8 +161,7 @@ def event_action_report(state: dict[str, Any], *, limit: int = 20) -> list[dict[
 def benchmark_state_file(state_file: Path, *, iterations: int) -> dict[str, Any]:
     if iterations <= 0:
         return {}
-    logger = logging.getLogger("state_size_report.benchmark")
-    logger.addHandler(logging.NullHandler())
+    logger = _benchmark_logger()
     with tempfile.TemporaryDirectory(prefix="autostop-state-report-") as temp_dir:
         temp_state = Path(temp_dir) / "state.json"
         copy_file_limited(

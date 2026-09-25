@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
-import sys
 import threading
 import unittest
 from pathlib import Path
@@ -14,7 +13,12 @@ from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.tools import Tool
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
+if __package__:
+    from tests.source_path_support import prepend_source_path
+else:
+    from source_path_support import prepend_source_path
+
+prepend_source_path()
 
 from minimal_kanban.mcp.agent_gateway_v2 import register_agent_gateway_v2  # noqa: E402
 from minimal_kanban.mcp.tool_execution import ToolExecutor  # noqa: E402

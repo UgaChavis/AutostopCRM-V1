@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from minimal_kanban.api.server import ApiServer  # noqa: E402
+from minimal_kanban.logging_setup import close_logger  # noqa: E402
 from minimal_kanban.operator_activity import OperatorActivityService  # noqa: E402
 from minimal_kanban.operator_auth import OperatorAuthService  # noqa: E402
 from minimal_kanban.services.card_service import CardService  # noqa: E402
@@ -20,9 +21,10 @@ from minimal_kanban.storage.json_store import JsonStore  # noqa: E402
 class PartsStoreApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         root = Path(self.temp_dir.name)
         logger = logging.getLogger(self.id())
-        logger.handlers.clear()
+        close_logger(logger)
         logger.addHandler(logging.NullHandler())
         logger.propagate = False
         store = JsonStore(state_file=root / "state.json", logger=logger)
@@ -49,10 +51,7 @@ class PartsStoreApiTests(unittest.TestCase):
             fallback_limit=1,
         )
         self.server.start()
-
-    def tearDown(self) -> None:
-        self.server.stop()
-        self.temp_dir.cleanup()
+        self.addCleanup(self.server.stop)
 
     def request(
         self,

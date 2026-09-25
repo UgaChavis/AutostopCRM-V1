@@ -5,6 +5,7 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
+from urllib.response import addinfourl
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -17,17 +18,18 @@ API_HEALTH_URL = "http://127.0.0.1:41731/api/health"
 MCP_URL = "http://127.0.0.1:41831/mcp"
 READY_MCP_STATUSES = {200, 204, 307, 308, 400, 401, 403, 405, 406}
 API_HEALTH_RESPONSE_MAX_BYTES = 1 * 1024 * 1024
+HEALTHCHECK_TIMEOUT_SECONDS = 5.0
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+    def redirect_request(self, req, fp, code, msg, headers, newurl) -> None:  # noqa: ANN001
         return None
 
 
 _NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
 
 
-def _urlopen_no_redirect(request: str | urllib.request.Request, *, timeout: float):
+def _urlopen_no_redirect(request: str | urllib.request.Request, *, timeout: float) -> addinfourl:
     return _NO_REDIRECT_OPENER.open(request, timeout=timeout)
 
 
@@ -35,14 +37,14 @@ def _reject_json_constant(value: str) -> None:
     raise ValueError(f"Unsupported JSON constant: {value}")
 
 
-def _read_api_health_body(response) -> bytes:
+def _read_api_health_body(response: addinfourl) -> bytes:
     raw = response.read(API_HEALTH_RESPONSE_MAX_BYTES + 1)
     if len(raw) > API_HEALTH_RESPONSE_MAX_BYTES:
         raise ValueError("API health response is too large")
     return raw
 
 
-def _load_api_health_json(raw: bytes):
+def _load_api_health_json(raw: bytes) -> object:
     try:
         payload = json.loads(raw.decode("utf-8"), parse_constant=_reject_json_constant)
     except RecursionError as exc:
@@ -55,7 +57,7 @@ def _load_api_health_json(raw: bytes):
 
 
 def _check_api() -> bool:
-    with _urlopen_no_redirect(API_HEALTH_URL, timeout=5.0) as response:
+    with _urlopen_no_redirect(API_HEALTH_URL, timeout=HEALTHCHECK_TIMEOUT_SECONDS) as response:
         payload = _load_api_health_json(_read_api_health_body(response))
         if not isinstance(payload, dict):
             return False
@@ -65,7 +67,7 @@ def _check_api() -> bool:
 def _check_mcp() -> bool:
     request = urllib.request.Request(MCP_URL, method="GET", headers={"Accept": "application/json"})
     try:
-        with _urlopen_no_redirect(request, timeout=5.0) as response:
+        with _urlopen_no_redirect(request, timeout=HEALTHCHECK_TIMEOUT_SECONDS) as response:
             return response.status in READY_MCP_STATUSES
     except urllib.error.HTTPError as exc:
         return exc.code in READY_MCP_STATUSES

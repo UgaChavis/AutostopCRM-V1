@@ -10,17 +10,24 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from minimal_kanban.logging_setup import close_logger
 from minimal_kanban.services.card_service import CardService, ServiceError
 from minimal_kanban.storage.json_store import JsonStore
 
 
 class BundleDraftTests(unittest.TestCase):
+    def _make_logger(self) -> logging.Logger:
+        logger = logging.getLogger(self.id())
+        close_logger(logger)
+        self.addCleanup(close_logger, logger)
+        logger.addHandler(logging.NullHandler())
+        logger.propagate = False
+        return logger
+
     def test_post_replace_stat_failure_preserves_archive_and_recovers_pending_feed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             state_file = Path(tmp) / "state.json"
-            logger = logging.getLogger(self.id())
-            logger.addHandler(logging.NullHandler())
-            logger.propagate = False
+            logger = self._make_logger()
             store = JsonStore(state_file, logger)
             service = CardService(store, logger)
             card_id = service.create_card({"title": "Original"})["card"]["id"]
@@ -54,9 +61,7 @@ class BundleDraftTests(unittest.TestCase):
     def test_failed_restore_does_not_reposition_neighbours_retained_by_readers(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             state_file = Path(tmp) / "state.json"
-            logger = logging.getLogger(self.id())
-            logger.addHandler(logging.NullHandler())
-            logger.propagate = False
+            logger = self._make_logger()
             store = JsonStore(state_file, logger)
             service = CardService(store, logger)
             ids = [service.create_card({"title": title})["card"]["id"] for title in ("A", "B", "C")]
@@ -77,9 +82,7 @@ class BundleDraftTests(unittest.TestCase):
         for fast_writes in (True, False):
             with self.subTest(fast_writes=fast_writes), tempfile.TemporaryDirectory() as tmp:
                 state_file = Path(tmp) / "state.json"
-                logger = logging.getLogger(self.id())
-                logger.addHandler(logging.NullHandler())
-                logger.propagate = False
+                logger = self._make_logger()
                 store = JsonStore(state_file, logger)
                 service = CardService(store, logger)
                 card_id = service.create_card({"title": "Original"})["card"]["id"]
@@ -120,6 +123,8 @@ class InventoryPayrollDraftTests(unittest.TestCase):
         self.root = Path(temp.name)
         self.state_file = self.root / "state.json"
         logger = logging.getLogger(self.id())
+        close_logger(logger)
+        self.addCleanup(close_logger, logger)
         logger.addHandler(logging.NullHandler())
         logger.propagate = False
         self.store = JsonStore(self.state_file, logger)

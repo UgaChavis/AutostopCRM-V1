@@ -4,6 +4,14 @@ import logging
 import unittest
 from unittest.mock import patch
 
+if __package__:
+    from tests.source_path_support import ensure_repository_root_path, ensure_source_path
+else:
+    from source_path_support import ensure_repository_root_path, ensure_source_path
+
+ensure_repository_root_path()
+ensure_source_path()
+
 from minimal_kanban.mcp.server import create_mcp_server
 from tests.test_agent_gateway_v2 import (
     GATEWAY_ENV,

@@ -1,15 +1,21 @@
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import io
 import json
 import sys
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock, Mock, call, patch
+
+if __package__:
+    from tests.http_fixture_support import FakeReadableResponse as FakeResponse
+    from tests.module_loader_support import load_module_from_file
+else:
+    from http_fixture_support import FakeReadableResponse as FakeResponse
+    from module_loader_support import load_module_from_file
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "browser_smoke.py"
@@ -20,33 +26,29 @@ def browser_smoke_source() -> str:
     return "\n".join(path.read_text(encoding="utf-8") for path in SOURCE_PATHS)
 
 
-def load_browser_smoke_module():
-    spec = importlib.util.spec_from_file_location("browser_smoke", SCRIPT_PATH)
-    if spec is None or spec.loader is None:
-        raise AssertionError("browser_smoke.py is importable")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-class FakeResponse:
-    def __init__(self, payload: bytes) -> None:
-        self._payload = payload
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb) -> None:
-        _ = (exc_type, exc, tb)
-
-    def read(self, size: int = -1) -> bytes:
-        if size is None or size < 0:
-            return self._payload
-        return self._payload[:size]
+def load_browser_smoke_module() -> ModuleType:
+    return load_module_from_file("browser_smoke", SCRIPT_PATH)
 
 
 class BrowserSmokeScriptTests(unittest.TestCase):
+    def test_loader_restores_previous_module_entry(self) -> None:
+        module_name = "browser_smoke"
+        previous_module = sys.modules.get(module_name)
+        had_previous_module = module_name in sys.modules
+        sentinel = ModuleType(module_name)
+        sys.modules[module_name] = sentinel
+
+        try:
+            loaded_module = load_browser_smoke_module()
+
+            self.assertIsNot(loaded_module, sentinel)
+            self.assertIs(sys.modules[module_name], sentinel)
+        finally:
+            if had_previous_module:
+                sys.modules[module_name] = previous_module
+            else:
+                sys.modules.pop(module_name, None)
+
     def test_success_login_helper_uses_only_local_admin_success_path(self) -> None:
         load_browser_smoke_module()
         support = sys.modules["browser_smoke_support"]
@@ -832,36 +834,44 @@ class BrowserSmokeScriptTests(unittest.TestCase):
     def test_read_json_rejects_non_standard_constants(self) -> None:
         module = load_browser_smoke_module()
 
-        with patch.object(
-            module,
-            "_read_bytes",
-            return_value=b'{"ok": true, "duration_ms": NaN}',
+        with (
+            patch.object(
+                module,
+                "_read_bytes",
+                return_value=b'{"ok": true, "duration_ms": NaN}',
+            ),
+            self.assertRaisesRegex(ValueError, "Unsupported JSON constant: NaN"),
         ):
-            with self.assertRaisesRegex(ValueError, "Unsupported JSON constant: NaN"):
-                module._read_json("http://127.0.0.1/api/test")
+            module._read_json("http://127.0.0.1/api/test")
 
     def test_read_json_rejects_deeply_nested_response(self) -> None:
         module = load_browser_smoke_module()
         deep_json = ("[" * 5000 + "0" + "]" * 5000).encode("utf-8")
 
-        with patch.object(module, "_read_bytes", return_value=deep_json):
-            with self.assertRaisesRegex(ValueError, "API response JSON is too deeply nested"):
-                module._read_json("http://127.0.0.1/api/test")
+        with (
+            patch.object(module, "_read_bytes", return_value=deep_json),
+            self.assertRaisesRegex(ValueError, "API response JSON is too deeply nested"),
+        ):
+            module._read_json("http://127.0.0.1/api/test")
 
     def test_read_json_rejects_non_object_response(self) -> None:
         module = load_browser_smoke_module()
 
-        with patch.object(module, "_read_bytes", return_value=b"[]"):
-            with self.assertRaisesRegex(ValueError, "API response must be a JSON object"):
-                module._read_json("http://127.0.0.1/api/test")
+        with (
+            patch.object(module, "_read_bytes", return_value=b"[]"),
+            self.assertRaisesRegex(ValueError, "API response must be a JSON object"),
+        ):
+            module._read_json("http://127.0.0.1/api/test")
 
     def test_read_bytes_rejects_oversized_response(self) -> None:
         module = load_browser_smoke_module()
         payload = b"x" * (module.BROWSER_SMOKE_RESPONSE_MAX_BYTES + 2)
 
-        with patch.object(module, "_urlopen_no_redirect", return_value=FakeResponse(payload)):
-            with self.assertRaisesRegex(ValueError, "Browser smoke response is too large"):
-                module._read_bytes("http://127.0.0.1/api/test", accept="text/html", timeout=1.0)
+        with (
+            patch.object(module, "_urlopen_no_redirect", return_value=FakeResponse(payload)),
+            self.assertRaisesRegex(ValueError, "Browser smoke response is too large"),
+        ):
+            module._read_bytes("http://127.0.0.1/api/test", accept="text/html", timeout=1.0)
 
     def test_read_bytes_rejects_redirect_response(self) -> None:
         module = load_browser_smoke_module()
@@ -873,9 +883,11 @@ class BrowserSmokeScriptTests(unittest.TestCase):
             fp=None,
         )
 
-        with patch.object(module, "_urlopen_no_redirect", side_effect=redirect):
-            with self.assertRaises(module.urllib.error.HTTPError):
-                module._read_bytes("http://127.0.0.1/api/test", accept="text/html", timeout=1.0)
+        with (
+            patch.object(module, "_urlopen_no_redirect", side_effect=redirect),
+            self.assertRaises(module.urllib.error.HTTPError),
+        ):
+            module._read_bytes("http://127.0.0.1/api/test", accept="text/html", timeout=1.0)
 
     def test_json_dumps_sanitizes_non_finite_numbers(self) -> None:
         module = load_browser_smoke_module()

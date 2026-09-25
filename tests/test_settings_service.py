@@ -19,6 +19,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from minimal_kanban.logging_setup import close_logger  # noqa: E402
 from minimal_kanban.settings_models import (
     AuthSettings,
     IntegrationSettings,
@@ -42,16 +43,15 @@ from minimal_kanban.settings_store import SettingsStore
 class SettingsServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         self.settings_file = Path(self.temp_dir.name) / "settings.json"
         self.logger = logging.getLogger(f"test.settings.{self._testMethodName}")
-        self.logger.handlers.clear()
+        close_logger(self.logger)
+        self.addCleanup(close_logger, self.logger)
         self.logger.addHandler(logging.NullHandler())
         self.logger.propagate = False
         self.store = SettingsStore(settings_file=self.settings_file, logger=self.logger)
         self.service = SettingsService(self.store, self.logger)
-
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
 
     def test_defaults_are_created_in_separate_settings_file(self) -> None:
         settings = self.service.load()

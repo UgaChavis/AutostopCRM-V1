@@ -9,7 +9,12 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
+if __package__:
+    from tests.source_path_support import prepend_scripts_path
+else:
+    from source_path_support import prepend_scripts_path
+
+prepend_scripts_path()
 
 from browser_smoke_runtime import start_temp_runtime
 

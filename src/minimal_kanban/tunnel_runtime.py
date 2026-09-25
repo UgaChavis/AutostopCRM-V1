@@ -743,7 +743,7 @@ class TunnelRuntimeController:
 
     def _normalize_process_identity(
         self,
-        value,
+        value: object,
         *,
         provider: str,
     ) -> dict[str, str] | None:
@@ -880,7 +880,7 @@ class TunnelRuntimeController:
             "started": f"windows-filetime:{created_value}",
         }
 
-    def _normalize_pid(self, value) -> int | None:
+    def _normalize_pid(self, value: object) -> int | None:
         if isinstance(value, bool):
             return None
         try:

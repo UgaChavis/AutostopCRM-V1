@@ -110,7 +110,7 @@ EXACT_READBACK_CLASSES = {
 
 
 class _FakeService:
-    def __getattr__(self, name: str):
+    def __getattr__(self, name: str) -> Any:
         def handler(payload: dict[str, Any] | None = None) -> dict[str, Any]:
             return {"handler": name, "payload": payload}
 

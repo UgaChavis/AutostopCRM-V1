@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 import logging
 import sys
@@ -10,7 +9,13 @@ from contextlib import redirect_stdout
 from datetime import UTC, datetime
 from io import StringIO
 from pathlib import Path
+from types import ModuleType
 from unittest.mock import patch
+
+if __package__:
+    from tests.module_loader_support import load_module_from_file
+else:
+    from module_loader_support import load_module_from_file
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -18,34 +23,46 @@ SCRIPT_PATH = ROOT / "scripts" / "client_duplicates_maintenance.py"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from minimal_kanban.logging_setup import close_logger
 from minimal_kanban.services.card_service import CardService
 from minimal_kanban.storage.json_store import JsonStore
 
 
-def load_client_duplicates_module():
-    spec = importlib.util.spec_from_file_location("client_duplicates_maintenance", SCRIPT_PATH)
-    if spec is None or spec.loader is None:
-        raise AssertionError("client_duplicates_maintenance.py is importable")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+def load_client_duplicates_module() -> ModuleType:
+    return load_module_from_file("client_duplicates_maintenance", SCRIPT_PATH)
 
 
 class ClientDuplicatesMaintenanceTests(unittest.TestCase):
+    def test_loader_restores_previous_module_entry(self) -> None:
+        module_name = "client_duplicates_maintenance"
+        previous_module = sys.modules.get(module_name)
+        had_previous_module = module_name in sys.modules
+        sentinel = ModuleType(module_name)
+        sys.modules[module_name] = sentinel
+
+        try:
+            loaded_module = load_client_duplicates_module()
+
+            self.assertIsNot(loaded_module, sentinel)
+            self.assertIs(sys.modules[module_name], sentinel)
+        finally:
+            if had_previous_module:
+                sys.modules[module_name] = previous_module
+            else:
+                sys.modules.pop(module_name, None)
+
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         self.state_file = Path(self.temp_dir.name) / "state.json"
         self.logger = logging.getLogger(f"test.client_duplicates.{self._testMethodName}")
-        self.logger.handlers.clear()
+        close_logger(self.logger)
+        self.addCleanup(close_logger, self.logger)
         self.logger.addHandler(logging.NullHandler())
         self.logger.propagate = False
         self.store = JsonStore(state_file=self.state_file, logger=self.logger)
         self.service = CardService(self.store, self.logger)
         self.module = load_client_duplicates_module()
-
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
 
     def test_dry_run_reports_exact_phone_name_duplicates(self) -> None:
         first = self.service.create_client(

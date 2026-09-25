@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import os
 import threading
+from typing import TYPE_CHECKING
 
 from .models import _normalize_copy_count
+
+if TYPE_CHECKING:
+    from PySide6.QtWidgets import QApplication
 
 
 class PrinterBackendError(RuntimeError):
@@ -20,7 +24,7 @@ def _should_use_qt_printer_backend() -> bool:
     return threading.current_thread() is threading.main_thread()
 
 
-def _ensure_qt_application():
+def _ensure_qt_application() -> QApplication:
     if not os.environ.get("QT_QPA_PLATFORM") and os.name != "nt":
         os.environ["QT_QPA_PLATFORM"] = "offscreen"
     try:

@@ -23,6 +23,7 @@ from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication, QLineEdit, QMessageBox
 
 from minimal_kanban.integration_runtime import McpRuntimeState
+from minimal_kanban.logging_setup import close_logger
 from minimal_kanban.settings_service import (
     ConnectionCheckResult,
     ConnectionTestSummary,
@@ -104,9 +105,11 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         self.settings_file = Path(self.temp_dir.name) / "settings.json"
         self.logger = logging.getLogger(f"test.settings.ui.{self._testMethodName}")
-        self.logger.handlers.clear()
+        close_logger(self.logger)
+        self.addCleanup(close_logger, self.logger)
         self.logger.addHandler(logging.NullHandler())
         self.logger.propagate = False
         self.settings_store = SettingsStore(settings_file=self.settings_file, logger=self.logger)
@@ -130,7 +133,6 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
         for widget in QApplication.topLevelWidgets():
             widget.close()
         self.app.processEvents()
-        self.temp_dir.cleanup()
 
     def test_settings_button_creates_dialog(self) -> None:
         dialog = self.window.build_settings_window()

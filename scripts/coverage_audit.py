@@ -5,7 +5,7 @@ import json
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -116,7 +116,11 @@ def _read_json(path: Path, *, label: str) -> dict[str, Any]:
     if size > MAX_INPUT_BYTES:
         raise ValueError(f"{label} exceeds {MAX_INPUT_BYTES} bytes: {path}")
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        with path.open("rb") as handle:
+            raw = handle.read(MAX_INPUT_BYTES + 1)
+        if len(raw) > MAX_INPUT_BYTES:
+            raise ValueError(f"{label} exceeds {MAX_INPUT_BYTES} bytes: {path}")
+        value = json.loads(raw.decode("utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError(f"{label} is invalid JSON: {path}: {exc}") from exc
     if not isinstance(value, dict):
@@ -128,7 +132,14 @@ def _normalize_path(value: object, *, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{label} must be a non-empty path")
     normalized = value.replace("\\", "/").removeprefix("./")
-    if Path(normalized).is_absolute() or ".." in Path(normalized).parts:
+    candidate = Path(normalized)
+    windows_candidate = PureWindowsPath(normalized)
+    if (
+        candidate.is_absolute()
+        or windows_candidate.drive
+        or windows_candidate.root
+        or ".." in candidate.parts
+    ):
         raise ValueError(f"{label} must stay relative to the repository: {value}")
     return normalized
 

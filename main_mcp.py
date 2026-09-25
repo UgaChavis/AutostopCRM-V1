@@ -1,11 +1,9 @@
-import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
-SRC = ROOT / "src"
+from project_source_path import add_project_source_path
 
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+ROOT = Path(__file__).resolve().parent
+add_project_source_path(ROOT)
 
 from minimal_kanban.mcp.main import run
 

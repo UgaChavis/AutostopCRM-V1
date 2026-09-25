@@ -4,6 +4,7 @@ import sys
 import unittest
 import urllib.error
 from pathlib import Path
+from types import TracebackType
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -368,7 +369,12 @@ class BoardApiClientTests(unittest.TestCase):
             def __enter__(self):
                 return self
 
-            def __exit__(self, exc_type, exc, tb):
+            def __exit__(
+                self,
+                exc_type: type[BaseException] | None,
+                exc: BaseException | None,
+                tb: TracebackType | None,
+            ) -> bool:
                 return False
 
             def read(self, size: int = -1) -> bytes:
@@ -404,7 +410,12 @@ class BoardApiClientTests(unittest.TestCase):
             def __enter__(self):
                 return self
 
-            def __exit__(self, exc_type, exc, tb):
+            def __exit__(
+                self,
+                exc_type: type[BaseException] | None,
+                exc: BaseException | None,
+                tb: TracebackType | None,
+            ) -> bool:
                 return False
 
             def read(self, size: int = -1) -> bytes:

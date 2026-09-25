@@ -15,6 +15,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from minimal_kanban.logging_setup import close_logger
 from minimal_kanban.operator_auth import OperatorAuthService
 from minimal_kanban.services.card_service import CardService
 from minimal_kanban.storage.json_store import JsonStore
@@ -23,9 +24,10 @@ from minimal_kanban.storage.json_store import JsonStore
 class OperatorUserRevisionTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         root = Path(self.temp_dir.name)
         logger = logging.getLogger(f"test.operator_user_revision.{self._testMethodName}")
-        logger.handlers.clear()
+        close_logger(logger)
         logger.addHandler(logging.NullHandler())
         logger.propagate = False
         self.store = JsonStore(state_file=root / "state.json", logger=logger)
@@ -38,9 +40,6 @@ class OperatorUserRevisionTests(unittest.TestCase):
         self.users_file = root / "users.json"
         self.service = self._new_service(logger)
         self.admin_session = {"username": "ADMIN", "is_admin": True, "token": "test"}
-
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
 
     def _new_service(self, logger: logging.Logger) -> OperatorAuthService:
         service = OperatorAuthService(

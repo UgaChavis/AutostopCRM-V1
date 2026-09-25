@@ -13,6 +13,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from minimal_kanban.logging_setup import close_logger
 from minimal_kanban.services.card_service import CardService
 from minimal_kanban.services.errors import ServiceError
 from minimal_kanban.storage.json_store import JsonStore
@@ -23,16 +24,15 @@ FROZEN_PAYROLL_NOW = datetime.fromisoformat("2026-07-18T12:00:00+07:00")
 class RepairOrderPayrollAccrualTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         self.logger = logging.getLogger(f"test.order-payroll.{self._testMethodName}")
-        self.logger.handlers.clear()
+        close_logger(self.logger)
+        self.addCleanup(close_logger, self.logger)
         self.logger.addHandler(logging.NullHandler())
         self.store = JsonStore(
             state_file=Path(self.temp_dir.name) / "state.json", logger=self.logger
         )
         self.service = CardService(self.store, self.logger)
-
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
 
     def _employee(self, name: str, **terms: str) -> dict:
         return self.service.save_employee(

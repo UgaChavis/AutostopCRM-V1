@@ -1,16 +1,18 @@
 from __future__ import annotations
 
-import sys
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+if __package__:
+    from tests.source_path_support import (
+        ensure_repository_root_path,
+        ensure_source_path,
+    )
+else:
+    from source_path_support import ensure_repository_root_path, ensure_source_path
+
+ensure_repository_root_path()
+ensure_source_path()
 
 from minimal_kanban.mcp.raw_gateway import (  # noqa: E402
     RAW_API_ROUTES,

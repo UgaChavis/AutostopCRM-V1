@@ -255,7 +255,7 @@ def _build_crm_summary(context: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _normalize_text(value: Any) -> str:
+def _normalize_text(value: object) -> str:
     text = str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
     return re.sub(r"\s+", " ", text)
 

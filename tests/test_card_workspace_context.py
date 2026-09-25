@@ -3,14 +3,16 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
-import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+if __package__:
+    from tests.source_path_support import ensure_source_path
+else:
+    from source_path_support import ensure_source_path
+
+ensure_source_path()
 
 from minimal_kanban.web_assets import (  # noqa: E402
     BOARD_WEB_APP_CONTRACT_TEXT as BOARD_WEB_APP_HTML,

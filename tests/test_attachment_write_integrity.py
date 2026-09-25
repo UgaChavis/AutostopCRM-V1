@@ -1,29 +1,32 @@
 """Attachment bytes survive committed writes and are reclaimed on rejected CAS."""
 
-from __future__ import annotations
-
+from __future__ import annotations  # noqa: I001
 import base64
-import sys
 from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from tests.services_case import CardServiceCase
 
-from minimal_kanban.services.card_service import CardService  # noqa: E402
-from minimal_kanban.services.errors import ServiceError  # noqa: E402
-from minimal_kanban.storage.json_store import JsonStore  # noqa: E402
-from tests.services_case import CardServiceCase  # noqa: E402
+# CardServiceCase adds src/ to sys.path before application imports.
+from minimal_kanban.services.card_service import CardService
+from minimal_kanban.services.errors import ServiceError
+from minimal_kanban.storage.json_store import JsonStore
 
 
 class AttachmentWriteIntegrityTests(CardServiceCase):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         self.service = self._build_service()
         self.card_id = self.service.create_card(
             {"title": "Synthetic attachments", "deadline": {"hours": 2}}
         )["card"]["id"]
 
-    def upload(self, content=b"Synthetic attachment", file_name="note.txt", service=None):
+    def upload(
+        self,
+        content: bytes = b"Synthetic attachment",
+        file_name: str = "note.txt",
+        service: CardService | None = None,
+    ) -> dict[str, object]:
         return (service or self.service).add_card_attachment(
             {
                 "card_id": self.card_id,
@@ -33,7 +36,7 @@ class AttachmentWriteIntegrityTests(CardServiceCase):
             }
         )
 
-    def peer(self):
+    def peer(self) -> CardService:
         return CardService(
             JsonStore(self.state_file, self.logger),
             self.logger,
@@ -41,10 +44,10 @@ class AttachmentWriteIntegrityTests(CardServiceCase):
             repair_orders_dir=Path(self.temp_dir.name) / "repair-orders",
         )
 
-    def files(self):
+    def files(self) -> list[Path]:
         return list((Path(self.temp_dir.name) / "attachments").rglob("*.txt"))
 
-    def test_conflicting_upload_reclaims_only_its_own_bytes(self):
+    def test_conflicting_upload_reclaims_only_its_own_bytes(self) -> None:
         for fast in (True, False):
             with self.subTest(fast=fast):
                 accepted = self.upload(b"Existing bytes")
@@ -53,7 +56,7 @@ class AttachmentWriteIntegrityTests(CardServiceCase):
                 peer_attachment = None
                 peer_state = None
 
-                def save_after_peer(bundle, **kwargs):
+                def save_after_peer(bundle: dict[str, object], **kwargs: object) -> None:
                     nonlocal peer_attachment, peer_state
                     peer_attachment = self.upload(b"Peer bytes", service=peer)["attachment"]
                     peer_state = self.state_file.read_bytes()
@@ -82,10 +85,10 @@ class AttachmentWriteIntegrityTests(CardServiceCase):
                     path, _ = reopened.get_attachment_download(self.card_id, attachment["id"])
                     self.assertEqual(path.read_bytes(), content)
 
-    def test_cleanup_failure_keeps_original_conflict(self):
+    def test_cleanup_failure_keeps_original_conflict(self) -> None:
         save_bundle = self.service._save_bundle
 
-        def conflict(bundle, **kwargs):
+        def conflict(bundle: dict[str, object], **kwargs: object) -> None:
             self.peer().create_card({"title": "Peer mutation", "deadline": {"hours": 2}})
             return save_bundle(bundle, **kwargs)
 
@@ -112,10 +115,10 @@ class AttachmentWriteIntegrityTests(CardServiceCase):
             )
         )
 
-    def test_late_save_error_preserves_committed_attachment_bytes(self):
+    def test_late_save_error_preserves_committed_attachment_bytes(self) -> None:
         save_bundle = self.service._save_bundle
 
-        def committed_then_failed(bundle, **kwargs):
+        def committed_then_failed(bundle: dict[str, object], **kwargs: object) -> None:
             save_bundle(bundle, **kwargs)
             raise OSError("Late response failure")
 
@@ -131,7 +134,7 @@ class AttachmentWriteIntegrityTests(CardServiceCase):
         path, _ = reopened.get_attachment_download(self.card_id, attachments[0]["id"])
         self.assertEqual(path.read_bytes(), b"Synthetic attachment")
 
-    def test_utf16_bom_text_is_decoded_before_single_byte_fallback(self):
+    def test_utf16_bom_text_is_decoded_before_single_byte_fallback(self) -> None:
         text = "Заказ 123 — готов\nПроверка текста"
         for encoding, bom in (("utf-16-le", b"\xff\xfe"), ("utf-16-be", b"\xfe\xff")):
             with self.subTest(encoding=encoding):
@@ -148,7 +151,7 @@ class AttachmentWriteIntegrityTests(CardServiceCase):
                 )
                 self.assertEqual(path.read_bytes(), content)
 
-    def test_legacy_text_encodings_keep_their_content(self):
+    def test_legacy_text_encodings_keep_their_content(self) -> None:
         text = "Заказ 123 готов\nПроверка текста"
         for encoding in ("utf-8", "utf-8-sig", "cp1251"):
             with self.subTest(encoding=encoding):
@@ -158,7 +161,7 @@ class AttachmentWriteIntegrityTests(CardServiceCase):
                 )["content"]
                 self.assertEqual(content["text"], text)
 
-    def test_utf16_character_crossing_detection_sample_boundary_is_accepted(self):
+    def test_utf16_character_crossing_detection_sample_boundary_is_accepted(self) -> None:
         text = "a" * 4094 + "\U0001f697" + " End"
         for encoding, bom in (("utf-16-le", b"\xff\xfe"), ("utf-16-be", b"\xfe\xff")):
             with self.subTest(encoding=encoding):

@@ -2,6 +2,13 @@ from __future__ import annotations
 
 import unittest
 
+if __package__:
+    from tests.source_path_support import ensure_source_path
+else:
+    from source_path_support import ensure_source_path
+
+ensure_source_path()
+
 from minimal_kanban.printing.web_module import PRINTING_WEB_MODULE_SCRIPT
 from minimal_kanban.printing.web_template_editor import (
     PRINTING_TEMPLATE_EDITOR_HELPERS_SCRIPT,
@@ -21,3 +28,7 @@ class PrintingTemplateEditorExtractionTests(unittest.TestCase):
             PRINTING_WEB_MODULE_SCRIPT.index(PRINTING_TEMPLATE_EDITOR_HELPERS_SCRIPT),
             PRINTING_WEB_MODULE_SCRIPT.index(PRINTING_TEMPLATE_EDITOR_WORKFLOW_SCRIPT),
         )
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import TracebackType
 from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -20,14 +21,43 @@ from minimal_kanban.app import run
 
 
 class StartupErrorTests(unittest.TestCase):
+    def test_blocked_port_socket_closes_when_bind_fails(self) -> None:
+        class FailingSocket:
+            def __init__(self) -> None:
+                self.closed = False
+
+            def __enter__(self) -> FailingSocket:
+                return self
+
+            def __exit__(
+                self,
+                _exc_type: type[BaseException] | None,
+                _exc: BaseException | None,
+                _traceback: TracebackType | None,
+            ) -> bool:
+                self.closed = True
+                return False
+
+            def bind(self, _address: tuple[str, int]) -> None:
+                raise OSError("bind failed")
+
+        blocker = FailingSocket()
+        with (
+            patch.object(socket, "socket", return_value=blocker),
+            self.assertRaisesRegex(OSError, "bind failed"),
+        ):
+            self._with_blocked_api_port()
+
+        self.assertTrue(blocker.closed)
+
     def _with_blocked_api_port(self) -> int:
-        blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        blocker.bind(("127.0.0.1", 0))
-        blocker.listen(1)
-        blocked_port = blocker.getsockname()[1]
-        try:
-            with tempfile.TemporaryDirectory() as tmp:
-                with patch.dict(
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as blocker:
+            blocker.bind(("127.0.0.1", 0))
+            blocker.listen(1)
+            blocked_port = blocker.getsockname()[1]
+            with (
+                tempfile.TemporaryDirectory() as tmp,
+                patch.dict(
                     os.environ,
                     {
                         "APPDATA": tmp,
@@ -37,10 +67,9 @@ class StartupErrorTests(unittest.TestCase):
                         "MINIMAL_KANBAN_SUPPRESS_ERROR_DIALOGS": "1",
                     },
                     clear=False,
-                ):
-                    return run()
-        finally:
-            blocker.close()
+                ),
+            ):
+                return run()
 
     def test_run_returns_error_when_api_port_is_blocked(self) -> None:
         exit_code = self._with_blocked_api_port()

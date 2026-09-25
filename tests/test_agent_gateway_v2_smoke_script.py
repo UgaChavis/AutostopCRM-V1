@@ -1,25 +1,23 @@
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import sys
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
+
+if __package__:
+    from tests.module_loader_support import load_module_from_file
+else:
+    from module_loader_support import load_module_from_file
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "check_agent_gateway_v2.py"
 
 
-def load_script_module():
-    spec = importlib.util.spec_from_file_location("check_agent_gateway_v2", SCRIPT_PATH)
-    if spec is None or spec.loader is None:
-        raise AssertionError("check_agent_gateway_v2.py is importable")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+def load_script_module() -> ModuleType:
+    return load_module_from_file("check_agent_gateway_v2", SCRIPT_PATH)
 
 
 def tool_result(payload: dict, *, is_error: bool = False):
@@ -59,6 +57,24 @@ def raw_write_result(executor: dict, *, check: str = "executor_contract_only"):
 
 
 class AgentGatewayV2SmokeScriptTests(unittest.TestCase):
+    def test_loader_restores_previous_module_entry(self) -> None:
+        module_name = "check_agent_gateway_v2"
+        previous_module = sys.modules.get(module_name)
+        had_previous_module = module_name in sys.modules
+        sentinel = ModuleType(module_name)
+        sys.modules[module_name] = sentinel
+
+        try:
+            loaded_module = load_script_module()
+
+            self.assertIsNot(loaded_module, sentinel)
+            self.assertIs(sys.modules[module_name], sentinel)
+        finally:
+            if had_previous_module:
+                sys.modules[module_name] = previous_module
+            else:
+                sys.modules.pop(module_name, None)
+
     def test_expected_surface_is_exactly_24_tools(self) -> None:
         module = load_script_module()
 

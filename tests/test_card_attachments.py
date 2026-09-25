@@ -1,30 +1,22 @@
-from __future__ import annotations
+from __future__ import annotations  # noqa: I001
 
-# ruff: noqa: E402
 import base64
-import logging
-import sys
-import tempfile
-import unittest
-from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from tests.services_case import CardServiceCase
 
+# CardServiceCase adds src/ to sys.path before application imports.
+from minimal_kanban.models import Attachment
 from minimal_kanban.services import card_attachments, card_service
 from minimal_kanban.services.card_service import CardService
 from minimal_kanban.services.errors import ServiceError
 from minimal_kanban.storage.json_store import JsonStore
 
 
-class CardAttachmentPersistenceTests(unittest.TestCase):
+class CardAttachmentPersistenceTests(CardServiceCase):
     def setUp(self) -> None:
-        temp = tempfile.TemporaryDirectory()
-        self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
-        self.logger = logging.getLogger(__name__)
-        self.store = JsonStore(self.root / "state.json", self.logger)
-        self.service = CardService(self.store, self.logger)
+        super().setUp()
+        self.root = self.state_file.parent
         self.card_id = self.service.create_card({"title": "Attachment fixture"})["card"]["id"]
         self.content = "Тестовый файл".encode()
         self.attachment = self.service.add_card_attachment(
@@ -37,7 +29,7 @@ class CardAttachmentPersistenceTests(unittest.TestCase):
         self.payload = {"card_id": self.card_id, "attachment_id": self.attachment["id"]}
         self.path, _ = self.service.get_attachment_download(self.card_id, self.attachment["id"])
 
-    def persisted_attachment(self):
+    def persisted_attachment(self) -> Attachment:
         store = JsonStore(self.root / "state.json", self.logger)
         card = next(card for card in store.read_bundle()["cards"] if card.id == self.card_id)
         return next(item for item in card.attachments if item.id == self.attachment["id"])
@@ -67,7 +59,7 @@ class CardAttachmentPersistenceTests(unittest.TestCase):
     def test_bytes_are_removed_only_after_the_tombstone_is_durable(self) -> None:
         original = self.service._delete_attachment_file
 
-        def checked_delete(card_id, stored_name):
+        def checked_delete(card_id: str, stored_name: str) -> None:
             self.assertTrue(self.persisted_attachment().removed)
             self.assertTrue(self.path.exists())
             return original(card_id, stored_name)

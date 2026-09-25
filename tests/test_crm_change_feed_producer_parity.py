@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+if __package__:
+    from tests.source_path_support import ensure_repository_root_path
+else:
+    from source_path_support import ensure_repository_root_path
+
+ensure_repository_root_path()
 
 from scripts.crm_change_feed_producer_parity import (  # noqa: E402
     HUMAN_ONLY_WRITE_ROUTES,

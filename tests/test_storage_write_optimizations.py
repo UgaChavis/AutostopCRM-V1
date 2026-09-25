@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from minimal_kanban.logging_setup import close_logger
 from minimal_kanban.models import AuditEvent, Card, CardTag, parse_datetime
 from minimal_kanban.storage.change_feed_projection import (
     cached_crm_source_signatures,
@@ -27,6 +28,8 @@ class StorageWriteOptimizationTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.state_file = Path(temp.name) / "state.json"
         logger = logging.getLogger(self.id())
+        close_logger(logger)
+        self.addCleanup(close_logger, logger)
         logger.addHandler(logging.NullHandler())
         logger.propagate = False
         self.store = JsonStore(self.state_file, logger)

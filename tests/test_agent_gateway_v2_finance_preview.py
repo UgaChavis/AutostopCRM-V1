@@ -160,7 +160,9 @@ class AgentGatewayFinancePreviewTests(unittest.IsolatedAsyncioTestCase):
         self.env = patch.dict("os.environ", GATEWAY_ENV, clear=False)
         self.manager_patch = patch("minimal_kanban.mcp.server._try_register_autostop_manager_tools")
         self.env.start()
+        self.addCleanup(self.env.stop)
         self.manager_register = self.manager_patch.start()
+        self.addCleanup(self.manager_patch.stop)
         self.manager_state: dict = {}
         self.manager_register.side_effect = lambda server, logger: (
             register_fake_store_manager_tools(server, logger, self.manager_state)
@@ -174,10 +176,6 @@ class AgentGatewayFinancePreviewTests(unittest.IsolatedAsyncioTestCase):
             path="/mcp",
             public_endpoint_url="https://crm.example/mcp",
         )
-
-    def tearDown(self) -> None:
-        self.manager_patch.stop()
-        self.env.stop()
 
     async def _finance(self, arguments: dict):
         return await self.server._tool_manager.get_tool("agent_finance_workflow").run(

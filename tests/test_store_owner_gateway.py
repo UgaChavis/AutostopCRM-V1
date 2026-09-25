@@ -12,6 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from minimal_kanban.mcp.agent_gateway_support import (
     RELEASE_SMOKE_CHANGE_FEED_CONSUMER_ID,
@@ -35,9 +37,7 @@ class StoreOwnerGatewayTests(unittest.IsolatedAsyncioTestCase):
         self.logger.addHandler(logging.NullHandler())
         self.env = patch.dict("os.environ", GATEWAY_ENV, clear=False)
         self.env.start()
-
-    def tearDown(self) -> None:
-        self.env.stop()
+        self.addCleanup(self.env.stop)
 
     def test_owner_request_validation_preserves_exact_guard_codes(self) -> None:
         valid_arguments = {"target_id": "part-1"}

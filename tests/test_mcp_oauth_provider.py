@@ -4,7 +4,6 @@ import asyncio
 import json
 import os
 import stat
-import sys
 import tempfile
 import time
 import unittest
@@ -21,9 +20,12 @@ from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import AnyUrl
 
 ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+if __package__:
+    from tests.source_path_support import ensure_source_path
+else:
+    from source_path_support import ensure_source_path
+
+ensure_source_path()
 
 from minimal_kanban.mcp.oauth_provider import (  # noqa: E402
     EmbeddedOAuthAuthorizationServerProvider,

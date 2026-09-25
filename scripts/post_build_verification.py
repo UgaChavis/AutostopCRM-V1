@@ -15,6 +15,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
+from urllib.response import addinfourl
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -33,14 +34,14 @@ class VerificationError(RuntimeError):
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+    def redirect_request(self, req, fp, code, msg, headers, newurl) -> None:  # noqa: ANN001
         return None
 
 
 _NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
 
 
-def _urlopen_no_redirect(request: urllib.request.Request, *, timeout: float):
+def _urlopen_no_redirect(request: urllib.request.Request, *, timeout: float) -> addinfourl:
     return _NO_REDIRECT_OPENER.open(request, timeout=timeout)
 
 
@@ -48,7 +49,7 @@ def _reject_json_constant(value: str) -> None:
     raise ValueError(f"Unsupported JSON constant: {value}")
 
 
-def _json_safe_value(value, *, depth: int = 8):
+def _json_safe_value(value: object, *, depth: int = 8) -> object:
     if depth < 0:
         return str(value)
     if value is None or isinstance(value, str | bool | int):
@@ -66,7 +67,7 @@ def _json_safe_value(value, *, depth: int = 8):
     return str(value)
 
 
-def _json_dumps(payload) -> str:
+def _json_dumps(payload: object) -> str:
     return json.dumps(_json_safe_value(payload), ensure_ascii=True, indent=2, allow_nan=False)
 
 

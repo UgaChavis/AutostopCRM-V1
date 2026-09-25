@@ -65,8 +65,8 @@ def _api_data(payload: dict[str, Any]) -> dict[str, Any]:
 async def _wait_clients_search_ready(
     page: Any, *, client_id: str, mobile: bool = False, query: str = ""
 ) -> None:
+    await page.wait_for_timeout(250)
     if mobile:
-        await page.wait_for_timeout(250)
         await page.wait_for_function(
             """(expectedQuery) => {
               const normalizedQuery = String(expectedQuery || '').trim().toLowerCase();
@@ -83,7 +83,6 @@ async def _wait_clients_search_ready(
             arg=query,
         )
         return
-    await page.wait_for_timeout(250)
     await page.wait_for_function(
         """([clientId, expectedQuery]) => {
           const normalizedQuery = String(expectedQuery || '').trim().toLowerCase();

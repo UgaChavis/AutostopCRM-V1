@@ -142,3 +142,10 @@ class InventoryOrderIntegrityTests(CardServiceCase):
                 self._assert_rejected_without_write(
                     self.service.return_inventory_movement, payload, code="validation_error"
                 )
+
+    def test_inventory_row_lookup_ignores_non_dict_material_rows(self) -> None:
+        row_index = self.service._inventory_row_index_by_movement(
+            [False, {"inventory_movement_id": "move-1"}], "move-1", 0
+        )
+
+        self.assertEqual(row_index, 1)

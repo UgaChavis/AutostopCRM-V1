@@ -8,6 +8,7 @@ from contextlib import redirect_stdout
 from datetime import datetime
 from io import StringIO
 from pathlib import Path
+from types import ModuleType
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
@@ -15,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "payroll_audit_report.py"
 
 
-def load_payroll_audit_report_module():
+def load_payroll_audit_report_module() -> ModuleType:
     spec = importlib.util.spec_from_file_location("payroll_audit_report", SCRIPT_PATH)
     if spec is None or spec.loader is None:
         raise AssertionError("payroll_audit_report.py is importable")
@@ -29,7 +30,7 @@ class FakeResponse:
     def __init__(self, payload: dict[str, object]) -> None:
         self._payload = payload
 
-    def __enter__(self):
+    def __enter__(self) -> FakeResponse:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
@@ -46,7 +47,7 @@ class RawResponse:
     def __init__(self, body: bytes) -> None:
         self._body = body
 
-    def __enter__(self):
+    def __enter__(self) -> RawResponse:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
@@ -230,7 +231,7 @@ class PayrollAuditReportTests(unittest.TestCase):
         module = load_payroll_audit_report_module()
 
         class HugeResponse:
-            def __enter__(self):
+            def __enter__(self) -> HugeResponse:
                 return self
 
             def __exit__(self, exc_type, exc, tb) -> None:

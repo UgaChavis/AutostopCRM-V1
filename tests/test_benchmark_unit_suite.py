@@ -1,12 +1,13 @@
 import io
 import unittest
+from typing import Never
 
 from scripts.benchmark_unit_suite import TimedResult
 
 
 class BenchmarkUnitSuiteTests(unittest.TestCase):
-    def test_timing_preserves_results_and_skip_reason(self):
-        def skipped():
+    def test_timing_preserves_results_and_skip_reason(self) -> None:
+        def skipped() -> Never:
             raise unittest.SkipTest("fixture platform limitation")
 
         suite = unittest.TestSuite(

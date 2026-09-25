@@ -18,6 +18,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.api.server import ApiServer
+from minimal_kanban.logging_setup import close_logger
 from minimal_kanban.models import Card, business_timezone
 from minimal_kanban.operator_activity import OperatorActivityService
 from minimal_kanban.operator_auth import OperatorAuthService
@@ -34,9 +35,11 @@ from minimal_kanban.web_assets import DISPLAY_DASHBOARD_HTML
 class DisplayDashboardServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         self.base_dir = Path(self.temp_dir.name)
         self.logger = logging.getLogger(f"test.display_dashboard.{self._testMethodName}")
-        self.logger.handlers.clear()
+        close_logger(self.logger)
+        self.addCleanup(close_logger, self.logger)
         self.logger.addHandler(logging.NullHandler())
         self.store = JsonStore(state_file=self.base_dir / "state.json", logger=self.logger)
         self.service = CardService(
@@ -60,9 +63,6 @@ class DisplayDashboardServiceTests(unittest.TestCase):
                 else None
             )
         )
-
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
 
     def _card(
         self,
@@ -331,9 +331,11 @@ class DisplayDashboardServiceTests(unittest.TestCase):
 class DisplayDashboardApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         base_dir = Path(self.temp_dir.name)
         logger = logging.getLogger(f"test.display_dashboard.api.{self._testMethodName}")
-        logger.handlers.clear()
+        close_logger(logger)
+        self.addCleanup(close_logger, logger)
         logger.addHandler(logging.NullHandler())
         store = JsonStore(state_file=base_dir / "state.json", logger=logger)
         service = CardService(store, logger, attachments_dir=base_dir / "attachments")
@@ -356,10 +358,7 @@ class DisplayDashboardApiTests(unittest.TestCase):
             bearer_token="",
         )
         self.server.start()
-
-    def tearDown(self) -> None:
-        self.server.stop()
-        self.temp_dir.cleanup()
+        self.addCleanup(self.server.stop)
 
     def _request(
         self,

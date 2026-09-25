@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 APP_DISPLAY_NAME = "AutoStop CRM"
 
 STARTUP_ERROR_TITLE = "Ошибка запуска"
@@ -10,7 +8,7 @@ UNEXPECTED_ERROR_TITLE = "Непредвиденная ошибка"
 UNEXPECTED_ERROR_MESSAGE = (
     "Произошла непредвиденная ошибка. Подробности сохранены в журнале программы."
 )
-COLUMN_LABELS_RU = {
+COLUMN_LABELS_RU: dict[str, str] = {
     "inbox": "Входящие",
     "in_progress": "В работе",
     "control": "На контроле",

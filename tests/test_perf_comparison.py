@@ -1,27 +1,36 @@
-import importlib.util
 import sys
 import unittest
 from pathlib import Path
+from types import ModuleType
+from unittest.mock import patch
+
+if __package__:
+    from tests.module_loader_support import load_module_from_file
+else:
+    from module_loader_support import load_module_from_file
 
 
-def load_script(name):
-    spec = importlib.util.spec_from_file_location(
-        name, Path(__file__).resolve().parents[1] / "scripts" / f"{name}.py"
+def load_script(name: str) -> ModuleType:
+    path = Path(__file__).resolve().parents[1] / "scripts" / f"{name}.py"
+    return load_module_from_file(
+        name,
+        path,
+        load_error=AssertionError(f"Could not load performance script: {name}"),
     )
-    module = importlib.util.module_from_spec(spec)
-    previous = sys.modules.get(name)
-    sys.modules[name] = module
-    try:
-        spec.loader.exec_module(module)
-    finally:
-        if previous is None:
-            sys.modules.pop(name, None)
-        else:
-            sys.modules[name] = previous
-    return module
 
 
 class PerfComparisonTests(unittest.TestCase):
+    def test_script_loader_restores_none_sys_modules_entry(self) -> None:
+        with patch.dict(sys.modules, {"perf_comparison": None}):
+            module = load_script("perf_comparison")
+
+            self.assertEqual(module.__name__, "perf_comparison")
+            self.assertTrue(
+                "perf_comparison" in sys.modules,
+                "module loader should preserve a None sentinel",
+            )
+            self.assertIsNone(sys.modules["perf_comparison"])
+
     def test_comparison_uses_median_series_and_small_absolute_tolerance(self):
         module = load_script("perf_comparison")
 

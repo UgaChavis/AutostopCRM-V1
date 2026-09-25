@@ -2,20 +2,19 @@ from __future__ import annotations
 
 import copy
 import json
-import sys
 import tempfile
 import unittest
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-SCRIPTS = ROOT / "scripts"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-if str(SCRIPTS) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS))
+if __package__:
+    from tests.source_path_support import ensure_scripts_path, ensure_source_path
+else:
+    from source_path_support import ensure_scripts_path, ensure_source_path
+
+ensure_source_path()
+ensure_scripts_path()
 
 import normalize_cashboxes_after_safe_fix as normalization_module
 from normalize_cashboxes_after_safe_fix import (

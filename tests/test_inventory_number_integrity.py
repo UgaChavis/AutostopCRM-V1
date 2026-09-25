@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
-import sys
 from decimal import Decimal, localcontext
-from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+if __package__:
+    from tests.source_path_support import prepend_source_path
+else:
+    from source_path_support import prepend_source_path
+
+prepend_source_path()
 
 from minimal_kanban.models import InventoryMovement, normalize_decimal_text
 from minimal_kanban.services.errors import ServiceError

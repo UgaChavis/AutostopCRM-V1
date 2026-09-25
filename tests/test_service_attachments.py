@@ -1,21 +1,14 @@
 """Attachment contracts and bounded Office/image content extraction."""
 
-from __future__ import annotations
-
-# ruff: noqa: E402
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-
+from __future__ import annotations  # noqa: I001
 import base64
+import xml.etree.ElementTree as ET
 from io import BytesIO
 from pathlib import Path
+from types import TracebackType
 from unittest.mock import patch
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from minimal_kanban.models import MAX_ATTACHMENT_SIZE_BYTES, Attachment, utc_now
-from minimal_kanban.services.card_service import CardService, ServiceError
 from tests.attachment_samples import (
     GIF_1X1_BYTES,
     JPEG_1X1_BYTES,
@@ -27,11 +20,46 @@ from tests.attachment_samples import (
 )
 from tests.services_case import CardServiceCase
 
+# CardServiceCase adds src/ to sys.path before application imports.
+from minimal_kanban.models import MAX_ATTACHMENT_SIZE_BYTES, Attachment, utc_now
+from minimal_kanban.services.card_service import CardService, ServiceError
+
 
 class CardServiceAttachmentTests(CardServiceCase):
-    def test_archived_card_retention_cleans_up_orphan_attachment_directories(self) -> None:
+    def _build_attachment_service(self) -> tuple[CardService, Path]:
         attachments_dir = Path(self.temp_dir.name) / "attachments"
         service = CardService(self.store, self.logger, attachments_dir=attachments_dir)
+        return service, attachments_dir
+
+    def test_default_runtime_directories_follow_store_base_dir(self) -> None:
+        self.assertEqual(self.service._attachments_dir, Path(self.temp_dir.name) / "attachments")
+        self.assertEqual(
+            self.service._repair_orders_dir, Path(self.temp_dir.name) / "repair-orders"
+        )
+
+    def test_minimal_pdf_sample_declares_exact_stream_length(self) -> None:
+        payload = minimal_pdf_bytes()
+        stream_marker = b"stream\n"
+        stream_start = payload.index(stream_marker) + len(stream_marker)
+        stream_end = payload.index(b"endstream", stream_start)
+        length_line = next(line for line in payload.splitlines() if b"/Length " in line)
+        declared_length = int(length_line.split(b"/Length ", 1)[1].split(maxsplit=1)[0])
+
+        self.assertEqual(declared_length, stream_end - stream_start)
+
+    def test_minimal_xlsx_sample_escapes_cell_text(self) -> None:
+        expected_text = "Agent <XLSX> & text"
+        with ZipFile(BytesIO(minimal_xlsx_bytes(expected_text))) as archive:
+            worksheet = ET.fromstring(archive.read("xl/worksheets/sheet1.xml"))
+
+        text_node = worksheet.find(
+            ".//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}t"
+        )
+        self.assertIsNotNone(text_node)
+        self.assertEqual(text_node.text, expected_text)
+
+    def test_archived_card_retention_cleans_up_orphan_attachment_directories(self) -> None:
+        service, attachments_dir = self._build_attachment_service()
 
         with patch("minimal_kanban.storage.json_store.ARCHIVED_CARD_RETENTION_LIMIT", 1):
             first = service.create_card(
@@ -74,11 +102,10 @@ class CardServiceAttachmentTests(CardServiceCase):
     def test_attachment_directory_cleanup_unlinks_orphan_symlink_without_touching_target(
         self,
     ) -> None:
-        attachments_dir = Path(self.temp_dir.name) / "attachments"
         target_dir = Path(self.temp_dir.name) / "outside-attachments"
         target_dir.mkdir()
         (target_dir / "keep.txt").write_text("outside", encoding="utf-8")
-        service = CardService(self.store, self.logger, attachments_dir=attachments_dir)
+        service, attachments_dir = self._build_attachment_service()
         service.create_card({"vehicle": "KIA RIO", "title": "Keep", "deadline": {"hours": 2}})
         attachments_dir.mkdir(exist_ok=True)
         orphan_link = attachments_dir / "orphan-card"
@@ -94,8 +121,7 @@ class CardServiceAttachmentTests(CardServiceCase):
         self.assertEqual((target_dir / "keep.txt").read_text(encoding="utf-8"), "outside")
 
     def test_remove_card_attachment_deletes_file_and_empty_card_directory(self) -> None:
-        attachments_dir = Path(self.temp_dir.name) / "attachments"
-        service = CardService(self.store, self.logger, attachments_dir=attachments_dir)
+        service, _ = self._build_attachment_service()
         created = service.create_card(
             {"vehicle": "KIA RIO", "title": "Attachment remove", "deadline": {"hours": 2}}
         )
@@ -149,8 +175,7 @@ class CardServiceAttachmentTests(CardServiceCase):
         self.assertFalse(service._attachment_exists_on_disk("../outside", attachment))
 
     def test_attachment_download_treats_directory_as_missing_file(self) -> None:
-        attachments_dir = Path(self.temp_dir.name) / "attachments"
-        service = CardService(self.store, self.logger, attachments_dir=attachments_dir)
+        service, _ = self._build_attachment_service()
         created = service.create_card(
             {"vehicle": "KIA RIO", "title": "Attachment directory", "deadline": {"hours": 2}}
         )
@@ -185,8 +210,7 @@ class CardServiceAttachmentTests(CardServiceCase):
             self.assertFalse(service._attachment_is_regular_file(Path("stored.txt")))
 
     def test_attachment_download_treats_symlink_as_missing_file(self) -> None:
-        attachments_dir = Path(self.temp_dir.name) / "attachments"
-        service = CardService(self.store, self.logger, attachments_dir=attachments_dir)
+        service, _ = self._build_attachment_service()
         created = service.create_card(
             {"vehicle": "KIA RIO", "title": "Attachment symlink", "deadline": {"hours": 2}}
         )
@@ -216,8 +240,7 @@ class CardServiceAttachmentTests(CardServiceCase):
         self.assertTrue(file_path.is_symlink())
 
     def test_delete_attachment_file_ignores_directory_at_attachment_path(self) -> None:
-        attachments_dir = Path(self.temp_dir.name) / "attachments"
-        service = CardService(self.store, self.logger, attachments_dir=attachments_dir)
+        service, attachments_dir = self._build_attachment_service()
         directory_path = attachments_dir / "card-id" / "stored.txt"
         directory_path.mkdir(parents=True)
 
@@ -226,8 +249,7 @@ class CardServiceAttachmentTests(CardServiceCase):
         self.assertTrue(directory_path.is_dir())
 
     def test_write_attachment_file_does_not_leave_partial_file_when_write_fails(self) -> None:
-        attachments_dir = Path(self.temp_dir.name) / "attachments"
-        service = CardService(self.store, self.logger, attachments_dir=attachments_dir)
+        service, attachments_dir = self._build_attachment_service()
         original_write_bytes = Path.write_bytes
 
         def partial_temp_write(path: Path, data: bytes) -> int:
@@ -247,8 +269,7 @@ class CardServiceAttachmentTests(CardServiceCase):
     def test_write_attachment_file_rejects_oversized_content_without_clobbering_existing_file(
         self,
     ) -> None:
-        attachments_dir = Path(self.temp_dir.name) / "attachments"
-        service = CardService(self.store, self.logger, attachments_dir=attachments_dir)
+        service, _ = self._build_attachment_service()
         attachment_path = service._write_attachment_file("card-id", "stored.txt", b"old")
 
         with (
@@ -602,10 +623,15 @@ class CardServiceAttachmentTests(CardServiceCase):
         class FakeMember:
             read_size = 0
 
-            def __enter__(self):
+            def __enter__(self) -> FakeMember:
                 return self
 
-            def __exit__(self, exc_type, exc, tb) -> None:
+            def __exit__(
+                self,
+                exc_type: type[BaseException] | None,
+                exc: BaseException | None,
+                tb: TracebackType | None,
+            ) -> None:
                 _ = (exc_type, exc, tb)
 
             def read(self, size: int = -1) -> bytes:
@@ -616,7 +642,7 @@ class CardServiceAttachmentTests(CardServiceCase):
             def __init__(self) -> None:
                 self.member = FakeMember()
 
-            def open(self, info):
+            def open(self, info: FakeInfo) -> FakeMember:
                 _ = info
                 return self.member
 
@@ -694,14 +720,13 @@ class CardServiceAttachmentTests(CardServiceCase):
                 "content_base64": base64.b64encode(minimal_text_bytes()).decode("ascii"),
             }
         )["attachment"]
+        docx_text = "Agent <DOCX> & text"
         docx_attachment = service.add_card_attachment(
             {
                 "card_id": card_id,
                 "file_name": "agent-report.docx",
                 "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                "content_base64": base64.b64encode(minimal_docx_bytes("Agent DOCX text")).decode(
-                    "ascii"
-                ),
+                "content_base64": base64.b64encode(minimal_docx_bytes(docx_text)).decode("ascii"),
             }
         )["attachment"]
         image_attachment = service.add_card_attachment(
@@ -723,13 +748,13 @@ class CardServiceAttachmentTests(CardServiceCase):
         text_read = service.read_card_attachment(
             {"card_id": card_id, "attachment_id": text_attachment["id"], "mode": "text"}
         )
-        self.assertIn("AutoStop CRM", text_read["content"]["text"])
+        self.assertIn("Привет, вложение AutoStop CRM.", text_read["content"]["text"])
         self.assertEqual(text_read["content"]["extraction_status"], "ok")
 
         docx_read = service.read_card_attachment(
             {"card_id": card_id, "attachment_id": docx_attachment["id"], "mode": "text"}
         )
-        self.assertIn("Agent DOCX text", docx_read["content"]["text"])
+        self.assertIn(docx_text, docx_read["content"]["text"])
         self.assertEqual(docx_read["content"]["encoding"], "office-openxml")
 
         image_read = service.read_card_attachment(

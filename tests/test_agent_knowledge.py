@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any, NoReturn
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,7 +26,13 @@ class _FakeLookupService:
         self.search_limits: list[int] = []
         self.fetch_max_chars: list[int] = []
 
-    def search_web_multi(self, *, query: str, limit: int, allowed_domains=None):  # noqa: ANN001
+    def search_web_multi(
+        self,
+        *,
+        query: str,
+        limit: int,
+        allowed_domains: list[str] | None = None,
+    ) -> dict[str, Any]:
         self.search_limits.append(limit)
         return {
             "results": [
@@ -39,13 +46,19 @@ class _FakeLookupService:
             ]
         }
 
-    def fetch_page_excerpt(self, *, url: str, max_chars: int):
+    def fetch_page_excerpt(self, *, url: str, max_chars: int) -> dict[str, str]:
         self.fetch_max_chars.append(max_chars)
         return {"url": url, "excerpt": "detailed excerpt"}
 
 
 class _MalformedUrlLookupService:
-    def search_web_multi(self, *, query: str, limit: int, allowed_domains=None):  # noqa: ANN001
+    def search_web_multi(
+        self,
+        *,
+        query: str,
+        limit: int,
+        allowed_domains: list[str] | None = None,
+    ) -> dict[str, Any]:
         return {
             "results": [
                 {
@@ -61,7 +74,7 @@ class _MalformedUrlLookupService:
             ]
         }
 
-    def fetch_page_excerpt(self, *, url: str, max_chars: int):  # noqa: ANN001
+    def fetch_page_excerpt(self, *, url: str, max_chars: int) -> NoReturn:  # noqa: ANN001
         raise AssertionError("malformed first URL should not be fetched")
 
 
@@ -91,12 +104,12 @@ class AgentKnowledgeTests(unittest.TestCase):
             (root / "huge.md").write_text("x" * 32, encoding="utf-8")
 
             _load_document_text.cache_clear()
+            self.addCleanup(_load_document_text.cache_clear)
             with (
                 patch.object(knowledge_module, "_REPO_ROOT", root),
                 patch.object(knowledge_module, "CURATED_DOCUMENT_MAX_BYTES", 8),
             ):
                 self.assertEqual(_load_document_text("huge.md"), "")
-            _load_document_text.cache_clear()
 
     def test_load_document_text_rejects_paths_outside_repo_root(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -106,9 +119,9 @@ class AgentKnowledgeTests(unittest.TestCase):
             outside.write_text("secret", encoding="utf-8")
 
             _load_document_text.cache_clear()
+            self.addCleanup(_load_document_text.cache_clear)
             with patch.object(knowledge_module, "_REPO_ROOT", root):
                 self.assertEqual(_load_document_text("../outside.md"), "")
-            _load_document_text.cache_clear()
 
     def test_controlled_internet_lookup_bounds_bad_limit(self) -> None:
         lookup = _FakeLookupService()

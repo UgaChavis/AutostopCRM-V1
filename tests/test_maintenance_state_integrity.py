@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+if __package__:
+    from tests.source_path_support import prepend_source_path
+else:
+    from source_path_support import prepend_source_path
+
+prepend_source_path()
 
 from minimal_kanban.storage.audit_archive import AuditArchiveStore, compact_audit_event_details
 from scripts import clear_financial_history, client_data_quality_maintenance, compact_audit_events

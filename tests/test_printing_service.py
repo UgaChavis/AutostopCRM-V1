@@ -239,11 +239,9 @@ def build_vat_5_regression_card() -> Card:
 class PrintingServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         self.service = PrintModuleService(Path(self.temp_dir.name))
         self.card = build_card()
-
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
 
     def test_workspace_exposes_documents_templates_and_settings(self) -> None:
         workspace = self.service.workspace(self.card)
@@ -571,12 +569,12 @@ class PrintingServiceTests(unittest.TestCase):
             logo_path.write_bytes(b"x" * 16)
 
             printing_service_module._brand_logo_data_uri.cache_clear()
+            self.addCleanup(printing_service_module._brand_logo_data_uri.cache_clear)
             with (
                 patch.object(printing_service_module, "_BRAND_LOGO_PATH", logo_path),
                 patch.object(printing_service_module, "PRINT_BRAND_LOGO_MAX_BYTES", 8),
             ):
                 self.assertEqual(printing_service_module._brand_logo_data_uri(), "")
-            printing_service_module._brand_logo_data_uri.cache_clear()
 
     def test_preview_returns_selected_documents_and_missing_fields(self) -> None:
         preview = self.service.preview_documents(

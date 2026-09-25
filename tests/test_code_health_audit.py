@@ -1,29 +1,63 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import ModuleType
 from unittest.mock import patch
+
+if __package__:
+    from tests.module_loader_support import load_module_from_file
+else:
+    from module_loader_support import load_module_from_file
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "code_health_audit.py"
 
 
-def load_code_health_audit_module():
-    spec = importlib.util.spec_from_file_location("code_health_audit", SCRIPT_PATH)
-    if spec is None or spec.loader is None:
-        raise AssertionError("code_health_audit.py is importable")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+def load_code_health_audit_module() -> ModuleType:
+    return load_module_from_file("code_health_audit", SCRIPT_PATH)
+
+
+def add_default_owner_task(root: Path) -> Path:
+    task_root = root / "tech_debt"
+    task_root.mkdir(exist_ok=True)
+    (task_root / "001-owner.md").write_text("# Owner\n", encoding="utf-8")
+    return task_root
+
+
+def init_git_repo_with_files(root: Path, *relative_paths: str) -> None:
+    subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "add", *relative_paths],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
 
 
 class CodeHealthAuditTests(unittest.TestCase):
+    def test_loader_restores_previous_module_entry(self) -> None:
+        module_name = "code_health_audit"
+        previous_module = sys.modules.get(module_name)
+        had_previous_module = module_name in sys.modules
+        sentinel = ModuleType(module_name)
+        sys.modules[module_name] = sentinel
+
+        try:
+            loaded_module = load_code_health_audit_module()
+
+            self.assertIsNot(loaded_module, sentinel)
+            self.assertIs(sys.modules[module_name], sentinel)
+        finally:
+            if had_previous_module:
+                sys.modules[module_name] = previous_module
+            else:
+                sys.modules.pop(module_name, None)
+
     def test_current_tree_has_no_unapproved_size_budget_issues(self) -> None:
         module = load_code_health_audit_module()
 
@@ -64,18 +98,12 @@ class CodeHealthAuditTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
-            subprocess.run(["git", "init"], cwd=temp_root, check=True, capture_output=True)
             mystery = temp_root / "mystery.bin"
             generated = temp_root / "output" / "bundle.bin"
             generated.parent.mkdir()
             mystery.write_bytes(b"unknown")
             generated.write_bytes(b"generated")
-            subprocess.run(
-                ["git", "add", "mystery.bin", "output/bundle.bin"],
-                cwd=temp_root,
-                check=True,
-                capture_output=True,
-            )
+            init_git_repo_with_files(temp_root, "mystery.bin", "output/bundle.bin")
 
             issues = module.audit(temp_root)
 
@@ -146,9 +174,7 @@ class CodeHealthAuditTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
-            task_root = temp_root / "tech_debt"
-            task_root.mkdir()
-            (task_root / "001-owner.md").write_text("# Owner\n", encoding="utf-8")
+            add_default_owner_task(temp_root)
             path = temp_root / "sample.py"
             budget = module.RatchetBudget("fixture module", 3, 3, "001")
             with patch.multiple(
@@ -178,9 +204,7 @@ class CodeHealthAuditTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
-            task_root = temp_root / "tech_debt"
-            task_root.mkdir()
-            (task_root / "001-owner.md").write_text("# Owner\n", encoding="utf-8")
+            add_default_owner_task(temp_root)
             path = temp_root / "sample.py"
             class_budget = module.RatchetBudget("fixture class", 3, 3, "001")
             function_budget = module.RatchetBudget("fixture function", 2, 2, "001")
@@ -214,9 +238,7 @@ class CodeHealthAuditTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
-            task_root = temp_root / "tech_debt"
-            task_root.mkdir()
-            (task_root / "001-owner.md").write_text("# Owner\n", encoding="utf-8")
+            add_default_owner_task(temp_root)
             path = temp_root / "sample.py"
             budget = module.RatchetBudget("fixture complexity", 2, 2, "001")
             with patch.multiple(
@@ -257,9 +279,7 @@ class CodeHealthAuditTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
-            task_root = temp_root / "tech_debt"
-            task_root.mkdir()
-            (task_root / "001-owner.md").write_text("# Owner\n", encoding="utf-8")
+            add_default_owner_task(temp_root)
             budget = module.RatchetBudget("fixture target", 1, 1, "001")
             with patch.multiple(
                 module,
@@ -283,9 +303,7 @@ class CodeHealthAuditTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
-            task_root = temp_root / "tech_debt"
-            task_root.mkdir()
-            (task_root / "001-owner.md").write_text("# Owner\n", encoding="utf-8")
+            task_root = add_default_owner_task(temp_root)
             (task_root / "002-first.md").write_text("# First\n", encoding="utf-8")
             (task_root / "002-second.md").write_text("# Second\n", encoding="utf-8")
             registry = {
@@ -321,9 +339,7 @@ class CodeHealthAuditTests(unittest.TestCase):
         for names in (("zulu", "alpha"), ("alpha", "zulu")):
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_root = Path(temp_dir)
-                task_root = temp_root / "tech_debt"
-                task_root.mkdir()
-                (task_root / "001-owner.md").write_text("# Owner\n", encoding="utf-8")
+                add_default_owner_task(temp_root)
                 module_budgets = {}
                 class_budgets = {}
                 function_budgets = {}
@@ -352,15 +368,23 @@ class CodeHealthAuditTests(unittest.TestCase):
                     complexity_budgets[function_target] = module.RatchetBudget(
                         "fixture complexity", 2, 2, "001"
                     )
-                with patch.multiple(
-                    module,
-                    ALLOWED_LARGE_MODULES=module_budgets,
-                    ALLOWED_LARGE_CLASSES=class_budgets,
-                    ALLOWED_LARGE_FUNCTIONS=function_budgets,
-                    COMPLEXITY_RATCHETS=complexity_budgets,
-                    EXPECTED_SIZE_EXEMPTION_COUNT=6,
+                with (
+                    patch.multiple(
+                        module,
+                        ALLOWED_LARGE_MODULES=module_budgets,
+                        ALLOWED_LARGE_CLASSES=class_budgets,
+                        ALLOWED_LARGE_FUNCTIONS=function_budgets,
+                        COMPLEXITY_RATCHETS=complexity_budgets,
+                        EXPECTED_SIZE_EXEMPTION_COUNT=6,
+                    ),
+                    patch.object(
+                        module,
+                        "repository_inventory",
+                        wraps=module.repository_inventory,
+                    ) as inventory_reader,
                 ):
                     reports.append(module.build_report(temp_root))
+                    self.assertEqual(1, inventory_reader.call_count)
 
         first, second = reports
         first_json = json.dumps(first, ensure_ascii=False, allow_nan=False)
@@ -396,16 +420,20 @@ class CodeHealthAuditTests(unittest.TestCase):
         )
         inventory_paths = [entry["path"] for entry in first["inventory"]]
         self.assertEqual(sorted(inventory_paths), inventory_paths)
+        expected_role_counts = {
+            role: sum(entry["role"] == role for entry in first["inventory"])
+            for role in sorted(module.TRACKED_FILE_ROLES)
+        }
+        self.assertEqual(expected_role_counts, first["summary"]["repository_roles"])
 
     def test_untracked_files_are_opt_in_for_server_local_safety(self) -> None:
         module = load_code_health_audit_module()
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
-            subprocess.run(["git", "init"], cwd=temp_root, check=True, capture_output=True)
             tracked = temp_root / "tracked.py"
             tracked.write_text("x = 1\n", encoding="utf-8")
-            subprocess.run(["git", "add", "tracked.py"], cwd=temp_root, check=True)
+            init_git_repo_with_files(temp_root, "tracked.py")
             untracked = temp_root / "oversized_local.py"
             untracked.write_text("x = 1\n" * (module.MAX_PY_MODULE_LINES + 1), encoding="utf-8")
 
@@ -420,10 +448,9 @@ class CodeHealthAuditTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
-            subprocess.run(["git", "init"], cwd=temp_root, check=True, capture_output=True)
             tracked = temp_root / "removed.py"
             tracked.write_text("x = 1\n", encoding="utf-8")
-            subprocess.run(["git", "add", "removed.py"], cwd=temp_root, check=True)
+            init_git_repo_with_files(temp_root, "removed.py")
             tracked.unlink()
 
             issues = module.audit(temp_root)
@@ -448,6 +475,22 @@ class CodeHealthAuditTests(unittest.TestCase):
 
         self.assertEqual(["large_module"], [issue.code for issue in issues])
         self.assertIs(run.call_args.kwargs["stdin"], module.subprocess.DEVNULL)
+
+    def test_git_inventory_preserves_leading_whitespace_and_utf8_paths(self) -> None:
+        module = load_code_health_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            path = temp_root / " leading.py"
+            utf8_path = temp_root / "Имя.py"
+            path.write_text("value = 1\n", encoding="utf-8")
+            utf8_path.write_text("value = 2\n", encoding="utf-8")
+            init_git_repo_with_files(temp_root, " leading.py", "Имя.py")
+
+            files = module._repository_files(temp_root)
+
+        self.assertIn(path, files)
+        self.assertIn(utf8_path, files)
 
     def test_oversized_python_source_is_reported_without_parsing(self) -> None:
         module = load_code_health_audit_module()

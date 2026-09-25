@@ -21,6 +21,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from minimal_kanban.logging_setup import close_logger  # noqa: E402
 from minimal_kanban.mcp import manager_registration as manager_registration_module  # noqa: E402
 from minimal_kanban.mcp import server as mcp_server_module  # noqa: E402
 from minimal_kanban.mcp.agent_gateway_support import (  # noqa: E402
@@ -70,7 +71,7 @@ _EXPECTED_MANAGER_READ_TOOL_NAMES = (
 
 def _test_logger() -> logging.Logger:
     logger = logging.getLogger("test.mcp.registration.contracts")
-    logger.handlers.clear()
+    close_logger(logger)
     logger.addHandler(logging.NullHandler())
     logger.propagate = False
     return logger

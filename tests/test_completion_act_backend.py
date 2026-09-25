@@ -105,13 +105,11 @@ def build_client(*, client_id: str = "client-exact") -> ClientProfile:
 class CompletionActBackendTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         self.base_dir = Path(self.temp_dir.name)
         self.service = PrintModuleService(self.base_dir)
         self.card = build_card()
         self.client = build_client()
-
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
 
     def test_defaults_use_exact_linked_client_and_fixed_vat(self) -> None:
         loaded = self.service.get_completion_act_form(self.card, client=self.client)

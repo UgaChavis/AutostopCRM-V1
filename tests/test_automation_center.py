@@ -20,6 +20,7 @@ if str(SRC) not in sys.path:
 
 from minimal_kanban.api.route_registry import policy_for_route  # noqa: E402
 from minimal_kanban.api.server import ApiServer  # noqa: E402
+from minimal_kanban.logging_setup import close_logger  # noqa: E402
 from minimal_kanban.operator_auth import OperatorAuthService  # noqa: E402
 from minimal_kanban.services.automation_center_service import (  # noqa: E402
     AUTOMATION_CONTROL_PROTOCOL,
@@ -334,9 +335,10 @@ class AutomationCenterHttpAuthTests(unittest.TestCase):
         self.environment.start()
         self.addCleanup(self.environment.stop)
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         base = Path(self.temp_dir.name)
         logger = logging.getLogger(f"test.automation.http.{self._testMethodName}")
-        logger.handlers.clear()
+        close_logger(logger)
         logger.addHandler(logging.NullHandler())
         store = JsonStore(base / "state.json", logger=logger)
         card_service = CardService(store, logger)
@@ -364,10 +366,7 @@ class AutomationCenterHttpAuthTests(unittest.TestCase):
             start_port=0,
         )
         self.server.start()
-
-    def tearDown(self) -> None:
-        self.server.stop()
-        self.temp_dir.cleanup()
+        self.addCleanup(self.server.stop)
 
     def request(
         self,

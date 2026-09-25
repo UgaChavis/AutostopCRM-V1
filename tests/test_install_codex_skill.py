@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from scripts.install_codex_skill import SKILL_NAMES, manifest, synchronize
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.install_codex_skill import SKILL_NAMES, manifest, synchronize  # noqa: E402
 
 
 class InstallCodexSkillTests(unittest.TestCase):
@@ -63,17 +69,21 @@ class InstallCodexSkillTests(unittest.TestCase):
                 raise OSError("publication failed")
             return original(path, target)
 
-        with patch.object(Path, "replace", fail_publication):
-            with self.assertRaisesRegex(OSError, "publication failed"):
-                synchronize(self.source, self.skills, apply=True)
+        with (
+            patch.object(Path, "replace", fail_publication),
+            self.assertRaisesRegex(OSError, "publication failed"),
+        ):
+            synchronize(self.source, self.skills, apply=True)
         self.assertEqual(before, {path.name: manifest(path) for path in self.skills.iterdir()})
 
     def test_linked_skill_is_rejected_before_other_packages_move(self) -> None:
         before = self.seed_installed()
         linked = self.skills / SKILL_NAMES[1]
-        with patch.object(Path, "is_junction", lambda path: path == linked, create=True):
-            with self.assertRaisesRegex(ValueError, "cannot be links"):
-                synchronize(self.source, self.skills, apply=True)
+        with (
+            patch.object(Path, "is_junction", lambda path: path == linked, create=True),
+            self.assertRaisesRegex(ValueError, "cannot be links"),
+        ):
+            synchronize(self.source, self.skills, apply=True)
         self.assertFalse((self.root / "skill-backups").exists())
         self.assertEqual(before, {path.name: manifest(path) for path in self.skills.iterdir()})
 
@@ -91,7 +101,7 @@ class InstallCodexSkillTests(unittest.TestCase):
         linked = self.skills / SKILL_NAMES[1] / "SKILL.md"
         original_lstat = Path.lstat
 
-        def fake_lstat(path: Path):
+        def fake_lstat(path: Path) -> os.stat_result | SimpleNamespace:
             metadata = original_lstat(path)
             if path != linked:
                 return metadata
@@ -103,9 +113,9 @@ class InstallCodexSkillTests(unittest.TestCase):
         with (
             patch.object(Path, "is_junction", None, create=True),
             patch.object(Path, "lstat", fake_lstat),
+            self.assertRaisesRegex(ValueError, "cannot be links"),
         ):
-            with self.assertRaisesRegex(ValueError, "cannot be links"):
-                synchronize(self.source, self.skills, apply=True)
+            synchronize(self.source, self.skills, apply=True)
         self.assertFalse((self.root / "skill-backups").exists())
         self.assertEqual(before, {path.name: manifest(path) for path in self.skills.iterdir()})
 
@@ -113,7 +123,7 @@ class InstallCodexSkillTests(unittest.TestCase):
         original_lstat = Path.lstat
         unreadable = self.source / "SKILL.md"
 
-        def failing_lstat(path: Path):
+        def failing_lstat(path: Path) -> os.stat_result:
             if path == unreadable:
                 raise PermissionError("metadata unavailable")
             return original_lstat(path)
@@ -121,9 +131,9 @@ class InstallCodexSkillTests(unittest.TestCase):
         with (
             patch.object(Path, "is_junction", None, create=True),
             patch.object(Path, "lstat", failing_lstat),
+            self.assertRaisesRegex(PermissionError, "metadata unavailable"),
         ):
-            with self.assertRaisesRegex(PermissionError, "metadata unavailable"):
-                synchronize(self.source, self.skills, apply=True)
+            synchronize(self.source, self.skills, apply=True)
         self.assertFalse(self.skills.exists())
         self.assertFalse((self.root / "skill-backups").exists())
 

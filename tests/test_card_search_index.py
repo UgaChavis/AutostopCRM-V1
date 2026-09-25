@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from minimal_kanban.logging_setup import close_logger
 from minimal_kanban.models import Card
 from minimal_kanban.services.card_service import CardService
 from minimal_kanban.storage.json_store import JsonStore
@@ -21,6 +22,8 @@ class CardSearchIndexTests(unittest.TestCase):
         self.addCleanup(self.temp_dir.cleanup)
         self.state_file = Path(self.temp_dir.name) / "state.json"
         logger = logging.getLogger(self.id())
+        close_logger(logger)
+        self.addCleanup(close_logger, logger)
         logger.addHandler(logging.NullHandler())
         logger.propagate = False
         self.store = JsonStore(self.state_file, logger)

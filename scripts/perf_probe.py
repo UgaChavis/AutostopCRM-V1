@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import Any
+from urllib.response import addinfourl
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -32,14 +33,14 @@ SERVER_TIMING_MAX_METRICS = 64
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+    def redirect_request(self, req, fp, code, msg, headers, newurl) -> None:  # noqa: ANN001
         return None
 
 
 _NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
 
 
-def _urlopen_no_redirect(request: urllib.request.Request, *, timeout: float):
+def _urlopen_no_redirect(request: urllib.request.Request, *, timeout: float) -> addinfourl:
     return _NO_REDIRECT_OPENER.open(request, timeout=timeout)
 
 
@@ -69,7 +70,7 @@ def _json_dumps(payload: Any) -> str:
     return json.dumps(_json_safe_value(payload), ensure_ascii=False, indent=2, allow_nan=False)
 
 
-def _read_response_body(response) -> bytes:
+def _read_response_body(response: addinfourl) -> bytes:
     raw = response.read(PERF_PROBE_RESPONSE_MAX_BYTES + 1)
     if len(raw) > PERF_PROBE_RESPONSE_MAX_BYTES:
         raise ValueError("perf probe response is too large")
@@ -112,13 +113,13 @@ class LocalTempServer:
     temp_dir: tempfile.TemporaryDirectory[str]
 
     def stop(self) -> None:
-        self.server.stop()
-        self.temp_dir.cleanup()
+        try:
+            self.server.stop()
+        finally:
+            self.temp_dir.cleanup()
 
 
 def start_local_temp_server() -> LocalTempServer:
-    import sys
-
     if str(SRC) not in sys.path:
         sys.path.insert(0, str(SRC))
 
@@ -128,7 +129,8 @@ def start_local_temp_server() -> LocalTempServer:
 
     temp_dir = tempfile.TemporaryDirectory()
     logger = logging.getLogger("perf_probe.local_temp_server")
-    logger.addHandler(logging.NullHandler())
+    if not any(isinstance(handler, logging.NullHandler) for handler in logger.handlers):
+        logger.addHandler(logging.NullHandler())
     store = JsonStore(state_file=Path(temp_dir.name) / "state.json", logger=logger)
     service = CardService(
         store,

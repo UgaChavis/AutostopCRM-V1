@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import ast
-import sys
 import unittest
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+if __package__:
+    from tests.source_path_support import prepend_source_path
+else:
+    from source_path_support import prepend_source_path
+
+prepend_source_path()
 
 from minimal_kanban.services.bundle_draft import BundleDraft, detach_card  # noqa: E402
 from minimal_kanban.services.card_service import CardService  # noqa: E402

@@ -4,6 +4,7 @@ import logging
 import sys
 from logging import FileHandler
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from .config import APP_NAME, get_log_file, get_logs_dir, get_mcp_startup_log_file
 
@@ -21,14 +22,19 @@ def _build_formatter() -> logging.Formatter:
     )
 
 
-def _configure_file_logger(
-    name: str, log_file, *, level: int = logging.INFO, rotating: bool = True
-) -> logging.Logger:
-    get_logs_dir().mkdir(parents=True, exist_ok=True)
+def _prepare_logger(name: str, level: int) -> logging.Logger:
     logger = logging.getLogger(name)
     logger.setLevel(level)
     close_logger(logger)
     logger.propagate = False
+    return logger
+
+
+def _configure_file_logger(
+    name: str, log_file: Path, *, level: int = logging.INFO, rotating: bool = True
+) -> logging.Logger:
+    get_logs_dir().mkdir(parents=True, exist_ok=True)
+    logger = _prepare_logger(name, level)
 
     formatter = _build_formatter()
     if rotating:
@@ -45,10 +51,7 @@ def _configure_file_logger(
 def _configure_stream_fallback_logger(
     name: str, *, level: int = logging.INFO, warning_message: str = ""
 ) -> logging.Logger:
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
-    close_logger(logger)
-    logger.propagate = False
+    logger = _prepare_logger(name, level)
 
     stream_handler = logging.StreamHandler(sys.stderr)
     stream_handler.setFormatter(_build_formatter())

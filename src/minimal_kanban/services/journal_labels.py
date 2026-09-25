@@ -2,14 +2,29 @@
 
 from datetime import datetime
 
+_WEEKDAYS = ("понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье")
+_MONTHS = (
+    "Январь",
+    "Февраль",
+    "Март",
+    "Апрель",
+    "Май",
+    "Июнь",
+    "Июль",
+    "Август",
+    "Сентябрь",
+    "Октябрь",
+    "Ноябрь",
+    "Декабрь",
+)
+
 
 def day_label(date_key: str) -> str:
     try:
         value = datetime.strptime(date_key, "%Y-%m-%d")
     except ValueError:
         return date_key
-    weekdays = ("понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье")
-    return f"{value.strftime('%d.%m.%Y')}, {weekdays[value.weekday()]}"
+    return f"{value.strftime('%d.%m.%Y')}, {_WEEKDAYS[value.weekday()]}"
 
 
 def week_label(week_key: str) -> str:
@@ -34,18 +49,4 @@ def month_label(month_key: str) -> str:
         value = datetime.strptime(month_key, "%Y-%m")
     except ValueError:
         return month_key
-    months = (
-        "Январь",
-        "Февраль",
-        "Март",
-        "Апрель",
-        "Май",
-        "Июнь",
-        "Июль",
-        "Август",
-        "Сентябрь",
-        "Октябрь",
-        "Ноябрь",
-        "Декабрь",
-    )
-    return f"{months[value.month - 1]} {value.year}"
+    return f"{_MONTHS[value.month - 1]} {value.year}"

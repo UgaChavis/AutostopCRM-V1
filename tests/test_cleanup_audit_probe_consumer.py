@@ -17,6 +17,7 @@ from scripts.cleanup_audit_probe_consumer import cleanup_audit_probe  # noqa: E4
 class CleanupAuditProbeConsumerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         self.database = Path(self.temp_dir.name) / "change_feed.sqlite3"
         with closing(sqlite3.connect(self.database)) as connection, connection:
             connection.executescript(
@@ -40,9 +41,6 @@ class CleanupAuditProbeConsumerTests(unittest.TestCase):
                 INSERT INTO digest_snapshots VALUES('digest-owner', 'owner', 'safe-hash');
                 """
             )
-
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
 
     def test_dry_run_then_apply_removes_only_checkpoint_and_preserves_events(self) -> None:
         preview = cleanup_audit_probe(self.database, apply=False)

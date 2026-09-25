@@ -16,30 +16,21 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+if __package__:
+    from tests.http_fixture_support import FakeReadableResponse as FakeResponse  # noqa: E402
+else:
+    from http_fixture_support import FakeReadableResponse as FakeResponse  # noqa: E402
+
+from minimal_kanban.logging_setup import close_logger  # noqa: E402
 from minimal_kanban.settings_models import IntegrationSettings  # noqa: E402
 from minimal_kanban.tunnel_runtime import TunnelRuntimeController  # noqa: E402
-
-
-class FakeResponse:
-    def __init__(self, body: bytes) -> None:
-        self._body = body
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb) -> None:
-        _ = (exc_type, exc, tb)
-
-    def read(self, size: int = -1) -> bytes:
-        if size is None or size < 0:
-            return self._body
-        return self._body[:size]
 
 
 class TunnelRuntimeControllerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.logger = logging.getLogger(f"test.tunnel.runtime.{self._testMethodName}")
-        self.logger.handlers.clear()
+        close_logger(self.logger)
+        self.addCleanup(close_logger, self.logger)
         self.logger.addHandler(logging.NullHandler())
         self.logger.propagate = False
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -78,7 +69,7 @@ class TunnelRuntimeControllerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             log_path = Path(temp_dir) / "cloudflared.log"
 
-            def fake_popen(*args, **kwargs):
+            def fake_popen(*args: object, **kwargs: object) -> Mock:
                 stdout = kwargs["stdout"]
                 stdout.write(
                     "2026-04-01T22:09:45Z INF Requesting new quick Tunnel on https://api.trycloudflare.com...\n"

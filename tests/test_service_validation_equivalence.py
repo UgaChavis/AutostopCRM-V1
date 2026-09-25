@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-import sys
 from copy import deepcopy
-from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+if __package__:
+    from tests.source_path_support import prepend_source_path
+else:
+    from source_path_support import prepend_source_path
+
+prepend_source_path()
 
 # ruff: noqa: E402
 from minimal_kanban.models import CashBox, Column

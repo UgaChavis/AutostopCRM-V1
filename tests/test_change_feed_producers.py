@@ -14,6 +14,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from minimal_kanban.logging_setup import close_logger  # noqa: E402
 from minimal_kanban.operator_auth import OperatorAuthService  # noqa: E402
 from minimal_kanban.operator_permissions import SALARY_BALANCE_RESET_PERMISSION  # noqa: E402
 from minimal_kanban.services.card_service import CardService  # noqa: E402
@@ -31,16 +32,14 @@ from minimal_kanban.storage.json_store import JsonStore  # noqa: E402
 class ChangeFeedProducerContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         self.base_dir = Path(self.temp_dir.name)
         self.logger = logging.getLogger(f"test.change_feed.producers.{self._testMethodName}")
-        self.logger.handlers.clear()
+        close_logger(self.logger)
         self.logger.addHandler(logging.NullHandler())
         self.logger.propagate = False
         self.store = JsonStore(self.base_dir / "state.json", logger=self.logger)
         self.service = CardService(self.store, self.logger)
-
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
 
     def events(self) -> list[dict]:
         return self.store.change_feed_store.raw_events_for_test()

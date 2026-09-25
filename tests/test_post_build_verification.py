@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 import ntpath
 import os
@@ -8,39 +7,30 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import ModuleType
 from unittest.mock import Mock, patch
+
+if __package__:
+    from tests.http_fixture_support import FakeReadableResponse
+    from tests.module_loader_support import load_module_from_file
+else:
+    from http_fixture_support import FakeReadableResponse
+    from module_loader_support import load_module_from_file
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "post_build_verification.py"
 
 
-def load_post_build_verification_module():
-    spec = importlib.util.spec_from_file_location("post_build_verification", SCRIPT_PATH)
-    if spec is None or spec.loader is None:
-        raise AssertionError("post_build_verification.py is importable")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+def load_post_build_verification_module() -> ModuleType:
+    return load_module_from_file("post_build_verification", SCRIPT_PATH)
 
 
-class FakeResponse:
+class FakeResponse(FakeReadableResponse):
     status = 200
 
     def __init__(self, body: bytes, *, content_type: str = "application/json") -> None:
-        self._body = body
+        super().__init__(body)
         self.headers = {"Content-Type": content_type}
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb) -> None:
-        _ = (exc_type, exc, tb)
-
-    def read(self, size: int = -1) -> bytes:
-        if size is None or size < 0:
-            return self._body
-        return self._body[:size]
 
 
 class OversizedResponse(FakeResponse):
@@ -57,6 +47,24 @@ class PostBuildVerificationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.module = load_post_build_verification_module()
+
+    def test_loader_restores_previous_module_entry(self) -> None:
+        module_name = "post_build_verification"
+        previous_module = sys.modules.get(module_name)
+        had_previous_module = module_name in sys.modules
+        sentinel = ModuleType(module_name)
+        sys.modules[module_name] = sentinel
+
+        try:
+            loaded_module = load_post_build_verification_module()
+
+            self.assertIsNot(loaded_module, sentinel)
+            self.assertIs(sys.modules[module_name], sentinel)
+        finally:
+            if had_previous_module:
+                sys.modules[module_name] = previous_module
+            else:
+                sys.modules.pop(module_name, None)
 
     def test_operator_credentials_generate_strong_throwaway_default_without_admin_password(
         self,
@@ -112,36 +120,42 @@ class PostBuildVerificationTests(unittest.TestCase):
         )
 
     def test_send_request_rejects_nonstandard_json_constants(self) -> None:
-        with patch.object(
-            self.module,
-            "_urlopen_no_redirect",
-            return_value=FakeResponse(b'{"ok": true, "data": NaN}'),
+        with (
+            patch.object(
+                self.module,
+                "_urlopen_no_redirect",
+                return_value=FakeResponse(b'{"ok": true, "data": NaN}'),
+            ),
+            self.assertRaisesRegex(ValueError, "Unsupported JSON constant: NaN"),
         ):
-            with self.assertRaisesRegex(ValueError, "Unsupported JSON constant: NaN"):
-                self.module.send_request("http://127.0.0.1:41731", "/api/health")
+            self.module.send_request("http://127.0.0.1:41731", "/api/health")
 
     def test_send_request_rejects_deeply_nested_response(self) -> None:
         deep_json = ("[" * 5000 + "0" + "]" * 5000).encode("utf-8")
 
-        with patch.object(
-            self.module,
-            "_urlopen_no_redirect",
-            return_value=FakeResponse(deep_json),
+        with (
+            patch.object(
+                self.module,
+                "_urlopen_no_redirect",
+                return_value=FakeResponse(deep_json),
+            ),
+            self.assertRaisesRegex(ValueError, "API response JSON is too deeply nested"),
         ):
-            with self.assertRaisesRegex(ValueError, "API response JSON is too deeply nested"):
-                self.module.send_request("http://127.0.0.1:41731", "/api/health")
+            self.module.send_request("http://127.0.0.1:41731", "/api/health")
 
     def test_send_request_rejects_oversized_response(self) -> None:
-        with patch.object(
-            self.module,
-            "_urlopen_no_redirect",
-            return_value=OversizedResponse(),
-        ):
-            with self.assertRaisesRegex(
+        with (
+            patch.object(
+                self.module,
+                "_urlopen_no_redirect",
+                return_value=OversizedResponse(),
+            ),
+            self.assertRaisesRegex(
                 ValueError,
                 "Post-build verification response is too large",
-            ):
-                self.module.send_request("http://127.0.0.1:41731", "/api/health")
+            ),
+        ):
+            self.module.send_request("http://127.0.0.1:41731", "/api/health")
 
     def test_send_request_rejects_redirect_response(self) -> None:
         redirect = self.module.urllib.error.HTTPError(
@@ -152,13 +166,15 @@ class PostBuildVerificationTests(unittest.TestCase):
             fp=None,
         )
 
-        with patch.object(self.module, "_urlopen_no_redirect", side_effect=redirect):
-            with self.assertRaisesRegex(ValueError, "Post-build verification request redirected"):
-                self.module.send_request(
-                    "http://127.0.0.1:41731",
-                    "/api/login_operator",
-                    {"username": "verify-admin", "password": "secret"},
-                )
+        with (
+            patch.object(self.module, "_urlopen_no_redirect", side_effect=redirect),
+            self.assertRaisesRegex(ValueError, "Post-build verification request redirected"),
+        ):
+            self.module.send_request(
+                "http://127.0.0.1:41731",
+                "/api/login_operator",
+                {"username": "verify-admin", "password": "secret"},
+            )
 
     def test_verify_static_asset_checks_packaged_file_contract(self) -> None:
         with patch.object(
@@ -177,21 +193,23 @@ class PostBuildVerificationTests(unittest.TestCase):
         self.assertEqual(result["content_type"], "image/png")
 
     def test_verify_static_asset_rejects_invalid_signature(self) -> None:
-        with patch.object(
-            self.module,
-            "_urlopen_no_redirect",
-            return_value=FakeResponse(b"not-an-icon", content_type="image/png"),
-        ):
-            with self.assertRaisesRegex(
+        with (
+            patch.object(
+                self.module,
+                "_urlopen_no_redirect",
+                return_value=FakeResponse(b"not-an-icon", content_type="image/png"),
+            ),
+            self.assertRaisesRegex(
                 self.module.VerificationError,
                 "invalid file signature",
-            ):
-                self.module.verify_static_asset(
-                    "http://127.0.0.1:41731",
-                    "/favicon.png",
-                    expected_content_type="image/png",
-                    expected_signature=b"\x89PNG\r\n\x1a\n",
-                )
+            ),
+        ):
+            self.module.verify_static_asset(
+                "http://127.0.0.1:41731",
+                "/favicon.png",
+                expected_content_type="image/png",
+                expected_signature=b"\x89PNG\r\n\x1a\n",
+            )
 
     def test_json_dumps_sanitizes_nonfinite_values(self) -> None:
         encoded = self.module._json_dumps({"ok": True, "value": float("inf")})
@@ -218,12 +236,14 @@ class PostBuildVerificationTests(unittest.TestCase):
         )
 
         for value in ("bad", float("inf"), True, 1e308):
-            with self.subTest(value=value):
-                with self.assertRaisesRegex(
+            with (
+                self.subTest(value=value),
+                self.assertRaisesRegex(
                     self.module.VerificationError,
                     "snapshot returned invalid board_scale",
-                ):
-                    self.module._board_scale_value(value, context="snapshot")
+                ),
+            ):
+                self.module._board_scale_value(value, context="snapshot")
 
     def test_launch_app_detaches_child_stdin(self) -> None:
         executable = Path("C:/AutostopCRM/app.exe")

@@ -13,6 +13,7 @@ if str(SRC) not in sys.path:
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from minimal_kanban.logging_setup import close_logger  # noqa: E402
 from minimal_kanban.mcp.raw_gateway import (  # noqa: E402
     CHANGE_FEED_ACK_ROUTE,
     CHANGE_FEED_BOOTSTRAP_ROUTE,
@@ -137,12 +138,14 @@ class ChangeFeedBoardApi:
 class ChangeFeedRawGatewayContractTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.logger = logging.getLogger(f"test.change_feed.gateway.{self._testMethodName}")
-        self.logger.handlers.clear()
+        close_logger(self.logger)
         self.logger.addHandler(logging.NullHandler())
         self.env = patch.dict("os.environ", GATEWAY_ENV, clear=False)
         self.manager_patch = patch("minimal_kanban.mcp.server._try_register_autostop_manager_tools")
         self.env.start()
+        self.addCleanup(self.env.stop)
         self.manager_register = self.manager_patch.start()
+        self.addCleanup(self.manager_patch.stop)
         self.board_api = ChangeFeedBoardApi()
         self.server = create_mcp_server(
             self.board_api,
@@ -152,10 +155,6 @@ class ChangeFeedRawGatewayContractTests(unittest.IsolatedAsyncioTestCase):
             path="/mcp",
             public_endpoint_url="https://crm.example/mcp",
         )
-
-    def tearDown(self) -> None:
-        self.manager_patch.stop()
-        self.env.stop()
 
     async def call(self, name: str, arguments: dict):
         return await self.server._tool_manager.get_tool(name).run(arguments, convert_result=False)
