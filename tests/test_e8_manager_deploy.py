@@ -12,7 +12,7 @@ class E8ManagerDeployTests(unittest.TestCase):
 
         self.assertIn('MANAGER_CRM_MCP_ENV="/opt/AutostopManager/.crm-mcp.env"', script)
         self.assertIn(
-            'MANAGER_MCP_ACTIVATE_ON_DEPLOY="${AUTOSTOP_MANAGER_MCP_ACTIVATE_ON_DEPLOY:-0}"', script
+            'MANAGER_MCP_ACTIVATE_ON_DEPLOY="${AUTOSTOP_MANAGER_MCP_ACTIVATE_ON_DEPLOY:-1}"', script
         )
         self.assertIn("sync_manager_crm_mcp_configuration()", script)
         self.assertIn("restore_manager_crm_mcp_configuration()", script)

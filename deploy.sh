@@ -41,7 +41,7 @@ MANAGER_CURRENT_LINK="${AUTOSTOP_MANAGER_CURRENT_LINK:-$MANAGER_RELEASE_ROOT/cur
 MANAGER_CONTAINER_DIR="${AUTOSTOP_MANAGER_CONTAINER_DIR:-/opt/AutostopManager}"
 MANAGER_RELEASE_PYTHON="${AUTOSTOP_MANAGER_RELEASE_PYTHON:-$MANAGER_SOURCE_DIR/.venv/bin/python}"
 MANAGER_CRM_MCP_ENV="/opt/AutostopManager/.crm-mcp.env"
-MANAGER_MCP_ACTIVATE_ON_DEPLOY="${AUTOSTOP_MANAGER_MCP_ACTIVATE_ON_DEPLOY:-0}"
+MANAGER_MCP_ACTIVATE_ON_DEPLOY="${AUTOSTOP_MANAGER_MCP_ACTIVATE_ON_DEPLOY:-1}"
 AUTOMATION_SERVICE_NAME="autostop-manager-scheduler.service"
 AUTOMATION_STATE_DIR="/var/lib/autostop-manager-scheduler"
 AUTOMATION_DB="$AUTOMATION_STATE_DIR/registry.sqlite3"
@@ -729,6 +729,25 @@ require_disk_headroom \
   --protected-image-tag "$STABLE_IMAGE" >/dev/null
 snapshot_manager_commit "$MANAGER_SOURCE_DIR" "$manager_release_dir" "$manager_revision"
 run_isolated_manager_knowledge_preflight
+
+# The catalog files live outside the Git snapshot. Populate their persistent
+# private cache from the pinned public Manager release before maintenance, so
+# a download or extraction failure cannot extend the CRM outage. The helper is
+# taken only from the verified immutable Manager candidate. Its additions are
+# durable data and remain available if a later code release rolls back.
+catalog_sync_script="$manager_release_dir/scripts/sync_offline_parts_catalog_release.py"
+if [[ ! -f "$catalog_sync_script" || -L "$catalog_sync_script" ]]; then
+  echo "ERROR: Manager candidate lacks the offline catalog release sync helper." >&2
+  exit 2
+fi
+env \
+  PYTHONPATH="$manager_release_dir" \
+  PYTHONSAFEPATH=1 \
+  PYTHONDONTWRITEBYTECODE=1 \
+  AUTOSTOP_MANAGER_DB="$MANAGER_DB" \
+  "$MANAGER_RELEASE_PYTHON" "$catalog_sync_script" \
+    --cache-root "$(dirname "$MANAGER_DB")/offline_parts_catalogs"
+require_disk_headroom "post-catalog" "$prebuild_required_bytes"
 
 release_git_assert_exact_state \
   "AutoStop CRM" "$ROOT_DIR" "$CRM_DEPLOY_BRANCH" "$crm_revision" >/dev/null
