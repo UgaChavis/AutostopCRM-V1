@@ -257,6 +257,90 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.assertFalse(dialog.is_visible())
         self.assertEqual(self.errors, [])
 
+    def test_automation_help_is_read_only_keyboard_accessible_and_responsive(self) -> None:
+        self.login()
+        schedule = {
+            "kind": "interval",
+            "every_minutes": 20,
+            "timezone": "Asia/Krasnoyarsk",
+            "active_window": {"start": "08:00", "end": "20:00"},
+        }
+        state = {
+            "generated_at": "2026-09-26T09:00:00Z",
+            "can_manage": False,
+            "controller": {"state": "healthy"},
+            "jobs": [
+                {
+                    "job_id": "crm-digest",
+                    "name": "CRM: краткий дайджест изменений",
+                    "template_id": "crm_digest_v1",
+                    "desired_state": "off",
+                    "actual_state": "disabled",
+                    "revision": 1,
+                    "schedule": schedule,
+                }
+            ],
+            "system_timers": [
+                {
+                    "id": timer_id,
+                    "name": timer_id,
+                    "mutable": timer_id.startswith("managed_pc"),
+                    "actual_state": "healthy",
+                    "schedule": schedule,
+                }
+                for timer_id in (
+                    "managed_pc_health",
+                    "managed_pc_fleet_health",
+                    "managed_pc_pending_cleanup",
+                    "database_backup",
+                    "app_watchdog",
+                    "future_timer",
+                )
+            ],
+            "templates": [],
+            "readiness": [],
+        }
+        requests: list[str] = []
+
+        def route_status(route, request) -> None:
+            requests.append(request.method)
+            route.fulfill(json={"ok": True, "data": state})
+
+        self.page.route("**/api/automation_center/**", route_status)
+        self.select_node("G1")
+        self.page.get_by_text("Режим просмотра", exact=True).wait_for()
+        self.page.locator("#systemTimersGroup summary").first.click()
+        for width, height in ((1366, 768), (390, 844)):
+            with self.subTest(width=width):
+                self.page.set_viewport_size({"width": width, "height": height})
+                buttons = self.page.locator(".automation-info")
+                self.assertEqual(buttons.count(), 7)
+                for button in buttons.all():
+                    button.focus()
+                    self.page.keyboard.press("Enter")
+                    self.assertEqual(button.get_attribute("aria-expanded"), "true")
+                    help_panel = self.page.locator("#" + button.get_attribute("aria-controls"))
+                    self.assertTrue(help_panel.is_visible())
+                    self.assertEqual(help_panel.locator("dt").count(), 6)
+                    self.assertIn("08:00–20:00", help_panel.inner_text())
+                    self.assertIn("Asia/Krasnoyarsk", help_panel.inner_text())
+                    box = help_panel.bounding_box()
+                    self.assertGreaterEqual(box["x"], 0)
+                    self.assertLessEqual(box["x"] + box["width"], width)
+                    self.page.keyboard.press("Space")
+                    self.assertFalse(help_panel.is_visible())
+        digest = self.page.get_by_role("button", name="Справка: CRM: краткий дайджест изменений")
+        digest.click()
+        help_panel = self.page.locator("#" + digest.get_attribute("aria-controls"))
+        self.assertIn("Telegram-диалоге владельца", help_panel.inner_text())
+        self.assertIn("Если их нет, сообщение не отправляется", help_panel.inner_text())
+        with self.page.expect_response("**/api/automation_center/status"):
+            self.page.evaluate("window.dispatchEvent(new Event('focus'))")
+        self.assertTrue(help_panel.is_visible())
+        self.assertEqual(digest.get_attribute("aria-expanded"), "true")
+        self.assertTrue(all(method == "GET" for method in requests), requests)
+        self.assertEqual(self.errors, [])
+
     def test_automation_center_control_requires_server_readback(self) -> None:
         self.login()
         state = {
@@ -712,6 +796,28 @@ class ManagerMapBrowserTests(unittest.TestCase):
                     return bad;
                 }""")
                 self.assertEqual(overflow, [])
+                obscured_labels = self.page.evaluate("""() => {
+                    const edges=[...document.querySelectorAll('.edge')], obscured=[];
+                    for(const [index,edge] of edges.entries()) {
+                        const label=edge.querySelector('.edge-label');
+                        if(!label) continue;
+                        const bounds=label.getBBox();
+                        for(const later of edges.slice(index+1)) {
+                            const path=later.querySelector('.wire');
+                            if(!path) continue;
+                            for(let distance=0;distance<path.getTotalLength();distance+=2) {
+                                const point=path.getPointAtLength(distance);
+                                if(point.x>bounds.x+2 && point.x<bounds.x+bounds.width-2 &&
+                                   point.y>bounds.y+2 && point.y<bounds.y+bounds.height-2) {
+                                    obscured.push(`${edge.dataset.id} crossed by ${later.dataset.id}`);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    return obscured;
+                }""")
+                self.assertEqual(obscured_labels, [])
                 e1 = self.page.locator('[data-id="E1"]').bounding_box()
                 e8 = self.page.locator('[data-id="E8"]').bounding_box()
                 f1 = self.page.locator('[data-id="F1"]').bounding_box()

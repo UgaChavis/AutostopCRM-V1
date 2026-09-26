@@ -620,7 +620,7 @@
       "protocol": "JSON-RPC / локальный WebSocket",
       "description": "Wake-адаптер инициирует ход агента по событию.",
       "path": "M230 828 H265 V940 H620 V210 Q620 160 720 132",
-      "label_x": 570,
+      "label_x": 480,
       "label_y": 520,
       "direction": "forward",
       "kind": "event",
@@ -634,7 +634,7 @@
       "protocol": "MCP / HTTPS · OAuth 2.1",
       "description": "Основной защищённый маршрут агента Codex к CRM Gateway v2 через прямой MCP/HTTPS с OAuth 2.1.",
       "path": "M830 132 V425",
-      "label_x": 950,
+      "label_x": 850,
       "label_y": 300,
       "direction": "both",
       "kind": "exchange"

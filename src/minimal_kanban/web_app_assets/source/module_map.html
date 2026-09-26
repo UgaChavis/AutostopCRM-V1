@@ -125,6 +125,14 @@
     .automation-card.is-error { border-color:#8d5555; }
     .automation-card-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
     .automation-name { min-width:0; }
+    .automation-title { display:flex; align-items:center; gap:6px; }
+    .automation-title h3 { flex:1; min-width:0; }
+    .automation-info { flex:none; width:44px; height:44px; padding:0; border-radius:50%; color:#bed7e8; font-weight:600; }
+    .automation-help { margin:12px 0 0; padding:13px; border:1px solid #526a7d; border-radius:8px; background:#1b2a36; }
+    .automation-help dl { margin:0; font-size:13px; line-height:1.5; overflow-wrap:anywhere; }
+    .automation-help dt { margin-top:10px; color:#edf3f7; font-weight:600; }
+    .automation-help dt:first-child { margin-top:0; }
+    .automation-help dd { margin:3px 0 0; color:#bccbd8; }
     .automation-name h3 { margin:0; color:#e8eef3; font-size:15px; line-height:1.35; overflow-wrap:anywhere; }
     .automation-template { color:#a7b6c3; font-size:12px; }
     .automation-card-subline { display:flex; flex-wrap:wrap; align-items:center; gap:5px 9px; margin-top:6px; color:#adbbc8; font-size:12px; }
@@ -189,7 +197,9 @@
       .automation-scroll { padding:15px 16px 28px; }
       .automation-wizard,.schedule-form { grid-template-columns:1fr; }
       .automation-wizard>*,.schedule-form>* { grid-column:1; }
-      .automation-card-head { align-items:center; }
+      .automation-card-head { align-items:center; flex-wrap:wrap; }
+      .automation-card-head .automation-name { flex:1 1 100%; }
+      .automation-card-head .automation-switch { margin-left:auto; }
       .automation-state-bar { grid-template-columns:26px minmax(0,1fr); }
       .automation-meta { grid-column:2; }
       .automation-switch { flex-wrap:wrap; }
@@ -589,19 +599,71 @@
       }
       parent.append(facts);
     }
+    const automationHelpCopy={
+      crm_digest_v1:[
+        'Собирает краткую сводку новых изменений CRM для владельца.',
+        'Журнал изменений CRM после последней обработанной записи.',
+        'Сообщение о новых изменениях. Если их нет, сообщение не отправляется.',
+        'В настроенном Telegram-диалоге владельца; время запуска и ошибки — в этой карточке.'
+      ],
+      managed_pc_health:[
+        'Проверяет настройки и готовность системы управления рабочими компьютерами.',
+        'Конфигурация управления ПК и состояние компонентов на сервере.',
+        'Технический отчёт о найденных проблемах.',
+        'В журнале проверки на сервере; состояние и время запуска — в этой карточке.'
+      ],
+      managed_pc_fleet_health:[
+        'Проверяет доступность зарегистрированных рабочих компьютеров.',
+        'Список компьютеров, их туннели и ответы на проверку подключения.',
+        'Сводка доступности. Проверка не запускает Codex на компьютерах.',
+        'В отчёте состояния парка и журнале на сервере; время запуска — в этой карточке.'
+      ],
+      managed_pc_pending_cleanup:[
+        'Удаляет просроченные заявки на подключение компьютеров.',
+        'Список ожидающих подключений и срок действия каждой заявки.',
+        'Очистка только истёкших заявок; зарегистрированные компьютеры сохраняются.',
+        'В журнале очистки на сервере; состояние и время запуска — в этой карточке.'
+      ],
+      database_backup:[
+        'Создаёт резервную копию базы данных магазина.',
+        'База PostgreSQL магазина AutoStop.',
+        'Проверенный архив для восстановления; сохраняются последние семь копий.',
+        'В каталоге резервных копий и журнале на сервере; время запуска — в этой карточке.'
+      ],
+      app_watchdog:[
+        'Проверяет доступность магазина и при сбое пытается восстановить его работу.',
+        'Состояние контейнеров магазина и базы, ответы локальных и публичного адресов.',
+        'Отчёт о доступности; при подтверждённом локальном сбое возможен перезапуск сервиса.',
+        'В журнале контроля магазина на сервере; состояние и время запуска — в этой карточке.'
+      ]
+    };
+    function appendAutomationHeading(parent,entry,isTimer=false) {
+      const title=htmlElement('div','automation-title'),button=htmlElement('button','automation-info','i');
+      button.type='button';button.setAttribute('aria-label',`Справка: ${entry.name}`);button.setAttribute('aria-expanded','false');
+      const help=htmlElement('div','automation-help');help.id=`automation-help-${isTimer?'timer':'job'}-${entry.id}`;help.hidden=true;
+      button.setAttribute('aria-controls',help.id);title.append(htmlElement('h3','',entry.name),button);parent.append(title);
+      const template=automationStatus?.templates.find(item=>item.id===entry.templateId);
+      const copy=automationHelpCopy[isTimer?entry.id:entry.templateId]||[entry.detail||template?.description||'Описание задания пока не опубликовано.','Источник данных пока не описан.','Результат задания пока не описан.','Состояние, время запуска и ошибки — в этой карточке.'];
+      const toggle=isTimer&&!entry.mutable?'Переключателя здесь нет: системное расписание доступно только для просмотра.':'Включает или выключает запуски по расписанию. Применение может занять время; фактический режим подтверждает индикатор рядом.';
+      const facts=htmlElement('dl');
+      for(const [label,value] of [['Что делает',copy[0]],['Когда запускается',scheduleText(entry.schedule)],['Откуда данные',copy[1]],['Что получается',copy[2]],['Где смотреть',copy[3]],['Что меняет переключатель',toggle]])facts.append(htmlElement('dt','',label),htmlElement('dd','',value));
+      help.append(facts);button.addEventListener('click',()=>{help.hidden=!help.hidden;button.setAttribute('aria-expanded',String(!help.hidden));});
+      return help;
+    }
     function snapshotAutomationList(list,key) {
       const cards=new Map(),active=document.activeElement;let focus=null;
       for(const card of list.children) {
         const id=card.dataset[key];if(!id)continue;
         const details=card.querySelector('.automation-parameters'),form=card.querySelector('.schedule-form');
         const controls=[...card.querySelectorAll('button,input,select,summary')];
-        cards.set(id,{expanded:Boolean(details?.open),formOpen:Boolean(form&&!form.hidden),revision:card.dataset.revision,values:form&&!form.hidden?[...form.querySelectorAll('input,select')].map(field=>field.value):[]});
+        cards.set(id,{helpOpen:Boolean(card.querySelector('.automation-help:not([hidden])')),expanded:Boolean(details?.open),formOpen:Boolean(form&&!form.hidden),revision:card.dataset.revision,values:form&&!form.hidden?[...form.querySelectorAll('input,select')].map(field=>field.value):[]});
         if(card.contains(active))focus={id,index:controls.indexOf(active),selectionStart:active instanceof HTMLInputElement&&active.type==='text'?active.selectionStart:null,selectionEnd:active instanceof HTMLInputElement&&active.type==='text'?active.selectionEnd:null};
       }
       return {cards,focus};
     }
     function restoreAutomationCard(card,saved,canMutate=false) {
       if(!saved)return;
+      if(saved.helpOpen){const help=card.querySelector('.automation-help'),button=card.querySelector('.automation-info');if(help&&button){help.hidden=false;button.setAttribute('aria-expanded','true');}}
       const details=card.querySelector('.automation-parameters'),form=card.querySelector('.schedule-form');
       if(details)details.open=saved.expanded;
       if(form&&saved.formOpen&&canMutate&&saved.revision===card.dataset.revision) {
@@ -634,7 +696,7 @@
       const meta=actualMeta(job.actual);if(meta.lamp==='error')card.classList.add('is-error');
       if(automationPending?.jobId===job.id)card.classList.add('is-applying');
       const head=htmlElement('div','automation-card-head'),name=htmlElement('div','automation-name');
-      name.append(htmlElement('h3','',job.name));
+      const help=appendAutomationHeading(name,job);
       const subline=htmlElement('div','automation-card-subline');appendActualState(subline,job.actual);
       subline.append(htmlElement('span','', '·'),htmlElement('span','',shortScheduleText(job.schedule)));name.append(subline);
       const toggle=htmlElement('button','automation-switch');toggle.type='button';toggle.role='switch';toggle.dataset.jobId=job.id;
@@ -642,7 +704,7 @@
       toggle.disabled=!canMutate;const track=htmlElement('span','switch-track');track.setAttribute('aria-hidden','true');
       toggle.append(htmlElement('span','switch-copy',job.desired==='on'?'Требуется: вкл':'Требуется: выкл'),track);
       toggle.addEventListener('click',()=>performAutomationControl({operation:'set_enabled',job_id:job.id,expected_revision:job.revision,enabled:job.desired!=='on'},job.id));
-      head.append(name,toggle);card.append(head);
+      head.append(name,toggle);card.append(head,help);
       const details=htmlElement('details','automation-parameters'),summary=htmlElement('summary','','Параметры'),body=htmlElement('div','automation-parameter-body');details.append(summary);
       if(job.templateId)body.append(htmlElement('div','automation-template',`Тип: ${job.templateId}`));
       appendScheduleFacts(body,job);
@@ -660,7 +722,7 @@
     function renderSystemTimer(timer,canMutate,saved) {
       if(!timer.mutable) {
         const card=htmlElement('article','timer-card');card.dataset.timerId=timer.id;
-        card.append(htmlElement('h3','',timer.name));const subline=htmlElement('div','automation-card-subline');appendActualState(subline,timer.actual,'');subline.append(htmlElement('span','','·'),htmlElement('span','',shortScheduleText(timer.schedule)));card.append(subline);
+        const help=appendAutomationHeading(card,timer,true);const subline=htmlElement('div','automation-card-subline');appendActualState(subline,timer.actual,'');subline.append(htmlElement('span','','·'),htmlElement('span','',shortScheduleText(timer.schedule)));card.append(subline,help);
         const details=htmlElement('details','automation-parameters'),body=htmlElement('div','automation-parameter-body');details.append(htmlElement('summary','','Подробнее'));appendScheduleFacts(body,timer);
         body.append(htmlElement('div','timer-lock',timer.detail||'Системный, только чтение.'));details.append(body);card.append(details);
         if(timer.error)card.append(htmlElement('p','automation-error-copy',timer.error));restoreAutomationCard(card,saved);return card;
@@ -669,13 +731,13 @@
       const meta=actualMeta(timer.actual);if(meta.lamp==='error')card.classList.add('is-error');
       if(automationPending?.jobId===timer.id)card.classList.add('is-applying');
       const head=htmlElement('div','automation-card-head'),name=htmlElement('div','automation-name');
-      name.append(htmlElement('h3','',timer.name));const subline=htmlElement('div','automation-card-subline');appendActualState(subline,timer.actual);subline.append(htmlElement('span','','·'),htmlElement('span','',shortScheduleText(timer.schedule)));name.append(subline);
+      const help=appendAutomationHeading(name,timer,true);const subline=htmlElement('div','automation-card-subline');appendActualState(subline,timer.actual);subline.append(htmlElement('span','','·'),htmlElement('span','',shortScheduleText(timer.schedule)));name.append(subline);
       const toggle=htmlElement('button','automation-switch');toggle.type='button';toggle.role='switch';toggle.dataset.timerId=timer.id;
       toggle.setAttribute('aria-checked',String(timer.desired==='on'));toggle.setAttribute('aria-label',`${timer.name}: требуемый режим ${timer.desired==='on'?'включён':'выключен'}`);
       toggle.disabled=!canMutate;const track=htmlElement('span','switch-track');track.setAttribute('aria-hidden','true');
       toggle.append(htmlElement('span','switch-copy',timer.desired==='on'?'Требуется: вкл':'Требуется: выкл'),track);
       toggle.addEventListener('click',()=>performAutomationControl({operation:'set_enabled',timer_id:timer.id,expected_revision:timer.revision,enabled:timer.desired!=='on'},timer.id));
-      head.append(name,toggle);card.append(head);
+      head.append(name,toggle);card.append(head,help);
       const details=htmlElement('details','automation-parameters'),body=htmlElement('div','automation-parameter-body');details.append(htmlElement('summary','','Параметры'));appendScheduleFacts(body,timer);
       const actions=htmlElement('div','automation-actions'),edit=htmlElement('button','','Изменить период');edit.type='button';edit.disabled=!canMutate||timer.schedule.kind!=='interval';actions.append(edit);body.append(actions);
       const form=htmlElement('form','schedule-form');form.hidden=true;const field=htmlElement('label','field','Период, минут');const input=document.createElement('input');

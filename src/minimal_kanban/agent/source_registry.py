@@ -137,7 +137,7 @@ DIAGNOSTIC_SOURCES: tuple[SourceDefinition, ...] = (
 GENERIC_WEB_SOURCES: tuple[SourceDefinition, ...] = (
     SourceDefinition(
         key="multi_search",
-        label="SearXNG/Marginalia/DuckDuckGo/Tavily/Brave/Google CSE + Crawl4AI",
+        label="SearXNG/Marginalia/DuckDuckGo/Tavily/Brave/Google CSE",
         kind="search",
         domains=(
             "searxng.org",
@@ -148,7 +148,7 @@ GENERIC_WEB_SOURCES: tuple[SourceDefinition, ...] = (
             "googleapis.com",
             "crawl4ai.com",
         ),
-        note="Configured public search providers for discovery plus Crawl4AI markdown extraction.",
+        note="Configured public search providers for discovery; page excerpts use validated, bounded HTTP requests.",
     ),
 )
 
