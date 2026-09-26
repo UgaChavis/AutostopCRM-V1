@@ -27,6 +27,10 @@
           "url": "https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/.agents/skills/manage-owner-telegram/SKILL.md"
         },
         {
+          "title": "Рабочий Instagram",
+          "url": "https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/.agents/skills/manage-owner-instagram/SKILL.md"
+        },
+        {
           "title": "CRM, ремонт и запчасти",
           "url": "https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/.agents/skills/manage-autostop-store/SKILL.md"
         },
@@ -495,6 +499,36 @@
       "kind": "item",
       "lines": [],
       "parent": "F2"
+    },
+    {
+      "id": "H1",
+      "title": "Windsor.ai",
+      "x": 690,
+      "y": 979,
+      "width": 275,
+      "height": 83,
+      "description": "В текущем интерактивном чате Codex подключён плагин Windsor.ai с инструментами публикации постов, Reels и Stories и работы с комментариями. Direct и событийный запуск через плагин не подключены; доступность в локальном CLI и Telegram-режиме отдельно не подтверждена.",
+      "group": "H",
+      "kind": "module",
+      "lines": [
+        "Публикации · комментарии"
+      ],
+      "icon": "plug"
+    },
+    {
+      "id": "H2",
+      "title": "Instagram AutoStop",
+      "x": 1020,
+      "y": 979,
+      "width": 260,
+      "height": 83,
+      "description": "Рабочий Instagram-аккаунт автосервиса @auto.repair.parts. Публикации и комментарии хранятся в Instagram; доступные действия в интерактивном Codex выполняются через Windsor.ai по текущему поручению.",
+      "group": "H",
+      "kind": "module",
+      "lines": [
+        "@auto.repair.parts"
+      ],
+      "icon": "camera"
     }
   ],
   "relations": [
@@ -851,6 +885,35 @@
       "direction": "forward",
       "kind": "event",
       "tone": "G"
+    },
+    {
+      "id": "L29",
+      "from": "A2",
+      "to": "H1",
+      "label": "Инструменты Windsor.ai",
+      "protocol": "Инструменты подключённого плагина",
+      "description": "В текущем интерактивном чате Codex вызывает инструменты Windsor.ai по поручению и получает результат. Доступность плагина в локальном CLI и Telegram-режиме не подтверждена; входящие события Instagram не запускают агента.",
+      "path": "M990 132 V956 H827 V979",
+      "label_x": 1025,
+      "label_y": 342,
+      "direction": "both",
+      "kind": "exchange",
+      "tone": "H"
+    },
+    {
+      "id": "L30",
+      "from": "H1",
+      "to": "H2",
+      "label": "Доступ к рабочему Instagram",
+      "protocol": "Windsor.ai / Instagram",
+      "description": "Подключённый в текущем интерактивном чате плагин выполняет доступные операции публикации и комментариев в аккаунте @auto.repair.parts и возвращает результат Codex. Direct недоступен.",
+      "path": "M965 1020 H1020",
+      "label_x": 993,
+      "label_y": 1020,
+      "direction": "both",
+      "kind": "exchange",
+      "tone": "H",
+      "show_label": false
     }
   ]
 }

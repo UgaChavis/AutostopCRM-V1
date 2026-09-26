@@ -264,7 +264,7 @@
     'use strict';
     const ns = 'http://www.w3.org/2000/svg';
     const $ = id => document.getElementById(id);
-    const colors = {A:'#79b9d9',agent:'#5ecde9',B:'#73c4e8',C:'#dfb461',D:'#b497de',E:'#ec8492',F:'#8ed6ad',G:'#68dba8',J:'#7adbb1',N:'#a2c2d5'};
+    const colors = {A:'#79b9d9',agent:'#5ecde9',B:'#73c4e8',C:'#dfb461',D:'#b497de',E:'#ec8492',F:'#8ed6ad',G:'#68dba8',H:'#d99bc9',J:'#7adbb1',N:'#a2c2d5'};
     const indicatorStates = {
       on:{color:'#71ad86',label:'Включён'},off:{color:'#bb6868',label:'Выключен'},disabled:{color:'#7e8993',label:'Все задания выключены'},
       applying:{color:'#c6ae61',label:'Применение изменений'},error:{color:'#cf7070',label:'Есть ошибка'},offline:{color:'#bba65e',label:'Нет связи'},unknown:{color:'#bba65e',label:'Состояние неизвестно'}
@@ -285,6 +285,8 @@
       car:'M3 14 L7 4 H21 L25 14 V25 H21 V21 H7 V25 H3 Z M3 14 H25 M7 17 H10 M18 17 H21',
       cloud:'M7 23 C-2 23 -1 10 7 10 C8 -2 25 0 24 12 C33 13 29 25 22 23 Z',
       globe:'M14 2 A12 12 0 1 1 14 26 A12 12 0 1 1 14 2 M2 14 H26 M14 2 C7 8 7 20 14 26 M14 2 C21 8 21 20 14 26',
+      camera:'M4 6 H9 L11 3 H20 L22 6 H26 V24 H2 V6 Z M14 9 A7 7 0 1 1 14 23 A7 7 0 1 1 14 9 M22 10 H22.1',
+      plug:'M8 2 V10 M20 2 V10 M4 10 H24 V16 C24 22 20 25 14 25 C8 25 4 22 4 16 Z M14 25 V28',
       cart:'M1 3 H5 L9 19 H24 L28 8 H7 M13 25 A2 2 0 1 1 9 25 A2 2 0 1 1 13 25 M25 25 A2 2 0 1 1 21 25 A2 2 0 1 1 25 25',
       box:'M2 8 L14 1 L26 8 V22 L14 29 L2 22 Z M2 8 L14 15 L26 8 M14 15 V29 M8 5 L20 12'
     };

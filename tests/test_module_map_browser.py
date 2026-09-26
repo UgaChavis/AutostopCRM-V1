@@ -93,7 +93,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.assertEqual(self.page.locator("#detailTitle").inner_text(), "Инструкции")
         self.assertEqual(self.page.locator('[data-id="A1"] .subtitle').count(), 0)
         links = self.page.locator("#instructionLinks a")
-        self.assertEqual(links.count(), 5)
+        self.assertEqual(links.count(), 6)
         for link in links.all():
             self.assertTrue(
                 link.get_attribute("href").startswith(
@@ -130,7 +130,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
             self.assertEqual(lamp.locator("title").text_content(), label)
             colors[state] = lamp.locator(".status-light").get_attribute("fill")
             self.select_node("A1")
-            self.assertEqual(self.page.locator("#instructionLinks a").count(), 5)
+            self.assertEqual(self.page.locator("#instructionLinks a").count(), 6)
             self.page.unroute("**/api/get_module_map_infrastructure")
         self.assertEqual(len({colors[state] for state in ("on", "off", "unknown")}), 3)
         self.assertEqual(colors["invalid"], colors["unknown"])
@@ -148,8 +148,8 @@ class ManagerMapBrowserTests(unittest.TestCase):
         identifiers = self.page.locator("[data-id]").evaluate_all(
             "elements => elements.map(el => el.dataset.id)"
         )
-        self.assertEqual(len(identifiers), 60)
-        self.assertEqual(len(set(identifiers)), 60)
+        self.assertEqual(len(identifiers), 64)
+        self.assertEqual(len(set(identifiers)), 64)
         for code in identifiers:
             with self.subTest(code=code):
                 if code == "G1":
@@ -622,6 +622,22 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.assertFalse(any(text.startswith("E1 ·") for text in related))
         self.assertEqual(self.errors, [])
 
+    def test_instagram_uses_connected_plugin_without_event_wake(self) -> None:
+        self.login()
+        self.select_node("H2")
+        self.assertEqual(self.page.locator("#detailTitle").inner_text(), "Instagram AutoStop")
+        self.assertIn("@auto.repair.parts", self.page.locator("#detailDescription").inner_text())
+        self.assertEqual(
+            self.page.locator("#detailDiagram .flow-step").all_inner_texts(),
+            ["Windsor.ai", "Instagram AutoStop"],
+        )
+        self.reveal_details()
+        related = self.page.locator("#related button").all_inner_texts()
+        self.assertTrue(any(text.startswith("H1 ·") for text in related))
+        self.assertTrue(any(text.startswith("L30 ·") for text in related))
+        self.assertFalse(any(text.startswith("B4 ·") for text in related))
+        self.assertEqual(self.errors, [])
+
     def test_fit_text_bounds_pan_zoom_and_hash(self) -> None:
         self.login()
         self.assertEqual(self.page.locator("nav.toolbar, #search, #fullscreen").count(), 0)
@@ -710,7 +726,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
     def test_removed_hashes_open_current_map(self) -> None:
         self.page.goto(self.runtime.base_url + "/module-map#C1")
         self.login()
-        self.assertEqual(self.page.locator("[data-id]").count(), 60)
+        self.assertEqual(self.page.locator("[data-id]").count(), 64)
         self.assertFalse(self.page.locator("#detail").is_visible())
         self.assertEqual(self.page.evaluate("location.hash"), "")
         for code in ("L8", "L9"):
@@ -719,7 +735,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
                 self.page.wait_for_function(
                     "location.hash==='' && document.querySelector('#detail').hidden"
                 )
-                self.assertEqual(self.page.locator("[data-id]").count(), 60)
+                self.assertEqual(self.page.locator("[data-id]").count(), 64)
         self.assertEqual(self.errors, [])
 
     def test_failed_load_can_retry_without_exposing_partial_map(self) -> None:
@@ -734,7 +750,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.assertEqual(self.page.locator("[data-id]").count(), 0)
         self.page.unroute("**/api/get_module_map_infrastructure")
         self.login()
-        self.assertEqual(self.page.locator("[data-id]").count(), 60)
+        self.assertEqual(self.page.locator("[data-id]").count(), 64)
         self.assertEqual(self.errors, [])
 
 

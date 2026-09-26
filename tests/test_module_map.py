@@ -33,6 +33,7 @@ class ModuleMapTests(unittest.TestCase):
                 "E": 9,
                 "F": 5,
                 "G": 1,
+                "H": 2,
                 "J": 1,
                 "N": 2,
             }.items()
@@ -40,11 +41,11 @@ class ModuleMapTests(unittest.TestCase):
         }
         self.assertEqual(self.data["schema_version"], "autostopmanager.infrastructure-map.v1")
         self.assertEqual(set(self.nodes), expected - {"N1", "N2", "C1"})
-        self.assertEqual(len(self.data["elements"]), 34)
+        self.assertEqual(len(self.data["elements"]), 36)
         edges = {item["id"]: item for item in self.data["relations"]}
-        self.assertEqual(len(self.data["relations"]), 26)
-        self.assertEqual(len(self.nodes) + len(edges), 60)
-        self.assertEqual(set(edges), {f"L{i}" for i in range(1, 29)} - {"L8", "L9"})
+        self.assertEqual(len(self.data["relations"]), 28)
+        self.assertEqual(len(self.nodes) + len(edges), 64)
+        self.assertEqual(set(edges), {f"L{i}" for i in range(1, 31)} - {"L8", "L9"})
         pairs = {
             "L1": ("A1", "A2"),
             "L2": ("A2", "A3"),
@@ -72,6 +73,8 @@ class ModuleMapTests(unittest.TestCase):
             "L26": ("A2", "G1"),
             "L27": ("C3", "G1"),
             "L28": ("G1", "B1"),
+            "L29": ("A2", "H1"),
+            "L30": ("H1", "H2"),
         }
         for code, pair in pairs.items():
             edge = edges[code]
@@ -95,6 +98,12 @@ class ModuleMapTests(unittest.TestCase):
         self.assertEqual(self.nodes["G1"].get("indicator"), "unknown")
         for code in ("L26", "L27", "L28"):
             self.assertEqual(edges[code].get("tone"), "G")
+        for code in ("L29", "L30"):
+            self.assertEqual(edges[code].get("tone"), "H")
+        self.assertIn("manage-owner-instagram/SKILL.md", self.nodes["A1"]["links"][2]["url"])
+        self.assertEqual(self.nodes["H2"]["lines"], ["@auto.repair.parts"])
+        self.assertFalse(edges["L30"].get("show_label", True))
+        self.assertIn("не подключены", self.nodes["H1"]["description"])
 
     def test_hierarchy_geometry_and_russian_descriptions(self) -> None:
         edges = {item["id"]: item for item in self.data["relations"]}
