@@ -37,6 +37,47 @@ class FakeHttpResponse(FakeReadableResponse):
 
 
 class PerfProbeTests(unittest.TestCase):
+    def test_first_card_id_reports_malformed_snapshot_data(self) -> None:
+        module = load_perf_probe_module()
+        for value in (None, [], "bad", 1, True):
+            with self.subTest(field="data", value=value):
+                with self.assertRaisesRegex(ValueError, "snapshot data must be an object"):
+                    module.first_card_id({"data": value})
+        for value in (None, {}, "bad", 1, True):
+            with self.subTest(field="cards", value=value):
+                with self.assertRaisesRegex(ValueError, "snapshot cards must be an array"):
+                    module.first_card_id({"data": {"cards": value}})
+        for value in (None, [], "bad", 1, True):
+            with self.subTest(field="first_card", value=value):
+                with self.assertRaisesRegex(ValueError, "snapshot first card must be an object"):
+                    module.first_card_id({"data": {"cards": [value]}})
+        self.assertEqual(module.first_card_id({}, "fallback"), "fallback")
+        self.assertEqual(module.first_card_id({"data": {}}, "fallback"), "fallback")
+        self.assertEqual(module.first_card_id({"data": {"cards": []}}, "fallback"), "fallback")
+        self.assertEqual(module.first_card_id({"data": {"cards": [{"id": " card-1 "}]}}), "card-1")
+
+    def test_malformed_snapshot_yields_json_probe_error(self) -> None:
+        module = load_perf_probe_module()
+        output = io.StringIO()
+
+        def fake_measure(_base_url, label, _path, **_kwargs):
+            payload = {"data": None} if label == "snapshot.identity" else {}
+            return payload, [module.ProbeResult(label, 200, 1.0, 10, "", "")]
+
+        with (
+            patch.object(module, "measure", side_effect=fake_measure),
+            patch.object(
+                sys,
+                "argv",
+                ["perf_probe.py", "--base-url", "http://127.0.0.1", "--iterations", "1"],
+            ),
+            redirect_stdout(output),
+        ):
+            self.assertEqual(module.main(), 2)
+        payload = json.loads(output.getvalue())
+        self.assertIs(payload["ok"], False)
+        self.assertEqual(payload["error"], "snapshot data must be an object")
+
     def test_loader_restores_previous_module_entry(self) -> None:
         module_name = "perf_probe"
         previous_module = sys.modules.get(module_name)

@@ -179,7 +179,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                 check=False,
                 env={**os.environ, "PYTHONIOENCODING": "utf-8"},
             )
-            result = json.loads(process.stdout)
+            try:
+                result = json.loads(process.stdout)
+            except json.JSONDecodeError as exc:
+                error_log = args.output_dir / f"{label}-{series}-error.log"
+                error_log.write_text(
+                    f"process_exit_code: {process.returncode}\n"
+                    f"stdout:\n{process.stdout}\n"
+                    f"stderr:\n{process.stderr}\n",
+                    encoding="utf-8",
+                )
+                raise RuntimeError(
+                    f"{label} series {series} did not return valid JSON; see {error_log}"
+                ) from exc
             if args.panels:
                 result["rows"] = [
                     row

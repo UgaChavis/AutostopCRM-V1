@@ -164,7 +164,19 @@ async def board_ready(page: Any, runtime: Any, *, mobile: bool = False) -> None:
         if mobile
         else f'#board .card[data-card-id="{runtime.card_id}"]'
     )
-    await page.wait_for_selector(selector, timeout=30000)
+    # Selector retry backoff adds up to 500 ms of idle time to startup measurements.
+    await page.wait_for_function(
+        """selector => {
+          const card = document.querySelector(selector);
+          if (!card || getComputedStyle(card).visibility !== 'visible') return false;
+          if (card.checkVisibility && !card.checkVisibility()) return false;
+          const bounds = card.getBoundingClientRect();
+          return bounds.width > 0 && bounds.height > 0;
+        }""",
+        arg=selector,
+        polling="raf",
+        timeout=30000,
+    )
     await page.wait_for_function("() => window.__AUTOSTOP_UI_BOUND__ === true")
 
 

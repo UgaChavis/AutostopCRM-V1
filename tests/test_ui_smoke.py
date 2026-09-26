@@ -5,6 +5,7 @@ import os
 import sys
 import tempfile
 import unittest
+import webbrowser
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -91,12 +92,26 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.browser_open.assert_called_once_with("http://127.0.0.1:41731")
 
     def test_open_board_button_uses_local_http_server(self) -> None:
+        self.browser_open.return_value = True
         button = next(
             item for item in self.window.findChildren(QPushButton) if item.text() == "Открыть доску"
         )
         button.click()
         self.browser_open.assert_called_once_with("http://127.0.0.1:41731")
         self.assertIn("Доска открыта", self.window.status_label.text())
+
+    def test_open_board_reports_browser_failure_without_url_details(self) -> None:
+        self.window._access_board_url = "https://board.example/?access_token=synthetic-secret"
+        for failure in (False, OSError("synthetic-secret"), webbrowser.Error("synthetic-secret")):
+            with self.subTest(failure=type(failure).__name__):
+                self.browser_open.reset_mock()
+                self.browser_open.side_effect = failure if isinstance(failure, Exception) else None
+                self.browser_open.return_value = failure if failure is False else True
+                self.window.open_access_board()
+                self.browser_open.assert_called_once_with(self.window._access_board_url)
+                self.assertEqual(
+                    self.window.status_label.text(), "Не удалось открыть ссылку в браузере."
+                )
 
     def test_copy_network_address_uses_configured_network_host(self) -> None:
         self.window.copy_network_url()

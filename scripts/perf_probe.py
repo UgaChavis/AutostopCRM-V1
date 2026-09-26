@@ -455,8 +455,15 @@ def _bounded_warmup_iterations(value: object) -> int:
 
 
 def first_card_id(snapshot_payload: dict[str, Any], fallback: str = "") -> str:
-    cards = snapshot_payload.get("data", {}).get("cards", [])
-    if isinstance(cards, list) and cards:
+    data = snapshot_payload.get("data", {})
+    if not isinstance(data, dict):
+        raise ValueError("snapshot data must be an object")
+    cards = data.get("cards", [])
+    if not isinstance(cards, list):
+        raise ValueError("snapshot cards must be an array")
+    if cards:
+        if not isinstance(cards[0], dict):
+            raise ValueError("snapshot first card must be an object")
         return str(cards[0].get("id") or "").strip()
     return fallback
 

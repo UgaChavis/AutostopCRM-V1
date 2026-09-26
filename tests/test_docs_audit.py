@@ -221,6 +221,41 @@ class DocsAuditTests(unittest.TestCase):
             issues[0].detail,
         )
 
+    def test_docs_audit_resolves_percent_encoded_local_links(self) -> None:
+        module = load_docs_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            docs = temp_root / "docs"
+            docs.mkdir()
+            (docs / "My Guide.md").write_text("space\n", encoding="utf-8")
+            (docs / "Chapter#1.md").write_text("hash\n", encoding="utf-8")
+            (docs / "Пример.md").write_text("unicode\n", encoding="utf-8")
+            (temp_root / "README.md").write_text(
+                "[space](docs/My%20Guide.md)\n"
+                "[hash](docs/Chapter%231.md)\n"
+                "[unicode](docs/%D0%9F%D1%80%D0%B8%D0%BC%D0%B5%D1%80.md)\n",
+                encoding="utf-8",
+            )
+
+            issues = module._check_canonical_local_links(temp_root)
+
+        self.assertEqual(issues, [])
+
+    def test_docs_audit_rejects_percent_encoded_parent_traversal(self) -> None:
+        module = load_docs_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            (temp_root / "README.md").write_text(
+                "[outside](%2E%2E/outside.md)\n",
+                encoding="utf-8",
+            )
+
+            issues = module._check_canonical_local_links(temp_root)
+
+        self.assertEqual([issue.code for issue in issues], ["canonical_doc_link_outside_root"])
+
     def test_docs_audit_validates_technical_debt_links(self) -> None:
         module = load_docs_audit_module()
 

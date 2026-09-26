@@ -1,4 +1,6 @@
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import ModuleType
@@ -20,6 +22,40 @@ def load_script(name: str) -> ModuleType:
 
 
 class PerfComparisonTests(unittest.TestCase):
+    def test_invalid_harness_json_keeps_process_diagnostics(self) -> None:
+        module = load_script("perf_comparison")
+        failed_process = subprocess.CompletedProcess(
+            args=["python", "perf_workflows.py"],
+            returncode=1,
+            stdout="",
+            stderr="ModuleNotFoundError: synthetic missing dependency",
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir) / "evidence"
+            with patch.object(module.subprocess, "run", return_value=failed_process) as run:
+                with self.assertRaisesRegex(
+                    RuntimeError, "baseline series 1 did not return valid JSON"
+                ):
+                    module.main(
+                        [
+                            "--baseline",
+                            temp_dir,
+                            "--output-dir",
+                            str(output_dir),
+                            "--series",
+                            "1",
+                            "--iterations",
+                            "1",
+                        ]
+                    )
+            run.assert_called_once()
+            error_log = output_dir / "baseline-1-error.log"
+            self.assertTrue(error_log.is_file())
+            content = error_log.read_text(encoding="utf-8")
+            self.assertIn("process_exit_code: 1", content)
+            self.assertIn("ModuleNotFoundError: synthetic missing dependency", content)
+            self.assertEqual(list(output_dir.iterdir()), [error_log])
+
     def test_script_loader_restores_none_sys_modules_entry(self) -> None:
         with patch.dict(sys.modules, {"perf_comparison": None}):
             module = load_script("perf_comparison")

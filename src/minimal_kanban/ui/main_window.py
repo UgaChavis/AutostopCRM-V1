@@ -273,7 +273,13 @@ class MainWindow(QMainWindow):
         if not is_http_url(normalized_url):
             self._set_status_text("Не удалось открыть ссылку: URL должен быть HTTP(S).")
             return
-        webbrowser.open(normalized_url)
+        try:
+            opened = webbrowser.open(normalized_url)
+        except (OSError, webbrowser.Error):
+            opened = False
+        if not opened:
+            self._set_status_text("Не удалось открыть ссылку в браузере.")
+            return
         self._set_status_text(success_message)
 
     def _open_optional_url(self, url: str, *, missing_message: str, success_message: str) -> None:

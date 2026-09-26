@@ -12,6 +12,7 @@ import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, cast
+from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -665,7 +666,7 @@ def _check_canonical_local_links(root: Path) -> list[Issue]:
                 or re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", target)
             ):
                 continue
-            target_path = target.split("#", 1)[0].split("?", 1)[0]
+            target_path = unquote(target.split("#", 1)[0].split("?", 1)[0])
             if not target_path:
                 continue
             resolved = (path.parent / target_path).resolve()

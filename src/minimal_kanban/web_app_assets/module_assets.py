@@ -156,14 +156,26 @@ def read_board_source(name: str, *, proxies: dict[str, str] | None = None) -> st
 
 def _module_script(group: str, source: str, public_names: set[str]) -> str:
     if group == "cash_journal":
-        source = source.replace(_CASH_JOURNAL_CORE, "")
+        count = source.count(_CASH_JOURNAL_CORE)
+        if count != 1:
+            raise RuntimeError(
+                f"Expected exactly one cashJournalLinkFlags helper in cash_journal module; found {count}"
+            )
+        source = source.replace(_CASH_JOURNAL_CORE, "", 1)
     if group == "printing":
+        bridge = "printRepairOrderDraft = function() { return openRepairOrderPrintWorkspace(); };"
+        count = source.count(bridge)
+        if count != 1:
+            raise RuntimeError(
+                f"Expected exactly one printRepairOrderDraft bridge in printing module; found {count}"
+            )
         source = source.replace(
-            "printRepairOrderDraft = function() { return openRepairOrderPrintWorkspace(); };",
+            bridge,
             "function printRepairOrderDraft(prepared = null) { "
             "return openRepairOrderPrintWorkspace("
             "typeof prepared?.isCurrent === 'function' ? prepared : null"
             "); }",
+            1,
         )
     exports = [name for name in _function_names(source) if name in public_names]
     reset = ""

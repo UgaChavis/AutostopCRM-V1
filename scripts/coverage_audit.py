@@ -227,6 +227,11 @@ def audit_coverage(
             )
         )
         return CoverageAuditResult((), tuple(issues))
+    if not floors:
+        issues.append(
+            CoverageIssue("manifest_shape_invalid", "manifest", "floors must not be empty")
+        )
+        return CoverageAuditResult((), tuple(issues))
 
     overrides = dict(report_overrides or {})
     unknown_overrides = sorted(set(overrides) - set(measurements))

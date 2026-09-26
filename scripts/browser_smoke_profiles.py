@@ -157,15 +157,26 @@ def _probe_chromium() -> bool:
         playwright = sync_playwright().start()
         try:
             # Headless-only installations need not contain the headed executable.
-            browser = playwright.chromium.launch(
-                headless=True,
-                timeout=10_000,
-                args=["--disable-dev-shm-usage", "--no-sandbox"],
-            )
-            try:
-                return browser.is_connected()
-            finally:
-                browser.close()
+            launch_options = {
+                "headless": True,
+                "timeout": 10_000,
+                "args": ["--disable-dev-shm-usage", "--no-sandbox"],
+            }
+            for channel in (None, "chrome", "msedge"):
+                try:
+                    options = (
+                        launch_options
+                        if channel is None
+                        else {**launch_options, "channel": channel}
+                    )
+                    browser = playwright.chromium.launch(**options)
+                except Exception:
+                    continue
+                try:
+                    return browser.is_connected()
+                finally:
+                    browser.close()
+            return False
         finally:
             playwright.stop()
     except Exception:

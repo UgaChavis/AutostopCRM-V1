@@ -41,6 +41,26 @@ class PerfBrowserPanelsTests(unittest.IsolatedAsyncioTestCase):
         for name in ("measurement_sha256", "fixture_sha256"):
             self.assertRegex(result[name], r"^[0-9a-f]{64}$")
 
+    async def test_board_readiness_uses_frame_polling_before_ui_binding(self) -> None:
+        runtime = SimpleNamespace(browser_url="http://127.0.0.1/", card_id="card-1")
+        for mobile, selector in (
+            (False, '#board .card[data-card-id="card-1"]'),
+            (True, "#mobileBoardColumns [data-mobile-card-id]"),
+        ):
+            with self.subTest(mobile=mobile):
+                page = SimpleNamespace(wait_for_function=AsyncMock())
+                with patch.object(self.module.perf, "goto_with_retry", AsyncMock()) as navigate:
+                    await self.module.board_ready(page, runtime, mobile=mobile)
+                navigate.assert_awaited_once_with(
+                    page, runtime.browser_url, wait_until="domcontentloaded"
+                )
+                self.assertEqual(page.wait_for_function.await_count, 2)
+                visibility, binding = page.wait_for_function.await_args_list
+                self.assertEqual(
+                    visibility.kwargs, {"arg": selector, "polling": "raf", "timeout": 30000}
+                )
+                self.assertEqual(binding.args, ("() => window.__AUTOSTOP_UI_BOUND__ === true",))
+
     async def test_every_cold_sample_has_fresh_context_and_untimed_preparation(self) -> None:
         events = []
         pages = [object(), object()]

@@ -634,23 +634,28 @@ class ChatGPTConnectDialog(QDialog):
         self.accept()
 
     def _open_chatgpt_home(self) -> None:
-        QDesktopServices.openUrl(QUrl(CHATGPT_HOME_URL))
-        self._set_status(
+        self._open_browser_link(
+            CHATGPT_HOME_URL,
             "ChatGPT открыт. В настройках ChatGPT откройте Apps & Connectors и создайте MCP connector.",
-            tone="success",
         )
 
     def _open_openai_guide(self) -> None:
-        QDesktopServices.openUrl(QUrl(OPENAI_MCP_CONNECTORS_GUIDE_URL))
-        self._set_status(
-            "Открыта официальная документация OpenAI по MCP connectors.", tone="success"
+        self._open_browser_link(
+            OPENAI_MCP_CONNECTORS_GUIDE_URL,
+            "Открыта официальная документация OpenAI по MCP connectors.",
         )
 
     def _open_openai_apps_guide(self) -> None:
-        QDesktopServices.openUrl(QUrl(OPENAI_APPS_CONNECT_GUIDE_URL))
-        self._set_status(
-            "Открыта официальная документация OpenAI по подключению из ChatGPT.", tone="success"
+        self._open_browser_link(
+            OPENAI_APPS_CONNECT_GUIDE_URL,
+            "Открыта официальная документация OpenAI по подключению из ChatGPT.",
         )
+
+    def _open_browser_link(self, url: str, success_message: str) -> None:
+        if not QDesktopServices.openUrl(QUrl(url)):
+            self._set_status("Не удалось открыть ссылку в браузере.", tone="error")
+            return
+        self._set_status(success_message, tone="success")
 
     def _set_status(self, message: str, *, tone: str = "info") -> None:
         _apply_status_label_state(self, self.preflight_status_label, message, tone=tone)
@@ -1748,8 +1753,13 @@ class SettingsWindow(QDialog):
 
     def _open_mcp_log(self) -> None:
         path = get_mcp_startup_log_file()
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
-        self._set_status(f"Открыт MCP startup log: {path.name}", tone="success")
+        self._open_local_file(path, f"Открыт MCP startup log: {path.name}")
+
+    def _open_local_file(self, path: Path, success_message: str) -> None:
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))):
+            self._set_status("Не удалось открыть файл.", tone="error")
+            return
+        self._set_status(success_message, tone="success")
 
     def _copy_mcp_startup_error(self) -> None:
         QGuiApplication.clipboard().setText(self._current_mcp_error_text())
@@ -1947,8 +1957,7 @@ class SettingsWindow(QDialog):
 
     def _open_connection_docs(self) -> None:
         path = get_mcp_setup_doc_path()
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
-        self._set_status(f"Открыта инструкция подключения: {path.name}", tone="success")
+        self._open_local_file(path, f"Открыта инструкция подключения: {path.name}")
 
     def _format_summary(self, settings: IntegrationSettings) -> str:
         diagnostics = settings.diagnostics

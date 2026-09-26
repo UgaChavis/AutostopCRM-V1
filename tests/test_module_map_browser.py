@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 import unittest
 from pathlib import Path
+from types import ModuleType
+from unittest.mock import Mock, patch
 
 if __package__:
     from tests.source_path_support import prepend_scripts_path
@@ -15,6 +18,45 @@ else:
 prepend_scripts_path()
 
 from browser_smoke_runtime import start_temp_runtime
+
+
+def _browser_unavailable(message: str) -> Exception:
+    if os.environ.get("AUTOSTOP_REQUIRE_MODULE_MAP_BROWSER") == "1":
+        return RuntimeError(message)
+    return unittest.SkipTest(message)
+
+
+class BrowserRequirementTests(unittest.TestCase):
+    def test_missing_browser_skips_locally_and_fails_required_run(self) -> None:
+        class Probe(ManagerMapBrowserTests):
+            def runTest(self) -> None:
+                pass
+
+        for dependency in ("playwright", "chromium"):
+            for required in (False, True):
+                with self.subTest(dependency=dependency, required=required):
+                    fake_playwright = Mock()
+                    fake_playwright.chromium.executable_path = "missing-chromium"
+                    fake_module = ModuleType("playwright.sync_api")
+                    fake_module.sync_playwright = Mock(
+                        return_value=Mock(start=Mock(return_value=fake_playwright))
+                    )
+                    module = None if dependency == "playwright" else fake_module
+                    with (
+                        patch.dict(
+                            os.environ,
+                            {"AUTOSTOP_REQUIRE_MODULE_MAP_BROWSER": "1" if required else "0"},
+                        ),
+                        patch.dict(sys.modules, {"playwright.sync_api": module}),
+                        patch.object(Path, "exists", return_value=False),
+                    ):
+                        result = unittest.TestResult()
+                        unittest.TestSuite([Probe("runTest")]).run(result)
+                    self.assertEqual(len(result.skipped), 0 if required else 1)
+                    self.assertEqual(len(result.errors), 1 if required else 0)
+                    self.assertEqual(result.testsRun, 0)
+                    if dependency == "chromium":
+                        fake_playwright.stop.assert_called_once_with()
 
 
 class ManagerMapBrowserTests(unittest.TestCase):
@@ -27,11 +69,11 @@ class ManagerMapBrowserTests(unittest.TestCase):
         try:
             from playwright.sync_api import sync_playwright
         except ImportError as error:
-            raise unittest.SkipTest("Playwright is not installed") from error
+            raise _browser_unavailable("Playwright is not installed") from error
         cls.playwright = sync_playwright().start()
         cls.addClassCleanup(cls.playwright.stop)
         if not Path(cls.playwright.chromium.executable_path).exists():
-            raise unittest.SkipTest("Playwright Chromium is not installed")
+            raise _browser_unavailable("Playwright Chromium is not installed")
         cls.browser = cls.playwright.chromium.launch(
             headless=True,
             executable_path=cls.playwright.chromium.executable_path,

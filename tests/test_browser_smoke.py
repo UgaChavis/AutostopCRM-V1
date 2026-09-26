@@ -239,6 +239,47 @@ class BrowserSmokeScriptTests(unittest.TestCase):
         ):
             self.assertFalse(profiles._probe_command("pdfinfo"))
 
+    def test_chromium_preflight_tries_runner_fallback_channels(self) -> None:
+        load_browser_smoke_module()
+        profiles = sys.modules["browser_smoke_profiles"]
+        playwright_package = ModuleType("playwright")
+        playwright_package.__path__ = []
+        sync_api = ModuleType("playwright.sync_api")
+        start = Mock()
+        sync_api.sync_playwright = start
+        launch_options = {
+            "headless": True,
+            "timeout": 10_000,
+            "args": ["--disable-dev-shm-usage", "--no-sandbox"],
+        }
+        with (
+            patch.dict(
+                sys.modules,
+                {"playwright": playwright_package, "playwright.sync_api": sync_api},
+            ),
+            patch.object(profiles, "_probe_python_module", return_value=True),
+        ):
+            for failures in range(4):
+                with self.subTest(failed_launches=failures):
+                    browser = Mock()
+                    browser.is_connected.return_value = True
+                    playwright = Mock()
+                    launch_results = [RuntimeError("browser unavailable")] * failures
+                    if failures < 3:
+                        launch_results.append(browser)
+                    playwright.chromium.launch.side_effect = launch_results
+                    start.return_value.start.return_value = playwright
+
+                    self.assertEqual(profiles._probe_chromium(), failures < 3)
+                    expected_calls = [call(**launch_options)]
+                    if failures >= 1:
+                        expected_calls.append(call(**launch_options, channel="chrome"))
+                    if failures >= 2:
+                        expected_calls.append(call(**launch_options, channel="msedge"))
+                    self.assertEqual(playwright.chromium.launch.call_args_list, expected_calls)
+                    self.assertEqual(browser.close.call_count, int(failures < 3))
+                    playwright.stop.assert_called_once()
+
     def test_toolchain_doctor_checks_pdf_dependencies_and_qt_backend(self) -> None:
         doctor = (ROOT / "scripts" / "toolchain_doctor.ps1").read_text(encoding="utf-8")
 

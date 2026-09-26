@@ -529,6 +529,31 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
         open_browser.assert_called_once_with("https://agent.example/mcp")
         self.assertIn("mcp url", self.window.status_label.text().lower())
 
+    def test_settings_local_files_report_open_result(self) -> None:
+        dialog = self.window.build_settings_window()
+        actions = (
+            (dialog._open_mcp_log, "Открыт MCP startup log"),
+            (dialog._open_connection_docs, "Открыта инструкция подключения"),
+        )
+        for opened in (False, True):
+            with patch(
+                "minimal_kanban.ui.settings_window.QDesktopServices.openUrl",
+                return_value=opened,
+            ) as open_url:
+                for action, success_text in actions:
+                    with self.subTest(action=action.__name__, opened=opened):
+                        action()
+                        if opened:
+                            self.assertIn(success_text, dialog.status_label.text())
+                        else:
+                            self.assertEqual(dialog.status_label.text(), "Не удалось открыть файл.")
+                        self.assertEqual(
+                            dialog.status_label.property("tone"),
+                            "success" if opened else "error",
+                        )
+                        self.assertTrue(open_url.call_args.args[0].isLocalFile())
+        dialog.close()
+
     def test_main_window_publishes_connector_files_with_resolved_chatgpt_auth_mode(self) -> None:
         settings = self.settings_service.load()
 
@@ -792,6 +817,50 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
         open_url.assert_called_once()
         self.assertIn("настройках ChatGPT", wizard.preflight_status_label.text())
         self.assertNotIn("Settings ->", wizard.preflight_status_label.text())
+
+        wizard.close()
+        dialog.close()
+
+    def test_chatgpt_wizard_links_report_browser_open_result(self) -> None:
+        dialog = self.window.build_settings_window()
+        dialog._open_chatgpt_connect_dialog()
+        wizard = dialog._connect_dialog
+        self.assertIsNotNone(wizard)
+        assert wizard is not None
+
+        links = (
+            (
+                wizard._open_chatgpt_home,
+                "ChatGPT открыт. В настройках ChatGPT откройте Apps & Connectors и создайте MCP connector.",
+            ),
+            (
+                wizard._open_openai_guide,
+                "Открыта официальная документация OpenAI по MCP connectors.",
+            ),
+            (
+                wizard._open_openai_apps_guide,
+                "Открыта официальная документация OpenAI по подключению из ChatGPT.",
+            ),
+        )
+        with patch(
+            "minimal_kanban.ui.settings_window.QDesktopServices.openUrl", return_value=False
+        ) as open_url:
+            for action, _ in links:
+                with self.subTest(action=action.__name__):
+                    action()
+                    self.assertEqual(
+                        wizard.preflight_status_label.text(),
+                        "Не удалось открыть ссылку в браузере.",
+                    )
+                    self.assertEqual(wizard.preflight_status_label.property("tone"), "error")
+        self.assertEqual(open_url.call_count, 3)
+
+        with patch("minimal_kanban.ui.settings_window.QDesktopServices.openUrl", return_value=True):
+            for action, message in links:
+                with self.subTest(action=action.__name__, opened=True):
+                    action()
+                    self.assertEqual(wizard.preflight_status_label.text(), message)
+                    self.assertEqual(wizard.preflight_status_label.property("tone"), "success")
 
         wizard.close()
         dialog.close()

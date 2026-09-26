@@ -109,6 +109,57 @@ class InlineScriptExtractorTests(unittest.TestCase):
             [],
         )
 
+    def test_required_pages_without_inline_javascript_fail(self) -> None:
+        _browser_javascript_sources()
+        web_assets = sys.modules["minimal_kanban.web_assets"]
+        for attribute, document_name in (
+            ("DISPLAY_DASHBOARD_HTML", "display_dashboard"),
+            ("MODULE_MAP_HTML", "module_map"),
+        ):
+            for html in ("", "<script> \n </script>", '<script src="app.js"></script>'):
+                with self.subTest(document=document_name, html=html):
+                    with patch.object(web_assets, attribute, html):
+                        with self.assertRaisesRegex(ValueError, document_name):
+                            _browser_javascript_sources()
+
+    def test_empty_board_javascript_fails_source_check(self) -> None:
+        _browser_javascript_sources()
+        web_assets = sys.modules["minimal_kanban.web_assets"]
+        for source in ("", " \n "):
+            with self.subTest(source=source):
+                with patch.object(web_assets, "BOARD_WEB_APP_JS", source):
+                    with self.assertRaisesRegex(ValueError, "board_external"):
+                        _browser_javascript_sources()
+
+    def test_missing_inline_javascript_exits_before_node_check(self) -> None:
+        stderr = io.StringIO()
+        with (
+            patch("scripts.check_web_assets_js.shutil.which", return_value="node"),
+            patch(
+                "scripts.check_web_assets_js._browser_javascript_sources",
+                side_effect=ValueError("No inline JavaScript found in module_map HTML."),
+            ),
+            patch("scripts.check_web_assets_js.subprocess.run") as node_check,
+            redirect_stderr(stderr),
+        ):
+            self.assertEqual(main(), 1)
+        self.assertIn("module_map", stderr.getvalue())
+        node_check.assert_not_called()
+
+    def test_multiple_inline_scripts_keep_document_order(self) -> None:
+        _browser_javascript_sources()
+        web_assets = sys.modules["minimal_kanban.web_assets"]
+        with patch.object(
+            web_assets,
+            "DISPLAY_DASHBOARD_HTML",
+            "<script>const first = 1;</script><script>const second = 2;</script>",
+        ):
+            scripts = _browser_javascript_sources()
+        self.assertEqual(
+            [script for name, script in scripts if name == "display_dashboard"],
+            ["const first = 1;", "const second = 2;"],
+        )
+
     def test_unclosed_inline_script_is_retained_at_eof(self) -> None:
         self.assertEqual(
             extract_inline_scripts("<script>const value = 1"),

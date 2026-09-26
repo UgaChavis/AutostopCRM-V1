@@ -5,6 +5,9 @@ Use current code, tests, and audit scripts to choose the smallest useful
 evidence-backed slice. Documents describe current boundaries and remaining
 work; completed behavior is protected by its checks.
 
+The [iteration map](ITERATION_MAP.md) orders the next small, locally verifiable
+slices and separates them from larger contract and data work.
+
 ## Current Contracts
 
 - `scripts/code_health_audit.py` classifies tracked files and owns module,

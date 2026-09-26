@@ -222,12 +222,10 @@ def wait_for_api_shutdown(base_url: str, timeout_seconds: int = 15) -> None:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
         try:
-            status, response = send_request(base_url, "/api/health", method="GET")
-            if status == 200 and response.get("ok"):
-                time.sleep(0.5)
-                continue
+            send_request(base_url, "/api/health", method="GET")
         except Exception:
             return
+        time.sleep(0.5)
     raise VerificationError(
         f"Local API kept responding after the application was closed: {base_url}"
     )

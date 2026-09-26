@@ -132,6 +132,43 @@ class CoverageAuditTests(unittest.TestCase):
                 ):
                     self.module._normalize_path(value, label="coverage path")
 
+    def test_empty_floor_manifest_fails_in_cli(self) -> None:
+        baseline = summary(covered_lines=8, statements=10, covered_branches=1, branches=2)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            report_path = temp_root / "runtime.json"
+            report_path.write_text(json.dumps(report(files={}, totals=baseline)), encoding="utf-8")
+            for measurements in ({}, {"runtime": {"default_json": "runtime.json"}}):
+                with self.subTest(measurements=measurements):
+                    manifest_path = temp_root / "manifest.json"
+                    manifest_path.write_text(
+                        json.dumps(
+                            {"schema_version": 1, "measurements": measurements, "floors": []}
+                        ),
+                        encoding="utf-8",
+                    )
+                    command = [
+                        sys.executable,
+                        str(SCRIPT_PATH),
+                        "--manifest",
+                        str(manifest_path),
+                        "--format",
+                        "json",
+                    ]
+                    if measurements:
+                        command.extend(("--coverage-json", f"runtime={report_path}"))
+                    completed = subprocess.run(
+                        command, cwd=ROOT, check=False, capture_output=True, text=True
+                    )
+                    self.assertEqual(completed.returncode, 1, completed.stdout + completed.stderr)
+                    payload = json.loads(completed.stdout)
+                    self.assertIs(payload["ok"], False)
+                    self.assertEqual(payload["summary"]["floors"], 0)
+                    self.assertEqual(
+                        [issue["code"] for issue in payload["issues"]],
+                        ["manifest_shape_invalid"],
+                    )
+
     def test_repository_manifest_has_exact_critical_surfaces_and_bounded_floors(self) -> None:
         value = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
         floors = {floor["id"]: floor for floor in value["floors"]}

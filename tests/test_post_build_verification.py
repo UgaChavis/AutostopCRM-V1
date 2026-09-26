@@ -119,6 +119,29 @@ class PostBuildVerificationTests(unittest.TestCase):
             {"username": "verify-admin", "password": "verify-secret"},
         )
 
+    def test_wait_for_api_shutdown_throttles_every_http_response(self) -> None:
+        base_url = "http://127.0.0.1:41731"
+        for response in ((200, {"ok": True}), (200, {"ok": False}), (503, {"ok": False})):
+            with self.subTest(response=response):
+                with (
+                    patch.object(self.module.time, "time", side_effect=[0, 0, 1]),
+                    patch.object(self.module.time, "sleep") as sleep,
+                    patch.object(self.module, "send_request", return_value=response) as request,
+                    self.assertRaises(self.module.VerificationError),
+                ):
+                    self.module.wait_for_api_shutdown(base_url, timeout_seconds=1)
+                request.assert_called_once_with(base_url, "/api/health", method="GET")
+                sleep.assert_called_once_with(0.5)
+
+        with (
+            patch.object(self.module.time, "time", side_effect=[0, 0]),
+            patch.object(self.module.time, "sleep") as sleep,
+            patch.object(self.module, "send_request", side_effect=OSError("closed")) as request,
+        ):
+            self.module.wait_for_api_shutdown(base_url, timeout_seconds=1)
+        request.assert_called_once_with(base_url, "/api/health", method="GET")
+        sleep.assert_not_called()
+
     def test_send_request_rejects_nonstandard_json_constants(self) -> None:
         with (
             patch.object(

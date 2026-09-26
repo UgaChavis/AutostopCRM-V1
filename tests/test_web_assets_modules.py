@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
+from minimal_kanban.printing.web_module import PRINTING_WEB_MODULE_SCRIPT  # noqa: E402
 from minimal_kanban.web_app_assets.assembler import (  # noqa: E402
     BOARD_WEB_APP_CONTRACT_TEXT as BOARD_WEB_APP_HTML,
 )
@@ -23,10 +24,36 @@ from minimal_kanban.web_app_assets.assembler import (
     BOARD_WEB_APP_MODULE_MANIFEST,
     BOARD_WEB_APP_MODULES,
 )
-from minimal_kanban.web_app_assets.module_assets import read_board_source  # noqa: E402
+from minimal_kanban.web_app_assets.module_assets import (  # noqa: E402
+    _CASH_JOURNAL_CORE,
+    _module_script,
+    read_board_source,
+)
 
 
 class BoardModuleAssetsTests(unittest.TestCase):
+    def test_cash_journal_helper_requires_exactly_one_source_definition(self) -> None:
+        source = read_board_source("cash_journal.js")
+        self.assertEqual(source.count(_CASH_JOURNAL_CORE), 1)
+        for count, broken_source in (
+            (0, source.replace(_CASH_JOURNAL_CORE, "", 1)),
+            (2, source + _CASH_JOURNAL_CORE),
+        ):
+            with self.subTest(count=count):
+                with self.assertRaisesRegex(RuntimeError, f"cash_journal module; found {count}"):
+                    _module_script("cash_journal", broken_source, set())
+
+    def test_printing_bridge_requires_exactly_one_source_assignment(self) -> None:
+        bridge = "printRepairOrderDraft = function() { return openRepairOrderPrintWorkspace(); };"
+        self.assertEqual(PRINTING_WEB_MODULE_SCRIPT.count(bridge), 1)
+        for count, source in (
+            (0, PRINTING_WEB_MODULE_SCRIPT.replace(bridge, "", 1)),
+            (2, PRINTING_WEB_MODULE_SCRIPT + bridge),
+        ):
+            with self.subTest(count=count):
+                with self.assertRaisesRegex(RuntimeError, f"printing module; found {count}"):
+                    _module_script("printing", source, {"printRepairOrderDraft"})
+
     def test_source_include_cycles_report_the_file_chain(self) -> None:
         source_chunks = {
             "cycle_a.js": "    // @include cycle_b.js\n",

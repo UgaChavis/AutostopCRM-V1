@@ -73,6 +73,16 @@ def _browser_javascript_sources() -> list[tuple[str, str]]:
         if added_source_path:
             sys.path.remove(source_path)
 
+    if not BOARD_WEB_APP_JS.strip():
+        raise ValueError("No JavaScript found in board_external.")
+    inline_sources = (
+        ("display_dashboard", extract_inline_scripts(DISPLAY_DASHBOARD_HTML)),
+        ("module_map", extract_inline_scripts(MODULE_MAP_HTML)),
+    )
+    for document_name, scripts in inline_sources:
+        if not scripts:
+            raise ValueError(f"No inline JavaScript found in {document_name} HTML.")
+
     return (
         [("board_external", BOARD_WEB_APP_JS)]
         + [
@@ -80,10 +90,10 @@ def _browser_javascript_sources() -> list[tuple[str, str]]:
             for index, source in enumerate(BOARD_WEB_APP_MODULES.values())
         ]
         + [
-            ("display_dashboard", script)
-            for script in extract_inline_scripts(DISPLAY_DASHBOARD_HTML)
+            (document_name, script)
+            for document_name, scripts in inline_sources
+            for script in scripts
         ]
-        + [("module_map", script) for script in extract_inline_scripts(MODULE_MAP_HTML)]
     )
 
 
@@ -100,7 +110,11 @@ def main() -> int:
         print("Node.js is required to validate generated browser JavaScript.", file=sys.stderr)
         return 1
 
-    scripts = _browser_javascript_sources()
+    try:
+        scripts = _browser_javascript_sources()
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 1
     if not scripts:
         print("No inline scripts found in browser HTML documents.", file=sys.stderr)
         return 1
