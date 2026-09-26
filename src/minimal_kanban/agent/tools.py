@@ -437,7 +437,7 @@ class AgentToolExecutor:
             ),
             AgentToolDefinition(
                 "fetch_page_excerpt",
-                "Fetch a public web page excerpt through Crawl4AI Markdown, with HTTP fallback.",
+                "Fetch a plain-text public web page excerpt through bounded HTTP requests with public-address and redirect validation.",
                 {"url": "required string", "max_chars": "optional int"},
             ),
             AgentToolDefinition(
