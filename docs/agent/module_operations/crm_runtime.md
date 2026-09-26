@@ -43,7 +43,7 @@ Manager socket mount and scheduler state. A stale response disables mutations;
 wait for a fresh status after recovery. A desired/actual mismatch requires
 scheduler reconciliation, not repeated clicks. Use the release runbook for
 service recovery. Synthetic keyboard/mobile and line-label collision checks
-live in [`test_module_map_browser.py`](../../../tests/test_module_map_browser.py).
+live in [`test_module_map_browser.py`](https://github.com/UgaChavis/AutostopCRM-V1/blob/autostopcrm-v1/tests/test_module_map_browser.py).
 
 1. Compare authoritative DNS, external TCP/TLS, Nginx response, host 8000
    and 8001, then `docker compose ps` from the deployed checkout; a healthy
