@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 # ruff: noqa: E402
-import sys
 import unittest
 from decimal import Decimal
-from pathlib import Path
 
-SRC = Path(__file__).resolve().parents[1] / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+if __package__:
+    from tests.source_path_support import ensure_source_path
+else:
+    from source_path_support import ensure_source_path
+
+ensure_source_path()
 
 from minimal_kanban.models import format_money_minor
 from minimal_kanban.services.card_service_payroll import CardServicePayrollMixin

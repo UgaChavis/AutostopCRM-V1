@@ -1,34 +1,13 @@
 from __future__ import annotations
 
-import logging
-import sys
-import tempfile
-import unittest
-from pathlib import Path
+# The fixture import sets up the src path before importing the application module.
+# ruff: noqa: I001
+from tests.services_case import CardServiceCase
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from minimal_kanban.services.card_service import CardService
-from minimal_kanban.storage.json_store import JsonStore
+from minimal_kanban.models import Card
 
 
-class CardDescriptionContractTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.state_file = Path(self.temp_dir.name) / "state.json"
-        self.logger = logging.getLogger(f"test.description_contract.{self._testMethodName}")
-        self.logger.handlers.clear()
-        self.logger.addHandler(logging.NullHandler())
-        self.logger.propagate = False
-        self.store = JsonStore(state_file=self.state_file, logger=self.logger)
-        self.service = CardService(self.store, self.logger)
-
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
-
+class CardDescriptionContractTests(CardServiceCase):
     def test_create_and_update_preserve_exact_description_markdown_and_spaces(self) -> None:
         initial_description = (
             "  **Важно:** проверить течь  \n"
@@ -55,3 +34,46 @@ class CardDescriptionContractTests(unittest.TestCase):
         )
 
         self.assertEqual(updated["card"]["description"], updated_description)
+
+    def test_card_description_preview_strips_minimal_formatting_markers(self) -> None:
+        formatted_description = (
+            "Проверить **подвеску**, *руль* и ++датчик ABS++.\n"
+            "Комментарий Codex: ✅ оставить полный текст."
+        )
+        created = self.service.create_card(
+            {
+                "vehicle": "FORD FOCUS",
+                "title": "Formatting preview",
+                "description": formatted_description,
+                "deadline": {"hours": 2},
+            }
+        )
+        card_id = created["card"]["id"]
+
+        full_card = self.service.get_card({"card_id": card_id})["card"]
+        snapshot = self.service.get_board_snapshot({"compact": True})
+        compact_card = next(card for card in snapshot["cards"] if card["id"] == card_id)
+
+        self.assertEqual(full_card["description"], formatted_description)
+        self.assertNotIn("**", compact_card["description_preview"])
+        self.assertNotIn("*руль*", compact_card["description_preview"])
+        self.assertNotIn("++", compact_card["description_preview"])
+        self.assertIn("подвеску", compact_card["description_preview"])
+        self.assertIn("руль", compact_card["description_preview"])
+        self.assertIn("датчик ABS", compact_card["description_preview"])
+        self.assertIn("✅", compact_card["description_preview"])
+        self.assertEqual(compact_card["description"], compact_card["description_preview"])
+
+    def test_explicit_empty_vehicle_preserves_title_with_separator(self) -> None:
+        card = Card.from_dict(
+            {
+                "id": "modern-card",
+                "vehicle": "",
+                "title": "MCP write flow / updated",
+                "description": "Smoke test",
+                "column": "inbox",
+            },
+            valid_columns={"inbox"},
+        )
+        self.assertEqual(card.vehicle, "")
+        self.assertEqual(card.title, "MCP write flow / updated")

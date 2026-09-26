@@ -3,13 +3,16 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
-import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT / "src") not in sys.path:
-    sys.path.insert(0, str(ROOT / "src"))
+if __package__:
+    from tests.source_path_support import ensure_source_path
+else:
+    from source_path_support import ensure_source_path
+
+ensure_source_path()
 
 from minimal_kanban.printing.web_async_context import PRINTING_ASYNC_CONTEXT_SCRIPT
 from minimal_kanban.printing.web_module import PRINTING_WEB_MODULE_SCRIPT

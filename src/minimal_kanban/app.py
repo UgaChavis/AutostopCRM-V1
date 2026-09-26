@@ -4,6 +4,7 @@ import os
 import socket
 import sys
 import traceback
+from contextlib import suppress
 from dataclasses import replace
 from hashlib import sha1
 
@@ -50,13 +51,11 @@ def _reset_runtime_publication_state(settings_service, settings):
             )
         )
     if not updated.mcp.effective_mcp_url.startswith("https://"):
-        try:
+        with suppress(OSError):
             write_pending_connector_files(
                 auth_mode=resolve_connector_auth_mode(updated),
                 local_api_url=updated.local_api.effective_local_api_url,
             )
-        except OSError:
-            pass
     return updated
 
 

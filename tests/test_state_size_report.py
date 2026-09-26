@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 import sys
 import tempfile
@@ -8,20 +7,20 @@ import unittest
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
+from types import ModuleType
 from unittest.mock import patch
+
+if __package__:
+    from tests.module_loader_support import load_module_from_file
+else:
+    from module_loader_support import load_module_from_file
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "state_size_report.py"
 
 
-def load_state_size_report_module():
-    spec = importlib.util.spec_from_file_location("state_size_report", SCRIPT_PATH)
-    if spec is None or spec.loader is None:
-        raise AssertionError("state_size_report.py is importable")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+def load_state_size_report_module() -> ModuleType:
+    return load_module_from_file("state_size_report", SCRIPT_PATH)
 
 
 class StateSizeReportTests(unittest.TestCase):
@@ -84,11 +83,11 @@ class StateSizeReportTests(unittest.TestCase):
             state_file = Path(temp_dir) / "state.json"
             state_file.write_text("x" * 16, encoding="utf-8")
 
-            with patch.object(self.module, "STATE_SIZE_REPORT_STATE_MAX_BYTES", 8):
-                with self.assertRaisesRegex(
-                    ValueError, "state size report state file is too large"
-                ):
-                    self.module.load_state(state_file)
+            with (
+                patch.object(self.module, "STATE_SIZE_REPORT_STATE_MAX_BYTES", 8),
+                self.assertRaisesRegex(ValueError, "state size report state file is too large"),
+            ):
+                self.module.load_state(state_file)
 
     def test_json_size_helpers_emit_standard_json_for_non_finite_values(self) -> None:
         payload = {"score": float("inf"), "items": [float("nan")]}
@@ -106,6 +105,40 @@ class StateSizeReportTests(unittest.TestCase):
         self.assertEqual(self.module._bounded_iterations(1e308), 1000)
         self.assertEqual(self.module._bounded_iterations(-1e308), 0)
         self.assertEqual(self.module._bounded_iterations("bad"), 0)
+
+    def test_loader_restores_previous_module_entry(self) -> None:
+        module_name = "state_size_report"
+        previous_module = sys.modules.get(module_name)
+        had_previous_module = module_name in sys.modules
+        sentinel = ModuleType(module_name)
+        sys.modules[module_name] = sentinel
+
+        try:
+            loaded_module = load_state_size_report_module()
+
+            self.assertIsNot(loaded_module, sentinel)
+            self.assertIs(sys.modules[module_name], sentinel)
+        finally:
+            if had_previous_module:
+                sys.modules[module_name] = previous_module
+            else:
+                sys.modules.pop(module_name, None)
+
+    def test_benchmark_logger_adds_one_null_handler(self) -> None:
+        logger = self.module.logging.Logger("state-size-report-test")
+
+        with patch.object(self.module.logging, "getLogger", return_value=logger):
+            first = self.module._benchmark_logger()
+            second = self.module._benchmark_logger()
+
+        null_handlers = [
+            handler
+            for handler in logger.handlers
+            if isinstance(handler, self.module.logging.NullHandler)
+        ]
+        self.assertIs(first, logger)
+        self.assertIs(second, logger)
+        self.assertEqual(len(null_handlers), 1)
 
 
 if __name__ == "__main__":

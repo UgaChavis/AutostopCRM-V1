@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import io
 import json
 import socket
@@ -12,21 +11,20 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest.mock import Mock, patch
+
+if __package__:
+    from tests.module_loader_support import load_module_from_file
+else:
+    from module_loader_support import load_module_from_file
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "perf_mcp.py"
 
 
-def load_perf_mcp_module():
-    spec = importlib.util.spec_from_file_location("perf_mcp", SCRIPT_PATH)
-    if spec is None or spec.loader is None:
-        raise AssertionError("perf_mcp.py is importable")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+def load_perf_mcp_module() -> ModuleType:
+    return load_module_from_file("perf_mcp", SCRIPT_PATH)
 
 
 def free_loopback_port() -> int:
@@ -78,6 +76,15 @@ class RecordingGatewaySession:
 
 
 class PerfMcpTests(unittest.TestCase):
+    def test_module_loader_restores_previous_sys_modules_entry(self) -> None:
+        sentinel = object()
+
+        with patch.dict(sys.modules, {"perf_mcp": sentinel}):
+            module = load_perf_mcp_module()
+
+            self.assertIsNot(module, sentinel)
+            self.assertIs(sys.modules["perf_mcp"], sentinel)
+
     def test_run_reads_bearer_from_environment_without_returning_it(self) -> None:
         module = load_perf_mcp_module()
         secret = "release-smoke-secret"
@@ -714,9 +721,11 @@ class PerfMcpTests(unittest.TestCase):
             [*expected, "legacy_raw_tool"],
             [*expected, expected[0]],
         ):
-            with self.subTest(tool_count=len(tool_names)):
-                with self.assertRaises(module.GatewayV2SurfaceMismatchError):
-                    module._require_gateway_v2_surface(tool_names)
+            with (
+                self.subTest(tool_count=len(tool_names)),
+                self.assertRaises(module.GatewayV2SurfaceMismatchError),
+            ):
+                module._require_gateway_v2_surface(tool_names)
 
     def test_tools_list_metric_counts_schema_without_reporting_it(self) -> None:
         module = load_perf_mcp_module()

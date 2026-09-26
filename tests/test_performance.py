@@ -20,6 +20,14 @@ from minimal_kanban.performance import (  # noqa: E402
 
 
 class RequestPerformanceTraceTests(unittest.TestCase):
+    def test_log_fields_normalize_non_finite_and_negative_app_duration(self) -> None:
+        trace = RequestPerformanceTrace()
+
+        for duration in (math.nan, -2.5):
+            with self.subTest(duration=duration):
+                fields = trace.log_fields(app_duration_ms=duration)
+                self.assertEqual(fields.split()[0], "total_ms=0.0")
+
     def test_server_timing_contains_complete_finite_contract(self) -> None:
         trace = RequestPerformanceTrace()
         trace.add("service_lock", 1.25)
@@ -72,10 +80,12 @@ class RequestPerformanceTraceTests(unittest.TestCase):
         record_timing("normalize", 100.0)
         self.assertEqual(first.durations_ms["normalize"], 3.0)
 
-        with self.assertRaisesRegex(RuntimeError, "boom"):
-            with request_performance_trace() as second:
-                record_timing("write", 4.0)
-                raise RuntimeError("boom")
+        with (
+            self.assertRaisesRegex(RuntimeError, "boom"),
+            request_performance_trace() as second,
+        ):
+            record_timing("write", 4.0)
+            raise RuntimeError("boom")
         record_timing("write", 100.0)
         self.assertEqual(second.durations_ms["write"], 4.0)
 

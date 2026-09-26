@@ -108,7 +108,7 @@ async def exercise_board_drop_order(page: Any, runtime: TempRuntime) -> dict[str
     committed, release = asyncio.Event(), asyncio.Event()
     move_count = 0
 
-    async def delay_first(route):
+    async def delay_first(route: Any) -> None:
         nonlocal move_count
         move_count += 1
         response = await route.fetch()
@@ -140,7 +140,7 @@ async def exercise_board_drop_order(page: Any, runtime: TempRuntime) -> dict[str
     # A full snapshot sampled before the move must not restore the old order.
     sampled, publish = asyncio.Event(), asyncio.Event()
 
-    async def delay_snapshot(route):
+    async def delay_snapshot(route: Any) -> None:
         response = await route.fetch()
         sampled.set()
         await publish.wait()
@@ -166,7 +166,7 @@ async def exercise_board_drop_order(page: Any, runtime: TempRuntime) -> dict[str
     original_save = runtime.service._save_bundle
     injected = False
 
-    def concurrent_save(*args, **kwargs):
+    def concurrent_save(*args: Any, **kwargs: Any) -> Any:
         nonlocal injected
         if not injected:
             injected = True
@@ -181,7 +181,7 @@ async def exercise_board_drop_order(page: Any, runtime: TempRuntime) -> dict[str
         assert (await conflict.json())["error"]["code"] == "state_write_conflict"
     await _assert_order(page, runtime, right, [c, b, e, d])
 
-    async def failed_write(route):
+    async def failed_write(route: Any) -> None:
         await route.fulfill(
             status=503,
             json={

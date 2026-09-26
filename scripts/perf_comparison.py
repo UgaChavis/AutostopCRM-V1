@@ -8,6 +8,7 @@ import os
 import statistics
 import subprocess
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,7 +22,9 @@ PRINTING_METRICS = (
 PRINTING_REDUCTION_TARGETS = {"shell_ms": 0.75, "documents_ms": 0.5, "service_lock_wait_ms": 0.8}
 
 
-def compare_rows(baseline, candidate):
+def compare_rows(
+    baseline: Sequence[dict[str, object]], candidate: Sequence[dict[str, object]]
+) -> list[dict[str, object]]:
     """Compare median series p95, not a selectively chosen fastest run."""
     grouped = {}
     for label, runs in (("baseline", baseline), ("candidate", candidate)):
@@ -96,7 +99,7 @@ def compare_rows(baseline, candidate):
     return comparisons or [{"scenario": "all", "status": "missing"}]
 
 
-def main(argv=None):
+def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline", type=Path, required=True)
     parser.add_argument("--candidate", type=Path, default=ROOT)

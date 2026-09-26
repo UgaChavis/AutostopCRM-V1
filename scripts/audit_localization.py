@@ -5,7 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 LOCALIZATION_AUDIT_TEXT_MAX_BYTES = 2 * 1024 * 1024
 
-TARGETS = [
+TARGETS = (
     ROOT / "src" / "minimal_kanban" / "app.py",
     ROOT / "src" / "minimal_kanban" / "services" / "card_service.py",
     ROOT / "src" / "minimal_kanban" / "services" / "card_service_payroll.py",
@@ -15,9 +15,9 @@ TARGETS = [
     ROOT / "MCP_GUIDE.md",
     ROOT / "CHATGPT_CONNECTOR_SETUP.md",
     ROOT / "docs" / "OPERATIONS_RUNBOOK.md",
-]
+)
 
-FORBIDDEN_PHRASES = [
+FORBIDDEN_PHRASES = (
     "Quick Start",
     "Create Card",
     "Edit Card",
@@ -30,21 +30,21 @@ FORBIDDEN_PHRASES = [
     "No description",
     "Startup Error",
     "Unexpected Error",
-]
+)
 
-ALLOWED_EXCERPTS = [
+ALLOWED_EXCERPTS = (
     "Start Kanban.exe",
     "Start%20Kanban.exe",
     "AuditArchiveStore",
-]
+)
 
-FORBIDDEN_MOJIBAKE_FRAGMENTS = [
+FORBIDDEN_MOJIBAKE_FRAGMENTS = (
     "РќСѓР¶РЅРѕ",
     "РЎРѕС‚СЂСѓРґРЅРёРє",
     "РѕР±РЅРѕРІРёР»",
     "РїРµСЂРµРјРµСЃС‚РёР»",
     "СѓРґР°Р»РёР»",
-]
+)
 
 
 def _read_text(path: Path) -> str:

@@ -1,14 +1,21 @@
 from __future__ import annotations
 
-import sys
 import unittest
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+if __package__:
+    from tests.source_path_support import prepend_source_path
+else:
+    from source_path_support import prepend_source_path
+
+prepend_source_path()
 
 # ruff: noqa: E402
 from minimal_kanban.services.card_service import ServiceError
-from tests.services_case import CardServiceCase
+
+if __package__:
+    from tests.services_case import CardServiceCase
+else:
+    from services_case import CardServiceCase
 
 
 class ColumnDeleteIntegrityTests(CardServiceCase):

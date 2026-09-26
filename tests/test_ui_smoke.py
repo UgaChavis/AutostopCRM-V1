@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from PySide6.QtWidgets import QApplication, QFrame, QPushButton
 
+from minimal_kanban.logging_setup import close_logger  # noqa: E402
 from minimal_kanban.settings_service import SettingsService
 from minimal_kanban.settings_store import SettingsStore
 from minimal_kanban.texts import APP_DISPLAY_NAME, TOOLTIP_SETTINGS
@@ -28,6 +29,8 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)
         logger = logging.getLogger(self.id())
+        close_logger(logger)
+        self.addCleanup(close_logger, logger)
         logger.addHandler(logging.NullHandler())
         logger.propagate = False
         store = SettingsStore(Path(self.temp_dir.name) / "settings.json", logger)

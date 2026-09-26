@@ -9,6 +9,7 @@ import urllib.error
 import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.response import addinfourl
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -28,18 +29,18 @@ MAX_HEARTBEAT_AGE_SECONDS = 86_400.0
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+    def redirect_request(self, req, fp, code, msg, headers, newurl) -> None:  # noqa: ANN001
         return None
 
 
 _NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
 
 
-def _urlopen_no_redirect(request: urllib.request.Request, *, timeout: float):
+def _urlopen_no_redirect(request: urllib.request.Request, *, timeout: float) -> addinfourl:
     return _NO_REDIRECT_OPENER.open(request, timeout=timeout)
 
 
-def _read_response_body(response) -> bytes:
+def _read_response_body(response: addinfourl) -> bytes:
     raw = response.read(CHECK_AGENT_RUNTIME_RESPONSE_MAX_BYTES + 1)
     if len(raw) > CHECK_AGENT_RUNTIME_RESPONSE_MAX_BYTES:
         raise ValueError("API response is too large")
@@ -107,8 +108,9 @@ def _heartbeat_age_seconds(value: str) -> float | None:
 def _bounded_heartbeat_age_seconds(value: object) -> float:
     if isinstance(value, bool):
         return DEFAULT_MAX_HEARTBEAT_AGE_SECONDS
+    candidate = DEFAULT_MAX_HEARTBEAT_AGE_SECONDS if value is None or value == "" else value
     try:
-        parsed = float(DEFAULT_MAX_HEARTBEAT_AGE_SECONDS if value is None or value == "" else value)
+        parsed = float(candidate)
     except (OverflowError, TypeError, ValueError):
         return DEFAULT_MAX_HEARTBEAT_AGE_SECONDS
     if not math.isfinite(parsed):
@@ -190,6 +192,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-heartbeat-age-seconds", default=DEFAULT_MAX_HEARTBEAT_AGE_SECONDS)
     args = parser.parse_args(argv)
     max_heartbeat_age_seconds = _bounded_heartbeat_age_seconds(args.max_heartbeat_age_seconds)
+    api_url = args.local_api_url.rstrip("/")
 
     if not args.operator_username or not args.operator_password:
         print(
@@ -200,11 +203,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
-        token = _login(
-            args.local_api_url.rstrip("/"), args.operator_username, args.operator_password
-        )
+        token = _login(api_url, args.operator_username, args.operator_password)
         status, details = _evaluate_agent_runtime_mode(
-            base_url=args.local_api_url.rstrip("/"),
+            base_url=api_url,
             token=token,
             max_heartbeat_age_seconds=max_heartbeat_age_seconds,
         )
@@ -223,7 +224,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"reason={details['reason']}",
             )
             return 0
-        print("status: error", f"api_url={args.local_api_url.rstrip('/')}", f"mode={status}")
+        print("status: error", f"api_url={api_url}", f"mode={status}")
         return 1
     except (
         KeyError,

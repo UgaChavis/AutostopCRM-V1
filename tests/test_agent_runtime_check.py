@@ -7,10 +7,12 @@ import os
 import sys
 import tempfile
 import unittest
+from collections.abc import Callable
 from contextlib import redirect_stdout
 from datetime import timedelta
 from io import StringIO
 from pathlib import Path
+from types import ModuleType
 from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,29 +26,19 @@ from minimal_kanban.agent.control import AgentControlService  # noqa: E402
 from minimal_kanban.agent.storage import AgentStorage  # noqa: E402
 from minimal_kanban.models import parse_datetime, utc_now  # noqa: E402
 
+if __package__:
+    from tests.http_fixture_support import FakeReadableResponse as FakeResponse  # noqa: E402
+else:
+    from http_fixture_support import FakeReadableResponse as FakeResponse  # noqa: E402
 
-def _load_script_module():
+
+def _load_script_module() -> ModuleType:
     spec = importlib.util.spec_from_file_location("check_agent_runtime_script", SCRIPT_PATH)
+    if spec is None or spec.loader is None:
+        raise AssertionError("check_agent_runtime.py is importable")
     module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
-
-
-class FakeResponse:
-    def __init__(self, body: bytes) -> None:
-        self._body = body
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb) -> None:
-        _ = (exc_type, exc, tb)
-
-    def read(self, size: int = -1) -> bytes:
-        if size is None or size < 0:
-            return self._body
-        return self._body[:size]
 
 
 class CheckAgentRuntimeScriptTests(unittest.TestCase):
@@ -73,24 +65,28 @@ class CheckAgentRuntimeScriptTests(unittest.TestCase):
         self.assertEqual(details["reason"], "agent_status_route_retired")
 
     def test_request_json_rejects_nonstandard_json_constants(self) -> None:
-        with patch.object(
-            self.module,
-            "_urlopen_no_redirect",
-            return_value=FakeResponse(b'{"ok": true, "data": NaN}'),
+        with (
+            patch.object(
+                self.module,
+                "_urlopen_no_redirect",
+                return_value=FakeResponse(b'{"ok": true, "data": NaN}'),
+            ),
+            self.assertRaisesRegex(ValueError, "Unsupported JSON constant: NaN"),
         ):
-            with self.assertRaisesRegex(ValueError, "Unsupported JSON constant: NaN"):
-                self.module._request_json("http://127.0.0.1:41731/api/agent_status")
+            self.module._request_json("http://127.0.0.1:41731/api/agent_status")
 
     def test_request_json_rejects_deeply_nested_response(self) -> None:
         deep_json = ("[" * 5000 + "0" + "]" * 5000).encode("utf-8")
 
-        with patch.object(
-            self.module,
-            "_urlopen_no_redirect",
-            return_value=FakeResponse(deep_json),
+        with (
+            patch.object(
+                self.module,
+                "_urlopen_no_redirect",
+                return_value=FakeResponse(deep_json),
+            ),
+            self.assertRaisesRegex(ValueError, "API response JSON is too deeply nested"),
         ):
-            with self.assertRaisesRegex(ValueError, "API response JSON is too deeply nested"):
-                self.module._request_json("http://127.0.0.1:41731/api/agent_status")
+            self.module._request_json("http://127.0.0.1:41731/api/agent_status")
 
     def test_request_json_rejects_oversized_response(self) -> None:
         with (
@@ -100,9 +96,9 @@ class CheckAgentRuntimeScriptTests(unittest.TestCase):
                 "_urlopen_no_redirect",
                 return_value=FakeResponse(b"12345"),
             ),
+            self.assertRaisesRegex(ValueError, "API response is too large"),
         ):
-            with self.assertRaisesRegex(ValueError, "API response is too large"):
-                self.module._request_json("http://127.0.0.1:41731/api/agent_status")
+            self.module._request_json("http://127.0.0.1:41731/api/agent_status")
 
     def test_request_json_rejects_redirect_response(self) -> None:
         redirect = self.module.urllib.error.HTTPError(
@@ -113,13 +109,15 @@ class CheckAgentRuntimeScriptTests(unittest.TestCase):
             fp=None,
         )
 
-        with patch.object(self.module, "_urlopen_no_redirect", side_effect=redirect):
-            with self.assertRaisesRegex(ValueError, "API response redirected"):
-                self.module._request_json(
-                    "http://127.0.0.1:41731/api/login_operator",
-                    method="POST",
-                    payload={"username": "admin", "password": "secret"},
-                )
+        with (
+            patch.object(self.module, "_urlopen_no_redirect", side_effect=redirect),
+            self.assertRaisesRegex(ValueError, "API response redirected"),
+        ):
+            self.module._request_json(
+                "http://127.0.0.1:41731/api/login_operator",
+                method="POST",
+                payload={"username": "admin", "password": "secret"},
+            )
 
     def test_returns_api_only_when_embedded_agent_is_disabled(self) -> None:
         payload = {
@@ -395,9 +393,11 @@ class AgentControlServiceTests(unittest.TestCase):
             status_file = base_dir / "status.json"
             original = status_file.read_text(encoding="utf-8")
 
-            with patch("minimal_kanban.agent.storage.AGENT_JSON_FILE_MAX_BYTES", 128):
-                with self.assertRaisesRegex(ValueError, "agent JSON state file is too large"):
-                    storage._write_json(status_file, {"padding": "x" * 512})
+            with (
+                patch("minimal_kanban.agent.storage.AGENT_JSON_FILE_MAX_BYTES", 128),
+                self.assertRaisesRegex(ValueError, "agent JSON state file is too large"),
+            ):
+                storage._write_json(status_file, {"padding": "x" * 512})
 
             self.assertEqual(status_file.read_text(encoding="utf-8"), original)
             self.assertEqual(list(base_dir.glob("*.tmp")), [])
@@ -405,7 +405,7 @@ class AgentControlServiceTests(unittest.TestCase):
     def test_storage_text_write_keeps_existing_file_when_temp_write_fails(self) -> None:
         original_write_text = Path.write_text
 
-        def partial_temp_write(path: Path, data: str, *args, **kwargs) -> int:
+        def partial_temp_write(path: Path, data: str, *args: object, **kwargs: object) -> int:
             original_write_text(path, "partial", *args, **kwargs)
             raise OSError("disk full")
 
@@ -431,9 +431,11 @@ class AgentControlServiceTests(unittest.TestCase):
             storage = AgentStorage(base_dir=base_dir)
             storage.write_prompt_text("old prompt")
 
-            with patch("minimal_kanban.agent.storage.AGENT_TEXT_FILE_MAX_BYTES", 8):
-                with self.assertRaisesRegex(ValueError, "agent text file is too large"):
-                    storage.write_prompt_text("x" * 64)
+            with (
+                patch("minimal_kanban.agent.storage.AGENT_TEXT_FILE_MAX_BYTES", 8),
+                self.assertRaisesRegex(ValueError, "agent text file is too large"),
+            ):
+                storage.write_prompt_text("x" * 64)
 
             self.assertEqual(storage.read_prompt_text(), "old prompt")
             self.assertEqual(list(base_dir.glob("*.tmp")), [])
@@ -639,7 +641,7 @@ class AgentControlServiceTests(unittest.TestCase):
             control = AgentControlService(storage)
 
             class BadBoardService:
-                def get_ai_board_control_settings(self):
+                def get_ai_board_control_settings(self) -> dict[str, object]:
                     return {
                         "enabled": True,
                         "interval_minutes": {},
@@ -816,7 +818,13 @@ class AgentControlServiceTests(unittest.TestCase):
             control = AgentControlService(storage)
 
             class DummyThread:
-                def __init__(self, target, args, name, daemon) -> None:
+                def __init__(
+                    self,
+                    target: Callable[..., object] | None,
+                    args: tuple[object, ...],
+                    name: str | None,
+                    daemon: bool | None,
+                ) -> None:
                     self.target = target
                     self.args = args
                     self.name = name
@@ -829,13 +837,19 @@ class AgentControlServiceTests(unittest.TestCase):
                 def start(self) -> None:
                     self.started = True
 
-                def join(self, timeout=None) -> None:  # noqa: ANN001
+                def join(self, timeout: float | None = None) -> None:
                     _ = timeout
                     self.started = False
 
             created_threads: list[DummyThread] = []
 
-            def make_thread(*, target, args, name, daemon):
+            def make_thread(
+                *,
+                target: Callable[..., object] | None,
+                args: tuple[object, ...],
+                name: str | None,
+                daemon: bool | None,
+            ) -> DummyThread:
                 thread = DummyThread(target, args, name, daemon)
                 created_threads.append(thread)
                 return thread

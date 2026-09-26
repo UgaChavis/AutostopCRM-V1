@@ -1,27 +1,27 @@
 from __future__ import annotations
 
 import configparser
-import importlib.util
 import json
 import subprocess
 import sys
 import tempfile
 import unittest
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from types import ModuleType, SimpleNamespace
+from unittest.mock import patch
+
+if __package__:
+    from tests.module_loader_support import load_module_from_file
+else:
+    from module_loader_support import load_module_from_file
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "coverage_audit.py"
 MANIFEST_PATH = ROOT / "scripts" / "coverage_baseline.json"
 
 
-def load_coverage_audit_module():
-    spec = importlib.util.spec_from_file_location("coverage_audit", SCRIPT_PATH)
-    if spec is None or spec.loader is None:
-        raise AssertionError("coverage_audit.py is importable")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+def load_coverage_audit_module() -> ModuleType:
+    return load_module_from_file("coverage_audit", SCRIPT_PATH)
 
 
 def summary(
@@ -82,6 +82,24 @@ class CoverageAuditTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.module = load_coverage_audit_module()
 
+    def test_loader_restores_previous_module_entry(self) -> None:
+        module_name = "coverage_audit"
+        previous_module = sys.modules.get(module_name)
+        had_previous_module = module_name in sys.modules
+        sentinel = ModuleType(module_name)
+        sys.modules[module_name] = sentinel
+
+        try:
+            loaded_module = load_coverage_audit_module()
+
+            self.assertIsNot(loaded_module, sentinel)
+            self.assertIs(sys.modules[module_name], sentinel)
+        finally:
+            if had_previous_module:
+                sys.modules[module_name] = previous_module
+            else:
+                sys.modules.pop(module_name, None)
+
     def test_dev_dependency_and_repo_config_enable_branch_parallel_measurement(self) -> None:
         requirements = (ROOT / "requirements-dev.txt").read_text(encoding="utf-8")
         config = configparser.ConfigParser()
@@ -92,6 +110,27 @@ class CoverageAuditTests(unittest.TestCase):
         self.assertTrue(config.getboolean("run", "relative_files"))
         self.assertTrue(config.getboolean("run", "parallel"))
         self.assertIn("src/minimal_kanban", config.get("run", "source"))
+
+    def test_read_json_limits_bytes_even_if_file_grows_after_stat(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_path = Path(temp_dir) / "report.json"
+            input_path.write_text('{"payload":"too large"}', encoding="utf-8")
+
+            with (
+                patch.object(self.module, "MAX_INPUT_BYTES", 8),
+                patch.object(self.module.Path, "stat", return_value=SimpleNamespace(st_size=1)),
+                self.assertRaisesRegex(ValueError, "report exceeds 8 bytes"),
+            ):
+                self.module._read_json(input_path, label="report")
+
+    def test_normalize_path_rejects_windows_paths_when_host_is_posix(self) -> None:
+        with patch.object(self.module, "Path", PurePosixPath):
+            for value in ("C:/repo/file.py", "C:repo/file.py"):
+                with (
+                    self.subTest(path=value),
+                    self.assertRaisesRegex(ValueError, "must stay relative"),
+                ):
+                    self.module._normalize_path(value, label="coverage path")
 
     def test_repository_manifest_has_exact_critical_surfaces_and_bounded_floors(self) -> None:
         value = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))

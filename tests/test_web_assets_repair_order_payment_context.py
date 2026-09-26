@@ -763,3 +763,7 @@ assert.deepEqual(closedCards,[]);assert.deepEqual(statuses,[],'stale A error lea
 assert.equal(archiveActionSyncs,2,'archive action should only sync at begin and owned finish');
 """,
         )
+
+
+if __name__ == "__main__":
+    unittest.main()

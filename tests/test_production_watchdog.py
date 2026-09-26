@@ -1,25 +1,23 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import os
 import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+if __package__:
+    from tests.module_loader_support import load_module_from_file
+else:
+    from module_loader_support import load_module_from_file
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WATCHDOG_PATH = PROJECT_ROOT / "scripts" / "production_watchdog.py"
 
 
 def load_watchdog_module():
-    spec = importlib.util.spec_from_file_location("production_watchdog", WATCHDOG_PATH)
-    if spec is None or spec.loader is None:
-        raise AssertionError("production_watchdog.py is importable")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+    return load_module_from_file("production_watchdog", WATCHDOG_PATH)
 
 
 class FakeHttpProbe:
@@ -54,6 +52,25 @@ class FakeCommandRunner:
 
 
 class ProductionWatchdogTests(unittest.TestCase):
+    def test_module_loader_restores_sys_modules_state(self) -> None:
+        module_name = "production_watchdog"
+        with patch.dict(sys.modules):
+            sys.modules.pop(module_name, None)
+            module = load_watchdog_module()
+
+            self.assertEqual(module.__name__, module_name)
+            self.assertFalse(
+                module_name in sys.modules,
+                "loader should not leave a temporary module entry",
+            )
+
+        sentinel = object()
+        with patch.dict(sys.modules, {module_name: sentinel}):
+            module = load_watchdog_module()
+
+            self.assertEqual(module.__name__, module_name)
+            self.assertIs(sys.modules[module_name], sentinel)
+
     def test_run_command_detaches_child_stdin(self) -> None:
         module = load_watchdog_module()
         completed = module.subprocess.CompletedProcess(["docker", "ps"], 0, "ok", "")

@@ -30,7 +30,9 @@ class CrmParityGatewayTests(unittest.IsolatedAsyncioTestCase):
         self.env = patch.dict("os.environ", GATEWAY_ENV, clear=False)
         self.manager_patch = patch("minimal_kanban.mcp.server._try_register_autostop_manager_tools")
         self.env.start()
+        self.addCleanup(self.env.stop)
         self.manager_register = self.manager_patch.start()
+        self.addCleanup(self.manager_patch.stop)
         self.board_api = FakeBoardApi()
         self.server = create_mcp_server(
             self.board_api,
@@ -40,10 +42,6 @@ class CrmParityGatewayTests(unittest.IsolatedAsyncioTestCase):
             path="/mcp",
             public_endpoint_url="https://crm.example/mcp",
         )
-
-    def tearDown(self) -> None:
-        self.manager_patch.stop()
-        self.env.stop()
 
     async def _call(self, name: str, arguments: dict | None = None):
         tool = self.server._tool_manager.get_tool(name)

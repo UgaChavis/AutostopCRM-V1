@@ -14,6 +14,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from minimal_kanban.logging_setup import close_logger  # noqa: E402
 from minimal_kanban.models import utc_now  # noqa: E402
 from minimal_kanban.operator_activity import OperatorActivityService  # noqa: E402
 
@@ -21,15 +22,13 @@ from minimal_kanban.operator_activity import OperatorActivityService  # noqa: E4
 class OperatorActivityServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         self.activity_dir = Path(self.temp_dir.name) / "operator-activity"
         self.logger = logging.getLogger(f"test.operator_activity.{self._testMethodName}")
-        self.logger.handlers.clear()
+        close_logger(self.logger)
         self.logger.addHandler(logging.NullHandler())
         self.logger.propagate = False
         self.service = OperatorActivityService(activity_dir=self.activity_dir, logger=self.logger)
-
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
 
     def test_records_lists_filters_and_loads_details(self) -> None:
         first = self.service.record_activity(

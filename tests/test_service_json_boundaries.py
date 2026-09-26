@@ -4,6 +4,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from types import ModuleType
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -14,7 +15,7 @@ from minimal_kanban.services import card_service, snapshot_service
 
 
 class ServiceJsonBoundaryTests(unittest.TestCase):
-    def _assert_self_referential_payload_is_sanitized(self, module) -> None:
+    def _assert_self_referential_payload_is_sanitized(self, module: ModuleType) -> None:
         payload: dict[str, object] = {"ok": True, "ratio": 1.25}
         payload["self"] = payload
 

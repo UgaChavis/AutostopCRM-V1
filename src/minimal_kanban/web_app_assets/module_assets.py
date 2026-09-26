@@ -5,10 +5,13 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable
+from functools import cache
 from importlib import resources
 
 
+@cache
 def _read_source_chunk(name: str) -> str:
+    """Load an immutable package resource once per process."""
     return resources.files(__package__).joinpath("source", name).read_text(encoding="utf-8")
 
 
@@ -119,20 +122,36 @@ def _module_proxies(group: str, source: str, public_names: set[str]) -> str:
     )
 
 
-def read_board_source(name: str, *, proxies: dict[str, str] | None = None) -> str:
+def _expand_board_source(
+    name: str,
+    *,
+    proxies: dict[str, str] | None,
+    include_stack: tuple[str, ...],
+) -> str:
+    if name in include_stack:
+        chain = " -> ".join((*include_stack, name))
+        raise RuntimeError(f"Cyclic board source include: {chain}")
+
     source = _read_source_chunk(name)
+    next_stack = (*include_stack, name)
     if proxies is not None and name in proxies:
         eager = "\n".join(
-            read_board_source(child)
+            _expand_board_source(child, proxies=None, include_stack=next_stack)
             for child in re.findall(r"^    // @include ([a-z_]+\.js)$", source, flags=re.MULTILINE)
         )
         return eager + "\n" + proxies[name]
     return re.sub(
         r"^    // @include ([a-z_]+\.js)$",
-        lambda match: read_board_source(match.group(1), proxies=proxies),
+        lambda match: _expand_board_source(
+            match.group(1), proxies=proxies, include_stack=next_stack
+        ),
         source,
         flags=re.MULTILINE,
     )
+
+
+def read_board_source(name: str, *, proxies: dict[str, str] | None = None) -> str:
+    return _expand_board_source(name, proxies=proxies, include_stack=())
 
 
 def _module_script(group: str, source: str, public_names: set[str]) -> str:

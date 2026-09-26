@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import sys
 import unittest
+from collections.abc import Iterator
 from pathlib import Path
+from types import TracebackType
 from unittest.mock import patch
 
 import httpx
@@ -97,7 +99,7 @@ class OpenAIJsonAgentClientTests(unittest.TestCase):
         class FakeStreamResponse:
             chunk_size: int | None = None
 
-            def iter_bytes(self, *, chunk_size: int | None = None):
+            def iter_bytes(self, *, chunk_size: int | None = None) -> Iterator[bytes]:
                 self.chunk_size = chunk_size
                 yield b"ok"
 
@@ -119,10 +121,15 @@ class OpenAIJsonAgentClientTests(unittest.TestCase):
             def __enter__(self):
                 return self
 
-            def __exit__(self, exc_type, exc, tb) -> None:
+            def __exit__(
+                self,
+                exc_type: type[BaseException] | None,
+                exc: BaseException | None,
+                tb: TracebackType | None,
+            ) -> None:
                 _ = (exc_type, exc, tb)
 
-            def iter_bytes(self, *, chunk_size: int | None = None):
+            def iter_bytes(self, *, chunk_size: int | None = None) -> Iterator[bytes]:
                 _ = chunk_size
                 yield b'{"output_text":"{}"}'
 
@@ -135,7 +142,12 @@ class OpenAIJsonAgentClientTests(unittest.TestCase):
             def __enter__(self):
                 return self
 
-            def __exit__(self, exc_type, exc, tb) -> None:
+            def __exit__(
+                self,
+                exc_type: type[BaseException] | None,
+                exc: BaseException | None,
+                tb: TracebackType | None,
+            ) -> None:
                 _ = (exc_type, exc, tb)
 
             def stream(self, *args, **kwargs) -> FakeStreamResponse:

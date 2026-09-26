@@ -22,6 +22,7 @@ if str(SRC) not in sys.path:
 
 from minimal_kanban.api.server import ApiServer  # noqa: E402
 from minimal_kanban.deployment_security import release_smoke_proof  # noqa: E402
+from minimal_kanban.logging_setup import close_logger  # noqa: E402
 from minimal_kanban.models import AuditEvent, utc_now_iso  # noqa: E402
 from minimal_kanban.operator_auth import OperatorAuthService  # noqa: E402
 from minimal_kanban.services.card_service import CardService  # noqa: E402
@@ -38,10 +39,11 @@ from minimal_kanban.storage.json_store import JsonStore  # noqa: E402
 class ChangeFeedTestCase(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         self.base_dir = Path(self.temp_dir.name)
         self.state_file = self.base_dir / "state.json"
         self.logger = logging.getLogger(f"test.change_feed.{self._testMethodName}")
-        self.logger.handlers.clear()
+        close_logger(self.logger)
         self.logger.addHandler(logging.NullHandler())
         self.logger.propagate = False
         self.store = JsonStore(self.state_file, logger=self.logger)
@@ -49,9 +51,6 @@ class ChangeFeedTestCase(unittest.TestCase):
             self.store.change_feed_store,
             reconcile=self.store.reconcile_change_feed,
         )
-
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
 
     def append_event(
         self,
@@ -761,10 +760,7 @@ class ChangeFeedHttpContractTests(ChangeFeedTestCase):
             bearer_token="feed-secret",
         )
         self.server.start()
-
-    def tearDown(self) -> None:
-        self.server.stop()
-        super().tearDown()
+        self.addCleanup(self.server.stop)
 
     def post(
         self,

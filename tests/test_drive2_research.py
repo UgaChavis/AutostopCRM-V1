@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -17,7 +18,7 @@ class _FakeSearch:
         self.search_calls: list[str] = []
         self.fetch_calls: list[str] = []
 
-    def search_multi(self, query, *, limit, allowed_domains):  # noqa: ANN001
+    def search_multi(self, query, *, limit, allowed_domains) -> dict[str, Any]:  # noqa: ANN001
         self.search_calls.append(query)
         self.assert_request(limit, allowed_domains)
         return {
@@ -41,7 +42,7 @@ class _FakeSearch:
         assert limit == 10
         assert allowed_domains == ["drive2.ru"]
 
-    def fetch_page_excerpt(self, url, *, max_chars):  # noqa: ANN001
+    def fetch_page_excerpt(self, url, *, max_chars) -> dict[str, Any]:  # noqa: ANN001
         self.fetch_calls.append(url)
         assert max_chars == 8000
         return {
@@ -59,7 +60,7 @@ class _FakeSearch:
 
 
 class _RankingSearch(_FakeSearch):
-    def search_multi(self, query, *, limit, allowed_domains):  # noqa: ANN001
+    def search_multi(self, query, *, limit, allowed_domains) -> dict[str, Any]:  # noqa: ANN001
         self.search_calls.append(query)
         self.assert_request(limit, allowed_domains)
         return {
@@ -78,7 +79,7 @@ class _RankingSearch(_FakeSearch):
             "providers": [{"provider": "searxng", "status": "success"}],
         }
 
-    def fetch_page_excerpt(self, url, *, max_chars):  # noqa: ANN001
+    def fetch_page_excerpt(self, url, *, max_chars) -> dict[str, Any]:  # noqa: ANN001
         self.fetch_calls.append(url)
         transmission = "механика" if url.endswith("111111111/") else "робот DQ200"
         return {

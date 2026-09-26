@@ -3,11 +3,14 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from minimal_kanban.api.automation_center import build_automation_center_routes  # noqa: E402
 from minimal_kanban.api.change_feed import build_change_feed_routes  # noqa: E402
@@ -33,7 +36,7 @@ from scripts.browser_smoke import SMOKE_SCENARIOS  # noqa: E402
 
 
 class _FakeService:
-    def __getattr__(self, name: str):
+    def __getattr__(self, name: str) -> Any:
         def _handler(payload=None):
             return {"ok": True, "handler": name, "payload": payload}
 

@@ -1,50 +1,103 @@
 from __future__ import annotations
 
 import gzip
-import importlib.util
 import io
 import json
 import os
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from types import ModuleType
 from unittest.mock import patch
+from urllib.request import Request
+
+if __package__:
+    from tests.http_fixture_support import FakeReadableResponse
+    from tests.module_loader_support import load_module_from_file
+else:
+    from http_fixture_support import FakeReadableResponse
+    from module_loader_support import load_module_from_file
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "perf_probe.py"
 
 
-def load_perf_probe_module():
-    spec = importlib.util.spec_from_file_location("perf_probe", SCRIPT_PATH)
-    if spec is None or spec.loader is None:
-        raise AssertionError("perf_probe.py is importable")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+def load_perf_probe_module() -> ModuleType:
+    return load_module_from_file("perf_probe", SCRIPT_PATH)
 
 
-class FakeHttpResponse:
+class FakeHttpResponse(FakeReadableResponse):
     status = 200
 
     def __init__(self, body: bytes, *, headers: dict[str, str] | None = None) -> None:
-        self._body = body
+        super().__init__(body)
         self.headers = headers or {}
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb) -> None:
-        _ = (exc_type, exc, tb)
-
-    def read(self, size: int = -1) -> bytes:
-        if size is None or size < 0:
-            return self._body
-        return self._body[:size]
 
 
 class PerfProbeTests(unittest.TestCase):
+    def test_loader_restores_previous_module_entry(self) -> None:
+        module_name = "perf_probe"
+        previous_module = sys.modules.get(module_name)
+        had_previous_module = module_name in sys.modules
+        sentinel = ModuleType(module_name)
+        sys.modules[module_name] = sentinel
+
+        try:
+            loaded_module = load_perf_probe_module()
+
+            self.assertIsNot(loaded_module, sentinel)
+            self.assertIs(sys.modules[module_name], sentinel)
+        finally:
+            if had_previous_module:
+                sys.modules[module_name] = previous_module
+            else:
+                sys.modules.pop(module_name, None)
+
+    def test_local_temp_server_cleans_directory_when_stop_fails(self) -> None:
+        module = load_perf_probe_module()
+        temp_dir = tempfile.TemporaryDirectory()
+        temp_path = Path(temp_dir.name)
+
+        class FailingServer:
+            def stop(self) -> None:
+                raise RuntimeError("server stop failed")
+
+        local_server = module.LocalTempServer(
+            base_url="http://127.0.0.1:42751",
+            server=FailingServer(),
+            temp_dir=temp_dir,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "server stop failed"):
+            local_server.stop()
+
+        self.assertFalse(temp_path.exists())
+
+    def test_local_temp_server_does_not_accumulate_null_handlers(self) -> None:
+        module = load_perf_probe_module()
+        logger = module.logging.Logger("perf-probe-local-temp-server-test")
+
+        with (
+            patch.object(module.logging, "getLogger", return_value=logger),
+            patch("minimal_kanban.api.server.ApiServer") as api_server_class,
+            patch("minimal_kanban.services.card_service.CardService"),
+            patch("minimal_kanban.storage.json_store.JsonStore"),
+        ):
+            api_server_class.return_value.base_url = "http://127.0.0.1:42751"
+            first_server = module.start_local_temp_server()
+            self.addCleanup(first_server.stop)
+            second_server = module.start_local_temp_server()
+            self.addCleanup(second_server.stop)
+
+            null_handlers = [
+                handler
+                for handler in logger.handlers
+                if isinstance(handler, module.logging.NullHandler)
+            ]
+            self.assertEqual(len(null_handlers), 1)
+
     def test_thresholds_report_named_latency_and_payload_violations(self) -> None:
         module = load_perf_probe_module()
         rows = [
@@ -103,7 +156,7 @@ class PerfProbeTests(unittest.TestCase):
         module = load_perf_probe_module()
         calls: list[int] = []
 
-        def fake_request(*_args, **_kwargs):
+        def fake_request(*_args: object, **_kwargs: object) -> tuple[dict[str, object], object]:
             calls.append(len(calls))
             return {"ok": True}, module.ProbeResult(
                 "raw", 200, float(len(calls)), 10, "", "app;dur=1"
@@ -174,9 +227,9 @@ class PerfProbeTests(unittest.TestCase):
 
     def test_request_json_sends_bearer_only_when_supplied(self) -> None:
         module = load_perf_probe_module()
-        requests = []
+        requests: list[Request] = []
 
-        def fake_open(request, *, timeout):
+        def fake_open(request: Request, *, timeout: float) -> FakeHttpResponse:
             _ = timeout
             requests.append(request)
             return FakeHttpResponse(b'{"ok": true}')
@@ -284,17 +337,17 @@ class PerfProbeTests(unittest.TestCase):
         module = load_perf_probe_module()
 
         def fake_measure(
-            base_url,
-            label,
-            path,
+            base_url: str,
+            label: str,
+            path: str,
             *,
-            iterations,
-            warmup_iterations=0,
-            method="GET",
-            payload=None,
-            gzip_ok=False,
-            bearer_token="",
-        ):
+            iterations: int,
+            warmup_iterations: int = 0,
+            method: str = "GET",
+            payload: dict[str, object] | None = None,
+            gzip_ok: bool = False,
+            bearer_token: str = "",
+        ) -> tuple[dict[str, object] | None, list[object]]:
             _ = (
                 base_url,
                 path,
@@ -353,17 +406,17 @@ class PerfProbeTests(unittest.TestCase):
         seen_tokens: list[str] = []
 
         def fake_measure(
-            base_url,
-            label,
-            path,
+            base_url: str,
+            label: str,
+            path: str,
             *,
-            iterations,
-            warmup_iterations=0,
-            method="GET",
-            payload=None,
-            gzip_ok=False,
-            bearer_token="",
-        ):
+            iterations: int,
+            warmup_iterations: int = 0,
+            method: str = "GET",
+            payload: dict[str, object] | None = None,
+            gzip_ok: bool = False,
+            bearer_token: str = "",
+        ) -> tuple[dict[str, object] | None, list[object]]:
             _ = (path, iterations, warmup_iterations, method, payload, gzip_ok, bearer_token)
             seen_base_urls.append(base_url)
             seen_tokens.append(bearer_token)
@@ -400,17 +453,17 @@ class PerfProbeTests(unittest.TestCase):
         seen_tokens: list[str] = []
 
         def fake_measure(
-            base_url,
-            label,
-            path,
+            base_url: str,
+            label: str,
+            path: str,
             *,
-            iterations,
-            warmup_iterations=0,
-            method="GET",
-            payload=None,
-            gzip_ok=False,
-            bearer_token="",
-        ):
+            iterations: int,
+            warmup_iterations: int = 0,
+            method: str = "GET",
+            payload: dict[str, object] | None = None,
+            gzip_ok: bool = False,
+            bearer_token: str = "",
+        ) -> tuple[dict[str, object] | None, list[object]]:
             _ = (base_url, path, iterations, warmup_iterations, method, payload, gzip_ok)
             seen_tokens.append(bearer_token)
             return {}, [module.ProbeResult(label, 200, 1.0, 16, "", "")]

@@ -296,21 +296,23 @@ class AppStartupTests(unittest.TestCase):
         )
 
     def test_instance_guard_rejects_second_running_copy(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            with patch.dict(os.environ, {"APPDATA": temp_dir}, clear=False):
-                first = _acquire_instance_guard()
-                first.__enter__()
-                second = None
-                second_entered = False
-                try:
-                    with self.assertRaises(TimeoutError):
-                        second = _acquire_instance_guard()
-                        second.__enter__()
-                        second_entered = True
-                finally:
-                    if second is not None and second_entered:
-                        second.__exit__(None, None, None)
-                    first.__exit__(None, None, None)
+        with (
+            tempfile.TemporaryDirectory() as temp_dir,
+            patch.dict(os.environ, {"APPDATA": temp_dir}, clear=False),
+        ):
+            first = _acquire_instance_guard()
+            first.__enter__()
+            second = None
+            second_entered = False
+            try:
+                with self.assertRaises(TimeoutError):
+                    second = _acquire_instance_guard()
+                    second.__enter__()
+                    second_entered = True
+            finally:
+                if second is not None and second_entered:
+                    second.__exit__(None, None, None)
+                first.__exit__(None, None, None)
 
     def test_reset_runtime_publication_state_clears_stale_tunnel_url(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -405,9 +407,11 @@ class AppStartupTests(unittest.TestCase):
                 self.exit_calls += 1
 
         guard = BrokenGuard()
-        with patch("minimal_kanban.app._acquire_instance_guard", return_value=guard):
-            with self.assertRaises(RuntimeError):
-                run()
+        with (
+            patch("minimal_kanban.app._acquire_instance_guard", return_value=guard),
+            self.assertRaises(RuntimeError),
+        ):
+            run()
         self.assertEqual(guard.exit_calls, 0)
 
 

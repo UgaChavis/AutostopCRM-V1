@@ -11,6 +11,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from minimal_kanban.logging_setup import close_logger  # noqa: E402
 from minimal_kanban.mcp.client import BoardApiTransportError  # noqa: E402
 from minimal_kanban.mcp.main import (  # noqa: E402
     _cleanup_mcp_main_resources,
@@ -24,7 +25,8 @@ from minimal_kanban.settings_models import IntegrationSettings  # noqa: E402
 class ReachableBoardApiUrlTests(unittest.TestCase):
     def setUp(self) -> None:
         self.logger = logging.getLogger(f"test.mcp.main.{self._testMethodName}")
-        self.logger.handlers.clear()
+        close_logger(self.logger)
+        self.addCleanup(close_logger, self.logger)
         self.logger.addHandler(logging.NullHandler())
         self.logger.propagate = False
 
@@ -76,7 +78,7 @@ class RuntimeBindHostTests(unittest.TestCase):
 class McpMainRunTests(unittest.TestCase):
     def test_embedded_runtime_publishes_api_ownership_before_agent_start_failure(self) -> None:
         logger = logging.getLogger("test.mcp.main.embedded_ownership")
-        logger.handlers.clear()
+        close_logger(logger)
         logger.addHandler(logging.NullHandler())
         logger.propagate = False
         settings = IntegrationSettings.defaults()
@@ -112,7 +114,7 @@ class McpMainRunTests(unittest.TestCase):
 
     def test_cleanup_releases_all_resources_after_mcp_stop_failure(self) -> None:
         logger = logging.getLogger("test.mcp.main.cleanup")
-        logger.handlers.clear()
+        close_logger(logger)
         logger.addHandler(logging.NullHandler())
         logger.propagate = False
         runtime = Mock()
@@ -137,7 +139,7 @@ class McpMainRunTests(unittest.TestCase):
 
     def test_cleanup_releases_api_and_logger_after_agent_stop_failure(self) -> None:
         logger = logging.getLogger("test.mcp.main.agent_cleanup")
-        logger.handlers.clear()
+        close_logger(logger)
         logger.addHandler(logging.NullHandler())
         logger.propagate = False
         agent_control = Mock()
@@ -160,7 +162,7 @@ class McpMainRunTests(unittest.TestCase):
 
     def test_run_seeds_demo_board_before_starting_embedded_api(self) -> None:
         logger = logging.getLogger("test.mcp.main.run")
-        logger.handlers.clear()
+        close_logger(logger)
         logger.addHandler(logging.NullHandler())
         logger.propagate = False
         settings = IntegrationSettings.defaults()

@@ -102,7 +102,7 @@ class _RedactingArgumentParser(argparse.ArgumentParser):
         super().error(message)
 
 
-def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
+def _json_safe_value(value: object, *, depth: int = 8) -> object:
     if depth <= 0:
         return str(value)
     if value is None or isinstance(value, str | bool | int):
@@ -120,7 +120,7 @@ def _json_safe_value(value: Any, *, depth: int = 8) -> Any:
     return str(value)
 
 
-def _json_dumps(payload: Any) -> str:
+def _json_dumps(payload: object) -> str:
     return json.dumps(_json_safe_value(payload), ensure_ascii=False, indent=2, allow_nan=False)
 
 
@@ -268,7 +268,7 @@ def percentile(values: list[float], ratio: float) -> float:
     return ordered[index]
 
 
-def _safe_float(value: Any, *, default: float = 0.0) -> float:
+def _safe_float(value: object, *, default: float = 0.0) -> float:
     if isinstance(value, bool):
         return default
     try:
@@ -278,7 +278,7 @@ def _safe_float(value: Any, *, default: float = 0.0) -> float:
     return parsed if math.isfinite(parsed) else default
 
 
-def _safe_int(value: Any, *, default: int = 0, maximum: int = 1_000_000_000) -> int:
+def _safe_int(value: object, *, default: int = 0, maximum: int = 1_000_000_000) -> int:
     if isinstance(value, bool):
         return default
     try:
@@ -294,16 +294,16 @@ def _safe_int(value: Any, *, default: int = 0, maximum: int = 1_000_000_000) -> 
     return int(parsed)
 
 
-def _bounded_iterations(value: Any) -> int:
+def _bounded_iterations(value: object) -> int:
     return max(1, _safe_int(value, default=3, maximum=100))
 
 
-def _bounded_port(value: Any, *, default: int) -> int:
+def _bounded_port(value: object, *, default: int) -> int:
     port = _safe_int(value, default=default, maximum=65535)
     return port if port >= 1 else default
 
 
-def payload_size(payload: Any) -> int:
+def payload_size(payload: object) -> int:
     try:
         return len(
             json.dumps(

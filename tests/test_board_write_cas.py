@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from minimal_kanban.logging_setup import close_logger  # noqa: E402
 from minimal_kanban.services.card_service import CardService  # noqa: E402
 from minimal_kanban.services.errors import ServiceError  # noqa: E402
 from minimal_kanban.storage.json_store import JsonStore  # noqa: E402
@@ -26,7 +27,7 @@ class BoardWriteCasTests(unittest.TestCase):
 
     def _logger(self) -> logging.Logger:
         logger = logging.getLogger(self.id())
-        logger.handlers.clear()
+        close_logger(logger)
         logger.addHandler(logging.NullHandler())
         logger.propagate = False
         return logger

@@ -26,13 +26,11 @@ from minimal_kanban.storage.json_store import JsonStore  # noqa: E402
 class ListEmployeesSnapshotTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         logger = logging.getLogger(f"test.list_employees_snapshot.{self._testMethodName}")
         logger.addHandler(logging.NullHandler())
         self.store = JsonStore(state_file=Path(self.temp_dir.name) / "state.json", logger=logger)
         self.service = CardService(self.store, logger)
-
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
 
     def _old_full_result(self, month: str) -> dict:
         """Reference implementation of the former all-under-lock list path."""

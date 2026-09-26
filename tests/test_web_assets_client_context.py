@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import shutil
 import subprocess
-import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "src/minimal_kanban/web_app_assets/source/app_main_before_printing.js"
-if str(ROOT / "src") not in sys.path:
-    sys.path.insert(0, str(ROOT / "src"))
+if __package__:
+    from tests.source_path_support import ensure_source_path
+else:
+    from source_path_support import ensure_source_path
+
+ensure_source_path()
 
 from minimal_kanban.web_assets import BOARD_WEB_APP_CONTRACT_TEXT  # noqa: E402
 

@@ -7,13 +7,14 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import ModuleType
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "check_live_connector.py"
 
 
-def load_live_connector_module():
+def load_live_connector_module() -> ModuleType:
     spec = importlib.util.spec_from_file_location("check_live_connector_for_tests", SCRIPT_PATH)
     if spec is None or spec.loader is None:
         raise RuntimeError("Could not load check_live_connector.py")
@@ -48,7 +49,7 @@ class FakeResponse:
         self.headers = {"Content-Type": content_type}
         self.headers.update(headers or {})
 
-    def __enter__(self):
+    def __enter__(self) -> FakeResponse:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:

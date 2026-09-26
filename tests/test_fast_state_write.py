@@ -16,6 +16,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from minimal_kanban.logging_setup import close_logger  # noqa: E402
 from minimal_kanban.models import AuditEvent, Card, utc_now  # noqa: E402
 from minimal_kanban.services.card_service import CardService  # noqa: E402
 from minimal_kanban.services.errors import ServiceError  # noqa: E402
@@ -30,14 +31,13 @@ from minimal_kanban.storage.json_store import (  # noqa: E402
 class FastStateWriteTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         self.base_dir = Path(self.temp_dir.name)
         self.logger = logging.getLogger(f"test.fast_state_write.{self._testMethodName}")
-        self.logger.handlers.clear()
+        close_logger(self.logger)
+        self.addCleanup(close_logger, self.logger)
         self.logger.addHandler(logging.NullHandler())
         self.logger.propagate = False
-
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
 
     def _state_path(self, name: str) -> Path:
         return self.base_dir / name / "state.json"
@@ -302,18 +302,20 @@ class FastStateWriteTests(unittest.TestCase):
             float("inf"),
         )
         for value in unsupported_values:
-            with self.subTest(value=type(value).__name__):
-                with patch.object(
+            with (
+                self.subTest(value=type(value).__name__),
+                patch.object(
                     json_store_module.orjson,
                     "dumps",
                     side_effect=AssertionError("orjson must not receive unsupported values"),
-                ) as fast_dumps:
-                    with self.assertRaises((TypeError, ValueError)):
-                        _serialized_state(
-                            {"value": value},
-                            already_safe=True,
-                            fast_serializer=True,
-                        )
+                ) as fast_dumps,
+                self.assertRaises((TypeError, ValueError)),
+            ):
+                _serialized_state(
+                    {"value": value},
+                    already_safe=True,
+                    fast_serializer=True,
+                )
                 fast_dumps.assert_not_called()
 
     def test_fast_write_outbox_recovers_using_exact_state_file_fingerprint(self) -> None:

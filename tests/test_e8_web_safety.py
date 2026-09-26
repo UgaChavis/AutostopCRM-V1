@@ -41,7 +41,7 @@ class _StreamResponse:
         _ = chunk_size
         yield self._body
 
-    def __enter__(self):
+    def __enter__(self) -> _StreamResponse:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
@@ -58,7 +58,7 @@ class E8WebSafetyTests(unittest.TestCase):
                 _ = (args, kwargs)
                 self.url = ""
 
-            def __enter__(self):
+            def __enter__(self) -> CapturingClient:
                 return self
 
             def __exit__(self, exc_type, exc, tb) -> None:

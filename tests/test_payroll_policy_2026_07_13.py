@@ -14,6 +14,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from minimal_kanban.logging_setup import close_logger
 from minimal_kanban.repair_order import RepairOrder
 from minimal_kanban.services.card_service import CardService
 from minimal_kanban.services.card_service_payroll import PAYROLL_POLICY_2026_07_13_TERMS
@@ -32,10 +33,13 @@ class PayrollPolicyMigrationTests(unittest.TestCase):
         ]
         for clock_patch in self._clock_patches:
             clock_patch.start()
+            self.addCleanup(clock_patch.stop)
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         self.state_file = Path(self.temp_dir.name) / "state.json"
         self.logger = logging.getLogger(f"test.payroll-policy.{self._testMethodName}")
-        self.logger.handlers.clear()
+        close_logger(self.logger)
+        self.addCleanup(close_logger, self.logger)
         self.logger.addHandler(logging.NullHandler())
         self.store = JsonStore(state_file=self.state_file, logger=self.logger)
         self.service = CardService(self.store, self.logger)
@@ -70,11 +74,6 @@ class PayrollPolicyMigrationTests(unittest.TestCase):
             }
         )["employee"]
         self.expected_ids = {name: employee["id"] for name, employee in self.employees.items()}
-
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
-        for clock_patch in reversed(self._clock_patches):
-            clock_patch.stop()
 
     def _qualified_order(self) -> str:
         worker = self.employees["Александр Баландин"]

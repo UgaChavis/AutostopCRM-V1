@@ -2,18 +2,18 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 import unittest
-from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 from mcp.server.fastmcp.exceptions import ToolError
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+if __package__:
+    from tests.source_path_support import ensure_source_path
+else:
+    from source_path_support import ensure_source_path
+
+ensure_source_path()
 
 from minimal_kanban.mcp.server import create_mcp_server
 

@@ -13,22 +13,23 @@ from pathlib import Path
 
 
 class TimedResult(unittest.TextTestResult):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: object, **kwargs: object) -> None:
         super().__init__(*args, **kwargs)
-        self.timings = []
+        self.timings: list[dict[str, str | float]] = []
+        self.started = 0.0
 
-    def startTest(self, test):
+    def startTest(self, test: unittest.TestCase) -> None:
         self.started = time.perf_counter()
         super().startTest(test)
 
-    def stopTest(self, test):
+    def stopTest(self, test: unittest.TestCase) -> None:
         self.timings.append(
             {"test": test.id(), "seconds": round(time.perf_counter() - self.started, 4)}
         )
         super().stopTest(test)
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--output-dir", type=Path, required=True)

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import ast
-import importlib.util
 import sys
 import tempfile
 import unittest
+from collections.abc import Callable
 from pathlib import Path
+from types import ModuleType
+
+from tests.module_loader_support import load_module_from_file
 
 ROOT = Path(__file__).resolve().parents[1]
 PYTEST_STYLE_TESTS = ROOT / "tests" / "test_agent_gateway_v2_attestation_script.py"
@@ -14,6 +17,7 @@ _TMP_PATH_CASES = {
     "test_cleanup_orchestrator_persists_terminal_verified_state",
 }
 _CASE_NAMES = (
+    "test_module_loader_restores_sys_modules_state",
     "test_manifest_covers_exact_public_and_crm_operation_contracts",
     "test_runtime_evidence_never_serializes_request_or_response_payloads",
     "test_entity_mapping_prefers_exact_id_over_relationship_reference",
@@ -84,14 +88,8 @@ def load_tests(
     return suite
 
 
-def _load_cases_module():
-    spec = importlib.util.spec_from_file_location("gateway_attestation_cases", PYTEST_STYLE_TESTS)
-    if spec is None or spec.loader is None:
-        raise AssertionError("Gateway attestation cases must be importable")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+def _load_cases_module() -> ModuleType:
+    return load_module_from_file("gateway_attestation_cases", PYTEST_STYLE_TESTS)
 
 
 @unittest.skipUnless(sys.platform == "linux", "attestation runner is verified on Linux CI")
@@ -99,8 +97,28 @@ class GatewayAttestationLinuxTests(unittest.TestCase):
     pass
 
 
-def _make_case(case_name: str):
-    def case(self) -> None:
+class GatewayAttestationLoaderTests(unittest.TestCase):
+    def test_loader_restores_previous_module_entry(self) -> None:
+        module_name = "gateway_attestation_cases"
+        previous_module = sys.modules.get(module_name)
+        had_previous_module = module_name in sys.modules
+        sentinel = ModuleType(module_name)
+        sys.modules[module_name] = sentinel
+
+        try:
+            loaded_module = _load_cases_module()
+
+            self.assertIsNot(loaded_module, sentinel)
+            self.assertIs(sys.modules[module_name], sentinel)
+        finally:
+            if had_previous_module:
+                sys.modules[module_name] = previous_module
+            else:
+                sys.modules.pop(module_name, None)
+
+
+def _make_case(case_name: str) -> Callable[[unittest.TestCase], None]:
+    def case(self: unittest.TestCase) -> None:
         module = _load_cases_module()
         test_function = getattr(module, case_name)
         if case_name in _TMP_PATH_CASES:

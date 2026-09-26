@@ -19,6 +19,8 @@ from mcp.types import ToolAnnotations
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
@@ -1460,7 +1462,9 @@ class AgentGatewayV2Tests(
         self.env = patch.dict("os.environ", GATEWAY_ENV, clear=False)
         self.manager_patch = patch("minimal_kanban.mcp.server._try_register_autostop_manager_tools")
         self.env.start()
+        self.addCleanup(self.env.stop)
         self.manager_register = self.manager_patch.start()
+        self.addCleanup(self.manager_patch.stop)
         self.board_api = FakeBoardApi()
         self.server = create_mcp_server(
             self.board_api,
@@ -1470,10 +1474,6 @@ class AgentGatewayV2Tests(
             path="/mcp",
             public_endpoint_url="https://crm.example/mcp",
         )
-
-    def tearDown(self) -> None:
-        self.manager_patch.stop()
-        self.env.stop()
 
     def test_delete_cashbox_uses_guarded_virtual_route(self) -> None:
         self.assertEqual(

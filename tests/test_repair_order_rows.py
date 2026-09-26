@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import logging
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+if __package__:
+    from tests.source_path_support import ensure_source_path
+else:
+    from source_path_support import ensure_source_path
+
+ensure_source_path()
 
 from minimal_kanban.repair_order import REPAIR_ORDER_ROWS_LIMIT, normalize_repair_order_rows
 from minimal_kanban.services.card_service import CardService

@@ -24,3 +24,7 @@ class DescriptionWebContractTests(unittest.TestCase):
             "description: String(values.description ?? card.description ?? ''),",
             source,
         )
+
+
+if __name__ == "__main__":
+    unittest.main()

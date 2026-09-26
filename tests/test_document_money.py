@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-import sys
 import tempfile
 import unittest
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+if __package__:
+    from tests.source_path_support import ensure_source_path
+else:
+    from source_path_support import ensure_source_path
+
+ensure_source_path()
 
 from minimal_kanban.models import Card
 from minimal_kanban.printing.document_money import build_canonical_document_money

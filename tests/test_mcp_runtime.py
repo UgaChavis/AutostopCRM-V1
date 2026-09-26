@@ -12,13 +12,15 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from minimal_kanban.logging_setup import close_logger
 from minimal_kanban.mcp.runtime import McpServerRuntime, _normalize_startup_timeout
 
 
 class McpServerRuntimeUnitTests(unittest.TestCase):
     def _runtime(self, host: str, *, port: int = 41831, path: str = "/mcp") -> McpServerRuntime:
         logger = logging.getLogger(f"test.mcp.runtime.unit.{self._testMethodName}")
-        logger.handlers.clear()
+        close_logger(logger)
+        self.addCleanup(close_logger, logger)
         logger.addHandler(logging.NullHandler())
         logger.propagate = False
         server = SimpleNamespace(

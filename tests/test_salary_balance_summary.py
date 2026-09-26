@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import json
-import sys
 import unittest
 import urllib.request
 from datetime import timedelta
-from pathlib import Path
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+if __package__:
+    from tests.source_path_support import ensure_repository_root_path, ensure_source_path
+else:
+    from source_path_support import ensure_repository_root_path, ensure_source_path
+
+ensure_source_path()
+ensure_repository_root_path()
 
 from minimal_kanban.api.server import ApiServer
 from minimal_kanban.models import business_timezone, utc_now

@@ -1,6 +1,15 @@
 from __future__ import annotations
 
 # ruff: noqa: I001
+import unittest
+
+if __package__:
+    from tests.source_path_support import ensure_repository_root_path
+else:
+    from source_path_support import ensure_repository_root_path
+
+ensure_repository_root_path()
+
 from tests.services_case import CardServiceCase
 
 from minimal_kanban.services.change_feed_service import ChangeFeedService  # noqa: E402
@@ -146,3 +155,7 @@ class ChangeFeedProducerIntegrationTests(CardServiceCase):
         self.assertEqual(1, digest["category_counts"]["finance"])
         self.assertEqual(600000, digest["financial_totals"]["income_minor"])
         self.assertGreater(digest["raw_event_count"], digest["total_events"])
+
+
+if __name__ == "__main__":
+    unittest.main()

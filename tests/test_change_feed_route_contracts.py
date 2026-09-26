@@ -20,6 +20,7 @@ from minimal_kanban.api.route_registry import (  # noqa: E402
     build_operator_routes,
     build_service_routes,
 )
+from minimal_kanban.logging_setup import close_logger  # noqa: E402
 from minimal_kanban.operator_auth import OperatorAuthService  # noqa: E402
 from minimal_kanban.operator_permissions import SALARY_BALANCE_RESET_PERMISSION  # noqa: E402
 from minimal_kanban.services.card_service import CardService  # noqa: E402
@@ -53,9 +54,10 @@ class ChangeFeedCanonicalRouteContractTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         self.base_dir = Path(self.temp_dir.name)
         self.logger = logging.getLogger(f"test.change_feed.routes.{self._testMethodName}")
-        self.logger.handlers.clear()
+        close_logger(self.logger)
         self.logger.addHandler(logging.NullHandler())
         self.logger.propagate = False
         self.store = JsonStore(self.base_dir / "state.json", logger=self.logger)
@@ -116,9 +118,6 @@ class ChangeFeedCanonicalRouteContractTests(unittest.TestCase):
         self.consumer = "route-contract"
         self.covered: set[str] = set()
         self._drain_feed()
-
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
 
     def _reconcile(self) -> None:
         self.store.reconcile_change_feed()

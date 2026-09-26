@@ -3,19 +3,23 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import AbstractContextManager
+from functools import cache
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "docs_audit.py"
 
 
-def load_docs_audit_module():
+@cache
+def load_docs_audit_module() -> ModuleType:
     spec = importlib.util.spec_from_file_location("docs_audit", SCRIPT_PATH)
     if spec is None or spec.loader is None:
         raise AssertionError("docs_audit.py is importable")
@@ -25,7 +29,9 @@ def load_docs_audit_module():
     return module
 
 
-def isolate_skill_option_audit(module):
+def isolate_skill_option_audit(
+    module: ModuleType,
+) -> AbstractContextManager[dict[str, object]]:
     """Keep skill routing real; these tree-wide stages have dedicated coverage."""
     return patch.multiple(
         module,
@@ -342,6 +348,28 @@ class DocsAuditTests(unittest.TestCase):
 
         self.assertEqual(["unclassified_tracked_doc"], [issue.code for issue in issues])
         self.assertEqual("notes.md", issues[0].path)
+
+    def test_git_inventory_preserves_leading_whitespace_and_utf8_paths(self) -> None:
+        module = load_docs_audit_module()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            path = temp_root / " leading.md"
+            utf8_path = temp_root / "Имя.md"
+            path.write_text("unclassified\n", encoding="utf-8")
+            utf8_path.write_text("unclassified\n", encoding="utf-8")
+            subprocess.run(["git", "init"], cwd=temp_root, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "add", "--", " leading.md", "Имя.md"],
+                cwd=temp_root,
+                check=True,
+                capture_output=True,
+            )
+
+            files = module._iter_git_tracked_files(temp_root)
+
+        self.assertIn(path, files)
+        self.assertIn(utf8_path, files)
 
     def test_technical_debt_tasks_are_active_noncanonical_docs(self) -> None:
         module = load_docs_audit_module()
@@ -809,9 +837,11 @@ class DocsAuditTests(unittest.TestCase):
             stderr="",
         )
 
-        with patch.object(module.subprocess, "run", return_value=completed):
-            with self.assertRaisesRegex(ValueError, "instruction inventory"):
-                module._registered_runtime_contract(ROOT, Path("/tmp/manager"))
+        with (
+            patch.object(module.subprocess, "run", return_value=completed),
+            self.assertRaisesRegex(ValueError, "instruction inventory"),
+        ):
+            module._registered_runtime_contract(ROOT, Path("/tmp/manager"))
 
     def test_sibling_manager_checkout_is_not_audit_input_without_flag(self) -> None:
         module = load_docs_audit_module()
@@ -1129,7 +1159,7 @@ class DocsAuditTests(unittest.TestCase):
 
             real_resolve = module._resolve_strict
 
-            def loop_resolver(path):
+            def loop_resolver(path: Path) -> Path:
                 if path in {skills_root, loop}:
                     raise RuntimeError("fixture loop")
                 return real_resolve(path)
@@ -1144,7 +1174,7 @@ class DocsAuditTests(unittest.TestCase):
                 [issue.code for issue in root_loop_issues],
             )
 
-            def candidate_loop_resolver(path):
+            def candidate_loop_resolver(path: Path) -> Path:
                 if path == loop:
                     raise RuntimeError("fixture loop")
                 return real_resolve(path)
@@ -1163,7 +1193,7 @@ class DocsAuditTests(unittest.TestCase):
                 [issue.code for issue in candidate_loop_issues],
             )
 
-            def retarget_resolver(path):
+            def retarget_resolver(path: Path) -> Path:
                 if path == alias:
                     return real_resolve(target)
                 return real_resolve(path)
@@ -1218,20 +1248,22 @@ class DocsAuditTests(unittest.TestCase):
                     skills_root=skills_root,
                 )
 
-            with patch.object(
-                module,
-                "_is_link_like",
-                side_effect=lambda path: path == linked,
-            ) as link_probe:
-                with patch.object(
+            with (
+                patch.object(
+                    module,
+                    "_is_link_like",
+                    side_effect=lambda path: path == linked,
+                ) as link_probe,
+                patch.object(
                     module,
                     "_display_path",
                     side_effect=AssertionError("rejected links must not be resolved"),
-                ):
-                    docs, descendant_issues = module._iter_user_skill_docs(
-                        [selected],
-                        skills_root=skills_root,
-                    )
+                ),
+            ):
+                docs, descendant_issues = module._iter_user_skill_docs(
+                    [selected],
+                    skills_root=skills_root,
+                )
 
         self.assertEqual(
             ["skills_root_symlink_forbidden"],
@@ -1279,7 +1311,7 @@ class DocsAuditTests(unittest.TestCase):
             entrypoint.write_text("private skill guidance", encoding="utf-8")
             original_lstat = Path.lstat
 
-            def fake_lstat(path: Path):
+            def fake_lstat(path: Path) -> os.stat_result | SimpleNamespace:
                 metadata = original_lstat(path)
                 if path != entrypoint:
                     return metadata
@@ -1307,7 +1339,7 @@ class DocsAuditTests(unittest.TestCase):
             (selected / "SKILL.md").write_text("CRM guidance\n", encoding="utf-8")
             original_lstat = Path.lstat
 
-            def failing_lstat(path: Path):
+            def failing_lstat(path: Path) -> os.stat_result:
                 if path == selected:
                     raise PermissionError("metadata unavailable")
                 return original_lstat(path)
@@ -1426,9 +1458,11 @@ class DocsAuditTests(unittest.TestCase):
             path = Path(temp_dir) / "huge.md"
             path.write_text("x" * 16, encoding="utf-8")
 
-            with patch.object(module, "DOCS_AUDIT_TEXT_MAX_BYTES", 8):
-                with self.assertRaisesRegex(ValueError, "docs audit file is too large"):
-                    module._read_text(path)
+            with (
+                patch.object(module, "DOCS_AUDIT_TEXT_MAX_BYTES", 8),
+                self.assertRaisesRegex(ValueError, "docs audit file is too large"),
+            ):
+                module._read_text(path)
 
     def test_git_inventory_timeout_returns_empty_tracked_file_list(self) -> None:
         module = load_docs_audit_module()

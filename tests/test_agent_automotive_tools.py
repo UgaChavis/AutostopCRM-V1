@@ -4,7 +4,10 @@ import json
 import math
 import sys
 import unittest
+from collections.abc import Iterator
 from pathlib import Path
+from types import TracebackType
+from typing import Self
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -78,37 +81,47 @@ def _service_with_fake_search() -> tuple[AutomotiveLookupService, _FakeSearchCli
     return service, fake_search
 
 
-def _client_factory(payload: object):
+def _client_factory(payload: object) -> type:
     if isinstance(payload, bytes):
         raw_payload = payload
     else:
         raw_payload = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
 
     class _Response:
-        def __enter__(self):
+        def __enter__(self) -> Self:
             return self
 
-        def __exit__(self, exc_type, exc, tb) -> None:
+        def __exit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            tb: TracebackType | None,
+        ) -> None:
             _ = (exc_type, exc, tb)
 
         def raise_for_status(self) -> None:
             return None
 
-        def iter_bytes(self, *, chunk_size=None):
+        def iter_bytes(self, *, chunk_size: int | None = None) -> Iterator[bytes]:
             _ = chunk_size
             yield raw_payload
 
     class _Client:
-        def __init__(self, *args, **kwargs) -> None:
+        def __init__(self, *args: object, **kwargs: object) -> None:
             pass
 
-        def __enter__(self):
+        def __enter__(self) -> Self:
             return self
 
-        def __exit__(self, exc_type, exc, tb) -> None:
+        def __exit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            tb: TracebackType | None,
+        ) -> None:
             return None
 
-        def stream(self, *args, **kwargs) -> _Response:
+        def stream(self, *args: object, **kwargs: object) -> _Response:
             return _Response()
 
     return _Client
@@ -342,16 +355,21 @@ class AutomotiveLookupServiceTests(unittest.TestCase):
 
     def test_decode_vin_does_not_follow_redirects(self) -> None:
         class FakeResponse:
-            def __enter__(self):
+            def __enter__(self) -> Self:
                 return self
 
-            def __exit__(self, exc_type, exc, tb) -> None:
+            def __exit__(
+                self,
+                exc_type: type[BaseException] | None,
+                exc: BaseException | None,
+                tb: TracebackType | None,
+            ) -> None:
                 _ = (exc_type, exc, tb)
 
             def raise_for_status(self) -> None:
                 return None
 
-            def iter_bytes(self, *, chunk_size=None):
+            def iter_bytes(self, *, chunk_size: int | None = None) -> Iterator[bytes]:
                 _ = chunk_size
                 yield b'{"Results":[]}'
 
@@ -361,13 +379,18 @@ class AutomotiveLookupServiceTests(unittest.TestCase):
             def __init__(self, *args, **kwargs) -> None:
                 _ = (args, kwargs)
 
-            def __enter__(self):
+            def __enter__(self) -> Self:
                 return self
 
-            def __exit__(self, exc_type, exc, tb) -> None:
+            def __exit__(
+                self,
+                exc_type: type[BaseException] | None,
+                exc: BaseException | None,
+                tb: TracebackType | None,
+            ) -> None:
                 return None
 
-            def stream(self, *args, **kwargs) -> FakeResponse:
+            def stream(self, *args: object, **kwargs: object) -> FakeResponse:
                 _ = args
                 type(self).stream_kwargs = dict(kwargs)
                 return FakeResponse()
@@ -383,7 +406,7 @@ class AutomotiveLookupServiceTests(unittest.TestCase):
         class FakeResponse:
             chunk_size: int | None = None
 
-            def iter_bytes(self, *, chunk_size: int | None = None):
+            def iter_bytes(self, *, chunk_size: int | None = None) -> Iterator[bytes]:
                 self.chunk_size = chunk_size
                 yield b"{}"
 

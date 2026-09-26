@@ -9,19 +9,66 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
 from minimal_kanban.web_app_assets.assembler import (  # noqa: E402
+    BOARD_WEB_APP_CONTRACT_TEXT as BOARD_WEB_APP_HTML,
+)
+from minimal_kanban.web_app_assets.assembler import (
     BOARD_WEB_APP_JS,
     BOARD_WEB_APP_MODULE_MANIFEST,
     BOARD_WEB_APP_MODULES,
 )
+from minimal_kanban.web_app_assets.module_assets import read_board_source  # noqa: E402
 
 
 class BoardModuleAssetsTests(unittest.TestCase):
+    def test_source_include_cycles_report_the_file_chain(self) -> None:
+        source_chunks = {
+            "cycle_a.js": "    // @include cycle_b.js\n",
+            "cycle_b.js": "    // @include cycle_a.js\n",
+        }
+        with (
+            patch(
+                "minimal_kanban.web_app_assets.module_assets._read_source_chunk",
+                side_effect=source_chunks.__getitem__,
+            ),
+            self.assertRaisesRegex(RuntimeError, r"cycle_a\.js -> cycle_b\.js -> cycle_a\.js"),
+        ):
+            read_board_source("cycle_a.js")
+
+    def test_web_assets_do_not_keep_duplicate_active_function_names(self) -> None:
+        named_functions = re.findall(
+            r"(?:^|\n)\s*(?:(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(|([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?function\s*\()",
+            BOARD_WEB_APP_HTML,
+        )
+        counts: dict[str, int] = {}
+        for declaration_name, assignment_name in named_functions:
+            name = declaration_name or assignment_name
+            counts[name] = counts.get(name, 0) + 1
+        duplicates = {name: count for name, count in sorted(counts.items()) if count > 1}
+        self.assertEqual(duplicates, {})
+
+        self.assertEqual(BOARD_WEB_APP_HTML.count("function buildVehicleAutofillRawText()"), 0)
+        self.assertEqual(BOARD_WEB_APP_HTML.count("function refreshVehiclePanel()"), 1)
+        self.assertEqual(BOARD_WEB_APP_HTML.count("async function saveCard()"), 1)
+        self.assertEqual(BOARD_WEB_APP_HTML.count("repairOrdersMetaText"), 0)
+        self.assertEqual(BOARD_WEB_APP_HTML.count("function renderRepairOrderRows(items)"), 0)
+        self.assertEqual(
+            BOARD_WEB_APP_HTML.count(
+                "function renderRepairOrderRows(section, rows, { syncTotals = true } = {})"
+            ),
+            1,
+        )
+        self.assertEqual(BOARD_WEB_APP_HTML.count("renderRepairOrderListRows = function(items)"), 1)
+        self.assertEqual(
+            BOARD_WEB_APP_HTML.count("loadRepairOrders = async function(openModal = false)"), 1
+        )
+
     def test_lazy_modules_export_only_invoked_entrypoints(self) -> None:
         for group, path in BOARD_WEB_APP_MODULE_MANIFEST.items():
             module = BOARD_WEB_APP_MODULES[path]

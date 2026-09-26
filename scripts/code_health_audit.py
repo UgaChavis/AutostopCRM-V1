@@ -6,6 +6,7 @@ import json
 import re
 import subprocess
 import sys
+from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -256,7 +257,7 @@ class _AuditResult:
 
 
 def _repository_files(root: Path, *, include_untracked: bool = False) -> list[Path]:
-    git_args = ["git", "ls-files", "--cached"]
+    git_args = ["git", "ls-files", "--cached", "-z"]
     if include_untracked:
         git_args.extend(["--others", "--exclude-standard"])
     try:
@@ -267,6 +268,8 @@ def _repository_files(root: Path, *, include_untracked: bool = False) -> list[Pa
             capture_output=True,
             stdin=subprocess.DEVNULL,
             text=True,
+            encoding="utf-8",
+            errors="surrogateescape",
             timeout=GIT_COMMAND_TIMEOUT_SECONDS,
         )
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
@@ -276,11 +279,14 @@ def _repository_files(root: Path, *, include_untracked: bool = False) -> list[Pa
             if path.is_file()
             and not any(part in SKIP_DIRS for part in path.relative_to(root).parts)
         )
-    return sorted(
-        root / line.strip()
-        for line in result.stdout.splitlines()
-        if line.strip() and (root / line.strip()).is_file()
-    )
+    tracked_files: list[Path] = []
+    for relative_path in result.stdout.split("\0"):
+        if not relative_path:
+            continue
+        path = root / relative_path
+        if path.is_file():
+            tracked_files.append(path)
+    return sorted(tracked_files)
 
 
 def classify_repository_file(path: str) -> TrackedFileClassification:
@@ -331,14 +337,6 @@ def repository_inventory(
     return [
         classify_repository_file(_relative(path, root))
         for path in _repository_files(root, include_untracked=include_untracked)
-    ]
-
-
-def _tracked_python_files(root: Path, *, include_untracked: bool = False) -> list[Path]:
-    return [
-        path
-        for path in _repository_files(root, include_untracked=include_untracked)
-        if path.suffix == ".py"
     ]
 
 
@@ -576,12 +574,19 @@ def _ratchet_measurements(
     return sorted(measurements, key=lambda entry: (entry.metric, entry.target))
 
 
-def _run_audit(root: Path, *, include_untracked: bool) -> _AuditResult:
+def _run_audit(
+    root: Path,
+    *,
+    include_untracked: bool,
+    inventory: list[TrackedFileClassification] | None = None,
+) -> _AuditResult:
     issues: list[CodeHealthIssue] = []
     values: dict[tuple[str, str], int] = {}
     counts: dict[tuple[str, str], int] = {}
     issues.extend(_ratchet_configuration_issues(root))
-    for entry in repository_inventory(root, include_untracked=include_untracked):
+    if inventory is None:
+        inventory = repository_inventory(root, include_untracked=include_untracked)
+    for entry in inventory:
         if not entry.role:
             issues.append(
                 CodeHealthIssue(
@@ -598,8 +603,11 @@ def _run_audit(root: Path, *, include_untracked: bool) -> _AuditResult:
                     "generated build/cache artifact must not be versioned",
                 )
             )
-    for path in _tracked_python_files(root, include_untracked=include_untracked):
-        relative_path = _relative(path, root)
+    for entry in inventory:
+        if not entry.path.endswith(".py"):
+            continue
+        relative_path = entry.path
+        path = root / relative_path
         try:
             source = _read_python_source(path)
         except (OSError, UnicodeDecodeError, ValueError) as exc:
@@ -775,20 +783,16 @@ def _budget_payload(registry: dict[str, RatchetBudget]) -> dict[str, dict[str, A
 
 
 def _summary(
-    root: Path,
     *,
     include_untracked: bool,
     ratchets: list[RatchetMeasurement],
+    inventory: list[TrackedFileClassification],
 ) -> dict[str, Any]:
-    files = _tracked_python_files(root, include_untracked=include_untracked)
-    inventory = repository_inventory(root, include_untracked=include_untracked)
-    role_counts = {
-        role: sum(entry.role == role for entry in inventory) for role in sorted(TRACKED_FILE_ROLES)
-    }
+    role_counts = Counter(entry.role for entry in inventory)
     return {
-        "python_files": len(files),
+        "python_files": sum(entry.path.endswith(".py") for entry in inventory),
         "repository_files": len(inventory),
-        "repository_roles": role_counts,
+        "repository_roles": {role: role_counts[role] for role in sorted(TRACKED_FILE_ROLES)},
         "include_untracked": include_untracked,
         "budgets": {
             "py_module_lines": MAX_PY_MODULE_LINES,
@@ -814,18 +818,16 @@ def _summary(
 
 
 def build_report(root: Path = ROOT, *, include_untracked: bool = False) -> dict[str, Any]:
-    result = _run_audit(root, include_untracked=include_untracked)
+    inventory = repository_inventory(root, include_untracked=include_untracked)
+    result = _run_audit(root, include_untracked=include_untracked, inventory=inventory)
     return {
         "ok": not result.issues,
         "summary": _summary(
-            root,
             include_untracked=include_untracked,
             ratchets=result.ratchets,
+            inventory=inventory,
         ),
-        "inventory": [
-            asdict(entry)
-            for entry in repository_inventory(root, include_untracked=include_untracked)
-        ],
+        "inventory": [asdict(entry) for entry in inventory],
         "ratchets": [asdict(entry) for entry in result.ratchets],
         "issues": [asdict(issue) for issue in result.issues],
     }

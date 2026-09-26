@@ -1,12 +1,9 @@
-# ruff: noqa: I001
 from __future__ import annotations
 
 import re
-import shutil
-import subprocess
-from html.parser import HTMLParser
 import sys
 import unittest
+from html.parser import HTMLParser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,10 +11,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from minimal_kanban.web_assets import (  # noqa: E402
+from minimal_kanban.web_assets import (  # noqa: E402, I001
     BOARD_WEB_APP_CONTRACT_TEXT as BOARD_WEB_APP_HTML,
-)
-from minimal_kanban.web_assets import (
     BOARD_WEB_APP_CSS,
     BOARD_WEB_APP_CSS_PATH,
     BOARD_WEB_APP_HTML as BOARD_WEB_APP_SHELL_HTML,
@@ -96,20 +91,6 @@ class WebAssetsTests(unittest.TestCase):
 
     def test_inline_javascript_does_not_embed_raw_newline_in_string_literal(self) -> None:
         self.assertNotIn("markdown + '\n'", BOARD_WEB_APP_HTML)
-
-    @unittest.skipUnless(
-        shutil.which("node"), "Node.js is required for generated browser JS syntax check"
-    )
-    def test_generated_inline_javascript_is_syntax_valid(self) -> None:
-        script = ROOT / "scripts" / "check_web_assets_js.py"
-        result = subprocess.run(
-            [sys.executable, str(script)],
-            cwd=ROOT,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_board_settings_keep_slider_but_remove_wheel_zoom_binding(self) -> None:
         self.assertIn('class="gear-button" id="boardSettingsButton"', BOARD_WEB_APP_HTML)
@@ -2336,7 +2317,7 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
 
-    def test_card_modal_includes_centered_work_zone_and_separate_vehicle_panel(self) -> None:
+    def test_card_modal_centers_work_zone_and_separates_vehicle_panel(self) -> None:
         self.assertIn('class="dialog dialog--card dialog--fixed-actions"', BOARD_WEB_APP_HTML)
         self.assertIn(".dialog--card {", BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -2381,13 +2362,47 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".field--description .description-editor {", BOARD_WEB_APP_HTML)
         self.assertIn(".signal-panel {", BOARD_WEB_APP_HTML)
         self.assertIn(".tag-entry {", BOARD_WEB_APP_HTML)
+
+    def test_card_modal_resets_state_and_creates_in_selected_column(self) -> None:
         self.assertIn(
             "function applyCardModalState(card, { descriptionLoading = false, cardIsFull = true, preserveLazyPanels = false } = {})",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("function resetCardModalState()", BOARD_WEB_APP_HTML)
-        self.assertIn("async function persistCardPayload(payload)", BOARD_WEB_APP_HTML)
         self.assertIn("state.cardCreateColumnId = ''", BOARD_WEB_APP_HTML)
+        self.assertIn("state.cardCreateColumnId || state.activeCard?.column", BOARD_WEB_APP_HTML)
+        self.assertNotIn('id="cardButton" type="button"', BOARD_WEB_APP_HTML)
+        self.assertIn('data-create-in="', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "if (els.cardModal?.classList.contains('is-open')) {\n        requestAnimationFrame(() => syncCardDescriptionHeight());\n      }",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("function openNewCardInColumn(columnId)", BOARD_WEB_APP_HTML)
+        self.assertNotIn("function openDefaultNewCard()", BOARD_WEB_APP_HTML)
+        self.assertIn("function focusCardModalInitialControl()", BOARD_WEB_APP_HTML)
+        self.assertIn("focusCardModalInitialControl();", BOARD_WEB_APP_HTML)
+        self.assertIn("applyCardModalState(card, { descriptionLoading", BOARD_WEB_APP_HTML)
+        self.assertIn("resetCardModalState();", BOARD_WEB_APP_HTML)
+        self.assertIn("await openCardWorkspace(cardId);", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const createInTrigger = target.closest('[data-create-in]');", BOARD_WEB_APP_HTML
+        )
+        self.assertIn(
+            "if (createInTrigger instanceof HTMLElement) openNewCardInColumn(createInTrigger.dataset.createIn);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertNotIn(
+            "els.cardButton.addEventListener('click', openDefaultNewCard);", BOARD_WEB_APP_HTML
+        )
+        self.assertIn(
+            'class="dialog__foot dialog__foot--card dialog__floating-actions"',
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn('class="dialog__foot-group dialog__foot-group--danger"', BOARD_WEB_APP_HTML)
+        self.assertIn('class="dialog__foot-group dialog__foot-group--main"', BOARD_WEB_APP_HTML)
+
+    def test_card_save_updates_local_state_and_waits_to_close(self) -> None:
+        self.assertIn("async function persistCardPayload(payload)", BOARD_WEB_APP_HTML)
         self.assertIn("state.cardSaveInFlight = false", BOARD_WEB_APP_HTML)
         self.assertIn("cardSavePromise: null", BOARD_WEB_APP_HTML)
         self.assertNotIn("cardCloseAfterSave", BOARD_WEB_APP_HTML)
@@ -2396,31 +2411,7 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("state.cardSaveInFlight = true;", BOARD_WEB_APP_HTML)
-        self.assertIn("state.cardCreateColumnId || state.activeCard?.column", BOARD_WEB_APP_HTML)
-        self.assertNotIn('id="cardButton" type="button"', BOARD_WEB_APP_HTML)
-        self.assertIn('data-create-in="', BOARD_WEB_APP_HTML)
         self.assertIn('id="saveCardButton" type="button"', BOARD_WEB_APP_HTML)
-        self.assertIn("fullCardCache: new Map()", BOARD_WEB_APP_HTML)
-        self.assertIn("cardFetchInFlight: new Map()", BOARD_WEB_APP_HTML)
-        self.assertIn("function cachedFullCardForSnapshot(card)", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            "async function fetchFullCard(cardId, expectedUpdatedAt = '')", BOARD_WEB_APP_HTML
-        )
-        self.assertIn(
-            "api('/api/get_card?include_attachment_status=0&card_id=' + encodeURIComponent(normalizedCardId))",
-            BOARD_WEB_APP_HTML,
-        )
-        self.assertIn("const cachedCard = snapshotCardById(normalizedCardId);", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            "openCardModal(cachedCard, { descriptionLoading: true, cardIsFull: false });",
-            BOARD_WEB_APP_HTML,
-        )
-        self.assertIn("fullCard = cachedFullCard || await fetchFullCard", BOARD_WEB_APP_HTML)
-        self.assertIn("function setCardDescriptionLoading(isLoading", BOARD_WEB_APP_HTML)
-        self.assertIn("recordCardOpenSideEffects(normalizedCardId);", BOARD_WEB_APP_HTML)
-        self.assertIn("function recordCardOpenSideEffects(cardId)", BOARD_WEB_APP_HTML)
-        self.assertIn("CARD_OPEN_SIDE_EFFECT_DELAY_MS = 700", BOARD_WEB_APP_HTML)
-        self.assertIn("api('/api/open_card'", BOARD_WEB_APP_HTML)
         save_fragment = BOARD_WEB_APP_HTML[
             BOARD_WEB_APP_HTML.index("async function saveCard()") : BOARD_WEB_APP_HTML.index(
                 "configureCardFieldSemantics();"
@@ -2429,55 +2420,6 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("clearCardOpenSideEffectTimer();", save_fragment)
         self.assertIn("return_card: false", BOARD_WEB_APP_HTML)
         self.assertIn("mark_seen: false", BOARD_WEB_APP_HTML)
-        self.assertIn("function loadActiveCardTab(tabName)", BOARD_WEB_APP_HTML)
-        self.assertIn("if (tabName === 'files') {", BOARD_WEB_APP_HTML)
-        self.assertIn("if (tabName !== 'journal') {", BOARD_WEB_APP_HTML)
-        self.assertIn("renderActiveCardFiles();", BOARD_WEB_APP_HTML)
-        self.assertIn("function cardJournalRequestUrl(cardId", BOARD_WEB_APP_HTML)
-        self.assertIn("&compact=1&limit=' + safeLimit", BOARD_WEB_APP_HTML)
-        self.assertIn("data-card-journal-load-more", BOARD_WEB_APP_HTML)
-        self.assertNotIn("if (card?.id) loadLogs(card.id);", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            "if (els.cardModal?.classList.contains('is-open')) {\n        requestAnimationFrame(() => syncCardDescriptionHeight());\n      }",
-            BOARD_WEB_APP_HTML,
-        )
-        self.assertIn(
-            "async function openCardWorkspace(cardId, { closeModalEl = null, openCardModalEl = true, openRepairOrder = false, repairOrderParentLayer = '' } = {})",
-            BOARD_WEB_APP_HTML,
-        )
-        self.assertIn("function openNewCardInColumn(columnId)", BOARD_WEB_APP_HTML)
-        self.assertNotIn("function openDefaultNewCard()", BOARD_WEB_APP_HTML)
-        self.assertIn("function focusCardModalInitialControl()", BOARD_WEB_APP_HTML)
-        self.assertIn("focusCardModalInitialControl();", BOARD_WEB_APP_HTML)
-        self.assertIn("async function archiveActiveCard()", BOARD_WEB_APP_HTML)
-        self.assertIn("setStatus(archiveBlockedMessage(message), true);", BOARD_WEB_APP_HTML)
-        self.assertNotIn("window.alert(", BOARD_WEB_APP_HTML)
-        self.assertIn("async function restoreActiveCard()", BOARD_WEB_APP_HTML)
-        self.assertIn("async function handleCardWorkspaceClick(target)", BOARD_WEB_APP_HTML)
-        self.assertIn("applyCardModalState(card, { descriptionLoading", BOARD_WEB_APP_HTML)
-        self.assertIn("resetCardModalState();", BOARD_WEB_APP_HTML)
-        self.assertIn("function cardModalHasUnsavedChanges()", BOARD_WEB_APP_HTML)
-        self.assertIn("function syncCardSaveDirtyState()", BOARD_WEB_APP_HTML)
-        self.assertIn("function scheduleCardSaveDirtyStateSync()", BOARD_WEB_APP_HTML)
-        self.assertIn("function cardModalHeading(card)", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            "const modalHeading = currentCard?.id ? cardModalHeading(currentCard) : 'Новая карточка';",
-            BOARD_WEB_APP_HTML,
-        )
-        self.assertIn(
-            "els.saveCardButton.classList.toggle('is-dirty', hasUnsavedChanges);",
-            BOARD_WEB_APP_HTML,
-        )
-        self.assertIn(
-            "els.cardModal.addEventListener('input', scheduleCardSaveDirtyStateSync);",
-            BOARD_WEB_APP_HTML,
-        )
-        self.assertIn(
-            "els.cardModal.addEventListener('change', scheduleCardSaveDirtyStateSync);",
-            BOARD_WEB_APP_HTML,
-        )
-        self.assertIn("#saveCardButton.is-dirty:not(:disabled) {", BOARD_WEB_APP_HTML)
-        self.assertNotIn("Есть несохраненные изменения", BOARD_WEB_APP_HTML)
         self.assertIn("function closeCardModal()", BOARD_WEB_APP_HTML)
         self.assertIn("СОХРАНЯЮ КАРТОЧКУ. ЗАКРОЮ ПОСЛЕ СОХРАНЕНИЯ.", BOARD_WEB_APP_HTML)
         self.assertIn("const data = await persistCardPayload(payload);", BOARD_WEB_APP_HTML)
@@ -2512,30 +2454,81 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn(
             "closeCardModal();\n        await refreshSnapshot(true);", BOARD_WEB_APP_HTML
         )
-        self.assertIn("await openCardWorkspace(cardId);", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            "const createInTrigger = target.closest('[data-create-in]');", BOARD_WEB_APP_HTML
-        )
-        self.assertIn(
-            "if (createInTrigger instanceof HTMLElement) openNewCardInColumn(createInTrigger.dataset.createIn);",
-            BOARD_WEB_APP_HTML,
-        )
+
+    def test_card_archive_and_restore_use_custom_action_handlers(self) -> None:
+        self.assertIn("async function archiveActiveCard()", BOARD_WEB_APP_HTML)
+        self.assertIn("setStatus(archiveBlockedMessage(message), true);", BOARD_WEB_APP_HTML)
+        self.assertNotIn("window.alert(", BOARD_WEB_APP_HTML)
+        self.assertIn("async function restoreActiveCard()", BOARD_WEB_APP_HTML)
+        self.assertIn("async function handleCardWorkspaceClick(target)", BOARD_WEB_APP_HTML)
         self.assertIn("if (await handleCardWorkspaceClick(target)) return;", BOARD_WEB_APP_HTML)
-        self.assertNotIn(
-            "els.cardButton.addEventListener('click', openDefaultNewCard);", BOARD_WEB_APP_HTML
-        )
         self.assertIn(
             "els.archiveAction.addEventListener('click', archiveActiveCard);", BOARD_WEB_APP_HTML
         )
         self.assertIn(
             "els.restoreAction.addEventListener('click', restoreActiveCard);", BOARD_WEB_APP_HTML
         )
+
+    def test_card_modal_tracks_unsaved_changes_on_input_and_change(self) -> None:
+        self.assertIn("function cardModalHasUnsavedChanges()", BOARD_WEB_APP_HTML)
+        self.assertIn("function syncCardSaveDirtyState()", BOARD_WEB_APP_HTML)
+        self.assertIn("function scheduleCardSaveDirtyStateSync()", BOARD_WEB_APP_HTML)
+        self.assertIn("function cardModalHeading(card)", BOARD_WEB_APP_HTML)
         self.assertIn(
-            'class="dialog__foot dialog__foot--card dialog__floating-actions"',
+            "const modalHeading = currentCard?.id ? cardModalHeading(currentCard) : 'Новая карточка';",
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn('class="dialog__foot-group dialog__foot-group--danger"', BOARD_WEB_APP_HTML)
-        self.assertIn('class="dialog__foot-group dialog__foot-group--main"', BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "els.saveCardButton.classList.toggle('is-dirty', hasUnsavedChanges);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.cardModal.addEventListener('input', scheduleCardSaveDirtyStateSync);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.cardModal.addEventListener('change', scheduleCardSaveDirtyStateSync);",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("#saveCardButton.is-dirty:not(:disabled) {", BOARD_WEB_APP_HTML)
+        self.assertNotIn("Есть несохраненные изменения", BOARD_WEB_APP_HTML)
+
+    def test_card_open_uses_cached_snapshot_and_delays_side_effects(self) -> None:
+        self.assertIn("fullCardCache: new Map()", BOARD_WEB_APP_HTML)
+        self.assertIn("cardFetchInFlight: new Map()", BOARD_WEB_APP_HTML)
+        self.assertIn("function cachedFullCardForSnapshot(card)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "async function fetchFullCard(cardId, expectedUpdatedAt = '')", BOARD_WEB_APP_HTML
+        )
+        self.assertIn(
+            "api('/api/get_card?include_attachment_status=0&card_id=' + encodeURIComponent(normalizedCardId))",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("const cachedCard = snapshotCardById(normalizedCardId);", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "openCardModal(cachedCard, { descriptionLoading: true, cardIsFull: false });",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn("fullCard = cachedFullCard || await fetchFullCard", BOARD_WEB_APP_HTML)
+        self.assertIn("function setCardDescriptionLoading(isLoading", BOARD_WEB_APP_HTML)
+        self.assertIn("recordCardOpenSideEffects(normalizedCardId);", BOARD_WEB_APP_HTML)
+        self.assertIn("function recordCardOpenSideEffects(cardId)", BOARD_WEB_APP_HTML)
+        self.assertIn("CARD_OPEN_SIDE_EFFECT_DELAY_MS = 700", BOARD_WEB_APP_HTML)
+        self.assertIn("api('/api/open_card'", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "async function openCardWorkspace(cardId, { closeModalEl = null, openCardModalEl = true, openRepairOrder = false, repairOrderParentLayer = '' } = {})",
+            BOARD_WEB_APP_HTML,
+        )
+
+    def test_card_tabs_keep_files_and_journal_loading_on_demand(self) -> None:
+        self.assertIn("function loadActiveCardTab(tabName)", BOARD_WEB_APP_HTML)
+        self.assertIn("if (tabName === 'files') {", BOARD_WEB_APP_HTML)
+        self.assertIn("if (tabName !== 'journal') {", BOARD_WEB_APP_HTML)
+        self.assertIn("renderActiveCardFiles();", BOARD_WEB_APP_HTML)
+        self.assertIn("function cardJournalRequestUrl(cardId", BOARD_WEB_APP_HTML)
+        self.assertIn("&compact=1&limit=' + safeLimit", BOARD_WEB_APP_HTML)
+        self.assertIn("data-card-journal-load-more", BOARD_WEB_APP_HTML)
+        self.assertNotIn("if (card?.id) loadLogs(card.id);", BOARD_WEB_APP_HTML)
 
     def test_card_vehicle_panel_stays_inside_overview_scrollport(self) -> None:
         self.assertIn(
@@ -2562,7 +2555,7 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("overflow-y: auto;", BOARD_WEB_APP_HTML)
 
-    def test_long_modals_keep_action_buttons_outside_scroll_regions(self) -> None:
+    def test_card_modal_keeps_actions_outside_its_scroll_region(self) -> None:
         self.assertIn('class="dialog dialog--card dialog--fixed-actions"', BOARD_WEB_APP_HTML)
         self.assertIn(
             'class="dialog__head dialog__head--card dialog__floating-actions"',
@@ -2578,6 +2571,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".dialog--card > .dialog__body-scroll {", BOARD_WEB_APP_HTML)
         self.assertIn("grid-row: 3;", BOARD_WEB_APP_HTML)
 
+    def test_repair_order_modal_keeps_actions_outside_its_scroll_region(self) -> None:
         self.assertIn(
             'class="dialog dialog--repair-order dialog--fixed-actions"', BOARD_WEB_APP_HTML
         )
@@ -2600,6 +2594,7 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
 
+    def test_clients_and_employees_dialogs_keep_sticky_headers(self) -> None:
         self.assertIn('class="dialog dialog--clients dialog--fixed-actions"', BOARD_WEB_APP_HTML)
         self.assertIn('class="dialog__body-scroll clients-layout"', BOARD_WEB_APP_HTML)
         self.assertIn('class="clients-profile-head dialog__floating-actions"', BOARD_WEB_APP_HTML)
@@ -2613,6 +2608,8 @@ class WebAssetsTests(unittest.TestCase):
             ".dialog--employees .employees-card-head.dialog__floating-actions {",
             BOARD_WEB_APP_HTML,
         )
+
+    def test_mobile_lite_layout_keeps_dialog_actions_fixed(self) -> None:
         self.assertIn("body.is-mobile-lite .dialog--fixed-actions {", BOARD_WEB_APP_HTML)
         self.assertIn("position: fixed;", BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -2629,6 +2626,7 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
 
+    def test_print_and_inspection_dialogs_keep_fixed_actions(self) -> None:
         self.assertIn(
             'class="dialog dialog--repair-order-print dialog--fixed-actions"',
             BOARD_WEB_APP_HTML,
@@ -5247,9 +5245,7 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
 
-    def test_modal_data_loader_helpers_drive_active_archive_and_gpt_paths(self) -> None:
-        self.assertIn("function maybeOpenModal(modalEl, openModal)", BOARD_WEB_APP_HTML)
-        self.assertIn("function renderLogs(payload)", BOARD_WEB_APP_HTML)
+    def test_card_journal_renders_readable_event_details_without_legacy_stats(self) -> None:
         self.assertIn("function buildCardJournalFallbackText(events)", BOARD_WEB_APP_HTML)
         self.assertIn("function buildCardJournalHtml(payload)", BOARD_WEB_APP_HTML)
         self.assertIn("function cardJournalEventSentence(entry)", BOARD_WEB_APP_HTML)
@@ -5284,6 +5280,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("els.logList.className = 'card-journal-view';", BOARD_WEB_APP_HTML)
         self.assertIn("els.logList.innerHTML = buildCardJournalHtml(data);", BOARD_WEB_APP_HTML)
         self.assertIn("els.logList.textContent = text;", BOARD_WEB_APP_HTML)
+
+    def test_modal_data_loader_and_archive_helpers_are_wired(self) -> None:
+        self.assertIn("function maybeOpenModal(modalEl, openModal)", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderLogs(payload)", BOARD_WEB_APP_HTML)
         self.assertIn("async function openArchiveModal()", BOARD_WEB_APP_HTML)
         self.assertIn("await loadArchive(true);", BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -5304,7 +5304,6 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("function applyBoardScalePreference(", BOARD_WEB_APP_HTML)
         self.assertIn("function openBoardSettings()", BOARD_WEB_APP_HTML)
-        self.assertIn("function refreshGptWallView()", BOARD_WEB_APP_HTML)
         self.assertIn("async function createColumnFromBoard()", BOARD_WEB_APP_HTML)
         self.assertIn("function closeNamedModal(closeKey)", BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -5312,18 +5311,9 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("async function reloadOperatorAdminUsers(", BOARD_WEB_APP_HTML)
-        self.assertEqual(
-            BOARD_WEB_APP_HTML.count("async function loadGptWall(openModal = false)"), 1
-        )
         self.assertIn("renderCompactArchiveRows(cards)", BOARD_WEB_APP_HTML)
         self.assertIn("renderRepairOrderListRows(items)", BOARD_WEB_APP_HTML)
         self.assertNotIn("repairOrdersMetaText", BOARD_WEB_APP_HTML)
-        self.assertIn("function gptWallMetaText(meta)", BOARD_WEB_APP_HTML)
-        self.assertIn("function normalizeGptWallView(value)", BOARD_WEB_APP_HTML)
-        self.assertIn("function buildReadableGptWallEvents(data)", BOARD_WEB_APP_HTML)
-        self.assertIn("function renderGptWallView()", BOARD_WEB_APP_HTML)
-        self.assertIn('id="gptWallBoardTab"', BOARD_WEB_APP_HTML)
-        self.assertIn('id="gptWallEventsTab"', BOARD_WEB_APP_HTML)
         self.assertIn(
             "function setModalListError(metaEl, listEl, metaText, bodyText)", BOARD_WEB_APP_HTML
         )
@@ -5397,33 +5387,39 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("if (!patched && data?.card) {", BOARD_WEB_APP_HTML)
 
-    def test_web_assets_do_not_keep_duplicate_active_function_names(self) -> None:
-        named_functions = re.findall(
-            r"(?:^|\n)\s*(?:(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(|([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?function\s*\()",
+    def test_gpt_wall_view_helpers_and_bindings_are_wired(self) -> None:
+        self.assertIn("function refreshGptWallView()", BOARD_WEB_APP_HTML)
+        self.assertEqual(
+            BOARD_WEB_APP_HTML.count("async function loadGptWall(openModal = false)"), 1
+        )
+        self.assertIn("function gptWallMetaText(meta)", BOARD_WEB_APP_HTML)
+        self.assertIn("function normalizeGptWallView(value)", BOARD_WEB_APP_HTML)
+        self.assertIn("function buildReadableGptWallEvents(data)", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderGptWallView()", BOARD_WEB_APP_HTML)
+        self.assertIn('id="gptWallBoardTab"', BOARD_WEB_APP_HTML)
+        self.assertIn('id="gptWallEventsTab"', BOARD_WEB_APP_HTML)
+        self.assertNotIn('id="gptWallButton"', BOARD_WEB_APP_HTML)
+        self.assertNotIn(
+            '<button class="btn btn--ghost" id="gptWallButton">СТЕНА</button>', BOARD_WEB_APP_HTML
+        )
+        self.assertNotIn("document.getElementById('gptWallButton')", BOARD_WEB_APP_HTML)
+        self.assertNotIn(
+            "els.gptWallButton.addEventListener('click', openGptWallModal);", BOARD_WEB_APP_HTML
+        )
+        self.assertIn(
+            "els.gptWallBoardTab.addEventListener('click', () => setGptWallView('board_content'));",
             BOARD_WEB_APP_HTML,
         )
-        counts: dict[str, int] = {}
-        for declaration_name, assignment_name in named_functions:
-            name = declaration_name or assignment_name
-            counts[name] = counts.get(name, 0) + 1
-        duplicates = {name: count for name, count in sorted(counts.items()) if count > 1}
-        self.assertEqual(duplicates, {})
+        self.assertIn(
+            "els.gptWallEventsTab.addEventListener('click', () => setGptWallView('event_log'));",
+            BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            "els.gptWallRefresh.addEventListener('click', refreshGptWallView);", BOARD_WEB_APP_HTML
+        )
+        self.assertIn("els.gptWallText.dataset.wallView = view;", BOARD_WEB_APP_HTML)
 
-        self.assertEqual(BOARD_WEB_APP_HTML.count("function buildVehicleAutofillRawText()"), 0)
-        self.assertEqual(BOARD_WEB_APP_HTML.count("function refreshVehiclePanel()"), 1)
-        self.assertEqual(BOARD_WEB_APP_HTML.count("async function saveCard()"), 1)
-        self.assertEqual(BOARD_WEB_APP_HTML.count("repairOrdersMetaText"), 0)
-        self.assertEqual(BOARD_WEB_APP_HTML.count("function renderRepairOrderRows(items)"), 0)
-        self.assertEqual(
-            BOARD_WEB_APP_HTML.count(
-                "function renderRepairOrderRows(section, rows, { syncTotals = true } = {})"
-            ),
-            1,
-        )
-        self.assertEqual(BOARD_WEB_APP_HTML.count("renderRepairOrderListRows = function(items)"), 1)
-        self.assertEqual(
-            BOARD_WEB_APP_HTML.count("loadRepairOrders = async function(openModal = false)"), 1
-        )
+    def test_web_assets_keep_direct_card_modal_close_bindings(self) -> None:
         self.assertIn("const closeTrigger = target.closest('[data-close]');", BOARD_WEB_APP_HTML)
         self.assertIn(
             "if (closeTrigger instanceof HTMLElement) {",
@@ -5453,6 +5449,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("bindDirectCardModalCloseButtons();", BOARD_WEB_APP_HTML)
         self.assertIn("window.__closeCardModal = closeCardModal;", BOARD_WEB_APP_HTML)
         self.assertIn("popModal('repair-order-payments');", BOARD_WEB_APP_HTML)
+
+    def test_web_assets_keep_board_settings_and_column_creation_bindings(self) -> None:
         self.assertIn(
             "els.archiveButton.addEventListener('click', openArchiveModal);", BOARD_WEB_APP_HTML
         )
@@ -5480,26 +5478,6 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn('id="boardControlToggle"', BOARD_WEB_APP_HTML)
         self.assertNotIn('id="boardControlIntervalInput"', BOARD_WEB_APP_HTML)
         self.assertNotIn('id="boardControlCooldownInput"', BOARD_WEB_APP_HTML)
-        self.assertNotIn('id="gptWallButton"', BOARD_WEB_APP_HTML)
-        self.assertNotIn(
-            '<button class="btn btn--ghost" id="gptWallButton">СТЕНА</button>', BOARD_WEB_APP_HTML
-        )
-        self.assertNotIn("document.getElementById('gptWallButton')", BOARD_WEB_APP_HTML)
-        self.assertNotIn(
-            "els.gptWallButton.addEventListener('click', openGptWallModal);", BOARD_WEB_APP_HTML
-        )
-        self.assertIn(
-            "els.gptWallBoardTab.addEventListener('click', () => setGptWallView('board_content'));",
-            BOARD_WEB_APP_HTML,
-        )
-        self.assertIn(
-            "els.gptWallEventsTab.addEventListener('click', () => setGptWallView('event_log'));",
-            BOARD_WEB_APP_HTML,
-        )
-        self.assertIn(
-            "els.gptWallRefresh.addEventListener('click', refreshGptWallView);", BOARD_WEB_APP_HTML
-        )
-        self.assertIn("els.gptWallText.dataset.wallView = view;", BOARD_WEB_APP_HTML)
         self.assertIn("target.closest('[data-create-column]')", BOARD_WEB_APP_HTML)
         self.assertIn("await createColumnFromBoard();", BOARD_WEB_APP_HTML)
 

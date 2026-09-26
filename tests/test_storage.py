@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# ruff: noqa: E402
 import json
 import logging
 import sys
@@ -11,6 +12,7 @@ from copy import deepcopy
 from datetime import UTC, datetime
 from io import StringIO
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,24 +22,25 @@ if str(SRC) not in sys.path:
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from minimal_kanban.models import AuditEvent, Card, utc_now  # noqa: E402
-from minimal_kanban.storage.audit_archive import (  # noqa: E402
+from minimal_kanban.logging_setup import close_logger
+from minimal_kanban.models import AuditEvent, Card, utc_now
+from minimal_kanban.storage.audit_archive import (
     AuditArchiveStore,
     compact_audit_event_details,
 )
-from minimal_kanban.storage.file_lock import ProcessFileLock  # noqa: E402
-from minimal_kanban.storage.financial_history_cleanup import (  # noqa: E402
+from minimal_kanban.storage.file_lock import ProcessFileLock
+from minimal_kanban.storage.financial_history_cleanup import (
     sanitize_financial_history_state,
 )
-from minimal_kanban.storage.json_store import (  # noqa: E402
+from minimal_kanban.storage.json_store import (
     DEFAULT_STATE,
     JsonStore,
     StateFileCorruptedError,
 )
-from scripts.clear_financial_history import (  # noqa: E402
+from scripts.clear_financial_history import (
     _cashbox_statistic_needs_reset as cashbox_statistic_needs_reset,
 )
-from scripts.clear_financial_history import (  # noqa: E402
+from scripts.clear_financial_history import (
     _write_state_file as write_financial_history_state_file,
 )
 from scripts.clear_financial_history import (
@@ -46,24 +49,44 @@ from scripts.clear_financial_history import (
 from scripts.clear_financial_history import (
     main as clear_financial_history_main,
 )
-from scripts.compact_audit_events import compact_state_file  # noqa: E402
-from scripts.compact_audit_events import main as compact_audit_events_main  # noqa: E402
 from scripts.compact_audit_events import (
-    write_state_file as write_compact_audit_state_file,  # noqa: E402
+    compact_state_file,
 )
+from scripts.compact_audit_events import (
+    main as compact_audit_events_main,
+)
+from scripts.compact_audit_events import (
+    write_state_file as write_compact_audit_state_file,
+)
+
+
+def _state_with_large_description_event() -> dict[str, Any]:
+    state = deepcopy(DEFAULT_STATE)
+    state["events"] = [
+        {
+            "id": "event-1",
+            "timestamp": "2026-05-22T00:00:00+00:00",
+            "actor_name": "system",
+            "source": "system",
+            "action": "description_changed",
+            "message": "description changed",
+            "card_id": "card-1",
+            "details": {"before": "old" * 300, "after": "new" * 300},
+        }
+    ]
+    return state
 
 
 class JsonStoreTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         self.state_file = Path(self.temp_dir.name) / "state.json"
         self.logger = logging.getLogger(f"test.storage.{self._testMethodName}")
-        self.logger.handlers.clear()
+        close_logger(self.logger)
+        self.addCleanup(close_logger, self.logger)
         self.logger.addHandler(logging.NullHandler())
         self.logger.propagate = False
-
-    def tearDown(self) -> None:
-        self.temp_dir.cleanup()
 
     def test_existing_board_gains_parts_store_column_without_replacing_other_columns(self) -> None:
         legacy_state = deepcopy(DEFAULT_STATE)
@@ -136,7 +159,7 @@ class JsonStoreTests(unittest.TestCase):
         )
         self.assertNotIn("notification_updated_at", card.to_dict())
 
-    def _write_financial_history_state(self) -> dict:
+    def _write_financial_history_state(self) -> dict[str, Any]:
         raw_state = {
             "schema_version": 7,
             "columns": [],
@@ -392,19 +415,7 @@ class JsonStoreTests(unittest.TestCase):
         self.assertEqual(stored_state["events"][0]["details"], {"before": "old", "after": "new"})
 
     def test_compact_audit_events_dry_run_does_not_mutate_state(self) -> None:
-        raw_state = deepcopy(DEFAULT_STATE)
-        raw_state["events"] = [
-            {
-                "id": "event-1",
-                "timestamp": "2026-05-22T00:00:00+00:00",
-                "actor_name": "system",
-                "source": "system",
-                "action": "description_changed",
-                "message": "description changed",
-                "card_id": "card-1",
-                "details": {"before": "old" * 300, "after": "new" * 300},
-            }
-        ]
+        raw_state = _state_with_large_description_event()
         before_text = json.dumps(raw_state, ensure_ascii=False)
         self.state_file.write_text(before_text, encoding="utf-8")
 
@@ -485,19 +496,7 @@ class JsonStoreTests(unittest.TestCase):
         self.assertEqual(archived_details, raw_state["events"][0]["details"])
 
     def test_compact_audit_events_apply_does_not_overwrite_existing_fixed_tmp_file(self) -> None:
-        raw_state = deepcopy(DEFAULT_STATE)
-        raw_state["events"] = [
-            {
-                "id": "event-1",
-                "timestamp": "2026-05-22T00:00:00+00:00",
-                "actor_name": "system",
-                "source": "system",
-                "action": "description_changed",
-                "message": "description changed",
-                "card_id": "card-1",
-                "details": {"before": "old" * 300, "after": "new" * 300},
-            }
-        ]
+        raw_state = _state_with_large_description_event()
         self.state_file.write_text(json.dumps(raw_state, ensure_ascii=False), encoding="utf-8")
         fixed_tmp = self.state_file.with_suffix(".compact.tmp")
         fixed_tmp.write_text("sentinel", encoding="utf-8")
@@ -508,19 +507,7 @@ class JsonStoreTests(unittest.TestCase):
         self.assertEqual(fixed_tmp.read_text(encoding="utf-8"), "sentinel")
 
     def test_compact_audit_events_backup_does_not_overwrite_existing_backup(self) -> None:
-        raw_state = deepcopy(DEFAULT_STATE)
-        raw_state["events"] = [
-            {
-                "id": "event-1",
-                "timestamp": "2026-05-22T00:00:00+00:00",
-                "actor_name": "system",
-                "source": "system",
-                "action": "description_changed",
-                "message": "description changed",
-                "card_id": "card-1",
-                "details": {"before": "old" * 300, "after": "new" * 300},
-            }
-        ]
+        raw_state = _state_with_large_description_event()
         self.state_file.write_text(json.dumps(raw_state, ensure_ascii=False), encoding="utf-8")
         existing_backup = self.state_file.with_name("state.json.backup-20260522-000000.json")
         existing_backup.write_text("previous backup", encoding="utf-8")

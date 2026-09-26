@@ -10,8 +10,28 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from minimal_kanban.agent.contracts import EvidenceResult, PlanResult, VerifyResult  # noqa: E402
+from minimal_kanban.agent.contracts import (
+    EvidenceResult,
+    PatchResult,
+    PlanResult,
+    VerifyResult,
+)  # noqa: E402
 from minimal_kanban.agent.runner import AgentRunner  # noqa: E402
+
+
+class _PassThroughPolicy:
+    @staticmethod
+    def filter_patch(plan: PlanResult, patch: PatchResult) -> PatchResult:
+        return patch
+
+
+class _RecordingTools:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    def execute(self, name: str, args: dict[str, object]) -> dict[str, object]:
+        self.calls.append((name, dict(args)))
+        return {"ok": True}
 
 
 class AgentRunnerSerializationTests(unittest.TestCase):
@@ -70,22 +90,9 @@ class AgentRunnerSerializationTests(unittest.TestCase):
         self.assertNotIn("You are the AUTOSTOP CRM operations agent.", prompt)
 
     def test_low_risk_card_patch_needs_no_forced_readback(self) -> None:
-        class _Policy:
-            @staticmethod
-            def filter_patch(plan, patch):  # noqa: ANN001
-                return patch
-
-        class _Tools:
-            def __init__(self) -> None:
-                self.calls: list[tuple[str, dict[str, object]]] = []
-
-            def execute(self, name: str, args: dict[str, object]) -> dict[str, object]:
-                self.calls.append((name, dict(args)))
-                return {"ok": True}
-
         runner = object.__new__(AgentRunner)
-        runner._policy = _Policy()  # type: ignore[attr-defined]
-        tools = _Tools()
+        runner._policy = _PassThroughPolicy()  # type: ignore[attr-defined]
+        tools = _RecordingTools()
         runner._tools = tools  # type: ignore[attr-defined]
         runner._read_verification_state = lambda card_id: (_ for _ in ()).throw(  # type: ignore[attr-defined]
             AssertionError(f"unexpected reread for {card_id}")
@@ -120,22 +127,9 @@ class AgentRunnerSerializationTests(unittest.TestCase):
         self.assertTrue(verify.applied_ok)
 
     def test_repair_order_write_forwards_native_confirmation(self) -> None:
-        class _Policy:
-            @staticmethod
-            def filter_patch(plan, patch):  # noqa: ANN001
-                return patch
-
-        class _Tools:
-            def __init__(self) -> None:
-                self.calls: list[tuple[str, dict[str, object]]] = []
-
-            def execute(self, name: str, args: dict[str, object]) -> dict[str, object]:
-                self.calls.append((name, dict(args)))
-                return {"ok": True}
-
         runner = object.__new__(AgentRunner)
-        runner._policy = _Policy()  # type: ignore[attr-defined]
-        tools = _Tools()
+        runner._policy = _PassThroughPolicy()  # type: ignore[attr-defined]
+        tools = _RecordingTools()
         runner._tools = tools  # type: ignore[attr-defined]
         runner._read_verification_state = lambda card_id: {"repair_order": {"client": "Иван"}}  # type: ignore[attr-defined]
         runner._verify_repair_order_write = lambda **kwargs: VerifyResult(applied_ok=True)  # type: ignore[attr-defined]

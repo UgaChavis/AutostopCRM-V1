@@ -1,30 +1,47 @@
 from __future__ import annotations
 
-import importlib.util
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import ModuleType
 from unittest.mock import patch
+
+if __package__:
+    from tests.module_loader_support import load_module_from_file
+else:
+    from module_loader_support import load_module_from_file
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "agent_release_retention.py"
 
 
-def load_module():
-    spec = importlib.util.spec_from_file_location("agent_release_retention", SCRIPT_PATH)
-    if spec is None or spec.loader is None:
-        raise AssertionError("agent_release_retention.py is importable")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+def load_module() -> ModuleType:
+    return load_module_from_file("agent_release_retention", SCRIPT_PATH)
 
 
 class AgentReleaseRetentionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.module = load_module()
+
+    def test_loader_restores_previous_module_entry(self) -> None:
+        module_name = "agent_release_retention"
+        previous_module = sys.modules.get(module_name)
+        had_previous_module = module_name in sys.modules
+        sentinel = ModuleType(module_name)
+        sys.modules[module_name] = sentinel
+
+        try:
+            loaded_module = load_module()
+
+            self.assertIsNot(loaded_module, sentinel)
+            self.assertIs(sys.modules[module_name], sentinel)
+        finally:
+            if had_previous_module:
+                sys.modules[module_name] = previous_module
+            else:
+                sys.modules.pop(module_name, None)
 
     @staticmethod
     def _release_id(index: int) -> str:
@@ -67,7 +84,7 @@ class AgentReleaseRetentionTests(unittest.TestCase):
             )
             removed_tags: list[str] = []
 
-            def fake_run(arguments, **_kwargs):
+            def fake_run(arguments: list[str], **_kwargs: object) -> object:
                 removed_tags.append(arguments[-1])
                 return object()
 
@@ -218,10 +235,10 @@ class AgentReleaseRetentionTests(unittest.TestCase):
                 rollback_tag: previous_image_id,
             }
 
-            def fake_image_id(reference: str):
+            def fake_image_id(reference: str) -> str | None:
                 return images.get(reference)
 
-            def fake_run(arguments, **_kwargs):
+            def fake_run(arguments: list[str], **_kwargs: object) -> object:
                 if arguments[1] == "tag":
                     images[arguments[3]] = arguments[2]
                 elif arguments[1:3] == ["image", "rm"]:

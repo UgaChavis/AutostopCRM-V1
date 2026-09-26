@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import json
 import logging
-import sys
 import tempfile
 import threading
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
+if __package__:
+    from tests.source_path_support import prepend_source_path
+else:
+    from source_path_support import prepend_source_path
+
+prepend_source_path()
 
 from minimal_kanban.operator_auth import OperatorAuthService
 from minimal_kanban.services.card_service import CardService

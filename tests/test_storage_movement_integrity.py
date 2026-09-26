@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+if __package__:
+    from tests.source_path_support import prepend_source_path
+else:
+    from source_path_support import prepend_source_path
+
+prepend_source_path()
 
 from minimal_kanban.storage.json_store import JsonStore
 from tests.services_case import CardServiceCase

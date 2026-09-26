@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+# ruff: noqa: E402
+if __package__:
+    from tests.source_path_support import ensure_source_path
+else:
+    from source_path_support import ensure_source_path
+
+ensure_source_path()
+
 import copy
 import hashlib
 import json

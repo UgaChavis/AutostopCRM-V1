@@ -29,7 +29,7 @@ from tests.test_printing_service import build_business_client, build_card
 
 
 class _ScopedText(HTMLParser):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.stack = []
         self.fragments = []

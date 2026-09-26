@@ -4,7 +4,10 @@ import json
 import os
 import sys
 import unittest
+from collections.abc import Callable, Iterator
 from pathlib import Path
+from types import TracebackType
+from typing import Self
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,7 +22,7 @@ from minimal_kanban.agent.web_tools import (  # noqa: E402
 )
 
 
-def _client_factory(*, text: str = "", url: str, chunks: list[bytes] | None = None):
+def _client_factory(*, text: str = "", url: str, chunks: list[bytes] | None = None) -> type:
     class _Response:
         def __init__(self) -> None:
             self.url = url
@@ -28,30 +31,40 @@ def _client_factory(*, text: str = "", url: str, chunks: list[bytes] | None = No
         def raise_for_status(self) -> None:
             return None
 
-        def iter_bytes(self, *, chunk_size=None):
+        def iter_bytes(self, *, chunk_size: int | None = None) -> Iterator[bytes]:
             _ = chunk_size
             if chunks is not None:
                 yield from chunks
                 return
             yield text.encode("utf-8")
 
-        def __enter__(self):
+        def __enter__(self) -> Self:
             return self
 
-        def __exit__(self, exc_type, exc, tb) -> None:
+        def __exit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            tb: TracebackType | None,
+        ) -> None:
             return None
 
     class _Client:
-        def __init__(self, *args, **kwargs) -> None:
+        def __init__(self, *args: object, **kwargs: object) -> None:
             pass
 
-        def __enter__(self):
+        def __enter__(self) -> Self:
             return self
 
-        def __exit__(self, exc_type, exc, tb) -> None:
+        def __exit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc: BaseException | None,
+            tb: TracebackType | None,
+        ) -> None:
             return None
 
-        def stream(self, *args, **kwargs) -> _Response:
+        def stream(self, *args: object, **kwargs: object) -> _Response:
             return _Response()
 
     return _Client
@@ -75,7 +88,7 @@ class _JsonResponse:
         _ = chunk_size
         yield json.dumps(self._payload).encode("utf-8")
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
@@ -101,7 +114,7 @@ class _FakeBrowserResponse:
 
 
 class _FakeBrowserLocator:
-    def inner_text(self, *, timeout=None) -> str:
+    def inner_text(self, *, timeout: float | None = None) -> str:
         _ = timeout
         return "Rendered specs text. CAPTCHA required. Checking your browser before access. " + (
             "x" * 100
@@ -114,14 +127,14 @@ class _FakeBrowserPage:
     def __init__(self) -> None:
         self.waited_ms: list[int] = []
 
-    def goto(self, *args, **kwargs) -> _FakeBrowserResponse:
+    def goto(self, *args: object, **kwargs: object) -> _FakeBrowserResponse:
         _ = (args, kwargs)
         return _FakeBrowserResponse()
 
     def wait_for_timeout(self, wait_ms: int) -> None:
         self.waited_ms.append(wait_ms)
 
-    def wait_for_load_state(self, *args, **kwargs) -> None:
+    def wait_for_load_state(self, *args: object, **kwargs: object) -> None:
         _ = (args, kwargs)
 
     def title(self) -> str:
@@ -134,7 +147,7 @@ class _FakeBrowserPage:
     def content(self) -> str:
         return "<html><body>fallback</body></html>"
 
-    def eval_on_selector_all(self, *args, **kwargs) -> list[dict[str, str]]:
+    def eval_on_selector_all(self, *args: object, **kwargs: object) -> list[dict[str, str]]:
         _ = (args, kwargs)
         return [
             {"text": "Public link", "url": "https://example.org/part"},
@@ -149,7 +162,7 @@ class _FakeBrowserContext:
         self.closed = False
         self.routes: list[tuple[str, object]] = []
 
-    def route(self, pattern: str, handler) -> None:  # noqa: ANN001
+    def route(self, pattern: str, handler: Callable[..., object]) -> None:
         self.routes.append((pattern, handler))
 
     def new_page(self) -> _FakeBrowserPage:
@@ -165,7 +178,7 @@ class _FakeBrowser:
         self.closed = False
         self.contexts: list[_FakeBrowserContext] = []
 
-    def new_context(self, **kwargs) -> _FakeBrowserContext:
+    def new_context(self, **kwargs: object) -> _FakeBrowserContext:
         self.context_kwargs = kwargs
         context = _FakeBrowserContext(self.page)
         self.contexts.append(context)
@@ -180,7 +193,7 @@ class _FakeChromium:
         self.browser = browser
         self.launch_kwargs: dict[str, object] = {}
 
-    def launch(self, **kwargs) -> _FakeBrowser:
+    def launch(self, **kwargs: object) -> _FakeBrowser:
         self.launch_kwargs = dict(kwargs)
         return self.browser
 
@@ -197,7 +210,12 @@ class _FakePlaywrightContextManager:
     def __enter__(self) -> _FakePlaywright:
         return self.playwright
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         _ = (exc_type, exc, tb)
 
 
@@ -330,7 +348,7 @@ class AgentWebToolsTests(unittest.TestCase):
             ],
         }
 
-        def provider(name, **kwargs):  # noqa: ANN001
+        def provider(name: str, **kwargs: object) -> tuple[list[SearchResult], dict[str, str]]:
             _ = kwargs
             return batches[name], {"provider": name, "status": "success"}
 
@@ -381,10 +399,15 @@ class AgentWebToolsTests(unittest.TestCase):
             def __init__(self, *args, **kwargs) -> None:
                 _ = (args, kwargs)
 
-            def __enter__(self):
+            def __enter__(self) -> Self:
                 return self
 
-            def __exit__(self, exc_type, exc, tb) -> None:
+            def __exit__(
+                self,
+                exc_type: type[BaseException] | None,
+                exc: BaseException | None,
+                tb: TracebackType | None,
+            ) -> None:
                 _ = (exc_type, exc, tb)
 
             def stream(
@@ -429,7 +452,7 @@ class AgentWebToolsTests(unittest.TestCase):
             def __init__(self, *args, **kwargs) -> None:
                 _ = (args, kwargs)
 
-            def __enter__(self):
+            def __enter__(self) -> Self:
                 return self
 
             def __exit__(self, exc_type, exc, tb) -> None:
@@ -463,7 +486,7 @@ class AgentWebToolsTests(unittest.TestCase):
             def __init__(self, *args, **kwargs) -> None:
                 _ = (args, kwargs)
 
-            def __enter__(self):
+            def __enter__(self) -> Self:
                 return self
 
             def __exit__(self, exc_type, exc, tb) -> None:
@@ -521,7 +544,7 @@ class AgentWebToolsTests(unittest.TestCase):
             def __init__(self, *args, **kwargs) -> None:
                 _ = (args, kwargs)
 
-            def __enter__(self):
+            def __enter__(self) -> Self:
                 return self
 
             def __exit__(self, exc_type, exc, tb) -> None:
@@ -686,7 +709,7 @@ class AgentWebToolsTests(unittest.TestCase):
             def __init__(self, *args, **kwargs) -> None:
                 _ = (args, kwargs)
 
-            def __enter__(self):
+            def __enter__(self) -> Self:
                 return self
 
             def __exit__(self, exc_type, exc, tb) -> None:
@@ -757,14 +780,19 @@ class AgentWebToolsTests(unittest.TestCase):
             def raise_for_status(self) -> None:
                 return None
 
-            def iter_bytes(self, *, chunk_size=None):
+            def iter_bytes(self, *, chunk_size: int | None = None) -> Iterator[bytes]:
                 _ = chunk_size
                 yield b""
 
-            def __enter__(self):
+            def __enter__(self) -> RedirectResponse:
                 return self
 
-            def __exit__(self, exc_type, exc, tb) -> None:
+            def __exit__(
+                self,
+                exc_type: type[BaseException] | None,
+                exc: BaseException | None,
+                tb: TracebackType | None,
+            ) -> None:
                 return None
 
         class FakeClient:
@@ -790,7 +818,7 @@ class AgentWebToolsTests(unittest.TestCase):
 
             def __init__(
                 self, url: str, *, status_code: int, location: str = "", body: bytes = b""
-            ):
+            ) -> None:
                 self.url = url
                 self.status_code = status_code
                 self.headers = {"location": location} if location else {}
@@ -799,21 +827,26 @@ class AgentWebToolsTests(unittest.TestCase):
             def raise_for_status(self) -> None:
                 return None
 
-            def iter_bytes(self, *, chunk_size=None):
+            def iter_bytes(self, *, chunk_size: int | None = None) -> Iterator[bytes]:
                 _ = chunk_size
                 yield self._body
 
-            def __enter__(self):
+            def __enter__(self) -> Response:
                 return self
 
-            def __exit__(self, exc_type, exc, tb) -> None:
+            def __exit__(
+                self,
+                exc_type: type[BaseException] | None,
+                exc: BaseException | None,
+                tb: TracebackType | None,
+            ) -> None:
                 return None
 
         class FakeClient:
             def __init__(self) -> None:
                 self.urls: list[str] = []
 
-            def stream(self, method: str, url: str, **kwargs) -> Response:
+            def stream(self, method: str, url: str, **kwargs: object) -> Response:
                 _ = (method, kwargs)
                 self.urls.append(url)
                 if url.endswith("/start"):
@@ -868,21 +901,26 @@ class AgentWebToolsTests(unittest.TestCase):
             def raise_for_status(self) -> None:
                 return None
 
-            def iter_bytes(self, *, chunk_size: int | None = None):
+            def iter_bytes(self, *, chunk_size: int | None = None) -> Iterator[bytes]:
                 self.chunk_size = chunk_size
                 yield b"ok"
 
-            def __enter__(self):
+            def __enter__(self) -> FakeResponse:
                 return self
 
-            def __exit__(self, exc_type, exc, tb) -> None:
+            def __exit__(
+                self,
+                exc_type: type[BaseException] | None,
+                exc: BaseException | None,
+                tb: TracebackType | None,
+            ) -> None:
                 return None
 
         class FakeClient:
             def __init__(self, response: FakeResponse) -> None:
                 self.response = response
 
-            def stream(self, *args, **kwargs) -> FakeResponse:
+            def stream(self, *args: object, **kwargs: object) -> FakeResponse:
                 _ = (args, kwargs)
                 return self.response
 
@@ -942,7 +980,7 @@ class AgentWebToolsTests(unittest.TestCase):
         page = _FakeBrowserPage()
         browser = _FakeBrowser(page)
 
-        def sync_playwright():
+        def sync_playwright() -> _FakePlaywrightContextManager:
             return _FakePlaywrightContextManager(browser)
 
         client = DuckDuckGoSearchClient()

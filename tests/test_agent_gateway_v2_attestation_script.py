@@ -5,7 +5,8 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "attest_agent_gateway_v2.py"
@@ -16,9 +17,45 @@ def load_script_module():
     if spec is None or spec.loader is None:
         raise AssertionError("attest_agent_gateway_v2.py is importable")
     module = importlib.util.module_from_spec(spec)
+    had_previous_module = spec.name in sys.modules
+    previous_module = sys.modules.get(spec.name)
     sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+    try:
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        if had_previous_module:
+            sys.modules[spec.name] = previous_module
+        else:
+            sys.modules.pop(spec.name, None)
+
+
+def test_module_loader_restores_sys_modules_state() -> None:
+    module_name = "attest_agent_gateway_v2"
+    loaded_module = ModuleType(module_name)
+
+    def execute_module(module: ModuleType) -> None:
+        assert sys.modules[module_name] is module
+
+    spec = SimpleNamespace(
+        name=module_name,
+        loader=SimpleNamespace(exec_module=execute_module),
+    )
+    with patch.object(importlib.util, "spec_from_file_location", return_value=spec):
+        with patch.object(importlib.util, "module_from_spec", return_value=loaded_module):
+            with patch.dict(sys.modules):
+                sys.modules.pop(module_name, None)
+                module = load_script_module()
+
+                assert module is loaded_module
+                assert module_name not in sys.modules
+
+            sentinel = object()
+            with patch.dict(sys.modules, {module_name: sentinel}):
+                module = load_script_module()
+
+                assert module is loaded_module
+                assert sys.modules[module_name] is sentinel
 
 
 def tool_result(payload: dict, *, is_error: bool = False):

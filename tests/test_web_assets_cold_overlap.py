@@ -300,3 +300,7 @@ for(const reject of [false,true]) {
  await old;assert.equal(late.state.inventoryItems[0].id,'new');assert.equal(late.renders.length,count);
 }
 """)
+
+
+if __name__ == "__main__":
+    unittest.main()

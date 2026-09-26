@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import importlib.util
 import io
 import json
 import sys
@@ -12,25 +11,56 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+if __package__:
+    from tests.module_loader_support import load_module_from_file
+else:
+    from module_loader_support import load_module_from_file
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "perf_workflows.py"
 QUALITY_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "quality.yml"
 
 
 def load_perf_workflows() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("perf_workflows_under_test", SCRIPT_PATH)
-    if spec is None or spec.loader is None:
-        raise RuntimeError("Unable to load perf_workflows.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+    return load_module_from_file(
+        "perf_workflows_under_test",
+        SCRIPT_PATH,
+        load_error=RuntimeError("Unable to load perf_workflows.py"),
+    )
 
 
 class PerfWorkflowsScriptTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.module = load_perf_workflows()
+
+    def test_loader_restores_previous_module_entry(self) -> None:
+        module_name = "perf_workflows_under_test"
+        previous_module = sys.modules.get(module_name)
+        had_previous_module = module_name in sys.modules
+        sentinel = ModuleType(module_name)
+        sys.modules[module_name] = sentinel
+
+        try:
+            loaded_module = load_perf_workflows()
+
+            self.assertIsNot(loaded_module, sentinel)
+            self.assertIs(sys.modules[module_name], sentinel)
+        finally:
+            if had_previous_module:
+                sys.modules[module_name] = previous_module
+            else:
+                sys.modules.pop(module_name, None)
+
+    def test_loader_preserves_missing_script_error(self) -> None:
+        with (
+            patch(
+                f"{load_module_from_file.__module__}.importlib.util.spec_from_file_location",
+                return_value=None,
+            ),
+            self.assertRaisesRegex(RuntimeError, "Unable to load perf_workflows.py"),
+        ):
+            load_perf_workflows()
 
     def test_cli_help_exposes_reproducible_local_measurements(self) -> None:
         stdout = io.StringIO()
@@ -378,16 +408,18 @@ class PerfWorkflowsScriptTests(unittest.TestCase):
                 second = self.module.configure_source_root(temp_dir)
                 self.assertNotEqual(first["source_sha256"], second["source_sha256"])
                 self.assertEqual(first["harness_sha256"], second["harness_sha256"])
-            with patch.dict(
-                sys.modules,
-                {
-                    "minimal_kanban": SimpleNamespace(
-                        __file__=str(ROOT / "src/minimal_kanban/__init__.py")
-                    )
-                },
+            with (
+                patch.dict(
+                    sys.modules,
+                    {
+                        "minimal_kanban": SimpleNamespace(
+                            __file__=str(ROOT / "src/minimal_kanban/__init__.py")
+                        )
+                    },
+                ),
+                self.assertRaisesRegex(ValueError, "already imported"),
             ):
-                with self.assertRaisesRegex(ValueError, "already imported"):
-                    self.module.configure_source_root(temp_dir)
+                self.module.configure_source_root(temp_dir)
 
     def test_browser_measurement_excludes_warmups_but_runs_preparation_and_cleanup(self) -> None:
         calls = []

@@ -232,3 +232,7 @@ assert.deepEqual(payrollDetailRowsForEmployee('E1'),secondRows);
             cwd=ROOT,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

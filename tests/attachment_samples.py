@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 from io import BytesIO
+from xml.sax.saxutils import escape
 from zipfile import ZIP_DEFLATED, ZipFile
 
 PNG_1X1_BYTES = base64.b64decode(
@@ -20,11 +21,16 @@ def minimal_text_bytes() -> bytes:
 
 
 def minimal_pdf_bytes() -> bytes:
+    stream_data = b"BT /F1 12 Tf 36 120 Td (AutoStop PDF) Tj ET\n"
     objects = [
         b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
         b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
         b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /Resources << >> >>\nendobj\n",
-        b"4 0 obj\n<< /Length 39 >>\nstream\nBT /F1 12 Tf 36 120 Td (AutoStop PDF) Tj ET\nendstream\nendobj\n",
+        b"4 0 obj\n<< /Length "
+        + str(len(stream_data)).encode("ascii")
+        + b" >>\nstream\n"
+        + stream_data
+        + b"endstream\nendobj\n",
     ]
     parts = [b"%PDF-1.4\n"]
     offsets = [0]
@@ -68,7 +74,7 @@ def minimal_docx_bytes(text: str = "AutoStop DOCX") -> bytes:
             f"""<?xml version="1.0" encoding="UTF-8"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:body>
-    <w:p><w:r><w:t>{text}</w:t></w:r></w:p>
+    <w:p><w:r><w:t>{escape(text)}</w:t></w:r></w:p>
     <w:sectPr/>
   </w:body>
 </w:document>
@@ -123,7 +129,7 @@ def minimal_xlsx_bytes(value: str = "AutoStop XLSX") -> bytes:
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <sheetData>
     <row r="1">
-      <c r="A1" t="inlineStr"><is><t>{value}</t></is></c>
+      <c r="A1" t="inlineStr"><is><t>{escape(value)}</t></is></c>
     </row>
   </sheetData>
 </worksheet>

@@ -25,6 +25,7 @@ from minimal_kanban.api.server import (  # noqa: E402
     AuthenticationPolicy,
     OperatorLoginLimiter,
 )
+from minimal_kanban.logging_setup import close_logger  # noqa: E402
 from minimal_kanban.models import Card  # noqa: E402
 from minimal_kanban.operator_permissions import (  # noqa: E402
     SALARY_BALANCE_RESET_PERMISSION,
@@ -37,9 +38,11 @@ from minimal_kanban.storage.json_store import JsonStore  # noqa: E402
 class ApiTransportContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         self.log_output = io.StringIO()
         logger = logging.getLogger(f"test.api.transport.{self._testMethodName}")
-        logger.handlers.clear()
+        close_logger(logger)
+        self.addCleanup(close_logger, logger)
         logger.addHandler(logging.StreamHandler(self.log_output))
         logger.propagate = False
         self.store = JsonStore(
@@ -60,10 +63,7 @@ class ApiTransportContractTests(unittest.TestCase):
             bearer_token="transport-test-token",
         )
         self.server.start()
-
-    def tearDown(self) -> None:
-        self.server.stop()
-        self.temp_dir.cleanup()
+        self.addCleanup(self.server.stop)
 
     def _request(
         self,

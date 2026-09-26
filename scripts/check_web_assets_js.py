@@ -24,7 +24,7 @@ class InlineScriptExtractor(HTMLParser):
             return
         attr_map = {name.lower(): value for name, value in attrs}
         script_type = str(attr_map.get("type") or "").strip().lower()
-        if attr_map.get("src") or script_type not in {
+        if "src" in attr_map or script_type not in {
             "",
             "application/javascript",
             "text/javascript",
@@ -38,22 +38,40 @@ class InlineScriptExtractor(HTMLParser):
         if self._in_inline_script:
             self._chunks.append(data)
 
-    def handle_endtag(self, tag: str) -> None:
-        if tag.lower() != "script" or not self._in_inline_script:
-            return
+    def _finish_inline_script(self) -> None:
         self.scripts.append("".join(self._chunks))
         self._chunks = []
         self._in_inline_script = False
 
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() != "script" or not self._in_inline_script:
+            return
+        self._finish_inline_script()
+
+    def close(self) -> None:
+        super().close()
+        if self._in_inline_script:
+            # Older HTMLParser versions leave unclosed script text buffered at EOF.
+            if self.rawdata:
+                self._chunks.append(self.rawdata)
+            self._finish_inline_script()
+
 
 def _browser_javascript_sources() -> list[tuple[str, str]]:
-    sys.path.insert(0, str(SRC))
-    from minimal_kanban.web_assets import (
-        BOARD_WEB_APP_JS,
-        BOARD_WEB_APP_MODULES,
-        DISPLAY_DASHBOARD_HTML,
-        MODULE_MAP_HTML,
-    )
+    source_path = str(SRC)
+    added_source_path = source_path not in sys.path
+    if added_source_path:
+        sys.path.insert(0, source_path)
+    try:
+        from minimal_kanban.web_assets import (
+            BOARD_WEB_APP_JS,
+            BOARD_WEB_APP_MODULES,
+            DISPLAY_DASHBOARD_HTML,
+            MODULE_MAP_HTML,
+        )
+    finally:
+        if added_source_path:
+            sys.path.remove(source_path)
 
     return (
         [("board_external", BOARD_WEB_APP_JS)]
@@ -92,20 +110,40 @@ def main() -> int:
         for index, (document_name, script) in enumerate(scripts, start=1):
             script_path = temp_path / f"{document_name}_inline_script_{index}.js"
             script_path.write_text(script, encoding="utf-8")
-            result = subprocess.run(
-                [node, "--check", str(script_path)],
-                cwd=ROOT,
-                stdin=subprocess.DEVNULL,
-                text=True,
-                capture_output=True,
-                check=False,
-                timeout=NODE_CHECK_TIMEOUT_SECONDS,
-            )
+            try:
+                result = subprocess.run(
+                    [node, "--check", str(script_path)],
+                    cwd=ROOT,
+                    stdin=subprocess.DEVNULL,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=NODE_CHECK_TIMEOUT_SECONDS,
+                )
+            except subprocess.TimeoutExpired:
+                print(
+                    f"Node.js syntax check timed out after {NODE_CHECK_TIMEOUT_SECONDS}s "
+                    f"for {document_name}.",
+                    file=sys.stderr,
+                )
+                return 1
+            except OSError as exc:
+                print(
+                    f"Could not start Node.js syntax check for {document_name}: {exc}",
+                    file=sys.stderr,
+                )
+                return 1
             if result.returncode != 0:
                 if result.stdout:
                     print(result.stdout, end="")
                 if result.stderr:
                     print(result.stderr, end="", file=sys.stderr)
+                if not result.stdout and not result.stderr:
+                    print(
+                        f"Node.js syntax check failed for {document_name} "
+                        f"(exit code {result.returncode}).",
+                        file=sys.stderr,
+                    )
                 return result.returncode
 
     print(f"Generated browser JavaScript syntax check passed: {len(scripts)} script(s).")

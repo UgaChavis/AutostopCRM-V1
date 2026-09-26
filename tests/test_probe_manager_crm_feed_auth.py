@@ -9,6 +9,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+if __package__:
+    from tests.source_path_support import ensure_repository_root_path
+else:
+    from source_path_support import ensure_repository_root_path
+
+ensure_repository_root_path()
+
 from scripts import probe_manager_crm_feed_auth as feed_probe
 
 
@@ -139,3 +146,7 @@ class ManagerCrmFeedAuthProbeTests(unittest.TestCase):
 
         self.assertFalse(result["consumer_registered"])
         self.assertEqual(result["high_water"], 17)
+
+
+if __name__ == "__main__":
+    unittest.main()

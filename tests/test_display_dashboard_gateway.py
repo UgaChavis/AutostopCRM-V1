@@ -100,11 +100,9 @@ class DisplayDashboardGatewayTests(unittest.IsolatedAsyncioTestCase):
         self.env = patch.dict("os.environ", GATEWAY_ENV, clear=False)
         self.manager_patch = patch("minimal_kanban.mcp.server._try_register_autostop_manager_tools")
         self.env.start()
+        self.addCleanup(self.env.stop)
         self.manager_register = self.manager_patch.start()
-
-    def tearDown(self) -> None:
-        self.manager_patch.stop()
-        self.env.stop()
+        self.addCleanup(self.manager_patch.stop)
 
     async def test_named_document_dashboard_message_dry_run_apply_and_readback(self) -> None:
         ledger_state = {"next_run_id": 100, "statuses": {}}

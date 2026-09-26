@@ -11,7 +11,7 @@ import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -569,16 +569,18 @@ def _reject_json_constant(value: str) -> None:
 def _iter_git_tracked_files(root: Path) -> list[Path]:
     try:
         completed = subprocess.run(
-            ["git", "-C", str(root), "ls-files"],
+            ["git", "-C", str(root), "ls-files", "-z"],
             check=True,
             capture_output=True,
             stdin=subprocess.DEVNULL,
             text=True,
+            encoding="utf-8",
+            errors="surrogateescape",
             timeout=GIT_COMMAND_TIMEOUT_SECONDS,
         )
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return []
-    return [root / line.strip() for line in completed.stdout.splitlines() if line.strip()]
+    return [root / relative_path for relative_path in completed.stdout.split("\0") if relative_path]
 
 
 def _is_skipped_path(path: Path) -> bool:
@@ -1423,7 +1425,7 @@ def _iter_secret_bundle_docs(secret_bundle: Path) -> list[Path]:
     )
 
 
-def _literal_assignment(tree: ast.AST, name: str) -> Any:
+def _literal_assignment(tree: ast.AST, name: str) -> object:
     for node in ast.walk(tree):
         if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
             if node.target.id == name and node.value is not None:
@@ -1559,7 +1561,7 @@ def _check_store_gateway_docs_contract(root: Path) -> list[Issue]:
 def load_crm_registry_tools(root: Path) -> set[str]:
     registry_path = root / "src" / "minimal_kanban" / "mcp" / "tool_registry.py"
     tree = ast.parse(_read_text(registry_path), filename=str(registry_path))
-    groups = _literal_assignment(tree, "MCP_TOOL_GROUPS")
+    groups = cast(dict[str, Any], _literal_assignment(tree, "MCP_TOOL_GROUPS"))
     return {str(tool_name) for tools in groups.values() for tool_name in tools}
 
 

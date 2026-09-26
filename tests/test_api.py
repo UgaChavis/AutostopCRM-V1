@@ -21,6 +21,7 @@ import urllib.request
 from urllib.parse import quote, urlsplit
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 from unittest.mock import Mock, patch
 
 
@@ -45,6 +46,7 @@ from minimal_kanban.api.server import ReusableThreadingHTTPServer
 from minimal_kanban.api.server import _same_host_cors_origin
 from minimal_kanban.api.server import _success_log_level
 from minimal_kanban.api import server as api_server_module
+from minimal_kanban.logging_setup import close_logger
 from minimal_kanban.mcp.oauth_provider import (
     OAUTH_AUDIT_ACTOR_HEADER,
     OAUTH_AUDIT_ASSERTION_HEADER,
@@ -487,9 +489,11 @@ class ApiServerTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         state_file = Path(self.temp_dir.name) / "state.json"
         logger = logging.getLogger(f"test.api.{self._testMethodName}")
-        logger.handlers.clear()
+        close_logger(logger)
+        self.addCleanup(close_logger, logger)
         logger.addHandler(logging.NullHandler())
         logger.propagate = False
         self.store = JsonStore(state_file=state_file, logger=logger)
@@ -519,12 +523,9 @@ class ApiServerTests(unittest.TestCase):
             fallback_limit=TEST_API_PORT_FALLBACK_LIMIT,
         )
         self.server.start()
+        self.addCleanup(self.server.stop)
         self.port = self.server.port
         self.base_url = self.server.base_url
-
-    def tearDown(self) -> None:
-        self.server.stop()
-        self.temp_dir.cleanup()
 
     def request(
         self,
@@ -1910,7 +1911,7 @@ class ApiServerTests(unittest.TestCase):
         errors: list[BaseException] = []
         original_first_write = first._write_state
 
-        def paused_first_write(state) -> None:
+        def paused_first_write(state: dict[str, Any]) -> None:
             first_write_started.set()
             if not allow_first_write.wait(timeout=5):
                 raise TimeoutError("test did not release the first operator-auth write")
@@ -2049,7 +2050,7 @@ class ApiServerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as auth_dir:
             users_file = Path(auth_dir) / "users.json"
             logger = logging.getLogger(f"test.api.{self._testMethodName}.operator_auth")
-            logger.handlers.clear()
+            close_logger(logger)
             logger.addHandler(logging.NullHandler())
             logger.propagate = False
             with (
@@ -2087,7 +2088,7 @@ class ApiServerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as auth_dir:
             users_file = Path(auth_dir) / "users.json"
             logger = logging.getLogger(f"test.api.{self._testMethodName}.operator_auth")
-            logger.handlers.clear()
+            close_logger(logger)
             logger.addHandler(logging.NullHandler())
             logger.propagate = False
             strong_password = "Admin-2026-Strong-Local-Only"
@@ -2359,7 +2360,7 @@ class ApiServerTests(unittest.TestCase):
     def test_proxied_data_routes_fail_closed_without_operator_service(self) -> None:
         self.server.stop()
         logger = logging.getLogger(f"test.api.no_operator_service.{self._testMethodName}")
-        logger.handlers.clear()
+        close_logger(logger)
         logger.addHandler(logging.NullHandler())
         logger.propagate = False
         self.server = ApiServer(
@@ -2370,6 +2371,7 @@ class ApiServerTests(unittest.TestCase):
             bearer_token="",
         )
         self.server.start()
+        self.addCleanup(self.server.stop)
         self.port = self.server.port
         self.base_url = self.server.base_url
 
@@ -7316,9 +7318,11 @@ class ApiServerTests(unittest.TestCase):
 class ApiServerAuthTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
         state_file = Path(self.temp_dir.name) / "state.json"
         logger = logging.getLogger(f"test.api.auth.{self._testMethodName}")
-        logger.handlers.clear()
+        close_logger(logger)
+        self.addCleanup(close_logger, logger)
         logger.addHandler(logging.NullHandler())
         logger.propagate = False
         self.logger = logger
@@ -7338,12 +7342,9 @@ class ApiServerAuthTests(unittest.TestCase):
             bearer_token="secret-token",
         )
         self.server.start()
+        self.addCleanup(self.server.stop)
         self.port = self.server.port
         self.base_url = self.server.base_url
-
-    def tearDown(self) -> None:
-        self.server.stop()
-        self.temp_dir.cleanup()
 
     def request(
         self,
@@ -7352,7 +7353,7 @@ class ApiServerAuthTests(unittest.TestCase):
         *,
         method: str = "POST",
         token: str | None = None,
-    ):
+    ) -> tuple[int, Any]:
         data = None
         if payload is not None:
             data = json.dumps(payload).encode("utf-8")

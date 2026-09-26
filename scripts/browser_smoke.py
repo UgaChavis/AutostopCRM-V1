@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-# ruff: noqa: E402,F401,I001
+# ruff: noqa: E402,I001
 
 import argparse
 import asyncio
@@ -14,6 +14,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
+from urllib.response import addinfourl
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -27,18 +28,18 @@ from minimal_kanban.json_safety import reject_deeply_nested_json
 import browser_smoke_salary_balance
 from browser_smoke_completion_act import (
     _arm_browser_print_capture,
-    _capture_browser_print_html,
-    _completion_act_footer_sequence,
-    _completion_act_pdf_contract,
-    _completion_act_pdf_fixture,
+    _capture_browser_print_html,  # noqa: F401
+    _completion_act_footer_sequence,  # noqa: F401
+    _completion_act_pdf_contract,  # noqa: F401
+    _completion_act_pdf_fixture,  # noqa: F401
     _exercise_completion_act_cross_card_race,
     _exercise_completion_act_editor_print_export,
     _exercise_completion_act_main_print_regression,
     _exercise_completion_act_max_items_ui,
     _exercise_completion_act_physical_pdf_regression,
     _pdf_file_is_parseable,
-    _pdf_page_texts,
-    _pdfinfo_page_count,
+    _pdf_page_texts,  # noqa: F401
+    _pdfinfo_page_count,  # noqa: F401
 )
 from browser_smoke_core import (
     _anonymous_write_rejected,
@@ -51,20 +52,24 @@ from browser_smoke_core import (
 )
 from browser_smoke_review import run_review_scenarios
 from browser_smoke_profiles import (
-    BROWSER_DEPENDENCY_PROBES,
-    CORE_SMOKE_SCENARIOS,
+    BROWSER_DEPENDENCY_PROBES,  # noqa: F401
+    CORE_SMOKE_SCENARIOS,  # noqa: F401
     DESKTOP_SMOKE_SCENARIOS,
     MOBILE_SMOKE_SCENARIOS,
     PROFILE_CORE,
     PROFILE_FULL,
-    SCENARIO_REGISTRY,
-    SMOKE_SCENARIOS,
+    SCENARIO_REGISTRY,  # noqa: F401
+    SMOKE_SCENARIOS,  # noqa: F401
     SUPPORTED_PROFILES,
     missing_browser_dependencies,
     missing_dependency_result,
     scenarios_for_profile,
 )
-from browser_smoke_runtime import TempRuntime, _first_free_port, start_temp_runtime
+from browser_smoke_runtime import (
+    TempRuntime,
+    _first_free_port,  # noqa: F401
+    start_temp_runtime,
+)
 from browser_smoke_support import (
     SMOKE_UI_BIND_TIMEOUT_MS,
     _api_data,
@@ -92,14 +97,14 @@ class BrowserLaunchError(RuntimeError):
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+    def redirect_request(self, req, fp, code, msg, headers, newurl) -> None:  # noqa: ANN001
         return None
 
 
 _NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
 
 
-def _urlopen_no_redirect(request: urllib.request.Request, *, timeout: float):
+def _urlopen_no_redirect(request: urllib.request.Request, *, timeout: float) -> addinfourl:
     return _NO_REDIRECT_OPENER.open(request, timeout=timeout)
 
 

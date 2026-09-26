@@ -18,6 +18,7 @@ if str(SRC) not in sys.path:
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from minimal_kanban.logging_setup import close_logger  # noqa: E402
 from minimal_kanban.mcp.raw_gateway import (  # noqa: E402
     CHANGE_FEED_ACK_ROUTE,
     CHANGE_FEED_BOOTSTRAP_ROUTE,
@@ -148,15 +149,14 @@ class InProcessGatewaySession:
 class GatewayReleaseProbeIntegrationTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.logger = logging.getLogger(f"test.gateway.release.{self._testMethodName}")
-        self.logger.handlers.clear()
+        close_logger(self.logger)
+        self.addCleanup(close_logger, self.logger)
         self.logger.addHandler(logging.NullHandler())
         self.env = patch.dict("os.environ", GATEWAY_ENV, clear=False)
         self.env.start()
+        self.addCleanup(self.env.stop)
         self.workflow_version = 0
         self.next_run_id = 100
-
-    def tearDown(self) -> None:
-        self.env.stop()
 
     def _register_raw_tools(self, server, _logger) -> None:
         @server.tool(name="start_workflow")

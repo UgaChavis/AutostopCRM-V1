@@ -6,16 +6,18 @@ import json
 import sys
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1] / "scripts"
 
 
-def load_script():
+def load_script() -> ModuleType:
     spec = importlib.util.spec_from_file_location(
         "perf_browser_panels_under_test", SCRIPT_DIR / "perf_browser_panels.py"
     )
+    if spec is None or spec.loader is None:
+        raise AssertionError("perf_browser_panels.py is importable")
     module = importlib.util.module_from_spec(spec)
     with patch.object(sys, "path", [str(SCRIPT_DIR), *sys.path]):
         spec.loader.exec_module(module)
@@ -128,19 +130,21 @@ class PerfBrowserPanelsTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.module.is_query_response(response, "Smoke"))
 
     async def test_failed_measurement_does_not_expose_browser_exception(self) -> None:
-        with patch.object(
-            self.module.perf,
-            "measure_browser_action",
-            AsyncMock(
-                return_value={
-                    "failed": True,
-                    "error_type": "TimeoutError",
-                    "error": "private-token-in-URL",
-                }
+        with (
+            patch.object(
+                self.module.perf,
+                "measure_browser_action",
+                AsyncMock(
+                    return_value={
+                        "failed": True,
+                        "error_type": "TimeoutError",
+                        "error": "private-token-in-URL",
+                    }
+                ),
             ),
+            self.assertRaises(self.module.MeasurementFailure) as caught,
         ):
-            with self.assertRaises(self.module.MeasurementFailure) as caught:
-                await self.module.sample_action(object(), "cold_panel.printing", AsyncMock(), [])
+            await self.module.sample_action(object(), "cold_panel.printing", AsyncMock(), [])
         self.assertEqual(caught.exception.scenario, "cold_panel.printing")
         self.assertNotIn("private-token", str(caught.exception))
 

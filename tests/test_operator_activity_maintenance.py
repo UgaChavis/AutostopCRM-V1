@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 import sys
 import unittest
@@ -9,21 +8,39 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
+if __package__:
+    from tests.module_loader_support import load_module_from_file
+else:
+    from module_loader_support import load_module_from_file
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "operator_activity_maintenance.py"
 
 
 def load_operator_activity_maintenance_module():
-    spec = importlib.util.spec_from_file_location("operator_activity_maintenance", SCRIPT_PATH)
-    if spec is None or spec.loader is None:
-        raise AssertionError("operator_activity_maintenance.py is importable")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+    return load_module_from_file("operator_activity_maintenance", SCRIPT_PATH)
 
 
 class OperatorActivityMaintenanceScriptTests(unittest.TestCase):
+    def test_module_loader_restores_sys_modules_state(self) -> None:
+        module_name = "operator_activity_maintenance"
+        with patch.dict(sys.modules):
+            sys.modules.pop(module_name, None)
+            module = load_operator_activity_maintenance_module()
+
+            self.assertEqual(module.__name__, module_name)
+            self.assertFalse(
+                module_name in sys.modules,
+                "loader should not leave a temporary module entry",
+            )
+
+        sentinel = object()
+        with patch.dict(sys.modules, {module_name: sentinel}):
+            module = load_operator_activity_maintenance_module()
+
+            self.assertEqual(module.__name__, module_name)
+            self.assertIs(sys.modules[module_name], sentinel)
+
     def test_main_json_sanitizes_nonfinite_values(self) -> None:
         module = load_operator_activity_maintenance_module()
         output = StringIO()

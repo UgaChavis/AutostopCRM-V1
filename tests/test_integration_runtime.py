@@ -12,13 +12,15 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.integration_runtime import McpRuntimeController  # noqa: E402
+from minimal_kanban.logging_setup import close_logger  # noqa: E402
 from minimal_kanban.settings_models import IntegrationSettings  # noqa: E402
 
 
 class McpRuntimeControllerTests(unittest.TestCase):
     def setUp(self) -> None:
         logger = logging.getLogger(f"test.integration.runtime.{self._testMethodName}")
-        logger.handlers.clear()
+        close_logger(logger)
+        self.addCleanup(close_logger, logger)
         logger.addHandler(logging.NullHandler())
         self.controller = McpRuntimeController(
             board_api_url="http://127.0.0.1:41731",

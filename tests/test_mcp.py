@@ -86,6 +86,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.api.server import ApiServer
+from minimal_kanban.logging_setup import close_logger
 from minimal_kanban.mcp.client import BoardApiClient, BoardApiTransportError
 from minimal_kanban.mcp.runtime import McpRuntimeStartupError, McpServerRuntime
 from minimal_kanban.mcp.server import create_mcp_server
@@ -260,7 +261,8 @@ class _McpServerFixtureMixin:
         state_file = Path(self.temp_dir.name) / "state.json"
         self.oauth_state_file = Path(self.temp_dir.name) / "mcp-oauth-state.json"
         self.logger = logging.getLogger(f"test.mcp.{self._testMethodName}")
-        self.logger.handlers.clear()
+        close_logger(self.logger)
+        self.addCleanup(close_logger, self.logger)
         self.logger.addHandler(logging.NullHandler())
         self.logger.propagate = False
         self.store = JsonStore(state_file=state_file, logger=self.logger)
@@ -2651,7 +2653,8 @@ class McpServerTransportTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTe
 class McpServerRuntimeTests(unittest.TestCase):
     def _runtime(self, host: str, *, port: int = 41831, path: str = "/mcp") -> McpServerRuntime:
         logger = logging.getLogger(f"test.mcp.runtime.{self._testMethodName}")
-        logger.handlers.clear()
+        close_logger(logger)
+        self.addCleanup(close_logger, logger)
         logger.addHandler(logging.NullHandler())
         logger.propagate = False
         server = SimpleNamespace(

@@ -8,14 +8,14 @@ from ..json_safety import json_safe_value as _json_safe_value
 from ..models import utc_now_iso
 
 
-def _clean_display_text(value: Any, *, limit: int) -> str:
+def _clean_display_text(value: object, *, limit: int) -> str:
     text = str(value or "").strip()
     if not text:
         return ""
     return text[:limit].strip()
 
 
-def _clean_display_items(value: Any, *, item_limit: int = 220, max_items: int = 8) -> list[str]:
+def _clean_display_items(value: object, *, item_limit: int = 220, max_items: int = 8) -> list[str]:
     if not isinstance(value, list):
         return []
     items: list[str] = []
@@ -101,7 +101,7 @@ class AgentRunnerOutputMixin:
             return text
         return f"{text[: self._max_tool_result_chars]}... [truncated]"
 
-    def _response_data(self, payload: Any) -> dict[str, Any]:
+    def _response_data(self, payload: object) -> dict[str, Any]:
         if not isinstance(payload, dict):
             return {}
         data = payload.get("data")

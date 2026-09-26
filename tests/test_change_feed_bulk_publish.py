@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import shutil
 import sqlite3
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+if __package__:
+    from tests.source_path_support import prepend_source_path
+else:
+    from source_path_support import prepend_source_path
+
+prepend_source_path()
 
 from minimal_kanban.storage.change_feed_projection import ProjectedEntity
 from minimal_kanban.storage.change_feed_store import ChangeFeedStore

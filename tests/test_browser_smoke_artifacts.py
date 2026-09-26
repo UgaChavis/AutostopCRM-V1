@@ -3,19 +3,33 @@ from __future__ import annotations
 import ast
 import asyncio
 import os
+import sys
 import unittest
+from functools import cache
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
-from scripts import browser_smoke
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts import browser_smoke  # noqa: E402
 
 SCREENSHOT_ENV = "AUTOSTOP_BROWSER_SMOKE_SCREENSHOT_DIR"
+ARTIFACT_ENV_VALUES = (None, "", " \t ", " output/modernization/owned-artifacts ")
 
 
+@cache
+def browser_smoke_ast() -> ast.Module:
+    source = Path(browser_smoke.__file__).read_text(encoding="utf-8")
+    return ast.parse(source)
+
+
+@cache
 def artifact_statements(function_name: str, count: int) -> list[ast.stmt]:
     """Execute the real artifact block without unrelated UI workflow setup."""
-    tree = ast.parse(Path(browser_smoke.__file__).read_text(encoding="utf-8"))
+    tree = browser_smoke_ast()
     function = next(node for node in tree.body if getattr(node, "name", None) == function_name)
     for parent in ast.walk(function):
         for _field, value in ast.iter_fields(parent):
@@ -52,7 +66,9 @@ class BrowserSmokeArtifactTests(unittest.TestCase):
                     )
                 mkdir.assert_not_called()
 
-    def exercise_artifact_block(self, function_name: str, count: int, environment: str | None):
+    def exercise_artifact_block(
+        self, function_name: str, count: int, environment: str | None
+    ) -> tuple[SimpleNamespace, SimpleNamespace, Mock]:
         page = SimpleNamespace(screenshot=AsyncMock(), locator=Mock())
         panel = SimpleNamespace(screenshot=AsyncMock())
         page.locator.return_value = panel
@@ -79,7 +95,7 @@ class BrowserSmokeArtifactTests(unittest.TestCase):
         return page, panel, mkdir
 
     def test_timer_artifact_block_remains_opt_in(self) -> None:
-        for value in (None, "", " \t ", " output/modernization/owned-artifacts "):
+        for value in ARTIFACT_ENV_VALUES:
             with self.subTest(value=value):
                 page, panel, mkdir = self.exercise_artifact_block(
                     "_exercise_card_modal_roundtrip", 2, value
@@ -98,7 +114,7 @@ class BrowserSmokeArtifactTests(unittest.TestCase):
                     panel.screenshot.assert_not_awaited()
 
     def test_dashboard_artifact_block_respects_override_and_original_default(self) -> None:
-        for value in (None, "", " \t ", " output/modernization/owned-artifacts "):
+        for value in ARTIFACT_ENV_VALUES:
             with self.subTest(value=value):
                 page, panel, mkdir = self.exercise_artifact_block(
                     "_exercise_display_dashboard", 3, value
@@ -115,7 +131,7 @@ class BrowserSmokeArtifactTests(unittest.TestCase):
                 panel.screenshot.assert_not_awaited()
 
     def test_completion_artifact_block_respects_override_and_runtime_default(self) -> None:
-        for value in (None, "", " \t ", " output/modernization/owned-artifacts "):
+        for value in ARTIFACT_ENV_VALUES:
             with self.subTest(value=value):
                 with patch.object(
                     browser_smoke,
