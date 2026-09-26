@@ -1,7 +1,7 @@
 services:
   searxng:
     container_name: autostop-searxng
-    image: docker.io/searxng/searxng@sha256:a31763b7af3caf6ae9aac1816ba774214eb550252e06a4998f276ded8d60461b
+    image: docker.io/searxng/searxng@sha256:5286edb35782454ab8a102c5eff6b54bff745853191b46aeead95f225aa6dfb6
     user: "977:977"
     init: true
     restart: always

@@ -154,7 +154,7 @@ class ConnectorDiagnosticsRegistrarTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(ping.meta["response_mode"], "ping")
         self.assertEqual(runtime.data["schema_version"], "2026-04-13")
-        self.assertEqual(runtime.data["full_board_context_tool"], "get_board_context")
+        self.assertIsNone(runtime.data["full_board_context_tool"])
         self.assertEqual(runtime.data["text"], "[RUNTIME STATUS]\n")
         self.assertEqual(runtime.meta["response_mode"], "diagnostics")
         self.assertEqual(
@@ -165,6 +165,20 @@ class ConnectorDiagnosticsRegistrarTests(unittest.IsolatedAsyncioTestCase):
                 ("data", "get_runtime_status"),
             ],
         )
+
+    async def test_runtime_hints_only_reference_registered_gateway_tools(self) -> None:
+        @self.server.tool(name="agent_bootstrap")
+        def bootstrap() -> dict[str, bool]:
+            return {"ok": True}
+
+        runtime = await self.server._tool_manager.call_tool("get_runtime_status", {})
+        active = {tool.name for tool in await self.server.list_tools()}
+        status = runtime.data["runtime_status"]
+        self.assertEqual(runtime.data["full_board_context_tool"], "agent_bootstrap")
+        self.assertEqual(status["board_context_available_via"], "agent_bootstrap")
+        self.assertEqual(status["available_context_tools"], ["agent_bootstrap"])
+        self.assertLessEqual(set(runtime.data["canonical_tool_paths"]), active)
+        self.assertNotIn("bootstrap_context", runtime.data["canonical_tool_paths"])
 
 
 if __name__ == "__main__":

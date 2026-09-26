@@ -97,6 +97,22 @@ def register_connector_diagnostics(
     def get_runtime_status() -> JsonEnvelope:
         started_at = perf_counter()
         runtime_status = context.runtime_status_payload()
+        active_tools = {tool.name for tool in server._tool_manager.list_tools()}
+        context_tools = (
+            "agent_bootstrap",
+            "agent_board_digest",
+            "agent_search",
+            "agent_entity_context",
+            *runtime_status.get("available_context_tools", ()),
+        )
+        runtime_status["available_context_tools"] = list(
+            dict.fromkeys(name for name in context_tools if name in active_tools)
+        )
+        board_context_tool = next(
+            (name for name in ("agent_bootstrap", "get_board_context") if name in active_tools),
+            None,
+        )
+        runtime_status["board_context_available_via"] = board_context_tool
         return context.relay_data(
             "get_runtime_status",
             {
@@ -106,11 +122,14 @@ def register_connector_diagnostics(
                     tool_name: context.canonical_tool_path(tool_name)
                     for tool_name in (
                         "ping_connector",
-                        "bootstrap_context",
+                        "agent_bootstrap"
+                        if "agent_bootstrap" in active_tools
+                        else "bootstrap_context",
                         "get_runtime_status",
                     )
+                    if tool_name in active_tools
                 },
-                "full_board_context_tool": "get_board_context",
+                "full_board_context_tool": board_context_tool,
                 "text": context.runtime_status_text(runtime_status),
             },
             meta=context.timed_meta(

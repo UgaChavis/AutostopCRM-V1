@@ -1130,7 +1130,7 @@ def create_mcp_server(
         else:
             error = runtime_status.get("board_context_error") or {}
             lines.append(f"board_context_error: {error.get('message', 'unknown')}")
-        lines.append("full_board_context_tool: get_board_context")
+        lines.append(f"full_board_context_tool: {runtime_status['board_context_available_via']}")
         lines.append(
             "context_choice: use bootstrap, board, card, or runtime context only when it helps the current request"
         )

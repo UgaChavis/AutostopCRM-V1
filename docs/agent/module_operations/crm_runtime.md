@@ -15,6 +15,7 @@ open CRM records or inspect private logs for a general health check.
 | Manager mount | Gateway → [`manager_registration.py`](../../../src/minimal_kanban/mcp/manager_registration.py) → Manager registrar; Manager owns workflow/knowledge, CRM owns records | Production fails closed when required mounted tools are missing. `scripts/docs_audit.py --manager-root /opt/AutostopManager` checks a synthetic registered schema; `tools/list` checks active surface. | Mixed; no Manager raw data persisted in CRM docs. |
 | Store adapter | Gateway → [`store_gateway.py`](../../../src/minimal_kanban/mcp/store_gateway.py) → Manager adapter → `http://autostop-app:8000/internal/agent/v1/...`; Store owns quotes, stock and orders | `scripts/validate_production_env.py --require-production --require-store` validates names/config without printing tokens. Official `--require-store` Gateway smoke checks scoped live read and flags. | Reads or guarded Store writes; no direct Store DB connection. |
 | Change feed | CRM commit → [`change_feed_gateway.py`](../../../src/minimal_kanban/mcp/change_feed_gateway.py) and `/api/change_feed/{bootstrap,read,ack,register,summarize}` → Manager scheduler; CRM owns feed, Manager owns consumer cursor | `POST /api/change_feed/readiness` is technical readiness. Bootstrap/ACK/register alter consumer state; the maintenance-safe release probe handles them with its own consumer. | Readiness R; cursor operations T, exact ACK and readback. |
+| G1 automation panel | [`module_map.html`](../../../src/minimal_kanban/web_app_assets/source/module_map.html) → [`automation_center.py`](../../../src/minimal_kanban/api/automation_center.py) → Manager control socket; Manager owns schedules and execution | Open `/module-map`, select G1 and use **i** beside any job or system timer. Help explains the action, live schedule, data, output and switch; opening it sends no control command. | Help/status R; switches and schedule edits T, admin session and revision guard required. |
 | J1 public-web dependency | Gateway → [`web_gateway.py`](../../../src/minimal_kanban/mcp/web_gateway.py) → `autostop-searxng` / `autostop-crawl4ai`; public web is untrusted evidence | `docker compose ps autostop-searxng autostop-crawl4ai`; official `--require-web` smoke checks static and browser paths separately. Health alone does not prove research. | R externally; no fitment confirmation from web alone. |
 | OAuth | Owner client → [`oauth_provider.py`](../../../src/minimal_kanban/mcp/oauth_provider.py) → CRM protected state | `python scripts/configure_mcp_oauth.py check --env-file .env` checks configuration; official `check_mcp_oauth.py` checks live authorization/refresh in a release. Never print state key/tokens. | Config check R; `ensure` and authorization mutate protected state. |
 | Browser and Windows clients | UI/API → shared services; desktop entry [`main.py`](../../../main.py), MCP entry [`main_mcp.py`](../../../main_mcp.py) | `scripts/browser_smoke.py --profile core --attempts 1` uses disposable synthetic CRM; portable binary requires `run_quality_pass.ps1`. | Synthetic; local pass is not deployed UI proof. |
@@ -27,6 +28,22 @@ revision matching that initial production source. The candidate `ac10f534`
 requires fresh release readback. These are bounded technical observations.
 
 ## Diagnose and recover
+
+G1 reads the current schedule and actual state from Manager. Its **i** buttons
+work with Enter or Space, remain available in read-only mode, and keep their
+expanded state while status refreshes. The CRM digest uses new CRM change-feed
+events and sends a summary to the configured owner's Telegram dialogue only
+when there are changes. The database-backup timer protects the Store PostgreSQL
+database; it does not back up CRM. Unknown future jobs explicitly show missing
+descriptions instead of guessing their purpose. The panel shows run times and
+errors; system-job output remains in the corresponding server journal.
+
+If G1 is unavailable, compare the API status response, operator permissions,
+Manager socket mount and scheduler state. A stale response disables mutations;
+wait for a fresh status after recovery. A desired/actual mismatch requires
+scheduler reconciliation, not repeated clicks. Use the release runbook for
+service recovery. Synthetic keyboard/mobile and line-label collision checks
+live in [`test_module_map_browser.py`](../../../tests/test_module_map_browser.py).
 
 1. Compare authoritative DNS, external TCP/TLS, Nginx response, host 8000
    and 8001, then `docker compose ps` from the deployed checkout; a healthy
