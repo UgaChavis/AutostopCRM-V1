@@ -1,4 +1,35 @@
-FROM python:3.12-slim
+# syntax=docker/dockerfile:1.7
+FROM python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f AS sqlite-build
+
+# Debian's runtime SQLite does not yet include the upstream WAL-reset fix.
+# Build the full 3.51.3 sources so Debian's UPDATE/DELETE LIMIT syntax is kept.
+# https://sqlite.org/releaselog/3_51_3.html
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends gcc libc6-dev make tcl unzip && \
+    rm -rf /var/lib/apt/lists/*
+
+ADD --checksum=sha256:f8a67a1f5b5cae7c6d42f0994ca7bf1a4a5858868c82adc9fc1340bed5eb8cd2 \
+    https://sqlite.org/2026/sqlite-src-3510300.zip /tmp/sqlite-src.zip
+
+RUN unzip -q /tmp/sqlite-src.zip -d /tmp && \
+    cd /tmp/sqlite-src-3510300 && \
+    test "$(cat manifest.uuid)" = "737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618" && \
+    CFLAGS="-O2 -fno-strict-aliasing -DSQLITE_SECURE_DELETE \
+        -DSQLITE_ENABLE_COLUMN_METADATA -DSQLITE_ENABLE_FTS3_PARENTHESIS \
+        -DSQLITE_ENABLE_FTS3_TOKENIZER -DSQLITE_SOUNDEX \
+        -DSQLITE_ENABLE_UNLOCK_NOTIFY -DSQLITE_ENABLE_DBSTAT_VTAB \
+        -DSQLITE_ENABLE_DBPAGE_VTAB -DSQLITE_ALLOW_ROWID_IN_VIEW \
+        -DSQLITE_LIKE_DOESNT_MATCH_BLOBS -DSQLITE_USE_URI \
+        -DSQLITE_MAX_SCHEMA_RETRY=25 -DSQLITE_ENABLE_STMTVTAB \
+        -DSQLITE_MAX_VARIABLE_NUMBER=250000 \
+        -DSQLITE_MAX_DEFAULT_PAGE_SIZE=32768" \
+        ./configure --prefix=/usr/local --disable-static --soname=legacy --enable-threadsafe \
+            --enable-load-extension --enable-fts4 --enable-fts5 --enable-rtree \
+            --enable-session --enable-update-limit && \
+    make -j2 libsqlite3.so && \
+    install -D -m 755 libsqlite3.so /sqlite-runtime/libsqlite3.so.0
+
+FROM python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -60,6 +91,10 @@ RUN pip install --no-cache-dir --upgrade pip && \
     python -m playwright install --with-deps chromium --only-shell && \
     rm -rf /var/lib/apt/lists/* && \
     chmod -R a+rX /ms-playwright
+
+COPY --from=sqlite-build /sqlite-runtime/libsqlite3.so.0 /usr/local/lib/libsqlite3.so.0
+RUN ldconfig && \
+    python -c "import sqlite3; assert sqlite3.sqlite_version == '3.51.3', sqlite3.sqlite_version; source = sqlite3.connect(':memory:').execute('select sqlite_source_id()').fetchone()[0]; assert source == '2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618', source; print('SQLite runtime:', sqlite3.sqlite_version, source)"
 
 COPY . .
 

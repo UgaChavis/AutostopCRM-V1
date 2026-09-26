@@ -61,6 +61,50 @@ jobs:
               test ! -e /app/output/docker-context-probe/ignored.png
             '
 
+      - name: Verify linked SQLite and temporary WAL database
+        run: |
+          docker run --rm -i --network none --tmpfs /tmp --entrypoint python "autostopcrm-ci:${GITHUB_SHA}" - <<'PY'
+          import sqlite3
+          import tempfile
+          from contextlib import closing
+          from pathlib import Path
+
+          assert sqlite3.sqlite_version == "3.51.3", sqlite3.sqlite_version
+          assert sqlite3.threadsafety == 3, sqlite3.threadsafety
+          with tempfile.TemporaryDirectory() as directory:
+              path = Path(directory) / "runtime.sqlite3"
+              with closing(sqlite3.connect(path)) as connection:
+                  source = connection.execute("SELECT sqlite_source_id()").fetchone()[0]
+                  assert source == "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618", source
+                  required = {
+                      "ENABLE_FTS3", "ENABLE_FTS4", "ENABLE_FTS5", "ENABLE_RTREE",
+                      "ENABLE_SESSION", "ENABLE_PREUPDATE_HOOK", "ENABLE_DBSTAT_VTAB",
+                      "ENABLE_DBPAGE_VTAB", "ENABLE_COLUMN_METADATA", "ENABLE_MATH_FUNCTIONS",
+                      "ENABLE_UNLOCK_NOTIFY", "ENABLE_UPDATE_DELETE_LIMIT", "SECURE_DELETE",
+                      "MAX_VARIABLE_NUMBER=250000", "MAX_DEFAULT_PAGE_SIZE=32768", "THREADSAFE=1",
+                  }
+                  available = {row[0] for row in connection.execute("PRAGMA compile_options")}
+                  assert required <= available, sorted(required - available)
+                  assert connection.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+                  assert connection.execute("PRAGMA secure_delete").fetchone()[0] == 1
+                  assert connection.getlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER) == 250000
+                  assert connection.execute("SELECT json_extract('{\"ready\":1}', '$.ready')").fetchone()[0] == 1
+                  connection.execute("CREATE VIRTUAL TABLE search USING fts5(body)")
+                  connection.execute("INSERT INTO search VALUES ('runtime ready')")
+                  assert connection.execute("SELECT count(*) FROM search WHERE search MATCH 'ready'").fetchone()[0] == 1
+                  connection.execute("CREATE TABLE sample (id INTEGER PRIMARY KEY, value TEXT)")
+                  connection.executemany("INSERT INTO sample VALUES (?, ?)", [(1, "before"), (2, "before")])
+                  connection.execute("UPDATE sample SET value='after' ORDER BY id LIMIT 1")
+                  connection.commit()
+                  with closing(sqlite3.connect(path)) as reader:
+                      assert reader.execute("SELECT value FROM sample ORDER BY id").fetchall() == [("after",), ("before",)]
+                  connection.execute("DELETE FROM sample ORDER BY id LIMIT 1")
+                  connection.commit()
+                  assert connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0] == 0
+                  assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+          print("SQLite runtime verified:", sqlite3.sqlite_version, source)
+          PY
+
       - name: Verify packaged documentation
         run: docker run --rm --entrypoint python "autostopcrm-ci:${GITHUB_SHA}" scripts/docs_audit.py --format text
 
