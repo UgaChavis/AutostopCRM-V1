@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import copy
 import json
 import logging
 import os
+import sys
 import tempfile
 import unittest
 import urllib.error
@@ -33,6 +35,13 @@ from minimal_kanban.storage.json_store import JsonStore  # noqa: E402
 
 
 class TelegramAgentBehaviorApiTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        if sys.platform == "win32":
+            previous_policy = asyncio.get_event_loop_policy()
+            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+            cls.addClassCleanup(asyncio.set_event_loop_policy, previous_policy)
+
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory(prefix="telegram-behavior-test-")
         self.addCleanup(self.temp_dir.cleanup)
