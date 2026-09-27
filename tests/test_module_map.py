@@ -30,7 +30,7 @@ class ModuleMapTests(unittest.TestCase):
                 "B": 4,
                 "C": 7,
                 "D": 5,
-                "E": 9,
+                "E": 11,
                 "F": 5,
                 "G": 1,
                 "H": 2,
@@ -41,11 +41,11 @@ class ModuleMapTests(unittest.TestCase):
         }
         self.assertEqual(self.data["schema_version"], "autostopmanager.infrastructure-map.v1")
         self.assertEqual(set(self.nodes), expected - {"N1", "N2", "C1"})
-        self.assertEqual(len(self.data["elements"]), 36)
+        self.assertEqual(len(self.data["elements"]), 38)
         edges = {item["id"]: item for item in self.data["relations"]}
-        self.assertEqual(len(self.data["relations"]), 28)
-        self.assertEqual(len(self.nodes) + len(edges), 64)
-        self.assertEqual(set(edges), {f"L{i}" for i in range(1, 31)} - {"L8", "L9"})
+        self.assertEqual(len(self.data["relations"]), 30)
+        self.assertEqual(len(self.nodes) + len(edges), 68)
+        self.assertEqual(set(edges), {f"L{i}" for i in range(1, 33)} - {"L8", "L9"})
         pairs = {
             "L1": ("A1", "A2"),
             "L2": ("A2", "A3"),
@@ -75,6 +75,8 @@ class ModuleMapTests(unittest.TestCase):
             "L28": ("G1", "B1"),
             "L29": ("A2", "H1"),
             "L30": ("H1", "H2"),
+            "L31": ("E9", "E10"),
+            "L32": ("E9", "E11"),
         }
         for code, pair in pairs.items():
             edge = edges[code]
@@ -104,6 +106,15 @@ class ModuleMapTests(unittest.TestCase):
         self.assertEqual(self.nodes["H2"]["lines"], ["@auto.repair.parts"])
         self.assertFalse(edges["L30"].get("show_label", True))
         self.assertIn("не подключены", self.nodes["H1"]["description"])
+        self.assertEqual(self.nodes["E10"]["indicator"], "unknown")
+        self.assertEqual(self.nodes["E11"]["indicator"], "off")
+        self.assertEqual(self.nodes["E11"]["lines"], ["Внедрён · выключен"])
+        self.assertIn("Free API", self.nodes["E11"]["description"])
+        self.assertIn("HTTP 401", self.nodes["E11"]["description"])
+        self.assertFalse(edges["L31"].get("show_label", True))
+        self.assertFalse(edges["L32"].get("show_label", True))
+        self.assertTrue(edges["L18"].get("compact_label"))
+        self.assertTrue(edges["L19"].get("compact_label"))
 
     def test_hierarchy_geometry_and_russian_descriptions(self) -> None:
         edges = {item["id"]: item for item in self.data["relations"]}
@@ -138,6 +149,8 @@ class ModuleMapTests(unittest.TestCase):
         self.assertEqual(self.nodes["E7"]["title"], "Интернет-проверка детали")
         self.assertEqual(self.nodes["E8"]["title"], "Веб-шлюз")
         self.assertEqual(self.nodes["E9"]["title"], "Рыночная оценка детали")
+        self.assertEqual(self.nodes["E10"]["title"], "Авито / ReefAPI")
+        self.assertEqual(self.nodes["E11"]["title"], "Drom / Webbee")
         self.assertIn("Web Research Gateway", self.nodes["E8"]["description"])
         self.assertIn(
             "обезличенный запрос",
@@ -149,6 +162,13 @@ class ModuleMapTests(unittest.TestCase):
         )
         self.assertEqual((self.nodes["E8"]["width"], self.nodes["E8"]["height"]), (130, 62))
         self.assertTrue(self.nodes["E8"].get("compact"))
+        avito, drom = self.nodes["E10"], self.nodes["E11"]
+        self.assertGreaterEqual(avito["x"], self.nodes["E1"]["x"] + self.nodes["E1"]["width"])
+        self.assertEqual(avito["x"], drom["x"])
+        self.assertLessEqual(self.nodes["E8"]["y"] + self.nodes["E8"]["height"], avito["y"])
+        self.assertLessEqual(avito["y"] + avito["height"], drom["y"])
+        self.assertLessEqual(drom["y"] + drom["height"], self.nodes["F2"]["y"])
+        self.assertLess(drom["x"] + drom["width"], 1880)
         self.assertEqual(self.nodes["J1"]["title"], "Интернет-исследования")
         self.assertIsNone(self.nodes["J1"].get("parent"))
         self.assertGreater(self.nodes["J1"]["x"], self.nodes["D1"]["x"] + self.nodes["D1"]["width"])

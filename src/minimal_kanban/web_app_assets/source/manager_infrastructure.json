@@ -389,6 +389,38 @@
       "parent": "E1"
     },
     {
+      "id": "E10",
+      "title": "Авито / ReefAPI",
+      "x": 1608,
+      "y": 630,
+      "width": 188,
+      "height": 62,
+      "description": "Код поиска объявлений Авито через ReefAPI в GitHub; сервер обновят позже. Живой поиск пока не подтверждён, поэтому состояние источника неизвестно. Объявления служат зацепками для проверки, а не подтверждением наличия или применимости.",
+      "group": "E",
+      "kind": "module",
+      "compact": true,
+      "lines": [
+        "GitHub · сервер позже"
+      ],
+      "indicator": "unknown"
+    },
+    {
+      "id": "E11",
+      "title": "Drom / Webbee",
+      "x": 1608,
+      "y": 704,
+      "width": 188,
+      "height": 62,
+      "description": "Модуль Baza.Drom/Webbee внедрён в код Manager, по умолчанию выключен без доступа; Free API ответил HTTP 401. Сервер обновят позже. Живой поиск и доступ к роботу не подтверждены. Объявления после подключения будут только зацепками для отдельной проверки наличия и применимости.",
+      "group": "E",
+      "kind": "module",
+      "compact": true,
+      "lines": [
+        "Внедрён · выключен"
+      ],
+      "indicator": "off"
+    },
+    {
       "id": "E8",
       "title": "Веб-шлюз",
       "x": 1650,
@@ -739,8 +771,9 @@
       "protocol": "HTTP(S) / веб-поиск",
       "description": "Получение каталожных сведений и предложений для сверки подбора.",
       "path": "M1542 709 V755 H1602 V787",
-      "label_x": 1584,
+      "label_x": 1568,
       "label_y": 743,
+      "compact_label": true,
       "direction": "both",
       "kind": "exchange"
     },
@@ -821,9 +854,10 @@
       "label": "HTTP API / JSON",
       "protocol": "HTTP(S) API / JSON",
       "description": "Запросы адаптера к Agent API / Owner API магазина и ответы магазина.",
-      "path": "M1805 525 V775",
-      "label_x": 1800,
+      "path": "M1880 525 V775",
+      "label_x": 1880,
       "label_y": 661,
+      "compact_label": true,
       "direction": "both",
       "kind": "exchange"
     },
@@ -913,6 +947,34 @@
       "direction": "both",
       "kind": "exchange",
       "tone": "H",
+      "show_label": false
+    },
+    {
+      "id": "L31",
+      "from": "E9",
+      "to": "E10",
+      "label": "Поиск объявлений Авито",
+      "protocol": "Manager MCP / ReefAPI",
+      "description": "E9 передаёт обезличенный номер детали в модуль Авито и получает объявления как неподтверждённые поисковые зацепки. Код находится в GitHub; сервер будет обновлён позже.",
+      "path": "M1588 674 H1599 V661 H1608",
+      "label_x": 1600,
+      "label_y": 665,
+      "direction": "both",
+      "kind": "exchange",
+      "show_label": false
+    },
+    {
+      "id": "L32",
+      "from": "E9",
+      "to": "E11",
+      "label": "Поиск объявлений Baza.Drom",
+      "protocol": "Manager MCP / Webbee API",
+      "description": "E9 сможет передавать обезличенный номер детали в модуль Drom/Webbee и получать объявления как зацепки после включения доступа. Сейчас Free API отвечает HTTP 401; живой поиск выключен.",
+      "path": "M1588 691 H1599 V735 H1608",
+      "label_x": 1600,
+      "label_y": 725,
+      "direction": "both",
+      "kind": "exchange",
       "show_label": false
     }
   ]
