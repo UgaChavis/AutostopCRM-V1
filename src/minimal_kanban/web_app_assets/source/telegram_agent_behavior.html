@@ -451,8 +451,10 @@
       const titles=wrap(item.title,maxChars,2);
       titles.forEach((line,index)=>g.append(el('text',{class:'title',x:56,y:52+index*20},line)));
       if(item.height>=120){
-        const description=wrap(item.description,Math.max(12,Math.floor((item.width-30)/8)),titles.length>1?1:2);
-        description.forEach((line,index)=>g.append(el('text',{class:'line',x:16,y:titles.length>1?96:82+index*19},line)));
+        const firstLineY=titles.length>1?96:82;
+        const maxLines=Math.min(8,Math.max(1,Math.floor((item.height-16-firstLineY)/19)+1));
+        const description=wrap(item.description,Math.max(12,Math.floor((item.width-30)/8)),maxLines);
+        description.forEach((line,index)=>g.append(el('text',{class:'line',x:16,y:firstLineY+index*19},line)));
       }
       if(editing&&tool==='select'&&selected){
         g.append(el('rect',{class:'resize-handle',x:item.width-11,y:item.height-11,width:16,height:16,rx:2,'data-resize':'1','aria-label':'Изменить размер'}));

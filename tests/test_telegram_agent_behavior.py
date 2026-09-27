@@ -193,6 +193,21 @@ class TelegramAgentBehaviorApiTests(unittest.TestCase):
         self.assertEqual(
             {edge["id"] for edge in graph["relations"]}, {f"L{i}" for i in range(1, 6)}
         )
+        self.assertEqual(graph["canvas"], {"width": 1900, "height": 900})
+        self.assertEqual(
+            {
+                node["id"]: (node["x"], node["y"], node["width"], node["height"])
+                for node in graph["elements"]
+            },
+            {
+                "B1": (20, 170, 255, 275),
+                "B2": (428, 170, 250, 275),
+                "B3": (813, 170, 250, 275),
+                "B4": (1175, 170, 280, 275),
+                "B5": (1575, 170, 280, 275),
+                "B6": (738, 638, 560, 188),
+            },
+        )
         self.assertTrue(all("path" not in edge for edge in graph["relations"]))
 
     def test_save_then_read_preserves_editable_modules_and_connections(self) -> None:
@@ -551,6 +566,12 @@ class TelegramAgentBehaviorApiTests(unittest.TestCase):
                 page.goto(self.server.base_url + "/telegram-agent-behavior")
                 page.locator('[data-kind="node"]').first.wait_for()
                 self.assertEqual(page.locator('[data-kind="node"]').count(), 6)
+                self.assertGreaterEqual(
+                    page.locator('[data-kind="node"][data-id="B1"] .line').count(), 4
+                )
+                self.assertGreaterEqual(
+                    page.locator('[data-kind="node"][data-id="B6"] .line').count(), 3
+                )
 
                 def wire_endpoints(edge_id: str) -> dict[str, dict[str, float]]:
                     return page.locator(
@@ -565,10 +586,10 @@ class TelegramAgentBehaviorApiTests(unittest.TestCase):
 
                 # SVG endpoints must meet the actual cards, including their y coordinates.
                 initial_wire = wire_endpoints("L1")
-                self.assertAlmostEqual(initial_wire["start"]["x"], 325, delta=1)
-                self.assertAlmostEqual(initial_wire["start"]["y"], 365, delta=1)
-                self.assertAlmostEqual(initial_wire["end"]["x"], 405, delta=1)
-                self.assertAlmostEqual(initial_wire["end"]["y"], 365, delta=1)
+                self.assertAlmostEqual(initial_wire["start"]["x"], 275, delta=1)
+                self.assertAlmostEqual(initial_wire["start"]["y"], 307.5, delta=1)
+                self.assertAlmostEqual(initial_wire["end"]["x"], 428, delta=1)
+                self.assertAlmostEqual(initial_wire["end"]["y"], 307.5, delta=1)
                 page.locator("#toolRect").click()
 
                 def svg_point(x: int, y: int) -> dict[str, float]:
@@ -582,23 +603,27 @@ class TelegramAgentBehaviorApiTests(unittest.TestCase):
                         {"x": x, "y": y},
                     )
 
-                start = svg_point(1500, 80)
-                end = svg_point(1770, 210)
+                start = svg_point(1500, 600)
+                end = svg_point(1770, 730)
                 page.mouse.move(start["x"], start["y"])
                 page.mouse.down()
                 page.mouse.move(end["x"], end["y"], steps=5)
                 page.mouse.up()
                 page.locator("#detailTitleInput").fill("Следующий этап")
-                page.locator("#detailDescriptionInput").fill("Описание новой ветки владельца.")
+                page.locator("#detailDescriptionInput").fill(
+                    "Описание новой ветки владельца с проверкой того, что компактная "
+                    "карточка сохраняет максимум две строки текста."
+                )
                 page.locator("#applyDetail").click()
                 new_node = page.locator('[data-kind="node"][data-id="M1"]')
                 new_node.wait_for()
                 self.assertEqual(page.locator('[data-kind="node"]').count(), 7)
+                self.assertEqual(new_node.locator(".line").count(), 2)
 
                 page.locator("#toolSelect").click()
                 original_transform = new_node.get_attribute("transform")
-                start = svg_point(1610, 145)
-                end = svg_point(1660, 170)
+                start = svg_point(1610, 665)
+                end = svg_point(1660, 690)
                 page.mouse.move(start["x"], start["y"])
                 page.mouse.down()
                 page.mouse.move(end["x"], end["y"], steps=5)
@@ -689,8 +714,8 @@ class TelegramAgentBehaviorApiTests(unittest.TestCase):
                 small_move_graph, small_move_revision = self._graph()
                 self.assertEqual(small_move_revision, 3)
                 moved_b1 = next(item for item in small_move_graph["elements"] if item["id"] == "B1")
-                self.assertGreater(moved_b1["x"], 70)
-                self.assertGreater(moved_b1["y"], 300)
+                self.assertGreater(moved_b1["x"], 20)
+                self.assertGreater(moved_b1["y"], 170)
                 moved_wire = wire_endpoints("L1")
                 self.assertAlmostEqual(
                     moved_wire["start"]["x"], moved_b1["x"] + moved_b1["width"], delta=1
