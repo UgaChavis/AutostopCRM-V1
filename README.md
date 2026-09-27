@@ -95,6 +95,24 @@ obsolete hashes clear the selection and show the map normally.
 Browser regression tests use a disposable local CRM with synthetic data:
 `python -m unittest tests.test_module_map tests.test_module_map_browser -v`.
 
+## Telegram-agent behavior diagram
+
+Board settings open **«Инфраструктура поведения агента Telegram»** at
+`/telegram-agent-behavior`. The editor and the Manager map share a visual
+language, but the Telegram diagram is editable CRM data: modules, connections,
+descriptions, positions, and icons are saved in the board state with a revision.
+The bundled `telegram_agent_behavior.json` is only the initial diagram until the
+first save. Editing the diagram does not change the running Telegram agent.
+
+Operators can view the diagram. The owner configured by
+`AUTOSTOP_TELEGRAM_BEHAVIOR_OWNER_LOGIN` can edit it in the browser. The Codex
+integration can apply a narrow, revision-checked graph patch through the existing
+CRM MCP gateway only when its signed OAuth actor is that same owner. Agent edits
+and owner edits update the same graph and appear in its recent-change history;
+neither graph-content change requires a code release. A stale revision is rejected
+without replacing an open browser draft. The MCP graph capability never returns
+customer cards.
+
 ## Local Development
 
 ```powershell

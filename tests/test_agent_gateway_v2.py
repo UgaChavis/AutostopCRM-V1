@@ -49,6 +49,7 @@ from tests.gateway_v2_store_quote_conductor_support import (
     StoreQuoteConductorCasesMixin,
     register_fake_store_quote_conductor,
 )
+from tests.gateway_v2_telegram_behavior_contracts import GatewayV2TelegramBehaviorContractsMixin
 
 GATEWAY_ENV = {
     "AUTOSTOP_DEPLOYMENT_ENV": "development",
@@ -1427,6 +1428,7 @@ def register_fake_store_manager_tools(server, logger, state: dict) -> None:
 
 class AgentGatewayV2Tests(
     StoreQuoteConductorCasesMixin,
+    GatewayV2TelegramBehaviorContractsMixin,
     GatewayV2OAuthContractTestsMixin,
     GatewayV2ReadContractTestsMixin,
     unittest.IsolatedAsyncioTestCase,

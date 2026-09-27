@@ -313,6 +313,50 @@ class ChangeFeedCanonicalRouteContractTests(unittest.TestCase):
     def test_telegram_behavior_owner_save_emits_bounded_audit_feed_event(self) -> None:
         self._exercise_telegram_behavior_route()
 
+    def _exercise_telegram_behavior_agent_patch_route(self) -> None:
+        with patch.dict(os.environ, {"AUTOSTOP_TELEGRAM_BEHAVIOR_OWNER_LOGIN": "route-admin"}):
+            current = self.service.get_telegram_agent_behavior()
+            agent_session = {
+                "service_identity": True,
+                "token": "service-identity",
+                "is_admin": True,
+                "audit_actor_name": "route-admin",
+            }
+            changed = self._invoke(
+                "/api/patch_telegram_agent_behavior",
+                {
+                    "expected_revision": current["revision"],
+                    "idempotency_key": "route-agent-diagram-patch-1",
+                    "operations": [
+                        {
+                            "op": "update_element",
+                            "id": "B2",
+                            "changes": {"description": "Изолированная правка агента"},
+                        }
+                    ],
+                    "source": "mcp_agent_gateway_v2",
+                    "_operator_session": agent_session,
+                },
+                producers={"audit_event"},
+                entity_types={"board"},
+            )
+            self.assertEqual(changed["revision"], current["revision"] + 1)
+            self.assertEqual(
+                next(
+                    item
+                    for item in self.service.get_telegram_agent_behavior()["graph"]["elements"]
+                    if item["id"] == "B2"
+                )["description"],
+                "Изолированная правка агента",
+            )
+            self.assertNotIn(
+                "Изолированная правка агента",
+                str(self.store.change_feed_store.raw_events_for_test()),
+            )
+
+    def test_telegram_behavior_agent_patch_emits_bounded_audit_feed_event(self) -> None:
+        self._exercise_telegram_behavior_agent_patch_route()
+
     def test_registry_routes_commit_and_replay_exact_temp_state_mutations(self) -> None:
         state_producers = {"audit_event", "state_projection"}
 
@@ -745,6 +789,7 @@ class ChangeFeedCanonicalRouteContractTests(unittest.TestCase):
             entity_types={"board", "board_settings"},
         )
         self._exercise_telegram_behavior_route()
+        self._exercise_telegram_behavior_agent_patch_route()
 
         canonical_routes = set(build_producer_inventory()["canonical_route_contract_routes"])
         self.assertEqual(

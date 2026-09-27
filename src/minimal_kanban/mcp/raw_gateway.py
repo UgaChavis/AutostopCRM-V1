@@ -19,6 +19,7 @@ from .change_feed_gateway import (
     change_feed_schema,
     verify_change_feed_checkpoint_readback,
 )
+from .telegram_behavior_gateway import telegram_behavior_patch_schema
 
 RAW_API_PREFIX = "api:"
 RAW_API_WRITE_ROUTES = (
@@ -271,6 +272,41 @@ async def verify_virtual_api_write_readback(
     invoke: VirtualInvoker,
 ) -> dict[str, Any] | None:
     """Return exact verification for virtual writes that have a stable readback."""
+
+    if operation == "api:/api/patch_telegram_agent_behavior":
+        result_data = result.get("data") if isinstance(result.get("data"), Mapping) else {}
+        readback = await invoke("api:/api/get_telegram_agent_behavior", {})
+        actual = readback.get("data") if isinstance(readback.get("data"), Mapping) else {}
+        expected_revision = result_data.get("revision")
+        actual_revision = actual.get("revision")
+        graph_exact = result_data.get("graph") == actual.get("graph")
+        revision_exact = (
+            type(expected_revision) is int
+            and type(actual_revision) is int
+            and expected_revision == actual_revision
+        )
+        applied_revision = result_data.get("applied_revision")
+        passed = bool(
+            result.get("ok")
+            and readback.get("ok")
+            and graph_exact
+            and revision_exact
+            and type(applied_revision) is int
+            and 1 <= applied_revision <= expected_revision
+        )
+        return {
+            "required": True,
+            "passed": passed,
+            "check": "exact_telegram_behavior_graph_readback",
+            "evidence": {
+                "expected_revision": expected_revision,
+                "actual_revision": actual_revision,
+                "applied_revision": applied_revision,
+                "graph_exact": graph_exact,
+                "readback_ok": bool(readback.get("ok")),
+                "idempotent_replay": result_data.get("idempotent_replay") is True,
+            },
+        }
 
     if operation in VERSIONED_WRITE_NAMES:
         card_id = str(arguments.get("card_id") or "").strip()
@@ -1211,6 +1247,8 @@ def virtual_api_schema(route: str) -> dict[str, Any]:
     completion_act_schema = _completion_act_schema(route)
     if completion_act_schema is not None:
         return completion_act_schema
+    if route == "/api/patch_telegram_agent_behavior":
+        return telegram_behavior_patch_schema(route)
     return {
         "$id": f"autostopcrm-agent-gateway:{route}",
         "title": route,

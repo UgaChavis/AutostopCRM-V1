@@ -82,67 +82,199 @@
       .detail { padding:22px; max-height:calc(100dvh - 24px); }
       .hint { display:none; }
     }
+    /* The editor uses the same dark map language as the Manager infrastructure. */
+    :root { --bg:#091d2b; --panel:#102838; --ink:#e9f4fa; --muted:#9fb9c9; --border:#33556a; --accent:#76d6a8; }
+    body { background:#091c29; font-family:"Segoe UI",Arial,sans-serif; }
+    button { border-radius:6px; }
+    .topbar { min-height:74px; padding:10px 22px; background:#0d2231; border-bottom-color:#315064; box-shadow:0 5px 22px rgba(0,0,0,.16); z-index:2; }
+    .brand { display:flex; align-items:center; gap:20px; min-width:0; }
+    .brand-icon { display:grid; place-items:center; flex:none; width:49px; height:49px; border:1px solid #416b86; border-radius:6px; color:#35c9f5; background:#0a2638; }
+    .brand-icon svg { width:31px; height:31px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+    h1 { margin:0; font-size:20px; font-weight:650; letter-spacing:.005em; }
+    .subtitle { margin:3px 0 0; color:#a8c0d0; font-size:13px; }
+    .toolbar { gap:17px; }
+    .toolbar a { border:0; padding:6px 0; color:#b4d5e7; font-size:12px; }
+    .toolbar a:hover { color:#e9f8ff; }
+    .toolbar .top-action { border:0; background:transparent; color:#b5cbd8; padding:7px 9px; }
+    .top-action svg { display:block; width:21px; height:21px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+    .toolbar-divider { height:23px; width:1px; background:#36566a; }
+    .revision-status { color:#b5cbd8; white-space:nowrap; font-size:13px; }
+    .revision-status::before { content:""; display:inline-block; width:7px; height:7px; margin:0 10px 1px 0; border-radius:50%; background:#84bedc; }
+    .revision-status.is-dirty::before { background:#d9bf78; }
+    .revision-status.is-conflict::before { background:#ef8d98; }
+    .owner-badge { display:grid; place-items:center; width:44px; height:44px; border:1px solid #338461; border-radius:50%; color:#8de0ae; background:#173b38; font-size:13px; font-weight:700; }
+    .toolbar .primary { padding:10px 16px; min-width:130px; min-height:42px; color:#0b2625; border-color:#62ce9b; background:#76d6a8; }
+    .toolbar .primary:hover:not(:disabled) { background:#95e5ba; border-color:#95e5ba; }
+    .toolbar .primary:disabled { opacity:.58; }
+    .toolbar .mode-toggle { padding:7px 8px; font-size:11px; }
+    .workspace { display:flex; flex:1; min-height:0; }
+    .viewport { min-width:0; flex:1; background-color:#091e2b; background-image:radial-gradient(circle,rgba(73,125,150,.28) .7px,transparent 1px),radial-gradient(ellipse at 50% 50%,#0e2938 0%,#0a202d 62%,#081925 100%); background-size:18px 18px,100% 100%; }
+    #map { width:calc(100% - 112px); margin-left:112px; }
+    .editorbar { position:absolute; left:18px; top:20px; z-index:2; display:block; padding:0; background:transparent; border:0; }
+    .tools { display:flex; flex-direction:column; gap:0; width:90px; padding:7px; background:#102a3b; border:1px solid #335a72; border-radius:7px; box-shadow:0 7px 22px rgba(0,0,0,.2); }
+    .tool { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; width:74px; min-height:70px; padding:7px 3px; border:1px solid transparent; background:transparent; color:#e2eef6; font-size:11px; line-height:1.2; }
+    .tool svg { width:27px; height:27px; fill:none; stroke:currentColor; stroke-width:1.65; stroke-linecap:round; stroke-linejoin:round; }
+    .tool.is-active { color:#dff8ff; border-color:#28c4f0; background:#0a384b; box-shadow:inset 0 0 13px rgba(33,195,239,.14); }
+    .tool:hover:not(:disabled) { color:#fff; border-color:#5287a1; }
+    .zoom-controls { position:absolute; left:23px; top:270px; z-index:2; display:flex; flex-direction:column; align-items:center; gap:8px; }
+    .zoom-controls::before { content:""; width:38px; height:1px; margin-bottom:12px; background:#38596a; }
+    .zoom-controls button { width:40px; height:40px; padding:0; color:#b7d1df; background:#102a3b; border-color:#335a72; font-size:26px; line-height:1; }
+    .zoom-controls button:hover { color:#fff; border-color:#55a9ca; }
+    .zoom-label { color:#dceaf3; font-size:13px; }
+    .zoom-controls #fitMap { font-size:20px; }
+    .status { position:absolute; left:20px; right:auto; bottom:12px; z-index:2; max-width:min(680px,calc(100% - 40px)); min-height:0; padding:7px 10px; background:rgba(10,35,48,.85); border:1px solid #31556b; border-radius:5px; color:#bad0dd; font-size:12px; }
+    .status[data-kind="error"] { border-color:#a85a63; }
+    .hint { left:auto; right:14px; bottom:15px; color:#8da9b9; }
+    .canvas-frame { stroke:#21465d; stroke-dasharray:6 7; }
+    .wire { stroke-width:2; }
+    .edge.is-selected .wire,.edge:hover .wire { stroke:#f0fbff; stroke-width:3; }
+    .edge-label { fill:#10293a; stroke:#456880; }
+    .edge text { fill:#cbdde9; font-size:15px; }
+    .connection-port { fill:var(--color); stroke:#0b2736; stroke-width:1.5; pointer-events:none; }
+    .node-card { fill:#102a3b; stroke-width:1.6; rx:7; filter:drop-shadow(0 4px 8px rgba(0,0,0,.22)); }
+    .node:hover .node-card,.node:focus-visible .node-card { fill:#163747; stroke:var(--color); stroke-width:2.4; }
+    .node.is-selected .node-card { fill:#163747; stroke:#fb6479; stroke-width:2.4; }
+    .node-badge { fill:#0b2d3e; stroke-width:1.3; rx:3; }
+    .node .code { font-size:15px; }
+    .node .title { font-size:20px; font-weight:650; }
+    .node .line { fill:#abc2d0; font-size:15px; }
+    .node-icon { fill:none; stroke:var(--color); stroke-width:2; stroke-linecap:round; stroke-linejoin:round; pointer-events:none; }
+    .resize-handle { fill:#fff0f3; stroke:#f25973; }
+    .inspector { flex:none; width:340px; min-width:290px; display:flex; flex-direction:column; background:#0d2332; border-left:1px solid #31536a; }
+    .inspector-scroll { min-height:0; overflow:auto; padding:22px 20px 30px; scrollbar-color:#42677b transparent; }
+    .inspector-empty { min-height:215px; padding:18px 0; color:#afc5d2; line-height:1.55; }
+    .inspector-empty h2 { margin:0 0 10px; color:#e6f3f9; font-size:16px; }
+    .inspector-empty p { margin:0; }
+    .detail-layer { position:static; inset:auto; display:block; padding:0; }
+    .detail { width:auto; max-height:none; overflow:visible; padding:0; background:none; border:0; border-radius:0; box-shadow:none; }
+    .detail header { align-items:center; padding-bottom:15px; border-bottom:1px solid #31556b; }
+    .detail-code { color:#e9f3f8; font-size:15px; font-weight:700; letter-spacing:0; }
+    .detail h2 { margin:8px 0 0; font-size:17px; line-height:1.3; }
+    .detail-close { border:0; background:transparent; color:#a7c0cf; font-size:18px; }
+    .detail p { margin:16px 0 0; color:#c2d4df; font-size:13px; line-height:1.55; }
+    .detail form { margin-top:4px; }
+    .detail label { margin:17px 0 8px; color:#dceaf2; font-size:13px; font-weight:400; }
+    .detail input,.detail textarea,.detail select { display:block; width:100%; padding:10px 11px; background:#102a3a; border:1px solid #436e85; border-radius:6px; color:#eaf5fb; font:14px "Segoe UI",Arial,sans-serif; }
+    .detail textarea { min-height:116px; max-height:380px; line-height:1.45; }
+    .detail input:read-only,.detail textarea:read-only { border-color:#35576d; }
+    .detail-actions { gap:8px; margin-top:14px; }
+    .detail-actions .right { gap:8px; }
+    .detail-actions button { padding:7px 9px; font-size:12px; }
+    .detail-actions .primary { color:#0b2625; background:#76d6a8; border-color:#76d6a8; }
+    .history { margin-top:24px; padding-top:20px; border-top:1px solid #35576c; }
+    .history h2 { margin:0 0 12px; color:#e9f3f9; font-size:15px; }
+    .history-list { display:grid; gap:9px; }
+    .history-item { padding:10px; background:#102c3d; border:1px solid #31556b; border-radius:6px; color:#c4d8e3; font-size:12px; line-height:1.45; }
+    .history-item strong { display:block; color:#e7f5fa; font-size:12px; }
+    .history-item small { display:block; margin-top:4px; color:#98b2c2; font-size:11px; }
+    .history-empty { color:#9bb6c5; font-size:12px; line-height:1.5; }
+    .conflict-panel { margin-top:18px; padding:13px; border:1px solid #aa6a6c; background:#3c2832; border-radius:6px; color:#ffe3e1; font-size:12px; line-height:1.5; }
+    .conflict-panel p { margin:5px 0 11px; white-space:pre-wrap; overflow-wrap:anywhere; }
+    .conflict-panel button { font-size:11px; }
+    @media(max-width:1050px) { .toolbar { gap:9px; } .toolbar a { display:none; } .inspector { width:305px; min-width:260px; } }
+    @media(max-width:720px) {
+      html,body { overflow:visible; height:auto; }
+      body { min-height:100dvh; }
+      .topbar { min-height:64px; padding:10px 12px; gap:8px; flex-wrap:wrap; }
+      .brand { gap:10px; }
+      .brand-icon { width:36px; height:36px; }
+      .brand-icon svg { width:23px; height:23px; }
+      h1 { font-size:16px; }
+      .subtitle { font-size:11px; }
+      .toolbar { margin-left:auto; }
+      .toolbar .mode-toggle { padding:5px 6px; font-size:10px; }
+      .owner-badge,.toolbar-divider { display:none; }
+      .toolbar .primary { min-width:0; min-height:35px; padding:7px 11px; font-size:12px; }
+      .toolbar .top-action { padding:4px; }
+      .revision-status { font-size:11px; }
+      .workspace { flex:none; flex-direction:column; min-height:0; }
+      .viewport { flex:none; height:min(65dvh,560px); min-height:350px; }
+      #map { width:calc(100% - 72px); margin-left:72px; }
+      .inspector { flex:none; width:100%; min-width:0; border-left:0; border-top:1px solid #31536a; }
+      .inspector-scroll { flex:none; overflow:visible; padding:16px; }
+      .editorbar { left:8px; top:8px; }
+      .tools { width:66px; padding:4px; }
+      .tool { width:56px; min-height:55px; font-size:9px; }
+      .tool svg { width:22px; height:22px; }
+      .zoom-controls { left:12px; top:198px; gap:5px; }
+      .zoom-controls button { width:34px; height:34px; }
+      .zoom-controls::before { margin-bottom:5px; }
+      .status { bottom:8px; left:8px; max-width:calc(100% - 16px); }
+      .hint { display:none; }
+    }
   </style>
 </head>
 <body>
   <header class="topbar">
-    <div class="heading">
-      <span class="eyebrow">ПОВЕДЕНИЕ АГЕНТА · TELEGRAM</span>
-      <h1>Инфраструктура поведения агента Telegram</h1>
-      <p class="subtitle">Схема шагов, описаний и переходов между ними</p>
+    <div class="brand">
+      <span class="brand-icon" aria-hidden="true"><svg viewBox="0 0 32 32"><circle cx="16" cy="5" r="3"/><circle cx="5" cy="25" r="3"/><circle cx="27" cy="25" r="3"/><path d="M16 8v8M16 16H5v6M16 16h11v6"/></svg></span>
+      <div class="heading"><h1>Поведение агента Telegram</h1><p class="subtitle">Схема шагов, описаний и переходов между ними</p></div>
     </div>
     <div class="toolbar">
-      <a href="/module-map">ИНФРАСТРУКТУРА МЕНЕДЖЕРА</a>
-      <button id="fitMap" type="button">УМЕСТИТЬ</button>
-      <button id="editToggle" type="button" hidden>РЕДАКТИРОВАТЬ</button>
+      <a href="/module-map">Инфраструктура менеджера</a>
+      <span class="revision-status" id="revisionStatus">Загрузка…</span>
+      <span class="toolbar-divider" aria-hidden="true"></span>
+      <button class="top-action" id="undoAction" type="button" aria-label="Отменить" title="Отменить (Ctrl+Z)" disabled><svg viewBox="0 0 24 24"><path d="M9 7 4 12l5 5M4 12h11a5 5 0 0 1 0 10"/></svg></button>
+      <button class="top-action" id="redoAction" type="button" aria-label="Повторить" title="Повторить (Ctrl+Shift+Z)" disabled><svg viewBox="0 0 24 24"><path d="m15 7 5 5-5 5m5-5H9a5 5 0 0 0 0 10"/></svg></button>
+      <button class="mode-toggle" id="editToggle" type="button" hidden>РЕДАКТИРОВАТЬ</button>
+      <span class="owner-badge" id="ownerBadge" hidden>UGA</span>
+      <button class="primary" id="saveGraph" type="button" hidden disabled>▣&nbsp; Сохранить</button>
     </div>
   </header>
-  <div class="editorbar" id="editorBar" hidden>
-    <div class="tools" role="toolbar" aria-label="Инструменты схемы">
-      <button class="tool is-active" id="toolSelect" type="button" aria-pressed="true">ВЫБРАТЬ</button>
-      <button class="tool" id="toolRect" type="button" aria-pressed="false">ПРЯМОУГОЛЬНИК</button>
-      <button class="tool" id="toolConnect" type="button" aria-pressed="false">СВЯЗЬ</button>
+  <main class="workspace">
+    <div class="viewport" id="viewport">
+      <svg id="map" xmlns="http://www.w3.org/2000/svg" aria-label="Диаграмма поведения агента Telegram" role="group" tabindex="0" hidden></svg>
+      <div class="state" id="state" role="status"><p id="stateText">Загрузка диаграммы…</p><a href="/" id="loginLink" hidden>Открыть CRM и войти</a></div>
+      <div class="editorbar" id="editorBar" hidden>
+        <div class="tools" role="toolbar" aria-label="Инструменты схемы">
+          <button class="tool is-active" id="toolSelect" type="button" aria-pressed="true"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M5 3v20l5-6 4 8 3-1-4-8 8-1Z"/></svg><span>Выбор</span></button>
+          <button class="tool" id="toolRect" type="button" aria-pressed="false"><svg viewBox="0 0 28 28" aria-hidden="true"><rect x="3" y="5" width="22" height="18" rx="1"/></svg><span>Прямоугольник</span></button>
+          <button class="tool" id="toolConnect" type="button" aria-pressed="false"><svg viewBox="0 0 28 28" aria-hidden="true"><circle cx="5" cy="22" r="3"/><circle cx="23" cy="6" r="3"/><path d="M8 20 20 8"/></svg><span>Связь</span></button>
+        </div>
+      </div>
+      <div class="zoom-controls" id="zoomControls" hidden>
+        <button id="zoomIn" type="button" aria-label="Увеличить">+</button><span class="zoom-label" id="zoomLabel">100%</span>
+        <button id="zoomOut" type="button" aria-label="Уменьшить">−</button>
+        <button id="fitMap" type="button" aria-label="Уместить схему" title="Уместить схему">⌗</button>
+      </div>
+      <div class="status" id="statusLine" role="status" aria-live="polite">Загрузка схемы…</div>
+      <div class="hint" id="hint">Колесо — масштаб · Фон — перемещение · Нажмите на модуль или связь для описания</div>
     </div>
-    <div class="actions">
-      <button id="undoAction" type="button" disabled>ОТМЕНИТЬ</button>
-      <button id="resolveConflict" type="button" hidden>СОХРАНИТЬ МОЙ ЧЕРНОВИК</button>
-      <button class="primary" id="saveGraph" type="button" disabled>СОХРАНИТЬ</button>
-    </div>
-  </div>
-  <div class="status" id="statusLine" role="status" aria-live="polite">Загрузка схемы…</div>
-  <main class="viewport" id="viewport">
-    <svg id="map" xmlns="http://www.w3.org/2000/svg" aria-label="Диаграмма поведения агента Telegram" role="group" tabindex="0" hidden></svg>
-    <div class="state" id="state" role="status"><p id="stateText">Загрузка диаграммы…</p><a href="/" id="loginLink" hidden>Открыть CRM и войти</a></div>
-    <div class="hint" id="hint">Колесо — масштаб · Фон — перемещение · Нажмите на модуль или связь для описания</div>
-    <div class="detail-layer" id="detailLayer" hidden>
-      <div class="detail-backdrop" id="detailBackdrop"></div>
-      <section class="detail" id="detail" role="dialog" aria-modal="true" aria-labelledby="detailTitle" tabindex="-1">
-        <header><div><span class="detail-code" id="detailCode"></span><h2 id="detailTitle"></h2></div><button class="detail-close" id="closeDetail" type="button" aria-label="Закрыть">×</button></header>
-        <p id="detailDescription"></p>
-        <form id="detailForm" hidden>
-          <label for="detailTitleInput" id="detailTitleLabel">Название</label>
-          <input id="detailTitleInput" maxlength="120" autocomplete="off">
-          <label for="detailDescriptionInput">Описание</label>
-          <textarea id="detailDescriptionInput" maxlength="10000"></textarea>
-          <div class="detail-actions">
-            <button class="danger" id="deleteDetail" type="button">УДАЛИТЬ</button>
-            <div class="right"><button id="cancelDetail" type="button">ОТМЕНА</button><button class="primary" id="applyDetail" type="submit">ПРИМЕНИТЬ</button></div>
-          </div>
-        </form>
-      </section>
-    </div>
+    <aside class="inspector" id="inspector" aria-label="Свойства и история схемы">
+      <div class="inspector-scroll">
+        <div class="inspector-empty" id="inspectorEmpty"><h2>Свойства элемента</h2><p>Выберите модуль или связь на схеме, чтобы прочитать и изменить описание.</p></div>
+        <div class="detail-layer" id="detailLayer" hidden>
+          <div class="detail-backdrop" id="detailBackdrop" hidden></div>
+          <section class="detail" id="detail" role="region" aria-labelledby="detailCode">
+            <header><div><span class="detail-code" id="detailCode"></span><h2 id="detailTitle"></h2></div><button class="detail-close" id="closeDetail" type="button" aria-label="Снять выбор">×</button></header>
+            <p id="detailDescription"></p>
+            <form id="detailForm" hidden>
+              <label for="detailTitleInput" id="detailTitleLabel">Название</label>
+              <input id="detailTitleInput" maxlength="120" autocomplete="off">
+              <label for="detailDescriptionInput">Описание</label>
+              <textarea id="detailDescriptionInput" maxlength="10000"></textarea>
+              <label for="detailIconInput" id="detailIconLabel">Иконка</label>
+              <select id="detailIconInput"><option value="">Автоматически</option><option value="telegram">Telegram</option><option value="message">Сообщение</option><option value="bell">Уведомление</option><option value="people">Люди</option><option value="person">Человек</option><option value="gateway">Вход</option><option value="document">Документ</option><option value="terminal">Терминал</option><option value="globe">Интернет</option><option value="gear">Настройка</option><option value="book">Книга</option><option value="database">База данных</option><option value="car">Автомобиль</option><option value="cloud">Облако</option><option value="cart">Корзина</option><option value="box">Запчасть</option><option value="plug">Подключение</option><option value="camera">Камера</option><option value="photo">Фото</option><option value="audio">Аудио</option><option value="video">Видео</option><option value="clock">Часы</option><option value="brain">Анализ</option><option value="decision">Решение</option><option value="note">Заметка</option></select>
+              <div class="detail-actions"><button class="danger" id="deleteDetail" type="button">Удалить</button><div class="right"><button id="cancelDetail" type="button">Отмена</button><button class="primary" id="applyDetail" type="submit">Применить</button></div></div>
+            </form>
+          </section>
+        </div>
+        <section class="conflict-panel" id="conflictPanel" hidden><strong>Есть новая версия схемы</strong><p id="conflictDiff"></p><button id="resolveConflict" type="button">Перенести мои правки</button></section>
+        <section class="history"><h2>История изменений</h2><div class="history-list" id="historyList"><p class="history-empty">Загрузка истории…</p></div></section>
+      </div>
+    </aside>
   </main>
   <script>
   (() => {
     'use strict';
     const NS='http://www.w3.org/2000/svg';
     const SCHEMA='autostopcrm.telegram-agent-behavior.v2';
-    const COLORS={B:'#73c4e8',A:'#8ed6ad',agent:'#5ecde9',E:'#ec8492'};
+    const COLORS={A:'#81d7a8',agent:'#42c8ef',B:'#39c7f2',C:'#d4bd7a',D:'#b5a6e7',E:'#ef798e',F:'#e7a475',G:'#80dbad',H:'#adcaee',J:'#78bccb',N:'#b3bdca'};
     const $=id=>document.getElementById(id);
     const svg=$('map');
     let graph=null,revision=null,canEdit=false,editing=false,tool='select',view=null;
     let drag=null,selection=null,pendingFrom=null,pointerPoint=null,modalTarget=null,previousFocus=null;
-    let undoStack=[],savedJSON='',dirty=false,saveInFlight=false,conflict=false;
+    let undoStack=[],redoStack=[],savedJSON='',baseGraph=null,serverShadow=null,history=[],dirty=false,saveInFlight=false,refreshInFlight=false,conflict=false;
     const copy=value=>JSON.parse(JSON.stringify(value));
     const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
     const el=(name,attrs={},content)=>{
@@ -159,11 +291,17 @@
     function syncDirty(){dirty=graphJSON()!==savedJSON;updateControls();}
     function updateControls(){
       $('editToggle').hidden=!canEdit;
-      $('editToggle').textContent=editing?'ЗАВЕРШИТЬ РЕДАКТИРОВАНИЕ':'РЕДАКТИРОВАТЬ';
+      $('editToggle').textContent=editing?'ПРОСМОТР':'РЕДАКТИРОВАТЬ';
       $('editorBar').hidden=!editing;
-      $('undoAction').disabled=!editing||!undoStack.length||saveInFlight;
-      $('saveGraph').disabled=!editing||!dirty||saveInFlight||conflict;
-      $('resolveConflict').hidden=!editing||!conflict;
+      $('ownerBadge').hidden=!canEdit;
+      $('saveGraph').hidden=!canEdit;
+      $('undoAction').disabled=!editing||(!undoStack.length&&!inspectorDraftChanged())||saveInFlight;
+      $('redoAction').disabled=!editing||!redoStack.length||saveInFlight;
+      $('saveGraph').disabled=!editing||(!dirty&&!inspectorDraftChanged())||saveInFlight||conflict;
+      $('conflictPanel').hidden=!conflict;
+      $('revisionStatus').textContent=((dirty||inspectorDraftChanged())?'Черновик · ':'Сохранено · ')+'версия '+(revision??'—');
+      $('revisionStatus').classList.toggle('is-dirty',(dirty||inspectorDraftChanged())&&!conflict);
+      $('revisionStatus').classList.toggle('is-conflict',conflict);
       for(const [name,id] of Object.entries({select:'toolSelect',rect:'toolRect',connect:'toolConnect'})){
         const button=$(id);
         button.classList.toggle('is-active',tool===name);
@@ -180,15 +318,25 @@
     function recordChange(before){
       if(JSON.stringify(before)===graphJSON())return;
       undoStack.push(before);if(undoStack.length>50)undoStack.shift();
+      redoStack=[];
       syncDirty();
       setStatus('Есть несохранённые изменения.');
     }
     function undo(){
-      if(!undoStack.length||saveInFlight)return;
-      graph=undoStack.pop();selection=null;pendingFrom=null;renderGraph();syncDirty();
+      if(saveInFlight||!commitInspectorDraft()||!undoStack.length)return;
+      redoStack.push(copy(graph));graph=undoStack.pop();selection=null;pendingFrom=null;modalTarget=null;closeDetail();renderGraph();syncDirty();
       setStatus(dirty?'Последнее действие отменено. Есть несохранённые изменения.':'Изменения отменены.');
     }
-    function setView(){if(view)svg.setAttribute('viewBox',[view.x,view.y,view.width,view.height].join(' '));}
+    function redo(){
+      if(saveInFlight||!commitInspectorDraft()||!redoStack.length)return;
+      undoStack.push(copy(graph));graph=redoStack.pop();selection=null;pendingFrom=null;modalTarget=null;closeDetail();renderGraph();syncDirty();
+      setStatus('Действие повторено.');
+    }
+    function setView(){
+      if(!view)return;
+      svg.setAttribute('viewBox',[view.x,view.y,view.width,view.height].join(' '));
+      $('zoomLabel').textContent=Math.round(graph.canvas.width/view.width*100)+'%';
+    }
     function fit(){if(!graph)return;view={x:0,y:0,width:graph.canvas.width,height:graph.canvas.height};setView();}
     function pointAt(clientX,clientY){
       const point=svg.createSVGPoint();point.x=clientX;point.y=clientY;
@@ -227,13 +375,17 @@
       const b={x:to.x+to.width/2,y:to.y+to.height/2};
       const dx=b.x-a.x,dy=b.y-a.y;
       if(Math.abs(dx)/((from.width+to.width)/2)>=Math.abs(dy)/((from.height+to.height)/2)){
-        return dx>=0
+        const p=dx>=0
           ?{x1:from.x+from.width,y1:a.y,x2:to.x,y2:b.y}
           :{x1:from.x,y1:a.y,x2:to.x+to.width,y2:b.y};
+        const midX=(p.x1+p.x2)/2;
+        return {...p,d:Math.abs(p.y1-p.y2)<2?`M ${p.x1} ${p.y1} L ${p.x2} ${p.y2}`:`M ${p.x1} ${p.y1} H ${midX} V ${p.y2} H ${p.x2}`,labelX:midX,labelY:Math.min(p.y1,p.y2)-15};
       }
-      return dy>=0
+      const p=dy>=0
         ?{x1:a.x,y1:from.y+from.height,x2:b.x,y2:to.y}
         :{x1:a.x,y1:from.y,x2:b.x,y2:to.y+to.height};
+      const midY=(p.y1+p.y2)/2;
+      return {...p,d:`M ${p.x1} ${p.y1} V ${midY} H ${p.x2} V ${p.y2}`,labelX:(p.x1+p.x2)/2,labelY:midY-16};
     }
     function renderEdge(item,scene){
       const from=nodeById(item.from),to=nodeById(item.to);
@@ -241,31 +393,66 @@
       const p=edgePoints(from,to),tone=COLORS[item.tone] ? item.tone:'B';
       const g=el('g',{class:'edge'+(selection?.kind==='edge'&&selection.id===item.id?' is-selected':''),'data-kind':'edge','data-id':item.id,tabindex:'0',role:'button','aria-label':'Связь '+(item.label||item.id),style:'--color:'+COLORS[tone]+';--marker:url(#arrow-'+tone+')'});
       g.append(el('title',{},(item.label||item.id)+' · '+from.title+' → '+to.title));
-      g.append(el('line',{class:'wire',x1:p.x1,y1:p.y,x2:p.x2,y2:p.y}));
-      g.append(el('line',{class:'edge-hit',x1:p.x1,y1:p.y,x2:p.x2,y2:p.y}));
+      g.append(el('path',{class:'wire',d:p.d}));
+      g.append(el('path',{class:'edge-hit',d:p.d}));
+      g.append(el('circle',{class:'connection-port',cx:p.x1,cy:p.y1,r:4}));
       if(item.label){
         const label=item.label.length>36?item.label.slice(0,35)+'…':item.label;
-        const x=(p.x1+p.x2)/2,y=(p.y1+p.y2)/2-17;
+        const x=p.labelX,y=p.labelY;
         const width=Math.max(75,label.length*7.4+20);
         g.append(el('rect',{class:'edge-label',x:x-width/2,y:y-13,width,height:26,rx:5}));
         g.append(el('text',{x,y:y+4,'text-anchor':'middle'},label));
       }
       scene.append(g);
     }
+    const ICON_PATHS={
+      telegram:'M3 13 25 3 19 25 14 17 9 21 10 15 25 3',
+      bell:'M6 20h16l-2-3V11a6 6 0 0 0-12 0v6ZM12 23h4',
+      people:'M11 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM3 23v-3a8 8 0 0 1 16 0v3ZM21 4a4 4 0 0 1 0 8M22 16a6 6 0 0 1 3 5v2',
+      person:'M14 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10ZM5 25v-3a9 9 0 0 1 18 0v3Z',
+      gateway:'M5 25V3h18v22M2 25h24M16 14l4 0m-3-2 3 2-3 2',
+      document:'M6 2h11l5 5v19H6ZM17 2v6h5M10 13h8M10 17h8M10 21h5',
+      terminal:'M3 5h22v18H3ZM7 11l4 3-4 3M14 18h6',
+      globe:'M14 2a12 12 0 1 0 0 24 12 12 0 0 0 0-24ZM2 14h24M14 2c-7 7-7 17 0 24M14 2c7 7 7 17 0 24',
+      gear:'M14 2v3m0 18v3M2 14h3m18 0h3M5.5 5.5l2.2 2.2m12.6 12.6 2.2 2.2M22.5 5.5l-2.2 2.2M7.7 20.3l-2.2 2.2M14 8a6 6 0 1 0 0 12 6 6 0 0 0 0-12Z',
+      book:'M3 4h10a4 4 0 0 1 4 4v17a4 4 0 0 0-4-4H3ZM25 4h-4a4 4 0 0 0-4 4v17a4 4 0 0 1 4-4h4Z',
+      database:'M3 6c0-5 22-5 22 0s-22 5-22 0ZM3 6v16c0 5 22 5 22 0V6M3 14c0 5 22 5 22 0',
+      car:'M4 17 7 8h14l3 9M2 17h24v6H2ZM7 23v3m14-3v3M7 17h2m10 0h2',
+      cloud:'M7 22h15a5 5 0 0 0 0-10 8 8 0 0 0-15-2 6 6 0 0 0 0 12Z',
+      cart:'M2 4h3l3 16h15l3-12H6M11 25a1 1 0 1 0 0 0m10 0a1 1 0 1 0 0 0',
+      box:'M3 8 14 2l11 6v13l-11 6L3 21ZM3 8l11 6 11-6M14 14v13',
+      plug:'M9 3v7m10-7v7M6 10h16v5a8 8 0 0 1-16 0ZM14 23v3',
+      camera:'M3 8h5l2-3h8l2 3h5v17H3ZM14 12a5 5 0 1 0 0 10 5 5 0 0 0 0-10Z',
+      message:'M3 4h22v17H10l-7 5ZM7 9h14M7 14h10',
+      clock:'M14 2a12 12 0 1 0 0 24 12 12 0 0 0 0-24ZM14 7v8l5 3',
+      photo:'M3 4h22v20H3ZM8 11a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM3 21l7-7 5 4 3-3 7 7',
+      audio:'M3 11h5l5-5v16l-5-5H3ZM18 10a6 6 0 0 1 0 8M21 6a11 11 0 0 1 0 16',
+      video:'M3 5h17v18H3ZM20 11l6-4v14l-6-4',
+      brain:'M13 5a5 5 0 0 0-9 3 5 5 0 0 0-1 8 5 5 0 0 0 10 4ZM15 5a5 5 0 0 1 9 3 5 5 0 0 1 1 8 5 5 0 0 1-10 4ZM13 5v19m2-19v19M8 12l4 3m8-3-4 3',
+      decision:'M14 3v8M14 11H5v13M14 11h9v13M2 24h6M20 24h6M11 3h6',
+      note:'M5 3h18v18l-5 5H5ZM18 26v-5h5M9 9h10M9 14h10M9 19h6'
+    };
+    const defaultIcon=id=>({B1:'message',B2:'person',B3:'document',B4:'photo',B5:'decision',B6:'clock'})[id]||'note';
+    function renderIcon(item,g){
+      const icon=ICON_PATHS[item.icon]?item.icon:defaultIcon(item.id);
+      const shape=el('g',{class:'node-icon',transform:'translate(16 36) scale(1.05)'});
+      shape.append(el('path',{d:ICON_PATHS[icon]}));g.append(shape);
+    }
     function renderNode(item,scene){
       const tone=COLORS[item.tone]?item.tone:'B';
       const selected=selection?.kind==='node'&&selection.id===item.id;
       const g=el('g',{class:'node'+(selected?' is-selected':''),transform:'translate('+item.x+' '+item.y+')','data-kind':'node','data-id':item.id,tabindex:'0',role:'button','aria-label':item.id+': '+item.title,style:'--color:'+COLORS[tone]});
       g.append(el('title',{},item.id+' · '+item.title));
-      g.append(el('rect',{class:'node-card',width:item.width,height:item.height,rx:10}));
+      g.append(el('rect',{class:'node-card',width:item.width,height:item.height,rx:7}));
       g.append(el('rect',{class:'node-badge',x:-9,y:-12,width:37,height:23,rx:4}));
       g.append(el('text',{class:'code',x:-3,y:4},item.id));
-      const maxChars=Math.max(10,Math.floor((item.width-28)/9));
+      renderIcon(item,g);
+      const maxChars=Math.max(10,Math.floor((item.width-70)/10));
       const titles=wrap(item.title,maxChars,2);
-      titles.forEach((line,index)=>g.append(el('text',{class:'title',x:16,y:34+index*20},line)));
+      titles.forEach((line,index)=>g.append(el('text',{class:'title',x:56,y:52+index*20},line)));
       if(item.height>=120){
-        const description=wrap(item.description,Math.max(12,Math.floor((item.width-28)/7)),titles.length>1?1:2);
-        description.forEach((line,index)=>g.append(el('text',{class:'line',x:16,y:titles.length>1?83:70+index*19},line)));
+        const description=wrap(item.description,Math.max(12,Math.floor((item.width-30)/8)),titles.length>1?1:2);
+        description.forEach((line,index)=>g.append(el('text',{class:'line',x:16,y:titles.length>1?96:82+index*19},line)));
       }
       if(editing&&tool==='select'&&selected){
         g.append(el('rect',{class:'resize-handle',x:item.width-11,y:item.height-11,width:16,height:16,rx:2,'data-resize':'1','aria-label':'Изменить размер'}));
@@ -295,40 +482,61 @@
       }
       svg.append(scene);setView();svg.removeAttribute('hidden');$('state').hidden=true;
     }
-    function showDetail(kind,id){
-      const item=getItem(kind,id);if(!item)return;
-      selection={kind,id};modalTarget={kind,id};renderGraph();
-      previousFocus=document.activeElement;
-      $('detailCode').textContent=item.id;
-      $('detailTitle').textContent=kind==='node'?item.title:(item.label||'Связь');
+    function populateInspector(){
+      const item=modalTarget&&getItem(modalTarget.kind,modalTarget.id);
+      if(!item){$('detailLayer').hidden=true;$('inspectorEmpty').hidden=false;return;}
+      $('detailLayer').hidden=false;$('inspectorEmpty').hidden=true;
+      $('detailCode').textContent=(modalTarget.kind==='node'?'МОДУЛЬ ':'СВЯЗЬ ')+item.id;
+      $('detailTitle').textContent=modalTarget.kind==='node'?item.title:(item.label||'Связь');
+      $('detailTitle').hidden=editing;
       $('detailDescription').textContent=item.description||'Описание пока не заполнено.';
       $('detailDescription').hidden=editing;
       $('detailForm').hidden=!editing;
       if(editing){
-        $('detailTitleLabel').textContent=kind==='node'?'Название модуля':'Подпись связи';
-        $('detailTitleInput').value=kind==='node'?item.title:item.label;
+        $('detailTitleLabel').textContent=modalTarget.kind==='node'?'Название':'Подпись';
+        $('detailTitleInput').value=modalTarget.kind==='node'?item.title:item.label;
         $('detailDescriptionInput').value=item.description||'';
+        $('detailIconLabel').hidden=modalTarget.kind!=='node';
+        $('detailIconInput').hidden=modalTarget.kind!=='node';
+        $('detailIconInput').value=item.icon||'';
       }
-      $('detailLayer').hidden=false;
-      if(editing)$('detailTitleInput').focus();else $('detail').focus();
+    }
+    function showDetail(kind,id){
+      if(!commitInspectorDraft())return;
+      const item=getItem(kind,id);if(!item)return;
+      selection={kind,id};modalTarget={kind,id};renderGraph();populateInspector();
     }
     function closeDetail(){
-      $('detailLayer').hidden=true;modalTarget=null;
-      if(previousFocus?.isConnected&&previousFocus.focus)previousFocus.focus();else svg.focus();
+      if(!commitInspectorDraft())return;
+      $('detailLayer').hidden=true;$('inspectorEmpty').hidden=false;
+      modalTarget=null;selection=null;renderGraph();
+    }
+    function inspectorDraftChanged(){
+      if(!editing||!modalTarget||$('detailForm').hidden)return false;
+      const item=getItem(modalTarget.kind,modalTarget.id);if(!item)return false;
+      return $('detailTitleInput').value.trim()!==(modalTarget.kind==='node'?item.title:item.label)
+        ||$('detailDescriptionInput').value.trim()!==(item.description||'')
+        ||(modalTarget.kind==='node'&&$('detailIconInput').value!==(item.icon||''));
+    }
+    function commitInspectorDraft(){
+      if(!inspectorDraftChanged())return true;
+      const item=getItem(modalTarget.kind,modalTarget.id);if(!item)return true;
+      const title=$('detailTitleInput').value.trim(),description=$('detailDescriptionInput').value.trim();
+      if(modalTarget.kind==='node'&&!title){$('detailTitleInput').setCustomValidity('Укажите название модуля.');$('detailTitleInput').reportValidity();return false;}
+      $('detailTitleInput').setCustomValidity('');
+      if(title.length>120||description.length>10000){setStatus('Текст превышает допустимый объём.','error');return false;}
+      const before=copy(graph);
+      if(modalTarget.kind==='node')item.title=title;else item.label=title;
+      item.description=description;
+      if(modalTarget.kind==='node'){
+        const icon=$('detailIconInput').value;if(icon)item.icon=icon;else delete item.icon;
+      }
+      recordChange(before);renderGraph();populateInspector();return true;
     }
     function applyDetail(event){
       event.preventDefault();
       if(!modalTarget||!editing||saveInFlight)return;
-      const item=getItem(modalTarget.kind,modalTarget.id);if(!item)return;
-      const title=$('detailTitleInput').value.trim(),description=$('detailDescriptionInput').value.trim();
-      if(modalTarget.kind==='node'&&!title){$('detailTitleInput').setCustomValidity('Укажите название модуля.');$('detailTitleInput').reportValidity();return;}
-      $('detailTitleInput').setCustomValidity('');
-      if(title.length>120||description.length>10000){setStatus('Текст превышает допустимый объём.','error');return;}
-      const before=copy(graph);
-      if(modalTarget.kind==='node')item.title=title;
-      else item.label=title;
-      item.description=description;
-      recordChange(before);renderGraph();closeDetail();
+      commitInspectorDraft();
     }
     function deleteSelected(){
       if(!editing||!selection||saveInFlight)return;
@@ -337,8 +545,7 @@
         graph.elements=graph.elements.filter(item=>item.id!==selection.id);
         graph.relations=graph.relations.filter(item=>item.from!==selection.id&&item.to!==selection.id);
       }else graph.relations=graph.relations.filter(item=>item.id!==selection.id);
-      selection=null;pendingFrom=null;recordChange(before);renderGraph();
-      if(!$('detailLayer').hidden)closeDetail();
+      selection=null;pendingFrom=null;recordChange(before);closeDetail();
     }
     function setTool(next){
       tool=next;pendingFrom=null;pointerPoint=null;drag=null;updateControls();renderGraph();
@@ -353,7 +560,7 @@
       const top=clamp(Math.round(y),0,graph.canvas.height-90);
       const item={id:nextId('M'),title:'Новый модуль',description:'',x:Math.min(left,graph.canvas.width-width),y:Math.min(top,graph.canvas.height-height),width:Math.min(width,graph.canvas.width),height:Math.min(height,graph.canvas.height),tone:'A'};
       const before=copy(graph);graph.elements.push(item);selection={kind:'node',id:item.id};
-      recordChange(before);renderGraph();showDetail('node',item.id);
+      recordChange(before);renderGraph();showDetail('node',item.id);$('detailTitleInput').focus();$('detailTitleInput').select();
     }
     function connectTo(id){
       if(saveInFlight)return;
@@ -370,19 +577,43 @@
       if(includeBody)headers['Content-Type']='application/json';
       return headers;
     }
-    async function fetchGraph(){
-      const response=await fetch('/api/get_telegram_agent_behavior',{method:'GET',headers:operatorHeaders(),credentials:'same-origin',cache:'no-store'});
+    async function fetchGraph(sinceRevision=null){
+      const path='/api/get_telegram_agent_behavior'+(Number.isInteger(sinceRevision)?'?since_revision='+encodeURIComponent(sinceRevision):'');
+      const response=await fetch(path,{method:'GET',headers:operatorHeaders(),credentials:'same-origin',cache:'no-store'});
       const result=await response.json();
       if(response.status===401||response.status===403)throw new Error('auth');
-      if(!response.ok||result.ok!==true||!result.data?.graph||!Number.isInteger(result.data.revision))throw new Error('data');
+      if(!response.ok||result.ok!==true||!Number.isInteger(result.data?.revision))throw new Error('data');
+      if(!result.data.unchanged&&!result.data.graph)throw new Error('data');
       return result.data;
+    }
+    function renderHistory(entries){
+      history=Array.isArray(entries)?entries.slice(0,20):[];
+      const list=$('historyList');list.replaceChildren();
+      if(!history.length){const empty=document.createElement('p');empty.className='history-empty';empty.textContent='Сохранений пока нет.';list.append(empty);return;}
+      for(const entry of history){
+        const card=document.createElement('article');card.className='history-item';
+        const title=document.createElement('strong');title.textContent='Версия '+entry.revision+' · '+(entry.actor||'CRM');
+        const description=document.createElement('div');description.textContent=entry.summary||'Схема изменена';
+        const meta=document.createElement('small');
+      let date='';if(entry.timestamp){const parsed=new Date(entry.timestamp);if(!Number.isNaN(parsed.getTime()))date=parsed.toLocaleString('ru-RU',{dateStyle:'short',timeStyle:'short'});}
+        meta.textContent=[date,entry.source==='agent'?'Агент':'CRM'].filter(Boolean).join(' · ');
+        card.append(title,description,meta);list.append(card);
+      }
     }
     function acceptServer(data){
       if(data.graph.schema_version!==SCHEMA||!Array.isArray(data.graph.elements)||!Array.isArray(data.graph.relations))throw new Error('schema');
       graph=copy(data.graph);revision=data.revision;canEdit=data.can_edit===true;
-      savedJSON=graphJSON();dirty=false;conflict=false;undoStack=[];selection=null;pendingFrom=null;
-      renderGraph();fit();updateControls();
-      setStatus(canEdit?'Схема загружена. Для изменения нажмите «Редактировать».':'Схема доступна для просмотра.','success');
+      editing=canEdit;savedJSON=graphJSON();baseGraph=copy(graph);serverShadow=null;
+      dirty=false;conflict=false;undoStack=[];redoStack=[];selection=null;pendingFrom=null;modalTarget=null;
+      $('detailLayer').hidden=true;$('inspectorEmpty').hidden=false;$('zoomControls').hidden=false;
+      renderHistory(data.history);
+      renderGraph();fit();
+      if(window.matchMedia('(max-width:720px)').matches){view={x:0,y:0,width:650,height:1100};setView();}
+      updateControls();
+      const preferred=window.matchMedia('(max-width:720px)').matches?'B1':'B4';
+      const first=graph.elements.find(item=>item.id===preferred)||graph.elements[0];
+      if(first)showDetail('node',first.id);
+      setStatus(canEdit?'Схема загружена. Выберите модуль или нарисуйте новый.':'Схема доступна для просмотра.','success');
     }
     async function load(){
       try{acceptServer(await fetchGraph());}
@@ -392,63 +623,147 @@
         setStatus('Схема не загружена.','error');
       }
     }
-    function validateGraph(){
-      if(graph.elements.length>200||graph.relations.length>400)return 'Слишком много модулей или связей.';
+    function validateGraph(candidate=graph){
+      if(candidate.elements.length>200||candidate.relations.length>400)return 'Слишком много модулей или связей.';
       const ids=new Set(),nodeIds=new Set();
-      for(const item of graph.elements){
+      for(const item of candidate.elements){
         if(ids.has(item.id))return 'Повторяется ID модуля.';ids.add(item.id);nodeIds.add(item.id);
         if(!item.title.trim()||item.title.length>120||item.description.length>10000)return 'Проверьте название и текст модулей.';
-        if(item.width<140||item.width>2000||item.height<90||item.height>1200||item.x<0||item.y<0||item.x+item.width>graph.canvas.width||item.y+item.height>graph.canvas.height)return 'Один из модулей выходит за пределы холста.';
+        if(item.width<140||item.width>2000||item.height<90||item.height>1200||item.x<0||item.y<0||item.x+item.width>candidate.canvas.width||item.y+item.height>candidate.canvas.height)return 'Один из модулей выходит за пределы холста.';
       }
-      for(const item of graph.relations){
+      for(const item of candidate.relations){
         if(ids.has(item.id))return 'Повторяется ID связи.';ids.add(item.id);
-        if(!nodeIds.has(item.from)||!nodeIds.has(item.to)||item.from===item.to)return 'Связь должна соединять два разных модуля.';
+        if(!nodeIds.has(item.from)||!nodeIds.has(item.to)||item.from===item.to)return 'Связь '+item.id+' должна соединять два существующих разных модуля.';
         if(item.label.length>120||item.description.length>10000)return 'Текст связи превышает допустимый объём.';
       }
       return '';
+    }
+    function changedIds(before,after,key){
+      const old=new Map((before?.[key]||[]).map(item=>[item.id,item]));
+      const current=new Map((after?.[key]||[]).map(item=>[item.id,item]));
+      return new Set([...old.keys(),...current.keys()].filter(id=>JSON.stringify(old.get(id))!==JSON.stringify(current.get(id))));
+    }
+    function localChanges(before,after){
+      return {elements:changedIds(before,after,'elements'),relations:changedIds(before,after,'relations'),canvas:JSON.stringify(before?.canvas)!==JSON.stringify(after?.canvas)};
+    }
+    function changedText(changes){
+      const ids=[...changes.elements,...changes.relations];
+      return ids.length?ids.slice(0,18).join(', ')+(ids.length>18?'…':'')+(changes.canvas?' и холст':''):(changes.canvas?'размер холста':'нет');
+    }
+    function overlapDetails(overlaps,latest){
+      const readable=value=>value===undefined?'удалено':String(value).replace(/\s+/g,' ').slice(0,90);
+      return overlaps.slice(0,8).map(id=>{
+        if(id==='холст')return 'Холст: локально '+JSON.stringify(graph.canvas)+' / CRM '+JSON.stringify(latest.graph.canvas);
+        const local=[...graph.elements,...graph.relations].find(item=>item.id===id);
+        const remote=[...latest.graph.elements,...latest.graph.relations].find(item=>item.id===id);
+        if(!local||!remote)return id+': локально '+readable(local&&'сохранён')+' / CRM '+readable(remote&&'сохранён');
+        const fields=[...new Set([...Object.keys(local),...Object.keys(remote)])].filter(key=>key!=='id'&&JSON.stringify(local[key])!==JSON.stringify(remote[key]));
+        return id+': '+fields.slice(0,6).map(key=>key+' — моё «'+readable(local[key])+'», CRM «'+readable(remote[key])+'»').join('; ');
+      }).join('\n');
+    }
+    function showConflict(latest){
+      serverShadow=copy(latest);conflict=true;
+      renderHistory(latest.history);
+      const local=localChanges(baseGraph,graph),remote=localChanges(baseGraph,latest.graph);
+      const overlaps=[...local.elements].filter(id=>remote.elements.has(id)).concat([...local.relations].filter(id=>remote.relations.has(id)));
+      if(local.canvas&&remote.canvas)overlaps.push('холст');
+      $('conflictDiff').textContent='На сервере версия '+latest.revision+'. Ваш черновик остался в этой вкладке.\nМои правки: '+changedText(local)+'.\nНовая версия: '+changedText(remote)+'.'+(overlaps.length?'\nПересечения:\n'+overlapDetails(overlaps,latest):'\nПересечений нет: можно перенести правки на новую версию.');
+      updateControls();setStatus('Схема обновилась в CRM. Ваш черновик сохранён в этой вкладке.','error');
+    }
+    function mergeCollection(remote,local,ids){
+      const result=copy(remote),byId=new Map(local.map(item=>[item.id,item]));
+      for(const id of ids){
+        const index=result.findIndex(item=>item.id===id),item=byId.get(id);
+        if(item&&index>=0)result[index]=copy(item);
+        else if(item)result.push(copy(item));
+        else if(index>=0)result.splice(index,1);
+      }
+      return result;
+    }
+    async function resolveConflict(){
+      if(!conflict||!dirty||saveInFlight)return;
+      saveInFlight=true;updateControls();
+      try{
+        const latest=await fetchGraph();
+        if(!latest.can_edit){canEdit=false;editing=false;updateControls();setStatus('Нет доступа к сохранению схемы.','error');return;}
+        const local=localChanges(baseGraph,graph),remote=localChanges(baseGraph,latest.graph);
+        const overlaps=[...local.elements].filter(id=>remote.elements.has(id)).concat([...local.relations].filter(id=>remote.relations.has(id)));
+        if(local.canvas&&remote.canvas)overlaps.push('холст');
+        if(overlaps.length&&!window.confirm('Эти элементы изменены и вами, и в новой версии: '+overlaps.join(', ')+'.\nПеренести в них ваш черновик поверх новой версии?')){
+          showConflict(latest);return;
+        }
+        const merged=copy(latest.graph);
+        merged.elements=mergeCollection(merged.elements,graph.elements,local.elements);
+        merged.relations=mergeCollection(merged.relations,graph.relations,local.relations);
+        if(local.canvas)merged.canvas=copy(graph.canvas);
+        const validation=validateGraph(merged);
+        if(validation){showConflict(latest);setStatus('Не удалось перенести черновик: '+validation,'error');return;}
+        graph=merged;revision=latest.revision;baseGraph=copy(latest.graph);savedJSON=JSON.stringify(latest.graph);
+        conflict=false;serverShadow=null;undoStack=[];redoStack=[];renderHistory(latest.history);
+        if(modalTarget&&!getItem(modalTarget.kind,modalTarget.id))modalTarget=null;
+        renderGraph();populateInspector();syncDirty();
+        setStatus('Правки перенесены на версию '+revision+'. Нажмите «Сохранить».','success');
+      }catch(_error){setStatus('Не удалось получить новую версию. Черновик остался в этой вкладке.','error');}
+      finally{saveInFlight=false;updateControls();}
+    }
+    function applyRemoteClean(latest){
+      graph=copy(latest.graph);revision=latest.revision;canEdit=latest.can_edit===true;
+      if(!canEdit)editing=false;
+      savedJSON=graphJSON();baseGraph=copy(graph);dirty=false;conflict=false;serverShadow=null;undoStack=[];redoStack=[];
+      renderHistory(latest.history);
+      if(modalTarget&&!getItem(modalTarget.kind,modalTarget.id))modalTarget=null;
+      renderGraph();populateInspector();updateControls();
+      setStatus('Схема обновлена до версии '+revision+'.','success');
+    }
+    async function refreshGraph(){
+      if(!graph||saveInFlight||refreshInFlight||drag||document.hidden)return;
+      if($('detailForm').contains(document.activeElement)&&inspectorDraftChanged())return;
+      if(!commitInspectorDraft())return;
+      refreshInFlight=true;
+      try{
+        const latest=await fetchGraph(revision);
+        if(saveInFlight||latest.revision<revision)return;
+        if(latest.unchanged){renderHistory(latest.history);if(latest.can_edit!==canEdit){canEdit=latest.can_edit===true;if(!canEdit)editing=false;updateControls();}return;}
+        if(latest.revision===revision)return;
+        if(conflict&&serverShadow?.revision===latest.revision){renderHistory(latest.history);return;}
+        if(dirty)showConflict(latest);else applyRemoteClean(latest);
+      }catch(error){if(error.message==='auth')setStatus('Сессия CRM закончилась. Черновик остаётся в этой вкладке.','error');}
+      finally{refreshInFlight=false;}
     }
     async function reconcileUncertainSave(){
       try{
         const latest=await fetchGraph();
         if(JSON.stringify(latest.graph)===graphJSON()){
-          revision=latest.revision;savedJSON=graphJSON();dirty=false;conflict=false;undoStack=[];updateControls();
+          revision=latest.revision;savedJSON=graphJSON();baseGraph=copy(graph);dirty=false;conflict=false;undoStack=[];redoStack=[];renderHistory(latest.history);updateControls();
           setStatus('Сохранение подтверждено повторным чтением схемы.','success');
           return;
         }
-        if(latest.revision!==revision){conflict=true;updateControls();setStatus('Версия схемы изменилась. Ваш черновик остался в этой вкладке.','error');return;}
+        if(latest.revision!==revision){showConflict(latest);return;}
       }catch(_error){/* Keep the local draft when readback is unavailable. */}
       setStatus('Не удалось подтвердить сохранение. Черновик остался в этой вкладке. Проверьте соединение перед повтором.','error');
     }
     async function saveGraph(){
-      if(!canEdit||!editing||!dirty||saveInFlight||conflict)return;
+      if(!canEdit||!editing||saveInFlight||conflict||(!dirty&&!inspectorDraftChanged()))return;
+      if(!commitInspectorDraft())return;
       const error=validateGraph();if(error){setStatus(error,'error');return;}
       saveInFlight=true;updateControls();setStatus('Сохранение схемы…');
       try{
         const response=await fetch('/api/save_telegram_agent_behavior',{method:'POST',headers:operatorHeaders(true),credentials:'same-origin',body:JSON.stringify({graph,expected_revision:revision})});
         let result=null;try{result=await response.json();}catch(_error){}
-        if(response.status===409){conflict=true;setStatus('Схему изменили в другой вкладке. Ваш черновик остался здесь.','error');return;}
+        if(response.status===409){try{showConflict(await fetchGraph());}catch(_error){conflict=true;$('conflictDiff').textContent='Схему изменили в CRM. Не удалось загрузить новую версию для сравнения; черновик остался в этой вкладке.';updateControls();setStatus('Схему изменили в другой вкладке. Черновик остался здесь.','error');}return;}
         if(response.status===401||response.status===403){canEdit=false;editing=false;setStatus('Сессия владельца закончилась. Черновик остался в этой вкладке.','error');return;}
         if(response.status===400||response.status===422){setStatus('Сервер отклонил схему. Проверьте модули и связи. Черновик остался здесь.','error');return;}
         if(!response.ok||result?.ok!==true||!result.data?.graph||!Number.isInteger(result.data.revision)){
           await reconcileUncertainSave();return;
         }
         graph=copy(result.data.graph);revision=result.data.revision;canEdit=result.data.can_edit===true;
-        savedJSON=graphJSON();dirty=false;undoStack=[];conflict=false;selection=null;renderGraph();
+        savedJSON=graphJSON();baseGraph=copy(graph);dirty=false;undoStack=[];redoStack=[];conflict=false;serverShadow=null;renderHistory(result.data.history);renderGraph();populateInspector();
         setStatus('Схема сохранена. Версия '+revision+'.','success');
       }catch(_error){await reconcileUncertainSave();}
       finally{saveInFlight=false;updateControls();}
     }
-    async function resolveConflict(){
-      if(!conflict||!dirty||saveInFlight)return;
-      if(!window.confirm('Схема изменилась в другой вкладке. Ваш текущий черновик заменит сохранённую версию. Продолжить?'))return;
-      try{
-        const latest=await fetchGraph();
-        if(!latest.can_edit){canEdit=false;editing=false;setStatus('Нет доступа к сохранению схемы.','error');updateControls();return;}
-        revision=latest.revision;conflict=false;updateControls();await saveGraph();
-      }catch(_error){setStatus('Не удалось получить новую версию. Черновик остался в этой вкладке.','error');}
-    }
     function onPointerDown(event){
-      if(!graph||saveInFlight||event.button!==0||!$('detailLayer').hidden)return;
+      if(!graph||saveInFlight||event.button!==0||!commitInspectorDraft())return;
       const target=event.target.closest('[data-kind]');
       const point=pointAt(event.clientX,event.clientY);
       if(editing&&tool==='connect'){
@@ -474,7 +789,7 @@
         }
         return;
       }
-      selection=null;renderGraph();
+      closeDetail();
       const scale=svg.getScreenCTM()?.a||1;
       drag={kind:'pan',pointerId:event.pointerId,startClient:{x:event.clientX,y:event.clientY},startView:{...view},unit:1/Math.abs(scale)};
       svg.classList.add('is-panning');svg.setPointerCapture(event.pointerId);
@@ -514,8 +829,8 @@
       if(active.kind==='rect'){
         renderGraph();createRectangle(active.start,pointAt(event.clientX,event.clientY));
       }else if(active.kind==='move'||active.kind==='resize'){
-        if(JSON.stringify(active.before)!==graphJSON()){recordChange(active.before);renderGraph();}
-        else showDetail('node',active.id);
+        if(JSON.stringify(active.before)!==graphJSON())recordChange(active.before);
+        showDetail('node',active.id);
       }else if(active.kind==='open'){
         const distance=Math.hypot(event.clientX-active.startClient.x,event.clientY-active.startClient.y);
         if(distance<=5)showDetail(active.target.kind,active.target.id);
@@ -527,18 +842,22 @@
       drag=null;svg.classList.remove('is-panning');renderGraph();
     }
     $('fitMap').addEventListener('click',fit);
-    $('editToggle').addEventListener('click',()=>{if(!canEdit)return;editing=!editing;setTool('select');setStatus(dirty?'Есть несохранённые изменения.':'Режим '+(editing?'редактирования':'просмотра')+'.');});
+    $('zoomIn').addEventListener('click',()=>{const box=svg.getBoundingClientRect();zoomAt(1.2,box.left+box.width/2,box.top+box.height/2);});
+    $('zoomOut').addEventListener('click',()=>{const box=svg.getBoundingClientRect();zoomAt(1/1.2,box.left+box.width/2,box.top+box.height/2);});
+    $('editToggle').addEventListener('click',()=>{if(!canEdit||!commitInspectorDraft())return;editing=!editing;setTool('select');populateInspector();setStatus(dirty?'Есть несохранённые изменения.':'Режим '+(editing?'редактирования':'просмотра')+'.');});
     $('toolSelect').addEventListener('click',()=>setTool('select'));
     $('toolRect').addEventListener('click',()=>setTool('rect'));
     $('toolConnect').addEventListener('click',()=>setTool('connect'));
     $('undoAction').addEventListener('click',undo);
+    $('redoAction').addEventListener('click',redo);
     $('saveGraph').addEventListener('click',saveGraph);
     $('resolveConflict').addEventListener('click',resolveConflict);
     $('closeDetail').addEventListener('click',closeDetail);
-    $('cancelDetail').addEventListener('click',closeDetail);
+    $('cancelDetail').addEventListener('click',()=>{populateInspector();updateControls();});
     $('detailBackdrop').addEventListener('click',closeDetail);
     $('detailForm').addEventListener('submit',applyDetail);
     $('detailTitleInput').addEventListener('input',()=>{$('detailTitleInput').setCustomValidity('');});
+    for(const id of ['detailTitleInput','detailDescriptionInput','detailIconInput'])$(id).addEventListener('input',updateControls);
     $('deleteDetail').addEventListener('click',deleteSelected);
     svg.addEventListener('wheel',event=>{event.preventDefault();zoomAt(event.deltaY<0?1.12:.89,event.clientX,event.clientY);},{passive:false});
     svg.addEventListener('pointerdown',onPointerDown);
@@ -557,10 +876,13 @@
       }
       const tag=document.activeElement?.tagName;
       if(tag==='INPUT'||tag==='TEXTAREA')return;
-      if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='z'&&editing){event.preventDefault();undo();}
-      if((event.key==='Delete'||event.key==='Backspace')&&editing&&selection&&$('detailLayer').hidden){event.preventDefault();deleteSelected();}
+      if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='z'&&editing){event.preventDefault();if(event.shiftKey)redo();else undo();}
+      if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='y'&&editing){event.preventDefault();redo();}
+      if((event.key==='Delete'||event.key==='Backspace')&&editing&&selection){event.preventDefault();deleteSelected();}
     });
-    window.addEventListener('beforeunload',event=>{if(dirty){event.preventDefault();event.returnValue='';}});
+    window.addEventListener('beforeunload',event=>{if(dirty||inspectorDraftChanged()){event.preventDefault();event.returnValue='';}});
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshGraph();});
+    window.setInterval(refreshGraph,12000);
     load();
   })();
   </script>
