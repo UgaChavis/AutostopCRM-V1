@@ -286,6 +286,33 @@ class ChangeFeedCanonicalRouteContractTests(unittest.TestCase):
             entity_types={"completion_act_form"},
         )
 
+    def _exercise_telegram_behavior_route(self) -> None:
+        with patch.dict(os.environ, {"AUTOSTOP_TELEGRAM_BEHAVIOR_OWNER_LOGIN": "route-admin"}):
+            current = self.service.get_telegram_agent_behavior(
+                {"_operator_session": self.admin_session}
+            )
+            graph = current["graph"]
+            graph["elements"][0]["description"] = "Текст владельца для изолированной схемы"
+            saved = self._invoke(
+                "/api/save_telegram_agent_behavior",
+                {
+                    "graph": graph,
+                    "expected_revision": current["revision"],
+                    "_operator_session": self.admin_session,
+                },
+                producers={"audit_event"},
+                entity_types={"board"},
+            )
+            self.assertEqual(saved["revision"], current["revision"] + 1)
+            self.assertEqual(self.service.get_telegram_agent_behavior()["graph"], graph)
+            self.assertNotIn(
+                "Текст владельца для изолированной схемы",
+                str(self.store.change_feed_store.raw_events_for_test()),
+            )
+
+    def test_telegram_behavior_owner_save_emits_bounded_audit_feed_event(self) -> None:
+        self._exercise_telegram_behavior_route()
+
     def test_registry_routes_commit_and_replay_exact_temp_state_mutations(self) -> None:
         state_producers = {"audit_event", "state_projection"}
 
@@ -717,6 +744,7 @@ class ChangeFeedCanonicalRouteContractTests(unittest.TestCase):
             producers=state_producers,
             entity_types={"board", "board_settings"},
         )
+        self._exercise_telegram_behavior_route()
 
         canonical_routes = set(build_producer_inventory()["canonical_route_contract_routes"])
         self.assertEqual(

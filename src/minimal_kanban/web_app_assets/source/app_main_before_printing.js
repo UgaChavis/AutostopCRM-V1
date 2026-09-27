@@ -667,6 +667,7 @@
       boardScaleReset: document.getElementById('boardScaleReset'),
       openDisplayDashboardButton: document.getElementById('openDisplayDashboardButton'),
       openModuleMapSettingsButton: document.getElementById('openModuleMapSettingsButton'),
+      openTelegramAgentBehaviorSettingsButton: document.getElementById('openTelegramAgentBehaviorSettingsButton'),
       editDisplayDashboardMessageButton: document.getElementById('editDisplayDashboardMessageButton'),
       displayDashboardMessageModal: document.getElementById('displayDashboardMessageModal'),
       displayDashboardMessageMeta: document.getElementById('displayDashboardMessageMeta'),
@@ -14947,6 +14948,15 @@
       const popup = window.open('/module-map', 'autostop-module-map');
       if (!popup) {
         setStatus('БРАУЗЕР ЗАБЛОКИРОВАЛ ОКНО ИНФРАСТРУКТУРЫ МЕНЕДЖЕРА.', true);
+        return;
+      }
+      popup.focus();
+    }
+
+    function openTelegramAgentBehavior() {
+      const popup = window.open('/telegram-agent-behavior', 'autostop-telegram-agent-behavior');
+      if (!popup) {
+        setStatus('БРАУЗЕР ЗАБЛОКИРОВАЛ ОКНО ИНФРАСТРУКТУРЫ ПОВЕДЕНИЯ TELEGRAM.', true);
         return;
       }
       popup.focus();

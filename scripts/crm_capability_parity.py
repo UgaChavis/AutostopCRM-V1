@@ -52,9 +52,11 @@ ALLOWED_INTENTIONAL_EXEMPTIONS = frozenset(
         "/api/login_operator",
         "/api/logout_operator",
         "/api/reset_employee_salary_balance",
+        "/api/save_telegram_agent_behavior",
         "/api/update_personal_board_preferences",
     }
 )
+POST_BASELINE_HUMAN_EXEMPTIONS = frozenset({"/api/save_telegram_agent_behavior"})
 READ_OPERATION_OVERRIDES = frozenset(
     {
         "/api/attachment",
@@ -605,12 +607,12 @@ def build_inventory(
                 f"Expected the reviewed 15-gap baseline, found {len(baseline_gaps)}.",
             )
         )
-    if not set(exemptions) <= set(baseline_gaps):
+    if not set(exemptions) <= set(baseline_gaps) | set(POST_BASELINE_HUMAN_EXEMPTIONS):
         issues.append(
             _issue(
                 "exemption_not_in_baseline",
                 "manifest",
-                "Every exemption must refer to one reviewed baseline gap.",
+                "Every exemption must be a reviewed baseline gap or owner-only route.",
             )
         )
 

@@ -68,6 +68,7 @@ from ..web_assets import (
     DISPLAY_DASHBOARD_HTML,
     MODULE_MAP_HTML,
     MODULE_MAP_INFRASTRUCTURE,
+    TELEGRAM_AGENT_BEHAVIOR_HTML,
 )
 from .automation_center import build_automation_center_routes
 from .change_feed import (
@@ -431,13 +432,18 @@ def _display_dashboard_html_gzip_bytes() -> bytes:
 
 
 @cache
-def _module_map_html_bytes() -> bytes:
-    return MODULE_MAP_HTML.encode("utf-8")
+def _infrastructure_html_bytes(telegram_page: bool) -> bytes:
+    html = TELEGRAM_AGENT_BEHAVIOR_HTML if telegram_page else MODULE_MAP_HTML
+    return html.encode("utf-8")
 
 
 @cache
+def _infrastructure_html_gzip_bytes(telegram_page: bool) -> bytes:
+    return gzip.compress(_infrastructure_html_bytes(telegram_page))
+
+
 def _module_map_html_gzip_bytes() -> bytes:
-    return gzip.compress(_module_map_html_bytes())
+    return _infrastructure_html_gzip_bytes(False)
 
 
 def _display_dashboard_shared_file_info(
@@ -795,9 +801,19 @@ class StaticAndDownloadResponder:
             handler.send_response(HTTPStatus.OK)
             handler._send_headers("text/html; charset=utf-8", len(body))
             return True
-        if route in {"/module-map", "/module-map/"}:
+        if route in {
+            "/module-map",
+            "/module-map/",
+            "/telegram-agent-behavior",
+            "/telegram-agent-behavior/",
+        }:
             gzip_ok = _accepts_gzip(handler.headers.get("Accept-Encoding", ""))
-            body = _module_map_html_gzip_bytes() if gzip_ok else _module_map_html_bytes()
+            telegram_page = route.startswith("/telegram-agent-behavior")
+            body = (
+                _infrastructure_html_gzip_bytes(telegram_page)
+                if gzip_ok
+                else _infrastructure_html_bytes(telegram_page)
+            )
             extra_headers = {"Vary": "Accept-Encoding"}
             if gzip_ok:
                 extra_headers["Content-Encoding"] = "gzip"
@@ -861,8 +877,13 @@ class StaticAndDownloadResponder:
         if route in {"/dashboard", "/dashboard/"}:
             self._serve_display_dashboard(handler, request_id)
             return True
-        if route in {"/module-map", "/module-map/"}:
-            self._serve_module_map(handler, request_id)
+        if route in {
+            "/module-map",
+            "/module-map/",
+            "/telegram-agent-behavior",
+            "/telegram-agent-behavior/",
+        }:
+            self._serve_infrastructure_page(handler, request_id)
             return True
         board_asset = _board_asset_bytes(route)
         if board_asset is not None:
@@ -972,9 +993,15 @@ class StaticAndDownloadResponder:
         )
 
     @staticmethod
-    def _serve_module_map(handler: BaseHTTPRequestHandler, request_id: str) -> None:
+    def _serve_infrastructure_page(handler: BaseHTTPRequestHandler, request_id: str) -> None:
         gzip_ok = _accepts_gzip(handler.headers.get("Accept-Encoding", ""))
-        body = _module_map_html_gzip_bytes() if gzip_ok else _module_map_html_bytes()
+        route = urlsplit(handler.path).path or "/module-map"
+        telegram_page = route.startswith("/telegram-agent-behavior")
+        body = (
+            _infrastructure_html_gzip_bytes(telegram_page)
+            if gzip_ok
+            else _infrastructure_html_bytes(telegram_page)
+        )
         extra_headers = {"Vary": "Accept-Encoding"}
         if gzip_ok:
             extra_headers["Content-Encoding"] = "gzip"
@@ -982,7 +1009,7 @@ class StaticAndDownloadResponder:
             body,
             content_type="text/html; charset=utf-8",
             request_id=request_id,
-            route=urlsplit(handler.path).path or "/module-map",
+            route=route,
             extra_headers=extra_headers,
         )
 

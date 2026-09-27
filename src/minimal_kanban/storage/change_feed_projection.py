@@ -331,7 +331,13 @@ def _project_settings(
     board_settings = {
         key: value
         for key, value in settings.items()
-        if key not in {*collection_keys, "ready_column_id", *_PRIVATE_VIEWER_SETTING_KEYS}
+        if key
+        not in {
+            *collection_keys,
+            "ready_column_id",
+            "telegram_agent_behavior",
+            *_PRIVATE_VIEWER_SETTING_KEYS,
+        }
     }
     if _selected(sources, "board_settings", "board"):
         _add(
@@ -615,6 +621,7 @@ def project_crm_source_signatures(state: Mapping[str, Any] | object) -> dict[Sou
             "employee_repair_order_accruals",
             "employee_salary_balance_resets",
             "ready_column_id",
+            "telegram_agent_behavior",
             *_PRIVATE_VIEWER_SETTING_KEYS,
         }
     }

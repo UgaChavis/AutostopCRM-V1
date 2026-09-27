@@ -22,7 +22,12 @@ from .change_feed_gateway import (
 
 RAW_API_PREFIX = "api:"
 RAW_API_WRITE_ROUTES = (
-    PROXIED_WRITE_ROUTES - {"/api/get_repair_order", "/api/reset_employee_salary_balance"}
+    PROXIED_WRITE_ROUTES
+    - {
+        "/api/get_repair_order",
+        "/api/reset_employee_salary_balance",
+        "/api/save_telegram_agent_behavior",
+    }
 ) | CHANGE_FEED_WRITE_ROUTES
 RAW_API_READ_ROUTES = frozenset(
     {
@@ -37,6 +42,7 @@ RAW_API_READ_ROUTES = frozenset(
         "/api/get_ai_chat_knowledge",
         "/api/get_board_revision",
         "/api/get_display_dashboard",
+        "/api/get_telegram_agent_behavior",
         "/api/get_employee_salary_ledger",
         "/api/get_employee_salary_reconciliation",
         "/api/get_employee_salary_report",

@@ -236,6 +236,11 @@ class BoardApiClient:
     def health(self) -> dict:
         return self._request("/api/health", method="GET")
 
+    def get_telegram_agent_behavior(self) -> dict:
+        """Read only the shared behavior diagram, without board or client records."""
+
+        return self._request("/api/get_telegram_agent_behavior", method="GET")
+
     def list_columns(self) -> dict:
         return self._request("/api/list_columns", method="GET")
 

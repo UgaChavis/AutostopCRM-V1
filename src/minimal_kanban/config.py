@@ -167,6 +167,12 @@ def get_default_admin_username() -> str:
     return (os.environ.get("MINIMAL_KANBAN_DEFAULT_ADMIN_USERNAME") or "admin").strip() or "admin"
 
 
+def get_telegram_behavior_owner_login() -> str:
+    """Configured CRM username allowed to edit the Telegram behavior graph."""
+
+    return (os.environ.get("AUTOSTOP_TELEGRAM_BEHAVIOR_OWNER_LOGIN") or "").strip().upper()
+
+
 def get_default_admin_password() -> str:
     return (os.environ.get("MINIMAL_KANBAN_DEFAULT_ADMIN_PASSWORD") or "admin").strip() or "admin"
 

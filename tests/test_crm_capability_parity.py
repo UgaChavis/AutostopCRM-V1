@@ -44,6 +44,7 @@ INTENTIONAL_HUMAN_SESSION_EXEMPTIONS = {
     "/api/login_operator",
     "/api/logout_operator",
     "/api/reset_employee_salary_balance",
+    "/api/save_telegram_agent_behavior",
     "/api/update_personal_board_preferences",
 }
 
@@ -155,6 +156,16 @@ class CrmCapabilityParityTests(unittest.TestCase):
             "salary_balance_reset permissions",
             rows[route]["decision"]["scope"],
         )
+
+    def test_telegram_behavior_save_is_owner_only_and_absent_from_gateway(self) -> None:
+        route = "/api/save_telegram_agent_behavior"
+        row = {item["route"]: item for item in self.inventory["matrix"]}[route]
+        self.assertNotIn(route, RAW_API_ROUTES)
+        self.assertIsNone(virtual_api_route(f"api:{route}"))
+        self.assertEqual("intentional_exemption", row["status"])
+        self.assertEqual("human_session_boundary", row["readback_class"])
+        self.assertIsNone(row["reachability"]["selected"])
+        self.assertEqual("human_owner_diagram_write", row["decision"]["kind"])
 
     def test_binary_http_actions_have_explicit_document_coverage(self) -> None:
         rows = {row["route"]: row for row in self.inventory["matrix"]}

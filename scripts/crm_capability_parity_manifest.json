@@ -27,6 +27,10 @@
     "/module-map": {
       "kind": "static_module_map"
     },
+    "/telegram-agent-behavior": {
+      "kind": "static_telegram_agent_behavior",
+      "business_data_route": "/api/get_telegram_agent_behavior"
+    },
     "/favicon.ico": {
       "kind": "static_asset"
     },
@@ -325,6 +329,11 @@
       "kind": "human_restricted_financial_action",
       "scope": "interactive browser operator session with employees_cashboxes_access and salary_balance_reset permissions",
       "rationale": "This audited non-cash payroll correction is reserved for explicitly permissioned human operators and must not be discoverable or callable through raw MCP."
+    },
+    "/api/save_telegram_agent_behavior": {
+      "kind": "human_owner_diagram_write",
+      "scope": "interactive browser session of configured UGA owner only",
+      "rationale": "Only the configured owner may edit the shared behavior diagram; the agent may read it through MCP but cannot save changes."
     },
     "/api/get_operator_profile": {
       "kind": "human_private_profile",

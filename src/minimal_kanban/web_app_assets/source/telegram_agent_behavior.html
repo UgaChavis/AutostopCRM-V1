@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <title>Инфраструктура поведения агента Telegram · AutoStop</title>
+  <style>
+    :root { color-scheme:dark; --bg:#15222e; --panel:#202e3b; --ink:#e8eef3; --muted:#adbdca; --border:#496073; --accent:#8ed6ad; }
+    * { box-sizing:border-box; }
+    html,body { height:100%; margin:0; overflow:hidden; }
+    body { display:flex; flex-direction:column; background:var(--bg); color:var(--ink); font:14px "Segoe UI",Arial,sans-serif; }
+    button,a,input,textarea { font:inherit; }
+    button { color:var(--ink); background:var(--panel); border:1px solid var(--border); border-radius:7px; padding:8px 11px; cursor:pointer; }
+    button:hover:not(:disabled) { border-color:#91adbf; }
+    button:disabled { opacity:.45; cursor:default; }
+    :focus-visible { outline:2px solid #a5cce1; outline-offset:3px; }
+    [hidden] { display:none !important; }
+    .topbar { flex:none; display:flex; align-items:center; justify-content:space-between; gap:18px; min-height:76px; padding:12px 22px; background:#1b2834; border-bottom:1px solid #3f5365; }
+    .heading { min-width:0; }
+    .eyebrow { color:#7cc9a8; font-size:11px; font-weight:600; letter-spacing:.09em; }
+    h1 { margin:5px 0 0; font-size:clamp(18px,2vw,25px); line-height:1.2; }
+    .subtitle { margin:4px 0 0; color:#aebbc8; font-size:13px; }
+    .toolbar,.editorbar,.tools,.actions { display:flex; align-items:center; gap:8px; }
+    .toolbar { flex:none; }
+    .toolbar a { color:#bed6e5; text-decoration:none; border:1px solid #496073; border-radius:7px; padding:8px 11px; white-space:nowrap; }
+    .editorbar { flex:none; justify-content:space-between; flex-wrap:wrap; padding:8px 22px; background:#1b2834; border-bottom:1px solid #3f5365; }
+    .tools,.actions { flex-wrap:wrap; }
+    .tool.is-active { color:#102019; background:var(--accent); border-color:var(--accent); }
+    .primary { color:#102019; background:var(--accent); border-color:var(--accent); font-weight:600; }
+    .danger { border-color:#a9646b; color:#ffd5d8; }
+    .status { color:var(--muted); padding:0 22px 8px; min-height:18px; background:#1b2834; font-size:12px; }
+    .status[data-kind="error"] { color:#ffc1c1; }
+    .status[data-kind="success"] { color:#9de5bd; }
+    .viewport { flex:1; min-height:0; position:relative; overflow:hidden; background-color:#14212c; background-image:radial-gradient(circle,rgba(112,151,174,.19) .75px,transparent 1px),radial-gradient(ellipse at 50% 46%,#1b2c39 0%,#14232f 68%,#111d28 100%); background-size:23px 23px,100% 100%; }
+    #map { display:block; width:100%; height:100%; touch-action:none; user-select:none; cursor:grab; }
+    #map.is-panning { cursor:grabbing; }
+    #map.tool-rect { cursor:crosshair; }
+    #map.tool-connect { cursor:crosshair; }
+    .canvas-frame { fill:none; stroke:#426075; stroke-width:1; stroke-dasharray:8 8; pointer-events:none; }
+    .wire { fill:none; stroke:var(--color); stroke-width:2.2; stroke-linecap:round; marker-end:var(--marker); pointer-events:none; }
+    .edge.is-selected .wire,.edge:hover .wire { stroke-width:3.7; }
+    .edge { cursor:pointer; }
+    .edge-hit { fill:none; stroke:transparent; stroke-width:22; pointer-events:stroke; }
+    .edge-label { fill:#1b2b39; stroke:#557087; stroke-width:1; }
+    .edge text { fill:#dce7ee; font-family:"Segoe UI",Arial,sans-serif; font-size:13px; pointer-events:none; }
+    .node { cursor:pointer; outline:none; }
+    .node-card { fill:#1e2c39; stroke:var(--color); stroke-width:1.6; filter:drop-shadow(0 3px 7px rgba(1,9,16,.23)); }
+    .node:hover .node-card,.node:focus-visible .node-card,.node.is-selected .node-card { fill:#2a3e4e; stroke:#eef6ff; stroke-width:2.4; }
+    .node-badge { fill:#172733; stroke:var(--color); stroke-width:1.4; }
+    .node text { fill:var(--ink); font-family:"Segoe UI",Arial,sans-serif; pointer-events:none; }
+    .node .code { fill:var(--color); font-size:13px; font-weight:600; }
+    .node .title { font-size:16px; font-weight:600; }
+    .node .line { fill:#a6b7c7; font-size:12px; }
+    .resize-handle { fill:#dff6e8; stroke:#33634a; stroke-width:2; cursor:nwse-resize; }
+    .preview { fill:rgba(142,214,173,.15); stroke:var(--accent); stroke-width:2; stroke-dasharray:7 5; pointer-events:none; }
+    .preview-line { stroke:var(--accent); stroke-width:2; stroke-dasharray:7 5; pointer-events:none; }
+    .state { position:absolute; left:50%; top:46%; transform:translate(-50%,-50%); max-width:440px; width:86%; padding:22px; text-align:center; background:var(--panel); border:1px solid var(--border); border-radius:12px; line-height:1.6; box-shadow:0 12px 42px rgba(0,0,0,.25); }
+    .state a { color:#a9daf0; }
+    .hint { position:absolute; left:16px; bottom:12px; color:#a6b4c1; font-size:11px; pointer-events:none; }
+    .detail-layer { position:absolute; inset:0; z-index:5; display:grid; place-items:center; padding:24px; }
+    .detail-backdrop { position:absolute; inset:0; background:rgba(10,15,21,.76); }
+    .detail { position:relative; width:min(700px,100%); max-height:min(680px,calc(100dvh - 48px)); overflow:auto; padding:28px; background:#252d37; border:1px solid #61707f; border-radius:16px; box-shadow:0 28px 85px rgba(0,0,0,.42); }
+    .detail header { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; }
+    .detail-code { color:#9db5c5; font-size:12px; letter-spacing:.08em; }
+    .detail h2 { margin:6px 0 0; font-size:clamp(21px,3vw,28px); line-height:1.2; }
+    .detail-close { width:34px; height:34px; flex:none; padding:0; font-size:22px; line-height:1; }
+    .detail p { margin:20px 0 0; color:#c8d1da; font-size:15px; line-height:1.6; white-space:pre-wrap; overflow-wrap:anywhere; }
+    .detail form { margin-top:20px; }
+    .detail label { display:block; margin:14px 0 6px; color:#c7d5df; font-weight:600; }
+    .detail input,.detail textarea { display:block; width:100%; padding:10px 12px; color:var(--ink); background:#172530; border:1px solid #617587; border-radius:7px; }
+    .detail textarea { min-height:180px; resize:vertical; line-height:1.5; }
+    .detail-actions { display:flex; justify-content:space-between; gap:10px; margin-top:20px; }
+    .detail-actions .right { display:flex; gap:10px; }
+    @media(max-width:800px) {
+      .topbar { align-items:flex-start; flex-direction:column; padding:12px 14px; gap:10px; }
+      .toolbar { flex-wrap:wrap; }
+      .toolbar a { display:none; }
+      .editorbar { padding:8px 14px; }
+      .status { padding:0 14px 8px; }
+      .detail-layer { padding:12px; }
+      .detail { padding:22px; max-height:calc(100dvh - 24px); }
+      .hint { display:none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="heading">
+      <span class="eyebrow">ПОВЕДЕНИЕ АГЕНТА · TELEGRAM</span>
+      <h1>Инфраструктура поведения агента Telegram</h1>
+      <p class="subtitle">Схема шагов, описаний и переходов между ними</p>
+    </div>
+    <div class="toolbar">
+      <a href="/module-map">ИНФРАСТРУКТУРА МЕНЕДЖЕРА</a>
+      <button id="fitMap" type="button">УМЕСТИТЬ</button>
+      <button id="editToggle" type="button" hidden>РЕДАКТИРОВАТЬ</button>
+    </div>
+  </header>
+  <div class="editorbar" id="editorBar" hidden>
+    <div class="tools" role="toolbar" aria-label="Инструменты схемы">
+      <button class="tool is-active" id="toolSelect" type="button" aria-pressed="true">ВЫБРАТЬ</button>
+      <button class="tool" id="toolRect" type="button" aria-pressed="false">ПРЯМОУГОЛЬНИК</button>
+      <button class="tool" id="toolConnect" type="button" aria-pressed="false">СВЯЗЬ</button>
+    </div>
+    <div class="actions">
+      <button id="undoAction" type="button" disabled>ОТМЕНИТЬ</button>
+      <button id="resolveConflict" type="button" hidden>СОХРАНИТЬ МОЙ ЧЕРНОВИК</button>
+      <button class="primary" id="saveGraph" type="button" disabled>СОХРАНИТЬ</button>
+    </div>
+  </div>
+  <div class="status" id="statusLine" role="status" aria-live="polite">Загрузка схемы…</div>
+  <main class="viewport" id="viewport">
+    <svg id="map" xmlns="http://www.w3.org/2000/svg" aria-label="Диаграмма поведения агента Telegram" role="group" tabindex="0" hidden></svg>
+    <div class="state" id="state" role="status"><p id="stateText">Загрузка диаграммы…</p><a href="/" id="loginLink" hidden>Открыть CRM и войти</a></div>
+    <div class="hint" id="hint">Колесо — масштаб · Фон — перемещение · Нажмите на модуль или связь для описания</div>
+    <div class="detail-layer" id="detailLayer" hidden>
+      <div class="detail-backdrop" id="detailBackdrop"></div>
+      <section class="detail" id="detail" role="dialog" aria-modal="true" aria-labelledby="detailTitle" tabindex="-1">
+        <header><div><span class="detail-code" id="detailCode"></span><h2 id="detailTitle"></h2></div><button class="detail-close" id="closeDetail" type="button" aria-label="Закрыть">×</button></header>
+        <p id="detailDescription"></p>
+        <form id="detailForm" hidden>
+          <label for="detailTitleInput" id="detailTitleLabel">Название</label>
+          <input id="detailTitleInput" maxlength="120" autocomplete="off">
+          <label for="detailDescriptionInput">Описание</label>
+          <textarea id="detailDescriptionInput" maxlength="10000"></textarea>
+          <div class="detail-actions">
+            <button class="danger" id="deleteDetail" type="button">УДАЛИТЬ</button>
+            <div class="right"><button id="cancelDetail" type="button">ОТМЕНА</button><button class="primary" id="applyDetail" type="submit">ПРИМЕНИТЬ</button></div>
+          </div>
+        </form>
+      </section>
+    </div>
+  </main>
+  <script>
+  (() => {
+    'use strict';
+    const NS='http://www.w3.org/2000/svg';
+    const SCHEMA='autostopcrm.telegram-agent-behavior.v2';
+    const COLORS={B:'#73c4e8',A:'#8ed6ad',agent:'#5ecde9',E:'#ec8492'};
+    const $=id=>document.getElementById(id);
+    const svg=$('map');
+    let graph=null,revision=null,canEdit=false,editing=false,tool='select',view=null;
+    let drag=null,selection=null,pendingFrom=null,pointerPoint=null,modalTarget=null,previousFocus=null;
+    let undoStack=[],savedJSON='',dirty=false,saveInFlight=false,conflict=false;
+    const copy=value=>JSON.parse(JSON.stringify(value));
+    const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
+    const el=(name,attrs={},content)=>{
+      const node=document.createElementNS(NS,name);
+      Object.entries(attrs).forEach(([key,value])=>node.setAttribute(key,String(value)));
+      if(content!==undefined)node.textContent=content;
+      return node;
+    };
+    const nodeById=id=>graph.elements.find(item=>item.id===id);
+    const edgeById=id=>graph.relations.find(item=>item.id===id);
+    const getItem=(kind,id)=>kind==='node'?nodeById(id):edgeById(id);
+    const graphJSON=()=>JSON.stringify(graph);
+    function setStatus(message,kind='info'){$('statusLine').textContent=message;$('statusLine').dataset.kind=kind;}
+    function syncDirty(){dirty=graphJSON()!==savedJSON;updateControls();}
+    function updateControls(){
+      $('editToggle').hidden=!canEdit;
+      $('editToggle').textContent=editing?'ЗАВЕРШИТЬ РЕДАКТИРОВАНИЕ':'РЕДАКТИРОВАТЬ';
+      $('editorBar').hidden=!editing;
+      $('undoAction').disabled=!editing||!undoStack.length||saveInFlight;
+      $('saveGraph').disabled=!editing||!dirty||saveInFlight||conflict;
+      $('resolveConflict').hidden=!editing||!conflict;
+      for(const [name,id] of Object.entries({select:'toolSelect',rect:'toolRect',connect:'toolConnect'})){
+        const button=$(id);
+        button.classList.toggle('is-active',tool===name);
+        button.setAttribute('aria-pressed',String(tool===name));
+      }
+      svg.classList.toggle('tool-rect',editing&&tool==='rect');
+      svg.classList.toggle('tool-connect',editing&&tool==='connect');
+      $('hint').textContent=editing
+        ?(tool==='rect'?'Протяните по пустому месту прямоугольник. Клик создаст модуль стандартного размера.'
+          :tool==='connect'?'Выберите первый модуль, затем второй. Нажмите Escape, чтобы отменить связь.'
+          :'Перетаскивайте модули · Потяните светлый угол для размера · Нажмите для текста')
+        :'Колесо — масштаб · Фон — перемещение · Нажмите на модуль или связь для описания';
+    }
+    function recordChange(before){
+      if(JSON.stringify(before)===graphJSON())return;
+      undoStack.push(before);if(undoStack.length>50)undoStack.shift();
+      syncDirty();
+      setStatus('Есть несохранённые изменения.');
+    }
+    function undo(){
+      if(!undoStack.length||saveInFlight)return;
+      graph=undoStack.pop();selection=null;pendingFrom=null;renderGraph();syncDirty();
+      setStatus(dirty?'Последнее действие отменено. Есть несохранённые изменения.':'Изменения отменены.');
+    }
+    function setView(){if(view)svg.setAttribute('viewBox',[view.x,view.y,view.width,view.height].join(' '));}
+    function fit(){if(!graph)return;view={x:0,y:0,width:graph.canvas.width,height:graph.canvas.height};setView();}
+    function pointAt(clientX,clientY){
+      const point=svg.createSVGPoint();point.x=clientX;point.y=clientY;
+      const matrix=svg.getScreenCTM();return matrix?point.matrixTransform(matrix.inverse()):{x:0,y:0};
+    }
+    function zoomAt(factor,clientX,clientY){
+      if(!view)return;
+      const local=pointAt(clientX,clientY);
+      const width=clamp(view.width/factor,graph.canvas.width/5,graph.canvas.width*3);
+      const ratio=width/view.width;
+      view={x:local.x-(local.x-view.x)*ratio,y:local.y-(local.y-view.y)*ratio,width,height:view.height*ratio};
+      setView();
+    }
+    function nextId(prefix){
+      const ids=new Set([...graph.elements,...graph.relations].map(item=>item.id));
+      let number=1;while(ids.has(prefix+number))number++;return prefix+number;
+    }
+    function wrap(text,maxChars,maxLines){
+      const words=String(text||'').trim().slice(0,300).split(/\s+/).filter(Boolean),lines=[];
+      let current='';
+      for(const raw of words){
+        const word=raw.length>maxChars?raw.slice(0,maxChars-1)+'…':raw;
+        if(!current){current=word;continue;}
+        if((current+' '+word).length<=maxChars){current+=' '+word;continue;}
+        lines.push(current);current=word;
+        if(lines.length===maxLines)break;
+      }
+      if(lines.length<maxLines&&current)lines.push(current);
+      if(words.length&&lines.join(' ').length<String(text).trim().length&&lines.length===maxLines){
+        lines[maxLines-1]=lines[maxLines-1].replace(/…?$/,'')+'…';
+      }
+      return lines;
+    }
+    function edgePoints(from,to){
+      const a={x:from.x+from.width/2,y:from.y+from.height/2};
+      const b={x:to.x+to.width/2,y:to.y+to.height/2};
+      const dx=b.x-a.x,dy=b.y-a.y;
+      if(Math.abs(dx)/((from.width+to.width)/2)>=Math.abs(dy)/((from.height+to.height)/2)){
+        return dx>=0
+          ?{x1:from.x+from.width,y1:a.y,x2:to.x,y2:b.y}
+          :{x1:from.x,y1:a.y,x2:to.x+to.width,y2:b.y};
+      }
+      return dy>=0
+        ?{x1:a.x,y1:from.y+from.height,x2:b.x,y2:to.y}
+        :{x1:a.x,y1:from.y,x2:b.x,y2:to.y+to.height};
+    }
+    function renderEdge(item,scene){
+      const from=nodeById(item.from),to=nodeById(item.to);
+      if(!from||!to)return;
+      const p=edgePoints(from,to),tone=COLORS[item.tone] ? item.tone:'B';
+      const g=el('g',{class:'edge'+(selection?.kind==='edge'&&selection.id===item.id?' is-selected':''),'data-kind':'edge','data-id':item.id,tabindex:'0',role:'button','aria-label':'Связь '+(item.label||item.id),style:'--color:'+COLORS[tone]+';--marker:url(#arrow-'+tone+')'});
+      g.append(el('title',{},(item.label||item.id)+' · '+from.title+' → '+to.title));
+      g.append(el('line',{class:'wire',x1:p.x1,y1:p.y,x2:p.x2,y2:p.y}));
+      g.append(el('line',{class:'edge-hit',x1:p.x1,y1:p.y,x2:p.x2,y2:p.y}));
+      if(item.label){
+        const label=item.label.length>36?item.label.slice(0,35)+'…':item.label;
+        const x=(p.x1+p.x2)/2,y=(p.y1+p.y2)/2-17;
+        const width=Math.max(75,label.length*7.4+20);
+        g.append(el('rect',{class:'edge-label',x:x-width/2,y:y-13,width,height:26,rx:5}));
+        g.append(el('text',{x,y:y+4,'text-anchor':'middle'},label));
+      }
+      scene.append(g);
+    }
+    function renderNode(item,scene){
+      const tone=COLORS[item.tone]?item.tone:'B';
+      const selected=selection?.kind==='node'&&selection.id===item.id;
+      const g=el('g',{class:'node'+(selected?' is-selected':''),transform:'translate('+item.x+' '+item.y+')','data-kind':'node','data-id':item.id,tabindex:'0',role:'button','aria-label':item.id+': '+item.title,style:'--color:'+COLORS[tone]});
+      g.append(el('title',{},item.id+' · '+item.title));
+      g.append(el('rect',{class:'node-card',width:item.width,height:item.height,rx:10}));
+      g.append(el('rect',{class:'node-badge',x:-9,y:-12,width:37,height:23,rx:4}));
+      g.append(el('text',{class:'code',x:-3,y:4},item.id));
+      const maxChars=Math.max(10,Math.floor((item.width-28)/9));
+      const titles=wrap(item.title,maxChars,2);
+      titles.forEach((line,index)=>g.append(el('text',{class:'title',x:16,y:34+index*20},line)));
+      if(item.height>=120){
+        const description=wrap(item.description,Math.max(12,Math.floor((item.width-28)/7)),titles.length>1?1:2);
+        description.forEach((line,index)=>g.append(el('text',{class:'line',x:16,y:titles.length>1?83:70+index*19},line)));
+      }
+      if(editing&&tool==='select'&&selected){
+        g.append(el('rect',{class:'resize-handle',x:item.width-11,y:item.height-11,width:16,height:16,rx:2,'data-resize':'1','aria-label':'Изменить размер'}));
+      }
+      scene.append(g);
+    }
+    function renderGraph(){
+      if(!graph)return;
+      svg.replaceChildren();
+      const defs=el('defs');
+      Object.entries(COLORS).forEach(([tone,color])=>{
+        const marker=el('marker',{id:'arrow-'+tone,viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:7,markerHeight:7,orient:'auto'});
+        marker.append(el('path',{d:'M1 1 L9 5 L1 9 Z',fill:color}));defs.append(marker);
+      });
+      svg.append(defs);
+      const scene=el('g',{id:'scene'});
+      scene.append(el('rect',{class:'canvas-frame',x:0,y:0,width:graph.canvas.width,height:graph.canvas.height}));
+      graph.relations.forEach(item=>renderEdge(item,scene));
+      graph.elements.forEach(item=>renderNode(item,scene));
+      if(drag?.kind==='rect'&&drag.preview){
+        const p=drag.preview;
+        scene.append(el('rect',{class:'preview',x:p.x,y:p.y,width:p.width,height:p.height,rx:8}));
+      }
+      if(editing&&tool==='connect'&&pendingFrom){
+        const node=nodeById(pendingFrom);
+        if(node)scene.append(el('line',{id:'connectionPreview',class:'preview-line',x1:node.x+node.width/2,y1:node.y+node.height/2,x2:pointerPoint?.x??node.x+node.width/2,y2:pointerPoint?.y??node.y+node.height/2}));
+      }
+      svg.append(scene);setView();svg.removeAttribute('hidden');$('state').hidden=true;
+    }
+    function showDetail(kind,id){
+      const item=getItem(kind,id);if(!item)return;
+      selection={kind,id};modalTarget={kind,id};renderGraph();
+      previousFocus=document.activeElement;
+      $('detailCode').textContent=item.id;
+      $('detailTitle').textContent=kind==='node'?item.title:(item.label||'Связь');
+      $('detailDescription').textContent=item.description||'Описание пока не заполнено.';
+      $('detailDescription').hidden=editing;
+      $('detailForm').hidden=!editing;
+      if(editing){
+        $('detailTitleLabel').textContent=kind==='node'?'Название модуля':'Подпись связи';
+        $('detailTitleInput').value=kind==='node'?item.title:item.label;
+        $('detailDescriptionInput').value=item.description||'';
+      }
+      $('detailLayer').hidden=false;
+      if(editing)$('detailTitleInput').focus();else $('detail').focus();
+    }
+    function closeDetail(){
+      $('detailLayer').hidden=true;modalTarget=null;
+      if(previousFocus?.isConnected&&previousFocus.focus)previousFocus.focus();else svg.focus();
+    }
+    function applyDetail(event){
+      event.preventDefault();
+      if(!modalTarget||!editing||saveInFlight)return;
+      const item=getItem(modalTarget.kind,modalTarget.id);if(!item)return;
+      const title=$('detailTitleInput').value.trim(),description=$('detailDescriptionInput').value.trim();
+      if(modalTarget.kind==='node'&&!title){$('detailTitleInput').setCustomValidity('Укажите название модуля.');$('detailTitleInput').reportValidity();return;}
+      $('detailTitleInput').setCustomValidity('');
+      if(title.length>120||description.length>10000){setStatus('Текст превышает допустимый объём.','error');return;}
+      const before=copy(graph);
+      if(modalTarget.kind==='node')item.title=title;
+      else item.label=title;
+      item.description=description;
+      recordChange(before);renderGraph();closeDetail();
+    }
+    function deleteSelected(){
+      if(!editing||!selection||saveInFlight)return;
+      const before=copy(graph);
+      if(selection.kind==='node'){
+        graph.elements=graph.elements.filter(item=>item.id!==selection.id);
+        graph.relations=graph.relations.filter(item=>item.from!==selection.id&&item.to!==selection.id);
+      }else graph.relations=graph.relations.filter(item=>item.id!==selection.id);
+      selection=null;pendingFrom=null;recordChange(before);renderGraph();
+      if(!$('detailLayer').hidden)closeDetail();
+    }
+    function setTool(next){
+      tool=next;pendingFrom=null;pointerPoint=null;drag=null;updateControls();renderGraph();
+    }
+    function createRectangle(start,end){
+      if(saveInFlight)return;
+      const x=Math.min(start.x,end.x),y=Math.min(start.y,end.y);
+      const dragged=Math.abs(start.x-end.x)>=20&&Math.abs(start.y-end.y)>=20;
+      const width=dragged?clamp(Math.round(Math.abs(start.x-end.x)),140,Math.min(2000,graph.canvas.width)):260;
+      const height=dragged?clamp(Math.round(Math.abs(start.y-end.y)),90,Math.min(1200,graph.canvas.height)):130;
+      const left=clamp(Math.round(x),0,graph.canvas.width-140);
+      const top=clamp(Math.round(y),0,graph.canvas.height-90);
+      const item={id:nextId('M'),title:'Новый модуль',description:'',x:Math.min(left,graph.canvas.width-width),y:Math.min(top,graph.canvas.height-height),width:Math.min(width,graph.canvas.width),height:Math.min(height,graph.canvas.height),tone:'A'};
+      const before=copy(graph);graph.elements.push(item);selection={kind:'node',id:item.id};
+      recordChange(before);renderGraph();showDetail('node',item.id);
+    }
+    function connectTo(id){
+      if(saveInFlight)return;
+      if(!pendingFrom){pendingFrom=id;setStatus('Теперь выберите второй модуль.');renderGraph();return;}
+      if(pendingFrom===id){setStatus('Выберите другой модуль для связи.','error');return;}
+      const item={id:nextId('R'),from:pendingFrom,to:id,label:'',description:'',tone:'B'};
+      const before=copy(graph);graph.relations.push(item);pendingFrom=null;pointerPoint=null;
+      selection={kind:'edge',id:item.id};recordChange(before);renderGraph();showDetail('edge',item.id);
+    }
+    function operatorHeaders(includeBody=false){
+      const headers={Accept:'application/json'};let token='';
+      try{token=localStorage.getItem('kanban-operator-session')||'';}catch(_error){/* Storage may be unavailable. */}
+      if(token)headers['X-Operator-Session']=token;
+      if(includeBody)headers['Content-Type']='application/json';
+      return headers;
+    }
+    async function fetchGraph(){
+      const response=await fetch('/api/get_telegram_agent_behavior',{method:'GET',headers:operatorHeaders(),credentials:'same-origin',cache:'no-store'});
+      const result=await response.json();
+      if(response.status===401||response.status===403)throw new Error('auth');
+      if(!response.ok||result.ok!==true||!result.data?.graph||!Number.isInteger(result.data.revision))throw new Error('data');
+      return result.data;
+    }
+    function acceptServer(data){
+      if(data.graph.schema_version!==SCHEMA||!Array.isArray(data.graph.elements)||!Array.isArray(data.graph.relations))throw new Error('schema');
+      graph=copy(data.graph);revision=data.revision;canEdit=data.can_edit===true;
+      savedJSON=graphJSON();dirty=false;conflict=false;undoStack=[];selection=null;pendingFrom=null;
+      renderGraph();fit();updateControls();
+      setStatus(canEdit?'Схема загружена. Для изменения нажмите «Редактировать».':'Схема доступна для просмотра.','success');
+    }
+    async function load(){
+      try{acceptServer(await fetchGraph());}
+      catch(error){
+        if(error.message==='auth'){$('stateText').textContent='Войдите в CRM, чтобы открыть инфраструктуру поведения агента.';$('loginLink').hidden=false;}
+        else $('stateText').textContent='Не удалось загрузить схему. Обновите страницу или вернитесь в CRM.';
+        setStatus('Схема не загружена.','error');
+      }
+    }
+    function validateGraph(){
+      if(graph.elements.length>200||graph.relations.length>400)return 'Слишком много модулей или связей.';
+      const ids=new Set(),nodeIds=new Set();
+      for(const item of graph.elements){
+        if(ids.has(item.id))return 'Повторяется ID модуля.';ids.add(item.id);nodeIds.add(item.id);
+        if(!item.title.trim()||item.title.length>120||item.description.length>10000)return 'Проверьте название и текст модулей.';
+        if(item.width<140||item.width>2000||item.height<90||item.height>1200||item.x<0||item.y<0||item.x+item.width>graph.canvas.width||item.y+item.height>graph.canvas.height)return 'Один из модулей выходит за пределы холста.';
+      }
+      for(const item of graph.relations){
+        if(ids.has(item.id))return 'Повторяется ID связи.';ids.add(item.id);
+        if(!nodeIds.has(item.from)||!nodeIds.has(item.to)||item.from===item.to)return 'Связь должна соединять два разных модуля.';
+        if(item.label.length>120||item.description.length>10000)return 'Текст связи превышает допустимый объём.';
+      }
+      return '';
+    }
+    async function reconcileUncertainSave(){
+      try{
+        const latest=await fetchGraph();
+        if(JSON.stringify(latest.graph)===graphJSON()){
+          revision=latest.revision;savedJSON=graphJSON();dirty=false;conflict=false;undoStack=[];updateControls();
+          setStatus('Сохранение подтверждено повторным чтением схемы.','success');
+          return;
+        }
+        if(latest.revision!==revision){conflict=true;updateControls();setStatus('Версия схемы изменилась. Ваш черновик остался в этой вкладке.','error');return;}
+      }catch(_error){/* Keep the local draft when readback is unavailable. */}
+      setStatus('Не удалось подтвердить сохранение. Черновик остался в этой вкладке. Проверьте соединение перед повтором.','error');
+    }
+    async function saveGraph(){
+      if(!canEdit||!editing||!dirty||saveInFlight||conflict)return;
+      const error=validateGraph();if(error){setStatus(error,'error');return;}
+      saveInFlight=true;updateControls();setStatus('Сохранение схемы…');
+      try{
+        const response=await fetch('/api/save_telegram_agent_behavior',{method:'POST',headers:operatorHeaders(true),credentials:'same-origin',body:JSON.stringify({graph,expected_revision:revision})});
+        let result=null;try{result=await response.json();}catch(_error){}
+        if(response.status===409){conflict=true;setStatus('Схему изменили в другой вкладке. Ваш черновик остался здесь.','error');return;}
+        if(response.status===401||response.status===403){canEdit=false;editing=false;setStatus('Сессия владельца закончилась. Черновик остался в этой вкладке.','error');return;}
+        if(response.status===400||response.status===422){setStatus('Сервер отклонил схему. Проверьте модули и связи. Черновик остался здесь.','error');return;}
+        if(!response.ok||result?.ok!==true||!result.data?.graph||!Number.isInteger(result.data.revision)){
+          await reconcileUncertainSave();return;
+        }
+        graph=copy(result.data.graph);revision=result.data.revision;canEdit=result.data.can_edit===true;
+        savedJSON=graphJSON();dirty=false;undoStack=[];conflict=false;selection=null;renderGraph();
+        setStatus('Схема сохранена. Версия '+revision+'.','success');
+      }catch(_error){await reconcileUncertainSave();}
+      finally{saveInFlight=false;updateControls();}
+    }
+    async function resolveConflict(){
+      if(!conflict||!dirty||saveInFlight)return;
+      if(!window.confirm('Схема изменилась в другой вкладке. Ваш текущий черновик заменит сохранённую версию. Продолжить?'))return;
+      try{
+        const latest=await fetchGraph();
+        if(!latest.can_edit){canEdit=false;editing=false;setStatus('Нет доступа к сохранению схемы.','error');updateControls();return;}
+        revision=latest.revision;conflict=false;updateControls();await saveGraph();
+      }catch(_error){setStatus('Не удалось получить новую версию. Черновик остался в этой вкладке.','error');}
+    }
+    function onPointerDown(event){
+      if(!graph||saveInFlight||event.button!==0||!$('detailLayer').hidden)return;
+      const target=event.target.closest('[data-kind]');
+      const point=pointAt(event.clientX,event.clientY);
+      if(editing&&tool==='connect'){
+        if(target?.dataset.kind==='node')connectTo(target.dataset.id);
+        return;
+      }
+      if(editing&&tool==='rect'){
+        if(target)return;
+        drag={kind:'rect',pointerId:event.pointerId,start:point,end:point,preview:{x:point.x,y:point.y,width:1,height:1}};
+        svg.setPointerCapture(event.pointerId);renderGraph();return;
+      }
+      if(target){
+        const kind=target.dataset.kind,id=target.dataset.id;
+        const resizing=Boolean(event.target.closest('[data-resize]'));
+        selection={kind,id};renderGraph();
+        if(editing&&kind==='node'){
+          const item=nodeById(id);
+          drag={kind:resizing?'resize':'move',pointerId:event.pointerId,id,start:point,original:copy(item),before:copy(graph)};
+          svg.setPointerCapture(event.pointerId);
+        }else{
+          drag={kind:'open',pointerId:event.pointerId,target:{kind,id},startClient:{x:event.clientX,y:event.clientY}};
+          svg.setPointerCapture(event.pointerId);
+        }
+        return;
+      }
+      selection=null;renderGraph();
+      const scale=svg.getScreenCTM()?.a||1;
+      drag={kind:'pan',pointerId:event.pointerId,startClient:{x:event.clientX,y:event.clientY},startView:{...view},unit:1/Math.abs(scale)};
+      svg.classList.add('is-panning');svg.setPointerCapture(event.pointerId);
+    }
+    function onPointerMove(event){
+      if(!graph)return;
+      if(editing&&tool==='connect'&&pendingFrom){
+        pointerPoint=pointAt(event.clientX,event.clientY);
+        const preview=$('connectionPreview');
+        if(preview){preview.setAttribute('x2',String(pointerPoint.x));preview.setAttribute('y2',String(pointerPoint.y));}
+      }
+      if(!drag||drag.pointerId!==event.pointerId)return;
+      const point=pointAt(event.clientX,event.clientY);
+      if(drag.kind==='pan'){
+        view={...drag.startView,x:drag.startView.x-(event.clientX-drag.startClient.x)*drag.unit,y:drag.startView.y-(event.clientY-drag.startClient.y)*drag.unit};setView();
+      }else if(drag.kind==='rect'){
+        drag.end=point;
+        const x=clamp(Math.min(drag.start.x,point.x),0,graph.canvas.width),y=clamp(Math.min(drag.start.y,point.y),0,graph.canvas.height);
+        drag.preview={x,y,width:Math.abs(point.x-drag.start.x),height:Math.abs(point.y-drag.start.y)};
+        renderGraph();
+      }else if(drag.kind==='move'||drag.kind==='resize'){
+        const item=nodeById(drag.id),dx=Math.round(point.x-drag.start.x),dy=Math.round(point.y-drag.start.y);
+        if(!item)return;
+        if(drag.kind==='move'){
+          item.x=clamp(drag.original.x+dx,0,graph.canvas.width-item.width);
+          item.y=clamp(drag.original.y+dy,0,graph.canvas.height-item.height);
+        }else{
+          item.width=clamp(drag.original.width+dx,140,Math.min(2000,graph.canvas.width-item.x));
+          item.height=clamp(drag.original.height+dy,90,Math.min(1200,graph.canvas.height-item.y));
+        }
+        renderGraph();
+      }
+    }
+    function onPointerUp(event){
+      if(!drag||drag.pointerId!==event.pointerId)return;
+      const active=drag;drag=null;svg.classList.remove('is-panning');
+      if(active.kind==='rect'){
+        renderGraph();createRectangle(active.start,pointAt(event.clientX,event.clientY));
+      }else if(active.kind==='move'||active.kind==='resize'){
+        if(JSON.stringify(active.before)!==graphJSON()){recordChange(active.before);renderGraph();}
+        else showDetail('node',active.id);
+      }else if(active.kind==='open'){
+        const distance=Math.hypot(event.clientX-active.startClient.x,event.clientY-active.startClient.y);
+        if(distance<=5)showDetail(active.target.kind,active.target.id);
+      }
+    }
+    function onPointerCancel(event){
+      if(!drag||drag.pointerId!==event.pointerId)return;
+      if(drag.kind==='move'||drag.kind==='resize')graph=drag.before;
+      drag=null;svg.classList.remove('is-panning');renderGraph();
+    }
+    $('fitMap').addEventListener('click',fit);
+    $('editToggle').addEventListener('click',()=>{if(!canEdit)return;editing=!editing;setTool('select');setStatus(dirty?'Есть несохранённые изменения.':'Режим '+(editing?'редактирования':'просмотра')+'.');});
+    $('toolSelect').addEventListener('click',()=>setTool('select'));
+    $('toolRect').addEventListener('click',()=>setTool('rect'));
+    $('toolConnect').addEventListener('click',()=>setTool('connect'));
+    $('undoAction').addEventListener('click',undo);
+    $('saveGraph').addEventListener('click',saveGraph);
+    $('resolveConflict').addEventListener('click',resolveConflict);
+    $('closeDetail').addEventListener('click',closeDetail);
+    $('cancelDetail').addEventListener('click',closeDetail);
+    $('detailBackdrop').addEventListener('click',closeDetail);
+    $('detailForm').addEventListener('submit',applyDetail);
+    $('detailTitleInput').addEventListener('input',()=>{$('detailTitleInput').setCustomValidity('');});
+    $('deleteDetail').addEventListener('click',deleteSelected);
+    svg.addEventListener('wheel',event=>{event.preventDefault();zoomAt(event.deltaY<0?1.12:.89,event.clientX,event.clientY);},{passive:false});
+    svg.addEventListener('pointerdown',onPointerDown);
+    svg.addEventListener('pointermove',onPointerMove);
+    svg.addEventListener('pointerup',onPointerUp);
+    svg.addEventListener('pointercancel',onPointerCancel);
+    svg.addEventListener('keydown',event=>{
+      const target=event.target.closest('[data-kind]');
+      if(target&&(event.key==='Enter'||event.key===' ')){event.preventDefault();showDetail(target.dataset.kind,target.dataset.id);}
+    });
+    document.addEventListener('keydown',event=>{
+      if(event.key==='Escape'){
+        if(!$('detailLayer').hidden)closeDetail();
+        else if(pendingFrom){pendingFrom=null;pointerPoint=null;renderGraph();setStatus('Создание связи отменено.');}
+        return;
+      }
+      const tag=document.activeElement?.tagName;
+      if(tag==='INPUT'||tag==='TEXTAREA')return;
+      if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='z'&&editing){event.preventDefault();undo();}
+      if((event.key==='Delete'||event.key==='Backspace')&&editing&&selection&&$('detailLayer').hidden){event.preventDefault();deleteSelected();}
+    });
+    window.addEventListener('beforeunload',event=>{if(dirty){event.preventDefault();event.returnValue='';}});
+    load();
+  })();
+  </script>
+</body>
+</html>

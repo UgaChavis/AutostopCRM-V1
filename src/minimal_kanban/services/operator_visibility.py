@@ -155,7 +155,7 @@ def public_snapshot_settings(
     *,
     include_employees_cashboxes: bool = True,
 ) -> dict[str, Any]:
-    excluded_keys = {CASHBOX_NOTIFICATION_SEEN_SETTING_KEY}
+    excluded_keys = {CASHBOX_NOTIFICATION_SEEN_SETTING_KEY, "telegram_agent_behavior"}
     if not include_employees_cashboxes:
         excluded_keys.update(EMPLOYEES_CASHBOXES_PRIVATE_SETTING_KEYS)
     return {key: value for key, value in settings.items() if key not in excluded_keys}

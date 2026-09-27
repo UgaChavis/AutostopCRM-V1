@@ -156,6 +156,7 @@ from .repair_order_artifacts import RepairOrderArtifactsMixin
 from .repair_order_number_audit import build_repair_order_number_audit
 from .repair_order_text_renderer import render_bounded_repair_order_text
 from .snapshot_service import SnapshotService
+from .telegram_behavior_graph import TelegramBehaviorGraphMixin
 from .vehicle_profile_service import VehicleProfileService
 
 REPAIR_ORDER_REOPEN_REASON_CODES = frozenset(
@@ -393,6 +394,7 @@ def _json_dumps(
 
 
 class CardService(
+    TelegramBehaviorGraphMixin,
     CardAttachmentsMixin,
     RepairOrderArtifactsMixin,
     CardServiceRepairOrderSearchMixin,

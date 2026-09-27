@@ -37,13 +37,13 @@ class CrmChangeFeedProducerParityTests(unittest.TestCase):
         self.assertEqual([], result["issues"])
         self.assertTrue(result["summary"]["producer_complete"])
         self.assertEqual(0, result["summary"]["gaps"])
-        self.assertEqual(103, result["summary"]["write_actions"])
+        self.assertEqual(104, result["summary"]["write_actions"])
         self.assertEqual(76, result["summary"]["executor_contract_only"])
         self.assertEqual(76, result["summary"]["executor_contract_resolved"])
-        self.assertEqual(1, result["summary"]["human_only_write_actions"])
-        self.assertEqual(77, result["summary"]["canonical_contract_required"])
-        self.assertEqual(77, result["summary"]["canonical_contract_resolved"])
-        self.assertEqual(60, result["summary"]["canonical_route_feed_readback"])
+        self.assertEqual(2, result["summary"]["human_only_write_actions"])
+        self.assertEqual(78, result["summary"]["canonical_contract_required"])
+        self.assertEqual(78, result["summary"]["canonical_contract_resolved"])
+        self.assertEqual(61, result["summary"]["canonical_route_feed_readback"])
         self.assertEqual(17, result["summary"]["reasoned_route_contract_exemptions"])
         self.assertTrue(result["summary"]["canonical_contract_complete"])
         self.assertEqual(len(REQUIRED_ENTITY_DOMAINS), result["summary"]["entity_domains"])
@@ -67,6 +67,10 @@ class CrmChangeFeedProducerParityTests(unittest.TestCase):
             "temp_state_feed_readback",
             salary_reset["canonical_route_contract"]["class"],
         )
+        diagram = human_only_rows["/api/save_telegram_agent_behavior"]
+        self.assertIsNone(diagram["gateway"])
+        self.assertEqual("mixed_audit_infrastructure", diagram["producer_kind"])
+        self.assertEqual("temp_state_feed_readback", diagram["canonical_route_contract"]["class"])
 
     def test_removing_one_route_creates_a_machine_visible_gap(self) -> None:
         manifest = self.manifest_copy()

@@ -69,7 +69,9 @@ ALLOWED_EXEMPTIONS = {
         }
     ),
 }
-HUMAN_ONLY_WRITE_ROUTES = frozenset({"/api/reset_employee_salary_balance"})
+HUMAN_ONLY_WRITE_ROUTES = frozenset(
+    {"/api/reset_employee_salary_balance", "/api/save_telegram_agent_behavior"}
+)
 REQUIRED_ENTITY_DOMAINS = frozenset(
     {
         "attachment",

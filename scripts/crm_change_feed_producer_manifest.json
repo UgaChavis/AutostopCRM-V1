@@ -143,6 +143,23 @@
       ]
     },
     {
+      "name": "telegram_behavior_owner_audit_projection",
+      "kind": "mixed_audit_infrastructure",
+      "producer": "audit_event for owner-edited diagram; graph text is excluded from the change feed",
+      "sinks": [
+        "_save_bundle"
+      ],
+      "routes": [
+        "/api/save_telegram_agent_behavior"
+      ],
+      "test_evidence": [
+        {
+          "source": "tests/test_change_feed_route_contracts.py",
+          "pattern": "test_telegram_behavior_owner_save_emits_bounded_audit_feed_event"
+        }
+      ]
+    },
+    {
       "name": "shared_file_index_projection",
       "kind": "shared_files_projection",
       "producer": "shared_files",
