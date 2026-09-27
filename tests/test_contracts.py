@@ -144,6 +144,7 @@ EXPECTED_SERVICE_ROUTES = {
     "/api/move_sticky",
     "/api/paste_shared_file",
     "/api/paste_shared_files_from_clipboard",
+    "/api/patch_telegram_agent_behavior",
     "/api/pause_agent_scheduled_task",
     "/api/preview_repair_order_print_documents",
     "/api/preview_repair_order_reopen",

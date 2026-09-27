@@ -387,7 +387,8 @@ def register_agent_gateway_v2(
             payload = dict(arguments)
             service_identity = load_agent_gateway_security_policy().service_identity
             payload["source"] = "mcp_agent_gateway_v2"
-            payload["actor_name"] = _effective_audit_actor()
+            if virtual_route != "/api/patch_telegram_agent_behavior":
+                payload["actor_name"] = _effective_audit_actor()
             request_headers = {
                 "X-Autostop-Agent-Identity": service_identity,
                 "X-Autostop-Agent-Token": str(agent_bearer_token or ""),
@@ -3022,7 +3023,10 @@ def register_agent_gateway_v2(
                     ),
                     label="call_raw_capability",
                 )
-            if normalized_name in VERSIONED_WRITE_NAMES:
+            if (
+                normalized_name in VERSIONED_WRITE_NAMES
+                or normalized_name == "api:/api/patch_telegram_agent_behavior"
+            ):
                 outer_idempotency_key = str(idempotency_key or "").strip()
                 inner_idempotency_key = str(
                     effective_arguments.get("idempotency_key") or ""
@@ -3032,7 +3036,7 @@ def register_agent_gateway_v2(
                         _envelope(
                             ok=False,
                             status="blocked",
-                            warnings=["completion_act_idempotency_key_mismatch"],
+                            warnings=["raw_write_idempotency_key_mismatch"],
                         ),
                         label="call_raw_capability",
                     )

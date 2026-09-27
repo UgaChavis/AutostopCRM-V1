@@ -41,6 +41,31 @@ Use only enough calls to establish the target and perform the useful next step.
 A workflow can be helpful for an auditable multi-step task, but is not required
 for simple context, analysis, or a normal customer reply.
 
+## Telegram behavior diagram edits
+
+The diagram at `/telegram-agent-behavior` is a shared CRM record, not executable
+Telegram-agent configuration. Read it with `api:/api/get_telegram_agent_behavior`;
+the response contains the graph, its numeric revision, and the last 20 save
+summaries, without customer cards. Use `allow_large_output=true` when the full
+graph exceeds the Gateway's compact response limit.
+
+Codex edits this record through the hidden
+`api:/api/patch_telegram_agent_behavior` capability exposed by the existing
+`call_raw_capability` tool. Discover its current schema and hash first. A patch
+contains `expected_revision`, an `idempotency_key`, and one to 50 ordered
+operations: `add_element` with `element`, `update_element` with `id` and
+`changes`, `delete_element` with `id`, the equivalent three `*_relation`
+operations, or `resize_canvas` with `width` and `height`. The Gateway key and
+patch key identify the same write. The server validates the resulting graph and
+returns `409` for a stale revision; reread and reconcile before retrying.
+
+Only a trusted Gateway call with a verified signed OAuth subject matching
+`AUTOSTOP_TELEGRAM_BEHAVIOR_OWNER_LOGIN` may patch. A static service token or
+caller-supplied `actor_name` cannot acquire this permission. After a successful
+patch, reread the graph and exact affected IDs/revision. Browser edits by the
+owner continue to use the existing full-graph save; both clients share one
+revision and recent-change history. Content edits need no Git or server release.
+
 ## Finance Reads
 
 `list_cashboxes`, `get_cashbox`, `get_cash_journal`, and `get_repair_order`

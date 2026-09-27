@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import copy
 import json
 import logging
@@ -21,6 +22,11 @@ else:
 ensure_source_path()
 
 from minimal_kanban.api.server import ApiServer  # noqa: E402
+from minimal_kanban.mcp.oauth_provider import (  # noqa: E402
+    OAUTH_AUDIT_ACTOR_HEADER,
+    OAUTH_AUDIT_ASSERTION_HEADER,
+    create_oauth_audit_assertion,
+)
 from minimal_kanban.operator_auth import OperatorAuthService  # noqa: E402
 from minimal_kanban.services.card_service import CardService  # noqa: E402
 from minimal_kanban.storage.json_store import JsonStore  # noqa: E402
@@ -123,6 +129,62 @@ class TelegramAgentBehaviorApiTests(unittest.TestCase):
             method="POST",
         )
 
+    @staticmethod
+    def _agent_environment() -> dict[str, str]:
+        return {
+            "AUTOSTOP_DEPLOYMENT_ENV": "development",
+            "AUTOSTOP_AGENT_GATEWAY_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_WRITES_ENABLED": "1",
+            "AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED": "1",
+            "AUTOSTOP_AGENT_SERVICE_IDENTITY": "codex-owner-agent",
+            "AUTOSTOP_MCP_OAUTH_STATE_KEY": base64.urlsafe_b64encode(b"0" * 32).decode("ascii"),
+            "MINIMAL_KANBAN_MCP_BEARER_TOKEN": "local-telegram-agent-service-token",
+        }
+
+    def _patch_agent(
+        self,
+        operations: list[dict],
+        revision: int,
+        key: str,
+        *,
+        actor: str | None = "UGA",
+        signed: bool = True,
+    ) -> tuple[int, dict]:
+        route = "/api/patch_telegram_agent_behavior"
+        payload = {
+            "expected_revision": revision,
+            "idempotency_key": key,
+            "operations": operations,
+            "source": "mcp_agent_gateway_v2",
+        }
+        with patch.dict(os.environ, self._agent_environment()):
+            headers = {
+                "X-Autostop-Agent-Identity": "codex-owner-agent",
+                "X-Autostop-Agent-Token": "local-telegram-agent-service-token",
+            }
+            if actor is not None:
+                headers[OAUTH_AUDIT_ACTOR_HEADER] = actor
+                if signed:
+                    headers[OAUTH_AUDIT_ASSERTION_HEADER] = create_oauth_audit_assertion(
+                        subject=actor,
+                        method="POST",
+                        route=route,
+                        payload=payload,
+                    )
+            return self._request(route, payload=payload, headers=headers, method="POST")
+
+    def _create_other_admin(self) -> dict[str, str]:
+        owner_session = self.operators.resolve_session(self.owner_headers["X-Operator-Session"])
+        self.operators.save_user(
+            {
+                "_operator_session": owner_session,
+                "username": "OTHER",
+                "password": "Local-Test-Other-Password-2026",
+                "role": "admin",
+            }
+        )
+        return self._login("OTHER", "Local-Test-Other-Password-2026")
+
     def test_seed_is_normalized_to_editable_graph(self) -> None:
         graph, revision = self._graph()
         self.assertEqual(revision, 0)
@@ -166,6 +228,185 @@ class TelegramAgentBehaviorApiTests(unittest.TestCase):
         )
         self.assertEqual(fresh_read["revision"], revision + 1)
         self.assertEqual(fresh_read["graph"], graph)
+        self.assertEqual(fresh_read["history"][0]["revision"], revision + 1)
+        self.assertEqual(fresh_read["history"][0]["actor"], "UGA")
+        self.assertEqual(fresh_read["history"][0]["source"], "owner")
+
+    def test_agent_patch_add_update_delete_and_history_preserve_seed(self) -> None:
+        original, revision = self._graph()
+        module = copy.deepcopy(original["elements"][4])
+        module.update(
+            {
+                "id": "M1",
+                "title": "Новая ветка",
+                "description": "Текст владельца",
+                "x": 1830,
+                "y": 620,
+            }
+        )
+        relation = copy.deepcopy(original["relations"][3])
+        relation.update({"id": "R1", "from": "B5", "to": "M1", "label": "переход"})
+        operations = [
+            {"op": "resize_canvas", "width": 2200, "height": 1000},
+            {"op": "add_element", "element": module},
+            {"op": "add_relation", "relation": relation},
+            {
+                "op": "update_element",
+                "id": "B1",
+                "changes": {"title": "Новый запрос", "icon": "telegram"},
+            },
+            {"op": "update_relation", "id": "L1", "changes": {"label": "пробуждение"}},
+        ]
+        status, response = self._patch_agent(operations, revision, "behavior-add-and-edit-1")
+        self.assertEqual(status, 200, response)
+        data = response["data"]
+        self.assertEqual(data["revision"], revision + 1)
+        self.assertEqual(data["applied_revision"], revision + 1)
+        self.assertFalse(data["idempotent_replay"])
+        self.assertNotIn("cards", data)
+        current, current_revision = self._graph()
+        self.assertEqual(current_revision, revision + 1)
+        self.assertEqual(
+            {item["id"] for item in current["elements"]}, {f"B{i}" for i in range(1, 7)} | {"M1"}
+        )
+        self.assertEqual(
+            {item["id"] for item in current["relations"]}, {f"L{i}" for i in range(1, 6)} | {"R1"}
+        )
+        self.assertEqual(current["canvas"], {"width": 2200, "height": 1000})
+        self.assertEqual(
+            next(item for item in current["elements"] if item["id"] == "B1")["icon"], "telegram"
+        )
+        self.assertEqual(
+            next(item for item in current["relations"] if item["id"] == "L1")["label"],
+            "пробуждение",
+        )
+        self.assertEqual(
+            {item["id"] for item in original["elements"] if item["id"] != "B1"},
+            {item["id"] for item in current["elements"] if item["id"] not in {"B1", "M1"}},
+        )
+
+        status, deleted = self._patch_agent(
+            [{"op": "delete_element", "id": "M1"}, {"op": "delete_relation", "id": "L3"}],
+            current_revision,
+            "behavior-delete-module-and-link-2",
+        )
+        self.assertEqual(status, 200, deleted)
+        after, after_revision = self._graph()
+        self.assertEqual(after_revision, revision + 2)
+        self.assertEqual({item["id"] for item in after["elements"]}, {f"B{i}" for i in range(1, 7)})
+        self.assertEqual({item["id"] for item in after["relations"]}, {"L1", "L2", "L4", "L5"})
+        history = deleted["data"]["history"]
+        self.assertEqual([item["revision"] for item in history[:2]], [revision + 2, revision + 1])
+        self.assertTrue(
+            all(
+                item["actor"] == "Агент (UGA)" and item["source"] == "agent" for item in history[:2]
+            )
+        )
+        self.assertTrue(all(item["summary"] for item in history[:2]))
+
+    def test_agent_patch_requires_signed_current_oauth_owner(self) -> None:
+        graph, revision = self._graph()
+        other_headers = self._create_other_admin()
+        operations = [
+            {"op": "update_element", "id": "B1", "changes": {"title": "Разрешённая правка"}}
+        ]
+
+        status, _ = self._patch_agent(operations, revision, "without-oauth-owner", actor=None)
+        self.assertEqual(status, 403)
+        status, _ = self._patch_agent(operations, revision, "unsigned-owner", signed=False)
+        self.assertEqual(status, 401)
+        status, _ = self._patch_agent(operations, revision, "other-admin-oauth", actor="OTHER")
+        self.assertEqual(status, 403)
+        status, _ = self._request(
+            "/api/patch_telegram_agent_behavior",
+            payload={
+                "expected_revision": revision,
+                "idempotency_key": "human-owner",
+                "operations": operations,
+            },
+            headers=self.owner_headers,
+            method="POST",
+        )
+        self.assertEqual(status, 403)
+        status, _ = self._request(
+            "/api/patch_telegram_agent_behavior",
+            payload={
+                "expected_revision": revision,
+                "idempotency_key": "other-admin",
+                "operations": operations,
+            },
+            headers=other_headers,
+            method="POST",
+        )
+        self.assertEqual(status, 403)
+        self.assertEqual(self._graph(), (graph, revision))
+
+        status, result = self._patch_agent(operations, revision, "signed-oauth-owner")
+        self.assertEqual(status, 200, result)
+        self.assertEqual(result["data"]["revision"], revision + 1)
+        self.assertEqual(result["data"]["history"][0]["source"], "agent")
+
+        other_session = self.operators.resolve_session(other_headers["X-Operator-Session"])
+        self.operators.save_user(
+            {"_operator_session": other_session, "username": "UGA", "role": "operator"}
+        )
+        status, _ = self._patch_agent(operations, revision + 1, "former-owner-oauth-signature")
+        self.assertEqual(status, 401)
+        self.assertEqual(
+            self._request("/api/get_telegram_agent_behavior", headers=other_headers)[1]["data"][
+                "revision"
+            ],
+            revision + 1,
+        )
+
+    def test_agent_patch_replay_conflict_and_invalid_batch_are_atomic(self) -> None:
+        original, revision = self._graph()
+        operations = [
+            {"op": "update_element", "id": "B2", "changes": {"description": "Сохранено агентом"}}
+        ]
+        status, first = self._patch_agent(operations, revision, "agent-retry-one")
+        self.assertEqual(status, 200, first)
+        status, replay = self._patch_agent(operations, revision, "agent-retry-one")
+        self.assertEqual(status, 200, replay)
+        self.assertTrue(replay["data"]["idempotent_replay"])
+        self.assertEqual(replay["data"]["applied_revision"], first["data"]["applied_revision"])
+        self.assertEqual(self._graph()[1], revision + 1)
+
+        status, stale = self._patch_agent(operations, revision, "agent-stale-version")
+        self.assertEqual(status, 409, stale)
+        self.assertEqual(stale["error"]["code"], "revision_conflict")
+
+        invalid = [
+            {"op": "update_element", "id": "B1", "changes": {"title": "Несохранённый текст"}},
+            {
+                "op": "add_relation",
+                "relation": {
+                    "id": "R2",
+                    "from": "B1",
+                    "to": "MISSING",
+                    "label": "",
+                    "description": "",
+                },
+            },
+        ]
+        status, rejected = self._patch_agent(invalid, revision + 1, "agent-invalid-batch")
+        self.assertEqual(status, 400, rejected)
+        self.assertEqual(rejected["error"]["code"], "validation_error")
+        status, rejected = self._patch_agent(
+            [{"op": "update_element", "id": "B1", "changes": {"icon": "unknown-icon"}}],
+            revision + 1,
+            "agent-invalid-icon",
+        )
+        self.assertEqual(status, 400, rejected)
+        current, current_revision = self._graph()
+        self.assertEqual(current_revision, revision + 1)
+        self.assertEqual(
+            next(item for item in current["elements"] if item["id"] == "B1"),
+            original["elements"][0],
+        )
+        status, read = self._request("/api/get_telegram_agent_behavior", headers=self.owner_headers)
+        self.assertEqual(status, 200)
+        self.assertEqual(len(read["data"]["history"]), 1)
 
     def test_owner_configuration_missing_fails_closed(self) -> None:
         graph, revision = self._graph()
@@ -310,7 +551,24 @@ class TelegramAgentBehaviorApiTests(unittest.TestCase):
                 page.goto(self.server.base_url + "/telegram-agent-behavior")
                 page.locator('[data-kind="node"]').first.wait_for()
                 self.assertEqual(page.locator('[data-kind="node"]').count(), 6)
-                page.locator("#editToggle").click()
+
+                def wire_endpoints(edge_id: str) -> dict[str, dict[str, float]]:
+                    return page.locator(
+                        f'[data-kind="edge"][data-id="{edge_id}"] path.wire'
+                    ).evaluate(
+                        """path => {
+                            const first = path.getPointAtLength(0);
+                            const last = path.getPointAtLength(path.getTotalLength());
+                            return {start: {x: first.x, y: first.y}, end: {x: last.x, y: last.y}};
+                        }"""
+                    )
+
+                # SVG endpoints must meet the actual cards, including their y coordinates.
+                initial_wire = wire_endpoints("L1")
+                self.assertAlmostEqual(initial_wire["start"]["x"], 325, delta=1)
+                self.assertAlmostEqual(initial_wire["start"]["y"], 365, delta=1)
+                self.assertAlmostEqual(initial_wire["end"]["x"], 405, delta=1)
+                self.assertAlmostEqual(initial_wire["end"]["y"], 365, delta=1)
                 page.locator("#toolRect").click()
 
                 def svg_point(x: int, y: int) -> dict[str, float]:
@@ -373,6 +631,7 @@ class TelegramAgentBehaviorApiTests(unittest.TestCase):
                 self.assertEqual(page.locator('[data-kind="edge"]').count(), 6)
                 page.locator("#saveGraph").click()
                 page.get_by_text("Схема сохранена. Версия 1.").wait_for()
+                self.assertIn("UGA", page.locator("#historyList").inner_text())
 
                 page.reload()
                 new_node.wait_for()
@@ -390,7 +649,6 @@ class TelegramAgentBehaviorApiTests(unittest.TestCase):
                     next(item for item in saved["relations"] if item["id"] == "R1")["to"], "B5"
                 )
 
-                page.locator("#editToggle").click()
                 new_edge.locator(".edge-label").click()
                 page.locator("#deleteDetail").click()
                 self.assertEqual(new_edge.count(), 0)
@@ -404,7 +662,6 @@ class TelegramAgentBehaviorApiTests(unittest.TestCase):
                 self.assertEqual(new_edge.count(), 0)
                 self.assertEqual(self._graph()[1], 2)
 
-                page.locator("#editToggle").click()
                 map_box = page.locator("#map").bounding_box()
                 assert map_box is not None
                 page.mouse.move(
@@ -434,6 +691,13 @@ class TelegramAgentBehaviorApiTests(unittest.TestCase):
                 moved_b1 = next(item for item in small_move_graph["elements"] if item["id"] == "B1")
                 self.assertGreater(moved_b1["x"], 70)
                 self.assertGreater(moved_b1["y"], 300)
+                moved_wire = wire_endpoints("L1")
+                self.assertAlmostEqual(
+                    moved_wire["start"]["x"], moved_b1["x"] + moved_b1["width"], delta=1
+                )
+                self.assertAlmostEqual(
+                    moved_wire["start"]["y"], moved_b1["y"] + moved_b1["height"] / 2, delta=1
+                )
                 page.reload()
                 small_move_node.wait_for()
                 self.assertEqual(
@@ -441,6 +705,77 @@ class TelegramAgentBehaviorApiTests(unittest.TestCase):
                     f"translate({moved_b1['x']} {moved_b1['y']})",
                 )
                 self.assertEqual(errors, [])
+            finally:
+                browser.close()
+
+    def test_browser_refreshes_agent_patch_and_keeps_conflicting_owner_draft(self) -> None:
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            self.skipTest("Playwright is not installed")
+
+        with sync_playwright() as playwright:
+            if not Path(playwright.chromium.executable_path).exists():
+                self.skipTest("Playwright Chromium is not installed")
+            browser = playwright.chromium.launch(headless=True, args=["--no-sandbox"])
+            try:
+                context = browser.new_context(
+                    viewport={"width": 1600, "height": 1000},
+                    extra_http_headers={
+                        "Authorization": "Bearer local-telegram-behavior-test-token"
+                    },
+                )
+                page = context.new_page()
+                token = self.owner_headers["X-Operator-Session"]
+                page.add_init_script(
+                    "localStorage.setItem('kanban-operator-session', " + json.dumps(token) + ")"
+                )
+                page.goto(self.server.base_url + "/telegram-agent-behavior")
+                first_node = page.locator('[data-kind="node"][data-id="B1"]')
+                first_node.wait_for()
+
+                status, patched = self._patch_agent(
+                    [
+                        {
+                            "op": "update_element",
+                            "id": "B1",
+                            "changes": {"title": "Новый вход агента"},
+                        }
+                    ],
+                    0,
+                    "browser-agent-update-one",
+                )
+                self.assertEqual(status, 200, patched)
+                page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+                page.get_by_text("Схема обновлена до версии 1.").wait_for()
+                self.assertIn("Новый вход агента", first_node.text_content())
+                self.assertIn("Агент (UGA)", page.locator("#historyList").inner_text())
+
+                first_node.locator(".node-card").click()
+                page.locator("#detailTitleInput").fill("Мой локальный черновик")
+                page.locator("#applyDetail").click()
+                self.assertIn("Мой локальный черновик", first_node.text_content())
+                self.assertTrue(page.locator("#saveGraph").is_enabled())
+
+                status, patched = self._patch_agent(
+                    [
+                        {
+                            "op": "update_element",
+                            "id": "B2",
+                            "changes": {"title": "Вторая правка агента"},
+                        }
+                    ],
+                    1,
+                    "browser-agent-update-two",
+                )
+                self.assertEqual(status, 200, patched)
+                page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+                page.locator("#conflictPanel").wait_for(state="visible")
+                self.assertIn("Мой локальный черновик", first_node.text_content())
+                self.assertFalse(page.locator("#saveGraph").is_enabled())
+                self.assertIn("B1", page.locator("#conflictDiff").inner_text())
+                self.assertIn("B2", page.locator("#conflictDiff").inner_text())
+                self.assertEqual(self._graph()[1], 2)
             finally:
                 browser.close()
 
