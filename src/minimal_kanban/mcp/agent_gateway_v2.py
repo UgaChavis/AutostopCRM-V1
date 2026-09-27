@@ -3028,21 +3028,20 @@ def register_agent_gateway_v2(
                 or normalized_name == "api:/api/patch_telegram_agent_behavior"
             ):
                 outer_idempotency_key = str(idempotency_key or "").strip()
-                inner_idempotency_key = str(
-                    effective_arguments.get("idempotency_key") or ""
-                ).strip()
-                if inner_idempotency_key and inner_idempotency_key != outer_idempotency_key:
+                inner_key = str(effective_arguments.get("idempotency_key", "")).strip()
+                if inner_key and inner_key != outer_idempotency_key:
                     return _tool_result(
                         _envelope(
                             ok=False,
                             status="blocked",
-                            warnings=["raw_write_idempotency_key_mismatch"],
+                            warnings=[
+                                "completion_act_idempotency_key_mismatch"
+                                if normalized_name in VERSIONED_WRITE_NAMES
+                                else "raw_write_idempotency_key_mismatch"
+                            ],
                         ),
                         label="call_raw_capability",
                     )
-                # The raw-write ledger key and the document-store key are one
-                # operation identity. Never let callers omit or independently
-                # choose the inner API value.
                 effective_arguments["idempotency_key"] = outer_idempotency_key
                 validation_errors = virtual_api_argument_errors(
                     str(virtual_route), effective_arguments
