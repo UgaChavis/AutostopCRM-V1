@@ -61,8 +61,8 @@ Agent workflows, context selection and action guards are documented in the
 Board settings open **«Открыть инфраструктуру менеджера»** at `/module-map`.
 The public HTML is a shell; `GET /api/get_module_map_infrastructure` still requires
 an operator session and returns `autostopmanager.infrastructure-map.v1`.
-The source dataset is `web_app_assets/source/manager_infrastructure.json`: 34 stable
-element IDs and 26 connection IDs, with coordinates, nesting, descriptions and
+The source dataset is `web_app_assets/source/manager_infrastructure.json`: 38
+element IDs and 30 connection IDs, with coordinates, nesting, descriptions and
 protocols. Update that dataset to change descriptions or layout. The former
 application/IT maps and their snapshots are retired. Removed IDs `N1`, `N2`, `C1`,
 `L8`, and `L9` are not reused. The Codex-to-CRM route is `A2` → `L10` → `C2` →
@@ -73,10 +73,15 @@ the relation ID on the overview.
 `E9` is the read-only market-price research child of `E1`: Codex explores public
 pages through `E8`, then assesses comparable price evidence. It does not create
 CRM cards or publish Store quotes.
+`E10` (Avito/ReefAPI) and `E11` (Drom/Webbee) are separate listing-lead routes
+from `E9`. Their map indicators describe the source checkout, not live API
+health: Avito is unverified; Drom is implemented but off after a Free API 401.
+The server is updated separately.
 
-`B4.indicator` in the dataset is a manually maintained display state: `on`
+Static node `indicator` values are manually maintained display states: `on`
 (green), `off` (red), or `unknown` (yellow; also the fallback for missing or
-invalid values). It does not switch or poll the wake adapter. `A1.links` lists
+invalid B4 values). They do not switch or poll a provider. G1 retains its live
+automation status. `A1.links` lists
 the main Manager instructions on GitHub for the read-only detail panel.
 
 The map supports keyboard selection, pan/zoom, and a read-only detail panel.

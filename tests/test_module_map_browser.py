@@ -146,6 +146,30 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.select_node("B4")
         self.assertIn("включён", self.page.locator("#detailStatus").inner_text())
         self.assertFalse(self.page.locator("#instructions").is_visible())
+        for code, label, state in (
+            ("E10", "Состояние неизвестно", "unknown"),
+            ("E11", "Выключен", "off"),
+        ):
+            lamp = self.page.locator(f'[data-id="{code}"] .status-indicator')
+            self.assertEqual(lamp.locator("title").text_content(), label)
+            self.select_node(code)
+            self.assertEqual(self.page.locator("#detailStatus").get_attribute("data-state"), state)
+        self.assertIn(
+            "Внедрён · выключен", self.page.locator('[data-id="E11"] .subtitle').text_content()
+        )
+        self.assertIn("HTTP 401", self.page.locator("#detailDescription").inner_text())
+        self.select_node("E9")
+        self.assertEqual(
+            self.page.locator("#detailDiagram .flow-step").all_inner_texts(),
+            [
+                "Аналоги · применимость",
+                "Рыночная оценка детали",
+                "Веб-шлюз",
+                "Авито / ReefAPI",
+                "Drom / Webbee",
+            ],
+        )
+        self.select_node("B4")
         colors = {}
         for state, label in (
             ("off", "Выключен"),
@@ -190,8 +214,8 @@ class ManagerMapBrowserTests(unittest.TestCase):
         identifiers = self.page.locator("[data-id]").evaluate_all(
             "elements => elements.map(el => el.dataset.id)"
         )
-        self.assertEqual(len(identifiers), 64)
-        self.assertEqual(len(set(identifiers)), 64)
+        self.assertEqual(len(identifiers), 68)
+        self.assertEqual(len(set(identifiers)), 68)
         for code in identifiers:
             with self.subTest(code=code):
                 if code == "G1":
@@ -874,7 +898,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
     def test_removed_hashes_open_current_map(self) -> None:
         self.page.goto(self.runtime.base_url + "/module-map#C1")
         self.login()
-        self.assertEqual(self.page.locator("[data-id]").count(), 64)
+        self.assertEqual(self.page.locator("[data-id]").count(), 68)
         self.assertFalse(self.page.locator("#detail").is_visible())
         self.assertEqual(self.page.evaluate("location.hash"), "")
         for code in ("L8", "L9"):
@@ -883,7 +907,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
                 self.page.wait_for_function(
                     "location.hash==='' && document.querySelector('#detail').hidden"
                 )
-                self.assertEqual(self.page.locator("[data-id]").count(), 64)
+                self.assertEqual(self.page.locator("[data-id]").count(), 68)
         self.assertEqual(self.errors, [])
 
     def test_failed_load_can_retry_without_exposing_partial_map(self) -> None:
@@ -898,7 +922,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.assertEqual(self.page.locator("[data-id]").count(), 0)
         self.page.unroute("**/api/get_module_map_infrastructure")
         self.login()
-        self.assertEqual(self.page.locator("[data-id]").count(), 64)
+        self.assertEqual(self.page.locator("[data-id]").count(), 68)
         self.assertEqual(self.errors, [])
 
 

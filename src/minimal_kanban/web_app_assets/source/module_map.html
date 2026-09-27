@@ -280,7 +280,7 @@
       applying:{color:'#c6ae61',label:'Применение изменений'},error:{color:'#cf7070',label:'Есть ошибка'},offline:{color:'#bba65e',label:'Нет связи'},unknown:{color:'#bba65e',label:'Состояние неизвестно'}
     };
     let automationMapState='unknown';
-    const indicatorFor = n => n.id==='G1' ? indicatorStates[automationMapState] : n.id==='B4' ? indicatorStates[n.indicator]||indicatorStates.unknown : null;
+    const indicatorFor = n => n.id==='G1' ? indicatorStates[automationMapState] : n.id==='B4'||n.indicator!==undefined ? indicatorStates[n.indicator]||indicatorStates.unknown : null;
     const icons = {
       terminal:'M3 6 L10 12 L3 18 M14 19 H23',
       document:'M5 2 H16 L23 9 V26 H5 Z M16 2 V9 H23 M9 14 H19 M9 19 H19',
@@ -890,7 +890,7 @@
       }
       if(id==='E1') {
         drawFlow(['E4','E5','E7','E6','E9'].map(step=>[step]));
-        $('detailSources').textContent='Источники: vPIC / PartsAPI · каталоги и поставщики · веб-шлюз';
+        $('detailSources').textContent='Источники: vPIC / PartsAPI · каталоги и поставщики · веб-шлюз · Авито / ReefAPI · Drom / Webbee';
         $('detailSources').hidden=false;
         return;
       }
@@ -903,7 +903,7 @@
       if(children.length) {drawFlow([[id],children],['plain']);return;}
       const linked=data.relations.filter(relation=>relation.from===id||relation.to===id);
       const incoming=[...new Set(linked.filter(relation=>relation.to===id).map(relation=>relation.from))].slice(0,2);
-      const outgoing=[...new Set(linked.filter(relation=>relation.from===id).map(relation=>relation.to))].slice(0,2);
+      const outgoing=[...new Set(linked.filter(relation=>relation.from===id).map(relation=>relation.to))].slice(0,id==='E9'?3:2);
       const parentOnly=!incoming.length&&Boolean(item.parent);
       if(parentOnly) incoming.push(item.parent);
       const groups=[incoming,[id],outgoing].filter(group=>group.length);
