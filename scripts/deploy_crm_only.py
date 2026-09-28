@@ -14,6 +14,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -34,6 +35,8 @@ ALLOWED_CHANGED_PATHS = {
     "tests/test_deploy_crm_only.py",
     "tests/test_card_workspace_context.py",
     "tests/test_printing_hydration_overlap_browser.py",
+    "scripts/reconcile_automation_crm_revision.py",
+    "tests/test_reconcile_automation_crm_revision.py",
     ".github/workflows/quality.yml",
     "docs/OPERATIONS_RUNBOOK.md",
     "docs/agent/module_operations/crm_commands.md",
@@ -106,6 +109,9 @@ class CrmOnlyRelease:
         production_root: Path,
         sha: str,
         commands: Commands | None = None,
+        guarded_controller_repo: Path | None = None,
+        guarded_controller_sha: str | None = None,
+        expected_telegram_release_dir: str | None = None,
     ) -> None:
         if not SHA_RE.fullmatch(sha):
             raise ReleaseError("--sha must be an exact 40-character lowercase commit SHA")
@@ -113,6 +119,13 @@ class CrmOnlyRelease:
         self.production_root = production_root.resolve()
         self.sha = sha
         self.commands = commands or Commands()
+        self.guarded_controller_repo = guarded_controller_repo
+        self.guarded_controller_sha = guarded_controller_sha
+        self.expected_telegram_release_dir = expected_telegram_release_dir
+        self.guarded_controller_hash = ""
+        self.guarded_controller_bytes = b""
+        self.sealed_guarded_controller: Path | None = None
+        self.telegram_link_target = ""
         self.image_tag = f"autostopcrm:crm-only-{sha[:12]}"
         self.release_id = (
             datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ") + f"-{sha[:12]}-{os.getpid()}"
@@ -248,6 +261,7 @@ class CrmOnlyRelease:
         remote = self.git("ls-remote", "origin", "refs/heads/autostopcrm-v1").split()
         if not remote or remote[0] != self.sha:
             raise ReleaseError("GitHub production branch does not match --sha")
+        self._guarded_controller_source()
         candidate_compose = (self.source / "docker-compose.yml").read_bytes()
         active_compose = (self.production_root / "docker-compose.yml").read_bytes()
         if hashlib.sha256(candidate_compose).digest() != hashlib.sha256(active_compose).digest():
@@ -292,6 +306,12 @@ class CrmOnlyRelease:
                 raise ReleaseError(f"required production path unavailable: {path.name}")
         if not MANAGER_LINK.is_symlink() or not TELEGRAM_LINK.is_symlink():
             raise ReleaseError("Manager or Telegram release link missing")
+        self.telegram_link_target = str(TELEGRAM_LINK.resolve())
+        if (
+            self.expected_telegram_release_dir is not None
+            and self.telegram_link_target != self.expected_telegram_release_dir
+        ):
+            raise ReleaseError("work Telegram release differs from approved target")
         manager_revision = (MANAGER_LINK / "REVISION").read_text().strip()
         if not SHA_RE.fullmatch(manager_revision):
             raise ReleaseError("installed Manager revision is invalid")
@@ -337,7 +357,7 @@ class CrmOnlyRelease:
             old_container_id=record["Id"],
             manager_revision=manager_revision,
             manager_link_target=str(MANAGER_LINK.resolve()),
-            telegram_link_target=str(TELEGRAM_LINK.resolve()),
+            telegram_link_target=self.telegram_link_target,
             other_container_ids=other_ids,
             mounts=mounts,
             manager_mcp_pid=self.service_pid("autostop-manager-mcp.service"),
@@ -452,8 +472,92 @@ class CrmOnlyRelease:
         self.hold_key = f"{self.rollback_hold_key}:{self._rehold_count}"
         self.automation("hold")
 
+    def _guarded_controller_source(self) -> Path:
+        repo = self.guarded_controller_repo
+        sha = self.guarded_controller_sha
+        if repo is None or sha is None or not SHA_RE.fullmatch(sha):
+            raise ReleaseError("exact guarded Telegram controller source is required")
+        repo = repo.resolve()
+        source = repo / "scripts/set-work-telegram-duty.sh"
+        if not source.is_file() or source.is_symlink():
+            raise ReleaseError("guarded Telegram controller source is missing or unsafe")
+        if self.run("git", "-C", str(repo), "rev-parse", "HEAD") != sha:
+            raise ReleaseError("guarded Telegram controller checkout differs from target SHA")
+        if self.run("git", "-C", str(repo), "status", "--porcelain=v1", "--untracked-files=all"):
+            raise ReleaseError("guarded Telegram controller checkout is dirty")
+        remote = self.run(
+            "git", "-C", str(repo), "ls-remote", "origin", "refs/heads/AutostopManager"
+        ).split()
+        if not remote or remote[0] != sha:
+            raise ReleaseError("published Manager branch differs from guarded controller SHA")
+        tracked_hash = self.run(
+            "git", "-C", str(repo), "rev-parse", f"{sha}:scripts/set-work-telegram-duty.sh"
+        )
+        source_bytes = source.read_bytes()
+        if tracked_hash != self.run(
+            "git", "-C", str(repo), "hash-object", "--stdin", input_bytes=source_bytes
+        ):
+            raise ReleaseError("guarded Telegram controller differs from published blob")
+        self.guarded_controller_bytes = source_bytes
+        self.guarded_controller_hash = hashlib.sha256(source_bytes).hexdigest()
+        return source
+
+    def _seal_guarded_controller(self, effects_dir: Path) -> None:
+        self._guarded_controller_source()
+        sealed = effects_dir / "guarded-telegram-duty.sh"
+        descriptor = os.open(sealed, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o500)
+        with os.fdopen(descriptor, "wb") as output:
+            output.write(self.guarded_controller_bytes)
+            output.flush()
+            os.fsync(output.fileno())
+        self.sealed_guarded_controller = sealed
+        self._verify_sealed_guarded_controller()
+
+    def _verify_sealed_guarded_controller(self) -> None:
+        sealed = self.sealed_guarded_controller
+        if sealed is None:
+            raise ReleaseError("guarded Telegram controller is not sealed")
+        info = sealed.lstat()
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_nlink != 1
+            or info.st_uid != 0
+            or info.st_gid != 0
+            or stat.S_IMODE(info.st_mode) != 0o500
+            or hashlib.sha256(sealed.read_bytes()).hexdigest() != self.guarded_controller_hash
+        ):
+            raise ReleaseError("guarded Telegram controller artifact changed")
+
+    def _call_guarded_duty(self, operation: str, *, timeout: int = 45) -> str:
+        self._verify_sealed_guarded_controller()
+        return self.run(
+            str(self.sealed_guarded_controller),
+            operation,
+            "--expected-release-dir",
+            self.telegram_link_target,
+            timeout=timeout,
+        )
+
     def telegram_status(self) -> dict:
-        return json.loads(self.run(str(TELEGRAM_DUTY), "--status", timeout=30))
+        if self.sealed_guarded_controller is None:
+            self._guarded_controller_source()
+            with tempfile.TemporaryDirectory(prefix="crm-duty-status-") as directory:
+                pinned = Path(directory) / "guarded-telegram-duty.sh"
+                descriptor = os.open(pinned, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o500)
+                with os.fdopen(descriptor, "wb") as output:
+                    output.write(self.guarded_controller_bytes)
+                    output.flush()
+                    os.fsync(output.fileno())
+                return json.loads(
+                    self.run(
+                        str(pinned),
+                        "--status",
+                        "--expected-release-dir",
+                        self.telegram_link_target,
+                        timeout=30,
+                    )
+                )
+        return json.loads(self._call_guarded_duty("--status", timeout=30))
 
     def check_unchanged_neighbors(self, baseline: Baseline) -> None:
         if (MANAGER_LINK / "REVISION").read_text().strip() != baseline.manager_revision:
@@ -469,6 +573,12 @@ class CrmOnlyRelease:
             raise ReleaseError("Manager MCP process changed")
         if self.service_pid("autostop-manager-scheduler.service") != baseline.scheduler_pid:
             raise ReleaseError("scheduler process changed")
+
+    def telegram_target_unchanged(self, baseline: Baseline) -> bool:
+        return (
+            TELEGRAM_LINK.is_symlink()
+            and str(TELEGRAM_LINK.resolve()) == baseline.telegram_link_target
+        )
 
     def check_telegram_units(self, baseline: Baseline) -> None:
         for unit, expected in baseline.telegram_unit_states.items():
@@ -621,6 +731,8 @@ class CrmOnlyRelease:
     def apply(self) -> dict[str, str]:
         if os.geteuid() != 0:
             raise ReleaseError("CRM-only release requires root")
+        if not self.expected_telegram_release_dir:
+            raise ReleaseError("approved work Telegram release target is required for apply")
         lock_fd = os.open(self.lock_path, os.O_CREAT | os.O_RDWR, 0o600)
         try:
             try:
@@ -642,6 +754,7 @@ class CrmOnlyRelease:
             hold_may_be_released = False
             effects_dir = self.backup_dir.parent / f"{self.release_id}-effects"
             effects_dir.mkdir(parents=True, exist_ok=False, mode=0o700)
+            self._seal_guarded_controller(effects_dir)
             feed_baseline = effects_dir / "feed.json"
             telegram_baseline = effects_dir / "telegram.json"
             feed_captured = False
@@ -656,7 +769,7 @@ class CrmOnlyRelease:
                 self.automation("hold")
                 hold_acquired = True
                 duty_paused = True
-                self.run(str(TELEGRAM_DUTY), "--disable", timeout=45)
+                self._call_guarded_duty("--disable")
                 if self.telegram_status().get("inbound_enabled") is not False:
                     raise ReleaseError("Telegram inbound duty did not pause")
                 self.effect_probe("capture-telegram-effects", baseline=telegram_baseline)
@@ -691,7 +804,7 @@ class CrmOnlyRelease:
                 self.marker.unlink()
                 marker_created = False
                 opened = True
-                self.run(str(TELEGRAM_DUTY), "--enable", timeout=45)
+                self._call_guarded_duty("--enable")
                 duty_paused = False
                 self.check_telegram_ready()
                 self.check_telegram_units(baseline)
@@ -709,6 +822,15 @@ class CrmOnlyRelease:
                     raise ReleaseError(
                         f"release opened but post-open check failed: {type(error).__name__}; "
                         "automatic data rollback forbidden after writes may resume"
+                    ) from error
+                if (
+                    marker_created
+                    and hold_acquired
+                    and not self.telegram_target_unchanged(baseline)
+                ):
+                    raise ReleaseError(
+                        "work Telegram release switched during CRM update; maintenance marker "
+                        "and scheduler hold retained for manual recovery"
                     ) from error
                 if hold_attempted and not hold_acquired:
                     try:
@@ -774,7 +896,7 @@ class CrmOnlyRelease:
                         marker_created = False
                         rollback_reopened = True
                     if duty_paused:
-                        self.run(str(TELEGRAM_DUTY), "--enable", timeout=45)
+                        self._call_guarded_duty("--enable")
                         duty_paused = False
                         self.check_telegram_ready()
                         self.check_telegram_units(baseline)
@@ -807,6 +929,9 @@ def main() -> int:
     parser.add_argument("--sha", required=True)
     parser.add_argument("--source", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--production-root", type=Path, default=Path("/opt/autostopcrm"))
+    parser.add_argument("--guarded-controller-repo", type=Path, required=True)
+    parser.add_argument("--guarded-controller-sha", required=True)
+    parser.add_argument("--expected-telegram-release-dir")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--preflight", action="store_true")
     mode.add_argument("--apply", action="store_true")
@@ -814,7 +939,12 @@ def main() -> int:
     args = parser.parse_args()
     try:
         release = CrmOnlyRelease(
-            source=args.source, production_root=args.production_root, sha=args.sha
+            source=args.source,
+            production_root=args.production_root,
+            sha=args.sha,
+            guarded_controller_repo=args.guarded_controller_repo,
+            guarded_controller_sha=args.guarded_controller_sha,
+            expected_telegram_release_dir=args.expected_telegram_release_dir,
         )
         if args.preflight:
             baseline = release.preflight()
@@ -825,6 +955,7 @@ def main() -> int:
                         "candidate_revision": args.sha,
                         "installed_crm_revision": baseline.old_revision,
                         "installed_manager_revision": baseline.manager_revision,
+                        "telegram_release_dir": baseline.telegram_link_target,
                         "compose_unchanged": True,
                         "source_clean": True,
                     }
@@ -833,6 +964,8 @@ def main() -> int:
             return 0
         if args.confirm_sha != args.sha:
             raise ReleaseError("--apply requires matching --confirm-sha")
+        if not args.expected_telegram_release_dir:
+            raise ReleaseError("--apply requires --expected-telegram-release-dir from preflight")
         print(json.dumps(release.apply()))
         return 0
     except (ReleaseError, OSError, ValueError, subprocess.TimeoutExpired) as exc:

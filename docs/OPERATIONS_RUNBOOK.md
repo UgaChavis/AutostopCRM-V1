@@ -808,7 +808,7 @@ does not provide the release checkpoint or bounded rollback.
 Use `scripts/deploy_crm_only.py` only for a reviewed UI-only diff in its
 explicit path allowlist. It does not update Manager source, scheduler units,
 Telegram release, J1, or MCP credentials. The maintenance hold is temporary.
-The existing duty controller pauses and restores work Telegram inbound handling:
+The sealed guarded duty controller pauses and restores work Telegram inbound handling:
 it restarts the bridge, disables then reenables the Codex wake unit, and starts
 `autostop-codex-start.service` during resume. Preflight refuses an active media
 worker. Include these service effects in the owner's release approval. The script runs Compose through the existing
@@ -819,16 +819,25 @@ After the PR is merged, create a **clean, separate** worktree at the exact
 GitHub `autostopcrm-v1` SHA. The source SHA, GitHub ref, installed CRM revision,
 unchanged Compose bytes, path allowlist, mounts, current Manager revision,
 authentication, scheduler feed, disk and current health must all pass:
+Use a separate clean Manager worktree at the published guarded-controller SHA.
+Preflight reports the active `telegram_release_dir`; pass that exact value to
+apply. The controller checks it under the Telegram control lock before each
+duty operation, including rollback, while the installed Telegram runtime stays
+on its existing release.
 
 ```bash
 /opt/autostopcrm/.venv/bin/python /path/to/clean/release-worktree/scripts/deploy_crm_only.py \
-  --source /path/to/clean/release-worktree --sha "$exact_sha" --preflight
+  --source /path/to/clean/release-worktree --sha "$exact_sha" \
+  --guarded-controller-repo /path/to/clean/manager-worktree \
+  --guarded-controller-sha "$exact_manager_github_sha" --preflight
 ```
 
 This command is read-only. Keep its result and the exact PR/CI revision with
 the release record. Only after the owner explicitly approves the CRM container
 update and the temporary Telegram duty restart, run the same source and SHA
-with `--apply --confirm-sha "$exact_sha"`. The script repeats preflight under
+with both guarded-controller arguments and
+`--expected-telegram-release-dir "$preflight_telegram_release_dir" \
+--apply --confirm-sha "$exact_sha"`. The script repeats preflight under
 the shared lock, builds the image from `git archive` of that SHA, tags the old
 image for rollback, sets the maintenance marker, acquires the scheduler hold,
 pauses inbound duty, stops only CRM, creates and verifies the CRM/Manager
@@ -846,11 +855,65 @@ On candidate failure before the marker is removed, the script proves the
 candidate stopped, verifies the backup, restores **only CRM changed state**,
 recreates the previous CRM image and checks it before reopening. If stop,
 restore or readback fails, it leaves the marker and hold in place for manual
-recovery. Once the marker is removed, automatic data rollback is forbidden:
+recovery. If Telegram changes its active release while the hold is owned, the command
+keeps the marker and hold for manual recovery instead of calling duty on the
+new target. Once the marker is removed, automatic data rollback is forbidden:
 new live writes may have arrived, so recovery needs a new guarded window and
 backup. If the bounded recovery window expires, the marker remains and manual
 recovery is required. The release record prints the backup directory and
 rollback image tag.
+
+If a CRM-only release leaves `manager_automations(operation=readiness)` with
+the previous CRM SHA, reconcile the scheduler identity in a separate approved
+step. This changes `/etc/autostop-manager/automation-control.env` and restarts
+`autostop-manager-scheduler.service`; the CRM-only release keeps that process
+unchanged. Its private config backup remains under
+`/root/autostopcrm-backups/crm-only/` and must never be committed.
+
+Use a clean worktree at the installed and published CRM SHA and pass the exact
+old reported SHA. The command checks root ownership and mode `0600`, the live
+scheduler process environment, readiness and five synchronized timers. It
+acquires a quiescent release hold, changes one config line atomically, restarts
+the scheduler, then checks the new process, hold ownership, identity and timers
+before releasing the hold. It also pauses and resumes work Telegram duty, which
+restarts its bridge and wake unit, and checks its technical effect snapshot.
+Use a separate clean Manager worktree at its exact published SHA. The command
+checks the published guarded duty-controller blob, seals that one script in its
+private backup directory, and passes the preflight-pinned Telegram release
+target on every duty call. The controller verifies the target under the Telegram
+control lock before touching duty. No Manager or Telegram release is activated.
+Record `telegram_release_dir` from preflight and pass it back to apply; a
+Telegram release switch before apply aborts before the hold or any service
+change. A switch during apply is detected by the guarded controller under its
+lock or subsequent readback, potentially after the hold is acquired.
+It first backs up config, the scheduler registry, and unit/timer state.
+Before the CRM update, use bounded read-only probes to inspect the old state;
+this CLI preflight requires the new CRM image already installed.
+
+```bash
+/opt/autostopcrm/.venv/bin/python /path/to/clean/release-worktree/scripts/reconcile_automation_crm_revision.py \
+  --source /path/to/clean/release-worktree --sha "$exact_sha" \
+  --guarded-controller-repo /path/to/clean/manager-worktree \
+  --guarded-controller-sha "$exact_manager_github_sha" \
+  --expected-reported-sha "$previous_reported_sha" --preflight
+# Only after explicit approval of the scheduler restart:
+/opt/autostopcrm/.venv/bin/python /path/to/clean/release-worktree/scripts/reconcile_automation_crm_revision.py \
+  --source /path/to/clean/release-worktree --sha "$exact_sha" \
+  --guarded-controller-repo /path/to/clean/manager-worktree \
+  --guarded-controller-sha "$exact_manager_github_sha" \
+  --expected-reported-sha "$previous_reported_sha" \
+  --expected-telegram-release-dir "$preflight_telegram_release_dir" \
+  --apply --confirm-sha "$exact_sha"
+```
+
+On failure before hold release, the command restores only its own config
+change and restarts the previous scheduler identity under the hold. An uncertain
+hold or concurrent config change requires manual recovery. This step does not
+stop CRM, Manager MCP, Store or J1. If it loses the scheduler hold and cannot
+recover it, it stops the scheduler and leaves Telegram duty paused for manual
+recovery. After hold release, a failed final readback stops the scheduler and
+tries to re-pause Telegram duty; it preserves any concurrent config write for
+manual recovery. Do not automatically restore live CRM data.
 
 ## Production Verification
 
