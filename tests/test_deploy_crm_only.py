@@ -7,9 +7,17 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from scripts.deploy_crm_only import Baseline, CrmOnlyRelease, ReleaseError
+from scripts.deploy_crm_only import (
+    Baseline,
+    CommandFailure,
+    Commands,
+    CrmOnlyRelease,
+    ReleaseError,
+    SmokeStageFailure,
+)
 
 SHA = "a" * 40
 OLD_SHA = "b" * 40
@@ -384,6 +392,55 @@ class CrmOnlyReleaseTests(unittest.TestCase):
             argv for argv in commands if "https://crm.autostopcrm.ru/api/get_card" in " ".join(argv)
         )
         self.assertIn("GET", " ".join(public_guard))
+
+    def test_smoke_failure_names_gate_without_command_output(self) -> None:
+        release = FakeRelease(self.root)
+
+        def fail_gateway(*argv: str, **kwargs: object) -> str:
+            if "scripts/check_agent_gateway_v2.py" in argv:
+                raise CommandFailure(2, ("store_runtime_ready",))
+            return ""
+
+        with (
+            patch.object(release, "run", return_value=""),
+            patch.object(release, "compose", side_effect=fail_gateway),
+        ):
+            with self.assertRaisesRegex(SmokeStageFailure, "agent-gateway") as caught:
+                CrmOnlyRelease.smoke(release, revision=SHA)
+        self.assertIn("checks=store_runtime_ready", str(caught.exception))
+
+    def test_gateway_failure_only_exposes_allowlisted_check_names(self) -> None:
+        payload = json.dumps(
+            {
+                "checks": {
+                    "store_runtime_ready": False,
+                    "private_customer_value": False,
+                    "bootstrap_ok": True,
+                },
+                "diagnostic_chain": "private customer data",
+            }
+        ).encode()
+        result = SimpleNamespace(returncode=2, stdout=payload, stderr=b"private secret")
+        with patch("subprocess.run", return_value=result):
+            with self.assertRaises(CommandFailure) as caught:
+                Commands().run(["docker", "compose", "scripts/check_agent_gateway_v2.py"])
+        self.assertEqual(caught.exception.failed_checks, ("store_runtime_ready",))
+        self.assertNotIn("private", str(caught.exception))
+
+    def test_rollback_reports_candidate_smoke_gate(self) -> None:
+        release = FakeRelease(self.root)
+
+        def smoke(*, revision: str) -> None:
+            if revision == SHA:
+                raise SmokeStageFailure("agent-gateway")
+
+        release.smoke = smoke
+        with patch("os.geteuid", return_value=0):
+            with self.assertRaisesRegex(
+                ReleaseError, "prior CRM restored: smoke stage agent-gateway"
+            ):
+                release.apply()
+        self.assertFalse(release.marker.exists())
 
     def test_telegram_capture_failure_recovers_without_baseline(self) -> None:
         release = FakeRelease(self.root, fail="telegram_capture")
