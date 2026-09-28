@@ -172,6 +172,7 @@ CANONICAL_DOCS = frozenset(
         "docs/agent/module_operations/crm_gateway.md",
         "docs/agent/module_operations/crm_runtime.md",
         "docs/agent/module_operations/crm_commands.md",
+        "docs/agent/module_operations/manager_structure.md",
     }
 )
 DEPENDENCY_MANIFESTS = frozenset(
@@ -305,6 +306,8 @@ def classify_repository_file(path: str) -> TrackedFileClassification:
         role = "agent_skill"
     elif normalized in DEPENDENCY_MANIFESTS:
         role = "manifest"
+    elif normalized.startswith("templates/") and normalized.endswith(".json"):
+        role = "runtime_asset"
     elif normalized.startswith("tests/"):
         role = "test"
     elif normalized.startswith("scripts/"):

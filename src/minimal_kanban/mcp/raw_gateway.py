@@ -19,6 +19,10 @@ from .change_feed_gateway import (
     change_feed_schema,
     verify_change_feed_checkpoint_readback,
 )
+from .manager_structure_gateway import (
+    manager_structure_schema,
+    verify_manager_structure_readback,
+)
 from .telegram_behavior_gateway import telegram_behavior_patch_schema
 
 RAW_API_PREFIX = "api:"
@@ -32,6 +36,7 @@ RAW_API_WRITE_ROUTES = (
 ) | CHANGE_FEED_WRITE_ROUTES
 RAW_API_READ_ROUTES = frozenset(
     {
+        "/api/manager_structure",
         "/api/agent_actions",
         "/api/agent_scheduled_tasks",
         "/api/agent_status",
@@ -272,7 +277,8 @@ async def verify_virtual_api_write_readback(
     invoke: VirtualInvoker,
 ) -> dict[str, Any] | None:
     """Return exact verification for virtual writes that have a stable readback."""
-
+    if operation == "api:/api/manager_structure/apply":
+        return await verify_manager_structure_readback(arguments, result, invoke)
     if operation == "api:/api/patch_telegram_agent_behavior":
         result_data = result.get("data") if isinstance(result.get("data"), Mapping) else {}
         readback = await invoke("api:/api/get_telegram_agent_behavior", {})
@@ -307,7 +313,6 @@ async def verify_virtual_api_write_readback(
                 "idempotent_replay": result_data.get("idempotent_replay") is True,
             },
         }
-
     if operation in VERSIONED_WRITE_NAMES:
         card_id = str(arguments.get("card_id") or "").strip()
         result_data = result.get("data") if isinstance(result.get("data"), Mapping) else {}
@@ -1249,6 +1254,9 @@ def virtual_api_schema(route: str) -> dict[str, Any]:
         return completion_act_schema
     if route == "/api/patch_telegram_agent_behavior":
         return telegram_behavior_patch_schema(route)
+    structure_schema = manager_structure_schema(route)
+    if structure_schema is not None:
+        return structure_schema
     return {
         "$id": f"autostopcrm-agent-gateway:{route}",
         "title": route,

@@ -95,23 +95,41 @@ obsolete hashes clear the selection and show the map normally.
 Browser regression tests use a disposable local CRM with synthetic data:
 `python -m unittest tests.test_module_map tests.test_module_map_browser -v`.
 
-## Telegram-agent behavior diagram
+## Manager structure constructor
 
-Board settings open **«Инфраструктура поведения агента Telegram»** at
-`/telegram-agent-behavior`. The editor and the Manager map share a visual
-language, but the Telegram diagram is editable CRM data: modules, connections,
-descriptions, positions, and icons are saved in the board state with a revision.
-The bundled `telegram_agent_behavior.json` is only the initial diagram until the
-first save. Editing the diagram does not change the running Telegram agent.
+Board settings open **«Конструктор структуры менеджера»** at
+`/manager-structure`. The owner can create large, nested and compact modules,
+edit their titles, full instructions, captions, icons, colours, positions and
+green/yellow/red indicator lamps. Relations have editable endpoints, SVG routes,
+direction, labels and label coordinates. The small square button hides the
+toolbar and properties panel for a clean diagram; Esc restores the editor.
+Indicators are manual display states and do not poll any provider. Instructions
+are stored for future use and are not connected to the running agent.
 
-Operators can view the diagram. The owner configured by
-`AUTOSTOP_TELEGRAM_BEHAVIOR_OWNER_LOGIN` can edit it in the browser. The Codex
-integration can apply a narrow, revision-checked graph patch through the existing
-CRM MCP gateway only when its signed OAuth actor is that same owner. Agent edits
-and owner edits update the same graph and appear in its recent-change history;
-neither graph-content change requires a code release. A stale revision is rejected
-without replacing an open browser draft. The MCP graph capability never returns
-customer cards.
+The diagram is durable CRM data in `manager_structure.json` beside the CRM
+state. If an existing CRM has a saved `telegram_agent_behavior` graph, the
+constructor reads a compatible copy and writes its own file only on the first
+edit. The original setting and the older API remain intact for rollback. The
+owner is configured by `AUTOSTOP_MANAGER_STRUCTURE_OWNER_LOGIN`, falling back
+to the existing `AUTOSTOP_TELEGRAM_BEHAVIOR_OWNER_LOGIN`. Other operators can
+view modules and instructions. Browser and raw Gateway writes require the owner,
+an exact version and an idempotency key; raw writes verify a second read.
+
+The portable example is `templates/manager_structure.json`. It was built by
+individual CRM API operations from `manager_infrastructure.json` plus the
+updated Gmail modules and relations. To run the persistent local demonstration:
+
+```powershell
+python scripts/run_manager_structure_demo.py
+```
+
+Open `http://127.0.0.1:42991/`, log in as `admin / admin` in this synthetic
+stand, then open `http://127.0.0.1:42991/manager-structure`. Demo data lives in
+ignored `output/manager-structure-demo`. Export and restore a template with
+`scripts/manager_structure_template.py export|restore --url URL` and an owner
+session in `AUTOSTOP_MANAGER_STRUCTURE_SESSION`. Restore refuses to overwrite a
+nonempty diagram unless `--replace-existing` is explicit. The reference can be
+rebuilt on an empty stand with `--build-reference`.
 
 ## Local Development
 

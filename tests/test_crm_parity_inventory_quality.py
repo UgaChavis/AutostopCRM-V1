@@ -20,6 +20,7 @@ from minimal_kanban.web_assets import (
     BOARD_WEB_APP_JS,
     BOARD_WEB_APP_MODULES,
     DISPLAY_DASHBOARD_HTML,
+    MANAGER_STRUCTURE_HTML,
     MODULE_MAP_HTML,
     TELEGRAM_AGENT_BEHAVIOR_HTML,
 )
@@ -42,6 +43,7 @@ class CrmParityInventoryQualityTests(unittest.TestCase):
                 BOARD_WEB_APP_JS,
                 *BOARD_WEB_APP_MODULES.values(),
                 DISPLAY_DASHBOARD_HTML,
+                MANAGER_STRUCTURE_HTML,
                 MODULE_MAP_HTML,
                 TELEGRAM_AGENT_BEHAVIOR_HTML,
             )

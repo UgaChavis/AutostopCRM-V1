@@ -68,6 +68,7 @@ _PROXIED_WRITE_ROUTE_PATHS = {
     "/api/update_board_settings",
     "/api/save_telegram_agent_behavior",
     "/api/patch_telegram_agent_behavior",
+    "/api/manager_structure/apply",
     "/api/get_repair_order",
     "/api/update_repair_order",
     "/api/correct_repair_order_number",
@@ -122,8 +123,10 @@ _OPERATOR_SESSION_ROUTE_PATHS = {
     "/api/update_personal_board_preferences",
     "/api/get_display_dashboard",
     "/api/get_telegram_agent_behavior",
+    "/api/manager_structure",
     "/api/save_telegram_agent_behavior",
     "/api/patch_telegram_agent_behavior",
+    "/api/manager_structure/apply",
     "/api/open_card",
     "/api/reset_employee_salary_balance",
     "/api/automation_center/status",
@@ -138,6 +141,7 @@ _ADMIN_ONLY_ROUTE_PATHS = {
     "/api/correct_repair_order_number",
     "/api/finance_audit/apply_safe_fixes",
     "/api/automation_center/control",
+    "/api/manager_structure/apply",
 }
 
 EMPLOYEES_CASHBOXES_PERMISSION_ROUTES = frozenset(
@@ -217,6 +221,7 @@ _READONLY_GET_ROUTE_PATHS = frozenset(
         "/api/get_payroll_report",
         "/api/get_display_dashboard",
         "/api/get_telegram_agent_behavior",
+        "/api/manager_structure",
         "/api/get_employee_salary_ledger",
         "/api/get_employee_salary_report",
         "/api/get_employee_salary_reconciliation",

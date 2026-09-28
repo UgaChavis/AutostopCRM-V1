@@ -13,6 +13,7 @@ after a release. Never copy live records, tokens, or request bodies into this ca
 | Public MCP, Gateway v2, raw discovery, Manager/Store mounts | [CRM Gateway](crm_gateway.md) | CRM owns board, clients, vehicles, repairs, finance, inventory and files. Manager owns orchestration; Store owns quotes, stock and orders. |
 | API, services, containers and integrations | [CRM runtime](crm_runtime.md) | CRM API and services own CRM records; external dependencies are reached through documented adapters. |
 | Local checks, probes, build, maintenance and release commands | [CRM commands](crm_commands.md) | The command's target and mode determine its effects. |
+| Editable manager structure, saved instructions, raw Gateway read and write | [Manager structure](manager_structure.md) | CRM owns this diagram; indicators and instruction text have no effect on live agents or providers. |
 
 The full HTTP contract is [API_GUIDE.md](../../../API_GUIDE.md), the public MCP
 contract is [MCP_GUIDE.md](../../../MCP_GUIDE.md), and the authoritative release

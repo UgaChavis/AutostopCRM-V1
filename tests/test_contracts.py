@@ -14,6 +14,9 @@ if str(ROOT) not in sys.path:
 
 from minimal_kanban.api.automation_center import build_automation_center_routes  # noqa: E402
 from minimal_kanban.api.change_feed import build_change_feed_routes  # noqa: E402
+from minimal_kanban.api.manager_structure_routes import (  # noqa: E402
+    manager_structure_route_handlers,
+)
 from minimal_kanban.api.route_registry import (  # noqa: E402
     ADMIN_ONLY_ROUTES,
     EMPLOYEES_CASHBOXES_PERMISSION_ROUTES,
@@ -353,6 +356,7 @@ class ContractSnapshotTests(unittest.TestCase):
             | set(build_operator_routes(service))
             | set(build_change_feed_routes(service))
             | set(build_automation_center_routes(service))
+            | set(manager_structure_route_handlers(service))
         )
 
         self.assertLessEqual(PROXIED_WRITE_ROUTES, all_routes)
@@ -369,6 +373,7 @@ class ContractSnapshotTests(unittest.TestCase):
         operator_routes = build_operator_routes(service)
         change_feed_routes = build_change_feed_routes(service)
         automation_routes = build_automation_center_routes(service)
+        structure_routes = manager_structure_route_handlers(service)
         self.assertEqual(EXPECTED_CHANGE_FEED_ROUTES, set(change_feed_routes))
         self.assertEqual(EXPECTED_AUTOMATION_CENTER_ROUTES, set(automation_routes))
         specs = merge_route_specs(
@@ -376,6 +381,7 @@ class ContractSnapshotTests(unittest.TestCase):
             build_route_specs(operator_routes, registry="operator"),
             build_route_specs(change_feed_routes, registry="change_feed"),
             build_route_specs(automation_routes, registry="automation_center"),
+            build_route_specs(structure_routes, registry="manager_structure"),
         )
 
         expected_policy_paths = (
@@ -383,6 +389,7 @@ class ContractSnapshotTests(unittest.TestCase):
             | set(operator_routes)
             | EXPECTED_CHANGE_FEED_ROUTES
             | EXPECTED_AUTOMATION_CENTER_ROUTES
+            | set(structure_routes)
         )
         self.assertEqual(expected_policy_paths, set(specs))
         self.assertEqual(frozenset(expected_policy_paths), ROUTE_POLICY_PATHS)

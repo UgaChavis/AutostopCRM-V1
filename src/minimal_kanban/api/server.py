@@ -65,16 +65,24 @@ from ..web_assets import (
     BOARD_WEB_APP_JS,
     BOARD_WEB_APP_JS_PATH,
     BOARD_WEB_APP_MODULES,
-    DISPLAY_DASHBOARD_HTML,
-    MODULE_MAP_HTML,
     MODULE_MAP_INFRASTRUCTURE,
-    TELEGRAM_AGENT_BEHAVIOR_HTML,
 )
 from .automation_center import build_automation_center_routes
 from .change_feed import (
     AUTOMATION_CHANGE_FEED_ROUTES,
     build_change_feed_routes,
 )
+from .infrastructure_pages import (
+    display_dashboard_html_bytes as _display_dashboard_html_bytes,
+)
+from .infrastructure_pages import (
+    display_dashboard_html_gzip_bytes as _display_dashboard_html_gzip_bytes,
+)
+from .infrastructure_pages import infrastructure_response
+from .infrastructure_pages import (
+    module_map_html_gzip_bytes as _module_map_html_gzip_bytes,  # noqa: F401
+)
+from .manager_structure_routes import build_manager_structure_routes
 from .route_registry import (
     EMPLOYEES_READ_PERMISSION_ROUTES,
     build_operator_routes,
@@ -419,31 +427,6 @@ def _board_asset_bytes(route: str) -> tuple[bytes, str] | None:
 
 def _board_asset_gzip_bytes(route: str) -> bytes | None:
     return _BOARD_ASSETS_GZIP.get(route)
-
-
-@cache
-def _display_dashboard_html_bytes() -> bytes:
-    return DISPLAY_DASHBOARD_HTML.encode("utf-8")
-
-
-@cache
-def _display_dashboard_html_gzip_bytes() -> bytes:
-    return gzip.compress(_display_dashboard_html_bytes())
-
-
-@cache
-def _infrastructure_html_bytes(telegram_page: bool) -> bytes:
-    html = TELEGRAM_AGENT_BEHAVIOR_HTML if telegram_page else MODULE_MAP_HTML
-    return html.encode("utf-8")
-
-
-@cache
-def _infrastructure_html_gzip_bytes(telegram_page: bool) -> bytes:
-    return gzip.compress(_infrastructure_html_bytes(telegram_page))
-
-
-def _module_map_html_gzip_bytes() -> bytes:
-    return _infrastructure_html_gzip_bytes(False)
 
 
 def _display_dashboard_shared_file_info(
@@ -806,17 +789,11 @@ class StaticAndDownloadResponder:
             "/module-map/",
             "/telegram-agent-behavior",
             "/telegram-agent-behavior/",
+            "/manager-structure",
+            "/manager-structure/",
         }:
             gzip_ok = _accepts_gzip(handler.headers.get("Accept-Encoding", ""))
-            telegram_page = route.startswith("/telegram-agent-behavior")
-            body = (
-                _infrastructure_html_gzip_bytes(telegram_page)
-                if gzip_ok
-                else _infrastructure_html_bytes(telegram_page)
-            )
-            extra_headers = {"Vary": "Accept-Encoding"}
-            if gzip_ok:
-                extra_headers["Content-Encoding"] = "gzip"
+            body, extra_headers = infrastructure_response(route, gzip_ok)
             handler.send_response(HTTPStatus.OK)
             handler._send_headers(
                 "text/html; charset=utf-8",
@@ -882,6 +859,8 @@ class StaticAndDownloadResponder:
             "/module-map/",
             "/telegram-agent-behavior",
             "/telegram-agent-behavior/",
+            "/manager-structure",
+            "/manager-structure/",
         }:
             self._serve_infrastructure_page(handler, request_id)
             return True
@@ -996,15 +975,7 @@ class StaticAndDownloadResponder:
     def _serve_infrastructure_page(handler: BaseHTTPRequestHandler, request_id: str) -> None:
         gzip_ok = _accepts_gzip(handler.headers.get("Accept-Encoding", ""))
         route = urlsplit(handler.path).path or "/module-map"
-        telegram_page = route.startswith("/telegram-agent-behavior")
-        body = (
-            _infrastructure_html_gzip_bytes(telegram_page)
-            if gzip_ok
-            else _infrastructure_html_bytes(telegram_page)
-        )
-        extra_headers = {"Vary": "Accept-Encoding"}
-        if gzip_ok:
-            extra_headers["Content-Encoding"] = "gzip"
+        body, extra_headers = infrastructure_response(route, gzip_ok)
         handler._send_bytes_response(
             body,
             content_type="text/html; charset=utf-8",
@@ -2416,14 +2387,22 @@ class ApiServer:
         automation_center_service = self._automation_center_service or AutomationCenterService()
         self._automation_center_service = automation_center_service
         automation_routes = build_automation_center_routes(automation_center_service)
+        structure_routes = build_manager_structure_routes(service)
         operator_routes = build_operator_routes(operator_service) if operator_service else {}
         route_specs = merge_route_specs(
             build_route_specs(service_routes, registry="service"),
             build_route_specs(feed_routes, registry="change_feed"),
             build_route_specs(automation_routes, registry="automation_center"),
+            build_route_specs(structure_routes, registry="manager_structure"),
             build_route_specs(operator_routes, registry="operator"),
         )
-        routes = {**service_routes, **feed_routes, **automation_routes, **operator_routes}
+        routes = {
+            **service_routes,
+            **feed_routes,
+            **automation_routes,
+            **structure_routes,
+            **operator_routes,
+        }
         proxied_write_routes = {
             path
             for path, spec in route_specs.items()

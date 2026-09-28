@@ -680,7 +680,7 @@
     els.boardScaleReset.addEventListener('click', resetBoardScaleToDefault);
     els.openDisplayDashboardButton?.addEventListener('click', openDisplayDashboard);
     els.openModuleMapSettingsButton?.addEventListener('click', openModuleMap);
-    els.openTelegramAgentBehaviorSettingsButton?.addEventListener('click', openTelegramAgentBehavior);
+    els.openManagerStructureSettingsButton?.addEventListener('click', openManagerStructure);
     els.editDisplayDashboardMessageButton?.addEventListener('click', openDisplayDashboardMessageEditor);
     els.displayDashboardMessageToolbar?.addEventListener('mousedown', (event) => {
       if (event.target.closest('button')) event.preventDefault();

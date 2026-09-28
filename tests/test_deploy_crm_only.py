@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+
+if sys.platform == "win32":
+    raise unittest.SkipTest("Unix release locking requires fcntl.")
 
 from scripts.deploy_crm_only import (
     Baseline,
