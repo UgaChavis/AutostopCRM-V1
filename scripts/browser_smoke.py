@@ -44,6 +44,7 @@ from browser_smoke_completion_act import (
 from browser_smoke_core import (
     _anonymous_write_rejected,
     _exercise_board_create_roundtrip,
+    _exercise_board_column_mouse_roundtrip,
     _exercise_card_discard_controls,
     _exercise_client_link_roundtrip,
     _exercise_files_modal,
@@ -1530,6 +1531,9 @@ async def _desktop_board_scenarios(page: Any, runtime: TempRuntime) -> dict[str,
     scenarios["desktop_board_create_roundtrip"] = await _exercise_board_create_roundtrip(
         page, runtime
     )
+    scenarios[
+        "desktop_board_column_mouse_roundtrip"
+    ] = await _exercise_board_column_mouse_roundtrip(page, runtime)
     scenarios["payroll_chain_reaches_reports_and_reconciliation"] = (
         _payroll_chain_reaches_reports_and_reconciliation(runtime)
     )
@@ -2098,6 +2102,9 @@ async def _core_scenarios(page: Any, runtime: TempRuntime) -> dict[str, bool]:
     scenarios["desktop_board_create_roundtrip"] = await _exercise_board_create_roundtrip(
         page, runtime
     )
+    scenarios[
+        "desktop_board_column_mouse_roundtrip"
+    ] = await _exercise_board_column_mouse_roundtrip(page, runtime)
     _, card_roundtrip_ok, timer_ok = await _exercise_card_modal_roundtrip(page, runtime)
     scenarios["desktop_board_card_roundtrip"] = bool(card_roundtrip_ok)
     scenarios["card_timer_start_stop"] = bool(timer_ok)

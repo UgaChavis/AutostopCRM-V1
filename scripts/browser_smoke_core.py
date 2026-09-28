@@ -59,6 +59,79 @@ async def _exercise_board_create_roundtrip(page: Any, runtime: TempRuntime) -> b
     )
 
 
+async def _exercise_board_column_mouse_roundtrip(page: Any, runtime: TempRuntime) -> bool:
+    from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+
+    marker = "Core smoke column mouse control"
+    initial = runtime.service.get_board_snapshot({})["columns"]
+    prompts = []
+
+    async def accept_dialog(dialog: Any) -> None:
+        prompts.append(dialog.type)
+        if dialog.type == "prompt":
+            await dialog.accept(marker if len(prompts) == 1 else marker + " renamed")
+        else:
+            await dialog.accept()
+
+    page.on("dialog", accept_dialog)
+    try:
+        add_button = page.locator(".board-add-column")
+        await add_button.scroll_into_view_if_needed()
+        await add_button.hover()
+        async with page.expect_response(
+            lambda response: (
+                response.request.method == "POST"
+                and response.url.split("?", 1)[0].endswith("/api/create_column")
+            ),
+            timeout=10000,
+        ) as info:
+            await add_button.click()
+        if (await info.value).status != 200:
+            return False
+        created = [
+            column
+            for column in runtime.service.get_board_snapshot({})["columns"]
+            if column.get("label") == marker
+        ]
+        if len(created) != 1:
+            return False
+        column_id = created[0]["id"]
+        column = page.locator(f'.column[data-column-id="{column_id}"]')
+        await column.hover()
+        async with page.expect_response(
+            lambda response: (
+                response.request.method == "POST"
+                and response.url.split("?", 1)[0].endswith("/api/rename_column")
+            ),
+        ) as info:
+            await page.locator(f'[data-rename-column="{column_id}"]').click()
+        if (await info.value).status != 200:
+            return False
+        renamed = next(
+            column
+            for column in runtime.service.get_board_snapshot({})["columns"]
+            if column["id"] == column_id
+        )
+        if renamed["label"] != marker + " renamed":
+            return False
+        await column.hover()
+        async with page.expect_response(
+            lambda response: (
+                response.request.method == "POST"
+                and response.url.split("?", 1)[0].endswith("/api/delete_column")
+            ),
+        ) as info:
+            await page.locator(f'[data-delete-column="{column_id}"]').click()
+        if (await info.value).status != 200:
+            return False
+        final = runtime.service.get_board_snapshot({})["columns"]
+        return bool(prompts == ["prompt", "prompt", "confirm"] and final == initial)
+    except PlaywrightTimeoutError:
+        return False
+    finally:
+        page.remove_listener("dialog", accept_dialog)
+
+
 async def _exercise_card_discard_controls(page: Any, card_selector: str) -> bool:
     original_title = await page.input_value("#cardTitle")
     await page.evaluate(
