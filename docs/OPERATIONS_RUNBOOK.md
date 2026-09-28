@@ -872,7 +872,9 @@ private backup directory, and passes the preflight-pinned Telegram release
 target on every duty call. The controller verifies the target under the Telegram
 control lock before touching duty. No Manager or Telegram release is activated.
 Record `telegram_release_dir` from preflight and pass it back to apply; a
-concurrent Telegram release switch aborts before the hold or any service change.
+Telegram release switch before apply aborts before the hold or any service
+change. A switch during apply is detected by the guarded controller under its
+lock or subsequent readback, potentially after the hold is acquired.
 It first backs up config, the scheduler registry, and unit/timer state.
 Before the CRM update, use bounded read-only probes to inspect the old state;
 this CLI preflight requires the new CRM image already installed.

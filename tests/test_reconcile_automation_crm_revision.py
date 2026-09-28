@@ -64,7 +64,10 @@ class FakeRelease:
 
     def run(self, *argv, **kwargs):
         if len(argv) == 4 and argv[1] in {"--disable", "--enable"}:
-            assert argv[2:] == ("--expected-release-dir", "/synthetic-telegram-release")
+            assert argv[2:] == (
+                "--expected-release-dir",
+                str(self.config.parent / "synthetic-telegram-release"),
+            )
             self.duty_enabled = argv[1] == "--enable"
             self.events.append("duty_" + argv[1][2:])
             if argv[1] == "--enable" and self.foreign_during_enable:
@@ -109,19 +112,24 @@ class FakeReconciler(AutomationRevisionReconciler):
         config = root / "automation-control.env"
         config.write_bytes(control_bytes())
         config.chmod(0o600)
+        telegram_release = root / "synthetic-telegram-release"
+        telegram_release.mkdir()
+        telegram_link = root / "current-telegram"
+        telegram_link.symlink_to(telegram_release)
         self.fake = FakeRelease(root, config)
         super().__init__(
             self.fake,
             expected_reported_sha=OLD,
             control_env=config,
-            expected_telegram_release_dir="/synthetic-telegram-release",
+            expected_telegram_release_dir=str(telegram_release),
         )
         self.backup_dir = root / "backup"
         self.failure = failure
         self.restart_count = 0
         self.fake.foreign_during_enable = failure == "foreign_during_enable"
         self.fake.ambiguous_probe = failure == "ambiguous_release_probe"
-        self.telegram_link_target = "/synthetic-telegram-release"
+        self.telegram_link = telegram_link
+        self.telegram_link_target = str(telegram_release)
 
     def preflight(self):
         return (
@@ -329,6 +337,17 @@ class ReconcileAutomationCrmRevisionTests(unittest.TestCase):
         reconcile.expected_telegram_release_dir = None
         with patch("os.geteuid", return_value=0):
             with self.assertRaisesRegex(ReleaseError, "target is required"):
+                reconcile.apply()
+        self.assertEqual(reconcile.fake.events, [])
+
+    def test_changed_telegram_release_aborts_before_hold(self) -> None:
+        reconcile = FakeReconciler(self.root)
+        replacement = self.root / "new-telegram-release"
+        replacement.mkdir()
+        reconcile.telegram_link.unlink()
+        reconcile.telegram_link.symlink_to(replacement)
+        with patch("os.geteuid", return_value=0):
+            with self.assertRaisesRegex(ReleaseError, "differs from approved target"):
                 reconcile.apply()
         self.assertEqual(reconcile.fake.events, [])
 

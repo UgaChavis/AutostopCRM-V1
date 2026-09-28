@@ -199,6 +199,7 @@ class AutomationRevisionReconciler:
         self.guarded_controller_sha = guarded_controller_sha
         self.guarded_controller_hash = ""
         self.expected_telegram_release_dir = expected_telegram_release_dir
+        self.telegram_link = TELEGRAM_LINK
         self.backup_dir = BACKUP_ROOT / "scheduler-revision" / release.release_id
         self.telegram_unit_states: dict[str, tuple[str, str]] = {}
         self.unit_definitions: dict[str, str] = {}
@@ -278,6 +279,7 @@ class AutomationRevisionReconciler:
         return installed, manager_sha
 
     def preflight(self) -> tuple[EnvSnapshot, dict, str]:
+        self._pin_approved_telegram_release()
         _, manager_sha = self._source_and_runtime()
         self.pinned_telegram_duty_path = self._guarded_controller_source()
         environment_files = self.release.run(
@@ -309,17 +311,20 @@ class AutomationRevisionReconciler:
             or packet.get("outbox", {}).get("by_status", {}).get("sending", 0) != 0
         ):
             raise ReleaseError("scheduler readiness baseline is inconsistent")
-        if not TELEGRAM_LINK.is_symlink():
-            raise ReleaseError("work Telegram release link is missing")
-        self.telegram_link_target = str(TELEGRAM_LINK.resolve())
-        if (
-            self.expected_telegram_release_dir is not None
-            and self.telegram_link_target != self.expected_telegram_release_dir
-        ):
-            raise ReleaseError("work Telegram release differs from approved target")
         self._check_pinned_telegram_ready()
         self.telegram_unit_states = {unit: self.release.unit_state(unit) for unit in TELEGRAM_UNITS}
         return snapshot, packet, pid
+
+    def _pin_approved_telegram_release(self) -> None:
+        if not self.telegram_link.is_symlink():
+            raise ReleaseError("work Telegram release link is missing")
+        target = str(self.telegram_link.resolve())
+        if (
+            self.expected_telegram_release_dir is not None
+            and target != self.expected_telegram_release_dir
+        ):
+            raise ReleaseError("work Telegram release differs from approved target")
+        self.telegram_link_target = target
 
     def _guarded_controller_source(self) -> Path:
         repo = self.guarded_controller_repo
@@ -432,8 +437,8 @@ class AutomationRevisionReconciler:
 
     def _require_telegram_link(self) -> None:
         if (
-            not TELEGRAM_LINK.is_symlink()
-            or str(TELEGRAM_LINK.resolve()) != self.telegram_link_target
+            not self.telegram_link.is_symlink()
+            or str(self.telegram_link.resolve()) != self.telegram_link_target
         ):
             raise ReleaseError("work Telegram release link changed")
 
@@ -602,6 +607,7 @@ class AutomationRevisionReconciler:
             raise ReleaseError("scheduler identity reconciliation requires root")
         if not self.expected_telegram_release_dir:
             raise ReleaseError("approved work Telegram release target is required for apply")
+        self._pin_approved_telegram_release()
         fd = os.open(self.release.lock_path, os.O_CREAT | os.O_RDWR, 0o600)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
