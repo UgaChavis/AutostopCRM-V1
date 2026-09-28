@@ -26,6 +26,9 @@ SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 ALLOWED_CHANGED_PATHS = {
     "src/minimal_kanban/web_app_assets/source/app_main_before_printing.js",
     "tests/test_mobile_client_search_draft.py",
+    "scripts/browser_smoke.py",
+    "scripts/browser_smoke_core.py",
+    "scripts/browser_smoke_profiles.py",
     "scripts/deploy_crm_only.py",
     "tests/test_deploy_crm_only.py",
     "docs/OPERATIONS_RUNBOOK.md",
