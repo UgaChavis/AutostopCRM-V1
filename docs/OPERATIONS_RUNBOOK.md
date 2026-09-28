@@ -852,6 +852,52 @@ backup. If the bounded recovery window expires, the marker remains and manual
 recovery is required. The release record prints the backup directory and
 rollback image tag.
 
+If a CRM-only release leaves `manager_automations(operation=readiness)` with
+the previous CRM SHA, reconcile the scheduler identity in a separate approved
+step. This changes `/etc/autostop-manager/automation-control.env` and restarts
+`autostop-manager-scheduler.service`; the CRM-only release keeps that process
+unchanged. Its private config backup remains under
+`/root/autostopcrm-backups/crm-only/` and must never be committed.
+
+Use a clean worktree at the installed and published CRM SHA and pass the exact
+old reported SHA. The command checks root ownership and mode `0600`, the live
+scheduler process environment, readiness and five synchronized timers. It
+acquires a quiescent release hold, changes one config line atomically, restarts
+the scheduler, then checks the new process, hold ownership, identity and timers
+before releasing the hold. It also pauses and resumes work Telegram duty, which
+restarts its bridge and wake unit, and checks its technical effect snapshot.
+Use a separate clean Manager worktree at its exact published SHA. The command
+checks the published guarded duty-controller blob, seals that one script in its
+private backup directory, and passes the preflight-pinned Telegram release
+target on every duty call. The controller verifies the target under the Telegram
+control lock before touching duty. No Manager or Telegram release is activated.
+It first backs up config, the scheduler registry, and unit/timer state.
+Before the CRM update, use bounded read-only probes to inspect the old state;
+this CLI preflight requires the new CRM image already installed.
+
+```bash
+/opt/autostopcrm/.venv/bin/python /path/to/clean/release-worktree/scripts/reconcile_automation_crm_revision.py \
+  --source /path/to/clean/release-worktree --sha "$exact_sha" \
+  --guarded-controller-repo /path/to/clean/manager-worktree \
+  --guarded-controller-sha "$exact_manager_github_sha" \
+  --expected-reported-sha "$previous_reported_sha" --preflight
+# Only after explicit approval of the scheduler restart:
+/opt/autostopcrm/.venv/bin/python /path/to/clean/release-worktree/scripts/reconcile_automation_crm_revision.py \
+  --source /path/to/clean/release-worktree --sha "$exact_sha" \
+  --guarded-controller-repo /path/to/clean/manager-worktree \
+  --guarded-controller-sha "$exact_manager_github_sha" \
+  --expected-reported-sha "$previous_reported_sha" --apply --confirm-sha "$exact_sha"
+```
+
+On failure before hold release, the command restores only its own config
+change and restarts the previous scheduler identity under the hold. An uncertain
+hold or concurrent config change requires manual recovery. This step does not
+stop CRM, Manager MCP, Store or J1. If it loses the scheduler hold and cannot
+recover it, it stops the scheduler and leaves Telegram duty paused for manual
+recovery. After hold release, a failed final readback stops the scheduler and
+tries to re-pause Telegram duty; it preserves any concurrent config write for
+manual recovery. Do not automatically restore live CRM data.
+
 ## Production Verification
 
 From the server:

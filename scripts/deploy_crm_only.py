@@ -34,6 +34,8 @@ ALLOWED_CHANGED_PATHS = {
     "tests/test_deploy_crm_only.py",
     "tests/test_card_workspace_context.py",
     "tests/test_printing_hydration_overlap_browser.py",
+    "scripts/reconcile_automation_crm_revision.py",
+    "tests/test_reconcile_automation_crm_revision.py",
     ".github/workflows/quality.yml",
     "docs/OPERATIONS_RUNBOOK.md",
     "docs/agent/module_operations/crm_commands.md",
