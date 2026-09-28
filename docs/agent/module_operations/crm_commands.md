@@ -1,8 +1,7 @@
 # CRM commands, gates and side effects
 
 Inventory checked against `scripts/`, `deploy.sh`, `.github/workflows/quality.yml`
-and the [runbook](../../OPERATIONS_RUNBOOK.md) at CRM revision `ac10f534`
-on 2026-09-25. Run commands from the exact CRM checkout. For Python entries,
+and the [runbook](../../OPERATIONS_RUNBOOK.md) on 2026-09-28. Run commands from the exact CRM checkout. For Python entries,
 the full path is `scripts/<name>`; inspect `python scripts/<name> --help` only
 for an entry with an argument parser. PowerShell uses `pwsh -File
 scripts/<name>.ps1` on Linux or the `./scripts/<name>.ps1` form on Windows.
@@ -48,7 +47,8 @@ needed. The code and runbook, not this summary, define exact thresholds.
 
 | Entrypoint and mode | Role and boundary |
 | --- | --- |
-| `deploy.sh` | X: official coordinated CRM/Manager release with backup, holds, activation, smoke and rollback. Its pre-maintenance phase seals the exact Manager candidate, runs that candidate's pinned public offline-parts catalog sync into a private cache, and rechecks disk space. Manager MCP activation defaults to `AUTOSTOP_MANAGER_MCP_ACTIVATE_ON_DEPLOY=1`; `=0` is only for an explicitly scoped CRM-only release. Run only with exact clean published refs and runbook gates. |
+| `deploy.sh` | X: official coordinated CRM/Manager release with backup, holds, activation, smoke and rollback. Its pre-maintenance phase seals the exact Manager candidate, runs that candidate's pinned public offline-parts catalog sync into a private cache, and rechecks disk space. `AUTOSTOP_MANAGER_MCP_ACTIVATE_ON_DEPLOY=0` skips only native MCP activation; it still updates Manager, scheduler and Telegram. Run only with exact clean published refs and runbook gates. |
+| `scripts/deploy_crm_only.py --sha <exact-40-hex> --preflight` or `--apply --confirm-sha <same>` | R preflight / X apply: narrowly reviewed CRM-only UI release from a clean isolated worktree. Pins canonical Compose/data/env/lock, checks exact GitHub SHA and path allowlist, backs up and rolls back CRM changed state. Apply temporarily pauses work Telegram duty, which restarts its bridge; requires explicit owner approval and [runbook](../../OPERATIONS_RUNBOOK.md). |
 | `scripts/release_git_preflight.sh` | R/T: exact Git/ref and dirty-tree preflight; may update remote-tracking refs. |
 | `scripts/agent_release_backup.py` subcommands: `create`, `verify`, `compare-current`, `restore-changed`, `restore-crm-changed`, `restore-manager-changed` | X for create/restore; durable release checkpoint and rollback component. `verify`/`compare-current` are R. Called by deploy, not an ad hoc backup substitute. |
 | `scripts/agent_release_retention.py` subcommands: `prune`, `cleanup-attempt` | X: validated old release/backup or failed-attempt artifact pruning only after its specified checkpoint. |
