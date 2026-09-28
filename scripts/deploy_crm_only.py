@@ -29,6 +29,7 @@ ALLOWED_CHANGED_PATHS = {
     "scripts/browser_smoke.py",
     "scripts/browser_smoke_core.py",
     "scripts/browser_smoke_profiles.py",
+    "tests/test_contracts.py",
     "scripts/deploy_crm_only.py",
     "tests/test_deploy_crm_only.py",
     "docs/OPERATIONS_RUNBOOK.md",

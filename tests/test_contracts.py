@@ -262,6 +262,7 @@ EXPECTED_SMOKE_SCENARIOS = (
     "login_gate_hides_board_until_operator_login",
     "anonymous_write_rejected",
     "desktop_board_create_roundtrip",
+    "desktop_board_column_mouse_roundtrip",
     "desktop_board_card_roundtrip",
     "move_card_delta_roundtrip",
     "board_drop_order_and_conflicts",
