@@ -265,6 +265,12 @@ class ReconcileAutomationCrmRevisionTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
+        uid_patch = patch.object(revision_module, "REQUIRED_UID", os.getuid())
+        gid_patch = patch.object(revision_module, "REQUIRED_GID", os.getgid())
+        uid_patch.start()
+        gid_patch.start()
+        self.addCleanup(uid_patch.stop)
+        self.addCleanup(gid_patch.stop)
 
     def test_exact_key_change_preserves_every_other_byte(self) -> None:
         before = control_bytes()
@@ -581,7 +587,9 @@ class ReconcileAutomationCrmRevisionTests(unittest.TestCase):
         reconcile.pinned_telegram_duty_path = script
         reconcile.guarded_controller_hash = hashlib.sha256(script.read_bytes()).hexdigest()
         AutomationRevisionReconciler._verify_sealed_controller(reconcile)
+        script.chmod(0o700)
         script.write_bytes(b"#!/bin/sh\nexit 1\n")
+        script.chmod(0o500)
         with self.assertRaisesRegex(ReleaseError, "artifact changed"):
             AutomationRevisionReconciler._verify_sealed_controller(reconcile)
 

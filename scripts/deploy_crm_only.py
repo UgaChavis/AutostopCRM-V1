@@ -494,7 +494,9 @@ class CrmOnlyRelease:
             "git", "-C", str(repo), "rev-parse", f"{sha}:scripts/set-work-telegram-duty.sh"
         )
         source_bytes = source.read_bytes()
-        if tracked_hash != self.run("git", "hash-object", "--stdin", input_bytes=source_bytes):
+        if tracked_hash != self.run(
+            "git", "-C", str(repo), "hash-object", "--stdin", input_bytes=source_bytes
+        ):
             raise ReleaseError("guarded Telegram controller differs from published blob")
         self.guarded_controller_bytes = source_bytes
         self.guarded_controller_hash = hashlib.sha256(source_bytes).hexdigest()

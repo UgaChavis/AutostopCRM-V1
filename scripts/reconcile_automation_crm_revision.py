@@ -34,6 +34,8 @@ from scripts.deploy_crm_only import (  # noqa: E402
 )
 
 CONTROL_ENV = Path("/etc/autostop-manager/automation-control.env")
+REQUIRED_UID = 0
+REQUIRED_GID = 0
 SCHEDULER_UNIT = "autostop-manager-scheduler.service"
 CRM_KEY = b"AUTOSTOP_AUTOMATION_CRM_REVISION"
 MANAGER_KEY = b"AUTOSTOP_MANAGER_REVISION"
@@ -105,8 +107,8 @@ def secure_snapshot(path: Path) -> EnvSnapshot:
     if (
         not stat.S_ISREG(info.st_mode)
         or info.st_nlink != 1
-        or info.st_uid != 0
-        or info.st_gid != 0
+        or info.st_uid != REQUIRED_UID
+        or info.st_gid != REQUIRED_GID
         or stat.S_IMODE(info.st_mode) != 0o600
     ):
         raise ReleaseError("scheduler identity file has unsafe type, owner or mode")
@@ -151,7 +153,9 @@ def atomic_replace_exact(path: Path, expected: EnvSnapshot, replacement: bytes) 
     fd, temporary = tempfile.mkstemp(prefix=".automation-control-", dir=path.parent)
     try:
         os.fchmod(fd, 0o600)
-        os.fchown(fd, expected.uid, expected.gid)
+        temporary_owner = os.fstat(fd)
+        if (temporary_owner.st_uid, temporary_owner.st_gid) != (expected.uid, expected.gid):
+            os.fchown(fd, expected.uid, expected.gid)
         with os.fdopen(fd, "wb") as output:
             output.write(replacement)
             output.flush()
@@ -351,7 +355,9 @@ class AutomationRevisionReconciler:
             "git", "-C", str(repo), "rev-parse", f"{sha}:scripts/set-work-telegram-duty.sh"
         )
         source_bytes = source.read_bytes()
-        actual_hash = self.release.run("git", "hash-object", "--stdin", input_bytes=source_bytes)
+        actual_hash = self.release.run(
+            "git", "-C", str(repo), "hash-object", "--stdin", input_bytes=source_bytes
+        )
         if tracked_hash != actual_hash:
             raise ReleaseError("guarded Telegram controller differs from published blob")
         self.guarded_controller_bytes = source_bytes
@@ -460,8 +466,8 @@ class AutomationRevisionReconciler:
         info = source.lstat()
         if (
             not stat.S_ISREG(info.st_mode)
-            or info.st_uid != 0
-            or info.st_gid != 0
+            or info.st_uid != REQUIRED_UID
+            or info.st_gid != REQUIRED_GID
             or stat.S_IMODE(info.st_mode) != 0o500
             or hashlib.sha256(source.read_bytes()).hexdigest() != self.guarded_controller_hash
         ):
