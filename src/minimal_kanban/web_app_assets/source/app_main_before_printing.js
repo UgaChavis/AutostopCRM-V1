@@ -8305,7 +8305,7 @@
       if (state.mobileLite) return;
       if (event.button !== 0) return;
       if (!(event.target instanceof HTMLElement)) return;
-      if (event.target.closest('.card, .sticky, .sticky__close, .btn, .gear-button, .tab-btn, input, textarea, select, a, [contenteditable="true"]')) return;
+      if (event.target.closest('.card, .sticky, .sticky__close, button, .btn, .gear-button, .tab-btn, input, textarea, select, a, [contenteditable="true"]')) return;
       state.boardPan.active = true;
       state.boardPan.pointerId = event.pointerId;
       state.boardPan.startX = event.clientX;
