@@ -198,6 +198,7 @@ class AutomationRevisionReconciler:
         self.guarded_controller_repo = guarded_controller_repo
         self.guarded_controller_sha = guarded_controller_sha
         self.guarded_controller_hash = ""
+        self.guarded_controller_bytes = b""
         self.expected_telegram_release_dir = expected_telegram_release_dir
         self.telegram_link = TELEGRAM_LINK
         self.backup_dir = BACKUP_ROOT / "scheduler-revision" / release.release_id
@@ -349,10 +350,12 @@ class AutomationRevisionReconciler:
         tracked_hash = self.release.run(
             "git", "-C", str(repo), "rev-parse", f"{sha}:scripts/set-work-telegram-duty.sh"
         )
-        actual_hash = self.release.run("git", "hash-object", str(source))
+        source_bytes = source.read_bytes()
+        actual_hash = self.release.run("git", "hash-object", "--stdin", input_bytes=source_bytes)
         if tracked_hash != actual_hash:
             raise ReleaseError("guarded Telegram controller differs from published blob")
-        self.guarded_controller_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+        self.guarded_controller_bytes = source_bytes
+        self.guarded_controller_hash = hashlib.sha256(source_bytes).hexdigest()
         return source
 
     def _backup(self, snapshot: EnvSnapshot, baseline: dict) -> None:
@@ -380,11 +383,11 @@ class AutomationRevisionReconciler:
             source.close()
             target.close()
         registry_backup.chmod(0o600)
-        controller_source = self._guarded_controller_source()
+        self._guarded_controller_source()
         controller_copy = self.backup_dir / "guarded-telegram-duty.sh"
         descriptor = os.open(controller_copy, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o500)
         with os.fdopen(descriptor, "wb") as output:
-            output.write(controller_source.read_bytes())
+            output.write(self.guarded_controller_bytes)
             output.flush()
             os.fsync(output.fileno())
         self.pinned_telegram_duty_path = controller_copy
@@ -465,6 +468,26 @@ class AutomationRevisionReconciler:
             raise ReleaseError("guarded Telegram controller artifact changed")
 
     def _call_guarded_duty(self, operation: str, *, timeout: int = 45) -> str:
+        if (
+            self.guarded_controller_repo is not None
+            and self.pinned_telegram_duty_path
+            == self.guarded_controller_repo.resolve() / "scripts/set-work-telegram-duty.sh"
+        ):
+            self._guarded_controller_source()
+            with tempfile.TemporaryDirectory(prefix="crm-scheduler-duty-") as directory:
+                pinned = Path(directory) / "guarded-telegram-duty.sh"
+                descriptor = os.open(pinned, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o500)
+                with os.fdopen(descriptor, "wb") as output:
+                    output.write(self.guarded_controller_bytes)
+                    output.flush()
+                    os.fsync(output.fileno())
+                return self.release.run(
+                    str(pinned),
+                    operation,
+                    "--expected-release-dir",
+                    self.telegram_link_target,
+                    timeout=timeout,
+                )
         self._verify_sealed_controller()
         return self.release.run(
             str(self.pinned_telegram_duty_path),

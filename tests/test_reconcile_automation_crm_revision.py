@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts import reconcile_automation_crm_revision as revision_module
-from scripts.deploy_crm_only import ReleaseError
+from scripts.deploy_crm_only import CrmOnlyRelease, ReleaseError
 from scripts.reconcile_automation_crm_revision import (
     AutomationRevisionReconciler,
     atomic_replace_exact,
@@ -527,10 +527,12 @@ class ReconcileAutomationCrmRevisionTests(unittest.TestCase):
         remote = self.root / "remote.git"
         repo = self.root / "manager"
 
-        def git(*argv: str) -> str:
-            return subprocess.run(
-                ["git", *argv], check=True, capture_output=True, text=True
-            ).stdout.strip()
+        def git(*argv: str, input_bytes: bytes | None = None) -> str:
+            return (
+                subprocess.run(["git", *argv], check=True, capture_output=True, input=input_bytes)
+                .stdout.decode()
+                .strip()
+            )
 
         git("init", "--bare", str(remote))
         git("init", "-b", "AutostopManager", str(repo))
@@ -559,7 +561,7 @@ class ReconcileAutomationCrmRevisionTests(unittest.TestCase):
 
         def git_or_fake(*argv, **kwargs):
             if argv[0] == "git":
-                return git(*argv[1:])
+                return git(*argv[1:], input_bytes=kwargs.get("input_bytes"))
             return original_run(*argv, **kwargs)
 
         reconcile.fake.run = git_or_fake
@@ -582,6 +584,31 @@ class ReconcileAutomationCrmRevisionTests(unittest.TestCase):
         script.write_bytes(b"#!/bin/sh\nexit 1\n")
         with self.assertRaisesRegex(ReleaseError, "artifact changed"):
             AutomationRevisionReconciler._verify_sealed_controller(reconcile)
+
+    def test_preseal_status_executes_verified_bytes_not_mutable_source(self) -> None:
+        repo = self.root / "manager"
+        unsafe = repo / "scripts/set-work-telegram-duty.sh"
+        unsafe.parent.mkdir(parents=True)
+        unsafe.write_text("#!/bin/sh\nexit 99\n")
+        release = CrmOnlyRelease(
+            source=self.root / "crm-source", production_root=self.root / "production", sha=NEW
+        )
+        reconcile = AutomationRevisionReconciler(
+            release,
+            expected_reported_sha=OLD,
+            guarded_controller_repo=repo,
+            guarded_controller_sha=MANAGER,
+        )
+        reconcile.pinned_telegram_duty_path = unsafe
+        reconcile.telegram_link_target = "synthetic-target"
+        safe = b"#!/bin/sh\nprintf '{\"ok\":true}\\n'\n"
+
+        def verified_source():
+            reconcile.guarded_controller_bytes = safe
+            return unsafe
+
+        with patch.object(reconcile, "_guarded_controller_source", side_effect=verified_source):
+            self.assertEqual(reconcile._pinned_telegram_status(), {"ok": True})
 
 
 if __name__ == "__main__":

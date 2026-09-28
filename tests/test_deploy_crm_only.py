@@ -19,7 +19,12 @@ CANDIDATE_IMAGE = "sha256:" + "2" * 64
 
 class FakeRelease(CrmOnlyRelease):
     def __init__(self, root: Path, *, fail: str = "") -> None:
-        super().__init__(source=root / "source", production_root=root / "production", sha=SHA)
+        super().__init__(
+            source=root / "source",
+            production_root=root / "production",
+            sha=SHA,
+            expected_telegram_release_dir="telegram-target",
+        )
         self.production_root.mkdir()
         (self.production_root / "data").mkdir()
         self.backup_dir = root / "backups" / self.release_id
@@ -46,6 +51,23 @@ class FakeRelease(CrmOnlyRelease):
         )
         self.active_hold_key = ""
         self.used_hold_keys: set[str] = set()
+        self.telegram_link_target = "telegram-target"
+        self.current_telegram_target = "telegram-target"
+
+    def _seal_guarded_controller(self, effects_dir: Path) -> None:
+        return None
+
+    def _call_guarded_duty(self, operation: str, *, timeout: int = 45) -> str:
+        if self.fail == "switch_before_disable" and operation == "--disable":
+            self.current_telegram_target = "other-telegram-target"
+        if self.fail == "switch_before_enable" and operation == "--enable":
+            self.current_telegram_target = "other-telegram-target"
+        if self.current_telegram_target != self.telegram_link_target:
+            raise ReleaseError("guarded controller rejected changed Telegram target")
+        return self.run("guarded-duty", operation)
+
+    def telegram_target_unchanged(self, baseline: Baseline) -> bool:
+        return self.current_telegram_target == baseline.telegram_link_target
 
     def preflight(self) -> Baseline:
         self.events.append("preflight")
@@ -64,12 +86,18 @@ class FakeRelease(CrmOnlyRelease):
             self.events.append("tag")
             return ""
         if len(argv) == 2 and argv[1] in ("--disable", "--enable"):
+            self.assert_guarded_duty_path(argv[0])
             if self.fail == "rollback_duty_enable" and argv[1] == "--enable":
                 raise ReleaseError("injected duty resume failure")
             self.events.append("duty_" + argv[1][2:])
             self.duty_enabled = argv[1] == "--enable"
             return ""
         raise AssertionError(f"unexpected command: {argv}")
+
+    @staticmethod
+    def assert_guarded_duty_path(path: str) -> None:
+        if path != "guarded-duty":
+            raise AssertionError("release bypassed sealed guarded duty controller")
 
     def telegram_status(self) -> dict:
         return {
@@ -201,6 +229,49 @@ class CrmOnlyReleaseTests(unittest.TestCase):
         )
         self.assertFalse(release.marker.exists())
         self.assertTrue(release.duty_enabled)
+
+    def test_apply_requires_approved_telegram_target(self) -> None:
+        release = FakeRelease(self.root)
+        release.expected_telegram_release_dir = None
+        with patch("os.geteuid", return_value=0):
+            with self.assertRaisesRegex(ReleaseError, "target is required"):
+                release.apply()
+        self.assertEqual(release.events, [])
+
+    def test_preseal_status_executes_verified_bytes_not_mutable_source(self) -> None:
+        release = CrmOnlyRelease(
+            source=self.root / "source",
+            production_root=self.root / "production",
+            sha=SHA,
+        )
+        release.telegram_link_target = "synthetic-target"
+        mutable = self.root / "mutable.sh"
+        mutable.write_text("#!/bin/sh\nexit 99\n")
+        safe = b"#!/bin/sh\nprintf '{\"ok\":true}\\n'\n"
+
+        def verified_source():
+            release.guarded_controller_bytes = safe
+            return mutable
+
+        with patch.object(release, "_guarded_controller_source", side_effect=verified_source):
+            self.assertEqual(release.telegram_status(), {"ok": True})
+
+    def test_changed_telegram_target_before_disable_keeps_hold_and_marker(self) -> None:
+        release = FakeRelease(self.root, fail="switch_before_disable")
+        with patch("os.geteuid", return_value=0):
+            with self.assertRaisesRegex(ReleaseError, "hold retained"):
+                release.apply()
+        self.assertTrue(release.marker.exists())
+        self.assertTrue(release.duty_enabled)
+        self.assertNotIn("duty_disable", release.events)
+
+    def test_changed_telegram_target_before_enable_does_not_switch_other_release(self) -> None:
+        release = FakeRelease(self.root, fail="switch_before_enable")
+        with patch("os.geteuid", return_value=0):
+            with self.assertRaisesRegex(ReleaseError, "post-open check failed"):
+                release.apply()
+        self.assertFalse(release.duty_enabled)
+        self.assertEqual(release.events.count("duty_enable"), 0)
 
     def test_candidate_failure_restores_only_crm_before_opening(self) -> None:
         release = FakeRelease(self.root, fail="smoke")
