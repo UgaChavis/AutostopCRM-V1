@@ -79,6 +79,22 @@ class ChangeFeedTestCase(unittest.TestCase):
 
 
 class ChangeFeedStorageContractTests(ChangeFeedTestCase):
+    @unittest.skipIf(os.name == "nt", "POSIX file modes only")
+    def test_feed_read_preserves_private_file_mode_and_repairs_widened_mode(self) -> None:
+        database = self.base_dir / "change_feed.sqlite3"
+        self.assertEqual(0o600, stat.S_IMODE(database.stat().st_mode))
+
+        with patch("minimal_kanban.storage.change_feed_store.os.chmod", wraps=os.chmod) as chmod:
+            self.store.change_feed_store.read_page("private-mode", limit=25)
+            chmod.assert_not_called()
+
+        database.chmod(0o644)
+        with patch("minimal_kanban.storage.change_feed_store.os.chmod", wraps=os.chmod) as chmod:
+            self.store.change_feed_store.read_page("widened-mode", limit=25)
+            self.store.change_feed_store.read_page("widened-mode", limit=25)
+            chmod.assert_called_once_with(database, 0o600)
+        self.assertEqual(0o600, stat.S_IMODE(database.stat().st_mode))
+
     def test_readiness_probe_is_technical_and_does_not_register_consumer(self) -> None:
         self.append_event("event-before-readiness")
         database = self.base_dir / "change_feed.sqlite3"
