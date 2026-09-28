@@ -188,6 +188,7 @@ class AutomationRevisionReconciler:
         control_env: Path = CONTROL_ENV,
         guarded_controller_repo: Path | None = None,
         guarded_controller_sha: str | None = None,
+        expected_telegram_release_dir: str | None = None,
     ) -> None:
         if not SHA_RE.fullmatch(expected_reported_sha):
             raise ReleaseError("expected reported SHA must be exact")
@@ -197,6 +198,7 @@ class AutomationRevisionReconciler:
         self.guarded_controller_repo = guarded_controller_repo
         self.guarded_controller_sha = guarded_controller_sha
         self.guarded_controller_hash = ""
+        self.expected_telegram_release_dir = expected_telegram_release_dir
         self.backup_dir = BACKUP_ROOT / "scheduler-revision" / release.release_id
         self.telegram_unit_states: dict[str, tuple[str, str]] = {}
         self.unit_definitions: dict[str, str] = {}
@@ -310,6 +312,11 @@ class AutomationRevisionReconciler:
         if not TELEGRAM_LINK.is_symlink():
             raise ReleaseError("work Telegram release link is missing")
         self.telegram_link_target = str(TELEGRAM_LINK.resolve())
+        if (
+            self.expected_telegram_release_dir is not None
+            and self.telegram_link_target != self.expected_telegram_release_dir
+        ):
+            raise ReleaseError("work Telegram release differs from approved target")
         self._check_pinned_telegram_ready()
         self.telegram_unit_states = {unit: self.release.unit_state(unit) for unit in TELEGRAM_UNITS}
         return snapshot, packet, pid
@@ -593,6 +600,8 @@ class AutomationRevisionReconciler:
     def apply(self) -> dict[str, str]:
         if os.geteuid() != 0:
             raise ReleaseError("scheduler identity reconciliation requires root")
+        if not self.expected_telegram_release_dir:
+            raise ReleaseError("approved work Telegram release target is required for apply")
         fd = os.open(self.release.lock_path, os.O_CREAT | os.O_RDWR, 0o600)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -770,6 +779,7 @@ def main() -> int:
     parser.add_argument("--production-root", type=Path, default=Path("/opt/autostopcrm"))
     parser.add_argument("--guarded-controller-repo", type=Path, required=True)
     parser.add_argument("--guarded-controller-sha", required=True)
+    parser.add_argument("--expected-telegram-release-dir")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--preflight", action="store_true")
     mode.add_argument("--apply", action="store_true")
@@ -784,6 +794,7 @@ def main() -> int:
             expected_reported_sha=args.expected_reported_sha,
             guarded_controller_repo=args.guarded_controller_repo,
             guarded_controller_sha=args.guarded_controller_sha,
+            expected_telegram_release_dir=args.expected_telegram_release_dir,
         )
         if args.preflight:
             _, packet, _ = reconciler.preflight()
@@ -793,12 +804,15 @@ def main() -> int:
                         "ready": True,
                         "installed_crm_revision": args.sha,
                         "reported_crm_revision": packet["crm_revision"],
+                        "telegram_release_dir": reconciler.telegram_link_target,
                     }
                 )
             )
             return 0
         if args.confirm_sha != args.sha:
             raise ReleaseError("--apply requires matching --confirm-sha")
+        if not args.expected_telegram_release_dir:
+            raise ReleaseError("--apply requires --expected-telegram-release-dir from preflight")
         print(json.dumps(reconciler.apply()))
         return 0
     except (ReleaseError, OSError, ValueError, sqlite3.Error) as error:

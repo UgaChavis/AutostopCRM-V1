@@ -110,7 +110,12 @@ class FakeReconciler(AutomationRevisionReconciler):
         config.write_bytes(control_bytes())
         config.chmod(0o600)
         self.fake = FakeRelease(root, config)
-        super().__init__(self.fake, expected_reported_sha=OLD, control_env=config)
+        super().__init__(
+            self.fake,
+            expected_reported_sha=OLD,
+            control_env=config,
+            expected_telegram_release_dir="/synthetic-telegram-release",
+        )
         self.backup_dir = root / "backup"
         self.failure = failure
         self.restart_count = 0
@@ -318,6 +323,14 @@ class ReconcileAutomationCrmRevisionTests(unittest.TestCase):
         self.assertEqual(
             (reconcile.backup_dir / "automation-control.env").read_bytes(), control_bytes()
         )
+
+    def test_apply_requires_preflight_telegram_release_target(self) -> None:
+        reconcile = FakeReconciler(self.root)
+        reconcile.expected_telegram_release_dir = None
+        with patch("os.geteuid", return_value=0):
+            with self.assertRaisesRegex(ReleaseError, "target is required"):
+                reconcile.apply()
+        self.assertEqual(reconcile.fake.events, [])
 
     def test_restart_failure_restores_config_under_hold(self) -> None:
         reconcile = FakeReconciler(self.root, failure="restart")

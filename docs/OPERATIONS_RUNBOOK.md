@@ -871,6 +871,8 @@ checks the published guarded duty-controller blob, seals that one script in its
 private backup directory, and passes the preflight-pinned Telegram release
 target on every duty call. The controller verifies the target under the Telegram
 control lock before touching duty. No Manager or Telegram release is activated.
+Record `telegram_release_dir` from preflight and pass it back to apply; a
+concurrent Telegram release switch aborts before the hold or any service change.
 It first backs up config, the scheduler registry, and unit/timer state.
 Before the CRM update, use bounded read-only probes to inspect the old state;
 this CLI preflight requires the new CRM image already installed.
@@ -886,7 +888,9 @@ this CLI preflight requires the new CRM image already installed.
   --source /path/to/clean/release-worktree --sha "$exact_sha" \
   --guarded-controller-repo /path/to/clean/manager-worktree \
   --guarded-controller-sha "$exact_manager_github_sha" \
-  --expected-reported-sha "$previous_reported_sha" --apply --confirm-sha "$exact_sha"
+  --expected-reported-sha "$previous_reported_sha" \
+  --expected-telegram-release-dir "$preflight_telegram_release_dir" \
+  --apply --confirm-sha "$exact_sha"
 ```
 
 On failure before hold release, the command restores only its own config
