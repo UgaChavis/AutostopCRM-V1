@@ -34,6 +34,7 @@ class ModuleMapTests(unittest.TestCase):
                 "F": 5,
                 "G": 1,
                 "H": 2,
+                "I": 2,
                 "J": 1,
                 "N": 2,
             }.items()
@@ -41,11 +42,11 @@ class ModuleMapTests(unittest.TestCase):
         }
         self.assertEqual(self.data["schema_version"], "autostopmanager.infrastructure-map.v1")
         self.assertEqual(set(self.nodes), expected - {"N1", "N2", "C1"})
-        self.assertEqual(len(self.data["elements"]), 38)
+        self.assertEqual(len(self.data["elements"]), 40)
         edges = {item["id"]: item for item in self.data["relations"]}
-        self.assertEqual(len(self.data["relations"]), 30)
-        self.assertEqual(len(self.nodes) + len(edges), 68)
-        self.assertEqual(set(edges), {f"L{i}" for i in range(1, 33)} - {"L8", "L9"})
+        self.assertEqual(len(self.data["relations"]), 32)
+        self.assertEqual(len(self.nodes) + len(edges), 72)
+        self.assertEqual(set(edges), {f"L{i}" for i in range(1, 35)} - {"L8", "L9"})
         pairs = {
             "L1": ("A1", "A2"),
             "L2": ("A2", "A3"),
@@ -77,6 +78,8 @@ class ModuleMapTests(unittest.TestCase):
             "L30": ("H1", "H2"),
             "L31": ("E9", "E10"),
             "L32": ("E9", "E11"),
+            "L33": ("A2", "I1"),
+            "L34": ("I1", "I2"),
         }
         for code, pair in pairs.items():
             edge = edges[code]
@@ -93,7 +96,7 @@ class ModuleMapTests(unittest.TestCase):
             self.assertFalse(edges[code].get("show_label", True))
         self.assertEqual(edges["L22"]["path"], "M1588 600.5 H1620 V580 H1650")
         self.assertEqual(edges["L23"]["path"], "M1460 657 V667")
-        self.assertEqual(edges["L24"]["path"], "M1588 682.5 H1630 V605 H1650")
+        self.assertEqual(edges["L24"]["path"], "M1588 674 H1630 V605 H1650")
         self.assertEqual(edges["L25"]["path"], "M1010 72 H1550 V97 H1590")
         self.assertEqual(edges["L25"].get("tone"), "J")
         self.assertEqual(self.nodes["G1"].get("control_surface"), "automation_center")
@@ -102,6 +105,12 @@ class ModuleMapTests(unittest.TestCase):
             self.assertEqual(edges[code].get("tone"), "G")
         for code in ("L29", "L30"):
             self.assertEqual(edges[code].get("tone"), "H")
+        for code in ("L33", "L34"):
+            self.assertEqual(edges[code].get("tone"), "I")
+        self.assertIn("Gmail", self.nodes["I1"]["title"])
+        self.assertEqual(self.nodes["I2"]["title"], "Gmail")
+        self.assertIn("текущему поручению", self.nodes["I1"]["description"])
+        self.assertIn("не запускает агента", self.nodes["I2"]["description"])
         self.assertIn("manage-owner-instagram/SKILL.md", self.nodes["A1"]["links"][2]["url"])
         self.assertEqual(self.nodes["H2"]["lines"], ["@auto.repair.parts"])
         self.assertFalse(edges["L30"].get("show_label", True))
@@ -160,15 +169,19 @@ class ModuleMapTests(unittest.TestCase):
         self.assertGreaterEqual(
             self.nodes["E8"]["x"], self.nodes["E1"]["x"] + self.nodes["E1"]["width"]
         )
-        self.assertEqual((self.nodes["E8"]["width"], self.nodes["E8"]["height"]), (130, 62))
+        self.assertEqual((self.nodes["E8"]["width"], self.nodes["E8"]["height"]), (150, 62))
         self.assertTrue(self.nodes["E8"].get("compact"))
         avito, drom = self.nodes["E10"], self.nodes["E11"]
         self.assertGreaterEqual(avito["x"], self.nodes["E1"]["x"] + self.nodes["E1"]["width"])
         self.assertEqual(avito["x"], drom["x"])
         self.assertLessEqual(self.nodes["E8"]["y"] + self.nodes["E8"]["height"], avito["y"])
         self.assertLessEqual(avito["y"] + avito["height"], drom["y"])
-        self.assertLessEqual(drom["y"] + drom["height"], self.nodes["F2"]["y"])
-        self.assertLess(drom["x"] + drom["width"], 1880)
+        self.assertGreaterEqual(self.nodes["F2"]["x"] - (drom["x"] + drom["width"]), 40)
+        self.assertGreaterEqual(drom["x"] - (self.nodes["E3"]["x"] + self.nodes["E3"]["width"]), 20)
+        self.assertGreaterEqual(
+            avito["y"] - 12 - (self.nodes["E8"]["y"] + self.nodes["E8"]["height"]), 20
+        )
+        self.assertGreaterEqual(drom["y"] - 12 - (avito["y"] + avito["height"]), 20)
         self.assertEqual(self.nodes["J1"]["title"], "Интернет-исследования")
         self.assertIsNone(self.nodes["J1"].get("parent"))
         self.assertGreater(self.nodes["J1"]["x"], self.nodes["D1"]["x"] + self.nodes["D1"]["width"])
