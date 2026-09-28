@@ -306,6 +306,10 @@ jobs:
           AUTOSTOP_REQUIRE_MODULE_MAP_BROWSER: "1"
         run: python -m unittest tests.test_module_map_browser -v
 
+      - name: Card hydration and print browser regression
+        if: ${{ matrix.suite == 'browser-performance' }}
+        run: python -m unittest tests.test_printing_hydration_overlap_browser -v
+
       - name: Mandatory core browser smoke
         if: ${{ matrix.suite == 'browser-performance' }}
         id: core_browser_smoke

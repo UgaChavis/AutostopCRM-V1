@@ -32,6 +32,8 @@ ALLOWED_CHANGED_PATHS = {
     "tests/test_contracts.py",
     "scripts/deploy_crm_only.py",
     "tests/test_deploy_crm_only.py",
+    "tests/test_printing_hydration_overlap_browser.py",
+    ".github/workflows/quality.yml",
     "docs/OPERATIONS_RUNBOOK.md",
     "docs/agent/module_operations/crm_commands.md",
 }

@@ -13334,7 +13334,15 @@
               && state.editingId === normalizedCardId
             );
           if (shouldHydrateOpenModal) {
-            openCardModal(fullCard, { cardIsFull: true, preserveTab: openedFromCache });
+            if (openedFromCache) {
+              // Hydration belongs to the same card opening. Keep its editing
+              // generation and modal stack so an already opened print workspace
+              // can finish loading against this card.
+              applyCardModalState(fullCard, { cardIsFull: true, preserveLazyPanels: true });
+              loadActiveCardTab(state.currentTab);
+            } else {
+              openCardModal(fullCard, { cardIsFull: true });
+            }
           }
         } else {
           applyCardModalState(fullCard, { cardIsFull: true });
