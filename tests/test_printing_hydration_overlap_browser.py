@@ -89,11 +89,16 @@ class PrintingHydrationOverlapBrowserTests(unittest.TestCase):
             "() => document.querySelector('#repairOrderPrintModal').dataset.printLoadState === 'loading'"
         )
         self.assertEqual(len(print_routes), 1)
+        print_has_focus = "modal => modal.contains(document.activeElement)"
+        self.assertTrue(page.locator("#repairOrderPrintModal").evaluate(print_has_focus))
 
         card_routes.pop().continue_()
         page.wait_for_function("() => state.activeCardIsFull === true")
+        page.wait_for_timeout(60)
+        self.assertTrue(page.locator("#repairOrderPrintModal").evaluate(print_has_focus))
         self.assertEqual(page.evaluate("state.editingId"), self.runtime.client_card_id)
         self.assertTrue(page.locator("#repairOrderPrintModal.is-open").is_visible())
+        self.assertTrue(page.locator("#repairOrderPrintModal").evaluate(print_has_focus))
         self.assertEqual(
             page.locator("#repairOrderPrintModal").get_attribute("data-print-load-state"),
             "loading",
@@ -107,6 +112,7 @@ class PrintingHydrationOverlapBrowserTests(unittest.TestCase):
             timeout=10000,
         )
         self.assertTrue(page.locator("#repairOrderPrintModal.is-open").is_visible())
+        self.assertTrue(page.locator("#repairOrderPrintModal").evaluate(print_has_focus))
         self.assertTrue(
             any(url.endswith("/api/get_card") and status == 200 for url, status in responses)
         )
