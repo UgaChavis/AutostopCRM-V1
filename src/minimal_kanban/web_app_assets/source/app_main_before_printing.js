@@ -13334,7 +13334,11 @@
               && state.editingId === normalizedCardId
             );
           if (shouldHydrateOpenModal) {
-            openCardModal(fullCard, { cardIsFull: true, preserveTab: openedFromCache });
+            openCardModal(fullCard, {
+              cardIsFull: true,
+              preserveTab: openedFromCache,
+              hydrateExisting: openedFromCache,
+            });
           }
         } else {
           applyCardModalState(fullCard, { cardIsFull: true });
@@ -13983,16 +13987,18 @@
       els.cardVehicle?.focus({ preventScroll: true });
     }
 
-    function openCardModal(card, { descriptionLoading = false, cardIsFull = true, preserveTab = false } = {}) {
-      state.cardEditingGeneration = (state.cardEditingGeneration || 0) + 1;
+    function openCardModal(card, { descriptionLoading = false, cardIsFull = true, preserveTab = false, hydrateExisting = false } = {}) {
+      // Full data for the same opening must not invalidate a print workspace
+      // already loading above this card in the modal stack.
+      if (!hydrateExisting) state.cardEditingGeneration = (state.cardEditingGeneration || 0) + 1;
       applyCardModalState(card, { descriptionLoading, cardIsFull, preserveLazyPanels: preserveTab });
       if (!preserveTab) setTab('overview');
       else loadActiveCardTab(state.currentTab);
-      pushModal('card', els.cardModal);
+      if (!hydrateExisting) pushModal('card', els.cardModal);
       requestAnimationFrame(() => {
         syncCardSaveDirtyState();
         syncCardDescriptionHeight();
-        focusCardModalInitialControl();
+        if (!hydrateExisting) focusCardModalInitialControl();
       });
     }
 

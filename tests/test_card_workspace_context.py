@@ -507,7 +507,7 @@ function applyCardModalState(card, options = {}) {
   rendered.push({id: card.id, ...options});
 }
 function openCardModal(card, options) {
-  state.cardEditingGeneration += 1;
+  if (!options?.hydrateExisting) state.cardEditingGeneration += 1;
   applyCardModalState(card, options);
   modalOpen = true;
 }
@@ -702,12 +702,15 @@ snapshots.set('a', summary('a'));
 const current = openCardWorkspace('a');
 assert.equal(rendered.length, 1);
 assert.equal(rendered[0].descriptionLoading, true);
+const openingGeneration = state.cardEditingGeneration;
 assert.equal(requests[0].path, '/api/get_card?include_attachment_status=0&card_id=a');
 requests[0].resolve({card: full('a')});
 assert.deepEqual(await current, full('a'));
 assert.equal(rendered.length, 2);
 assert.equal(rendered[1].cardIsFull, true);
 assert.equal(rendered[1].preserveTab, true);
+assert.equal(rendered[1].hydrateExisting, true);
+assert.equal(state.cardEditingGeneration, openingGeneration);
 assert.equal(els.cardDescription.value, 'full-a');
 assert.equal(els.saveCardButton.disabled, false);
 assert.deepEqual(sideEffects, ['a']);
