@@ -24,6 +24,66 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+GATEWAY_SAFE_CHECKS = frozenset(
+    {
+        "anonymous_access_blocked",
+        "required_tools_present",
+        "unexpected_tools_absent",
+        "legacy_tools_absent",
+        "tool_count_exactly_24",
+        "tool_count_within_budget",
+        "tools_payload_within_budget",
+        "bootstrap_ok",
+        "bootstrap_payload_within_budget",
+        "board_digest_ok",
+        "board_digest_payload_within_budget",
+        "search_ok",
+        "entity_context_ok",
+        "workflow_registry_ok",
+        "store_runtime_ready",
+        "store_state_read_ok",
+        "store_quote_adapter_configured",
+        "store_quote_full_read_enabled",
+        "store_quote_draft_write_enabled",
+        "store_supplier_lookup_enabled",
+        "store_sourcing_read_ok",
+        "store_owner_capability_contract_ready",
+        "all_tools_invoked",
+        "all_tool_invocations_ok",
+        "synthetic_workflow_terminal",
+        "change_feed_bootstrap_and_ack_ledgers_ok",
+        "change_feed_replay_exact",
+        "change_feed_projection_pii_free",
+        "fetch_page_browser_safe_state",
+        *(
+            f"{name}_{suffix}"
+            for name in (
+                "search_web_multi",
+                "fetch_page_excerpt",
+                "fetch_page_browser",
+                "research_drive2_cases",
+                "research_part_public_evidence",
+            )
+            for suffix in ("discoverable", "schema_ok", "call_ok")
+        ),
+    }
+)
+
+
+def safe_gateway_failed_checks(stdout: bytes) -> tuple[str, ...]:
+    """Read only fixed check names from bounded gateway JSON, never raw output."""
+    if len(stdout) > 262_144:
+        return ()
+    try:
+        payload = json.loads(stdout)
+    except (UnicodeDecodeError, ValueError):
+        return ()
+    if not isinstance(payload, dict) or not isinstance(payload.get("checks"), dict):
+        return ()
+    checks = payload["checks"]
+    return tuple(sorted(name for name in GATEWAY_SAFE_CHECKS if checks.get(name) is False))
+
+
 ALLOWED_CHANGED_PATHS = {
     "src/minimal_kanban/web_app_assets/source/app_main_before_printing.js",
     "tests/test_mobile_client_search_draft.py",
@@ -57,6 +117,23 @@ NON_CRM_CONTAINERS = ("autostop-searxng", "autostop-crawl4ai", "autostop-app", "
 
 class ReleaseError(RuntimeError):
     """A release invariant failed; caller decides whether rollback is safe."""
+
+
+class CommandFailure(ReleaseError):
+    """A command failed; only an exit code and fixed gateway checks are retained."""
+
+    def __init__(self, exit_code: int, failed_checks: tuple[str, ...] = ()) -> None:
+        self.exit_code = exit_code
+        self.failed_checks = failed_checks
+        super().__init__(f"command exited {exit_code}")
+
+
+class SmokeStageFailure(ReleaseError):
+    """A named release gate failed; command output remains private."""
+
+    def __init__(self, stage: str, detail: str = "") -> None:
+        self.stage = stage
+        super().__init__(f"smoke stage {stage} failed{detail}")
 
 
 @dataclass(frozen=True)
@@ -95,9 +172,12 @@ class Commands:
         )
         if result.returncode:
             # stderr may contain credentials or customer data; never echo it.
-            raise ReleaseError(
-                f"command failed: {argv[0]} {argv[1] if len(argv) > 1 else ''} (exit {result.returncode})"
+            failed_checks = (
+                safe_gateway_failed_checks(result.stdout)
+                if "scripts/check_agent_gateway_v2.py" in argv
+                else ()
             )
+            raise CommandFailure(result.returncode, failed_checks)
         return result.stdout.decode("utf-8", errors="replace").strip()
 
 
@@ -613,9 +693,30 @@ class CrmOnlyRelease:
             time.sleep(3)
         raise ReleaseError("CRM container did not become healthy on expected image")
 
+    def _smoke_run(self, stage: str, *argv: str, compose: bool = False, timeout: int = 60) -> str:
+        try:
+            if compose:
+                return self.compose(*argv, timeout=timeout)
+            return self.run(*argv, timeout=timeout)
+        except Exception as exc:
+            # Subprocess output can include live records or credentials. Only
+            # fixed gate names, exit codes and allowlisted checks are reported.
+            if isinstance(exc, CommandFailure):
+                detail = f" (exit {exc.exit_code})"
+                if exc.failed_checks:
+                    detail += "; checks=" + ",".join(exc.failed_checks)
+            elif isinstance(exc, subprocess.TimeoutExpired):
+                detail = " (timeout)"
+            elif isinstance(exc, ReleaseError) and str(exc) == "maintenance budget exhausted":
+                detail = " (maintenance budget exhausted)"
+            else:
+                detail = f" ({type(exc).__name__})"
+            raise SmokeStageFailure(stage, detail) from None
+
     def smoke(self, *, revision: str) -> None:
         # A GET-only public auth guard remains safe while domain writes are held.
-        self.run(
+        self._smoke_run(
+            "public-auth",
             sys.executable,
             "-c",
             "import urllib.request,urllib.error; "
@@ -627,7 +728,8 @@ class CrmOnlyRelease:
             "assert status==401, f'anonymous read returned {status}'",
             timeout=20,
         )
-        self.compose(
+        self._smoke_run(
+            "live-connector",
             "exec",
             "-T",
             "-e",
@@ -645,9 +747,11 @@ class CrmOnlyRelease:
             "--skip-public-write-protection",
             "--local-api-url",
             "http://127.0.0.1:41731",
+            compose=True,
             timeout=60,
         )
-        self.compose(
+        self._smoke_run(
+            "agent-gateway",
             "exec",
             "-T",
             "autostopcrm",
@@ -657,11 +761,13 @@ class CrmOnlyRelease:
             "https://crm.autostopcrm.ru/mcp",
             "--require-store",
             "--require-web",
+            compose=True,
             timeout=90,
         )
         # OAuth metadata is a GET; the full OAuth smoke registers a client and
         # writes token state, which cannot be rolled back safely in this window.
-        self.run(
+        self._smoke_run(
+            "oauth-metadata",
             sys.executable,
             "-c",
             "import json,urllib.request; "
@@ -671,7 +777,8 @@ class CrmOnlyRelease:
             "assert 'refresh_token' in d.get('grant_types_supported',[])",
             timeout=20,
         )
-        self.run(
+        self._smoke_run(
+            "manager-feed-auth",
             sys.executable,
             str(self.source / "scripts/probe_manager_crm_feed_auth.py"),
             "--manager-env",
@@ -847,6 +954,9 @@ class CrmOnlyRelease:
                         and status.get("reason") == "release"
                         and status.get("attempt_hash") == expected_hash
                     )
+                failure_label = (
+                    str(error) if isinstance(error, SmokeStageFailure) else type(error).__name__
+                )
                 rollback_error: Exception | None = None
                 rollback_release_attempted = False
                 rollback_reopened = False
@@ -914,11 +1024,12 @@ class CrmOnlyRelease:
                             pass
                 if rollback_error:
                     raise ReleaseError(
-                        f"candidate failed ({type(error).__name__}); rollback incomplete "
-                        f"({type(rollback_error).__name__}); inspect maintenance marker and scheduler hold before recovery"
+                        f"candidate failed ({failure_label}); rollback incomplete "
+                        f"({rollback_error if isinstance(rollback_error, SmokeStageFailure) else type(rollback_error).__name__}); "
+                        "inspect maintenance marker and scheduler hold before recovery"
                     ) from rollback_error
                 raise ReleaseError(
-                    f"candidate failed and prior CRM restored: {type(error).__name__}"
+                    f"candidate failed and prior CRM restored: {failure_label}"
                 ) from error
         finally:
             os.close(lock_fd)
