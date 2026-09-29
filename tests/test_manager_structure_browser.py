@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 if __package__:
@@ -27,10 +29,23 @@ class ManagerStructureBrowserTests(unittest.TestCase):
             prior = asyncio.get_event_loop_policy()
             asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
             cls.addClassCleanup(asyncio.set_event_loop_policy, prior)
-        from playwright.sync_api import sync_playwright
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError as error:
+            if os.environ.get("AUTOSTOP_REQUIRE_MANAGER_STRUCTURE_BROWSER") == "1":
+                raise RuntimeError(
+                    "Playwright is required for manager structure browser tests"
+                ) from error
+            raise unittest.SkipTest("Playwright is not installed") from error
 
         cls.playwright = sync_playwright().start()
         cls.addClassCleanup(cls.playwright.stop)
+        if not Path(cls.playwright.chromium.executable_path).exists():
+            if os.environ.get("AUTOSTOP_REQUIRE_MANAGER_STRUCTURE_BROWSER") == "1":
+                raise RuntimeError(
+                    "Playwright Chromium is required for manager structure browser tests"
+                )
+            raise unittest.SkipTest("Playwright Chromium is not installed")
         cls.browser = cls.playwright.chromium.launch(headless=True, args=["--no-sandbox"])
         cls.addClassCleanup(cls.browser.close)
         cls.runtime = start_temp_runtime(start_port=43131)
