@@ -15,6 +15,7 @@ from minimal_kanban.mcp.raw_gateway import (  # noqa: E402
     schema_hash,
     verify_virtual_api_write_readback,
     virtual_api_argument_errors,
+    virtual_api_preflight_errors,
     virtual_api_schema,
 )
 
@@ -43,6 +44,14 @@ class ManagerStructureGatewayTests(unittest.IsolatedAsyncioTestCase):
                     "element": {"id": "M1"},
                 },
             )
+        )
+        self.assertEqual(
+            virtual_api_preflight_errors(
+                "/api/manager_structure/apply",
+                {"operation": "remove_relation", "expected_version": 3, "id": "L1"},
+                "outer-key-001",
+            ),
+            [],
         )
 
     async def test_raw_write_checks_exact_module_text_on_readback(self) -> None:
@@ -74,6 +83,37 @@ class ManagerStructureGatewayTests(unittest.IsolatedAsyncioTestCase):
             {"operation": "upsert_element", "element": {"id": "M1", "instruction": "Другой текст"}},
             result,
             invoke,
+        )
+        self.assertFalse(bad["passed"])
+
+    async def test_layout_readback_checks_adjusted_position_and_server_routes(self) -> None:
+        async def invoke(_name: str, _arguments: dict) -> dict:
+            return {
+                "ok": True,
+                "data": {
+                    "version": 7,
+                    "elements": [{"id": "M1", "x": 112, "y": 40, "width": 180, "height": 90}],
+                    "relations": [{"id": "R1", "path": "M292 85 H500"}],
+                },
+            }
+
+        arguments = {"operation": "layout_element", "element": {"id": "M1", "x": 100}}
+        result = {
+            "ok": True,
+            "data": {
+                "version": 7,
+                "adjusted": True,
+                "accepted_element": {"id": "M1", "x": 112, "y": 40, "width": 180, "height": 90},
+                "routes": {"R1": "M292 85 H500"},
+            },
+        }
+        good = await verify_virtual_api_write_readback(
+            "api:/api/manager_structure/apply", arguments, result, invoke
+        )
+        self.assertTrue(good["passed"])
+        result["data"]["routes"] = {"R1": "M0 0 H1"}
+        bad = await verify_virtual_api_write_readback(
+            "api:/api/manager_structure/apply", arguments, result, invoke
         )
         self.assertFalse(bad["passed"])
 

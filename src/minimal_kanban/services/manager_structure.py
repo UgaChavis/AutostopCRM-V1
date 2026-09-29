@@ -15,6 +15,7 @@ from typing import Any
 from ..config import get_telegram_behavior_owner_login
 from ..storage.file_lock import ProcessFileLock
 from .errors import ServiceError
+from .manager_structure_routing import RouteUnavailable, route_diagram
 from .telegram_behavior_graph import SETTING_KEY, graph_from_settings
 
 SCHEMA = "autostopcrm.manager-structure.v1"
@@ -40,6 +41,8 @@ NODE_FIELDS = frozenset(
         "icon",
         "compact",
         "indicator",
+        "indicator_mode",
+        "indicator_state",
     }
 )
 EDGE_FIELDS = frozenset(
@@ -58,6 +61,7 @@ EDGE_FIELDS = frozenset(
         "show_label",
         "compact_label",
         "label_max_width",
+        "auto_hidden_label",
         "tone",
         "color",
     }
@@ -172,6 +176,10 @@ def _validate(diagram: dict[str, Any]) -> None:
             _bad("Некорректный компактный режим.")
         if node.get("indicator", "off") not in {"off", "green", "yellow", "red"}:
             _bad("Индикатор должен быть выключен, зелёным, жёлтым или красным.")
+        if node.get("indicator_mode", "none") not in {"none", "manual", "automation"}:
+            _bad("Некорректный режим индикатора.")
+        if node.get("indicator_state", "green") not in {"green", "yellow", "red"}:
+            _bad("Некорректный цвет индикатора.")
         lines = node.get("lines", [])
         if (
             not isinstance(lines, list)
@@ -220,7 +228,7 @@ def _validate(diagram: dict[str, Any]) -> None:
             _number(edge.get(field), field, 0, 10000)
         if "label_max_width" in edge:
             _number(edge["label_max_width"], "label_max_width", 40, 800)
-        for field in ("show_label", "compact_label"):
+        for field in ("show_label", "compact_label", "auto_hidden_label"):
             if field in edge and not isinstance(edge[field], bool):
                 _bad(f"Некорректное поле {field}.")
         if "color" in edge and (
@@ -376,6 +384,103 @@ class ManagerStructureService:
         data["can_edit"] = self._can_edit(payload)
         return data
 
+    @staticmethod
+    def _route_layout(
+        data: dict[str, Any],
+        previous: dict[str, Any],
+        moved_id: str | None = None,
+        changed_relation: str | None = None,
+    ) -> tuple[dict[str, Any], bool]:
+        """Find the nearest routeable position without changing stored state."""
+        requested = next((n for n in data["elements"] if n["id"] == moved_id), None)
+        original = next((n for n in previous["elements"] if n["id"] == moved_id), None)
+        positions = [(0, 0)]
+        if requested is not None:
+            for radius in (12, 24, 36):
+                positions.extend(
+                    (dx, dy)
+                    for dx, dy in (
+                        (radius, 0),
+                        (-radius, 0),
+                        (0, radius),
+                        (0, -radius),
+                        (radius, radius),
+                        (radius, -radius),
+                        (-radius, radius),
+                        (-radius, -radius),
+                    )
+                )
+        failure = None
+        blocked_by = None
+        for dx, dy in positions:
+            candidate = copy.deepcopy(data)
+            if requested is not None:
+                node = next(n for n in candidate["elements"] if n["id"] == moved_id)
+                node["x"] = max(
+                    0, min(candidate["canvas"]["width"] - node["width"], requested["x"] + dx)
+                )
+                node["y"] = max(
+                    0, min(candidate["canvas"]["height"] - node["height"], requested["y"] + dy)
+                )
+                if (
+                    original is not None
+                    and any(
+                        requested[field] != original[field]
+                        for field in ("x", "y", "width", "height")
+                    )
+                    and all(
+                        node[field] == original[field] for field in ("x", "y", "width", "height")
+                    )
+                ):
+                    continue
+                current_blocker = None
+                for other in candidate["elements"]:
+                    if (
+                        other["id"] == node["id"]
+                        or other["id"]
+                        in {
+                            node.get("parent"),
+                        }
+                        or node["id"] == other.get("parent")
+                    ):
+                        continue
+                    if (
+                        node["x"] < other["x"] + other["width"]
+                        and node["x"] + node["width"] > other["x"]
+                        and node["y"] < other["y"] + other["height"]
+                        and node["y"] + node["height"] > other["y"]
+                    ):
+                        current_blocker = other["id"]
+                        break
+                if current_blocker:
+                    blocked_by = current_blocker
+                    continue
+            try:
+                route_diagram(
+                    candidate,
+                    previous=previous,
+                    changed_node=moved_id,
+                    changed_relation=changed_relation,
+                )
+                _validate(candidate)
+                return candidate, bool(dx or dy)
+            except RouteUnavailable as error:
+                failure = error
+        raise ServiceError(
+            "manager_structure_route_unavailable",
+            (
+                f"Не удалось провести связь {failure.relation_id} с допустимым зазором. "
+                if failure
+                else f"Модуль пересекает {blocked_by}. "
+            )
+            + (
+                "Изменение связи не сохранено; она остаётся черновиком."
+                if changed_relation
+                else "Не найдена допустимая позиция рядом. Перемещение не сохранено."
+            ),
+            status_code=422,
+        )
+
     def apply(self, payload: dict | None) -> dict[str, Any]:
         self._require_editor(payload)
         if not isinstance(payload, dict):
@@ -383,6 +488,9 @@ class ManagerStructureService:
         expected = payload.get("expected_version")
         key = payload.get("idempotency_key")
         operation = payload.get("operation")
+        preview = payload.get("preview", False)
+        if not isinstance(preview, bool):
+            _bad("Некорректный режим предварительного просмотра.")
         if (
             type(expected) is not int
             or expected < 0
@@ -393,6 +501,8 @@ class ManagerStructureService:
         if operation not in {
             "upsert_element",
             "upsert_relation",
+            "layout_element",
+            "layout_relation",
             "remove_element",
             "remove_relation",
             "set_canvas",
@@ -417,7 +527,10 @@ class ManagerStructureService:
                         "Ключ уже использован для другого изменения.",
                         status_code=409,
                     )
-                return {"version": receipt["version"], "deduplicated": True}
+                return {
+                    **receipt.get("result", {"version": receipt["version"]}),
+                    "deduplicated": True,
+                }
             if expected != data["version"]:
                 raise ServiceError(
                     "manager_structure_version_conflict",
@@ -434,10 +547,15 @@ class ManagerStructureService:
                     next_data[field] = copy.deepcopy(diagram.get(field))
             elif operation == "set_canvas":
                 next_data["canvas"] = copy.deepcopy(payload.get("canvas"))
-            elif operation.startswith("upsert_"):
+            elif operation in {
+                "upsert_element",
+                "upsert_relation",
+                "layout_element",
+                "layout_relation",
+            }:
                 field, singular = (
                     ("elements", "element")
-                    if operation == "upsert_element"
+                    if operation in {"upsert_element", "layout_element"}
                     else ("relations", "relation")
                 )
                 item = payload.get(singular)
@@ -448,7 +566,12 @@ class ManagerStructureService:
                     (index for index, old in enumerate(items) if old["id"] == item["id"]), None
                 )
                 if match is None:
-                    items.append(copy.deepcopy(item))
+                    new_item = copy.deepcopy(item)
+                    if operation == "layout_relation":
+                        new_item.setdefault("path", "M0 0")
+                        new_item.setdefault("label_x", 0)
+                        new_item.setdefault("label_y", 0)
+                    items.append(new_item)
                 else:
                     items[match] = {**items[match], **copy.deepcopy(item)}
             else:
@@ -468,8 +591,44 @@ class ManagerStructureService:
                     _bad("Сначала удалите вложенные модули и связи.")
                 next_data[field] = [item for item in next_data[field] if item["id"] != ident]
             _validate(next_data)
+            adjusted = False
+            if operation in {"layout_element", "layout_relation"}:
+                next_data, adjusted = self._route_layout(
+                    next_data,
+                    data,
+                    item["id"]
+                    if operation == "layout_element"
+                    and any(field in item for field in ("x", "y", "width", "height"))
+                    else None,
+                    item["id"] if operation == "layout_relation" else None,
+                )
+            if preview:
+                return {
+                    "version": data["version"],
+                    "diagram": self._public(next_data),
+                    "adjusted": adjusted,
+                    "preview": True,
+                }
             next_data["version"] += 1
-            next_data["receipts"][key] = {"digest": digest, "version": next_data["version"]}
+            result = {
+                "version": next_data["version"],
+                "deduplicated": False,
+                "adjusted": adjusted,
+            }
+            if operation in {"layout_element", "layout_relation"}:
+                result["routes"] = {
+                    relation["id"]: relation["path"] for relation in next_data["relations"]
+                }
+            if operation == "layout_element":
+                accepted = next(node for node in next_data["elements"] if node["id"] == item["id"])
+                result["accepted_element"] = {
+                    field: accepted[field] for field in ("id", "x", "y", "width", "height")
+                }
+            next_data["receipts"][key] = {
+                "digest": digest,
+                "version": next_data["version"],
+                "result": result,
+            }
             if len(next_data["receipts"]) > 1000:
                 next_data["receipts"].pop(next(iter(next_data["receipts"])))
             self._file.parent.mkdir(parents=True, exist_ok=True)
@@ -485,4 +644,4 @@ class ManagerStructureService:
             finally:
                 if os.path.exists(temp_name):
                     os.unlink(temp_name)
-            return {"version": next_data["version"], "deduplicated": False}
+            return result

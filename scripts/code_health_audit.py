@@ -324,6 +324,8 @@ def classify_repository_file(path: str) -> TrackedFileClassification:
         role = "runtime_code"
     elif normalized.startswith("src/"):
         role = "runtime_asset"
+    elif normalized == "templates/manager_structure.json":
+        role = "runtime_asset"
     elif normalized.endswith(".py"):
         role = "runtime_code"
     else:

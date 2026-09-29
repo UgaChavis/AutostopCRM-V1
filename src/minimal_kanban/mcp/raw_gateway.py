@@ -90,6 +90,9 @@ VERSIONED_WRITE_NAMES = frozenset(
         "api:/api/reset_completion_act_form",
     }
 )
+INNER_IDEMPOTENCY_KEY_NAMES = VERSIONED_WRITE_NAMES | frozenset(
+    {"api:/api/patch_telegram_agent_behavior", "api:/api/manager_structure/apply"}
+)
 DESTRUCTIVE_CAPABILITY_MARKERS = ("delete_", "cancel_", "archive_", "remove_")
 DESTRUCTIVE_CAPABILITY_NAMES = frozenset(
     {
@@ -277,8 +280,6 @@ async def verify_virtual_api_write_readback(
     invoke: VirtualInvoker,
 ) -> dict[str, Any] | None:
     """Return exact verification for virtual writes that have a stable readback."""
-    if operation == "api:/api/manager_structure/apply":
-        return await verify_manager_structure_readback(arguments, result, invoke)
     if operation == "api:/api/patch_telegram_agent_behavior":
         result_data = result.get("data") if isinstance(result.get("data"), Mapping) else {}
         readback = await invoke("api:/api/get_telegram_agent_behavior", {})
@@ -313,6 +314,8 @@ async def verify_virtual_api_write_readback(
                 "idempotent_replay": result_data.get("idempotent_replay") is True,
             },
         }
+    if operation == "api:/api/manager_structure/apply":
+        return await verify_manager_structure_readback(arguments, result, invoke)
     if operation in VERSIONED_WRITE_NAMES:
         card_id = str(arguments.get("card_id") or "").strip()
         result_data = result.get("data") if isinstance(result.get("data"), Mapping) else {}
@@ -1351,6 +1354,23 @@ def virtual_api_argument_errors(route: str, arguments: Mapping[str, Any]) -> lis
         if form_count != 1:
             errors.append("arguments:exactly_one_form")
     return sorted(set(errors))
+
+
+def virtual_api_preflight_errors(
+    route: str | None, arguments: Mapping[str, Any], idempotency_key: str | None
+) -> list[str]:
+    if route not in {
+        "/api/get_completion_act_form",
+        "/api/manager_structure",
+        "/api/manager_structure/apply",
+        *CHANGE_FEED_ROUTES,
+    }:
+        return []
+    checked = dict(arguments)
+    if route == "/api/manager_structure/apply" and not checked.get("idempotency_key"):
+        if idempotency_key:
+            checked["idempotency_key"] = idempotency_key
+    return virtual_api_argument_errors(route, checked)
 
 
 def virtual_api_route(name: str) -> str | None:

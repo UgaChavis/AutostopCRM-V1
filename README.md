@@ -58,17 +58,19 @@ Agent workflows, context selection and action guards are documented in the
 
 ## Manager infrastructure map
 
-Board settings open **«Открыть инфраструктуру менеджера»** at `/module-map`.
+The retained reference map at `/module-map` is separate from the new diagram.
 The public HTML is a shell; `GET /api/get_module_map_infrastructure` still requires
 an operator session and returns `autostopmanager.infrastructure-map.v1`.
-The source dataset is `web_app_assets/source/manager_infrastructure.json`: 38
-element IDs and 30 connection IDs, with coordinates, nesting, descriptions and
+The source dataset is `web_app_assets/source/manager_infrastructure.json`: 40
+element IDs and 32 connection IDs, with coordinates, nesting, descriptions and
 protocols. Update that dataset to change descriptions or layout. The former
 application/IT maps and their snapshots are retired. Removed IDs `N1`, `N2`, `C1`,
 `L8`, and `L9` are not reused. The Codex-to-CRM route is `A2` → `L10` → `C2` →
 `L11` → `C3`; the direct MCP/HTTPS route keeps OAuth 2.1.
-`compact_label` keeps the full relation text in its detail card while showing only
-the relation ID on the overview.
+
+The main instruction and note reading route is `A2` → `A3` → `D2` → `D3`:
+Codex reads local files through CLI. `D1` → `D2` represents only specific
+Manager functions that use saved technical experience, not general knowledge search.
 `L6` connects the work account to the compact wake node without a visible label.
 `E9` is the read-only market-price research child of `E1`: Codex explores public
 pages through `E8`, then assesses comparable price evidence. It does not create
@@ -98,13 +100,19 @@ Browser regression tests use a disposable local CRM with synthetic data:
 ## Manager structure constructor
 
 Board settings open **«Конструктор структуры менеджера»** at
-`/manager-structure`. The owner can create large, nested and compact modules,
-edit their titles, full instructions, captions, icons, colours, positions and
-green/yellow/red indicator lamps. Relations have editable endpoints, SVG routes,
-direction, labels and label coordinates. The small square button hides the
-toolbar and properties panel for a clean diagram; Esc restores the editor.
-Indicators are manual display states and do not poll any provider. Instructions
-are stored for future use and are not connected to the running agent.
+`/manager-structure`. The configured owner can move and resize modules, edit
+titles and full instructions, and connect or reconnect links with the mouse.
+The corner button switches between a clean diagram and the editor. Geometry
+is saved on mouse release; text is saved with the form button. The diagram
+shows larger and nested module codes, status indicators, and only relation IDs.
+Full relation labels remain in hover hints and the properties panel. G1 reads
+automation status; other modules can use manual green, yellow, or red states.
+Instructions are stored for future use and are not consumed by the running agent.
+
+Orthogonal routes may cross at a visible bridge. Shared runs and free parallel
+lanes closer than 10 diagram units are rejected. Saved SVG paths remain
+orthogonal; bridges are
+drawn by the constructor.
 
 The diagram is durable CRM data in `manager_structure.json` beside the CRM
 state. If an existing CRM has a saved `telegram_agent_behavior` graph, the
@@ -130,6 +138,12 @@ ignored `output/manager-structure-demo`. Export and restore a template with
 session in `AUTOSTOP_MANAGER_STRUCTURE_SESSION`. Restore refuses to overwrite a
 nonempty diagram unless `--replace-existing` is explicit. The reference can be
 rebuilt on an empty stand with `--build-reference`.
+
+For focused edits, `scripts/manager_structure_edit.py` changes a module,
+relation, or UTF-8 instruction through the versioned API and verifies readback.
+`scripts/manager_structure_reroute.py` explicitly recalculates a template or
+local diagram after writing a backup outside the repository. Existing saved
+v1 diagrams retain their paths until that explicit reroute.
 
 ## Local Development
 

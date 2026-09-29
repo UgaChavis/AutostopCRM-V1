@@ -685,13 +685,14 @@
       "label": "Чтение файлов",
       "protocol": "Локальная файловая система",
       "description": "Инструкции и навыки поступают в контекст агента.",
-      "path": "M305 119 H500 V82 H670",
-      "label_x": 465,
-      "label_y": 95,
+      "path": "M305 119 H632 V79.6 H670",
+      "label_x": 468.5,
+      "label_y": 119.0,
       "direction": "forward",
       "kind": "exchange",
       "show_label": false,
-      "color": "#79b9d9"
+      "color": "#79b9d9",
+      "auto_hidden_label": false
     },
     {
       "id": "L2",
@@ -700,12 +701,13 @@
       "label": "Команда ↔ вывод терминала",
       "protocol": "CLI / stdout",
       "description": "Команда отправляется в терминал, вывод и код завершения возвращаются агенту.",
-      "path": "M670 104 H530 V207 H242 V248",
-      "label_x": 350,
-      "label_y": 198,
+      "path": "M1010 84.4 H1012 V272.667 H345",
+      "label_x": 511.75,
+      "label_y": 272.6666666666667,
       "direction": "both",
       "kind": "exchange",
-      "color": "#5ecde9"
+      "color": "#5ecde9",
+      "auto_hidden_label": false
     },
     {
       "id": "L3",
@@ -714,12 +716,13 @@
       "label": "JSON",
       "protocol": "JSON / Unix socket",
       "description": "CLI передаёт локальному мосту запрос и получает структурированный результат.",
-      "path": "M242 308 V416",
-      "label_x": 270,
-      "label_y": 359,
+      "path": "M216.333 308 V402 H218.8 V416",
+      "label_x": 216.33333333333334,
+      "label_y": 355.0,
       "direction": "both",
       "kind": "exchange",
-      "color": "#79b9d9"
+      "color": "#79b9d9",
+      "auto_hidden_label": false
     },
     {
       "id": "L4",
@@ -728,12 +731,13 @@
       "label": "Telegram API",
       "protocol": "Telegram API / Telethon",
       "description": "Чтение и отправка через рабочий аккаунт.",
-      "path": "M180 492 V568 H132 V632",
-      "label_x": 145,
-      "label_y": 560,
+      "path": "M172.4 492 V624 H162 V632",
+      "label_x": 172.4,
+      "label_y": 558.0,
       "direction": "both",
       "kind": "exchange",
-      "color": "#73c4e8"
+      "color": "#73c4e8",
+      "auto_hidden_label": false
     },
     {
       "id": "L5",
@@ -742,13 +746,14 @@
       "label": "Telegram API",
       "protocol": "Telegram API / Telethon",
       "description": "Чтение и отправка через личный аккаунт.",
-      "path": "M300 492 V520 H310 V662 H325",
-      "label_x": 300,
-      "label_y": 605,
+      "path": "M265.2 492 V624 H420 V632",
+      "label_x": 342.6,
+      "label_y": 752.0,
       "compact_label": true,
       "direction": "both",
       "kind": "exchange",
-      "color": "#73c4e8"
+      "color": "#73c4e8",
+      "auto_hidden_label": false
     },
     {
       "id": "L6",
@@ -757,13 +762,14 @@
       "label": "Входящее событие",
       "protocol": "Локальное событие",
       "description": "Входящее рабочего аккаунта передаётся Wake-адаптеру при выполнении условия N1.",
-      "path": "M132 692 V808",
-      "label_x": 170,
-      "label_y": 750,
+      "path": "M103 692 V796 H114.667 V808",
+      "label_x": 103.0,
+      "label_y": 744.0,
       "direction": "forward",
       "kind": "event",
       "show_label": false,
-      "color": "#73c4e8"
+      "color": "#73c4e8",
+      "auto_hidden_label": false
     },
     {
       "id": "L7",
@@ -772,13 +778,14 @@
       "label": "JSON-RPC WebSocket",
       "protocol": "JSON-RPC / локальный WebSocket",
       "description": "Wake-адаптер инициирует ход агента по событию.",
-      "path": "M230 828 H265 V940 H620 V210 Q620 160 720 132",
-      "label_x": 690,
-      "label_y": 610,
+      "path": "M165.333 808 V694 H688 V147 H715.2 V132",
+      "label_x": 688.0,
+      "label_y": 557.25,
       "direction": "forward",
       "kind": "event",
       "label_max_width": 90,
-      "color": "#73c4e8"
+      "color": "#73c4e8",
+      "auto_hidden_label": false
     },
     {
       "id": "L10",
@@ -787,12 +794,13 @@
       "label": "Прямой MCP / HTTPS",
       "protocol": "MCP / HTTPS · OAuth 2.1",
       "description": "Основной защищённый маршрут агента Codex к CRM Gateway v2 через прямой MCP/HTTPS с OAuth 2.1.",
-      "path": "M830 132 V425",
-      "label_x": 850,
-      "label_y": 300,
+      "path": "M871.2 132 V416 H868.667 V425",
+      "label_x": 871.2,
+      "label_y": 203.0,
       "direction": "both",
       "kind": "exchange",
-      "color": "#5ecde9"
+      "color": "#5ecde9",
+      "auto_hidden_label": false
     },
     {
       "id": "L11",
@@ -801,12 +809,13 @@
       "label": "Инструменты CRM",
       "protocol": "Gateway v2",
       "description": "Запросы к CRM и результаты её инструментов.",
-      "path": "M825 501 V665",
-      "label_x": 876,
-      "label_y": 590,
+      "path": "M786.333 501 V659 H870.333 V665",
+      "label_x": 786.3333333333334,
+      "label_y": 580.0,
       "direction": "both",
       "kind": "exchange",
-      "color": "#dfb461"
+      "color": "#dfb461",
+      "auto_hidden_label": false
     },
     {
       "id": "L12",
@@ -815,13 +824,14 @@
       "label": "MCP / HTTP · локально",
       "protocol": "MCP / HTTP",
       "description": "Агент вызывает инструменты локального сервера Manager и получает результаты.",
-      "path": "M1010 105 H1395 V248",
-      "label_x": 1220,
-      "label_y": 105,
+      "path": "M933.6 56 V54 H1254 V270.4 H1280",
+      "label_x": 1093.8,
+      "label_y": 54.0,
       "compact_label": true,
       "direction": "both",
       "kind": "exchange",
-      "color": "#5ecde9"
+      "color": "#5ecde9",
+      "auto_hidden_label": false
     },
     {
       "id": "L13",
@@ -830,12 +840,13 @@
       "label": "Вызовы Python",
       "protocol": "Внутренние вызовы Python",
       "description": "MCP-инструменты обращаются к поиску знаний и памяти.",
-      "path": "M1310 318 L1140 441",
-      "label_x": 1197,
-      "label_y": 375,
+      "path": "M1280 287.2 H1264 V487.333 H1252",
+      "label_x": 1264.0,
+      "label_y": 387.26666666666665,
       "direction": "both",
       "kind": "exchange",
-      "color": "#b497de"
+      "color": "#b497de",
+      "auto_hidden_label": false
     },
     {
       "id": "L14",
@@ -844,12 +855,13 @@
       "label": "Вызовы Python",
       "protocol": "Внутренние вызовы Python",
       "description": "MCP-инструменты запускают расшифровку и подбор.",
-      "path": "M1415 318 V448",
-      "label_x": 1480,
-      "label_y": 376,
+      "path": "M1439.2 318 V439 H1459 V448",
+      "label_x": 1439.2,
+      "label_y": 378.5,
       "direction": "both",
       "kind": "exchange",
-      "color": "#b497de"
+      "color": "#b497de",
+      "auto_hidden_label": false
     },
     {
       "id": "L15",
@@ -858,12 +870,13 @@
       "label": "Вызовы Python",
       "protocol": "Внутренние вызовы Python",
       "description": "MCP-инструменты обращаются к адаптеру магазина.",
-      "path": "M1540 318 L2045 441",
-      "label_x": 1815,
-      "label_y": 366,
+      "path": "M1550 278.8 H1877 V473.667 H1950",
+      "label_x": 1713.5,
+      "label_y": 278.8,
       "direction": "both",
       "kind": "exchange",
-      "color": "#b497de"
+      "color": "#b497de",
+      "auto_hidden_label": false
     },
     {
       "id": "L16",
@@ -872,12 +885,13 @@
       "label": "Локальное чтение / запись",
       "protocol": "SQLite / файловая система",
       "description": "Чтение и запись технической памяти и документов.",
-      "path": "M1140 566 V775",
-      "label_x": 1135,
-      "label_y": 687,
+      "path": "M1115.333 566 V754 H1135 V775",
+      "label_x": 1115.3333333333333,
+      "label_y": 660.0,
       "direction": "both",
       "kind": "exchange",
-      "color": "#b497de"
+      "color": "#b497de",
+      "auto_hidden_label": false
     },
     {
       "id": "L17",
@@ -886,12 +900,13 @@
       "label": "HTTP(S) API",
       "protocol": "HTTP(S) API",
       "description": "Обращения к доступным операциям источников расшифровки и оригинальных номеров.",
-      "path": "M1397 709 V787",
-      "label_x": 1380,
-      "label_y": 743,
+      "path": "M1397.5 709 V787",
+      "label_x": 1397.5,
+      "label_y": 748.0,
       "direction": "both",
       "kind": "exchange",
-      "color": "#ec8492"
+      "color": "#ec8492",
+      "auto_hidden_label": false
     },
     {
       "id": "L18",
@@ -900,13 +915,14 @@
       "label": "HTTP(S) / веб-поиск",
       "protocol": "HTTP(S) / веб-поиск",
       "description": "Получение каталожных сведений и предложений для сверки подбора.",
-      "path": "M1542 709 V755 H1602 V787",
-      "label_x": 1568,
-      "label_y": 743,
+      "path": "M1520.5 709 V777 H1602.5 V787",
+      "label_x": 1561.5,
+      "label_y": 753.0,
       "compact_label": true,
       "direction": "both",
       "kind": "exchange",
-      "color": "#ec8492"
+      "color": "#ec8492",
+      "auto_hidden_label": false
     },
     {
       "id": "L20",
@@ -915,13 +931,14 @@
       "label": "Передача запроса",
       "protocol": "Внутренний маршрут подбора",
       "description": "Запрос на деталь передаётся в слой интернет-сверки.",
-      "path": "M1460 575 V585",
-      "label_x": 1460,
-      "label_y": 580,
+      "path": "M1460 575 V583 H1403 V585",
+      "label_x": 1275.0,
+      "label_y": 584.0,
       "direction": "forward",
       "kind": "exchange",
       "show_label": false,
-      "color": "#ec8492"
+      "color": "#ec8492",
+      "auto_hidden_label": false
     },
     {
       "id": "L21",
@@ -930,13 +947,14 @@
       "label": "Кандидаты для проверки",
       "protocol": "Внутренний маршрут подбора",
       "description": "Кандидаты из интернет-сверки передаются на проверку аналогов и применимости.",
-      "path": "M1460 616 V626",
-      "label_x": 1460,
-      "label_y": 621,
+      "path": "M1460 616 V624 H1422 V626",
+      "label_x": 1441.0,
+      "label_y": 752.0,
       "direction": "forward",
       "kind": "exchange",
       "show_label": false,
-      "color": "#ec8492"
+      "color": "#ec8492",
+      "auto_hidden_label": false
     },
     {
       "id": "L23",
@@ -945,13 +963,14 @@
       "label": "Проверенные кандидаты",
       "protocol": "Внутренний маршрут подбора",
       "description": "Номер и проверенные кандидаты передаются в исследование рыночных цен; применимость аналогов оценивается отдельно.",
-      "path": "M1460 657 V667",
-      "label_x": 1460,
-      "label_y": 662,
+      "path": "M1498 657 V665 H1391.6 V667",
+      "label_x": 1487.36,
+      "label_y": 745.0,
       "direction": "forward",
       "kind": "exchange",
       "show_label": false,
-      "color": "#ec8492"
+      "color": "#ec8492",
+      "auto_hidden_label": false
     },
     {
       "id": "L22",
@@ -960,13 +979,14 @@
       "label": "HTTPS / Web Research v1",
       "protocol": "HTTPS / публичный Web Research Gateway",
       "description": "E7 передаёт обезличенный запрос в ограниченный режим E8; шлюз ищет в статическом реестре и возвращает кандидаты V1 для дальнейшей проверки.",
-      "path": "M1588 600.5 H1620 V580 H1650",
-      "label_x": 1601,
-      "label_y": 615,
+      "path": "M1588 600.5 H1612.5 V585.333 H1650",
+      "label_x": 1631.25,
+      "label_y": 537.3333333333334,
       "direction": "both",
       "kind": "exchange",
       "show_label": false,
-      "color": "#ec8492"
+      "color": "#ec8492",
+      "auto_hidden_label": false
     },
     {
       "id": "L24",
@@ -975,13 +995,14 @@
       "label": "Публичное исследование цен",
       "protocol": "MCP / публичный Web Research Gateway",
       "description": "Агент выбирает поисковые запросы и страницы, E8 возвращает компактные публичные сведения, E9 оценивает сопоставимые цены и источники.",
-      "path": "M1588 674 H1630 V605 H1650",
-      "label_x": 1601,
-      "label_y": 661,
+      "path": "M1588 677.85 H1640 V596.667 H1650",
+      "label_x": 1640.0,
+      "label_y": 637.2583333333333,
       "direction": "both",
       "kind": "exchange",
       "show_label": false,
-      "color": "#ec8492"
+      "color": "#ec8492",
+      "auto_hidden_label": false
     },
     {
       "id": "L19",
@@ -990,13 +1011,14 @@
       "label": "HTTP API / JSON",
       "protocol": "HTTP(S) API / JSON",
       "description": "Запросы адаптера к Agent API / Owner API магазина и ответы магазина.",
-      "path": "M2045 525 V775",
-      "label_x": 2045,
-      "label_y": 661,
+      "path": "M2072 525 V767 H2042.5 V775",
+      "label_x": 2072.0,
+      "label_y": 646.0,
       "compact_label": true,
       "direction": "both",
       "kind": "exchange",
-      "color": "#8ed6ad"
+      "color": "#8ed6ad",
+      "auto_hidden_label": false
     },
     {
       "id": "L25",
@@ -1005,14 +1027,15 @@
       "label": "Исследование",
       "protocol": "Локальный инструмент Manager",
       "description": "Агент передаёт только обезличенный технический профиль, запускает исследование и получает ведомость источников A–D, применимости, уверенности и пробелов; J1 не пишет в CRM.",
-      "path": "M1010 72 H1550 V97 H1590",
-      "label_x": 1290,
-      "label_y": 72,
+      "path": "M1010 74.8 H1578 V102.5 H1590",
+      "label_x": 1294.0,
+      "label_y": 74.8,
       "compact_label": true,
       "direction": "both",
       "kind": "exchange",
       "tone": "J",
-      "color": "#7adbb1"
+      "color": "#7adbb1",
+      "auto_hidden_label": false
     },
     {
       "id": "L26",
@@ -1021,14 +1044,15 @@
       "label": "Управление заданиями",
       "protocol": "HTTPS / JSON",
       "description": "CRM показывает состояние автоматизаций Manager и передаёт подтверждённые команды управления.",
-      "path": "M670 126 H600 V760 H580 V798",
-      "label_x": 710,
-      "label_y": 350,
+      "path": "M840 132 V423 H572 V790 H551.75 V798",
+      "label_x": 596.0,
+      "label_y": 606.5,
       "direction": "both",
       "kind": "exchange",
       "tone": "G",
       "label_max_width": 150,
-      "color": "#68dba8"
+      "color": "#68dba8",
+      "auto_hidden_label": false
     },
     {
       "id": "L27",
@@ -1037,14 +1061,15 @@
       "label": "Изменения CRM",
       "protocol": "Change feed",
       "description": "Проверенные изменения CRM поступают в задания Центра автоматизаций для формирования кратких сводок.",
-      "path": "M695 715 H660 V840 H630",
-      "label_x": 655,
-      "label_y": 748,
+      "path": "M695 803.667 H642 V854 H630",
+      "label_x": 668.5,
+      "label_y": 803.6666666666667,
       "direction": "forward",
       "kind": "event",
       "tone": "G",
       "show_label": false,
-      "color": "#68dba8"
+      "color": "#68dba8",
+      "auto_hidden_label": false
     },
     {
       "id": "L28",
@@ -1053,13 +1078,14 @@
       "label": "Краткий отчёт",
       "protocol": "Telegram API",
       "description": "Готовая сводка передаётся через Telegram-мост в разрешённый личный диалог владельца.",
-      "path": "M400 798 V720 H280 V492",
-      "label_x": 282,
-      "label_y": 746,
+      "path": "M423.25 798 V704 H311.6 V492",
+      "label_x": 311.6,
+      "label_y": 598.0,
       "direction": "forward",
       "kind": "event",
       "tone": "G",
-      "color": "#68dba8"
+      "color": "#68dba8",
+      "auto_hidden_label": false
     },
     {
       "id": "L29",
@@ -1068,13 +1094,14 @@
       "label": "Инструменты Windsor.ai",
       "protocol": "Инструменты подключённого плагина",
       "description": "В текущем интерактивном чате Codex вызывает инструменты Windsor.ai по поручению и получает результат. Доступность плагина в локальном CLI и Telegram-режиме не подтверждена; входящие события Instagram не запускают агента.",
-      "path": "M990 132 V956 H827 V979",
-      "label_x": 1025,
-      "label_y": 342,
+      "path": "M902.4 132 V423 H967 V954 H786.333 V979",
+      "label_x": 991.0,
+      "label_y": 688.5,
       "direction": "both",
       "kind": "exchange",
       "tone": "H",
-      "color": "#d99bc9"
+      "color": "#d99bc9",
+      "auto_hidden_label": false
     },
     {
       "id": "L30",
@@ -1083,14 +1110,15 @@
       "label": "Доступ к рабочему Instagram",
       "protocol": "Windsor.ai / Instagram",
       "description": "Подключённый в текущем интерактивном чате плагин выполняет доступные операции публикации и комментариев в аккаунте @auto.repair.parts и возвращает результат Codex. Direct недоступен.",
-      "path": "M965 1020 H1020",
-      "label_x": 993,
-      "label_y": 1020,
+      "path": "M965 1029.667 H1012 V1020.5 H1020",
+      "label_x": 988.5,
+      "label_y": 1029.6666666666667,
       "direction": "both",
       "kind": "exchange",
       "tone": "H",
       "show_label": false,
-      "color": "#d99bc9"
+      "color": "#d99bc9",
+      "auto_hidden_label": false
     },
     {
       "id": "L31",
@@ -1099,13 +1127,14 @@
       "label": "Поиск объявлений Авито",
       "protocol": "Manager MCP / ReefAPI",
       "description": "E9 передаёт обезличенный номер детали в модуль Авито и получает объявления как неподтверждённые поисковые зацепки. Код находится в GitHub; сервер будет обновлён позже.",
-      "path": "M1588 686 H1710",
-      "label_x": 1650,
-      "label_y": 686,
+      "path": "M1332 684.05 H1330 V700 H1692 V686 H1710",
+      "label_x": 1655.8,
+      "label_y": 700.0,
       "direction": "both",
       "kind": "exchange",
       "show_label": false,
-      "color": "#ec8492"
+      "color": "#ec8492",
+      "auto_hidden_label": false
     },
     {
       "id": "L32",
@@ -1114,13 +1143,14 @@
       "label": "Поиск объявлений Baza.Drom",
       "protocol": "Manager MCP / Webbee API",
       "description": "E9 сможет передавать обезличенный номер детали в модуль Drom/Webbee и получать объявления как зацепки после включения доступа. Сейчас Free API отвечает HTTP 401; живой поиск выключен.",
-      "path": "M1588 696 H1700 V781 H1710",
-      "label_x": 1700,
-      "label_y": 748,
+      "path": "M1528.4 667 V665 H1702 V781 H1710",
+      "label_x": 1615.2,
+      "label_y": 745.0,
       "direction": "both",
       "kind": "exchange",
       "show_label": false,
-      "color": "#ec8492"
+      "color": "#ec8492",
+      "auto_hidden_label": false
     },
     {
       "id": "L33",
@@ -1129,13 +1159,14 @@
       "label": "Инструменты Gmail",
       "protocol": "Инструменты подключённого Gmail-коннектора",
       "description": "Codex по текущему поручению вызывает Gmail-инструменты для чтения писем, подготовки черновиков и разрешённых изменений, затем проверяет результат.",
-      "path": "M670 116 H585 V360 H570",
-      "label_x": 730,
-      "label_y": 260,
+      "path": "M670 94 H642 V351.333 H570",
+      "label_x": 642.0,
+      "label_y": 222.66666666666666,
       "direction": "both",
       "kind": "exchange",
       "tone": "I",
-      "color": "#e9a4b5"
+      "color": "#e9a4b5",
+      "auto_hidden_label": false
     },
     {
       "id": "L34",
@@ -1144,13 +1175,14 @@
       "label": "Gmail API",
       "protocol": "Gmail API через подключённый коннектор",
       "description": "Коннектор обращается к Gmail, где хранятся письма, вложения, черновики и ярлыки; он возвращает результат агенту.",
-      "path": "M460 400 V535",
-      "label_x": 460,
-      "label_y": 468,
+      "path": "M428 400 V527 H460 V535",
+      "label_x": 428.0,
+      "label_y": 463.5,
       "direction": "both",
       "kind": "exchange",
       "tone": "I",
-      "color": "#e9a4b5"
+      "color": "#e9a4b5",
+      "auto_hidden_label": false
     }
   ]
 }

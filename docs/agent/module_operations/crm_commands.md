@@ -76,12 +76,14 @@ release permits only migrations explicitly versioned and checked by `deploy.sh`.
 | `scripts/doctor.ps1`, `scripts/toolchain_doctor.ps1 -Format json` | R: local toolchain and configuration checks; no live CRM record needed. |
 | `scripts/setup_dev.ps1`, `scripts/bootstrap_tools.ps1` | T/S: install local dependencies and optional tools. |
 | `scripts/run_dev.ps1`, `scripts/run_mcp_server.ps1` | T: start local disposable services; check ports and target data path. |
+| `scripts/run_manager_structure_demo.py [--build-reference] [--port N]` | S: synthetic local CRM and manager diagram under ignored `output/manager-structure-demo`. `--build-reference` creates modules and links through API operations and exports a reviewed sample. |
+| `scripts/manager_structure_template.py {build-reference,export,restore} [--url URL] [--template PATH]` | R for export, W for build/restore: exact local CRM target and admin session from environment. Build refuses nonempty diagrams; restore requires `--replace-existing` to overwrite. Review full instruction texts before publication. |
+| `scripts/manager_structure_edit.py [--url URL] {list,module,relation,instruction}` | R for list, W for the other commands: exact local CRM target and admin session from environment. One versioned API change with readback; `.txt`/`.md` instruction content is embedded as text. Keep private source files outside Git. |
+| `scripts/manager_structure_reroute.py {--template PATH, --url URL} --backup PATH` | W: explicit rerouting of a portable template or exact local CRM diagram. Creates a new backup outside Git first, verifies no overlaps or parallel spacing conflicts, then rereads the saved result. Perpendicular crossings use display bridges. |
 | `scripts/build_app.ps1`, `scripts/prepare_release.ps1`, `scripts/run_quality_pass.ps1` | S: build and verify portable Windows artifacts. |
 | `scripts/finance_audit_report.py`, `scripts/payroll_audit_report.py`, `scripts/repair_order_number_audit.py`, `scripts/state_size_report.py` | R, private: report on exact state/API; do not publish rows or totals in general documentation. |
 | `scripts/benchmark_unit_suite.py`, `scripts/perf_workflows.py`, `scripts/perf_browser_panels.py`, `scripts/perf_comparison.py`, `scripts/perf_probe.py`, `scripts/perf_mcp.py` | S/R: local synthetic benchmarks or explicitly scoped live read probes. Live MCP writes remain disabled without separate scope. |
 | `scripts/run_isolated_write_smoke.sh` | S: disposable isolated write test; never point at production data. |
-| `scripts/manager_structure_template.py build-reference|export|restore --url URL` | S/W: build or export the portable manager diagram; restore writes only to the explicitly targeted CRM, requires an owner session and rejects occupied diagrams by default. |
-| `scripts/run_manager_structure_demo.py [--build-reference] [--port 42991]` | S: run a synthetic local CRM and persist the editable example under ignored `output/manager-structure-demo`. |
 
 `scripts/browser_smoke_core.py`, `browser_smoke_completion_act.py`,
 `browser_smoke_inventory.py`, `browser_smoke_profiles.py`,

@@ -19,7 +19,7 @@ focused tests when a route is not described here.
 
 When `MINIMAL_KANBAN_API_BEARER_TOKEN` is configured, non-static API and
 download routes require `Authorization: Bearer <token>`. The board,
-`/dashboard` and `/module-map` shells, content-fingerprinted `/assets/board.*`
+`/dashboard`, `/module-map`, and `/manager-structure` shells, content-fingerprinted `/assets/board.*`
 resources, favicons, and `/api/health` are static exceptions. The shells contain
 no business data; the map topology and dashboard content use authenticated reads.
 Requests arriving through the browser proxy also enforce operator-session
@@ -54,8 +54,44 @@ codes include `validation_error`, `not_found`, `unauthorized`, `forbidden`,
 | Shared display | `/api/get_display_dashboard` | compact dashboard service mixin |
 | Files | `/api/list_shared_files`, `/api/upload_shared_file`, `/api/attachment` | shared-files and attachment services |
 | Operators | `/api/login_operator`, `/api/get_operator_profile`, `/api/update_personal_board_preferences`, `/api/list_operator_activity`, `/api/get_operator_user_report` | `OperatorAuthService` |
+| Manager structure | `/api/manager_structure`, `/api/manager_structure/apply` | `ManagerStructureService` |
 | Durable change feed | `/api/change_feed/bootstrap`, `/api/change_feed/read`, `/api/change_feed/ack` | `ChangeFeedService` |
 | Agent compatibility | `/api/get_ai_chat_knowledge`, `/api/set_card_ai_autofill`, scheduled-task and manager-operation routes | `CardService` and agent adapters |
+
+### Manager structure constructor
+
+`GET /api/manager_structure` (or POST with `{}`) requires an operator session
+and returns `schema_version: "autostopcrm.manager-structure.v1"`, `version`,
+`canvas`, `elements`, `relations`, and `can_edit`. Each element has an ID,
+title, kind (`module`, `item`, `storage`, or `condition`), x/y/width/height,
+optional parent, short `lines`, icon, color, brief `description`, and separate
+full `instruction` text. Optional `indicator_mode` is `none`, `manual`, or
+`automation`; manual indicators use `indicator_state` (`green`, `yellow`, or
+`red`). Relations have endpoints, SVG path, direction
+(`forward` or `both`), kind (`exchange` or `event`), label position and display
+options. The old read-only infrastructure route is unaffected.
+
+`POST /api/manager_structure/apply` requires the configured owner session. Supply
+`expected_version` from the latest read, an 8–128 character `idempotency_key`,
+and one operation: `upsert_element` with `element`, `upsert_relation` with
+`relation`, `remove_element`/`remove_relation` with `id`, `set_canvas` with
+`canvas`, or `replace` with a portable `diagram`. Upserts merge fields of an
+existing element; creation requires all required properties. A successful
+mutation returns the new `version` and `deduplicated`. Repeating the same key
+and body returns the prior version; reusing the key for different content or
+writing from a stale version returns HTTP 409. Removing a module with children
+or attached relations is rejected. Read again to verify exact saved text and
+geometry. `replace` is intended for an explicitly reviewed template; it never
+executes module instructions. `layout_element` and `layout_relation` calculate
+orthogonal paths for the complete diagram. A request with `preview: true`
+returns the candidate diagram without writing; it still requires owner access
+and the current version. `layout_element` may adjust x/y to a nearby free,
+routeable position and returns `adjusted: true` plus `accepted_element`.
+Both layout operations return calculated `routes` (relation ID to saved SVG
+path) for readback verification. If routing fails, HTTP 422 leaves the
+prior diagram intact. Existing v1 paths remain readable; text-only upserts
+preserve them. A route can contain a perpendicular crossing; the browser draws
+a bridge at that point. The stored SVG `path` remains orthogonal.
 
 Immutable `RouteSpec` entries in `api/route_registry.py` are the authoritative
 classifications for registry-owned routes. They define HTTP methods, mutation,
