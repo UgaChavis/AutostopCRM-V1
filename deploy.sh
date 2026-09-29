@@ -257,6 +257,7 @@ protected_backup_source_bytes() {
   local candidate size
   for candidate in \
     "$CRM_DATA_DIR/state.json" \
+    "$CRM_DATA_DIR/manager_structure.json" \
     "$CRM_DATA_DIR/change_feed.sqlite3" \
     "$CRM_DATA_DIR/change_feed.sqlite3-wal" \
     "$CRM_DATA_DIR/change_feed.sqlite3-shm" \

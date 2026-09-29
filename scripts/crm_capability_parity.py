@@ -16,6 +16,9 @@ if str(SRC) not in sys.path:
 
 from minimal_kanban.api.automation_center import build_automation_center_routes  # noqa: E402
 from minimal_kanban.api.change_feed import build_change_feed_routes  # noqa: E402
+from minimal_kanban.api.manager_structure_routes import (  # noqa: E402
+    manager_structure_route_handlers,
+)
 from minimal_kanban.api.route_registry import (  # noqa: E402
     build_operator_routes,
     build_route_specs,
@@ -263,11 +266,13 @@ def discover_backend_routes() -> dict[str, dict[str, str]]:
     operator_routes = build_operator_routes(_FakeService())
     change_feed_routes = build_change_feed_routes(_FakeService())
     automation_routes = build_automation_center_routes(_FakeService())
+    structure_routes = manager_structure_route_handlers(_FakeService())
     registries = (
         ("service", service_routes),
         ("operator", operator_routes),
         ("change_feed", change_feed_routes),
         ("automation_center", automation_routes),
+        ("manager_structure", structure_routes),
     )
     all_routes: set[str] = set()
     overlap: set[str] = set()

@@ -5,10 +5,14 @@ from __future__ import annotations
 import hashlib
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+if sys.platform == "win32":
+    raise unittest.SkipTest("Unix release locking requires fcntl.")
 
 from scripts import reconcile_automation_crm_revision as revision_module
 from scripts.deploy_crm_only import CrmOnlyRelease, ReleaseError

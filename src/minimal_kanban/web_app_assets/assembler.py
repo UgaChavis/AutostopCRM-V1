@@ -77,6 +77,7 @@ DISPLAY_DASHBOARD_HTML = _read_source_chunk("display_dashboard.html")
 # The public shell contains no topology. The API serves this dataset only to
 # authenticated browser operators, using the existing infrastructure route.
 MODULE_MAP_HTML = _read_source_chunk("module_map.html")
+MANAGER_STRUCTURE_HTML = _read_source_chunk("manager_structure.html")
 MODULE_MAP_INFRASTRUCTURE = json.loads(_read_source_chunk("manager_infrastructure.json"))
 TELEGRAM_AGENT_BEHAVIOR_HTML = _read_source_chunk("telegram_agent_behavior.html")
 TELEGRAM_AGENT_BEHAVIOR = json.loads(_read_source_chunk("telegram_agent_behavior.json"))

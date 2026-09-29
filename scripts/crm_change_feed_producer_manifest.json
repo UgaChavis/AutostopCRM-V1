@@ -435,6 +435,27 @@
       ]
     },
     {
+      "name": "manager_structure_metadata_boundary",
+      "kind": "infrastructure_exemption",
+      "producer": "versioned manager_structure.json metadata",
+      "rationale": "The constructor stores diagram geometry and instruction text in its own durable file. These edits are not CRM customer, repair, finance or inventory events and must not enter the business change feed.",
+      "routes": [
+        "/api/manager_structure/apply"
+      ],
+      "route_evidence": {
+        "/api/manager_structure/apply": {
+          "source": "src/minimal_kanban/services/manager_structure.py",
+          "pattern": "def apply(self, payload: dict | None) -> dict[str, Any]:"
+        }
+      },
+      "test_evidence": [
+        {
+          "source": "tests/test_manager_structure.py",
+          "pattern": "test_saved_legacy_graph_is_copied_without_deleting_original"
+        }
+      ]
+    },
+    {
       "name": "non_mutating_compatibility_and_artifact_routes",
       "kind": "non_mutating_exemption",
       "producer": "none",

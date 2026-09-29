@@ -1,5 +1,5 @@
 {
-  "schema_version": "autostopmanager.infrastructure-map.v1",
+  "schema_version": "autostopcrm.manager-structure.v1",
   "canvas": {
     "width": 2190,
     "height": 1070
@@ -17,32 +17,9 @@
       "kind": "module",
       "lines": [],
       "icon": "document",
-      "links": [
-        {
-          "title": "Основные правила",
-          "url": "https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/AGENTS.md"
-        },
-        {
-          "title": "Telegram",
-          "url": "https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/.agents/skills/manage-owner-telegram/SKILL.md"
-        },
-        {
-          "title": "Рабочий Instagram",
-          "url": "https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/.agents/skills/manage-owner-instagram/SKILL.md"
-        },
-        {
-          "title": "CRM, ремонт и запчасти",
-          "url": "https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/.agents/skills/manage-autostop-store/SKILL.md"
-        },
-        {
-          "title": "Документы CRM и почта",
-          "url": "https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/docs/agent/operations.md"
-        },
-        {
-          "title": "Выпуск и развёртывание",
-          "url": "https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/docs/agent/deployment_runbook.md"
-        }
-      ]
+      "instruction": "Правила и навыки, которые агент читает перед работой. Определяют контекст и границы поручения.",
+      "color": "#79b9d9",
+      "indicator": "off"
     },
     {
       "id": "A2",
@@ -58,7 +35,10 @@
       "lines": [
         "CLI / приложение · контекст · решения"
       ],
-      "icon": "terminal"
+      "icon": "terminal",
+      "instruction": "Получает поручение, выбирает инструменты, оценивает результаты и отвечает владельцу.",
+      "color": "#5ecde9",
+      "indicator": "off"
     },
     {
       "id": "A3",
@@ -71,7 +51,10 @@
       "group": "A",
       "kind": "module",
       "lines": [],
-      "icon": "terminal"
+      "icon": "terminal",
+      "instruction": "Запускает локальные команды и возвращает их вывод агенту.",
+      "color": "#79b9d9",
+      "indicator": "off"
     },
     {
       "id": "J1",
@@ -86,7 +69,10 @@
       "lines": [
         "Профиль · источники A–D · отчёт"
       ],
-      "icon": "globe"
+      "icon": "globe",
+      "instruction": "Read-only контур доказательного автомобильного исследования: обезличенный профиль, публичные источники A–D и компактный отчёт о применимости, уверенности и пробелах. Не пишет в CRM и не подтверждает диагноз или применимость сам.",
+      "color": "#7adbb1",
+      "indicator": "off"
     },
     {
       "id": "B1",
@@ -101,7 +87,10 @@
       "lines": [
         "Чтение · сообщения · медиа"
       ],
-      "icon": "telegram"
+      "icon": "telegram",
+      "instruction": "Локальный мост для чтения диалогов и работы с сообщениями и медиа через выбранный Telegram-аккаунт.",
+      "color": "#73c4e8",
+      "indicator": "off"
     },
     {
       "id": "B2",
@@ -114,7 +103,10 @@
       "group": "B",
       "kind": "module",
       "lines": [],
-      "icon": "people"
+      "icon": "people",
+      "instruction": "Рабочий Telegram-аккаунт. При включённом рабочем режиме входящее событие может запустить агента.",
+      "color": "#73c4e8",
+      "indicator": "off"
     },
     {
       "id": "B3",
@@ -127,7 +119,10 @@
       "group": "B",
       "kind": "module",
       "lines": [],
-      "icon": "person"
+      "icon": "person",
+      "instruction": "Личный Telegram-аккаунт. На этой карте для него не предусмотрен событийный запуск агента.",
+      "color": "#73c4e8",
+      "indicator": "off"
     },
     {
       "id": "B4",
@@ -140,8 +135,10 @@
       "group": "B",
       "kind": "module",
       "lines": [],
-      "indicator": "on",
-      "compact": true
+      "indicator": "green",
+      "compact": true,
+      "instruction": "Wake-адаптер передаёт событие рабочего Telegram агенту Codex. Это событийный запуск, а не периодический опрос.",
+      "color": "#73c4e8"
     },
     {
       "id": "G1",
@@ -157,8 +154,9 @@
         "Задания · таймеры · готовность"
       ],
       "icon": "bell",
-      "indicator": "unknown",
-      "control_surface": "automation_center"
+      "indicator": "yellow",
+      "instruction": "Интерактивный центр периодических заданий Manager: показывает требуемый и фактический режим, системные таймеры и готовность контура.",
+      "color": "#68dba8"
     },
     {
       "id": "C2",
@@ -173,7 +171,10 @@
       "lines": [
         "Gateway v2"
       ],
-      "icon": "gateway"
+      "icon": "gateway",
+      "instruction": "MCP-интерфейс CRM Gateway v2. Предоставляет агенту инструменты доступа к текущей доске.",
+      "color": "#dfb461",
+      "indicator": "off"
     },
     {
       "id": "C3",
@@ -186,59 +187,10 @@
       "group": "C",
       "kind": "module",
       "lines": [],
-      "icon": "people"
-    },
-    {
-      "id": "C4",
-      "title": "Клиенты и телефоны",
-      "x": 707,
-      "y": 720,
-      "width": 246,
-      "height": 31,
-      "description": "Контакты клиентов и связанные сведения.",
-      "group": "C",
-      "kind": "item",
-      "lines": [],
-      "parent": "C3"
-    },
-    {
-      "id": "C5",
-      "title": "Автомобили",
-      "x": 707,
-      "y": 756,
-      "width": 246,
-      "height": 31,
-      "description": "Сведения об автомобилях, связанные с клиентскими кейсами.",
-      "group": "C",
-      "kind": "item",
-      "lines": [],
-      "parent": "C3"
-    },
-    {
-      "id": "C6",
-      "title": "Карточки ремонта",
-      "x": 707,
-      "y": 792,
-      "width": 246,
-      "height": 31,
-      "description": "Рабочие кейсы на доске: потребность, история и состояние ремонта.",
-      "group": "C",
-      "kind": "item",
-      "lines": [],
-      "parent": "C3"
-    },
-    {
-      "id": "C7",
-      "title": "Заказ-наряды",
-      "x": 707,
-      "y": 828,
-      "width": 246,
-      "height": 31,
-      "description": "Документы с работами и материалами по ремонту.",
-      "group": "C",
-      "kind": "item",
-      "lines": [],
-      "parent": "C3"
+      "icon": "people",
+      "instruction": "Система учёта клиентов, автомобилей и ремонтных работ. Хранит текущие бизнес-данные.",
+      "color": "#dfb461",
+      "indicator": "off"
     },
     {
       "id": "D1",
@@ -251,7 +203,10 @@
       "group": "D",
       "kind": "module",
       "lines": [],
-      "icon": "gear"
+      "icon": "gear",
+      "instruction": "Локальный MCP-сервер инструментов Manager. Соединяет агента с поиском знаний, подбором и адаптером магазина.",
+      "color": "#b497de",
+      "indicator": "off"
     },
     {
       "id": "D2",
@@ -264,20 +219,10 @@
       "group": "D",
       "kind": "module",
       "lines": [],
-      "icon": "book"
-    },
-    {
-      "id": "D4",
-      "title": "Поиск знаний · техническая память",
-      "x": 1048,
-      "y": 496,
-      "width": 196,
-      "height": 56,
-      "description": "Поиск подходящих инструкций, технических заметок и ранее установленных правил.",
-      "group": "D",
-      "kind": "item",
-      "lines": [],
-      "parent": "D2"
+      "icon": "book",
+      "instruction": "Инструменты поиска документации и обращения к обезличенному техническому опыту.",
+      "color": "#b497de",
+      "indicator": "off"
     },
     {
       "id": "D3",
@@ -290,20 +235,10 @@
       "group": "D",
       "kind": "storage",
       "lines": [],
-      "icon": "database"
-    },
-    {
-      "id": "D5",
-      "title": "Документация · навыки · обезличенный опыт",
-      "x": 1025,
-      "y": 900,
-      "width": 225,
-      "height": 52,
-      "description": "Содержимое технической базы: документация, навыки и обезличенные выводы.",
-      "group": "D",
-      "kind": "item",
-      "lines": [],
-      "parent": "D3"
+      "icon": "database",
+      "instruction": "Локальное хранение технических знаний и памяти. Не заменяет CRM, Telegram и магазин как источники клиентских данных.",
+      "color": "#b497de",
+      "indicator": "off"
     },
     {
       "id": "E1",
@@ -316,77 +251,10 @@
       "group": "E",
       "kind": "module",
       "lines": [],
-      "icon": "car"
-    },
-    {
-      "id": "E4",
-      "title": "VIN / кузов → автомобиль",
-      "x": 1332,
-      "y": 503,
-      "width": 256,
-      "height": 31,
-      "description": "Расшифровка VIN или номера кузова и уточнение характеристик автомобиля.",
-      "purpose": "По VIN или номеру кузова определяет базовую конфигурацию автомобиля: марку, модель, двигатель, коробку и рынок. При несовпадениях просит уточнить данные; применимость детали подтверждается следующим шагом.",
-      "group": "E",
-      "kind": "item",
-      "lines": [],
-      "parent": "E1"
-    },
-    {
-      "id": "E5",
-      "title": "Деталь → оригинальный номер",
-      "x": 1332,
-      "y": 544,
-      "width": 256,
-      "height": 31,
-      "description": "Преобразование запроса на деталь в поиск оригинальных каталожных номеров.",
-      "purpose": "Связывает запрос клиента с оригинальным каталогом: уточняет узел, сторону, количество и исходный номер. Возвращает кандидаты для дальнейшей проверки, а не готовый заказ.",
-      "group": "E",
-      "kind": "item",
-      "lines": [],
-      "parent": "E1"
-    },
-    {
-      "id": "E7",
-      "title": "Интернет-проверка детали",
-      "x": 1332,
-      "y": 585,
-      "width": 256,
-      "height": 31,
-      "description": "Готовит обезличенный запрос на деталь и оценивает кандидатов. Подтверждение применимости остаётся за VIN-специфичным EPC.",
-      "purpose": "Сверяет номер и характеристики детали по открытым источникам, отмечая ссылки и возможные противоречия. Веб-данные помогают отсеять ошибки, но не заменяют проверку по VIN-специфичному EPC.",
-      "group": "E",
-      "kind": "item",
-      "lines": [],
-      "parent": "E1"
-    },
-    {
-      "id": "E6",
-      "title": "Аналоги · применимость",
-      "x": 1332,
-      "y": 626,
-      "width": 256,
-      "height": 31,
-      "description": "Поиск замен и проверка условий установки на конкретную модификацию.",
-      "purpose": "Сопоставляет оригинальный номер с аналогами и проверяет условия установки: двигатель, период выпуска, рынок, ось и сторону. Выдаёт кандидаты, требующие подтверждения перед заказом.",
-      "group": "E",
-      "kind": "item",
-      "lines": [],
-      "parent": "E1"
-    },
-    {
-      "id": "E9",
-      "title": "Рыночная оценка детали",
-      "x": 1332,
-      "y": 667,
-      "width": 256,
-      "height": 31,
-      "description": "Агент исследует публичные предложения через E8, а E9 сверяет артикул, бренд, состояние, регион и источники. Возвращает диапазон и типичную цену только при достаточных сопоставимых данных; не создаёт карточку или предложение.",
-      "purpose": "Собирает сопоставимые публичные предложения и рассчитывает ориентир по рынку с учётом бренда, состояния и региона. Это не подтверждённые остатки поставщика и не готовая цена для клиента.",
-      "group": "E",
-      "kind": "item",
-      "lines": [],
-      "parent": "E1"
+      "icon": "car",
+      "instruction": "Определяет автомобиль и нужную деталь, ищет оригинальные номера и аналоги, сверяет применимость и исследует публичные рыночные цены. Рыночный ориентир не является подтверждённым предложением.",
+      "color": "#ec8492",
+      "indicator": "off"
     },
     {
       "id": "E10",
@@ -402,7 +270,9 @@
       "lines": [
         "GitHub · сервер позже"
       ],
-      "indicator": "unknown"
+      "indicator": "yellow",
+      "instruction": "Код поиска объявлений Авито через ReefAPI в GitHub; сервер обновят позже. Живой поиск пока не подтверждён, поэтому состояние источника неизвестно. Объявления служат зацепками для проверки, а не подтверждением наличия или применимости.",
+      "color": "#ec8492"
     },
     {
       "id": "E11",
@@ -418,7 +288,9 @@
       "lines": [
         "Внедрён · выключен"
       ],
-      "indicator": "off"
+      "indicator": "red",
+      "instruction": "Модуль Baza.Drom/Webbee внедрён в код Manager, по умолчанию выключен без доступа; Free API ответил HTTP 401. Сервер обновят позже. Живой поиск и доступ к роботу не подтверждены. Объявления после подключения будут только зацепками для отдельной проверки наличия и применимости.",
+      "color": "#ec8492"
     },
     {
       "id": "E8",
@@ -432,7 +304,10 @@
       "tone": "N",
       "kind": "module",
       "compact": true,
-      "lines": []
+      "lines": [],
+      "instruction": "Единый read-only Web Research Gateway: общий поиск и чтение публичных страниц для исследования цен, а также отдельный ограниченный режим проверки номера E7. Удаляет VIN из запросов и не подтверждает применимость.",
+      "color": "#a2c2d5",
+      "indicator": "off"
     },
     {
       "id": "E2",
@@ -448,7 +323,10 @@
         "Расшифровка ·",
         "каталожные кандидаты"
       ],
-      "icon": "cloud"
+      "icon": "cloud",
+      "instruction": "Внешние источники расшифровки и каталожных кандидатов. Операции зависят от настройки доступа и полноты исходных данных.",
+      "color": "#ec8492",
+      "indicator": "off"
     },
     {
       "id": "E3",
@@ -463,7 +341,10 @@
       "lines": [
         "Цены · наличие · сроки"
       ],
-      "icon": "cart"
+      "icon": "cart",
+      "instruction": "Внешние каталоги и источники предложений для сверки деталей, цен, наличия и сроков.",
+      "color": "#ec8492",
+      "indicator": "off"
     },
     {
       "id": "F1",
@@ -478,7 +359,10 @@
       "lines": [
         "Agent API / Owner API"
       ],
-      "icon": "box"
+      "icon": "box",
+      "instruction": "Переводит обращения инструментов Manager в запросы к Agent API и Owner API магазина.",
+      "color": "#8ed6ad",
+      "indicator": "off"
     },
     {
       "id": "F2",
@@ -491,46 +375,10 @@
       "group": "F",
       "kind": "module",
       "lines": [],
-      "icon": "box"
-    },
-    {
-      "id": "F3",
-      "title": "Каталог и склад",
-      "x": 1960,
-      "y": 837,
-      "width": 165,
-      "height": 42,
-      "description": "Номенклатура и учёт наличия запчастей.",
-      "group": "F",
-      "kind": "item",
-      "lines": [],
-      "parent": "F2"
-    },
-    {
-      "id": "F4",
-      "title": "Проценки и предложения",
-      "x": 1960,
-      "y": 882,
-      "width": 165,
-      "height": 42,
-      "description": "Подготовка вариантов и условий предложения клиенту.",
-      "group": "F",
-      "kind": "item",
-      "lines": [],
-      "parent": "F2"
-    },
-    {
-      "id": "F5",
-      "title": "Заказы",
-      "x": 1960,
-      "y": 927,
-      "width": 165,
-      "height": 42,
-      "description": "Заказы магазина. Просмотр карты не создаёт и не изменяет заказ.",
-      "group": "F",
-      "kind": "item",
-      "lines": [],
-      "parent": "F2"
+      "icon": "box",
+      "instruction": "Хранит каталог, склад, проценки, предложения и заказы. Подбор передаётся в проценку через действия агента.",
+      "color": "#8ed6ad",
+      "indicator": "off"
     },
     {
       "id": "I1",
@@ -542,8 +390,13 @@
       "description": "Подключённые инструменты Gmail позволяют Codex по текущему поручению читать письма, готовить черновики и выполнять разрешённые действия. Перед отправкой проверяются адресат и вложения, после действия перечитывается результат. Почтовые данные остаются в Gmail.",
       "group": "I",
       "kind": "module",
-      "lines": ["Чтение · черновики"],
-      "icon": "mail"
+      "lines": [
+        "Чтение · черновики"
+      ],
+      "icon": "mail",
+      "instruction": "Подключённые инструменты Gmail позволяют Codex по текущему поручению читать письма, готовить черновики и выполнять разрешённые действия. Перед отправкой проверяются адресат и вложения, после действия перечитывается результат. Почтовые данные остаются в Gmail.",
+      "color": "#e9a4b5",
+      "indicator": "off"
     },
     {
       "id": "I2",
@@ -555,8 +408,13 @@
       "description": "Почтовый источник писем, вложений, черновиков и ярлыков. Codex получает доступ через Gmail-коннектор; входящее письмо само по себе не запускает агента.",
       "group": "I",
       "kind": "module",
-      "lines": ["Письма · вложения"],
-      "icon": "mail"
+      "lines": [
+        "Письма · вложения"
+      ],
+      "icon": "mail",
+      "instruction": "Почтовый источник писем, вложений, черновиков и ярлыков. Codex получает доступ через Gmail-коннектор; входящее письмо само по себе не запускает агента.",
+      "color": "#e9a4b5",
+      "indicator": "off"
     },
     {
       "id": "H1",
@@ -571,7 +429,10 @@
       "lines": [
         "Публикации · комментарии"
       ],
-      "icon": "plug"
+      "icon": "plug",
+      "instruction": "В текущем интерактивном чате Codex подключён плагин Windsor.ai с инструментами публикации постов, Reels и Stories и работы с комментариями. Direct и событийный запуск через плагин не подключены; доступность в локальном CLI и Telegram-режиме отдельно не подтверждена.",
+      "color": "#d99bc9",
+      "indicator": "off"
     },
     {
       "id": "H2",
@@ -586,7 +447,234 @@
       "lines": [
         "@auto.repair.parts"
       ],
-      "icon": "camera"
+      "icon": "camera",
+      "instruction": "Рабочий Instagram-аккаунт автосервиса @auto.repair.parts. Публикации и комментарии хранятся в Instagram; доступные действия в интерактивном Codex выполняются через Windsor.ai по текущему поручению.",
+      "color": "#d99bc9",
+      "indicator": "off"
+    },
+    {
+      "id": "C4",
+      "title": "Клиенты и телефоны",
+      "x": 707,
+      "y": 720,
+      "width": 246,
+      "height": 31,
+      "description": "Контакты клиентов и связанные сведения.",
+      "group": "C",
+      "kind": "item",
+      "lines": [],
+      "parent": "C3",
+      "instruction": "Контакты клиентов и связанные сведения.",
+      "color": "#dfb461",
+      "indicator": "off"
+    },
+    {
+      "id": "C5",
+      "title": "Автомобили",
+      "x": 707,
+      "y": 756,
+      "width": 246,
+      "height": 31,
+      "description": "Сведения об автомобилях, связанные с клиентскими кейсами.",
+      "group": "C",
+      "kind": "item",
+      "lines": [],
+      "parent": "C3",
+      "instruction": "Сведения об автомобилях, связанные с клиентскими кейсами.",
+      "color": "#dfb461",
+      "indicator": "off"
+    },
+    {
+      "id": "C6",
+      "title": "Карточки ремонта",
+      "x": 707,
+      "y": 792,
+      "width": 246,
+      "height": 31,
+      "description": "Рабочие кейсы на доске: потребность, история и состояние ремонта.",
+      "group": "C",
+      "kind": "item",
+      "lines": [],
+      "parent": "C3",
+      "instruction": "Рабочие кейсы на доске: потребность, история и состояние ремонта.",
+      "color": "#dfb461",
+      "indicator": "off"
+    },
+    {
+      "id": "C7",
+      "title": "Заказ-наряды",
+      "x": 707,
+      "y": 828,
+      "width": 246,
+      "height": 31,
+      "description": "Документы с работами и материалами по ремонту.",
+      "group": "C",
+      "kind": "item",
+      "lines": [],
+      "parent": "C3",
+      "instruction": "Документы с работами и материалами по ремонту.",
+      "color": "#dfb461",
+      "indicator": "off"
+    },
+    {
+      "id": "D4",
+      "title": "Поиск знаний · техническая память",
+      "x": 1048,
+      "y": 496,
+      "width": 196,
+      "height": 56,
+      "description": "Поиск подходящих инструкций, технических заметок и ранее установленных правил.",
+      "group": "D",
+      "kind": "item",
+      "lines": [],
+      "parent": "D2",
+      "instruction": "Поиск подходящих инструкций, технических заметок и ранее установленных правил.",
+      "color": "#b497de",
+      "indicator": "off"
+    },
+    {
+      "id": "D5",
+      "title": "Документация · навыки · обезличенный опыт",
+      "x": 1025,
+      "y": 900,
+      "width": 225,
+      "height": 52,
+      "description": "Содержимое технической базы: документация, навыки и обезличенные выводы.",
+      "group": "D",
+      "kind": "item",
+      "lines": [],
+      "parent": "D3",
+      "instruction": "Содержимое технической базы: документация, навыки и обезличенные выводы.",
+      "color": "#b497de",
+      "indicator": "off"
+    },
+    {
+      "id": "E4",
+      "title": "VIN / кузов → автомобиль",
+      "x": 1332,
+      "y": 503,
+      "width": 256,
+      "height": 31,
+      "description": "Расшифровка VIN или номера кузова и уточнение характеристик автомобиля.",
+      "group": "E",
+      "kind": "item",
+      "lines": [],
+      "parent": "E1",
+      "instruction": "По VIN или номеру кузова определяет базовую конфигурацию автомобиля: марку, модель, двигатель, коробку и рынок. При несовпадениях просит уточнить данные; применимость детали подтверждается следующим шагом.",
+      "color": "#ec8492",
+      "indicator": "off"
+    },
+    {
+      "id": "E5",
+      "title": "Деталь → оригинальный номер",
+      "x": 1332,
+      "y": 544,
+      "width": 256,
+      "height": 31,
+      "description": "Преобразование запроса на деталь в поиск оригинальных каталожных номеров.",
+      "group": "E",
+      "kind": "item",
+      "lines": [],
+      "parent": "E1",
+      "instruction": "Связывает запрос клиента с оригинальным каталогом: уточняет узел, сторону, количество и исходный номер. Возвращает кандидаты для дальнейшей проверки, а не готовый заказ.",
+      "color": "#ec8492",
+      "indicator": "off"
+    },
+    {
+      "id": "E7",
+      "title": "Интернет-проверка детали",
+      "x": 1332,
+      "y": 585,
+      "width": 256,
+      "height": 31,
+      "description": "Готовит обезличенный запрос на деталь и оценивает кандидатов. Подтверждение применимости остаётся за VIN-специфичным EPC.",
+      "group": "E",
+      "kind": "item",
+      "lines": [],
+      "parent": "E1",
+      "instruction": "Сверяет номер и характеристики детали по открытым источникам, отмечая ссылки и возможные противоречия. Веб-данные помогают отсеять ошибки, но не заменяют проверку по VIN-специфичному EPC.",
+      "color": "#ec8492",
+      "indicator": "off"
+    },
+    {
+      "id": "E6",
+      "title": "Аналоги · применимость",
+      "x": 1332,
+      "y": 626,
+      "width": 256,
+      "height": 31,
+      "description": "Поиск замен и проверка условий установки на конкретную модификацию.",
+      "group": "E",
+      "kind": "item",
+      "lines": [],
+      "parent": "E1",
+      "instruction": "Сопоставляет оригинальный номер с аналогами и проверяет условия установки: двигатель, период выпуска, рынок, ось и сторону. Выдаёт кандидаты, требующие подтверждения перед заказом.",
+      "color": "#ec8492",
+      "indicator": "off"
+    },
+    {
+      "id": "E9",
+      "title": "Рыночная оценка детали",
+      "x": 1332,
+      "y": 667,
+      "width": 256,
+      "height": 31,
+      "description": "Агент исследует публичные предложения через E8, а E9 сверяет артикул, бренд, состояние, регион и источники. Возвращает диапазон и типичную цену только при достаточных сопоставимых данных; не создаёт карточку или предложение.",
+      "group": "E",
+      "kind": "item",
+      "lines": [],
+      "parent": "E1",
+      "instruction": "Собирает сопоставимые публичные предложения и рассчитывает ориентир по рынку с учётом бренда, состояния и региона. Это не подтверждённые остатки поставщика и не готовая цена для клиента.",
+      "color": "#ec8492",
+      "indicator": "off"
+    },
+    {
+      "id": "F3",
+      "title": "Каталог и склад",
+      "x": 1960,
+      "y": 837,
+      "width": 165,
+      "height": 42,
+      "description": "Номенклатура и учёт наличия запчастей.",
+      "group": "F",
+      "kind": "item",
+      "lines": [],
+      "parent": "F2",
+      "instruction": "Номенклатура и учёт наличия запчастей.",
+      "color": "#8ed6ad",
+      "indicator": "off"
+    },
+    {
+      "id": "F4",
+      "title": "Проценки и предложения",
+      "x": 1960,
+      "y": 882,
+      "width": 165,
+      "height": 42,
+      "description": "Подготовка вариантов и условий предложения клиенту.",
+      "group": "F",
+      "kind": "item",
+      "lines": [],
+      "parent": "F2",
+      "instruction": "Подготовка вариантов и условий предложения клиенту.",
+      "color": "#8ed6ad",
+      "indicator": "off"
+    },
+    {
+      "id": "F5",
+      "title": "Заказы",
+      "x": 1960,
+      "y": 927,
+      "width": 165,
+      "height": 42,
+      "description": "Заказы магазина. Просмотр карты не создаёт и не изменяет заказ.",
+      "group": "F",
+      "kind": "item",
+      "lines": [],
+      "parent": "F2",
+      "instruction": "Заказы магазина. Просмотр карты не создаёт и не изменяет заказ.",
+      "color": "#8ed6ad",
+      "indicator": "off"
     }
   ],
   "relations": [
@@ -602,7 +690,8 @@
       "label_y": 95,
       "direction": "forward",
       "kind": "exchange",
-      "show_label": false
+      "show_label": false,
+      "color": "#79b9d9"
     },
     {
       "id": "L2",
@@ -615,7 +704,8 @@
       "label_x": 350,
       "label_y": 198,
       "direction": "both",
-      "kind": "exchange"
+      "kind": "exchange",
+      "color": "#5ecde9"
     },
     {
       "id": "L3",
@@ -628,7 +718,8 @@
       "label_x": 270,
       "label_y": 359,
       "direction": "both",
-      "kind": "exchange"
+      "kind": "exchange",
+      "color": "#79b9d9"
     },
     {
       "id": "L4",
@@ -641,7 +732,8 @@
       "label_x": 145,
       "label_y": 560,
       "direction": "both",
-      "kind": "exchange"
+      "kind": "exchange",
+      "color": "#73c4e8"
     },
     {
       "id": "L5",
@@ -655,7 +747,8 @@
       "label_y": 605,
       "compact_label": true,
       "direction": "both",
-      "kind": "exchange"
+      "kind": "exchange",
+      "color": "#73c4e8"
     },
     {
       "id": "L6",
@@ -669,7 +762,8 @@
       "label_y": 750,
       "direction": "forward",
       "kind": "event",
-      "show_label": false
+      "show_label": false,
+      "color": "#73c4e8"
     },
     {
       "id": "L7",
@@ -683,7 +777,8 @@
       "label_y": 610,
       "direction": "forward",
       "kind": "event",
-      "label_max_width": 90
+      "label_max_width": 90,
+      "color": "#73c4e8"
     },
     {
       "id": "L10",
@@ -696,7 +791,8 @@
       "label_x": 850,
       "label_y": 300,
       "direction": "both",
-      "kind": "exchange"
+      "kind": "exchange",
+      "color": "#5ecde9"
     },
     {
       "id": "L11",
@@ -709,7 +805,8 @@
       "label_x": 876,
       "label_y": 590,
       "direction": "both",
-      "kind": "exchange"
+      "kind": "exchange",
+      "color": "#dfb461"
     },
     {
       "id": "L12",
@@ -723,7 +820,8 @@
       "label_y": 105,
       "compact_label": true,
       "direction": "both",
-      "kind": "exchange"
+      "kind": "exchange",
+      "color": "#5ecde9"
     },
     {
       "id": "L13",
@@ -736,7 +834,8 @@
       "label_x": 1197,
       "label_y": 375,
       "direction": "both",
-      "kind": "exchange"
+      "kind": "exchange",
+      "color": "#b497de"
     },
     {
       "id": "L14",
@@ -749,7 +848,8 @@
       "label_x": 1480,
       "label_y": 376,
       "direction": "both",
-      "kind": "exchange"
+      "kind": "exchange",
+      "color": "#b497de"
     },
     {
       "id": "L15",
@@ -762,7 +862,8 @@
       "label_x": 1815,
       "label_y": 366,
       "direction": "both",
-      "kind": "exchange"
+      "kind": "exchange",
+      "color": "#b497de"
     },
     {
       "id": "L16",
@@ -775,7 +876,8 @@
       "label_x": 1135,
       "label_y": 687,
       "direction": "both",
-      "kind": "exchange"
+      "kind": "exchange",
+      "color": "#b497de"
     },
     {
       "id": "L17",
@@ -788,7 +890,8 @@
       "label_x": 1380,
       "label_y": 743,
       "direction": "both",
-      "kind": "exchange"
+      "kind": "exchange",
+      "color": "#ec8492"
     },
     {
       "id": "L18",
@@ -802,7 +905,8 @@
       "label_y": 743,
       "compact_label": true,
       "direction": "both",
-      "kind": "exchange"
+      "kind": "exchange",
+      "color": "#ec8492"
     },
     {
       "id": "L20",
@@ -816,7 +920,8 @@
       "label_y": 580,
       "direction": "forward",
       "kind": "exchange",
-      "show_label": false
+      "show_label": false,
+      "color": "#ec8492"
     },
     {
       "id": "L21",
@@ -830,7 +935,8 @@
       "label_y": 621,
       "direction": "forward",
       "kind": "exchange",
-      "show_label": false
+      "show_label": false,
+      "color": "#ec8492"
     },
     {
       "id": "L23",
@@ -844,7 +950,8 @@
       "label_y": 662,
       "direction": "forward",
       "kind": "exchange",
-      "show_label": false
+      "show_label": false,
+      "color": "#ec8492"
     },
     {
       "id": "L22",
@@ -858,7 +965,8 @@
       "label_y": 615,
       "direction": "both",
       "kind": "exchange",
-      "show_label": false
+      "show_label": false,
+      "color": "#ec8492"
     },
     {
       "id": "L24",
@@ -872,7 +980,8 @@
       "label_y": 661,
       "direction": "both",
       "kind": "exchange",
-      "show_label": false
+      "show_label": false,
+      "color": "#ec8492"
     },
     {
       "id": "L19",
@@ -886,7 +995,8 @@
       "label_y": 661,
       "compact_label": true,
       "direction": "both",
-      "kind": "exchange"
+      "kind": "exchange",
+      "color": "#8ed6ad"
     },
     {
       "id": "L25",
@@ -901,7 +1011,8 @@
       "compact_label": true,
       "direction": "both",
       "kind": "exchange",
-      "tone": "J"
+      "tone": "J",
+      "color": "#7adbb1"
     },
     {
       "id": "L26",
@@ -916,7 +1027,8 @@
       "direction": "both",
       "kind": "exchange",
       "tone": "G",
-      "label_max_width": 150
+      "label_max_width": 150,
+      "color": "#68dba8"
     },
     {
       "id": "L27",
@@ -931,7 +1043,8 @@
       "direction": "forward",
       "kind": "event",
       "tone": "G",
-      "show_label": false
+      "show_label": false,
+      "color": "#68dba8"
     },
     {
       "id": "L28",
@@ -945,7 +1058,8 @@
       "label_y": 746,
       "direction": "forward",
       "kind": "event",
-      "tone": "G"
+      "tone": "G",
+      "color": "#68dba8"
     },
     {
       "id": "L29",
@@ -959,7 +1073,8 @@
       "label_y": 342,
       "direction": "both",
       "kind": "exchange",
-      "tone": "H"
+      "tone": "H",
+      "color": "#d99bc9"
     },
     {
       "id": "L30",
@@ -974,7 +1089,8 @@
       "direction": "both",
       "kind": "exchange",
       "tone": "H",
-      "show_label": false
+      "show_label": false,
+      "color": "#d99bc9"
     },
     {
       "id": "L31",
@@ -988,7 +1104,8 @@
       "label_y": 686,
       "direction": "both",
       "kind": "exchange",
-      "show_label": false
+      "show_label": false,
+      "color": "#ec8492"
     },
     {
       "id": "L32",
@@ -1002,7 +1119,8 @@
       "label_y": 748,
       "direction": "both",
       "kind": "exchange",
-      "show_label": false
+      "show_label": false,
+      "color": "#ec8492"
     },
     {
       "id": "L33",
@@ -1016,7 +1134,8 @@
       "label_y": 260,
       "direction": "both",
       "kind": "exchange",
-      "tone": "I"
+      "tone": "I",
+      "color": "#e9a4b5"
     },
     {
       "id": "L34",
@@ -1030,7 +1149,8 @@
       "label_y": 468,
       "direction": "both",
       "kind": "exchange",
-      "tone": "I"
+      "tone": "I",
+      "color": "#e9a4b5"
     }
   ]
 }

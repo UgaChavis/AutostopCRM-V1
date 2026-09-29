@@ -10,6 +10,7 @@
   ],
   "http_route_sources": [
     "src/minimal_kanban/api/server.py",
+    "src/minimal_kanban/api/manager_structure_routes.py",
     "src/minimal_kanban/api/change_feed.py",
     "src/minimal_kanban/api/automation_center.py"
   ],
@@ -26,6 +27,10 @@
     },
     "/module-map": {
       "kind": "static_module_map"
+    },
+    "/manager-structure": {
+      "kind": "static_manager_structure",
+      "business_data_route": "/api/manager_structure"
     },
     "/telegram-agent-behavior": {
       "kind": "static_telegram_agent_behavior",

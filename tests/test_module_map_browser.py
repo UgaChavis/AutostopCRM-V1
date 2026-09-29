@@ -214,8 +214,8 @@ class ManagerMapBrowserTests(unittest.TestCase):
         identifiers = self.page.locator("[data-id]").evaluate_all(
             "elements => elements.map(el => el.dataset.id)"
         )
-        self.assertEqual(len(identifiers), 68)
-        self.assertEqual(len(set(identifiers)), 68)
+        self.assertEqual(len(identifiers), 72)
+        self.assertEqual(len(set(identifiers)), 72)
         for code in identifiers:
             with self.subTest(code=code):
                 if code == "G1":
@@ -844,7 +844,12 @@ class ManagerMapBrowserTests(unittest.TestCase):
                 self.assertEqual(obscured_labels, [])
                 e1 = self.page.locator('[data-id="E1"]').bounding_box()
                 e8 = self.page.locator('[data-id="E8"]').bounding_box()
+                e10 = self.page.locator('[data-id="E10"]').bounding_box()
+                e11 = self.page.locator('[data-id="E11"]').bounding_box()
+                e10_badge = self.page.locator('[data-id="E10"] .badge').bounding_box()
+                e11_badge = self.page.locator('[data-id="E11"] .badge').bounding_box()
                 f1 = self.page.locator('[data-id="F1"]').bounding_box()
+                f2 = self.page.locator('[data-id="F2"]').bounding_box()
                 l19_label = self.page.locator('[data-id="L19"] .edge-label').bounding_box()
                 self.assertIsNotNone(e1)
                 self.assertIsNotNone(e8)
@@ -852,6 +857,9 @@ class ManagerMapBrowserTests(unittest.TestCase):
                 self.assertIsNotNone(l19_label)
                 self.assertGreater(e8["x"] - (e1["x"] + e1["width"]), 10)
                 self.assertGreater(e8["y"] - (f1["y"] + f1["height"]), 10)
+                self.assertGreater(e10_badge["y"] - (e8["y"] + e8["height"]), 10)
+                self.assertGreater(e11_badge["y"] - (e10["y"] + e10["height"]), 10)
+                self.assertGreater(f2["x"] - (e11["x"] + e11["width"]), 20)
                 self.assertGreater(l19_label["y"] - (e8["y"] + e8["height"]), 10)
         self.page.set_viewport_size({"width": 1920, "height": 1080})
         self.page.keyboard.press("Home")
@@ -898,7 +906,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
     def test_removed_hashes_open_current_map(self) -> None:
         self.page.goto(self.runtime.base_url + "/module-map#C1")
         self.login()
-        self.assertEqual(self.page.locator("[data-id]").count(), 68)
+        self.assertEqual(self.page.locator("[data-id]").count(), 72)
         self.assertFalse(self.page.locator("#detail").is_visible())
         self.assertEqual(self.page.evaluate("location.hash"), "")
         for code in ("L8", "L9"):
@@ -907,7 +915,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
                 self.page.wait_for_function(
                     "location.hash==='' && document.querySelector('#detail').hidden"
                 )
-                self.assertEqual(self.page.locator("[data-id]").count(), 68)
+                self.assertEqual(self.page.locator("[data-id]").count(), 72)
         self.assertEqual(self.errors, [])
 
     def test_failed_load_can_retry_without_exposing_partial_map(self) -> None:
@@ -922,7 +930,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.assertEqual(self.page.locator("[data-id]").count(), 0)
         self.page.unroute("**/api/get_module_map_infrastructure")
         self.login()
-        self.assertEqual(self.page.locator("[data-id]").count(), 68)
+        self.assertEqual(self.page.locator("[data-id]").count(), 72)
         self.assertEqual(self.errors, [])
 
 

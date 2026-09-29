@@ -80,6 +80,8 @@ release permits only migrations explicitly versioned and checked by `deploy.sh`.
 | `scripts/finance_audit_report.py`, `scripts/payroll_audit_report.py`, `scripts/repair_order_number_audit.py`, `scripts/state_size_report.py` | R, private: report on exact state/API; do not publish rows or totals in general documentation. |
 | `scripts/benchmark_unit_suite.py`, `scripts/perf_workflows.py`, `scripts/perf_browser_panels.py`, `scripts/perf_comparison.py`, `scripts/perf_probe.py`, `scripts/perf_mcp.py` | S/R: local synthetic benchmarks or explicitly scoped live read probes. Live MCP writes remain disabled without separate scope. |
 | `scripts/run_isolated_write_smoke.sh` | S: disposable isolated write test; never point at production data. |
+| `scripts/manager_structure_template.py build-reference|export|restore --url URL` | S/W: build or export the portable manager diagram; restore writes only to the explicitly targeted CRM, requires an owner session and rejects occupied diagrams by default. |
+| `scripts/run_manager_structure_demo.py [--build-reference] [--port 42991]` | S: run a synthetic local CRM and persist the editable example under ignored `output/manager-structure-demo`. |
 
 `scripts/browser_smoke_core.py`, `browser_smoke_completion_act.py`,
 `browser_smoke_inventory.py`, `browser_smoke_profiles.py`,
