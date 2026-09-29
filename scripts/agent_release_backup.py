@@ -23,16 +23,22 @@ if str(SRC) not in sys.path:
 
 from minimal_kanban.storage.file_lock import ProcessFileLock  # noqa: E402
 
-BACKUP_SCHEMA = "autostop-agent-release-backup.v3"
+BACKUP_SCHEMA = "autostop-agent-release-backup.v4"
+V3_BACKUP_SCHEMA = "autostop-agent-release-backup.v3"
 PREVIOUS_BACKUP_SCHEMA = "autostop-agent-release-backup.v2"
 LEGACY_BACKUP_SCHEMA = "autostop-agent-release-backup.v1"
-SUPPORTED_BACKUP_SCHEMAS = frozenset({BACKUP_SCHEMA, PREVIOUS_BACKUP_SCHEMA, LEGACY_BACKUP_SCHEMA})
+SUPPORTED_BACKUP_SCHEMAS = frozenset(
+    {BACKUP_SCHEMA, V3_BACKUP_SCHEMA, PREVIOUS_BACKUP_SCHEMA, LEGACY_BACKUP_SCHEMA}
+)
 MANIFEST_NAME = "manifest.json"
 STATE_BACKUP_NAME = "state.json"
 CHANGE_FEED_BACKUP_NAME = "change_feed.sqlite3"
 AUDIT_BACKUP_NAME = "audit-archive.tar.gz"
 MANAGER_BACKUP_NAME = "autostop_manager.sqlite3"
 COMPLETION_ACT_FORMS_BACKUP_NAME = "completion_act_forms.json"
+MANAGER_STRUCTURE_BACKUP_NAME = "manager_structure.json"
+MANAGER_STRUCTURE_MAX_BYTES = 64 * 1024 * 1024
+MANAGER_STRUCTURE_SCHEMA = "autostopcrm.manager-structure.v1"
 COMPLETION_ACT_FORMS_DIR_NAME = "completion_act_forms"
 COMPLETION_ACT_FORMS_MAX_BYTES = 64 * 1024 * 1024
 COMPLETION_ACT_FORM_RECORD_MAX_BYTES = 1 * 1024 * 1024
@@ -47,15 +53,17 @@ ARTIFACT_FILE_NAMES = {
     "audit_archive": AUDIT_BACKUP_NAME,
     "manager_sqlite": MANAGER_BACKUP_NAME,
     "completion_act_forms": COMPLETION_ACT_FORMS_BACKUP_NAME,
+    "manager_structure": MANAGER_STRUCTURE_BACKUP_NAME,
 }
 LEGACY_ARTIFACT_KEYS = frozenset({"state", "audit_archive", "manager_sqlite"})
 PREVIOUS_ARTIFACT_KEYS = frozenset(
     {"state", "change_feed_sqlite", "audit_archive", "manager_sqlite"}
 )
 CURRENT_ARTIFACT_KEYS = frozenset(ARTIFACT_FILE_NAMES)
+V3_ARTIFACT_KEYS = CURRENT_ARTIFACT_KEYS - {"manager_structure"}
 REQUIRED_ARTIFACT_KEYS = frozenset({"state", "manager_sqlite"})
 METADATA_ARTIFACT_KEYS = frozenset(
-    {"state", "change_feed_sqlite", "manager_sqlite", "completion_act_forms"}
+    {"state", "change_feed_sqlite", "manager_sqlite", "completion_act_forms", "manager_structure"}
 )
 BASE_ARTIFACT_FIELDS = frozenset({"name", "size_bytes", "sha256"})
 MANIFEST_FIELDS = frozenset(
@@ -148,6 +156,40 @@ def _copy_state(state_file: Path, destination: Path) -> None:
         if not isinstance(payload, dict):
             raise BackupError("CRM state backup is not a JSON object")
     _fsync_file(destination)
+
+
+def _manager_structure_bytes(source: Path) -> bytes:
+    try:
+        encoded = _read_regular_file_bounded(
+            source, max_bytes=MANAGER_STRUCTURE_MAX_BYTES, label="Manager structure"
+        )
+        payload = json.loads(encoded.decode("utf-8"), parse_constant=_reject_json_constant)
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise BackupError("Manager structure is not valid JSON") from exc
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema_version") != MANAGER_STRUCTURE_SCHEMA
+        or type(payload.get("version")) is not int
+        or payload["version"] < 0
+        or not isinstance(payload.get("canvas"), dict)
+        or not isinstance(payload.get("elements"), list)
+        or not isinstance(payload.get("relations"), list)
+        or not isinstance(payload.get("receipts"), dict)
+    ):
+        raise BackupError("Manager structure has an invalid schema")
+    return encoded
+
+
+def _copy_manager_structure(source: Path, destination: Path) -> dict[str, int] | None:
+    lock = ProcessFileLock(source.with_suffix(".lock"), timeout_seconds=30.0)
+    with lock.acquire():
+        if not source.exists() and not source.is_symlink():
+            return None
+        encoded = _manager_structure_bytes(source)
+        metadata = _file_restore_metadata(source)
+        destination.write_bytes(encoded)
+        _fsync_file(destination)
+        return metadata
 
 
 def _reject_json_constant(value: str) -> None:
@@ -451,6 +493,17 @@ def create_backup(
             )
         }
 
+        manager_structure_destination = temp_dir / MANAGER_STRUCTURE_BACKUP_NAME
+        manager_structure_metadata = _copy_manager_structure(
+            crm_data_dir / MANAGER_STRUCTURE_BACKUP_NAME,
+            manager_structure_destination,
+        )
+        artifacts["manager_structure"] = (
+            _artifact(manager_structure_destination, restore_metadata=manager_structure_metadata)
+            if manager_structure_metadata is not None
+            else None
+        )
+
         completion_act_forms_destination = temp_dir / COMPLETION_ACT_FORMS_BACKUP_NAME
         completion_act_forms_restore_metadata = _copy_completion_act_forms_snapshot(
             crm_data_dir / "printing",
@@ -557,6 +610,8 @@ def _load_manifest(backup_dir: Path) -> dict[str, Any]:
         expected_artifact_keys = LEGACY_ARTIFACT_KEYS
     elif schema == PREVIOUS_BACKUP_SCHEMA:
         expected_artifact_keys = PREVIOUS_ARTIFACT_KEYS
+    elif schema == V3_BACKUP_SCHEMA:
+        expected_artifact_keys = V3_ARTIFACT_KEYS
     else:
         expected_artifact_keys = CURRENT_ARTIFACT_KEYS
     if set(artifacts) != expected_artifact_keys:
@@ -582,6 +637,8 @@ def _load_manifest(backup_dir: Path) -> dict[str, Any]:
             raise BackupError(f"Invalid backup artifact size: {artifact_name}")
         if artifact_name == "completion_act_forms" and size_bytes > COMPLETION_ACT_FORMS_MAX_BYTES:
             raise BackupError("Completion act drafts backup exceeds the bounded size")
+        if artifact_name == "manager_structure" and size_bytes > MANAGER_STRUCTURE_MAX_BYTES:
+            raise BackupError("Manager structure backup exceeds the bounded size")
         sha256 = metadata.get("sha256")
         if (
             not isinstance(sha256, str)
@@ -592,7 +649,7 @@ def _load_manifest(backup_dir: Path) -> dict[str, Any]:
         if "restore_metadata" in metadata:
             _validated_restore_metadata(metadata["restore_metadata"], label=artifact_name)
 
-    if schema in {LEGACY_BACKUP_SCHEMA, PREVIOUS_BACKUP_SCHEMA}:
+    if schema != BACKUP_SCHEMA:
         # Older release backups predate one or both optional CRM runtime
         # artifacts. Normalize absence so rollback removes files first created
         # by a failed candidate instead of retaining mixed-revision state.
@@ -600,6 +657,7 @@ def _load_manifest(backup_dir: Path) -> dict[str, Any]:
         normalized_artifacts = dict(artifacts)
         normalized_artifacts.setdefault("change_feed_sqlite", None)
         normalized_artifacts.setdefault("completion_act_forms", None)
+        normalized_artifacts.setdefault("manager_structure", None)
         manifest["artifacts"] = normalized_artifacts
     return manifest
 
@@ -630,6 +688,8 @@ def verify_backup(backup_dir: Path) -> dict[str, Any]:
     with (backup_dir / STATE_BACKUP_NAME).open("r", encoding="utf-8") as handle:
         if not isinstance(json.load(handle), dict):
             raise BackupError("CRM state backup is not a JSON object")
+    if manifest["artifacts"]["manager_structure"] is not None:
+        _manager_structure_bytes(backup_dir / MANAGER_STRUCTURE_BACKUP_NAME)
     completion_act_forms_metadata = manifest.get("artifacts", {}).get("completion_act_forms")
     if completion_act_forms_metadata is not None:
         try:
@@ -753,6 +813,36 @@ def restore_crm_state_and_feed(backup_dir: Path) -> dict[str, Any]:
             lock_path=state_destination.with_suffix(".lock"),
         )
         restored.append("state")
+
+    structure_destination = crm_data_dir / MANAGER_STRUCTURE_BACKUP_NAME
+    structure_metadata = manifest["artifacts"]["manager_structure"]
+    with ProcessFileLock(
+        structure_destination.with_suffix(".lock"), timeout_seconds=30.0
+    ).acquire():
+        structure_exists = structure_destination.exists() or structure_destination.is_symlink()
+        if structure_exists and (
+            structure_destination.is_symlink() or not structure_destination.is_file()
+        ):
+            raise BackupError("Refusing to restore over non-regular Manager structure")
+        if structure_metadata is None:
+            if structure_exists:
+                structure_destination.unlink()
+                restored.append("manager_structure")
+        else:
+            structure_source = backup_dir / MANAGER_STRUCTURE_BACKUP_NAME
+            if (
+                not structure_exists
+                or _sha256(structure_destination) != _sha256(structure_source)
+                or not _restore_metadata_matches(
+                    structure_destination, structure_metadata["restore_metadata"]
+                )
+            ):
+                _restore_file_atomic(
+                    structure_source,
+                    structure_destination,
+                    restore_metadata=structure_metadata["restore_metadata"],
+                )
+                restored.append("manager_structure")
 
     change_feed_metadata = manifest.get("artifacts", {}).get("change_feed_sqlite")
     change_feed_destination = crm_data_dir / "change_feed.sqlite3"
@@ -920,6 +1010,25 @@ def compare_current_protected_state(backup_dir: Path) -> dict[str, Any]:
 
     with tempfile.TemporaryDirectory(prefix="autostop-release-compare-") as temp_dir:
         temp_root = Path(temp_dir)
+        structure_metadata = manifest["artifacts"]["manager_structure"]
+        current_structure = temp_root / MANAGER_STRUCTURE_BACKUP_NAME
+        current_structure_metadata = _copy_manager_structure(
+            crm_data_dir / MANAGER_STRUCTURE_BACKUP_NAME,
+            current_structure,
+        )
+        if structure_metadata is None:
+            if current_structure_metadata is not None:
+                changed.append("manager_structure")
+        elif (
+            current_structure_metadata is None
+            or _sha256(current_structure) != _sha256(backup_dir / MANAGER_STRUCTURE_BACKUP_NAME)
+            or current_structure_metadata
+            != _validated_restore_metadata(
+                structure_metadata["restore_metadata"], label="manager_structure"
+            )
+        ):
+            changed.append("manager_structure")
+
         completion_act_forms_metadata = manifest.get("artifacts", {}).get("completion_act_forms")
         current_completion_snapshot = temp_root / COMPLETION_ACT_FORMS_BACKUP_NAME
         current_completion_metadata = _copy_completion_act_forms_snapshot(

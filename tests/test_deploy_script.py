@@ -251,6 +251,7 @@ printf '%s' payload-release | run_release_from_stdin /bin/cat | cmp - <(printf '
         self.assertIn('docker tag "$rollback_image" "$STABLE_IMAGE"', script)
         self.assertIn("--no-deps --no-build --force-recreate", script)
         self.assertIn("scripts/agent_release_backup.py create", script)
+        self.assertIn('"$CRM_DATA_DIR/manager_structure.json"', script)
         self.assertIn(
             '"$CRM_DATA_DIR/printing/completion_act_forms.json"',
             script,

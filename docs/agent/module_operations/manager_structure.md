@@ -25,6 +25,9 @@ constructor reads a compatible copy. The first save writes the new file. It
 does not change or delete the older setting. An invalid older graph causes an
 error rather than an empty replacement.
 
+Coordinated release backup v4 includes `manager_structure.json`; rollback restores
+the saved file or removes one first created by the failed candidate.
+
 An empty CRM has an empty constructor. The sample is a portable template in
 `templates/manager_structure.json`, generated from CRM operations. The local
 demo script restores that template into its own ignored data directory.

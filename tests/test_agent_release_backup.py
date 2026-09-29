@@ -97,6 +97,109 @@ class AgentReleaseBackupTests(unittest.TestCase):
             connection.commit()
         return crm_data, manager_db, root / "backups"
 
+    @staticmethod
+    def _structure_payload(version: int = 1) -> dict:
+        return {
+            "schema_version": "autostopcrm.manager-structure.v1",
+            "version": version,
+            "canvas": {"width": 1940, "height": 1070},
+            "elements": [],
+            "relations": [],
+            "receipts": {},
+        }
+
+    def test_manager_structure_backup_verify_compare_and_rollback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            crm_data, manager_db, output_root = self._fixture(root)
+            structure = crm_data / "manager_structure.json"
+            original = json.dumps(self._structure_payload()).encode("utf-8")
+            structure.write_bytes(original)
+            if os.name != "nt":
+                structure.chmod(0o600)
+            original_metadata = self.module._file_restore_metadata(structure)
+
+            created = self.module.create_backup(
+                output_root=output_root,
+                crm_data_dir=crm_data,
+                manager_db=manager_db,
+                backup_id="structure-present",
+            )
+            backup_dir = Path(created["backup_dir"])
+            self.assertEqual(created["schema"], self.module.BACKUP_SCHEMA)
+            self.assertEqual(
+                created["artifacts"]["manager_structure"]["restore_metadata"],
+                original_metadata,
+            )
+            self.assertIn(
+                "manager_structure", self.module.verify_backup(backup_dir)["verified_artifacts"]
+            )
+            self.assertTrue(self.module.compare_current_protected_state(backup_dir)["ok"])
+
+            structure.write_text(json.dumps(self._structure_payload(2)), encoding="utf-8")
+            self.assertIn(
+                "manager_structure",
+                self.module.compare_current_protected_state(backup_dir)["changed_artifacts"],
+            )
+            restored = self.module.restore_crm_state_and_feed(backup_dir)
+            self.assertIn("manager_structure", restored["restored"])
+            self.assertEqual(structure.read_bytes(), original)
+            self.assertEqual(self.module._file_restore_metadata(structure), original_metadata)
+            self.assertTrue(self.module.compare_current_protected_state(backup_dir)["ok"])
+
+    def test_manager_structure_created_after_absent_backup_is_removed_on_rollback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            crm_data, manager_db, output_root = self._fixture(root)
+            structure = crm_data / "manager_structure.json"
+            created = self.module.create_backup(
+                output_root=output_root,
+                crm_data_dir=crm_data,
+                manager_db=manager_db,
+                backup_id="structure-absent",
+            )
+            backup_dir = Path(created["backup_dir"])
+            self.assertIsNone(created["artifacts"]["manager_structure"])
+            self.assertTrue(self.module.verify_backup(backup_dir)["ok"])
+
+            structure.write_text(json.dumps(self._structure_payload()), encoding="utf-8")
+            self.assertIn(
+                "manager_structure",
+                self.module.compare_current_protected_state(backup_dir)["changed_artifacts"],
+            )
+            restored = self.module.restore_crm_state_and_feed(backup_dir)
+            self.assertIn("manager_structure", restored["restored"])
+            self.assertFalse(structure.exists())
+            self.assertTrue(self.module.compare_current_protected_state(backup_dir)["ok"])
+
+    def test_v3_manifest_normalizes_absent_manager_structure_for_rollback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            crm_data, manager_db, output_root = self._fixture(root)
+            structure = crm_data / "manager_structure.json"
+            created = self.module.create_backup(
+                output_root=output_root,
+                crm_data_dir=crm_data,
+                manager_db=manager_db,
+                backup_id="retained-v3-release",
+            )
+            backup_dir = Path(created["backup_dir"])
+            manifest_path = backup_dir / self.module.MANIFEST_NAME
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["schema"] = self.module.V3_BACKUP_SCHEMA
+            manifest["artifacts"].pop("manager_structure")
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            self.assertIsNone(
+                self.module._load_manifest(backup_dir)["artifacts"]["manager_structure"]
+            )
+            self.assertTrue(self.module.verify_backup(backup_dir)["ok"])
+            structure.write_text(json.dumps(self._structure_payload()), encoding="utf-8")
+            self.assertIn(
+                "manager_structure", self.module.restore_crm_state_and_feed(backup_dir)["restored"]
+            )
+            self.assertFalse(structure.exists())
+
     def _convert_completion_act_fixture_to_shards(self, crm_data: Path) -> tuple[Path, Path]:
         printing_dir = crm_data / "printing"
         legacy = printing_dir / "completion_act_forms.json"
@@ -126,7 +229,7 @@ class AgentReleaseBackupTests(unittest.TestCase):
             )
             backup_dir = Path(created["backup_dir"])
             self.assertTrue(created["ok"])
-            self.assertEqual(created["schema"], "autostop-agent-release-backup.v3")
+            self.assertEqual(created["schema"], "autostop-agent-release-backup.v4")
             verified = self.module.verify_backup(backup_dir)
             self.assertTrue(verified["ok"])
             self.assertTrue((backup_dir / "audit-archive.tar.gz").is_file())
@@ -167,7 +270,7 @@ class AgentReleaseBackupTests(unittest.TestCase):
             self.assertIn("card-act-1:cycle:1", restored_forms)
             self.assertNotIn("candidate-only", restored_forms)
 
-    def test_sharded_completion_act_store_round_trips_through_v3_snapshot(self) -> None:
+    def test_sharded_completion_act_store_round_trips_through_v4_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             crm_data, manager_db, output_root = self._fixture(root)
@@ -480,12 +583,14 @@ class AgentReleaseBackupTests(unittest.TestCase):
             manifest["schema"] = self.module.LEGACY_BACKUP_SCHEMA
             manifest["artifacts"].pop("change_feed_sqlite")
             manifest["artifacts"].pop("completion_act_forms")
+            manifest["artifacts"].pop("manager_structure")
             for artifact_name in ("state", "manager_sqlite"):
                 manifest["artifacts"][artifact_name].pop("restore_metadata")
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
             loaded = self.module._load_manifest(backup_dir)
             self.assertIsNone(loaded["artifacts"]["change_feed_sqlite"])
+            self.assertIsNone(loaded["artifacts"]["manager_structure"])
             verified = self.module.verify_backup(backup_dir)
             self.assertTrue(verified["ok"])
             self.assertNotIn("change_feed_sqlite", verified["verified_artifacts"])
@@ -500,6 +605,8 @@ class AgentReleaseBackupTests(unittest.TestCase):
             completion_act_forms.write_text(
                 json.dumps({"candidate-only": {"version": 1}}), encoding="utf-8"
             )
+            structure = crm_data / "manager_structure.json"
+            structure.write_text(json.dumps(self._structure_payload()), encoding="utf-8")
             Path(f"{change_feed}-wal").touch()
             Path(f"{change_feed}-shm").touch()
 
@@ -507,7 +614,7 @@ class AgentReleaseBackupTests(unittest.TestCase):
             manager_restored = self.module.restore_manager_database(backup_dir)
 
             self.assertEqual(
-                {"state", "change_feed_sqlite", "completion_act_forms"},
+                {"state", "change_feed_sqlite", "completion_act_forms", "manager_structure"},
                 set(crm_restored["restored"]),
             )
             self.assertEqual(["manager_sqlite"], manager_restored["restored"])
@@ -520,6 +627,7 @@ class AgentReleaseBackupTests(unittest.TestCase):
             self.assertFalse(Path(f"{change_feed}-wal").exists())
             self.assertFalse(Path(f"{change_feed}-shm").exists())
             self.assertFalse(completion_act_forms.exists())
+            self.assertFalse(structure.exists())
 
     def test_v2_backup_normalizes_absent_completion_act_store_for_rollback(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -538,19 +646,25 @@ class AgentReleaseBackupTests(unittest.TestCase):
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             manifest["schema"] = self.module.PREVIOUS_BACKUP_SCHEMA
             manifest["artifacts"].pop("completion_act_forms")
+            manifest["artifacts"].pop("manager_structure")
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
             loaded = self.module._load_manifest(backup_dir)
             self.assertIsNone(loaded["artifacts"]["completion_act_forms"])
+            self.assertIsNone(loaded["artifacts"]["manager_structure"])
             self.assertTrue(self.module.verify_backup(backup_dir)["ok"])
 
             completion_act_forms.write_text(
                 json.dumps({"candidate-only": {"version": 1}}), encoding="utf-8"
             )
+            structure = crm_data / "manager_structure.json"
+            structure.write_text(json.dumps(self._structure_payload()), encoding="utf-8")
             restored = self.module.restore_crm_state_and_feed(backup_dir)
 
             self.assertIn("completion_act_forms", restored["restored"])
+            self.assertIn("manager_structure", restored["restored"])
             self.assertFalse(completion_act_forms.exists())
+            self.assertFalse(structure.exists())
 
     def test_malformed_or_inexact_v1_manifest_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
