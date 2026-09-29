@@ -25,6 +25,7 @@ PALETTE = {
     "F": "#8ed6ad",
     "G": "#68dba8",
     "H": "#d99bc9",
+    "I": "#e9a4b5",
     "J": "#7adbb1",
     "N": "#a2c2d5",
 }
@@ -137,48 +138,8 @@ def build_reference(client: Client) -> dict:
             node["id"], "off"
         )
         version = client.apply(version, "upsert_element", element=item)["version"]
-    additions = [
-        {
-            "id": "I1",
-            "title": "Gmail-коннектор",
-            "kind": "module",
-            "x": 360,
-            "y": 329,
-            "width": 205,
-            "height": 78,
-            "group": "E",
-            "color": "#e9a4b5",
-            "icon": "message",
-            "lines": ["Чтение · черновики"],
-            "description": "Безопасное соединение с Gmail.",
-            "instruction": "Читает письма и готовит черновики по поручению менеджера. Отправка писем в этой схеме не включена.",
-            "indicator": "off",
-        },
-        {
-            "id": "I2",
-            "title": "Gmail",
-            "kind": "module",
-            "x": 360,
-            "y": 534,
-            "width": 205,
-            "height": 78,
-            "group": "E",
-            "color": "#e9a4b5",
-            "icon": "message",
-            "lines": ["Письма · вложения"],
-            "description": "Почтовый ящик.",
-            "instruction": "Письма и вложения для работы менеджера. Этот блок описывает место в структуре и сам не выполняет операций с почтой.",
-            "indicator": "off",
-        },
-    ]
-    for item in additions:
-        version = client.apply(version, "upsert_element", element=item)["version"]
     for edge in source["relations"]:
         item = {key: value for key, value in edge.items() if key in EDGE_FIELDS}
-        if item["id"] == "L26":
-            item["label_x"], item["label_y"] = 650, 360
-        elif item["id"] == "L7":
-            item["label_x"], item["label_y"] = 655, 610
         item["color"] = PALETTE.get(
             edge.get("tone")
             or next(n for n in nodes if n["id"] == edge["from"]).get("tone")
@@ -186,39 +147,9 @@ def build_reference(client: Client) -> dict:
             "#91b8ca",
         )
         version = client.apply(version, "upsert_relation", relation=item)["version"]
-    for item in [
-        {
-            "id": "L33",
-            "from": "A2",
-            "to": "I1",
-            "kind": "exchange",
-            "direction": "both",
-            "path": "M670 108 H585 V368 H565",
-            "label": "Инструменты Gmail",
-            "label_x": 620,
-            "label_y": 297,
-            "color": "#e9a4b5",
-            "show_label": True,
-        },
-        {
-            "id": "L34",
-            "from": "I1",
-            "to": "I2",
-            "kind": "exchange",
-            "direction": "both",
-            "path": "M460 407 V534",
-            "label": "Gmail API",
-            "label_x": 503,
-            "label_y": 480,
-            "color": "#e9a4b5",
-            "show_label": True,
-        },
-    ]:
-        version = client.apply(version, "upsert_relation", relation=item)["version"]
     result = client.read()
-    if (
-        len(result["elements"]) != len(nodes) + len(additions)
-        or len(result["relations"]) != len(source["relations"]) + 2
+    if len(result["elements"]) != len(nodes) or len(result["relations"]) != len(
+        source["relations"]
     ):
         raise RuntimeError("Повторное чтение не подтвердило количество элементов.")
     return result

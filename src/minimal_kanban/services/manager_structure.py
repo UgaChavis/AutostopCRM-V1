@@ -84,6 +84,7 @@ ICON_NAMES = frozenset(
         "check",
         "chart",
         "message",
+        "mail",
         "folder",
         "spark",
         "clock",
