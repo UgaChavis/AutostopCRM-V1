@@ -83,7 +83,8 @@ release permits only migrations explicitly versioned and checked by `deploy.sh`.
 `scripts/browser_smoke_core.py`, `browser_smoke_completion_act.py`,
 `browser_smoke_inventory.py`, `browser_smoke_profiles.py`,
 `browser_smoke_runtime.py`, `browser_smoke_salary_balance.py`,
-`browser_smoke_support.py` and `python_bootstrap.ps1` are helpers invoked by
+`browser_smoke_support.py`, `python_bootstrap.ps1` and
+`ci_gate_completion.ps1` are helpers invoked by
 the entrypoints above, not separate operator commands. JSON manifests and
 Nginx `*.example` files are contract/config assets, not commands.
 

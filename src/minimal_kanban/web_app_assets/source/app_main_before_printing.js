@@ -3965,7 +3965,7 @@
     }
 
     async function loadClients({ openModal = false } = {}) {
-      const query = String(els.clientsSearchInput?.value || state.clientsQuery || '').trim();
+      const query = String(els.clientsSearchInput?.value ?? state.clientsQuery ?? '').trim();
       state.clientsQuery = query;
       const requestSeq = Math.trunc(finiteNonNegativeNumber(state.clientsRequestSeq)) + 1;
       state.clientsRequestSeq = requestSeq;
@@ -7319,9 +7319,6 @@
       if (els.mobileClientsPanel) els.mobileClientsPanel.hidden = !isOpen;
       syncMobileMorePanelChrome();
       if (!isOpen) return;
-      if (els.mobileClientsSearchInput && els.mobileClientsSearchInput.value !== String(state.clientsQuery || '')) {
-        els.mobileClientsSearchInput.value = String(state.clientsQuery || '');
-      }
       const clients = Array.isArray(state.clients) ? state.clients : [];
       const meta = state.clientsMetaState || {};
       const total = finiteNumber(meta.total, NaN);
@@ -7340,7 +7337,7 @@
     }
 
     async function loadMobileClients({ force = false } = {}) {
-      const query = String(els.mobileClientsSearchInput?.value || state.clientsQuery || '').trim();
+      const query = String(els.mobileClientsSearchInput?.value ?? state.clientsQuery ?? '').trim();
       if (!force && state.clientsLoaded && query === String(state.clientsQuery || '').trim()) {
         renderMobileClientsPanel();
         return;
@@ -7391,6 +7388,7 @@
     function openMobileClientsPanel() {
       claimMobileMorePanelIntent();
       state.mobileMorePanel = 'clients';
+      if (els.mobileClientsSearchInput) els.mobileClientsSearchInput.value = String(state.clientsQuery || '');
       renderMobileMore();
       loadMobileClients();
     }
@@ -7402,12 +7400,22 @@
         state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
         state.mobileClientProfileLoading = false;
         state.mobileClientsLoading = false;
+        window.clearTimeout(state.mobileClientsSearchTimer);
+        state.mobileClientsSearchTimer = null;
       }
       state.mobileMorePanel = '';
       renderMobileMore();
     }
 
     function handleMobileClientsInput() {
+      const query = String(els.mobileClientsSearchInput?.value ?? '').trim();
+      state.clientsQuery = query;
+      state.clientsLoaded = false;
+      state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
+      state.clientsMetaState = null;
+      if (els.clientsSearchInput) els.clientsSearchInput.value = query;
+      state.mobileClientsLoading = true;
+      renderMobileClientsPanel();
       window.clearTimeout(state.mobileClientsSearchTimer);
       state.mobileClientsSearchTimer = window.setTimeout(() => loadMobileClients({ force: true }), 180);
     }

@@ -8,6 +8,7 @@ import os
 import re
 import secrets
 import sqlite3
+import stat
 from collections.abc import Callable, Iterable, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -266,7 +267,10 @@ class ChangeFeedStore:
     def _connect(self, *, durable: bool = True) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=10.0, isolation_level=None)
         try:
-            os.chmod(self.path, 0o600)
+            # Re-chmodding an already private SQLite file changes its inode
+            # metadata on every feed read, including replay-only requests.
+            if stat.S_IMODE(self.path.stat().st_mode) != 0o600:
+                os.chmod(self.path, 0o600)
         except OSError:
             pass
         connection.row_factory = sqlite3.Row
