@@ -117,7 +117,6 @@ ALLOWED_ROUTE_CONTRACT_EXEMPTIONS = frozenset(
         "/api/delete_gateway_attestation_payment_fixture",
         "/api/finance_audit/apply_safe_fixes",
         "/api/mark_cashbox_notifications_seen",
-        "/api/manager_structure/apply",
         "/api/pause_agent_scheduled_task",
         "/api/preview_repair_order_print_documents",
         "/api/resume_agent_scheduled_task",

@@ -25,6 +25,10 @@
       "kind": "static_dashboard_shell",
       "business_data_route": "/api/get_display_dashboard"
     },
+    "/manager-structure": {
+      "kind": "static_manager_structure_shell",
+      "business_data_route": "/api/manager_structure"
+    },
     "/module-map": {
       "kind": "static_module_map"
     },
@@ -57,6 +61,20 @@
       "gateway_tool": "manager_automations",
       "operation": "manager_automations",
       "readback_class": "manager_scheduler_status"
+    },
+    "/api/manager_structure": {
+      "backend_kind": "registered_operator_diagram_read",
+      "gateway_kind": "guarded_virtual_api",
+      "gateway_tool": "call_raw_capability",
+      "operation": "api:/api/manager_structure",
+      "readback_class": "manager_structure_snapshot"
+    },
+    "/api/manager_structure/apply": {
+      "backend_kind": "registered_admin_diagram_write",
+      "gateway_kind": "guarded_virtual_api",
+      "gateway_tool": "call_raw_capability",
+      "operation": "api:/api/manager_structure/apply",
+      "readback_class": "manager_structure_exact_readback"
     },
     "/api/attachment": {
       "backend_kind": "authenticated_binary_get",

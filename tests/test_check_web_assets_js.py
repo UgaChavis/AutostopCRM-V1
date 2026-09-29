@@ -115,6 +115,7 @@ class InlineScriptExtractorTests(unittest.TestCase):
         for attribute, document_name in (
             ("DISPLAY_DASHBOARD_HTML", "display_dashboard"),
             ("MODULE_MAP_HTML", "module_map"),
+            ("MANAGER_STRUCTURE_HTML", "manager_structure"),
         ):
             for html in ("", "<script> \n </script>", '<script src="app.js"></script>'):
                 with self.subTest(document=document_name, html=html):

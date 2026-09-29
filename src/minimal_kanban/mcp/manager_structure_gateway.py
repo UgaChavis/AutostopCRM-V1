@@ -19,49 +19,83 @@ async def verify_manager_structure_readback(
     version_exact = bool(
         result.get("ok") and readback.get("ok") and written.get("version") == current.get("version")
     )
-    action = arguments.get("operation")
-    field = "elements" if action == "upsert_element" else "relations"
-    requested = arguments.get("element" if action == "upsert_element" else "relation")
+    requested = (
+        arguments.get("element")
+        if arguments.get("operation") in {"upsert_element", "layout_element"}
+        else arguments.get("relation")
+        if arguments.get("operation") in {"upsert_relation", "layout_relation"}
+        else None
+    )
+    collection = (
+        current.get("elements")
+        if arguments.get("operation") in {"upsert_element", "layout_element"}
+        else current.get("relations")
+    )
     exact = True
-    if action in {"upsert_element", "upsert_relation"}:
+    route_exact = True
+    if isinstance(requested, Mapping):
         actual = next(
             (
                 item
-                for item in current.get(field) or []
-                if isinstance(item, Mapping)
-                and isinstance(requested, Mapping)
-                and item.get("id") == requested.get("id")
+                for item in collection or []
+                if isinstance(item, Mapping) and item.get("id") == requested.get("id")
             ),
             None,
         )
-        exact = (
-            isinstance(actual, Mapping)
-            and isinstance(requested, Mapping)
-            and all(actual.get(key) == value for key, value in requested.items())
+        exact = isinstance(actual, Mapping) and all(
+            actual.get(key) == value
+            for key, value in requested.items()
+            if key not in ({"x", "y"} if written.get("adjusted") else set())
+            and not (
+                arguments.get("operation") == "layout_relation"
+                and key in {"path", "label_x", "label_y"}
+            )
         )
-    elif action == "replace":
+        if arguments.get("operation") == "layout_element":
+            accepted = written.get("accepted_element")
+            route_exact = (
+                isinstance(accepted, Mapping)
+                and isinstance(actual, Mapping)
+                and all(
+                    actual.get(field) == accepted.get(field)
+                    for field in ("id", "x", "y", "width", "height")
+                )
+            )
+    elif arguments.get("operation") == "replace":
         template = arguments.get("diagram") or {}
         exact = all(
             current.get(key) == template.get(key)
-            for key in ("schema_version", "canvas", "elements", "relations")
+            for key in ("canvas", "elements", "relations", "schema_version")
         )
-    elif action == "set_canvas":
+    elif arguments.get("operation") == "set_canvas":
         exact = current.get("canvas") == arguments.get("canvas")
-    elif action in {"remove_element", "remove_relation"}:
-        field = "elements" if action == "remove_element" else "relations"
+    elif arguments.get("operation") in {"remove_element", "remove_relation"}:
+        field = "elements" if arguments["operation"] == "remove_element" else "relations"
         exact = not any(
-            item.get("id") == arguments.get("id")
+            isinstance(item, Mapping) and item.get("id") == arguments.get("id")
             for item in current.get(field) or []
-            if isinstance(item, Mapping)
+        )
+    if arguments.get("operation") in {"layout_element", "layout_relation"}:
+        routes = written.get("routes")
+        route_exact = (
+            route_exact
+            and isinstance(routes, Mapping)
+            and routes
+            == {
+                item.get("id"): item.get("path")
+                for item in current.get("relations") or []
+                if isinstance(item, Mapping)
+            }
         )
     return {
         "required": True,
-        "passed": bool(version_exact and exact),
+        "passed": bool(version_exact and exact and route_exact),
         "check": "manager_structure_exact_readback",
         "evidence": {
             "expected_version": written.get("version"),
             "actual_version": current.get("version"),
             "exact": bool(exact),
+            "routes_exact": bool(route_exact),
         },
     }
 
@@ -85,6 +119,8 @@ def manager_structure_schema(route: str) -> dict[str, Any] | None:
                     "enum": [
                         "upsert_element",
                         "upsert_relation",
+                        "layout_element",
+                        "layout_relation",
                         "remove_element",
                         "remove_relation",
                         "set_canvas",
@@ -98,6 +134,7 @@ def manager_structure_schema(route: str) -> dict[str, Any] | None:
                 "id": {"type": "string"},
                 "canvas": {"type": "object"},
                 "diagram": {"type": "object"},
+                "preview": {"type": "boolean"},
             },
             "required": ["operation", "expected_version", "idempotency_key"],
             "additionalProperties": False,

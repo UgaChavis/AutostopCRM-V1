@@ -43,7 +43,6 @@ REASONED_ROUTE_CONTRACT_EXEMPTIONS = {
     "/api/autofill_repair_order": "model-dependent write covered by deterministic state projection producer contract",
     "/api/finance_audit/apply_safe_fixes": "only mutates a deliberately corrupted legacy fixture; dedicated finance repair tests own it",
     "/api/mark_cashbox_notifications_seen": "private per-operator viewer receipt; deliberately excluded from the business change feed",
-    "/api/manager_structure/apply": "versioned diagram metadata is stored outside the CRM business state and does not create customer, repair or finance events",
     "/api/rollback_manager_run": "manager-led multi-write compensation contract is verified by manager workflow tests",
     "/api/run_full_card_enrichment": "external model and research orchestration boundary",
     "/api/run_manager_operation": "manager-led multi-write orchestration contract is verified by manager workflow tests",

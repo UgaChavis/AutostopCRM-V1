@@ -88,7 +88,7 @@ from .oauth_provider import (
 )
 from .raw_capability_discovery import discovery_phrase, raw_capability_discovery_score
 from .raw_gateway import (
-    CHANGE_FEED_ROUTES,
+    INNER_IDEMPOTENCY_KEY_NAMES,
     OPTIMISTIC_WRITE_NAMES,
     RAW_API_ROUTES,
     VERSIONED_WRITE_NAMES,
@@ -104,6 +104,7 @@ from .raw_gateway import (
 from .raw_gateway import (
     virtual_api_name as _virtual_api_name,
 )
+from .raw_gateway import virtual_api_preflight_errors as _raw_preflight_errors
 from .raw_gateway import (
     virtual_api_risk as _virtual_api_risk,
 )
@@ -2713,18 +2714,17 @@ def register_agent_gateway_v2(
                     _envelope(ok=False, status="blocked", warnings=[argument_error]),
                     label="call_raw_capability",
                 )
-        if virtual_route == "/api/get_completion_act_form" or virtual_route in CHANGE_FEED_ROUTES:
-            validation_errors = virtual_api_argument_errors(virtual_route, arguments or {})
-            if validation_errors:
-                return _tool_result(
-                    _envelope(
-                        ok=False,
-                        status="blocked",
-                        warnings=["raw_schema_validation_failed"],
-                        summary={"validation_errors": validation_errors[:20]},
-                    ),
-                    label="call_raw_capability",
-                )
+        validation_errors = _raw_preflight_errors(virtual_route, arguments or {}, idempotency_key)
+        if validation_errors:
+            return _tool_result(
+                _envelope(
+                    ok=False,
+                    status="blocked",
+                    warnings=["raw_schema_validation_failed"],
+                    summary={"validation_errors": validation_errors[:20]},
+                ),
+                label="call_raw_capability",
+            )
         owner_mode = (
             str((arguments or {}).get("mode") or "dry_run").strip().casefold()
             if normalized_name == "store_owner_api"
@@ -3023,10 +3023,7 @@ def register_agent_gateway_v2(
                     ),
                     label="call_raw_capability",
                 )
-            if (
-                normalized_name in VERSIONED_WRITE_NAMES
-                or normalized_name == "api:/api/patch_telegram_agent_behavior"
-            ):
+            if normalized_name in INNER_IDEMPOTENCY_KEY_NAMES:
                 outer_idempotency_key = str(idempotency_key or "").strip()
                 inner_key = str(effective_arguments.get("idempotency_key", "")).strip()
                 if inner_key and inner_key != outer_idempotency_key:

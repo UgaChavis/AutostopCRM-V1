@@ -67,6 +67,7 @@ def _browser_javascript_sources() -> list[tuple[str, str]]:
             BOARD_WEB_APP_JS,
             BOARD_WEB_APP_MODULES,
             DISPLAY_DASHBOARD_HTML,
+            MANAGER_STRUCTURE_HTML,
             MODULE_MAP_HTML,
         )
     finally:
@@ -78,6 +79,7 @@ def _browser_javascript_sources() -> list[tuple[str, str]]:
     inline_sources = (
         ("display_dashboard", extract_inline_scripts(DISPLAY_DASHBOARD_HTML)),
         ("module_map", extract_inline_scripts(MODULE_MAP_HTML)),
+        ("manager_structure", extract_inline_scripts(MANAGER_STRUCTURE_HTML)),
     )
     for document_name, scripts in inline_sources:
         if not scripts:

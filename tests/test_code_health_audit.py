@@ -84,6 +84,11 @@ class CodeHealthAuditTests(unittest.TestCase):
                 set(entry.flags),
             )
 
+    def test_manager_structure_template_is_a_portable_runtime_asset(self) -> None:
+        module = load_code_health_audit_module()
+        entry = module.classify_repository_file("templates/manager_structure.json")
+        self.assertEqual("runtime_asset", entry.role)
+
     def test_technical_debt_markdown_has_a_bounded_noncanonical_role(self) -> None:
         module = load_code_health_audit_module()
 

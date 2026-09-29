@@ -66,6 +66,24 @@ patch, reread the graph and exact affected IDs/revision. Browser edits by the
 owner continue to use the existing full-graph save; both clients share one
 revision and recent-change history. Content edits need no Git or server release.
 
+### Manager structure through raw capabilities
+
+The two virtual capabilities `api:/api/manager_structure` (read) and
+`api:/api/manager_structure/apply` (owner write) expose the same constructor
+service as the CRM browser. Discover each exact name, inspect its schema and
+hash, then call `call_raw_capability`. For writes, provide `expected_version`
+from the read, an `idempotency_key` for the outer raw call, and the operation
+arguments described in [the API guide](API_GUIDE.md#manager-structure-constructor).
+The Gateway binds the inner API key to the outer key and verifies the result
+with a fresh diagram read. Reread the diagram after each write before using
+the next version. This tool stores instructions; no agent workflow consumes
+their text.
+
+For geometry or endpoint changes, use `layout_element` or `layout_relation`.
+The CRM calculates the saved paths; reread the accepted geometry because the
+requested position may be adjusted. The Gateway compares `accepted_element`
+and every calculated `routes` path with the persisted diagram.
+
 ## Finance Reads
 
 `list_cashboxes`, `get_cashbox`, `get_cash_journal`, and `get_repair_order`
