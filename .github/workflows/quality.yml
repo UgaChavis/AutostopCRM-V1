@@ -316,6 +316,12 @@ jobs:
         if: ${{ matrix.suite == 'browser-performance' }}
         run: python -m unittest tests.test_printing_hydration_overlap_browser -v
 
+      - name: Client search browser regression
+        if: ${{ matrix.suite == 'browser-performance' }}
+        env:
+          AUTOSTOP_REQUIRE_CLIENTS_SEARCH_BROWSER: "1"
+        run: python -m unittest tests.test_mobile_clients_search_browser -v
+
       - name: Mandatory core browser smoke
         if: ${{ matrix.suite == 'browser-performance' }}
         id: core_browser_smoke

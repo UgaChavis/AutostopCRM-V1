@@ -3965,7 +3965,7 @@
     }
 
     async function loadClients({ openModal = false } = {}) {
-      const query = String(els.clientsSearchInput?.value || state.clientsQuery || '').trim();
+      const query = String(els.clientsSearchInput?.value ?? state.clientsQuery ?? '').trim();
       state.clientsQuery = query;
       const requestSeq = Math.trunc(finiteNonNegativeNumber(state.clientsRequestSeq)) + 1;
       state.clientsRequestSeq = requestSeq;
