@@ -5,6 +5,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "python_bootstrap.ps1")
+. (Join-Path $PSScriptRoot "ci_gate_completion.ps1")
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $venvPath = Join-Path $projectRoot ".venv"
@@ -91,6 +92,9 @@ if (
     throw "Refusing to create the isolated Python cache outside the system temp directory."
 }
 
+$ciBodyCompleted = $false
+$ciCleanupCompleted = $false
+$ciProfileFailed = $false
 try {
     [void](New-Item -ItemType Directory -Path $ciPycachePath -ErrorAction Stop)
     $env:PYTHONPYCACHEPREFIX = $ciPycachePath
@@ -183,18 +187,35 @@ try {
         "--max-list-cashboxes-ms", "50", "--max-feed-read-ms", "50",
         "--max-feed-replay-ms", "20"
     )
+
+    $ciBodyCompleted = $true
+}
+catch {
+    $ciProfileFailed = $true
+    throw
 }
 finally {
-    foreach ($environmentName in $managedEnvironmentNames) {
-        [Environment]::SetEnvironmentVariable(
-            $environmentName,
-            $savedEnvironment[$environmentName],
-            [EnvironmentVariableTarget]::Process
-        )
-    }
+    try {
+        foreach ($environmentName in $managedEnvironmentNames) {
+            [Environment]::SetEnvironmentVariable(
+                $environmentName,
+                $savedEnvironment[$environmentName],
+                [EnvironmentVariableTarget]::Process
+            )
+        }
 
-    if (Test-Path -LiteralPath $ciPycachePath) {
-        Remove-Item -LiteralPath $ciPycachePath -Recurse -Force
+        if (Test-Path -LiteralPath $ciPycachePath) {
+            Remove-Item -LiteralPath $ciPycachePath -Recurse -Force
+        }
+
+        $ciCleanupCompleted = $true
+    }
+    catch {
+        $ciProfileFailed = $true
+        throw
+    }
+    finally {
+        Assert-CiProfileCompletion -Completed ($ciBodyCompleted -and $ciCleanupCompleted) -Failed $ciProfileFailed
     }
 }
 
