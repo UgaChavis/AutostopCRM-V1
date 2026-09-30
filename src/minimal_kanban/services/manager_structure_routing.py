@@ -439,19 +439,21 @@ def _points_from_path(path: str):
 
 def _segment_through_box(segment, box) -> bool:
     a, b = segment
-    if box[0] < a[0] < box[2] and box[1] < a[1] < box[3]:
-        return True
-    if box[0] < b[0] < box[2] and box[1] < b[1] < box[3]:
-        return True
-    corners = (
-        (box[0], box[1]),
-        (box[2], box[1]),
-        (box[2], box[3]),
-        (box[0], box[3]),
-    )
-    return any(
-        _intersects(segment, (corners[index], corners[(index + 1) % 4])) for index in range(4)
-    )
+    lower, upper = 0.0, 1.0
+    for start, delta, minimum, maximum in (
+        (a[0], b[0] - a[0], box[0], box[2]),
+        (a[1], b[1] - a[1], box[1], box[3]),
+    ):
+        if abs(delta) < 1e-12:
+            if not minimum < start < maximum:
+                return False
+            continue
+        first, second = (minimum - start) / delta, (maximum - start) / delta
+        lower = max(lower, min(first, second))
+        upper = min(upper, max(first, second))
+        if upper - lower <= 1e-9:
+            return False
+    return min(1.0, upper) - max(0.0, lower) > 1e-9
 
 
 def _label(points, edge, diagram, placed, routed):

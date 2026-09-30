@@ -428,6 +428,18 @@ class ManagerStructureTests(unittest.TestCase):
         self.assertTrue(route_intersections(diagram))
         self.assertEqual(route_conflicts(diagram), [])
 
+    def test_route_obstacle_checks_ignore_boundary_touch_but_reject_interior_crossing(self) -> None:
+        node = {
+            "id": "B2",
+            "x": 30,
+            "y": 632,
+            "width": 205,
+            "height": 60,
+        }
+        self.assertFalse(_blocked_by_node((165.333, 808), (165.333, 694), node))
+        self.assertTrue(_blocked_by_node((20, 650), (250, 650), node))
+        self.assertTrue(_blocked_by_node((20, 620), (250, 704), node))
+
     def test_manual_orthogonal_reanchor_quadratic_and_blocked_route(self) -> None:
         orthogonal = "M220 150 H300 V200 H500"
         self.assertEqual(_reanchor_path(orthogonal, (220, 150), (500, 200)), orthogonal)
