@@ -250,7 +250,23 @@ async def exercise_employee_permission_refresh(
         assert isinstance(roster["summary"], list)
         assert isinstance(roster["detail_rows"], list)
         await viewer.wait_for_selector("#employeesReadOnlyNotice", state="visible")
+        # The browser's local month can differ from the seeded order's business
+        # month (for example UTC September versus Krasnoyarsk October). Select
+        # the fixture's actual period through the existing read-only UI.
+        if await viewer.input_value("#employeesMonthInput") != runtime.payroll_month:
+            async with viewer.expect_response(
+                lambda response: (
+                    "/api/list_employees?" in response.url
+                    and f"month={runtime.payroll_month}" in response.url
+                )
+            ) as month_info:
+                await viewer.fill("#employeesMonthInput", runtime.payroll_month)
+                await viewer.dispatch_event("#employeesMonthInput", "change")
+            await (await month_info.value).json()
         await viewer.click(f'[data-employee-id="{runtime.employee_id}"]')
+        await viewer.wait_for_function(
+            "() => document.querySelector('#employeesDetailTable')?.textContent.includes('Lada Payroll Smoke')"
+        )
         assert "Lada Payroll Smoke" in await viewer.locator("#employeesDetailTable").inner_text()
         assert not await viewer.locator("#employeeSaveButton").is_visible()
         await viewer.wait_for_selector("#employeesReportPanel", state="visible")

@@ -19,6 +19,7 @@ from minimal_kanban.models import (
     Card,
     CashBox,
     CashTransaction,
+    business_timezone,
     normalize_int,
     normalize_money_minor,
     utc_now,
@@ -3189,8 +3190,10 @@ class CardServiceTests(CardServiceCase):
             "cashbox"
         ]
 
-        old_time = utc_now() - timedelta(days=220)
-        recent_time = utc_now()
+        # UTC September still belongs to October in the business timezone.
+        # Keep the report independent of the CI machine's local timezone/date.
+        recent_time = datetime(2026, 9, 30, 17, 30, tzinfo=timezone.utc)
+        old_time = recent_time - timedelta(days=220)
 
         old_card = self.service.create_card(
             {
@@ -3244,7 +3247,7 @@ class CardServiceTests(CardServiceCase):
                 }
             )
         bundle = self.service._store.read_bundle()
-        old_closed_at = old_time.astimezone().strftime("%d.%m.%Y %H:%M")
+        old_closed_at = old_time.astimezone(business_timezone()).strftime("%d.%m.%Y %H:%M")
         for card in bundle["cards"]:
             if card.id == old_card["id"]:
                 card.repair_order.closed_at = old_closed_at
@@ -3384,7 +3387,7 @@ class CardServiceTests(CardServiceCase):
         )
         self.service.set_repair_order_status({"card_id": ready_card["id"], "status": "ready"})
 
-        report_month = recent_time.astimezone().strftime("%Y-%m")
+        report_month = recent_time.astimezone(business_timezone()).strftime("%Y-%m")
         report = self.service.get_employee_salary_report(
             {"employee_id": employee["id"], "month": report_month}
         )

@@ -236,3 +236,30 @@ symlink-privilege skips, combined runtime line/branch coverage 81.97%, all audit
 parity, core-browser and performance gates. Checks and budgets were not weakened.
 Publication identity is the enclosing Git commit; exact-SHA GitHub quality checks
 and final report provide its hosted acceptance record. No installer or deployment.
+
+### Hosted calendar-boundary fixture correction
+
+The first publication `cb841d833995fdccc42450278b41a01038802e0d` passed local CI,
+hosted static and container checks, but hosted unit/core-browser checks failed.
+Both were reproduced independently: on September 30 after 17:00 UTC, the business
+timezone already belongs to October, while the Ubuntu host/browser still select
+September. The existing service-test fixture chose the host-local month; the
+read-only browser permission scenario assumed its local month contained the
+seeded business-month accrual. Runtime/payroll implementation has no diff.
+
+The service fixture now uses a fixed September/October boundary and the existing
+`business_timezone()` when formatting its synthetic closure and report period.
+The browser scenario selects `runtime.payroll_month` through the existing month
+filter and waits for the expected detail before retaining its original assertions.
+Totals, rows, financial permissions and revocation checks are unchanged. The
+original UTC-host service reproduction failed (0 versus 1 order); the corrected
+fixture passes. All 16 real core-browser scenarios with every context explicitly
+in UTC now pass; the prior fixture reproduced the same hosted assertion failure.
+38 focused smoke/service checks passed. The final corrective local CI also
+passed: 2883 runtime tests in 698.796 seconds (61 existing platform skips),
+31 release tests in 2.697 seconds (three Windows symlink-privilege skips), runtime
+combined line/branch coverage 81.97%, all audits/parity/core-browser/performance
+gates. All eleven new lifecycle tests had already passed in the first Ubuntu run.
+Hosted acceptance belongs to the corrective commit's exact-SHA quality checks;
+the failed initial run is retained rather than presented as successful. No
+production business rule or data correction is involved.
