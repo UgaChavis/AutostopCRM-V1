@@ -34,6 +34,13 @@ async def verify_manager_structure_readback(
     exact = True
     route_exact = True
     if isinstance(requested, Mapping):
+        accepted = written.get("accepted_relation")
+        expected_fields = (
+            accepted
+            if arguments.get("operation") in {"upsert_relation", "layout_relation"}
+            and isinstance(accepted, Mapping)
+            else requested
+        )
         actual = next(
             (
                 item
@@ -44,10 +51,14 @@ async def verify_manager_structure_readback(
         )
         exact = isinstance(actual, Mapping) and all(
             actual.get(key) == value
-            for key, value in requested.items()
-            if key not in ({"x", "y"} if written.get("adjusted") else set())
+            for key, value in expected_fields.items()
+            if key
+            not in (
+                {"x", "y"} if written.get("adjusted") and expected_fields is requested else set()
+            )
             and not (
-                arguments.get("operation") == "layout_relation"
+                expected_fields is requested
+                and arguments.get("operation") == "layout_relation"
                 and key in {"path", "label_x", "label_y"}
             )
         )
@@ -109,6 +120,50 @@ def manager_structure_schema(route: str) -> dict[str, Any] | None:
             "additionalProperties": False,
         }
     if route == "/api/manager_structure/apply":
+        anchor = {
+            "type": "object",
+            "properties": {
+                "side": {"type": "string", "enum": ["left", "right", "top", "bottom"]},
+                "offset": {"type": "number", "minimum": 0, "maximum": 1},
+            },
+            "required": ["side", "offset"],
+            "additionalProperties": False,
+        }
+        relation = {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "maxLength": 32},
+                "from": {"type": "string", "maxLength": 32},
+                "to": {"type": "string", "maxLength": 32},
+                "kind": {"type": "string", "enum": ["exchange", "event"]},
+                "label": {"type": "string", "maxLength": 200},
+                "description": {"type": "string", "maxLength": 10000},
+                "protocol": {"type": "string", "maxLength": 200},
+                "tone": {"type": "string", "maxLength": 32},
+                "color": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+                "direction": {
+                    "type": "string",
+                    "enum": ["forward", "reverse", "both", "none"],
+                },
+                "path": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "description": "Absolute SVG path: M/L/H/V/Q/C. Required for manual routes.",
+                },
+                "route_mode": {"type": "string", "enum": ["auto", "manual"]},
+                "from_anchor": anchor,
+                "to_anchor": anchor,
+                "label_mode": {"type": "string", "enum": ["auto", "manual"]},
+                "label_x": {"type": "number", "minimum": 0, "maximum": 10000},
+                "label_y": {"type": "number", "minimum": 0, "maximum": 10000},
+                "show_label": {"type": "boolean"},
+                "compact_label": {"type": "boolean"},
+                "auto_hidden_label": {"type": "boolean"},
+                "label_max_width": {"type": "number", "minimum": 40, "maximum": 800},
+            },
+            "required": ["id"],
+            "additionalProperties": False,
+        }
         return {
             "$id": f"autostopcrm-agent-gateway:{route}",
             "title": "Изменить структуру менеджера",
@@ -130,7 +185,7 @@ def manager_structure_schema(route: str) -> dict[str, Any] | None:
                 "expected_version": {"type": "integer", "minimum": 0},
                 "idempotency_key": {"type": "string", "minLength": 8, "maxLength": 128},
                 "element": {"type": "object"},
-                "relation": {"type": "object"},
+                "relation": relation,
                 "id": {"type": "string"},
                 "canvas": {"type": "object"},
                 "diagram": {"type": "object"},

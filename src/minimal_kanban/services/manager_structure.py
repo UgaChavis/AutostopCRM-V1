@@ -15,7 +15,18 @@ from typing import Any
 from ..config import get_telegram_behavior_owner_login
 from ..storage.file_lock import ProcessFileLock
 from .errors import ServiceError
-from .manager_structure_routing import RouteUnavailable, route_diagram
+from .manager_structure_routing import (
+    RouteUnavailable,
+    _anchor_from_point,
+    _anchor_point,
+    _manual_routes_clear,
+    _parse_svg_path,
+    _points_from_path,
+    _reanchor_path,
+    _route_endpoints,
+    route_conflicts,
+    route_diagram,
+)
 from .telegram_behavior_graph import SETTING_KEY, graph_from_settings
 
 SCHEMA = "autostopcrm.manager-structure.v1"
@@ -56,6 +67,10 @@ EDGE_FIELDS = frozenset(
         "kind",
         "direction",
         "path",
+        "route_mode",
+        "from_anchor",
+        "to_anchor",
+        "label_mode",
         "label_x",
         "label_y",
         "show_label",
@@ -121,7 +136,7 @@ def _number(value: Any, name: str, minimum: int, maximum: int) -> None:
         _bad(f"Некорректное поле {name}.")
 
 
-def _validate(diagram: dict[str, Any]) -> None:
+def _validate(diagram: dict[str, Any], *, check_attachment: bool = True) -> None:
     if diagram.get("schema_version") != SCHEMA:
         _bad("Неизвестная версия формата схемы.")
     canvas = diagram.get("canvas")
@@ -213,17 +228,65 @@ def _validate(diagram: dict[str, Any]) -> None:
             _text(edge.get(field, ""), field, limit)
         if edge.get("kind") not in {"exchange", "event"} or edge.get("direction") not in {
             "forward",
+            "reverse",
             "both",
+            "none",
         }:
             _bad("Некорректный вид или направление связи.")
+        if edge.get("route_mode", "auto") not in {"auto", "manual"}:
+            _bad("Маршрут должен быть автоматическим или ручным.")
+        if edge.get("label_mode", "auto") not in {"auto", "manual"}:
+            _bad("Положение подписи должно быть автоматическим или ручным.")
         path = edge.get("path")
         if (
             not isinstance(path, str)
             or len(path) > 2000
-            or not path.startswith("M")
             or not PATH_RE.fullmatch(path)
+            or _parse_svg_path(path) is None
         ):
             _bad("Некорректный SVG-маршрут связи.")
+        for field in ("from_anchor", "to_anchor"):
+            anchor = edge.get(field)
+            if anchor is None:
+                continue
+            if not isinstance(anchor, dict) or set(anchor) != {"side", "offset"}:
+                _bad("Точка крепления задаётся стороной и смещением.")
+            if anchor["side"] not in {"auto", "left", "right", "top", "bottom"}:
+                _bad("Неизвестная сторона точки крепления.")
+            if (
+                isinstance(anchor["offset"], bool)
+                or not isinstance(anchor["offset"], (int, float))
+                or not 0 <= anchor["offset"] <= 1
+            ):
+                _bad("Смещение точки крепления должно быть от 0 до 1.")
+            if edge.get("route_mode", "auto") == "manual" and anchor["side"] == "auto":
+                _bad("Для ручного маршрута задайте сторону точки крепления.")
+        if edge.get("route_mode", "auto") == "manual":
+            parsed = _parse_svg_path(path)
+            coordinates = [parsed[0]]
+            for segment in parsed[1]:
+                if segment["command"] == "Q":
+                    coordinates.append(tuple(segment["values"][:2]))
+                elif segment["command"] == "C":
+                    coordinates.extend(
+                        (tuple(segment["values"][:2]), tuple(segment["values"][2:4]))
+                    )
+                coordinates.append(segment["end"])
+            if any(
+                not 0 <= x <= diagram["canvas"]["width"]
+                or not 0 <= y <= diagram["canvas"]["height"]
+                for x, y in coordinates
+            ):
+                _bad("Ручной маршрут выходит за пределы холста.")
+            start, end = parsed[0], parsed[1][-1]["end"]
+            if check_attachment:
+                for endpoint, point in (("from", start), ("to", end)):
+                    anchor = edge.get(f"{endpoint}_anchor")
+                    if anchor is None:
+                        continue
+                    expected = _anchor_point(nodes[edge[endpoint]], anchor)
+                    if abs(point[0] - expected[0]) > 0.01 or abs(point[1] - expected[1]) > 0.01:
+                        _bad("Концы ручного маршрута должны совпадать с точками крепления.")
         for field in ("label_x", "label_y"):
             _number(edge.get(field), field, 0, 10000)
         if "label_max_width" in edge:
@@ -286,11 +349,47 @@ class ManagerStructureService:
         return {
             "version": 0,
             "schema_version": SCHEMA,
-            "canvas": {"width": 1940, "height": 1070},
+            "canvas": {"width": 3200, "height": 1800},
             "elements": [],
             "relations": [],
             "receipts": {},
         }
+
+    @staticmethod
+    def _prepare_manual_routes(diagram: dict[str, Any]) -> None:
+        nodes = {node["id"]: node for node in diagram["elements"]}
+        for edge in diagram["relations"]:
+            if edge.get("route_mode", "auto") != "manual":
+                continue
+            endpoints = _route_endpoints(edge["path"])
+            if endpoints is None:
+                _bad("Некорректный SVG-маршрут связи.")
+            for endpoint, point in zip(("from", "to"), endpoints):
+                field = f"{endpoint}_anchor"
+                anchor = edge.get(field)
+                node = nodes.get(edge.get(endpoint))
+                if node is None:
+                    _bad("Ручной маршрут ссылается на отсутствующий модуль.")
+                if anchor is None:
+                    edge[field] = _anchor_from_point(node, point)
+                elif not isinstance(anchor, dict) or set(anchor) != {"side", "offset"}:
+                    _bad("Точка крепления задаётся стороной и смещением.")
+                elif anchor.get("side") == "auto":
+                    edge[field] = _anchor_from_point(node, point)
+            start = _anchor_point(nodes[edge["from"]], edge["from_anchor"])
+            end = _anchor_point(nodes[edge["to"]], edge["to_anchor"])
+            edge["path"] = _reanchor_path(edge["path"], start, end)
+
+    @staticmethod
+    def _verify_manual_routes(diagram: dict[str, Any]) -> None:
+        if not any(edge.get("route_mode") == "manual" for edge in diagram["relations"]):
+            return
+        if not _manual_routes_clear(diagram):
+            _bad("Ручной маршрут проходит через постороннюю карточку.")
+        if not all(
+            _points_from_path(edge["path"]) is not None for edge in diagram["relations"]
+        ) or route_conflicts(diagram):
+            _bad("Ручной маршрут пересекает или перекрывает существующую связь.")
 
     def _read(self) -> dict[str, Any]:
         if not self._file.exists():
@@ -568,7 +667,7 @@ class ManagerStructureService:
                 if match is None:
                     new_item = copy.deepcopy(item)
                     if operation == "layout_relation":
-                        new_item.setdefault("path", "M0 0")
+                        new_item.setdefault("path", "M0 0 L0 0")
                         new_item.setdefault("label_x", 0)
                         new_item.setdefault("label_y", 0)
                     items.append(new_item)
@@ -590,6 +689,8 @@ class ManagerStructureService:
                 ):
                     _bad("Сначала удалите вложенные модули и связи.")
                 next_data[field] = [item for item in next_data[field] if item["id"] != ident]
+            _validate(next_data, check_attachment=False)
+            self._prepare_manual_routes(next_data)
             _validate(next_data)
             adjusted = False
             if operation in {"layout_element", "layout_relation"}:
@@ -602,6 +703,7 @@ class ManagerStructureService:
                     else None,
                     item["id"] if operation == "layout_relation" else None,
                 )
+            self._verify_manual_routes(next_data)
             if preview:
                 return {
                     "version": data["version"],
@@ -615,6 +717,11 @@ class ManagerStructureService:
                 "deduplicated": False,
                 "adjusted": adjusted,
             }
+            if operation in {"upsert_relation", "layout_relation"}:
+                accepted_relation = next(
+                    relation for relation in next_data["relations"] if relation["id"] == item["id"]
+                )
+                result["accepted_relation"] = copy.deepcopy(accepted_relation)
             if operation in {"layout_element", "layout_relation"}:
                 result["routes"] = {
                     relation["id"]: relation["path"] for relation in next_data["relations"]
