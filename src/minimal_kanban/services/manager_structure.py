@@ -572,7 +572,12 @@ class ManagerStructureService:
             except RoutingTimeout as error:
                 raise ServiceError(
                     "manager_structure_routing_timeout",
-                    str(error) + " Перемещение не сохранено.",
+                    str(error)
+                    + (
+                        " Изменение связи не сохранено."
+                        if changed_relation
+                        else " Перемещение не сохранено."
+                    ),
                     status_code=422,
                     details={"relation_id": error.relation_id},
                 ) from error
