@@ -263,3 +263,26 @@ gates. All eleven new lifecycle tests had already passed in the first Ubuntu run
 Hosted acceptance belongs to the corrective commit's exact-SHA quality checks;
 the failed initial run is retained rather than presented as successful. No
 production business rule or data correction is involved.
+
+### Queued status warning precedence
+
+`49b3be970877298297e715eadc50398fc1884a5e` passed hosted browser/performance,
+static and container gates. Ubuntu unit tests exposed another ordering: automatic
+startup can run after manual IO releases its gate but before the manual result
+reaches the GUI. When settings changed during that first launch, a generic
+runtime-state warning took precedence over the native stale-configuration warning.
+Both facts remain relevant: runtime fields must show current process state and
+the native diagnostic must remain visible. The GUI now gives the configuration
+warning precedence, retaining the current-state guard and stop-result handling.
+No process order, persistence, public contract or business rule changed.
+
+A deterministic regression joins the first IO task, changes the actual runtime
+through a following restart, then delivers the queued result. It failed before
+the fix and now verifies the current runtime URL and the retained native warning.
+113 focused tests pass; twenty paired repetitions of this new case and the
+existing stale-launch test also pass (40 checks). The final full local CI passed:
+2884 runtime tests in 595.447 seconds with 61 existing platform skips, 31 release
+tests in 2.763 seconds with three Windows symlink-privilege skips, combined
+runtime line/branch coverage 81.98%, all audits/parity/core-browser/performance
+gates. The final correction's exact-SHA hosted checks are its acceptance record;
+the preceding failed runs remain documented above. No checks were weakened.

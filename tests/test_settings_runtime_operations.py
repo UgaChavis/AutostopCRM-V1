@@ -372,6 +372,29 @@ class SettingsRuntimeOperationsTests(unittest.TestCase):
         self.assertEqual(dialog.runtime_mcp_status_input.text(), self.mcp.state.message)
         self.assertIn("Состояние MCP изменилось", dialog.status_label.text())
 
+    def test_changed_configuration_warning_survives_a_following_automatic_restart(self):
+        dialog = self.dialog()
+        original = self.mcp.start
+
+        def start_after_settings_change(settings):
+            self.service.update_section("mcp", {"mcp_port": 44478}, persist=True)
+            return original(settings)
+
+        with patch.object(self.mcp, "start", side_effect=start_after_settings_change):
+            dialog._start_mcp_runtime()
+            task = dialog._runtime_operation
+            self.threads.append(task.thread)
+            task.thread.join(3)
+            self.assertFalse(task.thread.is_alive())
+        # The shared gate permits another operation after IO completes, before
+        # the original queued UI result is delivered. Both facts must survive.
+        self.mcp.restart(self.service.load())
+        self.wait_operation(dialog)
+        self.assertEqual(dialog.runtime_mcp_url_input.text(), self.mcp.state.runtime_url)
+        self.assertIn(":44478/", dialog.runtime_mcp_url_input.text())
+        self.assertEqual(self.service.load().diagnostics.mcp_status, "warning")
+        self.assertIn("изменились", dialog.status_label.text())
+
     def test_automatic_completion_tolerates_destroyed_settings_and_main_windows(self):
         for destroy_main in (False, True):
             with self.subTest(destroy_main=destroy_main):

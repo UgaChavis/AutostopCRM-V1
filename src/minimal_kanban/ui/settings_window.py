@@ -1810,16 +1810,16 @@ class SettingsWindow(QDialog):
         self._load_into_form(current)
         if state is None:
             self._set_status("Сначала включите MCP в настройках.", tone="warning")
-        elif state != self._mcp_controller.state:
-            self._set_status("Состояние MCP изменилось после операции.", tone="warning")
         elif self._settings_service.configuration_changed(settings, current):
             self._set_status(
                 "Настройки изменились во время операции. Проверьте MCP.", tone="warning"
             )
+        elif task.action != "stop" and current.diagnostics.mcp_status == "warning":
+            self._set_status(current.diagnostics.mcp_message, tone="warning")
+        elif state != self._mcp_controller.state:
+            self._set_status("Состояние MCP изменилось после операции.", tone="warning")
         elif task.action == "stop":
             self._set_status("MCP и tunnel остановлены.", tone="success")
-        elif current.diagnostics.mcp_status == "warning":
-            self._set_status(current.diagnostics.mcp_message, tone="warning")
         elif state.running:
             message = state.message
             if self._tunnel_controller is not None and self._tunnel_controller.state.running:
