@@ -719,7 +719,7 @@ class DocsAuditTests(unittest.TestCase):
         gateway_tools = module.load_gateway_expected_tools(ROOT)
         instruction_files = [
             *module.MANAGER_REQUIRED_INSTRUCTION_PATHS,
-            "docs/agent/j1_web_research.md",
+            "docs/agent/references/custom-research.md",
         ]
 
         def fingerprint(tools: list[str] | set[str]) -> str:
@@ -786,7 +786,7 @@ class DocsAuditTests(unittest.TestCase):
 
     def test_manager_audit_rejects_required_doc_removed_from_runtime_and_disk(self) -> None:
         module = load_docs_audit_module()
-        removed = "docs/agent/operations.md"
+        removed = "docs/agent/references/crm-mail.md"
         instruction_files = [
             path for path in module.MANAGER_REQUIRED_INSTRUCTION_PATHS if path != removed
         ]
@@ -832,7 +832,7 @@ class DocsAuditTests(unittest.TestCase):
     def test_manager_runtime_contract_probe_is_one_isolated_snapshot(self) -> None:
         module = load_docs_audit_module()
         payload = {
-            "instruction_files": ["AGENTS.md", "docs/agent/deployment_runbook.md"],
+            "instruction_files": ["AGENTS.md", "docs/agent/references/deployment.md"],
             "manager": {
                 "tool_names": ["manager_a", "manager_b"],
                 "schema_fingerprint": "a" * 64,
@@ -855,8 +855,95 @@ class DocsAuditTests(unittest.TestCase):
         self.assertEqual(payload, result)
         self.assertEqual("/dev/null", run.call_args.kwargs["env"]["AUTOSTOP_MANAGER_ENV_FILE"])
         probe = run.call_args.args[0][2]
-        self.assertIn("from autostop_manager.diagnostics import TEXT_DOCUMENTS", probe)
+        self.assertIn("from autostop_manager.diagnostics import instruction_paths", probe)
+        self.assertIn("list(instruction_paths(Path(manager_root)))", probe)
         self.assertIn('"tool_names"', probe)
+
+    def test_manager_required_package_covers_every_mapped_module_skill_and_reference(self) -> None:
+        module = load_docs_audit_module()
+        required = module.MANAGER_REQUIRED_INSTRUCTION_PATHS
+
+        self.assertEqual(59, len(required))
+        self.assertEqual(len(required), len(set(required)))
+        self.assertEqual(41, len(module.MANAGER_REQUIRED_MODULE_CODES))
+        self.assertEqual(13, len(module.MANAGER_REQUIRED_REFERENCE_NAMES))
+        self.assertIn("AGENTS.md", required)
+        self.assertIn("docs/agent/modules/A4.md", required)
+        self.assertIn("docs/agent/modules/A5.md", required)
+        self.assertIn(".agents/skills/manage-owner-instagram/SKILL.md", required)
+        for path in required:
+            with self.subTest(path=path), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                for other in required:
+                    if other != path:
+                        target = root / other
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        target.write_text("ok\n", encoding="utf-8")
+                issues = module._check_required(required, root, "AutoStop Manager")
+                self.assertEqual([path], [issue.path for issue in issues])
+
+    def test_manager_audit_rejects_unregistered_nested_instructions(self) -> None:
+        module = load_docs_audit_module()
+        extra_paths = (
+            "docs/agent/modules/nested/additional.md",
+            "docs/agent/references/nested/additional.md",
+            ".agents/skills/manage-owner-instagram/references/additional.md",
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            for path in (*module.MANAGER_REQUIRED_INSTRUCTION_PATHS, *extra_paths):
+                target = root / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("ok\n", encoding="utf-8")
+            with (
+                patch.object(
+                    module,
+                    "_registered_runtime_contract",
+                    return_value={
+                        "instruction_files": list(module.MANAGER_REQUIRED_INSTRUCTION_PATHS),
+                        "manager": {"tool_names": ["manager"], "schema_fingerprint": "a" * 64},
+                        "crm": {"tool_names": ["crm"], "schema_fingerprint": "b" * 64},
+                    },
+                ),
+                patch.object(module, "_manager_catalog_issues", return_value=[]),
+            ):
+                issues = module._check_manager_docs_and_catalogs(ROOT, root)
+        inventory_issues = [
+            issue
+            for issue in issues
+            if issue.code == "manager_instruction_inventory_missing_required"
+        ]
+        self.assertEqual(1, len(inventory_issues))
+        for path in extra_paths:
+            self.assertIn(path, inventory_issues[0].detail)
+
+    def test_manager_github_links_are_checked_in_docs_and_bundled_map(self) -> None:
+        module = load_docs_audit_module()
+        prefix = "https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "crm"
+            manager_root = Path(temp_dir) / "manager"
+            root.mkdir()
+            manager_root.mkdir()
+            (manager_root / "AGENTS.md").write_text("ok\n", encoding="utf-8")
+            (root / "README.md").write_text(
+                f"[Valid]({prefix}AGENTS.md#role)\n"
+                f"[Missing]({prefix}docs/agent/references/missing.md)\n",
+                encoding="utf-8",
+            )
+            map_path = root / "src/minimal_kanban/web_app_assets/source/manager_infrastructure.json"
+            map_path.parent.mkdir(parents=True)
+            map_path.write_text(
+                json.dumps({"url": f"{prefix}docs/agent/modules/missing.md"}),
+                encoding="utf-8",
+            )
+            issues = module._check_manager_repository_file_links(root, manager_root)
+        self.assertEqual(2, len(issues))
+        self.assertEqual({"manager_repository_link_missing"}, {issue.code for issue in issues})
+        self.assertEqual(
+            {"README.md", "src/minimal_kanban/web_app_assets/source/manager_infrastructure.json"},
+            {issue.path for issue in issues},
+        )
 
     def test_manager_runtime_contract_probe_rejects_unsafe_inventory(self) -> None:
         module = load_docs_audit_module()

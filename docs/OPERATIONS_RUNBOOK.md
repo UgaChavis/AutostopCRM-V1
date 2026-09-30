@@ -642,12 +642,23 @@ Deploy only with explicit owner intent. Normal sequence:
 2. Push the commit to `origin/autostopcrm-v1`.
 3. Confirm `/opt/autostopcrm` is clean and fast-forward it to that commit.
 4. Run the canonical isolated Manager release gates from
-   `/opt/AutostopManager/docs/agent/deployment_runbook.md`; its temporary
-   `AUTOSTOP_MANAGER_DB` is mandatory for preflight. Never run a bare
-   `knowledge-sync` against the persistent Manager DB before release.
-5. Run `deploy.sh`.
-6. Compare workstation, remote, and server revisions.
-7. Run live, UI-if-relevant, and performance smoke.
+   `/opt/AutostopManager/docs/agent/references/deployment.md`. Its temporary
+   `AUTOSTOP_MANAGER_DB` isolates all stateful preflight checks. The compatibility
+   commands `knowledge-sync` and `knowledge-audit` now only audit instructions;
+   they do not open or modify the Manager database.
+5. Run the cross-project documentation gate with the exact Manager candidate:
+   `/opt/autostopcrm/.venv/bin/python scripts/docs_audit.py --manager-root /opt/AutostopManager --format text`.
+   It independently requires all 42 mapped module instructions, four Manager
+   skills and 13 technical references, discovers additional guides, and checks
+   CRM's canonical Manager GitHub file links against that checkout. The runtime
+   inventory must include the full package, not only the six startup documents.
+   Use the CRM interpreter, which supplies both CRM and Manager probe dependencies;
+   the host `python3` and Manager venv may each lack part of that dependency set.
+   `deploy.sh` repeats this gate against its sealed Manager candidate before
+   maintenance with `AUTOSTOP_DOCS_AUDIT_PYTHON` (default: CRM `.venv/bin/python`).
+6. Run `deploy.sh`.
+7. Compare workstation, remote, and server revisions.
+8. Run live, UI-if-relevant, and performance smoke.
 
 On the server, before `deploy.sh`:
 
@@ -710,9 +721,12 @@ The bounded release flow:
    scoped Store identity, and the isolated Store network;
 2. creates the candidate Manager release strictly from the verified Manager
    commit via `git archive HEAD`, then reruns only `knowledge-sync` and
-   `knowledge-audit` from that sealed candidate snapshot in a disposable
-   `mktemp` DB; this narrow gate does not replace the canonical full Manager
-   release gates. It then uses the same sealed Manager snapshot to synchronize
+   `knowledge-audit` as read-only instruction audits from that sealed candidate
+   snapshot. The disposable `mktemp` DB target remains for compatibility and
+   isolation; this narrow gate does not replace the canonical full Manager
+   release gates. It also runs the CRM cross-project documentation/schema audit
+   against this same sealed Manager snapshot with the CRM audit interpreter.
+   It then uses the same sealed Manager snapshot to synchronize
    the pinned catalog release into the persistent private cache, verifies the
    catalog files and text, and checks disk space again before prebuilding an
    immutable CRM image. A catalog download or import failure occurs before the
@@ -735,9 +749,10 @@ The bounded release flow:
 6. atomically activates the sealed candidate Manager snapshot, installs the
    scheduler under the owned hold, adopts current timer state without changing
    it, seeds singleton `crm_digest_v1` as OFF, confirms the active identities,
-   then runs `knowledge-sync` and `knowledge-audit` from it against the
-   persistent Manager DB. This happens only after the verified backup and
-   before CRM start, so any failure uses the existing rollback for both the DB
+   then runs the read-only `knowledge-sync` and `knowledge-audit` instruction
+   checks from that immutable current snapshot. The explicit DB target remains
+   for compatibility. This happens after the verified backup and before CRM
+   start, so any failure uses the existing rollback for both the protected DB
    and `current` symlink;
 7. starts the prebuilt image, proves only CRM and App share the Store network,
    and runs internal authenticated CRM plus Store-read smoke; Store Gateway

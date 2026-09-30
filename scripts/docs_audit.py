@@ -88,17 +88,80 @@ MANAGER_MCP_CATALOG_PATHS = (
     "docs/agent/manager_mcp_catalog.json",
 )
 
-# This deliberately stays independent from AutostopManager.TEXT_DOCUMENTS.
-# The runtime inventory is authoritative for the complete active set, while
-# this minimum prevents one Manager edit from silently deleting both an
-# operational document and its inventory entry.
+# This stays independent from Manager's runtime inventory: deleting a guide
+# and its runtime entry together must still fail the coordinated release gate.
+# A2 is the root AGENTS.md; the other 41 mapped modules each own one document.
+MANAGER_REQUIRED_MODULE_CODES = (
+    "A1",
+    "A3",
+    "A4",
+    "A5",
+    "B1",
+    "B2",
+    "B3",
+    "B4",
+    "C2",
+    "C3",
+    "C4",
+    "C5",
+    "C6",
+    "C7",
+    "D1",
+    "D2",
+    "D3",
+    "D4",
+    "D5",
+    "E1",
+    "E2",
+    "E3",
+    "E4",
+    "E5",
+    "E6",
+    "E7",
+    "E8",
+    "E9",
+    "E10",
+    "E11",
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "G1",
+    "H1",
+    "H2",
+    "I1",
+    "I2",
+    "J1",
+)
+MANAGER_REQUIRED_REFERENCE_NAMES = (
+    "crm-mail",
+    "deployment",
+    "host-operations",
+    "instagram-runtime",
+    "manager-runtime",
+    "market-listings",
+    "oem-web",
+    "offline-catalogs",
+    "part-market",
+    "partsapi",
+    "store-api",
+    "telegram-runtime",
+    "web-research",
+)
 MANAGER_REQUIRED_INSTRUCTION_PATHS = (
     "AGENTS.md",
+    *(f"docs/agent/modules/{code}.md" for code in MANAGER_REQUIRED_MODULE_CODES),
     ".agents/skills/manage-owner-telegram/SKILL.md",
     ".agents/skills/manage-autostop-store/SKILL.md",
     ".agents/skills/manage-fst-vpn/SKILL.md",
-    "docs/agent/operations.md",
-    "docs/agent/deployment_runbook.md",
+    ".agents/skills/manage-owner-instagram/SKILL.md",
+    *(f"docs/agent/references/{name}.md" for name in MANAGER_REQUIRED_REFERENCE_NAMES),
+)
+
+MANAGER_REPOSITORY_FILE_LINK_PATTERN = re.compile(
+    r"https://github\.com/UgaChavis/AutostopManager/blob/AutostopManager/"
+    r"(?P<path>[^\s\)\]\"'<>]+)"
 )
 
 MANAGER_GATEWAY_FORBIDDEN_TEXT_PATTERNS = (
@@ -946,9 +1009,10 @@ def _manager_catalog_issues(
 def _registered_runtime_contract(root: Path, manager_root: Path) -> dict[str, Any]:
     probe = r"""
 import hashlib, json, logging, sys
+from pathlib import Path
 crm_root, manager_root = sys.argv[1:3]
 sys.path[:0] = [f"{crm_root}/src", manager_root]
-from autostop_manager.diagnostics import TEXT_DOCUMENTS
+from autostop_manager.diagnostics import instruction_paths
 from autostop_manager.mcp_server import build_server
 from minimal_kanban.mcp.client import BoardApiClient
 from minimal_kanban.mcp.server import create_mcp_server
@@ -967,7 +1031,7 @@ crm = create_mcp_server(
     public_endpoint_url="https://crm.example/mcp",
 )
 print(json.dumps({
-    "instruction_files": list(TEXT_DOCUMENTS),
+    "instruction_files": list(instruction_paths(Path(manager_root))),
     "manager": surface(manager),
     "crm": surface(crm),
 }))
@@ -1051,14 +1115,61 @@ def _discover_manager_skill_instructions(manager_root: Path) -> tuple[str, ...]:
     if not skills_root.is_dir():
         return ()
     discovered: list[str] = []
-    for path in sorted(skills_root.glob("*/SKILL.md")):
+    for path in sorted(skills_root.rglob("*.md")):
         try:
             resolved = path.resolve(strict=True)
-        except OSError:
+        except (OSError, RuntimeError):
             continue
         if path.is_file() and resolved.is_relative_to(root):
             discovered.append(path.relative_to(manager_root).as_posix())
     return tuple(discovered)
+
+
+def _discover_manager_document_instructions(manager_root: Path) -> tuple[str, ...]:
+    root = manager_root.resolve()
+    discovered: list[str] = []
+    for directory in ("docs/agent/modules", "docs/agent/references"):
+        for path in sorted((manager_root / directory).rglob("*.md")):
+            try:
+                resolved = path.resolve(strict=True)
+            except (OSError, RuntimeError):
+                continue
+            if path.is_file() and resolved.is_relative_to(root):
+                discovered.append(path.relative_to(manager_root).as_posix())
+    return tuple(discovered)
+
+
+def _check_manager_repository_file_links(root: Path, manager_root: Path) -> list[Issue]:
+    """Check CRM's canonical Manager GitHub links against the release candidate."""
+    paths = [root / path for path in CRM_CANONICAL_DOCS]
+    paths.append(root / "src/minimal_kanban/web_app_assets/source/manager_infrastructure.json")
+    for pattern in ACTIVE_DOC_GLOBS:
+        paths.extend(sorted(root.glob(pattern)))
+    issues: list[Issue] = []
+    manager_root = manager_root.resolve()
+    for path in dict.fromkeys(paths):
+        if not path.is_file():
+            continue
+        for match in MANAGER_REPOSITORY_FILE_LINK_PATTERN.finditer(_read_text(path)):
+            relative_path = unquote(match.group("path").split("#", 1)[0].split("?", 1)[0])
+            candidate = manager_root / relative_path
+            try:
+                resolved = candidate.resolve(strict=True)
+            except (OSError, RuntimeError):
+                resolved = None
+            if (
+                resolved is None
+                or not resolved.is_relative_to(manager_root)
+                or not resolved.is_file()
+            ):
+                issues.append(
+                    Issue(
+                        "manager_repository_link_missing",
+                        _display_path(path, root),
+                        f"Manager candidate has no linked file: {relative_path}",
+                    )
+                )
+    return issues
 
 
 def _check_api_guide_required_routes(root: Path) -> list[Issue]:
@@ -1773,6 +1884,7 @@ def _check_manager_docs_and_catalogs(
         dict.fromkeys(
             [
                 *MANAGER_REQUIRED_INSTRUCTION_PATHS,
+                *_discover_manager_document_instructions(manager_root),
                 *_discover_manager_skill_instructions(manager_root),
             ]
         )
@@ -1810,6 +1922,7 @@ def _check_manager_docs_and_catalogs(
         dict.fromkeys([*independent_instruction_files, *instruction_files])
     )
     issues.extend(_manager_instruction_issues(manager_root, instruction_scan_files))
+    issues.extend(_check_manager_repository_file_links(root, manager_root))
     return issues
 
 
