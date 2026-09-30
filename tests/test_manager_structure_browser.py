@@ -439,6 +439,101 @@ class ManagerStructureBrowserTests(unittest.TestCase):
         self.assertEqual(self.read()["relations"][0]["to"], "M3")
         self.assertEqual(self.errors, [])
 
+    def test_manual_curve_controls_canvas_and_api_screen_readback(self) -> None:
+        diagram = {
+            "schema_version": "autostopcrm.manager-structure.v1",
+            "canvas": {"width": 3200, "height": 1800},
+            "elements": [
+                {
+                    "id": "M1",
+                    "title": "Источник",
+                    "kind": "module",
+                    "x": 100,
+                    "y": 100,
+                    "width": 140,
+                    "height": 100,
+                },
+                {
+                    "id": "M2",
+                    "title": "Получатель",
+                    "kind": "module",
+                    "x": 520,
+                    "y": 320,
+                    "width": 140,
+                    "height": 100,
+                },
+            ],
+            "relations": [],
+        }
+        replaced = self.context.request.post(
+            self.runtime.base_url + "/api/manager_structure/apply",
+            headers={"X-Operator-Session": self.admin},
+            data={
+                "operation": "replace",
+                "diagram": diagram,
+                "expected_version": self.read()["version"],
+                "idempotency_key": "manual-ui-replace-001",
+            },
+        )
+        self.assertEqual(replaced.status, 200)
+        self.page.reload()
+        self.page.locator("#modeToggle").click()
+        self.page.get_by_role("button", name="+ Поле").click()
+        target_version = replaced.json()["data"]["version"] + 1
+        self.page.wait_for_function(
+            f"() => document.querySelector('#count')?.textContent.includes('v{target_version}')"
+        )
+        grown = self.read()
+        self.assertEqual(grown["canvas"], {"width": 4200, "height": 2400})
+        self.assertEqual(
+            [(node["x"], node["y"]) for node in grown["elements"]], [(100, 100), (520, 320)]
+        )
+
+        self.page.get_by_role("button", name="Связь", exact=True).click()
+        self.page.locator('[name="route_mode"]').select_option("manual")
+        self.page.locator('[name="from_side"]').select_option("top")
+        self.page.locator('[name="from_offset"]').fill("0.5")
+        self.page.locator('[name="to_side"]').select_option("bottom")
+        self.page.locator('[name="to_offset"]').fill("0.5")
+        self.page.locator('[name="path"]').fill("M170 100 C260 80 430 350 590 420")
+        self.page.locator('[name="label_mode"]').select_option("manual")
+        self.page.locator('[name="label_x"]').fill("360")
+        self.page.locator('[name="label_y"]').fill("210")
+        self.page.locator('[name="direction"]').select_option("reverse")
+        self.assertTrue(self.page.locator('[name="from_side"]').is_visible())
+        self.page.locator("#save").click()
+        self.page.locator('.edge[data-id="R1"] path.wire[d*="C"]').wait_for()
+        saved = self.read()
+        edge = saved["relations"][0]
+        self.assertEqual(edge["route_mode"], "manual")
+        self.assertEqual(edge["label_mode"], "manual")
+        self.assertEqual(edge["direction"], "reverse")
+        self.assertEqual(edge["path"], "M170 100 C260 80 430 350 590 420")
+        self.assertEqual((edge["label_x"], edge["label_y"]), (360, 210))
+        wire = self.page.locator('.edge[data-id="R1"] path.wire')
+        self.assertEqual(wire.get_attribute("d"), edge["path"])
+        self.assertIsNotNone(wire.get_attribute("marker-start"))
+        self.assertIsNone(wire.get_attribute("marker-end"))
+
+        self.page.locator('.node[data-id="M2"]').click()
+        self.page.locator('[name="x"]').fill("600")
+        self.page.locator("#save").click()
+        target_version = saved["version"] + 1
+        self.page.wait_for_function(
+            f"() => document.querySelector('#count')?.textContent.includes('v{target_version}')"
+        )
+        moved = self.read()
+        moved_edge = moved["relations"][0]
+        self.assertEqual(moved_edge["path"], "M170 100 C260 80 510 350 670 420")
+        self.assertEqual((moved_edge["label_x"], moved_edge["label_y"]), (360, 210))
+        self.assertEqual(
+            self.page.locator('.edge[data-id="R1"] path.wire').get_attribute("d"),
+            moved_edge["path"],
+        )
+        self.page.get_by_role("button", name="Вместить схему").click()
+        self.assertIn("scale(", self.page.locator("#stage").get_attribute("transform"))
+        self.assertEqual(self.errors, [])
+
     def test_z_reference_short_labels_and_crossing_bridges(self) -> None:
         reference = json.loads(
             (
@@ -458,7 +553,7 @@ class ManagerStructureBrowserTests(unittest.TestCase):
         self.assertEqual(response.status, 200)
         self.page.reload()
         self.page.locator('.edge[data-id="L29"]').wait_for()
-        self.assertGreater(self.page.locator(".edge path.wire[d*='Q']").count(), 0)
+        self.assertGreater(self.page.locator(".bridge[d*='Q']").count(), 0)
         self.assertEqual(self.page.locator(".edge path.hit[d*='Q']").count(), 0)
         self.assertTrue(
             self.page.locator(".edge text").evaluate_all(
@@ -479,6 +574,11 @@ class ManagerStructureBrowserTests(unittest.TestCase):
         )
         saved = self.read()
         self.assertTrue(all("Q" not in edge["path"] for edge in saved["relations"]))
+        l29 = next(edge for edge in saved["relations"] if edge["id"] == "L29")
+        self.assertEqual((l29["from"], l29["to"]), ("A2", "H1"))
+        self.assertEqual(
+            self.page.locator('.edge[data-id="L29"] path.hit').get_attribute("d"), l29["path"]
+        )
         self.assertEqual(self.errors, [])
 
 

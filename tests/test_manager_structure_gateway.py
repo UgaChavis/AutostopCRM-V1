@@ -26,6 +26,26 @@ class ManagerStructureGatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/api/manager_structure/apply", RAW_API_WRITE_ROUTES)
         schema = virtual_api_schema("/api/manager_structure/apply")
         self.assertTrue(schema_hash(schema))
+        relation = schema["properties"]["relation"]
+        self.assertEqual(
+            relation["properties"]["direction"]["enum"],
+            ["forward", "reverse", "both", "none"],
+        )
+        self.assertEqual(
+            relation["properties"]["from_anchor"]["properties"]["offset"]["maximum"], 1
+        )
+        self.assertEqual(relation["properties"]["route_mode"]["enum"], ["auto", "manual"])
+        self.assertFalse(
+            virtual_api_argument_errors(
+                "/api/manager_structure/apply",
+                {
+                    "operation": "upsert_relation",
+                    "expected_version": 3,
+                    "idempotency_key": "relation-partial-001",
+                    "relation": {"id": "L29", "direction": "reverse"},
+                },
+            )
+        )
         self.assertEqual(
             virtual_api_argument_errors("/api/manager_structure/apply", {}),
             [
@@ -116,6 +136,36 @@ class ManagerStructureGatewayTests(unittest.IsolatedAsyncioTestCase):
             "api:/api/manager_structure/apply", arguments, result, invoke
         )
         self.assertFalse(bad["passed"])
+
+    async def test_manual_route_readback_accepts_and_checks_normalized_relation(self) -> None:
+        saved = {
+            "id": "R1",
+            "from": "M1",
+            "to": "M2",
+            "kind": "exchange",
+            "direction": "reverse",
+            "route_mode": "manual",
+            "path": "M220 150 H300 V200 H500",
+            "from_anchor": {"side": "right", "offset": 0.5},
+            "to_anchor": {"side": "left", "offset": 0.5},
+            "label_mode": "manual",
+            "label_x": 360,
+            "label_y": 130,
+        }
+
+        async def invoke(_name: str, _arguments: dict) -> dict:
+            return {"ok": True, "data": {"version": 9, "elements": [], "relations": [saved]}}
+
+        checked = await verify_virtual_api_write_readback(
+            "api:/api/manager_structure/apply",
+            {
+                "operation": "upsert_relation",
+                "relation": {"id": "R1", "path": "M220 150 H300 V200 H500"},
+            },
+            {"ok": True, "data": {"version": 9, "accepted_relation": saved}},
+            invoke,
+        )
+        self.assertTrue(checked["passed"])
 
 
 if __name__ == "__main__":

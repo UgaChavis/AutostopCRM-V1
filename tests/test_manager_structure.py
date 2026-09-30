@@ -18,6 +18,7 @@ from minimal_kanban.services.manager_structure import ManagerStructureService  #
 from minimal_kanban.services.manager_structure_routing import (  # noqa: E402
     _blocked_by_node,
     _points_from_path,
+    _reanchor_path,
     _segment_through_box,
     _segments,
     route_conflicts,
@@ -291,6 +292,209 @@ class ManagerStructureTests(unittest.TestCase):
         self.assertEqual(after["elements"][1]["x"], 600)
         self.assertNotEqual(after["relations"][0]["path"], before["relations"][0]["path"])
         self.assertEqual(route_intersections(after), [])
+
+    def test_manual_curve_anchors_label_and_workspace_survive_reload_and_move(self) -> None:
+        nodes = [
+            {
+                "id": "M1",
+                "title": "Источник",
+                "kind": "module",
+                "x": 100,
+                "y": 100,
+                "width": 120,
+                "height": 100,
+            },
+            {
+                "id": "M2",
+                "title": "Получатель",
+                "kind": "module",
+                "x": 500,
+                "y": 100,
+                "width": 120,
+                "height": 100,
+            },
+        ]
+        self.apply(0, "manual-node-001", "upsert_element", element=nodes[0])
+        self.apply(1, "manual-node-002", "upsert_element", element=nodes[1])
+        relation = {
+            "id": "R1",
+            "from": "M1",
+            "to": "M2",
+            "kind": "exchange",
+            "direction": "reverse",
+            "route_mode": "manual",
+            "path": "M220 150 C280 80 420 80 500 150",
+            "from_anchor": {"side": "right", "offset": 0.5},
+            "to_anchor": {"side": "left", "offset": 0.5},
+            "label_mode": "manual",
+            "label_x": 360,
+            "label_y": 45,
+        }
+        self.apply(2, "manual-edge-001", "upsert_relation", relation=relation)
+        reloaded = ManagerStructureService(self.path)
+        saved = reloaded.read()
+        edge = saved["relations"][0]
+        self.assertEqual(edge["path"], relation["path"])
+        self.assertEqual(edge["from_anchor"], relation["from_anchor"])
+        self.assertEqual(edge["to_anchor"], relation["to_anchor"])
+        self.assertEqual((edge["label_x"], edge["label_y"]), (360, 45))
+        self.assertEqual(edge["direction"], "reverse")
+
+        self.apply(
+            saved["version"],
+            "manual-move-001",
+            "layout_element",
+            element={"id": "M2", "x": 600},
+        )
+        moved = reloaded.read()
+        edge = moved["relations"][0]
+        self.assertEqual(edge["path"], "M220 150 C280 80 520 80 600 150")
+        self.assertEqual((edge["label_x"], edge["label_y"]), (360, 45))
+
+        self.apply(
+            moved["version"],
+            "manual-canvas-001",
+            "set_canvas",
+            canvas={"width": 4200, "height": 2400},
+        )
+        expanded = reloaded.read()
+        self.assertEqual(expanded["canvas"], {"width": 4200, "height": 2400})
+        self.assertEqual(
+            [(node["x"], node["y"]) for node in expanded["elements"]], [(100, 100), (600, 100)]
+        )
+        self.assertEqual(expanded["relations"][0]["path"], edge["path"])
+
+    def test_manual_orthogonal_path_readback_and_endpoint_moves(self) -> None:
+        nodes = [
+            {
+                "id": "M1",
+                "title": "Источник",
+                "kind": "module",
+                "x": 100,
+                "y": 100,
+                "width": 120,
+                "height": 100,
+            },
+            {
+                "id": "M2",
+                "title": "Получатель",
+                "kind": "module",
+                "x": 500,
+                "y": 150,
+                "width": 120,
+                "height": 100,
+            },
+        ]
+        self.apply(0, "orthogonal-node-001", "upsert_element", element=nodes[0])
+        self.apply(1, "orthogonal-node-002", "upsert_element", element=nodes[1])
+        path = "M220 150 H300 V200 H500"
+        self.apply(
+            2,
+            "orthogonal-edge-001",
+            "upsert_relation",
+            relation={
+                "id": "R1",
+                "from": "M1",
+                "to": "M2",
+                "kind": "exchange",
+                "direction": "forward",
+                "route_mode": "manual",
+                "path": path,
+                "from_anchor": {"side": "right", "offset": 0.5},
+                "to_anchor": {"side": "left", "offset": 0.5},
+                "label_mode": "manual",
+                "label_x": 360,
+                "label_y": 130,
+            },
+        )
+        self.assertEqual(ManagerStructureService(self.path).read()["relations"][0]["path"], path)
+        self.apply(3, "orthogonal-move-001", "layout_element", element={"id": "M1", "y": 120})
+        self.apply(4, "orthogonal-move-002", "layout_element", element={"id": "M2", "y": 200})
+        edge = ManagerStructureService(self.path).read()["relations"][0]
+        self.assertEqual(edge["path"], "M220 170 H300 V200 V250 H500")
+        points = _points_from_path(edge["path"])
+        self.assertTrue(all(a[0] == b[0] or a[1] == b[1] for a, b in _segments(points)))
+        self.assertEqual((edge["label_x"], edge["label_y"]), (360, 130))
+
+    def test_curved_routes_are_sampled_for_crossing_geometry(self) -> None:
+        diagram = {
+            "relations": [
+                {"id": "R1", "path": "M0 0 C10 20 20 20 30 0"},
+                {"id": "R2", "path": "M0 20 C10 0 20 0 30 20"},
+            ]
+        }
+        high_bend = _points_from_path("M0 0 C2000 2000 -2000 2000 30 0")
+        self.assertGreater(len(high_bend), 24)
+        self.assertTrue(route_intersections(diagram))
+        self.assertEqual(route_conflicts(diagram), [])
+
+    def test_route_obstacle_checks_ignore_boundary_touch_but_reject_interior_crossing(self) -> None:
+        node = {
+            "id": "B2",
+            "x": 30,
+            "y": 632,
+            "width": 205,
+            "height": 60,
+        }
+        self.assertFalse(_blocked_by_node((165.333, 808), (165.333, 694), node))
+        self.assertTrue(_blocked_by_node((20, 650), (250, 650), node))
+        self.assertTrue(_blocked_by_node((20, 620), (250, 704), node))
+
+    def test_manual_orthogonal_reanchor_quadratic_and_blocked_route(self) -> None:
+        orthogonal = "M220 150 H300 V200 H500"
+        self.assertEqual(_reanchor_path(orthogonal, (220, 150), (500, 200)), orthogonal)
+        moved = _reanchor_path(orthogonal, (220, 170), (500, 250))
+        points = _points_from_path(moved)
+        self.assertEqual((points[0], points[-1]), ((220, 170), (500, 250)))
+        self.assertTrue(all(a[0] == b[0] or a[1] == b[1] for a, b in _segments(points)))
+
+        orthogonal_lines = "M220 150 L300 150 L300 200 L500 200"
+        moved_lines = _reanchor_path(orthogonal_lines, (220, 170), (500, 250))
+        line_points = _points_from_path(moved_lines)
+        self.assertEqual((line_points[0], line_points[-1]), ((220, 170), (500, 250)))
+        self.assertTrue(all(a[0] == b[0] or a[1] == b[1] for a, b in _segments(line_points)))
+        self.assertEqual(
+            _reanchor_path("M0 0 Q50 50 100 0", (10, 20), (110, 30)),
+            "M10 20 Q60 75 110 30",
+        )
+
+        path = "M220 150 H500"
+        nodes = [
+            {
+                "id": ident,
+                "title": ident,
+                "kind": "module",
+                "x": x,
+                "y": y,
+                "width": width,
+                "height": height,
+            }
+            for ident, x, y, width, height in (
+                ("M1", 100, 100, 120, 100),
+                ("M2", 500, 100, 120, 100),
+                ("M3", 320, 138, 40, 24),
+            )
+        ]
+        relation = {
+            "id": "R1",
+            "from": "M1",
+            "to": "M2",
+            "kind": "exchange",
+            "direction": "forward",
+            "route_mode": "manual",
+            "path": path,
+            "from_anchor": {"side": "right", "offset": 0.5},
+            "to_anchor": {"side": "left", "offset": 0.5},
+            "label_x": 360,
+            "label_y": 130,
+        }
+        service = ManagerStructureService(self.path)
+        for version, node in enumerate(nodes):
+            self.apply(version, f"blocked-node-{version:03}", "upsert_element", element=node)
+        with self.assertRaisesRegex(ServiceError, "постороннюю карточку"):
+            self.apply(3, "blocked-route-001", "upsert_relation", relation=relation)
+        self.assertEqual(service.read()["version"], 3)
+        self.assertEqual(service.read()["relations"], [])
 
     def test_portable_reference_routes_are_separate(self) -> None:
         reference = json.loads(

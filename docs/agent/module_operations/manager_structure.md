@@ -39,11 +39,38 @@ Raw CRM Gateway capabilities:
 - `api:/api/manager_structure`: read version, canvas, elements, relations and
   editor permission.
 - `api:/api/manager_structure/apply`: `upsert_element`,
-  `upsert_relation`, `remove_element`, `remove_relation`, `set_canvas` or
-  `replace`. Send `expected_version` and a new `idempotency_key` on every
+  `upsert_relation`, `layout_element`, `layout_relation`, `remove_element`,
+  `remove_relation`, `set_canvas` or `replace`. Send `expected_version` and a new `idempotency_key` on every
   write. An upsert merges supplied fields with the existing element, so an
   instruction can be changed without replacing coordinates and style. Raw
   writes perform a second read and compare the changed fields and version.
+
+Relations expose their route controls in both the constructor and this API:
+
+- `route_mode: "auto" | "manual"` selects generated or owner-specified geometry.
+- `path` accepts absolute SVG `M`, `L`, `H`, `V`, `Q` and `C` commands. A manual
+  path starts at the `from` card and ends at `to`; the service derives missing
+  anchors from its endpoints or snaps it to the supplied anchors.
+- `from_anchor` and `to_anchor` are `{ "side": "left|right|top|bottom",
+  "offset": 0..1 }`, measured along that card edge. Moving or resizing either
+  endpoint card moves the path endpoint and its adjacent curve control point;
+  internal waypoints stay fixed. A move that blocks the route is rejected.
+- `label_mode: "manual"` preserves `label_x` and `label_y` as canvas coordinates;
+  `auto` lets the router place the ID label again.
+- `direction` is `forward`, `reverse`, `both` or `none` and controls arrowheads.
+
+Use `layout_relation` to ask CRM to route an automatic relation, and
+`upsert_relation` to save an exact manual path, anchors, label position and
+direction. The write readback compares the saved values. `set_canvas` can grow
+the workspace without moving existing cards; pan, zoom and **Вместить** navigate
+the canvas and fit the populated schema. Automatic routes avoid cards and
+parallel overlaps, account for curved paths and crossing costs, and reject
+blocked manual routes.
+
+The screen and API read the same saved `manager_structure.json`. A compact MCP
+summary may shorten large arrays; pass `allow_large_output: true` when the full
+module and relation lists are needed. A `truncated_items` marker means that
+summary is incomplete and is not evidence that a relation is absent.
 
 The owner browser session or signed OAuth owner identity is required for
 writes. Version conflicts and reused idempotency keys for different payloads
