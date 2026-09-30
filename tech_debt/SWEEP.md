@@ -25,7 +25,7 @@ ratchets; documentation audit passed. Hosted checks remain required per commit.
 | Finance and payroll (019/013) | Reviewed, preserved | Transfer-pair cancellation and salary snapshot preservation inspected and covered by unchanged regressions. Repeated row normalization observed (300 next/300 previous: 900 parses, median 9.858 ms); payroll optimization explicitly excluded. |
 | Storage and compatibility (017) | Reviewed, preserved | Process locks, CAS, cache invalidation, bounded reads and restore compatibility inspected. Cache-miss normalization can persist state; changing it requires a data compatibility decision. |
 | Browser and asset loading (005/021) | Reviewed, preserved | 1460 assembled function definitions have no duplicate names. Three apparent unused functions are called by lazy loading or the print bridge; retained. Assembled JS and core smoke pass. |
-| Windows host and settings | Reviewed, fixed | Slice 3 published with exact-SHA CI. Full network diagnostic no longer blocks Qt; existing persistence/stale-result logic remains. Individual checks/wizard remain synchronous and are a separate follow-up. |
+| Windows host and settings | Reviewed, fixed | Slice 3 published with exact-SHA CI. Full network diagnostic no longer blocks Qt; existing persistence/stale-result logic remains. Individual checks/wizard are addressed in the authorized Windows diagnostic follow-up below. |
 | HTTP transport and authentication | Reviewed, preserved | Route ownership, proxied mutation classification, service delegation and trusted operator-session injection inspected. Side-effecting reads cannot be reclassified as harmless GETs. API/auth regression suites pass. |
 | MCP and Gateway (008/009) | Reviewed, preserved | Tool registration, schema/readback parity and bounded executor inspected. Worker retains its slot after caller cancellation; contextvars preserve authenticated ownership. Contract/native-guard suites pass. |
 | Printing (014/021) | Reviewed, preserved | Shared render batches, per-document overrides, completion-act locks and stale async workspace ownership inspected. Printing/overlap regressions and browser checks pass. |
@@ -133,9 +133,10 @@ jobs succeed, and the final user report records the SHA and run URL.
 - Before changing normalization during reads, inventory supported stored formats,
   side effects and migration/rollback using synthetic fixtures. No live business
   GET was used as a supposedly harmless probe.
-- Moving individual connection tests or the ChatGPT wizard to workers needs its
-  own cancellation and preflight sequencing design; only the full diagnostic
-  button changed here.
+- The original pass moved only the full diagnostic button; the subsequent
+  authorized Windows follow-up below extends its worker to individual checks
+  and sequential ChatGPT preflight. Runtime start/stop and deployments retain
+  their existing behavior.
 - Retain deployed compatibility names and all backup schemas; retirement requires
   client/data inventory and a separate migration decision.
 - Windows installer execution, real printer output, external-provider availability
@@ -152,3 +153,42 @@ baseline (except the documented snapshot read boundary). The original manager
 worktree remains separate and untouched. The subsystem review and local final
 verification are complete; hosted acceptance belongs to the enclosing commit's
 checks, not to a prediction written before that run.
+
+## Windows diagnostic follow-up, 2026-09-30
+
+Authorized after the first pass, from `b3d45d01d5df8230945eaec1724cc88f4cb85f25`.
+Remove GUI-thread network waits in four individual checks and ChatGPT preflight,
+preserving endpoint eligibility, MCP-before-external order, result tones, form
+validation and native stale-settings reconciliation. No business services,
+API/MCP schemas, financial/order rules or production deployment changes.
+
+The full/individual checks share `SettingsConnectionCheck`. Only network probes
+run in the worker; persistence and widget changes run on the GUI thread. The
+wizard uses request identities tied to its QObject lifetime. Closing, deleting
+or replacing a wizard discards its pending result and stops the next preflight
+stage. A running probe retains the exclusive slot until it finishes; duplicate
+checks cannot bypass it. Cancellation status becomes terminal when the pending
+probe finishes. Thread-start, probe and persistence errors restore
+controls and display generic messages without private exception details.
+Superseded wizard widgets are disposed rather than retained as hidden children.
+
+87 focused UI/service/write-integrity tests passed, including nine new regression
+tests with matrices over all four targets, both preflight stages, native status
+combinations, public URL eligibility, cancellation/deletion/replacement, foreign
+responses, changed settings, worker startup and persistence failures. Existing
+full-check regressions remain successful.
+
+With the same synthetic 200 ms probe per target, a 10 ms Qt timer fired at
+225.945 ms before versus 9.642 ms after for an individual check, and 420.374 ms
+before versus 10.409 ms after for the sequential wizard. Completed operations
+took 211.480/443.559 ms after the change. These measurements demonstrate GUI
+responsiveness, not faster network IO. The final full local CI profile passed:
+2872 discovered runtime tests in 589.407 seconds (61 existing platform skips),
+31 release tests in 2.668 seconds (three Windows symlink privilege skips),
+runtime combined line/branch coverage 81.86%, all audit/parity/browser/performance
+gates. The initial candidate run was stopped to add a terminal cancellation
+status; the complete run above verifies the final code. No checks were weakened.
+Publication identity is the enclosing Git commit; its exact-SHA GitHub quality
+checks are the hosted acceptance record, with SHA/run URL in the final report.
+A successful Ubuntu harness remains required for the POSIX-only checks. Actual
+Windows installer, production endpoints and deployment remain outside scope.

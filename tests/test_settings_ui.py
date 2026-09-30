@@ -400,6 +400,7 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
             ),
         ):
             dialog.test_external_button.click()
+            self._wait_for_connection_check(dialog)
 
         self.assertEqual(dialog.external_status_input.text(), "Успешно")
         self.assertIn("https://agent.example/tools/mcp", dialog.external_message_label.text())
@@ -719,7 +720,11 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
             return ConnectionCheckResult(target, "success", "Old endpoint worked")
 
         with patch.object(self.settings_service, "test_target", side_effect=check_after_save):
-            result = dialog._run_single_test("local_api")
+            completed = []
+            dialog.single_check_finished.connect(lambda request, result: completed.append(result))
+            self.assertTrue(dialog._run_single_test("local_api"))
+            self._wait_for_connection_check(dialog)
+        result = completed[0]
         self.assertEqual(self.settings_service.load().local_api.local_api_port, 44356)
         self.assertEqual(dialog.local_api_port_input.value(), 44356)
         self.assertEqual(result.status, "warning")
@@ -905,6 +910,7 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
             ],
         ):
             wizard.check_mcp_button.click()
+            self._wait_for_connection_check(dialog)
 
         self.assertIn("Локальный MCP доступен.", wizard.preflight_status_label.text())
         self.assertIn("Внешний MCP endpoint доступен.", wizard.preflight_status_label.text())

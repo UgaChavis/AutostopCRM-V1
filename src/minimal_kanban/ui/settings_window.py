@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QUrl, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from shiboken6 import isValid
 
 from ..config import get_log_file, get_mcp_startup_log_file
 from ..connection_card import (
@@ -337,6 +338,8 @@ def _apply_status_label_state(
 
 
 class ChatGPTConnectDialog(QDialog):
+    check_cancelled = Signal(object)
+
     def __init__(
         self,
         *,
@@ -353,6 +356,11 @@ class ChatGPTConnectDialog(QDialog):
         self._runtime_state = runtime_state
         self._settings_provider = settings_provider
         self._test_target_callback = test_target_callback
+        self._preflight_request = None
+        self._preflight_target = ""
+        self._preflight_messages: list[str] = []
+        self._preflight_tone = "info"
+        self._preflight_external_enabled = False
 
         self.setWindowTitle("Подключиться к ChatGPT")
         self.setModal(True)
@@ -588,6 +596,8 @@ class ChatGPTConnectDialog(QDialog):
         self._set_status("Все данные для подключения скопированы в буфер обмена.", tone="success")
 
     def _check_before_connect(self) -> None:
+        if self._preflight_request is not None:
+            return
         settings = self._settings_provider()
         self._refresh_from_settings(settings)
 
@@ -595,37 +605,71 @@ class ChatGPTConnectDialog(QDialog):
             self._set_status("Сначала запустите MCP сервер.", tone="error")
             return
 
-        mcp_result = self._test_target_callback("mcp")
-        if mcp_result is None:
-            self._set_status("Проверка MCP не выполнена.", tone="error")
-            return
-
-        messages = [mcp_result.message]
-        tone = (
-            "success"
-            if mcp_result.status == "success"
-            else "warning"
-            if mcp_result.status == "skipped"
-            else "error"
-        )
-
+        self._preflight_messages = []
         effective_url = settings.mcp.effective_mcp_url.strip()
-        if effective_url.startswith("https://") and is_external_http_url(effective_url):
-            external_result = self._test_target_callback("external")
-            if external_result is not None:
-                messages.append(external_result.message)
-                if external_result.status == "failed":
-                    tone = "error"
-                elif external_result.status != "success" and tone != "error":
-                    tone = "warning"
+        self._preflight_external_enabled = effective_url.startswith(
+            "https://"
+        ) and is_external_http_url(effective_url)
+        self._request_preflight_check("mcp")
+
+    def _request_preflight_check(self, target: str) -> None:
+        self._preflight_target = target
+        self._preflight_request = QObject(self)
+        self.check_mcp_button.setEnabled(False)
+        self._set_status(
+            "Выполняется проверка MCP…"
+            if target == "mcp"
+            else "Выполняется проверка внешнего MCP endpoint…"
+        )
+        if not self._test_target_callback(target, request=self._preflight_request):
+            self._finish_preflight_check(self._preflight_request, None)
+
+    @Slot(object, object)
+    def _finish_preflight_check(self, request, result) -> None:
+        if request is not self._preflight_request or request is None:
+            return
+        self._preflight_request = None
+        request.deleteLater()
+        if result is None:
+            self._preflight_messages.append(
+                "Проверка MCP не выполнена."
+                if self._preflight_target == "mcp"
+                else "Проверка внешнего MCP endpoint не выполнена."
+            )
+            self._preflight_tone = "error"
         else:
-            messages.append(
+            self._preflight_messages.append(result.message)
+            if self._preflight_target == "mcp":
+                self._preflight_tone = (
+                    "success"
+                    if result.status == "success"
+                    else "warning"
+                    if result.status == "skipped"
+                    else "error"
+                )
+            elif result.status == "failed":
+                self._preflight_tone = "error"
+            elif result.status != "success" and self._preflight_tone != "error":
+                self._preflight_tone = "warning"
+        if self._preflight_target == "mcp" and result is not None:
+            if self._preflight_external_enabled:
+                self._request_preflight_check("external")
+                return
+            self._preflight_messages.append(
                 "Внешний HTTPS MCP URL пока не задан, поэтому проверка внешнего endpoint не выполнена."
             )
-            if tone == "success":
-                tone = "warning"
+            if self._preflight_tone == "success":
+                self._preflight_tone = "warning"
+        self.check_mcp_button.setEnabled(True)
+        self._set_status("\n".join(self._preflight_messages), tone=self._preflight_tone)
 
-        self._set_status("\n".join(messages), tone=tone)
+    def done(self, result: int) -> None:
+        if self._preflight_request is not None:
+            self.check_cancelled.emit(self._preflight_request)
+            self._preflight_request.deleteLater()
+            self._preflight_request = None
+        self.check_mcp_button.setEnabled(True)
+        super().done(result)
 
     def _return_to_settings(self) -> None:
         parent = self.parentWidget()
@@ -664,6 +708,7 @@ class ChatGPTConnectDialog(QDialog):
 
 class SettingsWindow(QDialog):
     settings_saved = Signal(object)
+    single_check_finished = Signal(object, object)
 
     def __init__(
         self,
@@ -686,6 +731,8 @@ class SettingsWindow(QDialog):
         self._advanced_mode = False
         self._connection_check: SettingsConnectionCheck | None = None
         self._connection_check_closed = False
+        self._connection_check_request = None
+        self._connection_check_cancelled = False
 
         self.setWindowTitle(WINDOW_TITLE)
         self.setModal(True)
@@ -1771,19 +1818,50 @@ class SettingsWindow(QDialog):
         )
 
     def _test_connections(self) -> None:
+        self._begin_connection_check()
+
+    def _begin_connection_check(self, *, target: str | None = None, request=None) -> bool:
         if self._connection_check is not None:
-            return
+            return False
         settings = self._save_form_settings()
         if settings is None:
-            return
+            return False
         self._connection_check_closed = False
-        task = SettingsConnectionCheck(self._settings_service, settings)
+        self._connection_check_cancelled = False
+        self._connection_check_request = request
+        task = SettingsConnectionCheck(self._settings_service, settings, target=target)
         self._connection_check = task
         task.completed.connect(self._finish_connection_check, Qt.ConnectionType.QueuedConnection)
         task.failed.connect(self._fail_connection_check, Qt.ConnectionType.QueuedConnection)
         self._set_connection_check_busy(True)
-        self._set_status("Выполняется полная проверка соединений…")
-        task.start()
+        self._set_status(
+            "Выполняется полная проверка соединений…"
+            if target is None
+            else "Выполняется проверка соединения…"
+        )
+        try:
+            task.start()
+        except RuntimeError:
+            self._fail_connection_check()
+        return True
+
+    @Slot(object)
+    def _cancel_single_test(self, request) -> None:
+        if request is not None and request is self._connection_check_request:
+            self._connection_check_cancelled = True
+            if not self._connection_check_closed:
+                self._set_status("Проверка соединения отменена. Ожидание завершения запроса…")
+
+    def _discard_connection_check_result(self) -> bool:
+        request = self._connection_check_request
+        discarded = (
+            self._connection_check_closed
+            or self._connection_check_cancelled
+            or (isinstance(request, QObject) and not isValid(request))
+        )
+        if discarded and not self._connection_check_closed:
+            self._set_status("Проверка соединения отменена.")
+        return discarded
 
     def _set_connection_check_busy(self, busy: bool) -> None:
         for widget in (
@@ -1796,24 +1874,42 @@ class SettingsWindow(QDialog):
 
     def done(self, result: int) -> None:
         self._connection_check_closed = True
+        if self._connect_dialog is not None and isValid(self._connect_dialog):
+            self._connect_dialog.reject()
         super().done(result)
 
     @Slot()
     def _fail_connection_check(self) -> None:
+        request = self._connection_check_request
         self._connection_check = None
         self._set_connection_check_busy(False)
-        if not self._connection_check_closed:
+        if not self._discard_connection_check_result():
             self._set_status(
                 "Не удалось завершить проверку соединений. Повторите проверку.", tone="error"
             )
+            self.single_check_finished.emit(request, None)
 
     @Slot(object, object)
     def _finish_connection_check(self, settings, summary) -> None:
+        task = self._connection_check
+        request = self._connection_check_request
         self._connection_check = None
         self._set_connection_check_busy(False)
-        if self._connection_check_closed:
+        if self._discard_connection_check_result():
             return
-        updated = self._settings_service.apply_test_summary(settings, summary, persist=True)
+        if task.target is not None:
+            try:
+                result = self._apply_single_test_result(settings, task.target, summary)
+            except (OSError, ValueError):
+                self._fail_connection_check()
+                return
+            self.single_check_finished.emit(request, result)
+            return
+        try:
+            updated = self._settings_service.apply_test_summary(settings, summary, persist=True)
+        except (OSError, ValueError):
+            self._fail_connection_check()
+            return
         self._load_into_form(updated)
         overall_status = updated.diagnostics.overall_status
         tone = (
@@ -1826,11 +1922,10 @@ class SettingsWindow(QDialog):
         self._set_status("Полная проверка соединений завершена.", tone=tone)
         QMessageBox.information(self, "Проверка соединений", self._format_summary(updated))
 
-    def _run_single_test(self, target: str):
-        settings = self._save_form_settings()
-        if settings is None:
-            return
-        result = self._settings_service.test_target(settings, target)
+    def _run_single_test(self, target: str, *, request=None) -> bool:
+        return self._begin_connection_check(target=target, request=request)
+
+    def _apply_single_test_result(self, settings, target: str, result):
         saved = self._apply_diagnostics_result(settings, target, result)
         diagnostics = saved.diagnostics
         result = ConnectionCheckResult(
@@ -1861,6 +1956,9 @@ class SettingsWindow(QDialog):
         )
 
     def _open_chatgpt_connect_dialog(self) -> None:
+        if self._connect_dialog is not None and isValid(self._connect_dialog):
+            self._connect_dialog.reject()
+            self._connect_dialog.deleteLater()
         self._connect_dialog = ChatGPTConnectDialog(
             settings=self._current_form_settings(),
             runtime_api_url=self._runtime_api_url,
@@ -1869,6 +1967,8 @@ class SettingsWindow(QDialog):
             test_target_callback=self._run_single_test,
             parent=self,
         )
+        self.single_check_finished.connect(self._connect_dialog._finish_preflight_check)
+        self._connect_dialog.check_cancelled.connect(self._cancel_single_test)
         self._connect_dialog.show()
         self._connect_dialog.raise_()
         self._connect_dialog.activateWindow()
@@ -1883,7 +1983,7 @@ class SettingsWindow(QDialog):
         self.mcp_tunnel_url_input.setText(normalized.mcp.tunnel_url)
         self._sync_derived_fields()
         self._render_runtime_state()
-        if self._connect_dialog is not None:
+        if self._connect_dialog is not None and isValid(self._connect_dialog):
             self._connect_dialog.refresh_publication_state(
                 self._current_form_settings(), runtime_state
             )
