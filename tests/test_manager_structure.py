@@ -447,6 +447,12 @@ class ManagerStructureTests(unittest.TestCase):
         points = _points_from_path(moved)
         self.assertEqual((points[0], points[-1]), ((220, 170), (500, 250)))
         self.assertTrue(all(a[0] == b[0] or a[1] == b[1] for a, b in _segments(points)))
+
+        orthogonal_lines = "M220 150 L300 150 L300 200 L500 200"
+        moved_lines = _reanchor_path(orthogonal_lines, (220, 170), (500, 250))
+        line_points = _points_from_path(moved_lines)
+        self.assertEqual((line_points[0], line_points[-1]), ((220, 170), (500, 250)))
+        self.assertTrue(all(a[0] == b[0] or a[1] == b[1] for a, b in _segments(line_points)))
         self.assertEqual(
             _reanchor_path("M0 0 Q50 50 100 0", (10, 20), (110, 30)),
             "M10 20 Q60 75 110 30",

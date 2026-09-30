@@ -167,6 +167,22 @@ def _reanchor_path(path: str, start: tuple[float, float], end: tuple[float, floa
     if old_start == start and source_segments[-1]["end"] == end:
         return path
     segments = [dict(item, values=list(item["values"])) for item in source_segments]
+    first, last = segments[0], segments[-1]
+
+    def preserve_axis_aligned_line(segment, before, after):
+        if segment["command"] != "L":
+            return
+        if abs(before[1] - after[1]) <= 1e-7:
+            segment["command"] = "H"
+            segment["values"] = [after[0]]
+        elif abs(before[0] - after[0]) <= 1e-7:
+            segment["command"] = "V"
+            segment["values"] = [after[1]]
+
+    preserve_axis_aligned_line(first, old_start, first["end"])
+    last_start = old_start if len(segments) == 1 else segments[-2]["end"]
+    preserve_axis_aligned_line(last, last_start, last["end"])
+
     start_delta = (start[0] - old_start[0], start[1] - old_start[1])
     end_delta = (end[0] - segments[-1]["end"][0], end[1] - segments[-1]["end"][1])
     first, last = segments[0], segments[-1]

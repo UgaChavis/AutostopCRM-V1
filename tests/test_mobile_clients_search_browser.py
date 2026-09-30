@@ -226,6 +226,12 @@ class DesktopClientsSearchBrowserTests(_ClientsSearchBrowserCase):
         page = context.new_page()
         page.goto(self.runtime.browser_url, wait_until="domcontentloaded")
         page.wait_for_function("window.__AUTOSTOP_UI_BOUND__ === true")
+        page.wait_for_function(
+            """() => {
+              const label = document.querySelector('#operatorButton')?.textContent.trim() || '';
+              return label && label !== 'ОПЕРАТОР';
+            }"""
+        )
         page.click("#clientsButton")
         page.locator("#clientsSearchInput").wait_for(state="visible")
 

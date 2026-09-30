@@ -84,6 +84,7 @@ Write-Host "HARNESS_PASS"
             assert pty is not None
             pid, master_fd = pty.fork()
             if pid == 0:
+                signal.signal(signal.SIGINT, signal.SIG_DFL)
                 pwsh = shutil.which("pwsh")
                 assert pwsh is not None
                 os.execv(pwsh, ["pwsh", "-NoProfile", "-File", str(script), "-Mode", mode])
@@ -107,7 +108,8 @@ Write-Host "HARNESS_PASS"
                     if done_pid:
                         status = child_status
                 if status is None:
-                    self.fail("PowerShell gate probe did not terminate")
+                    captured = output.decode("utf-8", errors="replace")
+                    self.fail(f"PowerShell gate probe did not terminate; output={captured!r}")
             finally:
                 if status is None:
                     os.killpg(pid, signal.SIGKILL)
