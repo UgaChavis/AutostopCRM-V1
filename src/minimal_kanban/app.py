@@ -412,6 +412,10 @@ def _shutdown_desktop_runtime(
 
     if splash is not None:
         cleanup(lambda: splash.close() if splash.isVisible() else None)
+    if mcp_controller is not None:
+        from .publication_runtime import publication_operation_gate
+
+        cleanup(lambda: publication_operation_gate(mcp_controller).close_and_wait())
     if tunnel_controller is not None:
         if _stop_tunnel_on_exit():
             cleanup(tunnel_controller.stop)

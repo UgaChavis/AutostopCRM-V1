@@ -41,7 +41,7 @@ from ..connection_card import (
     resolve_mcp_bearer_token,
 )
 from ..integration_runtime import McpRuntimeController
-from ..models import utc_now_iso
+from ..publication_runtime import publication_operation_gate
 from ..settings_models import (
     AuthSettings,
     DiagnosticsSettings,
@@ -69,6 +69,7 @@ from ..texts import (
 )
 from ..tunnel_runtime import TunnelRuntimeController
 from .settings_connection_check import SettingsConnectionCheck
+from .settings_runtime_operation import SettingsRuntimeOperation, publication_runtime_updates
 
 WINDOW_TITLE = "Настройки интеграции"
 WINDOW_SUBTITLE = (
@@ -729,10 +730,17 @@ class SettingsWindow(QDialog):
         self._connect_dialog: ChatGPTConnectDialog | None = None
         self._validation_widgets: dict[str, object] = {}
         self._advanced_mode = False
+        self._runtime_operation: SettingsRuntimeOperation | None = None
+        self._runtime_operation_closed = False
+        self._waiting_for_other_runtime = False
         self._connection_check: SettingsConnectionCheck | None = None
         self._connection_check_closed = False
         self._connection_check_request = None
         self._connection_check_cancelled = False
+        if self._mcp_controller is not None:
+            publication_runtime_updates(self._mcp_controller).changed.connect(
+                self._refresh_other_runtime_operation, Qt.ConnectionType.QueuedConnection
+            )
 
         self.setWindowTitle(WINDOW_TITLE)
         self.setModal(True)
@@ -1706,23 +1714,6 @@ class SettingsWindow(QDialog):
             tone="success",
         )
 
-    def _apply_runtime_state_to_diagnostics(
-        self,
-        state,
-        *,
-        settings: IntegrationSettings | None = None,
-        status_override: str | None = None,
-    ) -> IntegrationSettings:
-        settings = settings or self._settings_service.load()
-        result = ConnectionCheckResult(
-            target="mcp",
-            status=status_override or ("success" if state.running else "failed"),
-            message=state.message,
-            checked_at=utc_now_iso(),
-            errors=(state.error,) if state.error else (),
-        )
-        return self._apply_diagnostics_result(settings, "mcp", result)
-
     def _current_mcp_error_text(self) -> str:
         if self._mcp_controller is None:
             return "Управление MCP runtime недоступно."
@@ -1733,73 +1724,111 @@ class SettingsWindow(QDialog):
         ).strip()
 
     def _start_mcp_runtime(self) -> None:
-        if self._mcp_controller is None:
-            self._set_status("Управление MCP runtime недоступно в этом запуске.", tone="error")
+        self._begin_runtime_operation("start")
+
+    @Slot()
+    def _refresh_other_runtime_operation(self) -> None:
+        if self._runtime_operation is not None or self._runtime_operation_closed:
             return
-        settings = self._save_form_settings()
-        if settings is None:
+        try:
+            settings = self._settings_service.load()
+        except (OSError, ValueError):
+            self._render_runtime_state()
             return
-        if not settings.mcp.mcp_enabled:
-            self._set_status("Сначала включите MCP в настройках.", tone="warning")
-            return
-        needs_public_tunnel = (
-            not settings.mcp.full_mcp_url_override and not settings.mcp.public_https_base_url
-        )
-        if self._tunnel_controller is not None and needs_public_tunnel:
-            tunnel_state = self._tunnel_controller.start(settings)
-            settings = self._settings_service.update_section(
-                "mcp",
-                {"tunnel_url": tunnel_state.public_url if tunnel_state.running else ""},
-                persist=True,
-            )
-        state = (
-            self._mcp_controller.restart(settings)
-            if self._mcp_controller.state.running
-            else self._mcp_controller.start(settings)
-        )
-        self._render_runtime_state()
-        settings = self._apply_runtime_state_to_diagnostics(state, settings=settings)
-        if state.running:
-            self._load_into_form(settings)
-            if settings.diagnostics.mcp_status == "warning":
-                self._set_status(settings.diagnostics.mcp_message, tone="warning")
-                return
-            if self._tunnel_controller is not None and self._tunnel_controller.state.running:
-                self._set_status(
-                    f"{state.message}\nTunnel: {self._tunnel_controller.state.public_url}",
-                    tone="success",
-                )
-            else:
-                self._set_status(state.message, tone="success")
-        else:
-            self._set_status(state.message, tone="error")
+        # Preserve this window's unsaved fields, updating only runtime-owned
+        # publication information as the automatic startup already does.
+        self.refresh_publication_runtime(settings, self._mcp_controller.state)
+        self._render_diagnostics(settings.diagnostics)
+        if self._waiting_for_other_runtime and self._connection_check is None:
+            self._set_status("Состояние MCP обновлено.")
+        self._waiting_for_other_runtime = False
 
     def _restart_mcp_runtime(self) -> None:
-        if self._mcp_controller is None:
-            self._set_status("Управление MCP runtime недоступно в этом запуске.", tone="error")
-            return
-        if self._tunnel_controller is not None:
-            self._tunnel_controller.stop()
-        self._mcp_controller.stop()
-        self._render_runtime_state()
-        self._start_mcp_runtime()
+        self._begin_runtime_operation("restart")
 
     def _stop_mcp_runtime(self) -> None:
+        self._begin_runtime_operation("stop")
+
+    def _begin_runtime_operation(self, action: str) -> None:
         if self._mcp_controller is None:
             self._set_status("Управление MCP runtime недоступно в этом запуске.", tone="error")
             return
-        if self._tunnel_controller is not None:
-            self._tunnel_controller.stop()
-        state = self._mcp_controller.stop()
-        settings = self._settings_service.save(
-            self._settings_service.update_section(
-                "mcp", {"tunnel_url": ""}, settings=self._collect_settings(), persist=False
-            )
+        if self._runtime_operation is not None or self._connection_check is not None:
+            return
+        task = SettingsRuntimeOperation(
+            self._settings_service,
+            self._mcp_controller,
+            self._tunnel_controller,
+            self._collect_settings(),
+            action=action,
         )
+        task.completed.connect(self._finish_runtime_operation, Qt.ConnectionType.QueuedConnection)
+        task.failed.connect(self._fail_runtime_operation, Qt.ConnectionType.QueuedConnection)
+        self._runtime_operation = task
+        self._runtime_operation_closed = False
+        self._set_connection_check_busy(True)
+        self._set_status("Выполняется операция с MCP и tunnel…")
+        try:
+            accepted = task.start()
+        except RuntimeError:
+            self._fail_runtime_operation(None)
+            return
+        if not accepted:
+            self._runtime_operation = None
+            self._waiting_for_other_runtime = True
+            self._set_connection_check_busy(False)
+            self._set_status("Другая операция с MCP и tunnel ещё выполняется.", tone="warning")
+
+    @Slot(object)
+    def _fail_runtime_operation(self, errors) -> None:
+        self._runtime_operation = None
+        self._set_connection_check_busy(False)
         self._render_runtime_state()
-        settings = self._apply_runtime_state_to_diagnostics(state, status_override="warning")
-        self._load_into_form(settings)
-        self._set_status("MCP и tunnel остановлены.", tone="success")
+        if self._runtime_operation_closed:
+            return
+        if errors:
+            self._show_validation_errors(errors)
+        else:
+            self._set_status(
+                "Не удалось завершить операцию с MCP и tunnel. Проверьте состояние процессов.",
+                tone="error",
+            )
+
+    @Slot(object, object)
+    def _finish_runtime_operation(self, settings, state) -> None:
+        task = self._runtime_operation
+        self._runtime_operation = None
+        self._set_connection_check_busy(False)
+        self._render_runtime_state()
+        if self._runtime_operation_closed:
+            return
+        try:
+            current = self._settings_service.load()
+        except (OSError, ValueError):
+            self._fail_runtime_operation(None)
+            return
+        self._load_into_form(current)
+        if state is None:
+            self._set_status("Сначала включите MCP в настройках.", tone="warning")
+        elif state != self._mcp_controller.state:
+            self._set_status("Состояние MCP изменилось после операции.", tone="warning")
+        elif self._settings_service.configuration_changed(settings, current):
+            self._set_status(
+                "Настройки изменились во время операции. Проверьте MCP.", tone="warning"
+            )
+        elif task.action == "stop":
+            self._set_status("MCP и tunnel остановлены.", tone="success")
+        elif current.diagnostics.mcp_status == "warning":
+            self._set_status(current.diagnostics.mcp_message, tone="warning")
+        elif state.running:
+            message = state.message
+            if self._tunnel_controller is not None and self._tunnel_controller.state.running:
+                message += f"\nTunnel: {self._tunnel_controller.state.public_url}"
+            self._set_status(message, tone="success")
+        else:
+            self._set_status(state.message, tone="error")
+        if self._connect_dialog is not None and isValid(self._connect_dialog):
+            self._connect_dialog.refresh_publication_state(current, self._mcp_controller.state)
 
     def _open_mcp_log(self) -> None:
         path = get_mcp_startup_log_file()
@@ -1821,7 +1850,14 @@ class SettingsWindow(QDialog):
         self._begin_connection_check()
 
     def _begin_connection_check(self, *, target: str | None = None, request=None) -> bool:
-        if self._connection_check is not None:
+        if (
+            self._connection_check is not None
+            or self._runtime_operation is not None
+            or (
+                self._mcp_controller is not None
+                and publication_operation_gate(self._mcp_controller).busy
+            )
+        ):
             return False
         settings = self._save_form_settings()
         if settings is None:
@@ -1873,6 +1909,7 @@ class SettingsWindow(QDialog):
             widget.setEnabled(not busy)
 
     def done(self, result: int) -> None:
+        self._runtime_operation_closed = True
         self._connection_check_closed = True
         if self._connect_dialog is not None and isValid(self._connect_dialog):
             self._connect_dialog.reject()

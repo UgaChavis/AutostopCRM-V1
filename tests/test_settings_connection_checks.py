@@ -61,6 +61,7 @@ class SettingsConnectionChecksTests(unittest.TestCase):
         dialog.mcp_public_base_input.setText(public_url)
         if running:
             dialog._start_mcp_runtime()
+            self.wait_until(lambda: dialog._runtime_operation is None)
         dialog._open_chatgpt_connect_dialog()
         return dialog, dialog._connect_dialog
 

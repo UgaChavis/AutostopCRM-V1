@@ -192,3 +192,47 @@ Publication identity is the enclosing Git commit; its exact-SHA GitHub quality
 checks are the hosted acceptance record, with SHA/run URL in the final report.
 A successful Ubuntu harness remains required for the POSIX-only checks. Actual
 Windows installer, production endpoints and deployment remain outside scope.
+
+## Windows publication lifecycle follow-up, 2026-09-30
+
+Authorized from `496eec7570039e4278b3ba59ac423d14071ee997`, whose complete local
+and exact-SHA hosted checks passed. Settings start/restart/stop previously waited
+for MCP readiness and tunnel termination on the GUI thread. Manual operations
+could also overlap the existing background automatic publication startup.
+
+`PublicationRuntime` owns process IO and native settings reconciliation without
+widgets. Manual startup remains tunnel-before-MCP; automatic publication remains
+MCP-before-tunnel-before-MCP-restart. Manual restart still stops tunnel and MCP
+before validating/saving the immutable form snapshot. Stop retains native URL
+clearing and diagnostic status. Shared reservation rejects concurrent manual or
+automatic operations; repeated clicks cannot enqueue another process mutation.
+Thread-start and IO errors release the reservation and restore UI controls.
+Errors show current controller state without claiming uncertain stops succeeded.
+
+Closing or deleting a window leaves the accepted operation responsible for its
+process handles and settings persistence. Results only update surviving widgets.
+Late GUI delivery reconciles current settings and current runtime state. A shared
+Qt notification refreshes reopened windows without replacing their unsaved fields.
+Desktop shutdown closes the shared gate and drains accepted work before the existing
+resource cleanup, including the native preserve-tunnel-for-reuse exit policy.
+MCP/tunnel controller guards and process identity checks are unchanged. Business
+services, financial/order rules, storage formats and API/MCP contracts have no diff.
+
+112 focused UI/startup/controller tests passed, including eleven new regressions
+over all three actions, sequencing, validation/disabled restart, duplicate and
+cross-window requests, manual/automatic overlap, close/delete/reopen, failure,
+late results and shutdown with both tunnel exit policies. No actual external
+tunnel or production data was used for these synthetic lifecycle scenarios.
+
+With identical synthetic 200 ms waits per process and a 10 ms Qt timer, GUI
+delivery changed from 423.379 to 10.491 ms for start, 816.501 to 12.981 ms for
+restart and 420.986 to 11.208 ms for stop. Final candidate operations completed in
+426.058/827.983/429.829 ms respectively: this measures responsiveness, not faster
+process IO. The earlier full-CI candidate was stopped to cover reopening during
+an accepted operation; a format gate also rejected an intermediate candidate.
+The final complete local CI passed: 2883 runtime tests in 634.410 seconds with
+61 existing platform skips, 31 release tests in 2.616 seconds with three Windows
+symlink-privilege skips, combined runtime line/branch coverage 81.97%, all audits,
+parity, core-browser and performance gates. Checks and budgets were not weakened.
+Publication identity is the enclosing Git commit; exact-SHA GitHub quality checks
+and final report provide its hosted acceptance record. No installer or deployment.

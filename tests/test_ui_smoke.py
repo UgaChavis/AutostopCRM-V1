@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from PySide6.QtWidgets import QApplication, QFrame, QPushButton
 
 from minimal_kanban.logging_setup import close_logger  # noqa: E402
+from minimal_kanban.publication_runtime import PublicationRuntime
 from minimal_kanban.settings_service import SettingsService
 from minimal_kanban.settings_store import SettingsStore
 from minimal_kanban.texts import APP_DISPLAY_NAME, TOOLTIP_SETTINGS
@@ -167,7 +168,8 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.window._publication_in_progress = True
         self.window._on_publication_failed("synthetic failure")
         self.assertFalse(self.window._publication_in_progress)
-        self.assertIn("synthetic failure", self.window.status_label.text())
+        self.assertIn("Не удалось", self.window.status_label.text())
+        self.assertNotIn("synthetic failure", self.window.status_label.text())
         self.window.open_local_board()
         self.browser_open.assert_called_once_with("http://127.0.0.1:41731")
 
@@ -189,7 +191,7 @@ class MainWindowSmokeTests(unittest.TestCase):
         tunnel = Mock()
         tunnel.start.side_effect = start_tunnel
         self.window._tunnel_controller = tunnel
-        _, updated = self.window._start_publication_runtime_core(initial)
+        updated, _ = PublicationRuntime(self.settings_service, mcp, tunnel).start_automatic(initial)
 
         self.assertEqual(updated.local_api.local_api_port, 44123)
         self.assertEqual(updated.mcp.tunnel_url, "https://synthetic.example")
@@ -206,7 +208,7 @@ class MainWindowSmokeTests(unittest.TestCase):
         self.window._on_settings_saved(current)
         dialog = self.window.build_settings_window()
         self.connector_files.reset_mock()
-        self.window.publication_ready.emit(completed, Mock(running=True))
+        self.window._on_publication_ready(completed, Mock(running=True))
 
         self.assertEqual(self.window.mcp_value_label.text(), "https://new.synthetic.example/mcp")
         self.assertEqual(
@@ -221,7 +223,7 @@ class MainWindowSmokeTests(unittest.TestCase):
             "mcp", {"public_https_base_url": "https://current.synthetic.example"}, persist=True
         )
         self.settings_service.update_section("diagnostics", {"mcp_status": "success"}, persist=True)
-        self.window.publication_ready.emit(completed, Mock(running=True))
+        self.window._on_publication_ready(completed, Mock(running=True))
         self.assertIn("готовы", self.window.status_label.text())
         self.assertNotIn("изменились", self.window.status_label.text())
 

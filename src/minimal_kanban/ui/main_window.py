@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import threading
 import webbrowser
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QTimer, Signal
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QFrame,
@@ -16,6 +15,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from shiboken6 import isValid
 
 from ..connection_card import (
     build_board_share_url,
@@ -27,6 +27,7 @@ from ..desktop_connector_files import write_connector_files
 from ..settings_models import is_http_url
 from ..settings_service import SettingsService
 from ..texts import APP_DISPLAY_NAME, TOOLTIP_SETTINGS
+from .settings_runtime_operation import SettingsRuntimeOperation
 
 if TYPE_CHECKING:
     from ..integration_runtime import McpRuntimeController
@@ -81,9 +82,6 @@ QLabel#StatusText {
 
 
 class MainWindow(QMainWindow):
-    publication_ready = Signal(object, object)
-    publication_failed = Signal(str)
-
     def __init__(
         self,
         local_board_url: str,
@@ -103,11 +101,10 @@ class MainWindow(QMainWindow):
         self._public_board_url = ""
         self._access_board_url = ""
         self._effective_mcp_url = ""
-        self._publication_thread: threading.Thread | None = None
+        self._publication_thread = None
+        self._publication_task: SettingsRuntimeOperation | None = None
         self._publication_in_progress = False
         self._load_publish_urls()
-        self.publication_ready.connect(self._on_publication_ready)
-        self.publication_failed.connect(self._on_publication_failed)
 
         self.setWindowTitle(f"{APP_DISPLAY_NAME} / Канбан-хост")
         self.resize(760, 360)
@@ -418,47 +415,31 @@ class MainWindow(QMainWindow):
         self._publication_in_progress = True
         self.status_label.setText(status_text)
 
-        def worker() -> None:
-            try:
-                state, updated_settings = self._start_publication_runtime_core(settings)
-            except Exception as exc:  # pragma: no cover - UI threading path
-                self.publication_failed.emit(str(exc))
-                return
-            self.publication_ready.emit(updated_settings, state)
-
-        self._publication_thread = threading.Thread(
-            target=worker,
-            name="minimal-kanban-publication-start",
-            daemon=True,
+        task = SettingsRuntimeOperation(
+            self._settings_service,
+            self._mcp_controller,
+            self._tunnel_controller,
+            settings,
+            action="automatic",
         )
-        self._publication_thread.start()
-
-    def _start_publication_runtime_core(self, settings):
-        if self._mcp_controller is None:
-            return None, settings
-        state = (
-            self._mcp_controller.restart(settings)
-            if self._mcp_controller.state.running
-            else self._mcp_controller.start(settings)
-        )
-        if not state.running:
-            return state, settings
-        needs_public_tunnel = (
-            not settings.mcp.full_mcp_url_override and not settings.mcp.public_https_base_url
-        )
-        if self._tunnel_controller is not None and needs_public_tunnel:
-            tunnel_state = self._tunnel_controller.start(settings)
-            settings = self._settings_service.update_section(
-                "mcp",
-                {"tunnel_url": tunnel_state.public_url if tunnel_state.running else ""},
-                persist=True,
-            )
-            # Restart MCP after the tunnel is known so public URL and allowed hosts/origins match the live endpoint.
-            state = self._mcp_controller.restart(settings)
-        return state, settings
+        task.completed.connect(self._on_publication_ready, Qt.ConnectionType.QueuedConnection)
+        task.failed.connect(self._on_publication_failed, Qt.ConnectionType.QueuedConnection)
+        self._publication_task = task
+        try:
+            accepted = task.start()
+        except RuntimeError:
+            self._on_publication_failed(None)
+            return
+        if not accepted:
+            self._publication_in_progress = False
+            self._publication_task = None
+            self.status_label.setText("Другая операция с MCP и tunnel ещё выполняется.")
+            return
+        self._publication_thread = task.thread
 
     def _on_publication_ready(self, settings, state) -> None:
         self._publication_in_progress = False
+        self._publication_task = None
         try:
             current = self._settings_service.load()
         except (OSError, ValueError):
@@ -471,8 +452,12 @@ class MainWindow(QMainWindow):
         self._load_publish_urls(settings)
         self._sync_publish_panel()
         self._publish_connector_files(settings)
-        if self._settings_window is not None:
-            self._settings_window.refresh_publication_runtime(settings, state)
+        current_state = self._mcp_controller.state if self._mcp_controller is not None else state
+        if self._settings_window is not None and isValid(self._settings_window):
+            self._settings_window.refresh_publication_runtime(settings, current_state)
+        if state != current_state:
+            self.status_label.setText("Состояние MCP изменилось после операции.")
+            return
         if configuration_changed:
             self.status_label.setText(
                 "Настройки изменились во время запуска MCP. Повторите запуск для текущих настроек."
@@ -488,9 +473,10 @@ class MainWindow(QMainWindow):
         elif state.error:
             self.status_label.setText(f"MCP не поднялся автоматически: {state.error}")
 
-    def _on_publication_failed(self, message: str) -> None:
+    def _on_publication_failed(self, errors) -> None:
         self._publication_in_progress = False
-        self.status_label.setText(f"MCP не поднялся автоматически: {message}")
+        self._publication_task = None
+        self.status_label.setText("Не удалось завершить автоматический запуск MCP и tunnel.")
 
     def _show_error(self, message: str) -> None:
         QMessageBox.critical(self, "Ошибка", message)

@@ -56,6 +56,10 @@ class FakeMcpController:
         )
         return self.state
 
+    def restart(self, settings) -> McpRuntimeState:
+        self.stop()
+        return self.start(settings)
+
 
 class FakeTunnelController:
     def __init__(self) -> None:
@@ -133,6 +137,13 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
         for widget in QApplication.topLevelWidgets():
             widget.close()
         self.app.processEvents()
+
+    def _wait_for_runtime_operation(self, dialog):
+        deadline = time.monotonic() + 3
+        while dialog._runtime_operation is not None and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(0.001)
+        self.assertIsNone(dialog._runtime_operation)
 
     def test_settings_button_creates_dialog(self) -> None:
         dialog = self.window.build_settings_window()
@@ -423,6 +434,7 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
         self.assertIn("demo.ngrok-free.app", dialog.mcp_resolved_hosts_input.text())
 
         dialog.start_mcp_button.click()
+        self._wait_for_runtime_operation(dialog)
 
         self.assertIn("MCP сервер запущен", dialog.runtime_mcp_status_input.text())
         self.assertEqual(dialog.mcp_public_endpoint_input.text(), "https://public.example/mcp")
@@ -434,6 +446,7 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
         self.assertIn("derived_tunnel_mcp_url = https://demo.ngrok-free.app/mcp", clipboard)
 
         dialog.stop_mcp_button.click()
+        self._wait_for_runtime_operation(dialog)
         self.assertIn("остановлен", dialog.runtime_mcp_status_input.text())
         dialog.close()
 
@@ -654,11 +667,13 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
         )
         dialog.mcp_enabled_checkbox.setChecked(True)
         dialog.start_mcp_button.click()
+        self._wait_for_runtime_operation(dialog)
 
         self.assertEqual(dialog.mcp_tunnel_url_input.text(), "https://demo.ngrok-free.app")
         self.assertEqual(dialog.mcp_effective_url_input.text(), "https://demo.ngrok-free.app/mcp")
 
         dialog.stop_mcp_button.click()
+        self._wait_for_runtime_operation(dialog)
 
         self.assertEqual(dialog.mcp_tunnel_url_input.text(), "")
         self.assertEqual(dialog.mcp_effective_url_input.text(), "http://127.0.0.1:41831/mcp")
@@ -676,6 +691,7 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
         dialog.mcp_enabled_checkbox.setChecked(True)
         dialog.mcp_public_base_input.setText("https://public.example")
         dialog.start_mcp_button.click()
+        self._wait_for_runtime_operation(dialog)
 
         self.assertEqual(tunnel.start_calls, 0)
         self.assertEqual(dialog.mcp_tunnel_url_input.text(), "")
@@ -703,6 +719,7 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
 
         with patch.object(tunnel, "start", side_effect=start_after_peer_save):
             dialog._start_mcp_runtime()
+            self._wait_for_runtime_operation(dialog)
 
         persisted = self.settings_service.load()
         self.assertEqual(persisted.local_api.local_api_port, 44234)
@@ -864,6 +881,7 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
 
         with patch.object(self.controller, "start", side_effect=launch_after_save):
             dialog._start_mcp_runtime()
+            self._wait_for_runtime_operation(dialog)
 
         persisted = self.settings_service.load()
         self.assertEqual(persisted.mcp.mcp_port, 44478)
@@ -882,6 +900,7 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
         dialog.mcp_auth_mode_input.setCurrentIndex(dialog.mcp_auth_mode_input.findData("bearer"))
         dialog.mcp_token_input.set_value("mcp-secret")
         dialog.start_mcp_button.click()
+        self._wait_for_runtime_operation(dialog)
 
         dialog.connect_chatgpt_button.click()
         wizard = dialog._connect_dialog
