@@ -518,6 +518,10 @@ class ManagerStructureBrowserTests(unittest.TestCase):
         self.page.locator('.node[data-id="M2"]').click()
         self.page.locator('[name="x"]').fill("600")
         self.page.locator("#save").click()
+        target_version = saved["version"] + 1
+        self.page.wait_for_function(
+            f"() => document.querySelector('#count')?.textContent.includes('v{target_version}')"
+        )
         moved = self.read()
         moved_edge = moved["relations"][0]
         self.assertEqual(moved_edge["path"], "M170 100 C260 80 510 350 670 420")
