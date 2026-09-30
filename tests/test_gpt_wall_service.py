@@ -3,11 +3,97 @@ from __future__ import annotations
 # The fixture import sets up the src path before importing the application module.
 # ruff: noqa: I001
 from tests.services_case import CardServiceCase
+from unittest.mock import patch
 
 from minimal_kanban.models import AuditEvent, utc_now
+from minimal_kanban.services import snapshot_service as snapshot_service_module
 
 
 class GptWallServiceTests(CardServiceCase):
+    def test_content_read_skips_event_projection_and_event_markdown(self) -> None:
+        snapshot = self.service._snapshot_service
+        with (
+            patch.object(snapshot, "_wall_events", side_effect=AssertionError("unused events")),
+            patch.object(
+                snapshot._board_read_projection,
+                "event_log_text",
+                side_effect=AssertionError("unused event text"),
+            ),
+        ):
+            result = self.service.get_board_content({})
+        self.assertEqual(result["meta"]["section_kind"], "board_content")
+        self.assertIn("## Cards By Column", result["text"])
+
+    def test_event_read_skips_card_sticky_and_board_markdown_projection(self) -> None:
+        snapshot = self.service._snapshot_service
+        with (
+            patch.object(
+                snapshot, "_serialize_cards_payload", side_effect=AssertionError("unused cards")
+            ),
+            patch.object(
+                snapshot, "_serialize_sticky", side_effect=AssertionError("unused stickies")
+            ),
+            patch.object(
+                snapshot._board_read_projection,
+                "board_content_markdown",
+                side_effect=AssertionError("unused board text"),
+            ),
+        ):
+            result = self.service.get_board_events({})
+        self.assertEqual(result["meta"]["section_kind"], "event_log")
+        self.assertIn("## Events", result["text"])
+
+    def test_section_reads_match_full_wall_sections_with_same_view(self) -> None:
+        created = self.service.create_card(
+            {"title": "Synthetic active card", "deadline": {"hours": 2}}
+        )
+        archived = self.service.create_card(
+            {"title": "Synthetic archived card", "deadline": {"hours": 2}}
+        )
+        self.service.archive_card({"card_id": archived["card"]["id"]})
+        self.service.create_sticky({"text": "Synthetic note", "deadline": {"hours": 1}})
+        moment = utc_now()
+        with (
+            patch("minimal_kanban.models.utc_now", return_value=moment),
+            patch.object(snapshot_service_module, "utc_now_iso", return_value=moment.isoformat()),
+        ):
+            for include_archived in (False, True):
+                for session in (None, {"role": "operator", "permissions": {}}):
+                    view = {
+                        "include_archived": include_archived,
+                        "actor_name": "ALICE",
+                        "_operator_session": session,
+                    }
+                    for view_mode in ("agent", "full"):
+                        with self.subTest(
+                            include_archived=include_archived, session=session, mode=view_mode
+                        ):
+                            wall = self.service.get_gpt_wall(
+                                {**view, "compact": view_mode == "agent", "event_limit": 20}
+                            )
+                            content = self.service.get_board_content(
+                                {**view, "view_mode": view_mode}
+                            )
+                            expected = wall["sections"]["board_content"]
+                            expected["meta"].update(
+                                response_mode="agent_context" if view_mode == "agent" else "export",
+                                view_mode=view_mode,
+                            )
+                            self.assertEqual(content, expected)
+                            self.assertTrue(
+                                any(
+                                    card["id"] == created["card"]["id"] for card in content["cards"]
+                                )
+                            )
+                    for view_mode in ("audit", "full"):
+                        wall = self.service.get_gpt_wall({**view, "event_limit": 2})
+                        events = self.service.get_board_events(
+                            {**view, "view_mode": view_mode, "event_limit": 2}
+                        )
+                        expected = wall["sections"]["event_log"]
+                        expected["meta"].update(response_mode="audit", view_mode=view_mode)
+                        self.assertEqual(events, expected)
+
     def test_gpt_wall_returns_full_context_layer(self) -> None:
         created = self.service.create_card(
             {

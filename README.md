@@ -37,6 +37,8 @@ Owner MCP client -> 24-tool Gateway v2 -> internal Store adapter -> Store API
   `SnapshotService` owns journal reads, visibility filtering and response assembly;
   `services/card_log_projection.py` formats the permitted events into entries,
   groups, totals and Markdown.
+  `services/board_read_projection.py` formats permitted board content and event
+  sections; section-only reads skip preparation of the unused section.
 - `api/server.py` and `api/route_registry.py` own HTTP transport,
   authentication, and mutation classification.
 - `src/minimal_kanban/mcp/` owns the public Gateway v2, action guards, and the
