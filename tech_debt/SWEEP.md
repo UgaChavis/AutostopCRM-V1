@@ -4,7 +4,9 @@ One complete subsystem pass, started on 2026-09-30 from GitHub revision
 `d14fea683ead4c4f7c9e502f1d4f65bd006030b4`. Publish verified slices to
 `autostopcrm-v1`; production deployment is outside this work. Public contracts,
 business rules and persisted formats stay compatible. Proposals that change
-them require a separate owner decision.
+them require a separate owner decision. The owner additionally excluded all
+business-rule changes: payroll accruals, payments, prices and order rules remain
+as implemented. Only technical behavior-preserving changes are in scope.
 
 ## Baseline
 
@@ -18,9 +20,9 @@ ratchets; documentation audit passed. Hosted checks remain required per commit.
 
 | Boundary | State | Evidence and next action |
 | --- | --- | --- |
-| Snapshot and read models (018) | In progress | Slice 1 published; slice 2 isolates Markdown and requested-section preparation. Cache, search, cursor and journal ownership inspected. |
-| Shared domain services, orders and inventory (012/010) | In progress | Detached mutation and post-commit artifact boundaries inspected. Neighbour detachment scans the entire list per card; 2000 detachments measured median 40.439 ms. Optimize without mutating source objects. |
-| Finance and payroll (019/013) | In progress | Transfer cancellation and snapshot preservation boundaries inspected. Work-row preservation parses 300 next rows twice: 900 total row parses with 300 previous rows, median 9.858 ms. Keep posting rules unchanged while reusing detached normalized rows. |
+| Snapshot and read models (018) | In progress | Both slices published with successful exact-SHA CI; Markdown and requested-section preparation isolated. Cache, search, cursor and journal ownership inspected. |
+| Shared domain services, orders and inventory (012/010) | In progress | Detached mutation and post-commit artifact boundaries inspected. Neighbour detachment scans the entire list per card; 2000 detachments measured median 40.439 ms. Optimization left unapplied because this helper participates in order mutation; preserve current behavior. |
+| Finance and payroll (019/013) | In progress | Transfer cancellation and snapshot preservation boundaries inspected. Work-row preservation parses 300 next rows twice: 900 total row parses with 300 previous rows, median 9.858 ms. Observation only: payroll optimization excluded by owner instruction; no source changes. |
 | Storage and compatibility (017) | In progress | Cache-miss normalization can persist data; process locks, CAS and read-cache invalidation inspected. Keep migration/recovery consumers until supported-data evidence permits retirement. |
 | Browser and asset loading (005/021) | In progress | 1460 assembled function definitions have no duplicate names. Three apparent unused functions are called by the lazy loader or injected print bridge; retain them. |
 | Windows host and settings | In progress | A simulated 200 ms network check delayed a 10 ms Qt timer to 224 ms. Move full connection diagnostics off the UI thread, preserving stale-settings protection. |
@@ -77,5 +79,26 @@ These are assembly measurements, not HTTP/production latency claims.
 
 The full local CI profile passed: 2859 runtime tests in 575.905 seconds and
 31 release tests, with all audit, browser and performance gates. The snapshot
-module/class size caps were tightened to 1352/1270 lines. Publication and hosted
-CI of slice 2 are pending.
+module/class size caps were tightened to 1352/1270 lines. Published as `c70488d353714fc7e0cc3925862bef28adf450a2`;
+[GitHub quality run 36728147635](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/36728147635)
+passed for that exact SHA.
+
+### 3. Keep full Windows connection diagnostics responsive
+
+Connection probes execute on a daemon worker that retains only service/settings,
+with queued results to the GUI thread. Duplicate checks are blocked. Editing
+controls are disabled while pending; Cancel stays available. Closing the dialog
+discards the result. Probe exceptions restore controls with a generic message;
+private exception details are not displayed. Existing settings persistence and
+stale-configuration reconciliation remain unchanged. Individual connection tests
+and the ChatGPT wizard retain their existing synchronous behavior.
+
+78 focused settings UI/service/write-integrity tests passed. Regressions cover
+UI heartbeat while a probe blocks, duplicate suppression, GUI-thread persistence,
+closed-dialog result discard, exception recovery and stale-setting warnings. On
+the same synthetic 200 ms probe, a 10 ms Qt timer fired at 10.830 ms after the
+change versus 224 ms before; total check time was 209.138 ms. This demonstrates
+UI responsiveness rather than faster network access. A standalone deleted-dialog
+late-result check also passed without persistence or popup. Full local CI passed:
+2862 runtime tests in 566.017 seconds, 31 release tests in 2.773 seconds, all
+audit, browser and performance gates. Hosted CI remains required for this slice.

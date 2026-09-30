@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
-from PySide6.QtCore import QUrl, Signal
+from PySide6.QtCore import Qt, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -67,6 +67,7 @@ from ..texts import (
     BUTTON_SHOW_SECRET,
 )
 from ..tunnel_runtime import TunnelRuntimeController
+from .settings_connection_check import SettingsConnectionCheck
 
 WINDOW_TITLE = "Настройки интеграции"
 WINDOW_SUBTITLE = (
@@ -683,6 +684,8 @@ class SettingsWindow(QDialog):
         self._connect_dialog: ChatGPTConnectDialog | None = None
         self._validation_widgets: dict[str, object] = {}
         self._advanced_mode = False
+        self._connection_check: SettingsConnectionCheck | None = None
+        self._connection_check_closed = False
 
         self.setWindowTitle(WINDOW_TITLE)
         self.setModal(True)
@@ -1768,10 +1771,48 @@ class SettingsWindow(QDialog):
         )
 
     def _test_connections(self) -> None:
+        if self._connection_check is not None:
+            return
         settings = self._save_form_settings()
         if settings is None:
             return
-        summary = self._settings_service.test_connections(settings)
+        self._connection_check_closed = False
+        task = SettingsConnectionCheck(self._settings_service, settings)
+        self._connection_check = task
+        task.completed.connect(self._finish_connection_check, Qt.ConnectionType.QueuedConnection)
+        task.failed.connect(self._fail_connection_check, Qt.ConnectionType.QueuedConnection)
+        self._set_connection_check_busy(True)
+        self._set_status("Выполняется полная проверка соединений…")
+        task.start()
+
+    def _set_connection_check_busy(self, busy: bool) -> None:
+        for widget in (
+            self.content_layout.parentWidget(),
+            self.reset_button,
+            self.apply_button,
+            self.save_button,
+        ):
+            widget.setEnabled(not busy)
+
+    def done(self, result: int) -> None:
+        self._connection_check_closed = True
+        super().done(result)
+
+    @Slot()
+    def _fail_connection_check(self) -> None:
+        self._connection_check = None
+        self._set_connection_check_busy(False)
+        if not self._connection_check_closed:
+            self._set_status(
+                "Не удалось завершить проверку соединений. Повторите проверку.", tone="error"
+            )
+
+    @Slot(object, object)
+    def _finish_connection_check(self, settings, summary) -> None:
+        self._connection_check = None
+        self._set_connection_check_busy(False)
+        if self._connection_check_closed:
+            return
         updated = self._settings_service.apply_test_summary(settings, summary, persist=True)
         self._load_into_form(updated)
         overall_status = updated.diagnostics.overall_status

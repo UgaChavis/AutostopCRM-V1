@@ -743,10 +743,110 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
             patch.object(QMessageBox, "information") as popup,
         ):
             dialog._test_connections()
+            self._wait_for_connection_check(dialog)
         self.assertEqual(self.settings_service.load().local_api.local_api_port, 44367)
         self.assertEqual(dialog.local_api_port_input.value(), 44367)
         self.assertIn("изменились", popup.call_args.args[2])
         self.assertNotIn("Old endpoint worked", popup.call_args.args[2])
+
+    def _wait_for_connection_check(self, dialog) -> None:
+        deadline = time.monotonic() + 3
+        while dialog._connection_check is not None and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(0.001)
+        self.assertIsNone(dialog._connection_check)
+
+    def test_full_connection_check_keeps_ui_responsive_and_rejects_duplicates(self) -> None:
+        dialog = self.window.build_settings_window()
+        started, release, heartbeat = threading.Event(), threading.Event(), threading.Event()
+        gui_thread = threading.get_ident()
+        worker_threads = []
+        apply_threads = []
+        apply_summary = self.settings_service.apply_test_summary
+
+        def probe(settings):
+            worker_threads.append(threading.get_ident())
+            started.set()
+            if not release.wait(2):
+                raise RuntimeError("test probe timed out")
+            result = ConnectionCheckResult("local_api", "success", "Synthetic endpoint worked")
+            return ConnectionTestSummary(
+                "synthetic-time", result, result, result, result, "success", (), ()
+            )
+
+        def apply(settings, summary, **kwargs):
+            apply_threads.append(threading.get_ident())
+            return apply_summary(settings, summary, **kwargs)
+
+        with (
+            patch.object(self.settings_service, "test_connections", side_effect=probe) as check,
+            patch.object(self.settings_service, "apply_test_summary", side_effect=apply),
+            patch.object(QMessageBox, "information") as popup,
+        ):
+            try:
+                QTimer.singleShot(10, heartbeat.set)
+                dialog._test_connections()
+                self.assertTrue(started.wait(1))
+                dialog._test_connections()
+                deadline = time.monotonic() + 1
+                while not heartbeat.is_set() and time.monotonic() < deadline:
+                    self.app.processEvents()
+                    time.sleep(0.001)
+                self.assertTrue(heartbeat.is_set())
+                self.assertFalse(dialog.save_button.isEnabled())
+                self.assertTrue(dialog.cancel_button.isEnabled())
+                check.assert_called_once()
+            finally:
+                release.set()
+                self._wait_for_connection_check(dialog)
+            popup.assert_called_once()
+        self.assertNotEqual(worker_threads, [gui_thread])
+        self.assertTrue(apply_threads)
+        self.assertEqual(set(apply_threads), {gui_thread})
+        self.assertTrue(dialog.save_button.isEnabled())
+
+    def test_closed_connection_check_discards_results(self) -> None:
+        dialog = self.window.build_settings_window()
+        started, release = threading.Event(), threading.Event()
+
+        def probe(settings):
+            started.set()
+            release.wait(2)
+            result = ConnectionCheckResult("local_api", "success", "Synthetic endpoint worked")
+            return ConnectionTestSummary(
+                "synthetic-time", result, result, result, result, "success", (), ()
+            )
+
+        with (
+            patch.object(self.settings_service, "test_connections", side_effect=probe),
+            patch.object(self.settings_service, "apply_test_summary") as apply,
+            patch.object(QMessageBox, "information") as popup,
+        ):
+            try:
+                dialog._test_connections()
+                self.assertTrue(started.wait(1))
+                dialog.reject()
+            finally:
+                release.set()
+                self._wait_for_connection_check(dialog)
+            apply.assert_not_called()
+            popup.assert_not_called()
+
+    def test_failed_connection_check_restores_controls_without_exposing_error(self) -> None:
+        dialog = self.window.build_settings_window()
+        with (
+            patch.object(
+                self.settings_service, "test_connections", side_effect=RuntimeError("private-token")
+            ),
+            patch.object(self.settings_service, "apply_test_summary") as apply,
+        ):
+            dialog._test_connections()
+            self._wait_for_connection_check(dialog)
+            apply.assert_not_called()
+        self.assertTrue(dialog.save_button.isEnabled())
+        self.assertTrue(dialog.test_all_button.isEnabled())
+        self.assertNotIn("private-token", dialog.status_label.text())
+        self.assertIn("Повторите", dialog.status_label.text())
 
     def test_runtime_start_reports_settings_changed_during_launch(self) -> None:
         dialog = self.window.build_settings_window()
