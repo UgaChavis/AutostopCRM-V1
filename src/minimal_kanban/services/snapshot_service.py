@@ -181,14 +181,13 @@ class SnapshotService:
         cards: list[Card],
         archive: list[Card],
         stickies: list[StickyNote],
-        events: list[AuditEvent],
+        event_counts: dict[str, int],
         settings: dict[str, Any],
         viewer_username: str | None,
         compact_cards: bool,
         include_archive: bool,
         archive_limit: int,
     ) -> str:
-        event_counts = _event_counts(events) if cards or archive else {}
         public_settings = public_snapshot_settings(
             settings,
             include_employees_cashboxes=operator_can_access_employees_cashboxes(payload),
@@ -538,7 +537,7 @@ class SnapshotService:
                     cards=cards,
                     archive=archive,
                     stickies=stickies,
-                    events=events,
+                    event_counts=event_counts,
                     settings=bundle["settings"],
                     viewer_username=viewer_username,
                     compact_cards=compact_cards,
@@ -657,7 +656,7 @@ class SnapshotService:
                     cards=cards,
                     archive=archive,
                     stickies=stickies,
-                    events=events,
+                    event_counts=_event_counts(events) if cards or archive else {},
                     settings=public_snapshot_settings(
                         bundle["settings"],
                         include_employees_cashboxes=employees_cashboxes_access,

@@ -19,6 +19,7 @@ from minimal_kanban.services.card_service import CardService  # noqa: E402
 from minimal_kanban.services.snapshot_cache import (  # noqa: E402
     SNAPSHOT_CACHE_MAX_ENTRIES,
     PreparedSnapshotData,
+    SnapshotResponseCache,
 )
 from minimal_kanban.storage.json_store import JsonStore  # noqa: E402
 
@@ -74,6 +75,35 @@ class SnapshotCacheTests(unittest.TestCase):
 
         self.assertEqual(first["revision"], second["revision"])
         self.assertEqual(build_revision.call_count, 1)
+
+    def test_cold_snapshot_counts_events_once_and_matches_revision_only_read(self) -> None:
+        for state in ("empty", "active", "archived"):
+            if state == "active":
+                card_id = self._create_card()
+            elif state == "archived":
+                self.service.archive_card({"card_id": card_id, "actor_name": "ALICE"})
+            for compact in (False, True):
+                for include_archive in (False, True):
+                    with self.subTest(
+                        state=state, compact=compact, include_archive=include_archive
+                    ):
+                        view = {
+                            "actor_name": "ALICE",
+                            "compact": compact,
+                            "include_archive": include_archive,
+                        }
+                        self.snapshot_service._snapshot_cache = SnapshotResponseCache()
+                        with patch.object(
+                            snapshot_service_module,
+                            "_event_counts",
+                            wraps=snapshot_service_module._event_counts,
+                        ) as count_events:
+                            snapshot = self.service.get_board_snapshot(view)
+                        expected_passes = int(bool(snapshot["cards"] or snapshot["archive"]))
+                        self.assertEqual(count_events.call_count, expected_passes)
+                        self.snapshot_service._snapshot_cache = SnapshotResponseCache()
+                        revision = self.service.get_board_revision(view)
+                        self.assertEqual(snapshot["meta"]["revision"], revision["revision"])
 
     def test_repeated_revision_skips_board_projection_on_cache_hit(self) -> None:
         view = {

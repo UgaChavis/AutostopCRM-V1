@@ -7,6 +7,8 @@ work; completed behavior is protected by its checks.
 
 The [iteration map](ITERATION_MAP.md) orders the next small, locally verifiable
 slices and separates them from larger contract and data work.
+The [maintenance sweep](SWEEP.md) records the current full subsystem pass,
+measured changes and publication gates.
 
 ## Current Contracts
 
