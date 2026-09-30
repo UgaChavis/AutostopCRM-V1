@@ -18,19 +18,20 @@ ratchets; documentation audit passed. Hosted checks remain required per commit.
 
 ## Subsystem progress
 
-| Boundary | State | Evidence and next action |
+| Boundary | State | Evidence and disposition |
 | --- | --- | --- |
-| Snapshot and read models (018) | In progress | Both slices published with successful exact-SHA CI; Markdown and requested-section preparation isolated. Cache, search, cursor and journal ownership inspected. |
-| Shared domain services, orders and inventory (012/010) | In progress | Detached mutation and post-commit artifact boundaries inspected. Neighbour detachment scans the entire list per card; 2000 detachments measured median 40.439 ms. Optimization left unapplied because this helper participates in order mutation; preserve current behavior. |
-| Finance and payroll (019/013) | In progress | Transfer cancellation and snapshot preservation boundaries inspected. Work-row preservation parses 300 next rows twice: 900 total row parses with 300 previous rows, median 9.858 ms. Observation only: payroll optimization excluded by owner instruction; no source changes. |
-| Storage and compatibility (017) | In progress | Cache-miss normalization can persist data; process locks, CAS and read-cache invalidation inspected. Keep migration/recovery consumers until supported-data evidence permits retirement. |
-| Browser and asset loading (005/021) | In progress | 1460 assembled function definitions have no duplicate names. Three apparent unused functions are called by the lazy loader or injected print bridge; retain them. |
-| Windows host and settings | In progress | A simulated 200 ms network check delayed a 10 ms Qt timer to 224 ms. Move full connection diagnostics off the UI thread, preserving stale-settings protection. |
-| HTTP transport and authentication | Pending | Inspect route ownership and shared-service delegation. |
-| MCP and Gateway (008/009) | Pending | Inspect registrations, workflow/readback ownership and contract parity. |
-| Printing (014/021) | Pending | Inspect render/draft ownership and duplicate preparation. |
-| Agent and integrations (206/011) | Pending | AST audit found identical numeric-limit normalization in automotive and web tools; inspect callers and edge cases. |
-| Checks, tests, packaging and recovery (001/003/020) | Pending | Keep verification meaningful and installations/recovery reproducible. |
+| Snapshot and read models (018) | Reviewed, fixed | Slices 1/2 published with exact-SHA CI. Cache, search, cursor, visibility and journal ownership inspected; permitted Markdown projection isolated. |
+| Shared domain services, orders and inventory (012/010) | Reviewed, preserved | Detached mutation and post-commit artifact boundaries inspected. Neighbour detachment scans per card (2000: median 40.439 ms). No change: participates in order mutation and is excluded by owner instruction. |
+| Finance and payroll (019/013) | Reviewed, preserved | Transfer-pair cancellation and salary snapshot preservation inspected and covered by unchanged regressions. Repeated row normalization observed (300 next/300 previous: 900 parses, median 9.858 ms); payroll optimization explicitly excluded. |
+| Storage and compatibility (017) | Reviewed, preserved | Process locks, CAS, cache invalidation, bounded reads and restore compatibility inspected. Cache-miss normalization can persist state; changing it requires a data compatibility decision. |
+| Browser and asset loading (005/021) | Reviewed, preserved | 1460 assembled function definitions have no duplicate names. Three apparent unused functions are called by lazy loading or the print bridge; retained. Assembled JS and core smoke pass. |
+| Windows host and settings | Reviewed, fixed | Slice 3 published with exact-SHA CI. Full network diagnostic no longer blocks Qt; existing persistence/stale-result logic remains. Individual checks/wizard remain synchronous and are a separate follow-up. |
+| HTTP transport and authentication | Reviewed, preserved | Route ownership, proxied mutation classification, service delegation and trusted operator-session injection inspected. Side-effecting reads cannot be reclassified as harmless GETs. API/auth regression suites pass. |
+| MCP and Gateway (008/009) | Reviewed, preserved | Tool registration, schema/readback parity and bounded executor inspected. Worker retains its slot after caller cancellation; contextvars preserve authenticated ownership. Contract/native-guard suites pass. |
+| Printing (014/021) | Reviewed, preserved | Shared render batches, per-document overrides, completion-act locks and stale async workspace ownership inspected. Printing/overlap regressions and browser checks pass. |
+| Agent and integrations (206/011) | Reviewed, fixed | Slice 4 reuses identical numeric-limit normalization through the existing web adapter dependency; contracts/defaults retained. Public search/VIN protections and integration tests pass. |
+| Runtime, automation and change feed | Reviewed, preserved | Control operation/field allowlists, bounded socket transport, revision/idempotency pass-through and opaque feed cursor/ack boundary inspected. Manager owns orchestration; CRM retains service/readback ownership. Producer parity covers all 106 write actions. |
+| Checks, tests, packaging and recovery (001/003/020) | Reviewed, preserved | Full local/hosted gates pass for slices 1–3. Coverage/dependency budgets retained; snapshot size caps tightened. Backup schemas/checksum/path guards and build boundaries inspected; 31 release tests pass. No Windows installer or production release executed. |
 
 ## Verified slices
 
@@ -101,4 +102,53 @@ change versus 224 ms before; total check time was 209.138 ms. This demonstrates
 UI responsiveness rather than faster network access. A standalone deleted-dialog
 late-result check also passed without persistence or popup. Full local CI passed:
 2862 runtime tests in 566.017 seconds, 31 release tests in 2.773 seconds, all
-audit, browser and performance gates. Hosted CI remains required for this slice.
+audit, browser and performance gates. Published as `348424dc1e518cab012a9cc9f465f3025c1fdd55`;
+[GitHub quality run 36732195982](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/36732195982)
+passed for that exact SHA.
+
+### 4. Share integration limit normalization
+
+The automotive adapter now delegates to the existing web adapter normalizer,
+already in its dependency chain. Its private method signature remains stable.
+No price parsing, business rule, tool schema or external recipient changes.
+The duplicated 13-line algorithm has one owner; no new runtime module was added.
+
+49 focused automotive/web/Gateway tests passed. A regression matrix fixes
+fallback, finite integer conversion, overflow and upper/lower-bound semantics.
+Original versus candidate results matched in 3174 synthetic cases with three
+minimum values, invalid types, random fractions, numeric strings and extremes.
+This is a maintenance improvement; no latency improvement is claimed.
+The final combined candidate passed the full local CI profile: 2863 runtime
+tests in 648.661 seconds, 31 release tests in 2.647 seconds, runtime combined
+line/branch coverage 81.78%, all audit/parity/browser/performance gates. The
+publication identity of this final slice is the enclosing Git commit (recoverable
+with `git log -1 -- tech_debt/SWEEP.md`); its exact-SHA GitHub quality checks are
+the hosted acceptance record. Publication is accepted only when all required
+jobs succeed, and the final user report records the SHA and run URL.
+
+## Follow-ups outside this pass
+
+- Keep payroll, finance, pricing and order behavior unchanged as instructed.
+  The measured payroll/order detachment observations are not applied patches.
+- Before changing normalization during reads, inventory supported stored formats,
+  side effects and migration/rollback using synthetic fixtures. No live business
+  GET was used as a supposedly harmless probe.
+- Moving individual connection tests or the ChatGPT wizard to workers needs its
+  own cancellation and preflight sequencing design; only the full diagnostic
+  button changed here.
+- Retain deployed compatibility names and all backup schemas; retirement requires
+  client/data inventory and a separate migration decision.
+- Windows installer execution, real printer output, external-provider availability
+  and production rollout remain unverified and outside publication scope.
+
+The pass is a subsystem-boundary review backed by existing and added regression
+checks, not a proof that every possible defect is absent. Final cross-subsystem
+verification uses the complete CI profile on the last combined candidate and
+GitHub quality jobs on its exact published SHA. Source totals are 167 -> 169
+tracked runtime Python files and 101056 -> 101159 lines (+103); projection and
+worker ownership, rather than net deletion, explain the change. Business service
+rules, storage, API/MCP, printing and browser source files have no diff from the
+baseline (except the documented snapshot read boundary). The original manager
+worktree remains separate and untouched. The subsystem review and local final
+verification are complete; hosted acceptance belongs to the enclosing commit's
+checks, not to a prediction written before that run.

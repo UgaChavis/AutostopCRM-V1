@@ -21,6 +21,7 @@ from .source_registry import (
 from .web_tools import (
     DuckDuckGoSearchClient,
     InternetToolError,
+    _normalize_int,
     _normalize_seconds,
     redact_public_vin_text,
     sanitize_public_search_query,
@@ -983,19 +984,7 @@ class AutomotiveLookupService:
         return text
 
     def _normalize_limit(self, value: Any, *, default: int, minimum: int = 1, maximum: int) -> int:
-        if isinstance(value, bool) or (isinstance(value, float) and not value.is_integer()):
-            return default
-        try:
-            numeric = float(value)
-        except (TypeError, ValueError, OverflowError):
-            return default
-        if not math.isfinite(numeric) or not numeric.is_integer():
-            return default
-        if numeric < minimum:
-            return default
-        if numeric > maximum:
-            return maximum
-        return int(numeric)
+        return _normalize_int(value, default=default, minimum=minimum, maximum=maximum)
 
     def _normalize_vehicle_context(self, vehicle_context: dict[str, Any] | None) -> dict[str, Any]:
         payload = vehicle_context if isinstance(vehicle_context, dict) else {}

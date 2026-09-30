@@ -128,6 +128,35 @@ def _client_factory(payload: object) -> type:
 
 
 class AutomotiveLookupServiceTests(unittest.TestCase):
+    def test_search_limit_normalization_preserves_defaults_and_bounds(self) -> None:
+        service, _ = _service_with_fake_search()
+        cases = (
+            (None, 5),
+            (True, 5),
+            (False, 5),
+            ("", 5),
+            ("invalid", 5),
+            ([], 5),
+            ({}, 5),
+            (1.5, 5),
+            ("1.5", 5),
+            (float("nan"), 5),
+            (float("inf"), 5),
+            (-float("inf"), 5),
+            (-1, 5),
+            (1, 1),
+            ("2.0", 2),
+            ("2e2", 10),
+            (1e308, 10),
+            (10**1000, 5),
+        )
+        for value, expected in cases:
+            with self.subTest(value=value):
+                self.assertEqual(service._normalize_limit(value, default=5, maximum=10), expected)
+        self.assertEqual(service._normalize_limit(0, default=5, minimum=0, maximum=10), 0)
+        self.assertEqual(service._normalize_limit(0, default=5, minimum=1, maximum=10), 5)
+        self.assertEqual(service._normalize_limit(2, default=5, minimum=3, maximum=10), 5)
+
     def test_cache_key_sanitizes_non_finite_numbers(self) -> None:
         service = AutomotiveLookupService()
 
