@@ -10,6 +10,7 @@ import re
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
+from time import monotonic
 from typing import Any
 
 from ..config import get_telegram_behavior_owner_login
@@ -17,6 +18,7 @@ from ..storage.file_lock import ProcessFileLock
 from .errors import ServiceError
 from .manager_structure_routing import (
     RouteUnavailable,
+    RoutingTimeout,
     _anchor_from_point,
     _anchor_point,
     _manual_routes_clear,
@@ -388,7 +390,7 @@ class ManagerStructureService:
             _bad("Ручной маршрут проходит через постороннюю карточку.")
         if not all(
             _points_from_path(edge["path"]) is not None for edge in diagram["relations"]
-        ) or route_conflicts(diagram):
+        ) or route_conflicts(diagram, parallel_gap=10):
             _bad("Ручной маршрут пересекает или перекрывает существующую связь.")
 
     def _read(self) -> dict[str, Any]:
@@ -511,6 +513,7 @@ class ManagerStructureService:
                 )
         failure = None
         blocked_by = None
+        deadline = monotonic() + 2
         for dx, dy in positions:
             candidate = copy.deepcopy(data)
             if requested is not None:
@@ -560,11 +563,19 @@ class ManagerStructureService:
                     previous=previous,
                     changed_node=moved_id,
                     changed_relation=changed_relation,
+                    deadline=deadline,
                 )
                 _validate(candidate)
                 return candidate, bool(dx or dy)
             except RouteUnavailable as error:
                 failure = error
+            except RoutingTimeout as error:
+                raise ServiceError(
+                    "manager_structure_routing_timeout",
+                    str(error) + " Перемещение не сохранено.",
+                    status_code=422,
+                    details={"relation_id": error.relation_id},
+                ) from error
         raise ServiceError(
             "manager_structure_route_unavailable",
             (
@@ -606,6 +617,7 @@ class ManagerStructureService:
             "remove_relation",
             "set_canvas",
             "replace",
+            "reroute",
         }:
             _bad("Неизвестная операция конструктора.")
         request = {
@@ -613,6 +625,8 @@ class ManagerStructureService:
             for field in ("operation", "element", "relation", "id", "canvas", "diagram")
             if field in payload
         }
+        if preview:
+            request["preview"] = True
         digest = hashlib.sha256(
             json.dumps(request, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()
@@ -644,6 +658,8 @@ class ManagerStructureService:
                     _bad("Нужен переносимый шаблон схемы.")
                 for field in ("schema_version", "canvas", "elements", "relations"):
                     next_data[field] = copy.deepcopy(diagram.get(field))
+            elif operation == "reroute":
+                pass
             elif operation == "set_canvas":
                 next_data["canvas"] = copy.deepcopy(payload.get("canvas"))
             elif operation in {
@@ -693,6 +709,19 @@ class ManagerStructureService:
             self._prepare_manual_routes(next_data)
             _validate(next_data)
             adjusted = False
+            if operation == "reroute":
+                try:
+                    route_diagram(next_data)
+                    _validate(next_data)
+                except (RouteUnavailable, RoutingTimeout) as error:
+                    raise ServiceError(
+                        "manager_structure_route_unavailable"
+                        if isinstance(error, RouteUnavailable)
+                        else "manager_structure_routing_timeout",
+                        str(error),
+                        status_code=422,
+                        details={"relation_id": error.relation_id},
+                    ) from error
             if operation in {"layout_element", "layout_relation"}:
                 next_data, adjusted = self._route_layout(
                     next_data,
@@ -710,6 +739,24 @@ class ManagerStructureService:
                     "diagram": self._public(next_data),
                     "adjusted": adjusted,
                     "preview": True,
+                    "saved_digest": hashlib.sha256(
+                        json.dumps(
+                            self._public(data),
+                            ensure_ascii=False,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ).encode()
+                    ).hexdigest(),
+                    "routes": {
+                        relation["id"]: relation["path"] for relation in next_data["relations"]
+                    },
+                    "labels": {
+                        relation["id"]: {
+                            field: relation.get(field)
+                            for field in ("label_x", "label_y", "auto_hidden_label")
+                        }
+                        for relation in next_data["relations"]
+                    },
                 }
             next_data["version"] += 1
             result = {
@@ -722,9 +769,16 @@ class ManagerStructureService:
                     relation for relation in next_data["relations"] if relation["id"] == item["id"]
                 )
                 result["accepted_relation"] = copy.deepcopy(accepted_relation)
-            if operation in {"layout_element", "layout_relation"}:
+            if operation in {"layout_element", "layout_relation", "reroute"}:
                 result["routes"] = {
                     relation["id"]: relation["path"] for relation in next_data["relations"]
+                }
+                result["labels"] = {
+                    relation["id"]: {
+                        field: relation.get(field)
+                        for field in ("label_x", "label_y", "auto_hidden_label")
+                    }
+                    for relation in next_data["relations"]
                 }
             if operation == "layout_element":
                 accepted = next(node for node in next_data["elements"] if node["id"] == item["id"])

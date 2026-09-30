@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import copy
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -16,7 +18,10 @@ ensure_source_path()
 from minimal_kanban.services.errors import ServiceError  # noqa: E402
 from minimal_kanban.services.manager_structure import ManagerStructureService  # noqa: E402
 from minimal_kanban.services.manager_structure_routing import (  # noqa: E402
+    RoutingTimeout,
+    _anchor_from_point,
     _blocked_by_node,
+    _point_segment_distance,
     _points_from_path,
     _reanchor_path,
     _segment_through_box,
@@ -436,7 +441,8 @@ class ManagerStructureTests(unittest.TestCase):
             "width": 205,
             "height": 60,
         }
-        self.assertFalse(_blocked_by_node((165.333, 808), (165.333, 694), node))
+        self.assertFalse(_blocked_by_node((165.333, 808), (165.333, 704), node))
+        self.assertTrue(_blocked_by_node((165.333, 808), (165.333, 694), node))
         self.assertTrue(_blocked_by_node((20, 650), (250, 650), node))
         self.assertTrue(_blocked_by_node((20, 620), (250, 704), node))
 
@@ -525,6 +531,7 @@ class ManagerStructureTests(unittest.TestCase):
                         any(_blocked_by_node(a, b, node) for a, b in segments),
                         (relation["id"], node["id"]),
                     )
+
         for label in reference["relations"]:
             if label.get("auto_hidden_label") or label.get("show_label") is False:
                 continue
@@ -545,6 +552,83 @@ class ManagerStructureTests(unittest.TestCase):
                         ),
                         (relation["id"], label["id"]),
                     )
+
+    def test_reroute_preview_exact_geometry_and_semantic_preservation(self) -> None:
+        reference = json.loads(
+            (
+                Path(__file__).resolve().parents[1] / "templates" / "manager_structure.json"
+            ).read_text(encoding="utf-8")
+        )
+        self.apply(0, "reroute-reference-001", "replace", diagram=reference)
+        before = self.service.read()
+        stored = self.path.read_bytes()
+        started = time.monotonic()
+        preview = self.apply(1, "reroute-preview-001", "reroute", preview=True)
+        elapsed = time.monotonic() - started
+        self.assertEqual(self.path.read_bytes(), stored)
+        self.assertEqual(preview["version"], 1)
+        self.assertEqual(preview["diagram"]["elements"], before["elements"])
+        geometry = {"path", "label_x", "label_y", "auto_hidden_label"}
+        self.assertEqual(
+            [{k: v for k, v in edge.items() if k not in geometry} for edge in before["relations"]],
+            [
+                {k: v for k, v in edge.items() if k not in geometry}
+                for edge in preview["diagram"]["relations"]
+            ],
+        )
+        written = self.apply(1, "reroute-save-001", "reroute")
+        saved = self.service.read()
+        self.assertEqual(written["version"], 2)
+        self.assertEqual(written["routes"], preview["routes"])
+        self.assertEqual(written["labels"], preview["labels"])
+        self.assertEqual(
+            written["routes"], {edge["id"]: edge["path"] for edge in saved["relations"]}
+        )
+        self.assertTrue(self.apply(1, "reroute-save-001", "reroute")["deduplicated"])
+        nodes = {node["id"]: node for node in saved["elements"]}
+        for edge in saved["relations"]:
+            points = _points_from_path(edge["path"])
+            for endpoint, first, second in (
+                ("from", points[0], points[1]),
+                ("to", points[-1], points[-2]),
+            ):
+                side = _anchor_from_point(nodes[edge[endpoint]], first)["side"]
+                self.assertEqual(first[1] == second[1], side in {"left", "right"}, edge["id"])
+                self.assertGreaterEqual(
+                    abs(first[0] - second[0]) + abs(first[1] - second[1]),
+                    16 if len(points) > 2 else 0,
+                    edge["id"],
+                )
+            if edge.get("show_label", True):
+                self.assertFalse(edge["auto_hidden_label"])
+                self.assertLessEqual(
+                    min(
+                        _point_segment_distance((edge["label_x"], edge["label_y"]), a, b)
+                        for a, b in _segments(points)
+                    ),
+                    0.001,
+                    edge["id"],
+                )
+        started = time.monotonic()
+        self.apply(
+            2,
+            "reroute-narrow-001",
+            "layout_relation",
+            relation={"id": "L25", "label": "Agent context"},
+            preview=True,
+        )
+        print(f"manager routing: full={elapsed:.3f}s, narrow={time.monotonic() - started:.3f}s")
+
+    def test_routing_timeout_is_atomic_and_identifies_relation(self) -> None:
+        stored = copy.deepcopy(self.service.read())
+        with patch(
+            "minimal_kanban.services.manager_structure.route_diagram",
+            side_effect=RoutingTimeout("L12"),
+        ):
+            with self.assertRaisesRegex(ServiceError, "L12") as raised:
+                self.apply(0, "timeout-reroute-001", "reroute")
+        self.assertEqual(raised.exception.details["relation_id"], "L12")
+        self.assertEqual(self.service.read(), stored)
 
     def test_impossible_layout_keeps_previous_version(self) -> None:
         diagram = {

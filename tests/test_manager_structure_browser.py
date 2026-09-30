@@ -579,6 +579,54 @@ class ManagerStructureBrowserTests(unittest.TestCase):
         self.assertEqual(
             self.page.locator('.edge[data-id="L29"] path.hit').get_attribute("d"), l29["path"]
         )
+        self.page.locator('.edge[data-id="L29"]').focus()
+        self.page.locator("#relationTooltip").wait_for(state="visible")
+        self.assertIn(l29["label"], self.page.locator("#relationTooltip").inner_text())
+        self.assertTrue(
+            self.page.locator("marker").evaluate_all(
+                "nodes => nodes.every(node => node.getAttribute('markerUnits') === 'userSpaceOnUse' && node.getAttribute('markerWidth') === '14')"
+            )
+        )
+        for edge in saved["relations"]:
+            wire = self.page.locator(f'.edge[data-id="{edge["id"]}"] path.wire')
+            self.assertEqual(
+                bool(wire.get_attribute("marker-end")), edge["direction"] in {"forward", "both"}
+            )
+            self.assertEqual(
+                bool(wire.get_attribute("marker-start")), edge["direction"] in {"reverse", "both"}
+            )
+        self.page.locator("#modeToggle").click()
+        self.page.locator("#jump").select_option("element:A2")
+        self.page.locator('[name="instruction"]').fill("Открытый черновик владельца")
+        viewport = self.page.locator("#stage").get_attribute("transform")
+        updated = self.context.request.post(
+            self.runtime.base_url + "/api/manager_structure/apply",
+            headers={"X-Operator-Session": self.admin},
+            data={
+                "operation": "upsert_element",
+                "element": {"id": "J1", "title": "Внешняя агентская правка"},
+                "expected_version": saved["version"],
+                "idempotency_key": "external-dialogue-write-001",
+            },
+        )
+        self.assertEqual(updated.status, 200)
+        self.page.wait_for_function(
+            "() => document.querySelector('.node[data-id=J1]')?.getAttribute('aria-label').includes('Внешняя агентская правка')",
+            timeout=5700,
+        )
+        self.assertEqual(
+            self.page.locator('[name="instruction"]').input_value(), "Открытый черновик владельца"
+        )
+        self.assertEqual(self.page.locator("#stage").get_attribute("transform"), viewport)
+        self.assertTrue(self.page.locator("#reloadSchema").is_visible())
+        self.page.locator("#cancel").click()
+        self.page.locator("#modeToggle").click()
+        self.page.locator("#fit").evaluate("node => node.click()")
+        screenshot_dir = os.environ.get("AUTOSTOP_BROWSER_SMOKE_SCREENSHOT_DIR")
+        if screenshot_dir:
+            destination = Path(screenshot_dir) / "manager-structure-updated-local.png"
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            self.page.screenshot(path=str(destination))
         self.assertEqual(self.errors, [])
 
 

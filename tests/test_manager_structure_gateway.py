@@ -35,6 +35,35 @@ class ManagerStructureGatewayTests(unittest.IsolatedAsyncioTestCase):
             relation["properties"]["from_anchor"]["properties"]["offset"]["maximum"], 1
         )
         self.assertEqual(relation["properties"]["route_mode"]["enum"], ["auto", "manual"])
+        self.assertIn("reroute", schema["properties"]["operation"]["enum"])
+        for element in (
+            {"id": "M1", "x": 112.5, "parent": None},
+            {"id": "M1", "instruction": "Context", "lines": ["Summary"]},
+        ):
+            self.assertEqual(
+                virtual_api_argument_errors(
+                    "/api/manager_structure/apply",
+                    {
+                        "operation": "layout_element",
+                        "expected_version": 3,
+                        "idempotency_key": "typed-module-001",
+                        "element": element,
+                    },
+                ),
+                [],
+            )
+        self.assertEqual(
+            virtual_api_argument_errors(
+                "/api/manager_structure/apply",
+                {
+                    "operation": "layout_relation",
+                    "expected_version": 3,
+                    "idempotency_key": "typed-anchor-001",
+                    "relation": {"id": "L1", "from_anchor": {"side": "right", "offset": 1.1}},
+                },
+            ),
+            ["arguments.relation.from_anchor.offset:maximum"],
+        )
         self.assertFalse(
             virtual_api_argument_errors(
                 "/api/manager_structure/apply",
@@ -125,6 +154,7 @@ class ManagerStructureGatewayTests(unittest.IsolatedAsyncioTestCase):
                 "adjusted": True,
                 "accepted_element": {"id": "M1", "x": 112, "y": 40, "width": 180, "height": 90},
                 "routes": {"R1": "M292 85 H500"},
+                "labels": {"R1": {"label_x": None, "label_y": None, "auto_hidden_label": None}},
             },
         }
         good = await verify_virtual_api_write_readback(
@@ -166,6 +196,89 @@ class ManagerStructureGatewayTests(unittest.IsolatedAsyncioTestCase):
             invoke,
         )
         self.assertTrue(checked["passed"])
+
+    async def test_preview_verifies_unchanged_saved_snapshot_and_reroute_labels(self) -> None:
+        import hashlib
+        import json
+
+        saved = {
+            "schema_version": "autostopcrm.manager-structure.v1",
+            "version": 7,
+            "canvas": {"width": 800, "height": 600},
+            "elements": [],
+            "relations": [
+                {
+                    "id": "R1",
+                    "path": "M100 100 H500",
+                    "label_x": 300,
+                    "label_y": 100,
+                    "auto_hidden_label": False,
+                }
+            ],
+        }
+
+        async def invoke(_name, _arguments):
+            return {"ok": True, "data": {**saved, "can_edit": True}}
+
+        digest = hashlib.sha256(
+            json.dumps(saved, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        preview = {
+            "ok": True,
+            "data": {
+                "version": 7,
+                "preview": True,
+                "saved_digest": digest,
+                "diagram": {**saved, "elements": [{"id": "M1", "title": "Draft only"}]},
+            },
+        }
+        checked = await verify_virtual_api_write_readback(
+            "api:/api/manager_structure/apply",
+            {
+                "operation": "upsert_element",
+                "expected_version": 7,
+                "preview": True,
+                "element": {"id": "M1", "title": "Draft only"},
+            },
+            preview,
+            invoke,
+        )
+        self.assertTrue(checked["passed"])
+        self.assertEqual(checked["check"], "manager_structure_preview_non_mutating_readback")
+        saved["relations"][0]["label_x"] = 310
+        self.assertFalse(
+            (
+                await verify_virtual_api_write_readback(
+                    "api:/api/manager_structure/apply",
+                    {"operation": "reroute", "expected_version": 7, "preview": True},
+                    preview,
+                    invoke,
+                )
+            )["passed"]
+        )
+        result = {
+            "ok": True,
+            "data": {
+                "version": 7,
+                "routes": {"R1": "M100 100 H500"},
+                "labels": {"R1": {"label_x": 310, "label_y": 100, "auto_hidden_label": False}},
+            },
+        }
+        self.assertTrue(
+            (
+                await verify_virtual_api_write_readback(
+                    "api:/api/manager_structure/apply", {"operation": "reroute"}, result, invoke
+                )
+            )["passed"]
+        )
+        result["data"]["labels"]["R1"]["label_y"] = 101
+        self.assertFalse(
+            (
+                await verify_virtual_api_write_readback(
+                    "api:/api/manager_structure/apply", {"operation": "reroute"}, result, invoke
+                )
+            )["passed"]
+        )
 
 
 if __name__ == "__main__":

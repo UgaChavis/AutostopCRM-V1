@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
@@ -1292,23 +1293,23 @@ def virtual_api_argument_errors(route: str, arguments: Mapping[str, Any]) -> lis
 
     def validate(value: Any, rule: Mapping[str, Any], path: str) -> None:
         expected_type = rule.get("type")
-        type_matches = (
-            expected_type == "object"
-            and isinstance(value, Mapping)
-            or expected_type == "array"
-            and isinstance(value, list)
-            or expected_type == "string"
-            and isinstance(value, str)
-            or expected_type == "integer"
-            and isinstance(value, int)
-            and not isinstance(value, bool)
-            or expected_type == "boolean"
-            and isinstance(value, bool)
-            or expected_type is None
-        )
+        types = expected_type if isinstance(expected_type, list) else [expected_type]
+        matches = {
+            "object": isinstance(value, Mapping),
+            "array": isinstance(value, list),
+            "string": isinstance(value, str),
+            "integer": type(value) is int,
+            "number": type(value) is int or type(value) is float and math.isfinite(value),
+            "boolean": isinstance(value, bool),
+            "null": value is None,
+            None: True,
+        }
+        type_matches = any(matches.get(kind, False) for kind in types)
         if not type_matches:
             errors.append(f"{path}:type")
             return
+        if "const" in rule and value != rule["const"]:
+            errors.append(f"{path}:const")
         if isinstance(value, Mapping):
             properties = (
                 rule.get("properties") if isinstance(rule.get("properties"), Mapping) else {}
@@ -1344,9 +1345,11 @@ def virtual_api_argument_errors(route: str, arguments: Mapping[str, Any]) -> lis
                 errors.append(f"{path}:pattern")
             if isinstance(rule.get("enum"), list) and value not in rule["enum"]:
                 errors.append(f"{path}:enum")
-        elif isinstance(value, int) and isinstance(rule.get("minimum"), int):
-            if value < rule["minimum"]:
+        elif type(value) in {int, float}:
+            if isinstance(rule.get("minimum"), (int, float)) and value < rule["minimum"]:
                 errors.append(f"{path}:minimum")
+            if isinstance(rule.get("maximum"), (int, float)) and value > rule["maximum"]:
+                errors.append(f"{path}:maximum")
 
     validate(arguments, schema, "arguments")
     if route == "/api/save_completion_act_form":

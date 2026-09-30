@@ -12,11 +12,22 @@ from bisect import bisect_left, bisect_right
 from collections import defaultdict
 from heapq import heappop, heappush
 from itertools import count
+from time import monotonic
 
-CLEARANCE = 2
+CLEARANCE = 12
 LANE = 4
-PARALLEL_GAP = 10
-CROSSING_COST = 24
+TERMINAL_LENGTH = 16
+PARALLEL_GAP = 16
+BEND_COST = 24
+CROSSING_COST = 96
+
+
+class RoutingTimeout(ValueError):
+    def __init__(self, relation_id: str) -> None:
+        self.relation_id = relation_id
+        super().__init__(f"Превышено время расчёта связи {relation_id}.")
+
+
 _PATH_TOKEN = re.compile(r"[MLHVQC]|[+-]?(?:\d+(?:\.\d*)?|\.\d+)")
 _PATH_ARGS = {"M": 2, "L": 2, "H": 1, "V": 1, "Q": 4, "C": 6}
 
@@ -56,12 +67,12 @@ def _port(node: dict, side: str, index: int, total: int) -> tuple[float, float]:
 
 def _outside(port: tuple[float, float], side: str) -> tuple[float, float]:
     if side == "left":
-        return port[0] - LANE, port[1]
+        return port[0] - TERMINAL_LENGTH, port[1]
     if side == "right":
-        return port[0] + LANE, port[1]
+        return port[0] + TERMINAL_LENGTH, port[1]
     if side == "top":
-        return port[0], port[1] - LANE
-    return port[0], port[1] + LANE
+        return port[0], port[1] - TERMINAL_LENGTH
+    return port[0], port[1] + TERMINAL_LENGTH
 
 
 def _segments(points: list[tuple[float, float]]):
@@ -472,7 +483,7 @@ def _segment_through_box(segment, box) -> bool:
     return min(1.0, upper) - max(0.0, lower) > 1e-9
 
 
-def _label(points, edge, diagram, placed, routed):
+def _label(points, edge, diagram, placed, routed, deadline=None):
     content = edge["id"]
     width = max(38, min(edge.get("label_max_width", 220), len(content) * 7.1 + 16))
     segments = sorted(
@@ -483,50 +494,61 @@ def _label(points, edge, diagram, placed, routed):
         ),
     )
     for a, b in segments:
-        for ratio in (0.5, 0.25, 0.75, 0.1, 0.9, 0.15, 0.85):
-            base_x, base_y = a[0] + (b[0] - a[0]) * ratio, a[1] + (b[1] - a[1]) * ratio
-            for offset in (0, -24, 24, -48, 48, -80, 80, -128, 128):
-                x = base_x + (offset if a[0] == b[0] else 0)
-                y = base_y + (offset if a[1] == b[1] else 0)
-                box = (x - width / 2, y - 14, x + width / 2, y + 14)
-                if (
-                    box[0] < 4
-                    or box[1] < 4
-                    or box[2] > diagram["canvas"]["width"] - 4
-                    or box[3] > diagram["canvas"]["height"] - 4
-                ):
-                    continue
-                if any(
-                    box[0] < node["x"] + node["width"]
-                    and box[2] > node["x"]
-                    and box[1] < node["y"] + node["height"]
-                    and box[3] > node["y"]
-                    for node in diagram["elements"]
-                ):
-                    continue
-                if any(
-                    box[0] < other[2] + 4
-                    and box[2] + 4 > other[0]
-                    and box[1] < other[3] + 4
-                    and box[3] + 4 > other[1]
-                    for other in placed
-                ):
-                    continue
-                if any(
-                    _segment_through_box(segment, box)
-                    for other_id, route in routed.items()
-                    if other_id != edge["id"]
-                    for segment in _segments(route)
-                ):
-                    continue
+        length = math.dist(a, b)
+        margin = (width / 2 if a[1] == b[1] else 14) + 4
+        if length < margin * 2:
+            continue
+        candidates = {length / 2, margin, length - margin}
+        candidates.update(margin + step * 8 for step in range(int((length - 2 * margin) / 8) + 1))
+        for distance in sorted(candidates, key=lambda value: (abs(value - length / 2), value)):
+            if deadline is not None and monotonic() > deadline:
+                raise RoutingTimeout(edge["id"])
+            ratio = distance / length
+            x, y = a[0] + (b[0] - a[0]) * ratio, a[1] + (b[1] - a[1]) * ratio
+            box = (x - width / 2, y - 14, x + width / 2, y + 14)
+            if (
+                box[0] < 4
+                or box[1] < 4
+                or box[2] > diagram["canvas"]["width"] - 4
+                or box[3] > diagram["canvas"]["height"] - 4
+            ):
+                continue
+            if any(
+                box[0] < node["x"] + node["width"] + 4
+                and box[2] + 4 > node["x"]
+                and box[1] < node["y"] + node["height"] + 4
+                and box[3] + 4 > node["y"]
+                for node in diagram["elements"]
+            ):
+                continue
+            if any(
+                box[0] < other[2] + 4
+                and box[2] + 4 > other[0]
+                and box[1] < other[3] + 4
+                and box[3] + 4 > other[1]
+                for other in placed
+            ):
+                continue
+            if any(
+                _segment_through_box(segment, box)
+                for other_id, route in routed.items()
+                if other_id != edge["id"]
+                for segment in _segments(route)
+            ):
+                continue
+            if edge.get("show_label", True):
                 placed.append(box)
-                return x, y, True
+            return x, y, True
     a, b = segments[0]
     x, y = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
     return x, y, False
 
 
-def _route(start, end, obstacles, occupied, canvas, start_axis, end_axis):
+def _route(
+    start, end, obstacles, occupied, canvas, start_axis, end_axis, deadline=None, relation_id=""
+):
+    if any(_blocked_by_node(point, point, node) for point in (start, end) for node in obstacles):
+        return None
     width, height = canvas["width"], canvas["height"]
     xs = {0.0, float(width), start[0], end[0]}
     ys = {0.0, float(height), start[1], end[1]}
@@ -553,8 +575,8 @@ def _route(start, end, obstacles, occupied, canvas, start_axis, end_axis):
     ex, ey = xx.index(end[0]), yy.index(end[1])
     counter = count()
     initial = (sx, sy, 0)
-    heap = [(0, 0.0, next(counter), initial)]
-    best = {initial: (0, 0.0)}
+    heap = [(abs(start[0] - end[0]) + abs(start[1] - end[1]), 0.0, next(counter), initial)]
+    best = {initial: 0.0}
     previous = {}
     blocked_cache = {}
     horizontal: dict[float, list[tuple[float, float]]] = defaultdict(list)
@@ -654,8 +676,10 @@ def _route(start, end, obstacles, occupied, canvas, start_axis, end_axis):
         return None if extra is None else crossings + extra
 
     while heap:
-        bends, distance, _, state = heappop(heap)
-        if (bends, distance) != best[state]:
+        if deadline is not None and monotonic() > deadline:
+            raise RoutingTimeout(relation_id)
+        _, distance, _, state = heappop(heap)
+        if distance != best[state]:
             continue
         ix, iy, direction = state
         if ix == ex and iy == ey and direction == end_axis:
@@ -665,30 +689,39 @@ def _route(start, end, obstacles, occupied, canvas, start_axis, end_axis):
                 path.append((xx[state[0]], yy[state[1]]))
             path.reverse()
             return _compress(path)
-        for step_x, step_y, next_direction in ((1, 0, 1), (-1, 0, 1), (0, 1, 2), (0, -1, 2)):
-            if direction == 0 and next_direction != start_axis:
+        for step_x, step_y, next_direction in ((1, 0, 1), (-1, 0, -1), (0, 1, 2), (0, -1, -2)):
+            signed_direction = step_x if step_x else 2 * step_y
+            if direction == 0 and signed_direction != start_axis:
+                continue
+            if direction and next_direction == -direction:
                 continue
             if direction and direction != next_direction and on_occupied((xx[ix], yy[iy])):
                 continue
             nx, ny = ix + step_x, iy + step_y
+            if nx == ex and ny == ey and signed_direction != end_axis:
+                continue
             if nx < 0 or nx >= len(xx) or ny < 0 or ny >= len(yy):
                 continue
             a, b = (xx[ix], yy[iy]), (xx[nx], yy[ny])
-            key = (min(ix, nx), min(iy, ny), next_direction)
+            key = (min(ix, nx), min(iy, ny), abs(next_direction))
             if key not in blocked_cache:
                 blocked_cache[key] = obstructed(a, b)
             crossings = blocked_cache[key]
             if crossings is None:
                 continue
             new_cost = (
-                bends + int(direction != 0 and direction != next_direction),
-                distance + abs(a[0] - b[0]) + abs(a[1] - b[1]) + CROSSING_COST * crossings,
+                distance
+                + abs(a[0] - b[0])
+                + abs(a[1] - b[1])
+                + CROSSING_COST * crossings
+                + BEND_COST * int(direction != 0 and direction != next_direction)
             )
             next_state = (nx, ny, next_direction)
-            if new_cost < best.get(next_state, (float("inf"), float("inf"))):
+            if new_cost < best.get(next_state, float("inf")):
                 best[next_state] = new_cost
                 previous[next_state] = state
-                heappush(heap, (*new_cost, next(counter), next_state))
+                heuristic = abs(b[0] - end[0]) + abs(b[1] - end[1])
+                heappush(heap, (new_cost + heuristic, new_cost, next(counter), next_state))
     return None
 
 
@@ -743,51 +776,76 @@ def _manual_routes_clear(diagram: dict) -> bool:
             if node["id"] in {edge["from"], edge["to"]}:
                 continue
             box = (
-                node["x"] - CLEARANCE,
-                node["y"] - CLEARANCE,
-                node["x"] + node["width"] + CLEARANCE,
-                node["y"] + node["height"] + CLEARANCE,
+                node["x"] - 2,
+                node["y"] - 2,
+                node["x"] + node["width"] + 2,
+                node["y"] + node["height"] + 2,
             )
             if any(_segment_through_box(segment, box) for segment in _segments(points)):
                 return False
     return True
 
 
-def _route_incremental(
-    diagram, previous, changed_node, changed_relation, assigned, preferred
-) -> bool:
-    old_edges = {edge["id"]: edge for edge in previous["relations"]}
-    old_points = {ident: _points_from_path(edge["path"]) for ident, edge in old_edges.items()}
-    if any(points is None for points in old_points.values()) or route_conflicts(previous):
-        return False
+def _label_box(edge):
+    width = max(38, min(edge.get("label_max_width", 220), len(edge["id"]) * 7.1 + 16))
+    return (
+        edge["label_x"] - width / 2,
+        edge["label_y"] - 14,
+        edge["label_x"] + width / 2,
+        edge["label_y"] + 14,
+    )
+
+
+def _port_candidates(node, other, edge, endpoint, side, assigned):
+    preferred = assigned[(edge["id"], endpoint)][side]
+    if (edge.get(f"{endpoint}_anchor") or {}).get("side") in {"left", "right", "top", "bottom"}:
+        return [preferred]
+    horizontal = side in {"top", "bottom"}
+    length = node["width"] if horizontal else node["height"]
+    total = max(1, int((length - 28) / PARALLEL_GAP) + 1)
+    positions = [_port(node, side, index, total) for index in range(total)]
+    # Use the full available side with at least 16 units between slots.
+    if total > 1:
+        positions = []
+        for index in range(total):
+            offset = 14 + index * (length - 28) / (total - 1)
+            positions.append(_anchor_point(node, {"side": side, "offset": offset / length}))
+    axis = 0 if horizontal else 1
+    return sorted(
+        positions,
+        key=lambda point: (
+            abs(point[axis] - preferred[axis]),
+            abs(point[axis] - _center(other)[axis]),
+            point,
+        ),
+    )
+
+
+def _route_pass(diagram, order, assigned, preferred, deadline, retained=None):
     nodes = {node["id"]: node for node in diagram["elements"]}
-    affected = {changed_relation} if changed_relation else set()
-    if changed_node:
-        moved = nodes[changed_node]
-        for edge in diagram["relations"]:
-            if changed_node in {edge["from"], edge["to"]}:
-                affected.add(edge["id"])
-            elif edge["id"] in old_points and any(
-                _blocked_by_node(a, b, moved) for a, b in _segments(old_points[edge["id"]])
-            ):
-                affected.add(edge["id"])
-    if not affected:
-        return False
-    routed = {
-        edge["id"]: old_points[edge["id"]]
-        for edge in diagram["relations"]
-        if edge["id"] not in affected and edge["id"] in old_points
-    }
-    if len(routed) + len(affected) != len(diagram["relations"]):
-        return False
+    routed = dict(retained or {})
     occupied = [segment for points in routed.values() for segment in _segments(points)]
-    for edge in (edge for edge in diagram["relations"] if edge["id"] in affected):
-        if edge.get("route_mode", "auto") == "manual":
-            points = _points_from_path(edge["path"])
-            if points is None:
-                return False
-            routed[edge["id"]] = points
-            occupied.extend(_segments(points))
+    placed = []
+    for edge in order:
+        if monotonic() > deadline:
+            raise RoutingTimeout(edge["id"])
+        if edge["id"] in routed or edge.get("route_mode", "auto") == "manual":
+            points = routed.get(edge["id"]) or _points_from_path(edge["path"])
+            if not points:
+                raise RouteUnavailable(edge["id"])
+            if edge["id"] not in routed:
+                occupied.extend(_segments(points))
+                routed[edge["id"]] = points
+            if edge.get("show_label", True):
+                if edge.get("label_mode", "auto") == "manual":
+                    placed.append(_label_box(edge))
+                else:
+                    edge["label_x"], edge["label_y"], visible = _label(
+                        points, edge, diagram, placed, routed, deadline
+                    )
+                    if not visible:
+                        raise RouteUnavailable(edge["id"])
+                    edge["auto_hidden_label"] = False
             continue
         source, target = nodes[edge["from"]], nodes[edge["to"]]
         excluded = {source.get("parent"), target.get("parent")}
@@ -796,124 +854,108 @@ def _route_incremental(
         if target.get("parent") == source["id"]:
             excluded.add(source["id"])
         obstacles = [node for node in nodes.values() if node["id"] not in excluded]
-        source_key, target_key = (edge["id"], "from"), (edge["id"], "to")
-        source_sides = _side_options(edge, "from", preferred[source_key])
-        target_sides = _side_options(edge, "to", preferred[target_key])
-        points = None
+        # The grid expands obstacles by 12; inset label boxes give a 4-unit margin.
+        obstacles += [
+            {
+                "x": box[0] + 8,
+                "y": box[1] + 8,
+                "width": box[2] - box[0] - 16,
+                "height": box[3] - box[1] - 16,
+            }
+            for box in placed
+        ]
+        source_sides = _side_options(edge, "from", preferred[(edge["id"], "from")])
+        target_sides = _side_options(edge, "to", preferred[(edge["id"], "to")])
+        accepted = None
         for start_side in source_sides:
-            if points:
+            if accepted:
                 break
             for end_side in target_sides:
-                start_port, end_port = (
-                    assigned[source_key][start_side],
-                    assigned[target_key][end_side],
-                )
-                start, end = _outside(start_port, start_side), _outside(end_port, end_side)
-                if any(
-                    _intersects(stub, prior)
-                    for stub in ((start_port, start), (end, end_port))
-                    for prior in occupied
-                ):
-                    continue
-                core = _route(
-                    start,
-                    end,
-                    obstacles,
-                    occupied,
-                    diagram["canvas"],
-                    1 if start_side in {"left", "right"} else 2,
-                    1 if end_side in {"left", "right"} else 2,
-                )
-                if core:
-                    points = _compress([start_port, *core, end_port])
+                if accepted:
                     break
-        if not points:
-            return False
-        routed[edge["id"]] = points
-        occupied.extend(_segments(points))
-    placed = []
-    for edge in diagram["relations"]:
-        points = routed[edge["id"]]
-        if edge.get("route_mode", "auto") != "manual":
-            edge["path"] = _path(points)
-        if edge.get("label_mode", "auto") != "manual":
-            edge["label_x"], edge["label_y"], visible = _label(
-                points, edge, diagram, placed, routed
-            )
-            edge["auto_hidden_label"] = not visible
-    return not route_conflicts(diagram) and _manual_routes_clear(diagram)
-
-
-def route_diagram(
-    diagram: dict,
-    *,
-    previous: dict | None = None,
-    changed_node: str | None = None,
-    changed_relation: str | None = None,
-) -> dict:
-    """Update every SVG path in-place, or raise without returning a partial layout."""
-    nodes = {node["id"]: node for node in diagram["elements"]}
-    relations = diagram["relations"]
-    assigned, preferred = _ports_for(nodes, relations)
-    for edge in relations:
-        if edge.get("route_mode", "auto") != "manual":
-            continue
-        source = assigned[(edge["id"], "from")][preferred[(edge["id"], "from")]]
-        target = assigned[(edge["id"], "to")][preferred[(edge["id"], "to")]]
-        edge["path"] = _reanchor_path(edge["path"], source, target)
-    if previous is not None and _route_incremental(
-        diagram, previous, changed_node, changed_relation, assigned, preferred
-    ):
-        return diagram
-    # A failed relation gets priority in the next pass. Rebuilding from scratch
-    # prevents early local routes from permanently enclosing a later trunk.
-    order = [
-        *[edge for edge in relations if edge.get("route_mode", "auto") == "manual"],
-        *[edge for edge in relations if edge.get("route_mode", "auto") != "manual"],
-    ]
-    seen_orders = set()
-    last_failure = relations[0]["id"] if relations else ""
-    for _attempt in range(min(3, max(1, len(relations) * 2))):
-        signature = tuple(edge["id"] for edge in order)
-        if signature in seen_orders:
-            break
-        seen_orders.add(signature)
-        occupied = []
-        routed = {}
-        for edge in order:
-            source, target = nodes[edge["from"]], nodes[edge["to"]]
-            if edge.get("route_mode", "auto") == "manual":
-                points = _points_from_path(edge["path"])
-                if points is None:
-                    last_failure = edge["id"]
-                    order.remove(edge)
-                    order.insert(0, edge)
-                    break
-                routed[edge["id"]] = points
-                occupied.extend(_segments(points))
-                continue
-            excluded = {source.get("parent"), target.get("parent")}
-            if source.get("parent") == target["id"]:
-                excluded.add(target["id"])
-            if target.get("parent") == source["id"]:
-                excluded.add(source["id"])
-            obstacles = [node for node in nodes.values() if node["id"] not in excluded]
-            source_key, target_key = (edge["id"], "from"), (edge["id"], "to")
-            source_sides = _side_options(edge, "from", preferred[source_key])
-            target_sides = _side_options(edge, "to", preferred[target_key])
-            points = None
-            for start_side in source_sides:
-                if points:
-                    break
-                for end_side in target_sides:
-                    start_port, end_port = (
-                        assigned[source_key][start_side],
-                        assigned[target_key][end_side],
+                starts = _port_candidates(source, target, edge, "from", start_side, assigned)
+                ends = _port_candidates(target, source, edge, "to", end_side, assigned)
+                axis = 1 if start_side in {"left", "right"} else 0
+                facing = (start_side, end_side) in {
+                    ("right", "left"),
+                    ("left", "right"),
+                    ("bottom", "top"),
+                    ("top", "bottom"),
+                }
+                gap = abs(starts[0][1 - axis] - ends[0][1 - axis])
+                forward = (
+                    end_side in {"left", "top"} and ends[0][1 - axis] > starts[0][1 - axis]
+                ) or (end_side in {"right", "bottom"} and ends[0][1 - axis] < starts[0][1 - axis])
+                short = facing and forward and gap < 2 * TERMINAL_LENGTH
+                if short and not edge.get("from_anchor") and not edge.get("to_anchor"):
+                    low = max(source["y" if axis == 1 else "x"], target["y" if axis == 1 else "x"])
+                    high = min(
+                        source["y" if axis == 1 else "x"]
+                        + source["height" if axis == 1 else "width"],
+                        target["y" if axis == 1 else "x"]
+                        + target["height" if axis == 1 else "width"],
                     )
+                    if high > low:
+                        value = (low + high) / 2
+                        starts.insert(
+                            0, (starts[0][0], value) if axis == 1 else (value, starts[0][1])
+                        )
+                        ends.insert(0, (ends[0][0], value) if axis == 1 else (value, ends[0][1]))
+                pairs = sorted((i + j, i, j) for i in range(len(starts)) for j in range(len(ends)))
+                for _, i, j in pairs:
+                    if monotonic() > deadline:
+                        raise RoutingTimeout(edge["id"])
+                    start_port, end_port = starts[i], ends[j]
+                    if short:
+                        if start_port[axis] != end_port[axis]:
+                            continue
+                        direct = (start_port, end_port)
+                        if any(
+                            _blocked_by_node(*direct, node)
+                            for node in obstacles
+                            if node.get("id") not in {source["id"], target["id"]}
+                        ) or any(_intersects(direct, prior) for prior in occupied):
+                            continue
+                        candidate_labels = list(placed)
+                        if edge.get("label_mode", "auto") == "manual":
+                            x, y, visible = edge["label_x"], edge["label_y"], True
+                            if edge.get("show_label", True):
+                                candidate_labels.append(_label_box(edge))
+                        else:
+                            x, y, visible = _label(
+                                list(direct), edge, diagram, candidate_labels, routed, deadline
+                            )
+                        if edge.get("show_label", True) and not visible:
+                            continue
+                        accepted = list(direct)
+                        placed = candidate_labels
+                        edge["label_x"], edge["label_y"], edge["auto_hidden_label"] = (
+                            x,
+                            y,
+                            not visible,
+                        )
+                        break
                     start, end = _outside(start_port, start_side), _outside(end_port, end_side)
+                    stubs = ((start_port, start), (end, end_port))
                     if any(
-                        _intersects(segment, prior)
-                        for segment in ((start_port, start), (end, end_port))
+                        not (
+                            0 <= p[0] <= diagram["canvas"]["width"]
+                            and 0 <= p[1] <= diagram["canvas"]["height"]
+                        )
+                        for p in (start, end)
+                    ):
+                        continue
+                    if any(
+                        _blocked_by_node(a, b, node)
+                        for a, b in stubs
+                        for node in obstacles
+                        if node.get("id") not in {source["id"], target["id"]}
+                    ):
+                        continue
+                    if any(
+                        _intersects(stub, prior)
+                        or ((_parallel_gap(stub, prior) or PARALLEL_GAP) < PARALLEL_GAP)
+                        for stub in stubs
                         for prior in occupied
                     ):
                         continue
@@ -923,39 +965,121 @@ def route_diagram(
                         obstacles,
                         occupied,
                         diagram["canvas"],
-                        1 if start_side in {"left", "right"} else 2,
-                        1 if end_side in {"left", "right"} else 2,
+                        {"left": -1, "right": 1, "top": -2, "bottom": 2}[start_side],
+                        {"left": 1, "right": -1, "top": 2, "bottom": -2}[end_side],
+                        deadline,
+                        edge["id"],
                     )
-                    if core:
-                        points = _compress([start_port, *core, end_port])
-                        break
-            if not points:
-                last_failure = edge["id"]
-                order.remove(edge)
-                order.insert(0, edge)
-                break
-            occupied.extend(_segments(points))
-            routed[edge["id"]] = points
-        else:
-            placed = []
-            for edge in relations:
-                points = routed[edge["id"]]
-                if edge.get("route_mode", "auto") != "manual":
-                    edge["path"] = _path(points)
-                if edge.get("label_mode", "auto") != "manual":
-                    edge["label_x"], edge["label_y"], visible = _label(
-                        points, edge, diagram, placed, routed
-                    )
+                    if not core:
+                        continue
+                    points = _compress([start_port, *core, end_port])
+                    candidate_labels = list(placed)
+                    if edge.get("label_mode", "auto") == "manual":
+                        x, y, visible = edge["label_x"], edge["label_y"], True
+                        if edge.get("show_label", True):
+                            candidate_labels.append(_label_box(edge))
+                    else:
+                        x, y, visible = _label(
+                            points, edge, diagram, candidate_labels, routed, deadline
+                        )
+                    if edge.get("show_label", True) and not visible:
+                        continue
+                    accepted = points
+                    placed = candidate_labels
+                    edge["label_x"], edge["label_y"] = x, y
                     edge["auto_hidden_label"] = not visible
-            if route_conflicts(diagram):
-                raise RouteUnavailable(route_conflicts(diagram)[0][1])
-            if not _manual_routes_clear(diagram):
-                manual = next(
-                    edge["id"] for edge in relations if edge.get("route_mode") == "manual"
+                    break
+        if not accepted:
+            raise RouteUnavailable(edge["id"])
+        edge["path"] = _path(accepted)
+        routed[edge["id"]] = accepted
+        occupied.extend(_segments(accepted))
+
+
+def route_diagram(
+    diagram: dict,
+    *,
+    previous: dict | None = None,
+    changed_node: str | None = None,
+    changed_relation: str | None = None,
+    deadline: float | None = None,
+) -> dict:
+    """Calculate deterministic geometry in-place; callers persist only on success."""
+    deadline = (
+        deadline if deadline is not None else monotonic() + (2 if previous is not None else 15)
+    )
+    nodes = {node["id"]: node for node in diagram["elements"]}
+    relations = sorted(diagram["relations"], key=lambda edge: edge["id"])
+    assigned, preferred = _ports_for(nodes, relations)
+    for edge in relations:
+        if edge.get("route_mode", "auto") == "manual":
+            source = assigned[(edge["id"], "from")][preferred[(edge["id"], "from")]]
+            target = assigned[(edge["id"], "to")][preferred[(edge["id"], "to")]]
+            edge["path"] = _reanchor_path(edge["path"], source, target)
+    order = sorted(
+        relations, key=lambda edge: (edge.get("route_mode", "auto") != "manual", edge["id"])
+    )
+    if (
+        previous
+        and (changed_node or changed_relation)
+        and not route_conflicts(previous, deadline=deadline)
+    ):
+        old = {edge["id"]: edge for edge in previous["relations"]}
+        affected = {changed_relation}
+        for edge in relations:
+            points = _points_from_path(old.get(edge["id"], {}).get("path", ""))
+            if changed_node and (
+                changed_node in {edge["from"], edge["to"]}
+                or points
+                and any(_blocked_by_node(a, b, nodes[changed_node]) for a, b in _segments(points))
+            ):
+                affected.add(edge["id"])
+        retained = {
+            edge["id"]: _points_from_path(old[edge["id"]]["path"])
+            for edge in relations
+            if edge["id"] not in affected and edge["id"] in old
+        }
+        if all(retained.values()):
+            try:
+                _route_pass(
+                    diagram,
+                    sorted(
+                        order,
+                        key=lambda edge: (
+                            edge["id"] not in retained,
+                            edge.get("route_mode", "auto") != "manual",
+                            edge["id"],
+                        ),
+                    ),
+                    assigned,
+                    preferred,
+                    deadline,
+                    retained,
                 )
-                raise RouteUnavailable(manual)
+                if not route_conflicts(diagram, deadline=deadline) and _manual_routes_clear(
+                    diagram
+                ):
+                    return diagram
+            except RouteUnavailable:
+                pass
+    for attempt in range(3):
+        try:
+            _route_pass(diagram, order, assigned, preferred, deadline)
+            conflicts = route_conflicts(diagram, deadline=deadline)
+            if conflicts:
+                raise RouteUnavailable(conflicts[0][1])
+            if not _manual_routes_clear(diagram):
+                raise RouteUnavailable(
+                    next(edge["id"] for edge in relations if edge.get("route_mode") == "manual")
+                )
             return diagram
-    raise RouteUnavailable(last_failure)
+        except RouteUnavailable as error:
+            if attempt == 2:
+                raise
+            failed = next(edge for edge in order if edge["id"] == error.relation_id)
+            order.remove(failed)
+            order.insert(0, failed)
+    return diagram
 
 
 def route_intersections(diagram: dict) -> list[tuple[str, str]]:
@@ -971,12 +1095,16 @@ def route_intersections(diagram: dict) -> list[tuple[str, str]]:
     return issues
 
 
-def route_conflicts(diagram: dict) -> list[tuple[str, str]]:
+def route_conflicts(
+    diagram: dict, *, parallel_gap: int = PARALLEL_GAP, deadline=None
+) -> list[tuple[str, str]]:
     """Report overlaps, close free parallel runs, and crossings without room for a bridge."""
     prior = []
     issues = []
     vertices = {edge["id"]: _route_vertices(edge["path"]) for edge in diagram["relations"]}
     for edge in diagram["relations"]:
+        if deadline is not None and monotonic() > deadline:
+            raise RoutingTimeout(edge["id"])
         for segment in _segments(_points_from_path(edge["path"]) or []):
             for other_id, other in prior:
                 if other_id == edge["id"]:
@@ -987,7 +1115,7 @@ def route_conflicts(diagram: dict) -> list[tuple[str, str]]:
                 gap = _parallel_gap(segment, other)
                 if gap is not None:
                     if gap == 0 or (
-                        gap < PARALLEL_GAP
+                        gap < parallel_gap
                         and min(
                             abs(segment[1][0] - segment[0][0]) + abs(segment[1][1] - segment[0][1]),
                             abs(other[1][0] - other[0][0]) + abs(other[1][1] - other[0][1]),

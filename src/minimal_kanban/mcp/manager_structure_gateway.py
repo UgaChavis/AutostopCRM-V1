@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
@@ -16,6 +18,26 @@ async def verify_manager_structure_readback(
     readback = await invoke("api:/api/manager_structure", {})
     written = result.get("data") if isinstance(result.get("data"), Mapping) else {}
     current = readback.get("data") if isinstance(readback.get("data"), Mapping) else {}
+    if arguments.get("preview") is True:
+        saved = {key: value for key, value in current.items() if key != "can_edit"}
+        digest = hashlib.sha256(
+            json.dumps(saved, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        unchanged = bool(
+            result.get("ok")
+            and readback.get("ok")
+            and written.get("preview") is True
+            and current.get("version")
+            == arguments.get("expected_version")
+            == written.get("version")
+            and written.get("saved_digest") == digest
+        )
+        return {
+            "required": True,
+            "passed": unchanged,
+            "check": "manager_structure_preview_non_mutating_readback",
+            "evidence": {"actual_version": current.get("version"), "unchanged": unchanged},
+        }
     version_exact = bool(
         result.get("ok") and readback.get("ok") and written.get("version") == current.get("version")
     )
@@ -86,7 +108,7 @@ async def verify_manager_structure_readback(
             isinstance(item, Mapping) and item.get("id") == arguments.get("id")
             for item in current.get(field) or []
         )
-    if arguments.get("operation") in {"layout_element", "layout_relation"}:
+    if arguments.get("operation") in {"layout_element", "layout_relation", "reroute"}:
         routes = written.get("routes")
         route_exact = (
             route_exact
@@ -94,6 +116,19 @@ async def verify_manager_structure_readback(
             and routes
             == {
                 item.get("id"): item.get("path")
+                for item in current.get("relations") or []
+                if isinstance(item, Mapping)
+            }
+        )
+        labels = written.get("labels")
+        route_exact = (
+            route_exact
+            and isinstance(labels, Mapping)
+            and labels
+            == {
+                item.get("id"): {
+                    field: item.get(field) for field in ("label_x", "label_y", "auto_hidden_label")
+                }
                 for item in current.get("relations") or []
                 if isinstance(item, Mapping)
             }
@@ -123,7 +158,7 @@ def manager_structure_schema(route: str) -> dict[str, Any] | None:
         anchor = {
             "type": "object",
             "properties": {
-                "side": {"type": "string", "enum": ["left", "right", "top", "bottom"]},
+                "side": {"type": "string", "enum": ["auto", "left", "right", "top", "bottom"]},
                 "offset": {"type": "number", "minimum": 0, "maximum": 1},
             },
             "required": ["side", "offset"],
@@ -164,6 +199,49 @@ def manager_structure_schema(route: str) -> dict[str, Any] | None:
             "required": ["id"],
             "additionalProperties": False,
         }
+        element = {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "maxLength": 32},
+                "title": {"type": "string", "maxLength": 160},
+                "description": {"type": "string", "maxLength": 10000},
+                "instruction": {"type": "string", "maxLength": 30000},
+                "parent": {"type": ["string", "null"], "maxLength": 32},
+                "kind": {"type": "string", "enum": ["module", "item", "storage", "condition"]},
+                "lines": {
+                    "type": "array",
+                    "maxItems": 4,
+                    "items": {"type": "string", "maxLength": 140},
+                },
+                "icon": {"type": "string", "maxLength": 32},
+                "color": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+                "compact": {"type": "boolean"},
+                "indicator": {"type": "string", "enum": ["off", "green", "yellow", "red"]},
+                "indicator_mode": {"type": "string", "enum": ["none", "manual", "automation"]},
+                "indicator_state": {"type": "string", "enum": ["green", "yellow", "red"]},
+                **{field: {"type": "string", "maxLength": 32} for field in ("group", "tone")},
+                **{
+                    field: {
+                        "type": "number",
+                        "minimum": 24 if field in {"width", "height"} else 0,
+                        "maximum": 10000,
+                    }
+                    for field in ("x", "y", "width", "height")
+                },
+            },
+            "required": ["id"],
+            "additionalProperties": False,
+            "description": "Partial module update by stable ID. Use layout_element for geometry; preserve omitted instructions and fields.",
+        }
+        canvas = {
+            "type": "object",
+            "properties": {
+                field: {"type": "number", "minimum": 320, "maximum": 10000}
+                for field in ("width", "height")
+            },
+            "required": ["width", "height"],
+            "additionalProperties": False,
+        }
         return {
             "$id": f"autostopcrm-agent-gateway:{route}",
             "title": "Изменить структуру менеджера",
@@ -180,15 +258,25 @@ def manager_structure_schema(route: str) -> dict[str, Any] | None:
                         "remove_relation",
                         "set_canvas",
                         "replace",
+                        "reroute",
                     ],
                 },
                 "expected_version": {"type": "integer", "minimum": 0},
                 "idempotency_key": {"type": "string", "minLength": 8, "maxLength": 128},
-                "element": {"type": "object"},
+                "element": element,
                 "relation": relation,
                 "id": {"type": "string"},
-                "canvas": {"type": "object"},
-                "diagram": {"type": "object"},
+                "canvas": canvas,
+                "diagram": {
+                    "type": "object",
+                    "properties": {
+                        "schema_version": {"const": "autostopcrm.manager-structure.v1"},
+                        "canvas": canvas,
+                        "elements": {"type": "array", "maxItems": 250, "items": element},
+                        "relations": {"type": "array", "maxItems": 500, "items": relation},
+                    },
+                    "required": ["schema_version", "canvas", "elements", "relations"],
+                },
                 "preview": {"type": "boolean"},
             },
             "required": ["operation", "expected_version", "idempotency_key"],
