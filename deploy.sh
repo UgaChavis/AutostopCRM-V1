@@ -40,6 +40,7 @@ MANAGER_RELEASE_ROOT="${AUTOSTOP_MANAGER_RELEASE_ROOT:-/opt/autostop-manager-rel
 MANAGER_CURRENT_LINK="${AUTOSTOP_MANAGER_CURRENT_LINK:-$MANAGER_RELEASE_ROOT/current}"
 MANAGER_CONTAINER_DIR="${AUTOSTOP_MANAGER_CONTAINER_DIR:-/opt/AutostopManager}"
 MANAGER_RELEASE_PYTHON="${AUTOSTOP_MANAGER_RELEASE_PYTHON:-$MANAGER_SOURCE_DIR/.venv/bin/python}"
+DOCS_AUDIT_PYTHON="${AUTOSTOP_DOCS_AUDIT_PYTHON:-$ROOT_DIR/.venv/bin/python}"
 MANAGER_CRM_MCP_ENV="/opt/AutostopManager/.crm-mcp.env"
 MANAGER_MCP_ACTIVATE_ON_DEPLOY="${AUTOSTOP_MANAGER_MCP_ACTIVATE_ON_DEPLOY:-1}"
 AUTOMATION_SERVICE_NAME="autostop-manager-scheduler.service"
@@ -616,7 +617,7 @@ run_isolated_manager_knowledge_preflight() (
   }
 
   # The snapshot was sealed from the verified Manager commit. Recheck it before
-  # importing, then keep all pre-maintenance index writes in a disposable DB.
+  # the read-only instruction audits. Keep the disposable DB target for compatibility.
   verify_manager_snapshot_artifact "$manager_release_dir" "$manager_revision"
   manager_knowledge_gate_dir="$(mktemp -d /tmp/autostopcrm-manager-knowledge.XXXXXX)"
   trap on_isolated_manager_knowledge_preflight_exit EXIT
@@ -634,6 +635,16 @@ run_isolated_manager_knowledge_preflight() (
     PYTHONDONTWRITEBYTECODE=1 \
     AUTOSTOP_MANAGER_DB="$manager_knowledge_gate_dir/preflight.sqlite3" \
     "$MANAGER_RELEASE_PYTHON" -m autostop_manager.cli knowledge-audit
+  # The schema probe needs both CRM and Manager dependencies from the CRM venv. Audit the
+  # sealed Manager candidate alongside this exact CRM checkout before maintenance.
+  env \
+    PYTHONPATH="$manager_release_dir" \
+    PYTHONSAFEPATH=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    AUTOSTOP_MANAGER_ENV_FILE=/dev/null \
+    AUTOSTOP_MANAGER_DB="$manager_knowledge_gate_dir/preflight.sqlite3" \
+    "$DOCS_AUDIT_PYTHON" "$ROOT_DIR/scripts/docs_audit.py" \
+      --manager-root "$manager_release_dir" --format text
 )
 
 sync_current_manager_knowledge() {
@@ -641,12 +652,12 @@ sync_current_manager_knowledge() {
   active_manager_dir="$(run_release readlink -f "$MANAGER_CURRENT_LINK")"
   expected_manager_dir="$(run_release readlink -f "$manager_release_dir")"
   if [[ "$active_manager_dir" != "$expected_manager_dir" ]]; then
-    echo "ERROR: current Manager release does not match the candidate knowledge index source." >&2
+    echo "ERROR: current Manager release does not match the candidate instruction source." >&2
     return 2
   fi
   # The venv supplies only dependencies. PYTHONPATH pins the code and local
-  # knowledge map to the immutable current snapshot, while the explicit DB
-  # target is the protected persistent Manager SQLite captured for rollback.
+  # instructions to the immutable current snapshot. The explicit DB target
+  # remains for compatibility; these instruction audits do not open the database.
   run_release env \
     PYTHONPATH="$MANAGER_CURRENT_LINK" \
     PYTHONSAFEPATH=1 \
@@ -667,6 +678,10 @@ if [[ ! -d "$MANAGER_SOURCE_DIR/autostop_manager" ]]; then
 fi
 if [[ ! -x "$MANAGER_RELEASE_PYTHON" ]]; then
   echo "ERROR: AutoStopManager release venv is unavailable: $MANAGER_RELEASE_PYTHON" >&2
+  exit 2
+fi
+if [[ ! -x "$DOCS_AUDIT_PYTHON" ]]; then
+  echo "ERROR: CRM documentation audit venv is unavailable: $DOCS_AUDIT_PYTHON" >&2
   exit 2
 fi
 container_id="$(docker compose ps -q "$SERVICE_NAME" 2>/dev/null || true)"
@@ -1888,8 +1903,7 @@ fi
 assert_release_budget
 
 activate_manager_snapshot "$manager_release_dir"
-# Knowledge sync intentionally changes the persistent Manager index only after
-# its verified rollback backup exists and the immutable candidate is current.
+# Read-only instruction audits use the immutable current Manager candidate.
 # Any failure exits under the armed maintenance trap, which restores both the
 # Manager SQLite and the previous current symlink before CRM is restarted.
 sync_current_manager_knowledge

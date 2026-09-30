@@ -562,9 +562,12 @@ snapshot_manager_commit {shlex.quote(str(source))} {shlex.quote(str(target))} {s
         self.assertLess(backup_verify, activation)
         self.assertLess(activation, knowledge_sync)
         self.assertLess(knowledge_sync, crm_start)
-        self.assertIn("AUTOSTOP_MANAGER_DB` is mandatory for preflight", runbook)
-        self.assertIn("Never run a bare", runbook)
-        self.assertIn("`knowledge-sync` against the persistent Manager DB", runbook)
+        self.assertIn("`AUTOSTOP_MANAGER_DB` isolates all stateful preflight checks", runbook)
+        self.assertIn(
+            "commands `knowledge-sync` and `knowledge-audit` now only audit instructions", runbook
+        )
+        self.assertIn("they do not open or modify the Manager database", runbook)
+        self.assertIn("docs/agent/references/deployment.md", runbook)
 
     def test_deploy_cleans_only_audit_probe_after_verified_backup(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
@@ -699,6 +702,15 @@ snapshot_manager_commit {shlex.quote(str(source))} {shlex.quote(str(target))} {s
         self.assertIn(
             '"$MANAGER_RELEASE_PYTHON" -m autostop_manager.cli knowledge-audit', preflight
         )
+        self.assertIn('"$DOCS_AUDIT_PYTHON" "$ROOT_DIR/scripts/docs_audit.py"', preflight)
+        self.assertIn(
+            'DOCS_AUDIT_PYTHON="${AUTOSTOP_DOCS_AUDIT_PYTHON:-$ROOT_DIR/.venv/bin/python}"',
+            script,
+        )
+        self.assertIn('if [[ ! -x "$DOCS_AUDIT_PYTHON" ]]', script)
+        self.assertIn('--manager-root "$manager_release_dir" --format text', preflight)
+        self.assertIn("AUTOSTOP_MANAGER_ENV_FILE=/dev/null", preflight)
+        self.assertNotIn('"$PYTHON_BIN"', preflight)
         self.assertIn('rm -rf -- "$manager_knowledge_gate_dir"', preflight)
         self.assertIn("refusing an unsafe Manager knowledge preflight cleanup target", preflight)
         self.assertLess(snapshot, preflight_call)
@@ -721,18 +733,23 @@ snapshot_manager_commit {shlex.quote(str(source))} {shlex.quote(str(target))} {s
             revision = "a" * 40
             observed_path = root / "observed.txt"
             fake_python = root / "fake-python"
+            fake_audit_python = root / "fake-audit-python"
             fake_python.write_text(
                 "#!/usr/bin/env bash\n"
                 "set -euo pipefail\n"
-                'printf \'%s|%s|%s|%s\\n\' "$PYTHONPATH" "$PYTHONSAFEPATH" "$PYTHONDONTWRITEBYTECODE" "$AUTOSTOP_MANAGER_DB" >> "$OBSERVED_PATH"\n',
+                'printf \'%s|%s|%s|%s|%s\\n\' "$0" "$PYTHONPATH" "$PYTHONSAFEPATH" "$PYTHONDONTWRITEBYTECODE" "$AUTOSTOP_MANAGER_DB" >> "$OBSERVED_PATH"\n',
                 encoding="utf-8",
             )
             fake_python.chmod(0o755)
+            fake_audit_python.write_text(fake_python.read_text(encoding="utf-8"), encoding="utf-8")
+            fake_audit_python.chmod(0o755)
             harness = f"""
 set -euo pipefail
 manager_release_dir={shlex.quote(str(candidate))}
 manager_revision={shlex.quote(revision)}
 MANAGER_RELEASE_PYTHON={shlex.quote(str(fake_python))}
+DOCS_AUDIT_PYTHON={shlex.quote(str(fake_audit_python))}
+ROOT_DIR={shlex.quote(str(PROJECT_ROOT))}
 OBSERVED_PATH={shlex.quote(str(observed_path))}
 export OBSERVED_PATH
 verify_manager_snapshot_artifact() {{
@@ -750,9 +767,10 @@ run_isolated_manager_knowledge_preflight
             observations = observed_path.read_text(encoding="utf-8").splitlines()
 
         self.assertEqual("", completed.stdout)
-        self.assertEqual(2, len(observations))
-        for observation in observations:
-            code_root, safe_path, no_bytecode, database = observation.split("|")
+        self.assertEqual(3, len(observations))
+        for index, observation in enumerate(observations):
+            interpreter, code_root, safe_path, no_bytecode, database = observation.split("|")
+            self.assertEqual(str(fake_python if index < 2 else fake_audit_python), interpreter)
             self.assertEqual(str(candidate), code_root)
             self.assertEqual("1", safe_path)
             self.assertEqual("1", no_bytecode)

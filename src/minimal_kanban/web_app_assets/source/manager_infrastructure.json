@@ -36,11 +36,11 @@
         },
         {
           "title": "Документы CRM и почта",
-          "url": "https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/docs/agent/operations.md"
+          "url": "https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/docs/agent/references/crm-mail.md"
         },
         {
           "title": "Выпуск и развёртывание",
-          "url": "https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/docs/agent/deployment_runbook.md"
+          "url": "https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/docs/agent/references/deployment.md"
         }
       ]
     },
