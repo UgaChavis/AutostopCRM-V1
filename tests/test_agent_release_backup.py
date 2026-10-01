@@ -108,6 +108,113 @@ class AgentReleaseBackupTests(unittest.TestCase):
             "receipts": {},
         }
 
+    def test_role_workspace_snapshot_verifies_and_rollback_preserves_new_records(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            crm_data, manager_db, backups = self._fixture(root)
+            role = root / "roles" / "M2"
+            (role / "journal").mkdir(parents=True)
+            record = role / "journal" / "2026-W40.jsonl"
+            record.write_text('{"task":"before release"}\n', encoding="utf-8")
+            created = self.module.create_backup(
+                output_root=backups,
+                crm_data_dir=crm_data,
+                manager_db=manager_db,
+                manager_role_workspace=role,
+            )
+            backup = Path(created["backup_dir"])
+            self.assertEqual(created["sources"]["manager_role_workspace"], str(role.resolve()))
+            self.assertIn(
+                "manager_role_workspace", self.module.verify_backup(backup)["verified_artifacts"]
+            )
+            record.write_text(
+                '{"task":"before release"}\n{"task":"recovery after checkpoint"}\n',
+                encoding="utf-8",
+            )
+            latest = role / "current-state.md"
+            latest.write_text("Recovery completed.\n", encoding="utf-8")
+            self.assertTrue(self.module.compare_current_protected_state(backup)["ok"])
+            self.module.restore_changed_state_and_manager(backup)
+            self.assertIn("recovery after checkpoint", record.read_text(encoding="utf-8"))
+            self.assertEqual(latest.read_text(encoding="utf-8"), "Recovery completed.\n")
+
+    def test_absent_role_workspace_stays_absent_during_backup_and_rollback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            crm_data, manager_db, backups = self._fixture(root)
+            role = root / "roles" / "M2"
+            created = self.module.create_backup(
+                output_root=backups,
+                crm_data_dir=crm_data,
+                manager_db=manager_db,
+                manager_role_workspace=role,
+            )
+            self.assertIsNone(created["artifacts"]["manager_role_workspace"])
+            backup = Path(created["backup_dir"])
+            self.module.restore_changed_state_and_manager(backup)
+            self.assertFalse(role.parent.exists())
+            role.mkdir(parents=True)
+            (role / "new.md").write_text("A post-checkpoint task.\n", encoding="utf-8")
+            self.assertTrue(self.module.compare_current_protected_state(backup)["ok"])
+            self.module.restore_changed_state_and_manager(backup)
+            self.assertTrue((role / "new.md").is_file())
+
+    def test_v4_backup_normalizes_absent_role_snapshot_without_touching_live_role(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            crm_data, manager_db, backups = self._fixture(root)
+            created = self.module.create_backup(
+                output_root=backups, crm_data_dir=crm_data, manager_db=manager_db
+            )
+            backup = Path(created["backup_dir"])
+            manifest_path = backup / self.module.MANIFEST_NAME
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["schema"] = self.module.V4_BACKUP_SCHEMA
+            manifest["artifacts"].pop("manager_role_workspace")
+            manifest["sources"].pop("manager_role_workspace")
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            self.assertIsNone(
+                self.module._load_manifest(backup)["artifacts"]["manager_role_workspace"]
+            )
+            self.assertTrue(self.module.verify_backup(backup)["ok"])
+            self.assertTrue(self.module.compare_current_protected_state(backup)["ok"])
+            self.module.restore_changed_state_and_manager(backup)
+
+    def test_role_snapshot_rejects_symlinks_and_cleans_partial_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            crm_data, manager_db, backups = self._fixture(root)
+            role = root / "M2"
+            role.mkdir()
+            symlink_or_skip(self, role / "outside.md", crm_data / "state.json")
+            with self.assertRaisesRegex(self.module.BackupError, "Role workspace"):
+                self.module.create_backup(
+                    output_root=backups,
+                    crm_data_dir=crm_data,
+                    manager_db=manager_db,
+                    manager_role_workspace=role,
+                )
+            self.assertEqual(list(backups.iterdir()), [])
+
+    def test_role_snapshot_corruption_fails_verification(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            crm_data, manager_db, backups = self._fixture(root)
+            role = root / "M2"
+            role.mkdir()
+            (role / "current-state.md").write_text("Technical facts.\n", encoding="utf-8")
+            created = self.module.create_backup(
+                output_root=backups,
+                crm_data_dir=crm_data,
+                manager_db=manager_db,
+                manager_role_workspace=role,
+            )
+            backup = Path(created["backup_dir"])
+            archive = backup / self.module.ROLE_WORKSPACE_BACKUP_NAME
+            archive.write_bytes(b"not an archive")
+            with self.assertRaisesRegex(self.module.BackupError, "artifact size mismatch"):
+                self.module.verify_backup(backup)
+
     def test_manager_structure_backup_verify_compare_and_rollback(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -188,6 +295,8 @@ class AgentReleaseBackupTests(unittest.TestCase):
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             manifest["schema"] = self.module.V3_BACKUP_SCHEMA
             manifest["artifacts"].pop("manager_structure")
+            manifest["artifacts"].pop("manager_role_workspace")
+            manifest["sources"].pop("manager_role_workspace")
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
             self.assertIsNone(
@@ -229,7 +338,7 @@ class AgentReleaseBackupTests(unittest.TestCase):
             )
             backup_dir = Path(created["backup_dir"])
             self.assertTrue(created["ok"])
-            self.assertEqual(created["schema"], "autostop-agent-release-backup.v4")
+            self.assertEqual(created["schema"], self.module.BACKUP_SCHEMA)
             verified = self.module.verify_backup(backup_dir)
             self.assertTrue(verified["ok"])
             self.assertTrue((backup_dir / "audit-archive.tar.gz").is_file())
@@ -584,6 +693,8 @@ class AgentReleaseBackupTests(unittest.TestCase):
             manifest["artifacts"].pop("change_feed_sqlite")
             manifest["artifacts"].pop("completion_act_forms")
             manifest["artifacts"].pop("manager_structure")
+            manifest["artifacts"].pop("manager_role_workspace")
+            manifest["sources"].pop("manager_role_workspace")
             for artifact_name in ("state", "manager_sqlite"):
                 manifest["artifacts"][artifact_name].pop("restore_metadata")
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
@@ -647,6 +758,8 @@ class AgentReleaseBackupTests(unittest.TestCase):
             manifest["schema"] = self.module.PREVIOUS_BACKUP_SCHEMA
             manifest["artifacts"].pop("completion_act_forms")
             manifest["artifacts"].pop("manager_structure")
+            manifest["artifacts"].pop("manager_role_workspace")
+            manifest["sources"].pop("manager_role_workspace")
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
             loaded = self.module._load_manifest(backup_dir)

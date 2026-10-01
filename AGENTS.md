@@ -1,7 +1,7 @@
 # Working On AutoStop CRM
 
 Own the user's outcome. Choose the approach, tools, and order from current
-code and evidence; examples and debt tasks are optional aids. Reuse known
+code and evidence. Reuse known
 context, ask only for a real blocker, and keep changes and instructions small.
 Authorization already given for this task remains valid through completion.
 
@@ -10,6 +10,12 @@ read deeper documentation only when it helps the task. Business rules belong
 in shared services, used by browser, Windows client, API, and MCP.
 For a module, tool, service, or release symptom, use the
 [CRM module operations catalog](docs/agent/module_operations/README.md).
+The current Manager module instructions are the project role entrypoints:
+[M1 director](https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/docs/agent/modules/M1.md),
+[M2 engineer](https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/docs/agent/modules/M2.md),
+and [C2 CRM](https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/docs/agent/modules/C2.md).
+Use their canonical instructions and journal procedure for the selected role;
+old plans and duplicated skills do not override them.
 
 - Inspect the worktree and preserve unrelated user work. Keep secrets,
   production data, attachments, ledgers, and private context out of Git/output.

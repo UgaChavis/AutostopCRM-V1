@@ -27,6 +27,7 @@ SMOKE_DELAY_SECONDS="${AUTOSTOP_SMOKE_DELAY_SECONDS:-3}"
 BACKUP_ROOT="${AUTOSTOP_RELEASE_BACKUP_ROOT:-/root/autostopcrm-backups/agent-gateway-v2}"
 CRM_DATA_DIR="${AUTOSTOP_DATA_DIR:-$ROOT_DIR/data}"
 MANAGER_DB="${AUTOSTOP_MANAGER_DB:-/opt/AutostopManager/data/autostop_manager.sqlite3}"
+MANAGER_ROLE_WORKSPACE="/var/lib/autostop-manager/roles/M2"
 RUNTIME_UID="${AUTOSTOP_RUNTIME_UID:-10001}"
 RUNTIME_GID="${AUTOSTOP_RUNTIME_GID:-10001}"
 SEARXNG_RUNTIME_UID="${AUTOSTOP_SEARXNG_RUNTIME_UID:-977}"
@@ -279,6 +280,11 @@ protected_backup_source_bytes() {
   fi
   if [[ -d "$CRM_DATA_DIR/audit-archive" ]]; then
     size="$(du -sb "$CRM_DATA_DIR/audit-archive" | awk '{print $1}')"
+    [[ "$size" =~ ^[0-9]+$ ]] || return 2
+    total=$(( total + size ))
+  fi
+  if [[ -d "$MANAGER_ROLE_WORKSPACE" ]]; then
+    size="$(du -sb "$MANAGER_ROLE_WORKSPACE" | awk '{print $1}')"
     [[ "$size" =~ ^[0-9]+$ ]] || return 2
     total=$(( total + size ))
   fi
@@ -1871,6 +1877,7 @@ run_release "$PYTHON_BIN" scripts/agent_release_backup.py create \
   --output-root "$BACKUP_ROOT" \
   --crm-data-dir "$CRM_DATA_DIR" \
   --manager-db "$MANAGER_DB" \
+  --manager-role-workspace "$MANAGER_ROLE_WORKSPACE" \
   --backup-id "$release_id"
 backup_dir="$BACKUP_ROOT/$release_id"
 run_release "$PYTHON_BIN" scripts/agent_release_backup.py verify --backup-dir "$backup_dir"

@@ -647,7 +647,7 @@ def _is_finance_capability(name: str, arguments: Mapping[str, Any] | None = None
     if normalized == "store_quote_conductor":
         conductor_operation = str((arguments or {}).get("operation") or "").strip().casefold()
         return conductor_operation in {"draft", "publish", "reopen", "order"}
-    if normalized == "mark_order_ready":
+    if normalized in {"mark_order_ready", "set_order_payment_status"}:
         return True
     if normalized == "set_quote_request_status":
         status = _find_value(dict(arguments or {}), frozenset({"status"}))

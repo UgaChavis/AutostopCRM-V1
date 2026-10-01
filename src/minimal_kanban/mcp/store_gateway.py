@@ -51,13 +51,15 @@ STORE_MANAGEMENT_OPERATIONS = frozenset(
         "update_quote_request_comment",
         "set_batch_storage_location",
         "mark_order_ready",
+        "set_order_payment_status",
         "add_quote_request_note",
     }
 )
-# Only this generic operation advances a real order and may trigger an external
-# customer notification. The remaining management actions are reversible
-# internal coordination, so their Gateway path must not be a workflow ritual.
-STORE_HIGH_IMPACT_MANAGEMENT_OPERATIONS = frozenset({"mark_order_ready"})
+# Order readiness and the explicitly authorized payment flag use native write
+# guards. Other management operations retain their reversible coordination path.
+STORE_HIGH_IMPACT_MANAGEMENT_OPERATIONS = frozenset(
+    {"mark_order_ready", "set_order_payment_status"}
+)
 STORE_LOW_RISK_MANAGEMENT_OPERATIONS = (
     STORE_MANAGEMENT_OPERATIONS - STORE_HIGH_IMPACT_MANAGEMENT_OPERATIONS
 )
@@ -101,6 +103,7 @@ STORE_OPERATION_ENTITIES = {
     "add_quote_request_note": "store_quote_request",
     "set_batch_storage_location": "store_batch",
     "mark_order_ready": "store_order",
+    "set_order_payment_status": "store_order",
 }
 _STORE_CORRELATION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$")
 _STORE_QUOTE_CONDUCTOR_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$")
@@ -116,6 +119,7 @@ _STORE_CHANGE_FIELDS = {
     "add_quote_request_note": ("notes_count",),
     "set_batch_storage_location": ("storage_location",),
     "mark_order_ready": ("status", "ready_at"),
+    "set_order_payment_status": ("payment_status", "paid_at"),
 }
 
 
@@ -338,6 +342,7 @@ def store_ledger_verification(
         "status_exact",
         "status_ready",
         "storage_location_exact",
+        "payment_status_exact",
     }
     value_checks = [bool(value) for key, value in checks.items() if key in value_check_names]
     if value_checks:
@@ -382,6 +387,17 @@ def validate_store_workflow_request(
             ),
             "missing_fields": missing,
         }
+    if operation == "set_order_payment_status":
+        if type(store_planned_changes(operation, payload).get("paid")) is not bool:
+            return {"passed": False, "warning": "store_payment_paid_boolean_required"}
+        owner_intent = str(payload.get("owner_intent") or "").strip()
+        prefix = "owner_finance:"
+        if (
+            len(owner_intent) > 500
+            or not owner_intent.startswith(prefix)
+            or not owner_intent[len(prefix) :].strip()
+        ):
+            return {"passed": False, "warning": "store_explicit_owner_finance_intent_required"}
     try:
         correlation_id = store_correlation_id(operation, payload)
     except ValueError:
@@ -766,6 +782,8 @@ def store_planned_changes(operation: str, payload: Mapping[str, Any]) -> dict[st
         return {"storage_location": _normalized_text(changes.get("storage_location"))}
     if operation == "mark_order_ready":
         return {"status": "READY"}
+    if operation == "set_order_payment_status":
+        return {"paid": changes.get("paid")}
     return changes
 
 
@@ -904,12 +922,31 @@ def verify_store_readback(
             "SENT",
             "NOT_APPLICABLE",
         }
+    elif mode != "dry_run" and operation == "set_order_payment_status":
+        paid = changes.get("paid")
+        checks["payment_status_exact"] = type(paid) is bool and _contains_any_value(
+            target or readback,
+            ("payment_status",),
+            "PAID" if paid else "PAYMENT_REQUIRED",
+            normalizer=_normalized_status,
+        )
+        paid_at = _find_value(target or readback, frozenset({"paid_at"}))
+        checks["paid_at_state_exact"] = bool(paid_at) if paid else paid_at is None
 
     result_verification = (
         result.get("verification") if isinstance(result.get("verification"), Mapping) else {}
     )
     if "passed" in result_verification:
         checks["manager_verification_passed"] = bool(result_verification.get("passed"))
+    if operation == "set_order_payment_status":
+        result_meta = result.get("meta")
+        if mode == "apply":
+            checks["manager_verification_passed"] = (
+                isinstance(result_meta, Mapping) and result_meta.get("readback_verified") is True
+            )
+        checks["external_effects_absent"] = (
+            isinstance(result_meta, Mapping) and result_meta.get("effects") == []
+        )
     return {
         "required": True,
         "passed": all(checks.values()),

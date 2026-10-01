@@ -743,7 +743,12 @@ The bounded release flow:
    records a private Telegram idempotency/outbox baseline, pauses only inbound
    duty, and then stops only `autostopcrm`;
 5. creates and verifies an atomic backup of CRM state/audit data and Manager
-   SQLite. Only after that backup it removes the exact `audit-probe` consumer
+   SQLite. The v5 checkpoint also includes a bounded, verified evidence archive
+   of `/var/lib/autostop-manager/roles/M2/` when it exists. This durable role
+   space is outside release copies: rollback never replaces or deletes it, so
+   records written after the checkpoint remain intact. An absent role space is
+   recorded without creating it; v1–v4 checkpoints remain readable. Only after
+   that backup it removes the exact `audit-probe` consumer
    and delivery when its ACK is still zero; feed event count and high-water
    remain protected by before/after readback;
 6. atomically activates the sealed candidate Manager snapshot, installs the

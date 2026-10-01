@@ -62,6 +62,16 @@ class InventoryRevisionContractTests(unittest.TestCase):
                     "item_id": item["id"],
                     "card_id": card["id"],
                     "quantity": "1",
+                    "expected_updated_at": "2000-01-01T00:00:00+00:00",
+                    "expected_card_updated_at": card["updated_at"],
+                },
+            ),
+            (
+                self.service.write_off_inventory_item,
+                {
+                    "item_id": item["id"],
+                    "card_id": card["id"],
+                    "quantity": "1",
                     "expected_updated_at": item["updated_at"],
                     "expected_card_updated_at": "2000-01-01T00:00:00+00:00",
                 },
@@ -78,6 +88,25 @@ class InventoryRevisionContractTests(unittest.TestCase):
             self.service.get_inventory_item({"item_id": item["id"]})["item"]["quantity"],
             "1",
         )
+        written_off = self.service.write_off_inventory_item(
+            {
+                "item_id": item["id"],
+                "card_id": card["id"],
+                "quantity": "1",
+                "expected_updated_at": item["updated_at"],
+                "expected_card_updated_at": card["updated_at"],
+            }
+        )
+        with self.assertRaises(ServiceError) as conflict:
+            self.service.return_inventory_movement(
+                {
+                    "movement_id": written_off["movement"]["id"],
+                    "card_id": card["id"],
+                    "expected_updated_at": "2000-01-01T00:00:00+00:00",
+                    "expected_card_updated_at": written_off["card"]["updated_at"],
+                }
+            )
+        self.assertEqual(conflict.exception.code, "inventory_item_update_conflict")
 
 
 if __name__ == "__main__":
