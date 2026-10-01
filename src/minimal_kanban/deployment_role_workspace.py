@@ -34,13 +34,27 @@ def _regular_file_bytes(path: Path) -> bytes:
         with os.fdopen(descriptor, "rb", closefd=False) as handle:
             encoded = handle.read(MAX_FILE_BYTES + 1)
         after = os.fstat(descriptor)
+        after_path = path.lstat()
     finally:
         os.close(descriptor)
-    if len(encoded) > MAX_FILE_BYTES or (
-        after.st_size,
-        after.st_mtime_ns,
-        after.st_ctime_ns,
-    ) != (before.st_size, before.st_mtime_ns, before.st_ctime_ns):
+    # Compare timestamps from the same stat API: Windows lstat/fstat ctime can differ.
+    if (
+        len(encoded) > MAX_FILE_BYTES
+        or (
+            after.st_size,
+            after.st_mtime_ns,
+            after.st_ctime_ns,
+        )
+        != (opened.st_size, opened.st_mtime_ns, opened.st_ctime_ns)
+        or (
+            after_path.st_dev,
+            after_path.st_ino,
+            after_path.st_size,
+            after_path.st_mtime_ns,
+            after_path.st_ctime_ns,
+        )
+        != (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns)
+    ):
         raise RoleWorkspaceError("Role workspace file changed while reading")
     return encoded
 

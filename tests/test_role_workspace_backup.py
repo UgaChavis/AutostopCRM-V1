@@ -8,6 +8,7 @@ import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 if __package__:
@@ -27,13 +28,34 @@ class RoleWorkspaceBackupTests(unittest.TestCase):
             root = Path(directory)
             source = root / "M2"
             (source / "journal").mkdir(parents=True)
-            (source / "journal" / "2026-W40.jsonl").write_text("Technical log.\n", encoding="utf-8")
+            record = source / "journal" / "2026-W40.jsonl"
+            record.write_text("Technical log.\n", encoding="utf-8")
             archive = root / "snapshot.tar.gz"
             self.assertTrue(workspace.snapshot_workspace(source, archive))
             workspace.verify_workspace_snapshot(archive)
             with tarfile.open(archive) as saved:
                 member = saved.getmember("journal/2026-W40.jsonl")
-                self.assertEqual(saved.extractfile(member).read(), b"Technical log.\n")
+                self.assertEqual(saved.extractfile(member).read(), record.read_bytes())
+
+    def test_snapshot_preserves_lf_crlf_and_binary_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "M2"
+            source.mkdir()
+            records = {
+                "lf.jsonl": b'{"task":"LF"}\n',
+                "crlf.jsonl": b'{"task":"CRLF"}\r\n',
+                "binary.bin": b"\x00\x1a\xff\r\n",
+            }
+            for name, content in records.items():
+                (source / name).write_bytes(content)
+            archive = root / "snapshot.tar.gz"
+            self.assertTrue(workspace.snapshot_workspace(source, archive))
+            workspace.verify_workspace_snapshot(archive)
+            with tarfile.open(archive) as saved:
+                for name, content in records.items():
+                    with self.subTest(name=name):
+                        self.assertEqual(saved.extractfile(name).read(), content)
 
     def test_empty_workspace_and_absent_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -81,6 +103,37 @@ class RoleWorkspaceBackupTests(unittest.TestCase):
                 return real_open(path, flags)
 
             with patch.object(workspace.os, "open", side_effect=changing_open):
+                with self.assertRaisesRegex(workspace.RoleWorkspaceError, "changed while reading"):
+                    workspace._regular_file_bytes(source)
+
+    def test_path_and_descriptor_ctime_differences_do_not_reject_unchanged_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "record.md"
+            source.write_bytes(b"unchanged\r\n")
+            real_fstat = os.fstat
+
+            def descriptor_stat(descriptor):
+                value = real_fstat(descriptor)
+                fields = {
+                    name: getattr(value, name)
+                    for name in ("st_mode", "st_dev", "st_ino", "st_size", "st_mtime_ns")
+                }
+                return SimpleNamespace(**fields, st_ctime_ns=value.st_ctime_ns + 1)
+
+            with patch.object(workspace.os, "fstat", side_effect=descriptor_stat):
+                self.assertEqual(workspace._regular_file_bytes(source), b"unchanged\r\n")
+
+    def test_path_replacement_during_read_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "record.md"
+            source.write_bytes(b"original")
+            before = source.lstat()
+            fields = {
+                name: getattr(before, name)
+                for name in ("st_dev", "st_size", "st_mtime_ns", "st_ctime_ns")
+            }
+            replaced = SimpleNamespace(**fields, st_ino=before.st_ino + 1)
+            with patch.object(Path, "lstat", side_effect=[before, replaced]):
                 with self.assertRaisesRegex(workspace.RoleWorkspaceError, "changed while reading"):
                     workspace._regular_file_bytes(source)
 
