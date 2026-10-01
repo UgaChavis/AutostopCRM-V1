@@ -41,6 +41,17 @@ def _posix_bash_available() -> bool:
 
 
 class DeployScriptTests(unittest.TestCase):
+    def test_deploy_backs_up_durable_m2_space_without_rollback_restore(self) -> None:
+        script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+        self.assertIn('MANAGER_ROLE_WORKSPACE="/var/lib/autostop-manager/roles/M2"', script)
+        self.assertIn('--manager-role-workspace "$MANAGER_ROLE_WORKSPACE"', script)
+        source_size = script[
+            script.index("protected_backup_source_bytes()") : script.index("DEPLOY_LOCK_PATH=")
+        ]
+        self.assertIn('du -sb "$MANAGER_ROLE_WORKSPACE"', source_size)
+        rollback = script[script.index("rollback_release()") : script.index("\non_exit() {")]
+        self.assertNotIn("MANAGER_ROLE_WORKSPACE", rollback)
+
     @unittest.skipUnless(_posix_bash_available(), "a working POSIX bash is required")
     def test_budgeted_stdin_wrappers_preserve_pipeline_input(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
