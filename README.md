@@ -18,8 +18,9 @@ Use current code and focused checks first:
 
 The single [CRM development skill](https://github.com/UgaChavis/AutostopCRM-V1/blob/autostopcrm-v1/tools/codex/skills/autostopcrm-maintain/SKILL.md)
 is versioned here; the runbook describes checking or installing its local copy.
-The [technical-debt index](https://github.com/UgaChavis/AutostopCRM-V1/blob/autostopcrm-v1/tech_debt/README.md)
-maps current maintenance boundaries and their checks.
+Role entrypoints and priority are in AGENTS.md. Current code-health budgets and
+ownership are defined by `scripts/code_health_audit.py`; the compact owner
+cards under `tech_debt/` identify its existing budget owners, without a roadmap.
 
 Generated builds, release copies, screenshots, private bundles, and old plans
 are not sources of truth. For production, use the runbook to compare local,

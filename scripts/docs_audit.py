@@ -90,7 +90,7 @@ MANAGER_MCP_CATALOG_PATHS = (
 
 # This stays independent from Manager's runtime inventory: deleting a guide
 # and its runtime entry together must still fail the coordinated release gate.
-# A2 is the root AGENTS.md; the other 41 mapped modules each own one document.
+# A2 is the root AGENTS.md; the other mapped modules each own one document.
 MANAGER_REQUIRED_MODULE_CODES = (
     "A1",
     "A3",
@@ -133,6 +133,8 @@ MANAGER_REQUIRED_MODULE_CODES = (
     "I1",
     "I2",
     "J1",
+    "M1",
+    "M2",
 )
 MANAGER_REQUIRED_REFERENCE_NAMES = (
     "crm-mail",

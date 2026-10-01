@@ -21,14 +21,29 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from minimal_kanban.deployment_role_workspace import (  # noqa: E402
+    MAX_ARCHIVE_BYTES as ROLE_WORKSPACE_MAX_ARCHIVE_BYTES,
+)
+from minimal_kanban.deployment_role_workspace import (  # noqa: E402
+    RoleWorkspaceError,
+    snapshot_workspace,
+    verify_workspace_snapshot,
+)
 from minimal_kanban.storage.file_lock import ProcessFileLock  # noqa: E402
 
-BACKUP_SCHEMA = "autostop-agent-release-backup.v4"
+BACKUP_SCHEMA = "autostop-agent-release-backup.v5"
+V4_BACKUP_SCHEMA = "autostop-agent-release-backup.v4"
 V3_BACKUP_SCHEMA = "autostop-agent-release-backup.v3"
 PREVIOUS_BACKUP_SCHEMA = "autostop-agent-release-backup.v2"
 LEGACY_BACKUP_SCHEMA = "autostop-agent-release-backup.v1"
 SUPPORTED_BACKUP_SCHEMAS = frozenset(
-    {BACKUP_SCHEMA, V3_BACKUP_SCHEMA, PREVIOUS_BACKUP_SCHEMA, LEGACY_BACKUP_SCHEMA}
+    {
+        BACKUP_SCHEMA,
+        V4_BACKUP_SCHEMA,
+        V3_BACKUP_SCHEMA,
+        PREVIOUS_BACKUP_SCHEMA,
+        LEGACY_BACKUP_SCHEMA,
+    }
 )
 MANIFEST_NAME = "manifest.json"
 STATE_BACKUP_NAME = "state.json"
@@ -37,6 +52,7 @@ AUDIT_BACKUP_NAME = "audit-archive.tar.gz"
 MANAGER_BACKUP_NAME = "autostop_manager.sqlite3"
 COMPLETION_ACT_FORMS_BACKUP_NAME = "completion_act_forms.json"
 MANAGER_STRUCTURE_BACKUP_NAME = "manager_structure.json"
+ROLE_WORKSPACE_BACKUP_NAME = "manager-m2-workspace.tar.gz"
 MANAGER_STRUCTURE_MAX_BYTES = 64 * 1024 * 1024
 MANAGER_STRUCTURE_SCHEMA = "autostopcrm.manager-structure.v1"
 COMPLETION_ACT_FORMS_DIR_NAME = "completion_act_forms"
@@ -54,13 +70,15 @@ ARTIFACT_FILE_NAMES = {
     "manager_sqlite": MANAGER_BACKUP_NAME,
     "completion_act_forms": COMPLETION_ACT_FORMS_BACKUP_NAME,
     "manager_structure": MANAGER_STRUCTURE_BACKUP_NAME,
+    "manager_role_workspace": ROLE_WORKSPACE_BACKUP_NAME,
 }
 LEGACY_ARTIFACT_KEYS = frozenset({"state", "audit_archive", "manager_sqlite"})
 PREVIOUS_ARTIFACT_KEYS = frozenset(
     {"state", "change_feed_sqlite", "audit_archive", "manager_sqlite"}
 )
 CURRENT_ARTIFACT_KEYS = frozenset(ARTIFACT_FILE_NAMES)
-V3_ARTIFACT_KEYS = CURRENT_ARTIFACT_KEYS - {"manager_structure"}
+V4_ARTIFACT_KEYS = CURRENT_ARTIFACT_KEYS - {"manager_role_workspace"}
+V3_ARTIFACT_KEYS = V4_ARTIFACT_KEYS - {"manager_structure"}
 REQUIRED_ARTIFACT_KEYS = frozenset({"state", "manager_sqlite"})
 METADATA_ARTIFACT_KEYS = frozenset(
     {"state", "change_feed_sqlite", "manager_sqlite", "completion_act_forms", "manager_structure"}
@@ -467,6 +485,7 @@ def create_backup(
     manager_db: Path,
     backup_id: str | None = None,
     include_audit_archive: bool = True,
+    manager_role_workspace: Path | None = None,
 ) -> dict[str, Any]:
     created_at = datetime.now(UTC)
     resolved_id = backup_id or created_at.strftime("%Y%m%dT%H%M%SZ")
@@ -556,6 +575,21 @@ def create_backup(
         else:
             raise BackupError(f"Manager SQLite does not exist: {manager_db}")
 
+        # Role files live outside release snapshots and may acquire new records
+        # during recovery. This is verified evidence, never a rollback target.
+        role_destination = temp_dir / ROLE_WORKSPACE_BACKUP_NAME
+        try:
+            has_role_snapshot = manager_role_workspace is not None and snapshot_workspace(
+                manager_role_workspace, role_destination
+            )
+        except RoleWorkspaceError as exc:
+            raise BackupError(str(exc)) from exc
+        if has_role_snapshot:
+            _fsync_file(role_destination)
+        artifacts["manager_role_workspace"] = (
+            _artifact(role_destination) if has_role_snapshot else None
+        )
+
         manifest = {
             "schema": BACKUP_SCHEMA,
             "backup_id": resolved_id,
@@ -564,6 +598,11 @@ def create_backup(
             "sources": {
                 "crm_data_dir": str(crm_data_dir.resolve()),
                 "manager_db": str(manager_db.resolve()),
+                "manager_role_workspace": (
+                    str(manager_role_workspace.resolve())
+                    if manager_role_workspace is not None
+                    else None
+                ),
             },
             "artifacts": artifacts,
         }
@@ -596,12 +635,23 @@ def _load_manifest(backup_dir: Path) -> dict[str, Any]:
         raise BackupError("Backup is not marked complete")
 
     sources = manifest.get("sources")
+    source_fields = {"crm_data_dir", "manager_db"}
+    if schema == BACKUP_SCHEMA:
+        source_fields.add("manager_role_workspace")
     if (
         not isinstance(sources, dict)
-        or set(sources) != {"crm_data_dir", "manager_db"}
-        or any(not isinstance(value, str) or not value for value in sources.values())
+        or set(sources) != source_fields
+        or any(
+            not isinstance(sources.get(key), str) or not sources[key]
+            for key in ("crm_data_dir", "manager_db")
+        )
     ):
         raise BackupError("Invalid backup manifest sources")
+    role_source = sources.get("manager_role_workspace")
+    if role_source is not None and (
+        not isinstance(role_source, str) or not Path(role_source).is_absolute()
+    ):
+        raise BackupError("Invalid role workspace source")
 
     artifacts = manifest.get("artifacts")
     if not isinstance(artifacts, dict):
@@ -612,6 +662,8 @@ def _load_manifest(backup_dir: Path) -> dict[str, Any]:
         expected_artifact_keys = PREVIOUS_ARTIFACT_KEYS
     elif schema == V3_BACKUP_SCHEMA:
         expected_artifact_keys = V3_ARTIFACT_KEYS
+    elif schema == V4_BACKUP_SCHEMA:
+        expected_artifact_keys = V4_ARTIFACT_KEYS
     else:
         expected_artifact_keys = CURRENT_ARTIFACT_KEYS
     if set(artifacts) != expected_artifact_keys:
@@ -639,6 +691,11 @@ def _load_manifest(backup_dir: Path) -> dict[str, Any]:
             raise BackupError("Completion act drafts backup exceeds the bounded size")
         if artifact_name == "manager_structure" and size_bytes > MANAGER_STRUCTURE_MAX_BYTES:
             raise BackupError("Manager structure backup exceeds the bounded size")
+        if artifact_name == "manager_role_workspace":
+            if role_source is None:
+                raise BackupError("Role workspace backup has no source")
+            if size_bytes > ROLE_WORKSPACE_MAX_ARCHIVE_BYTES:
+                raise BackupError("Role workspace backup exceeds the bounded size")
         sha256 = metadata.get("sha256")
         if (
             not isinstance(sha256, str)
@@ -658,6 +715,7 @@ def _load_manifest(backup_dir: Path) -> dict[str, Any]:
         normalized_artifacts.setdefault("change_feed_sqlite", None)
         normalized_artifacts.setdefault("completion_act_forms", None)
         normalized_artifacts.setdefault("manager_structure", None)
+        normalized_artifacts.setdefault("manager_role_workspace", None)
         manifest["artifacts"] = normalized_artifacts
     return manifest
 
@@ -690,6 +748,11 @@ def verify_backup(backup_dir: Path) -> dict[str, Any]:
             raise BackupError("CRM state backup is not a JSON object")
     if manifest["artifacts"]["manager_structure"] is not None:
         _manager_structure_bytes(backup_dir / MANAGER_STRUCTURE_BACKUP_NAME)
+    if manifest["artifacts"]["manager_role_workspace"] is not None:
+        try:
+            verify_workspace_snapshot(backup_dir / ROLE_WORKSPACE_BACKUP_NAME)
+        except RoleWorkspaceError as exc:
+            raise BackupError(str(exc)) from exc
     completion_act_forms_metadata = manifest.get("artifacts", {}).get("completion_act_forms")
     if completion_act_forms_metadata is not None:
         try:
@@ -1086,6 +1149,7 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--manager-db", type=Path, required=True)
     create.add_argument("--backup-id", default=None)
     create.add_argument("--skip-audit-archive", action="store_true")
+    create.add_argument("--manager-role-workspace", type=Path)
 
     verify = subparsers.add_parser("verify")
     verify.add_argument("--backup-dir", type=Path, required=True)
@@ -1109,6 +1173,7 @@ def main(argv: list[str] | None = None) -> int:
                 manager_db=args.manager_db,
                 backup_id=args.backup_id,
                 include_audit_archive=not args.skip_audit_archive,
+                manager_role_workspace=args.manager_role_workspace,
             )
         elif args.command == "verify":
             result = verify_backup(args.backup_dir)
