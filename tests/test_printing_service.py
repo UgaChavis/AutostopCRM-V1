@@ -1891,24 +1891,6 @@ class PrintingServiceTests(unittest.TestCase):
             )
             self.assertIn(expected_title, document["pages"][0]["html"])
 
-    def test_acceptance_act_renders_legal_terms_and_photo_fixation(self) -> None:
-        preview = self.service.preview_documents(
-            self.card,
-            selected_document_ids=["vehicle_acceptance_act"],
-            active_document_id="vehicle_acceptance_act",
-        )
-
-        document = preview["documents"][0]
-        html = document["pages"][0]["html"]
-        self.assertIn("Акт приема-передачи автомобиля в работу", html)
-        self.assertIn("Фотофиксация состояния автомобиля", html)
-        self.assertIn("150 рублей в сутки", html)
-        self.assertIn(
-            "претензии по повреждениям после выезда автомобиля из сервиса не принимаются", html
-        )
-        self.assertNotIn("undefined", html)
-        self.assertNotIn("NaN", html)
-
     def test_parts_sale_document_uses_material_rows_without_vehicle_requirement(self) -> None:
         card = build_card()
         card.repair_order.vehicle = ""

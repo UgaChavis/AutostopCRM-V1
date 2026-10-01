@@ -30,6 +30,7 @@ from ..storage.file_lock import ProcessFileLock
 from ..storage.limited_io import read_bytes_limited
 from . import document_policy
 from . import repair_order_future_v2 as future_v2
+from .acceptance_act import acceptance_act_context
 from .defaults import BUILTIN_PRINT_DOCUMENTS, builtin_template_records
 from .document_guard import export_document_meta, invoice_guard
 from .document_money import DocumentMoneyError, build_canonical_document_money
@@ -3818,12 +3819,9 @@ class PrintModuleService:
             "issue_points": issue_points,
             "findings": findings,
             "recommendations": recommendations,
-            "vehicle_acceptance_act": {
-                "photo_fixation_yes": "ДА",
-                "photo_fixation_no": "НЕТ",
-                "estimated_cost_display": _money_display(payment_summary["base_total"]),
-                "terms_html": _vehicle_acceptance_terms_html(),
-            },
+            "vehicle_acceptance_act": acceptance_act_context(
+                card, order, payment_summary["base_total"], _vehicle_acceptance_terms_html()
+            ),
             "parts_sale": {
                 "items": materials,
                 "terms_html": _parts_sale_terms_html(),
