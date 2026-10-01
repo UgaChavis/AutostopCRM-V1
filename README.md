@@ -50,6 +50,9 @@ Owner MCP client -> 24-tool Gateway v2 -> internal Store adapter -> Store API
   `web_template_editor.py` own styles, the completion-act editor and template
   editing; `web_async_context.py` and `web_workspace_loading.py` own asynchronous
   context and workspace loading. The board assembler consumes the combined assets.
+  The built-in vehicle acceptance act prints the saved card's **«Краткая суть»**
+  (`card.title`) under **«Какой ремонт необходимо выполнить?»** in preview,
+  PDF, and print output. Custom templates can use `{{card.title}}` for this value.
 - `main.py` and `main_mcp.py` are desktop and API/MCP entrypoints. The Qt/PySide6
   window hosts the browser UI, integration settings, and printing runtime.
 - Detached service bundles prepare mutations before JsonStore commits them;

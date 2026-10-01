@@ -149,6 +149,32 @@ class PrintingLoadingBrowserTests(unittest.TestCase):
         )
         self.assertEqual(self.errors, [])
 
+    def test_acceptance_act_prints_saved_card_short_essence(self) -> None:
+        from playwright.sync_api import expect
+
+        title = "Ремонт АКПП <контроль> & проверка"
+        self.page.evaluate("closeRepairOrderModal()")
+        self.page.locator("#cardTitle").fill(title)
+        with self.page.expect_response("**/api/update_card") as saved:
+            self.page.locator("#saveCardButton").click()
+        self.assertTrue(saved.value.json()["ok"])
+        self.page.locator("#cardModal").wait_for(state="hidden")
+        self.page.evaluate(
+            "id => openCardWorkspace(id, {openRepairOrder:true})", self.runtime.card_id
+        )
+        reason = self.page.locator("#repairOrderReason").input_value()
+        self.page.locator("#repairOrderPrintButton").click()
+        self.wait_load_state("ready")
+        self.page.locator('[data-print-document="vehicle_acceptance_act"]').click()
+        section = (
+            self.page.frame_locator("#repairOrderPrintPreviewFrame")
+            .locator("section.doc-section")
+            .filter(has_text="Какой ремонт необходимо выполнить?")
+        )
+        expect(section.locator(".doc-note")).to_have_text(title)
+        self.assertEqual(self.page.locator("#repairOrderReason").input_value(), reason)
+        self.assertEqual(self.errors, [])
+
 
 if __name__ == "__main__":
     unittest.main()

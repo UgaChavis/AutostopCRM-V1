@@ -1360,7 +1360,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
   </table>
   <section class="doc-section">
     <h2 class="doc-section__title">Какой ремонт необходимо выполнить?</h2>
-    <div class="doc-note">{{{repair_order.reason_html}}}</div>
+    <div class="doc-note">{{card.title}}</div>
   </section>
   <section class="doc-section">
     <h2 class="doc-section__title">Фотофиксация состояния автомобиля</h2>
