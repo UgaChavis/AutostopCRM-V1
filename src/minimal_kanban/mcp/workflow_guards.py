@@ -72,6 +72,12 @@ def finance_dry_run_proof(
     )
 
 
+def _payment_overpayment_flag_errors(payload: Mapping[str, Any]) -> list[str]:
+    if "allow_overpayment" in payload and not isinstance(payload["allow_overpayment"], bool):
+        return ["arguments.allow_overpayment:bool_type"]
+    return []
+
+
 def _logical_payment_errors(payload: Mapping[str, Any]) -> list[str]:
     errors = [f"arguments.{key}:extra_forbidden" for key in payload.keys() - LOGICAL_PAYMENT_FIELDS]
     errors.extend(
@@ -93,6 +99,7 @@ def _logical_payment_errors(payload: Mapping[str, Any]) -> list[str]:
         "card",
     }:
         errors.append("arguments.payment_method:literal_error")
+    errors.extend(_payment_overpayment_flag_errors(payload))
     amount = payload.get("amount", payload.get("amount_minor"))
     try:
         valid_amount = (
@@ -148,6 +155,10 @@ def finance_request_error(
 ) -> tuple[str, list[str]] | None:
     if operation not in FINANCE_WORKFLOW_OPERATIONS:
         return None
+    if operation == "record_repair_order_payment":
+        flag_errors = _payment_overpayment_flag_errors(payload)
+        if flag_errors:
+            return "finance_payload_schema_validation_failed", flag_errors
     proof = str(dry_run_proof or "").strip()
     dry_run_key = str(dry_run_idempotency_key or "").strip()
     if operation in FINANCE_READ_OPERATIONS:

@@ -92,6 +92,12 @@ intent explicit; both execute the real read. A finance read never returns or
 accepts a preview proof, and `mode="apply"` is invalid. Finance writes retain
 their preview-and-proof guard.
 
+For `record_repair_order_payment`, `allow_overpayment` must be a JSON boolean
+when supplied. Only literal `true` allows an amount above the confirmed debt;
+omission and `false` keep the debt guard. Strings, numbers, objects and null
+are rejected before any workflow or payment write, including legacy calls
+without `mode`. Finance permissions, exact revisions and readback still apply.
+
 ## Store Boundary And Quote Context
 
 Store adapter remains internal. `store_owner_capabilities` and `store_owner_api`

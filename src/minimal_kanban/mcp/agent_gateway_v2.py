@@ -725,7 +725,7 @@ def register_agent_gateway_v2(
                 "ok": False,
                 "error": {"code": "payment_debt_unavailable", "field": due_key},
             }
-        if amount > outstanding and not bool(payload.get("allow_overpayment")):
+        if amount > outstanding and payload.get("allow_overpayment") is not True:
             return {
                 "ok": False,
                 "error": {
