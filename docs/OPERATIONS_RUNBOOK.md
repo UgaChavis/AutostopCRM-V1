@@ -648,8 +648,9 @@ Deploy only with explicit owner intent. Normal sequence:
    they do not open or modify the Manager database.
 5. Run the cross-project documentation gate with the exact Manager candidate:
    `/opt/autostopcrm/.venv/bin/python scripts/docs_audit.py --manager-root /opt/AutostopManager --format text`.
-   It independently requires all 42 mapped module instructions, four Manager
-   skills and 13 technical references, discovers additional guides, and checks
+   It independently requires all 44 mapped module instructions (43 module
+   Markdown files plus `AGENTS.md`), four Manager skills and 13 technical
+   references, discovers additional guides, and checks
    CRM's canonical Manager GitHub file links against that checkout. The runtime
    inventory must include the full package, not only the six startup documents.
    Use the CRM interpreter, which supplies both CRM and Manager probe dependencies;
