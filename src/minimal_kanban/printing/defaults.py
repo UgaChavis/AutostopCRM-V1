@@ -250,7 +250,7 @@ PRINT_BASE_STYLES = """
     gap: 1px;
   }
   .doc-section__title { margin: 0 0 6px; font-size: 13px; font-weight: 700; break-after: avoid; page-break-after: avoid; }
-  .doc-note { border: 1px solid var(--paper-line); border-radius: 9px; padding: 9px 11px; min-height: 54px; white-space: normal; line-height: 1.5; background: #fcfcfc; }
+  .doc-note { border: 1px solid var(--paper-line); border-radius: 9px; padding: 9px 11px; min-height: 54px; white-space: normal; overflow-wrap: anywhere; line-height: 1.5; background: #fcfcfc; }
   .doc-terms {
     border: 1px solid rgba(0, 0, 0, 0.09);
     border-radius: 10px;
@@ -1360,7 +1360,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
   </table>
   <section class="doc-section">
     <h2 class="doc-section__title">Какой ремонт необходимо выполнить?</h2>
-    <div class="doc-note">{{card.title}}</div>
+    <div class="doc-note">{{{vehicle_acceptance_act.requested_repair_html}}}</div>
   </section>
   <section class="doc-section">
     <h2 class="doc-section__title">Фотофиксация состояния автомобиля</h2>
