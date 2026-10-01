@@ -110,10 +110,18 @@ a fixed sales script.
 
 Store management operations are `assign_quote_request`,
 `update_quote_request_comment`, `add_quote_request_note`,
-`set_quote_request_status`, `mark_order_ready`, and
+`set_quote_request_status`, `mark_order_ready`, `set_order_payment_status`, and
 `set_batch_storage_location`. Draft/context actions may be useful without a
 ceremony. Publishing a customer price or creating/advancing a real order must
 pass the native impact guard with explicit authority and an exact target.
+
+`set_order_payment_status` accepts only a boolean `planned_changes.paid` and
+the current separate financial instruction as
+`owner_intent="owner_finance: <nonempty instruction description>"` (500 characters
+maximum). Preserve the same owner intent, target, revision, correlation and
+planned changes for native dry-run/apply; the Store proof lasts 1800 seconds.
+No extra proof identifier is required. Only `payment_status` and `paid_at`
+change, with no external effects; apply requires native verified full readback.
 
 `download_store_quote_vin_photo` returns PII-redacted references. Require
 `expected_photo_sha256` when integrity matters; use `allow_large_output=true`
