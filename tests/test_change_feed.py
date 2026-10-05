@@ -52,6 +52,15 @@ class ChangeFeedTestCase(unittest.TestCase):
             reconcile=self.store.reconcile_change_feed,
         )
 
+    def feed_database_bytes(self) -> bytes:
+        """Inspect all durable bytes in a quiescent disposable feed fixture."""
+        database = self.store.change_feed_store.path
+        content = database.read_bytes()
+        wal = Path(f"{database}-wal")
+        if wal.is_file():
+            content += wal.read_bytes()
+        return content
+
     def append_event(
         self,
         event_id: str,
@@ -153,7 +162,7 @@ class ChangeFeedStorageContractTests(ChangeFeedTestCase):
         self.assertEqual("audit_event", rows[0]["producer"])
         self.assertRegex(rows[0]["correlation_ref"], r"^corr:[0-9a-f]{24}$")
         self.assertRegex(rows[0]["idempotency_ref"], r"^idem:[0-9a-f]{24}$")
-        database_bytes = (self.base_dir / "change_feed.sqlite3").read_bytes()
+        database_bytes = self.feed_database_bytes()
         if os.name != "nt":
             self.assertEqual(
                 0o600,
@@ -236,7 +245,7 @@ class ChangeFeedStorageContractTests(ChangeFeedTestCase):
         self.assertEqual("state_projection", updates[0]["producer"])
         self.assertNotIn(
             b"PRIVATE-EXTERNAL-STATE-CHANGE-72A1",
-            (self.base_dir / "change_feed.sqlite3").read_bytes(),
+            self.feed_database_bytes(),
         )
 
     def test_durable_outbox_recovery_commits_only_matching_state_fingerprint(self) -> None:
@@ -439,9 +448,7 @@ class ChangeFeedDeliveryContractTests(ChangeFeedTestCase):
         self.assertEqual(1, first["category_counts"]["finance"])
         self.assertEqual(12500, first["financial_totals"]["income_minor"])
         self.assertEqual(0, self.feed.bootstrap({"consumer_id": "crm-digest"})["acked_sequence"])
-        self.assertNotIn(
-            private_value.encode("utf-8"), (self.base_dir / "change_feed.sqlite3").read_bytes()
-        )
+        self.assertNotIn(private_value.encode("utf-8"), self.feed_database_bytes())
 
     def test_deleted_cash_transaction_is_one_correlated_cancellation(self) -> None:
         correlation = "cash-cancel-correlation"
@@ -595,28 +602,53 @@ class ChangeFeedDeliveryContractTests(ChangeFeedTestCase):
         self.assertEqual(["event-3"], [event["event_id"] for event in next_delivery["events"]])
 
     def test_tokens_share_one_connection_and_observe_a_restored_secret(self) -> None:
+        from contextlib import contextmanager
+
         self.append_event("event-1")
         self.append_event("event-2")
         store = self.store.change_feed_store
-        connect_modes: list[bool] = []
-        original_connect = store._connect
+        transactions = []
 
-        def traced_connect(*, durable: bool = True):
-            connect_modes.append(durable)
-            return original_connect(durable=durable)
+        def transaction_spy(target, observed):
+            original_transaction = target._transaction
 
-        with patch.object(store, "_connect", side_effect=traced_connect):
+            @contextmanager
+            def traced_transaction(*, immediate=False, durable=True, reuse_page_connection=False):
+                with original_transaction(
+                    immediate=immediate,
+                    durable=durable,
+                    reuse_page_connection=reuse_page_connection,
+                ) as connection:
+                    observed.append((connection, durable, reuse_page_connection))
+                    self.assertIs(sqlite3.Row, connection.row_factory)
+                    self.assertEqual(2, connection.execute("PRAGMA synchronous").fetchone()[0])
+                    yield connection
+
+            return traced_transaction
+
+        with patch.object(store, "_transaction", side_effect=transaction_spy(store, transactions)):
             first = store.read_page("owner", limit=1)
-            self.assertEqual([True], connect_modes)
+            self.assertEqual(1, len(transactions))
 
             replay = store.read_page("owner", cursor=first["replay_cursor"], limit=25)
-            self.assertEqual([True, True], connect_modes)
+            self.assertEqual(2, len(transactions))
             self.assertEqual(first, replay)
 
             second = store.read_page("owner", cursor=first["next_cursor"], limit=1)
-            self.assertEqual([True, True, True], connect_modes)
+            self.assertEqual(3, len(transactions))
             first_ack = store.acknowledge("owner", first["ack"])
-            self.assertEqual([True, True, True, True], connect_modes)
+            self.assertEqual(4, len(transactions))
+
+        self.assertEqual([True, True, True, True], [item[1] for item in transactions])
+        self.assertEqual([True, True, True, False], [item[2] for item in transactions])
+        page_connection = transactions[0][0]
+        for other_page in transactions[1:3]:
+            if store._wal_anchor is not None:
+                self.assertIs(page_connection, other_page[0])
+            else:
+                self.assertIsNot(page_connection, other_page[0])
+        for page in transactions[:3]:
+            self.assertIsNot(page[0], transactions[3][0])
 
         self.assertEqual([1], [event["sequence"] for event in first["events"]])
         self.assertEqual([2], [event["sequence"] for event in second["events"]])
@@ -628,32 +660,40 @@ class ChangeFeedDeliveryContractTests(ChangeFeedTestCase):
         with store._transaction(immediate=True) as connection:
             store._set_metadata(connection, "cursor_secret", restored_secret)
 
-        connect_modes.clear()
-        with patch.object(store, "_connect", side_effect=traced_connect):
+        transactions.clear()
+        with patch.object(store, "_transaction", side_effect=transaction_spy(store, transactions)):
             with self.assertRaises(ChangeFeedProtocolError) as stale_ack:
                 store.acknowledge("owner", second["ack"])
             self.assertEqual("invalid_ack", stale_ack.exception.code)
-            self.assertEqual([True], connect_modes)
+            self.assertEqual(1, len(transactions))
 
             refreshed = store.read_page("owner", limit=1)
-            self.assertEqual([True, True], connect_modes)
+            self.assertEqual(2, len(transactions))
+        self.assertEqual([True, True], [item[1] for item in transactions])
+        self.assertEqual([False, True], [item[2] for item in transactions])
+        self.assertIsNot(transactions[0][0], transactions[1][0])
+        if store._wal_anchor is not None:
+            self.assertIs(page_connection, transactions[1][0])
         self.assertEqual([2], [event["sequence"] for event in refreshed["events"]])
         self.assertNotEqual(second["ack"], refreshed["ack"])
 
         restarted = ChangeFeedStore(store.path)
-        restarted_connect_modes: list[bool] = []
-        restarted_connect = restarted._connect
-
-        def traced_restarted_connect(*, durable: bool = True):
-            restarted_connect_modes.append(durable)
-            return restarted_connect(durable=durable)
-
-        with patch.object(restarted, "_connect", side_effect=traced_restarted_connect):
+        self.addCleanup(restarted.close)
+        restarted_transactions = []
+        with patch.object(
+            restarted,
+            "_transaction",
+            side_effect=transaction_spy(restarted, restarted_transactions),
+        ):
             restarted_replay = restarted.read_page(
                 "owner", cursor=refreshed["replay_cursor"], limit=25
             )
             final_ack = restarted.acknowledge("owner", refreshed["ack"])
-        self.assertEqual([True, True], restarted_connect_modes)
+        self.assertEqual(2, len(restarted_transactions))
+        self.assertEqual([True, True], [item[1] for item in restarted_transactions])
+        self.assertEqual([True, False], [item[2] for item in restarted_transactions])
+        self.assertIsNot(page_connection, restarted_transactions[0][0])
+        self.assertIsNot(restarted_transactions[0][0], restarted_transactions[1][0])
         self.assertEqual(refreshed, restarted_replay)
         self.assertTrue(final_ack["delivery_complete"])
 

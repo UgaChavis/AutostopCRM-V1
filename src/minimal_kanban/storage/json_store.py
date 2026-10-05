@@ -165,6 +165,10 @@ class StateWriteConflictError(RuntimeError):
 
 
 class JsonStore:
+    def close(self) -> None:
+        """Release this store's idle SQLite keeper without changing persisted data."""
+        self._change_feed_store.close()
+
     def __init__(self, state_file: Path | None = None, logger: Logger | None = None) -> None:
         self._state_file = state_file or get_state_file()
         self._logger = logger
