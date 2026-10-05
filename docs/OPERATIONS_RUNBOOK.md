@@ -119,6 +119,26 @@ version. Ordinary regression tests do not establish protection against this rare
 concurrent-checkpoint fault. Keep runtime upgrades and before/after measurements
 as a controlled environment change; do not silently replace a machine-wide DLL.
 
+On Linux, each live change-feed store retains one idle SQLite connection so
+ordinary requests do not trigger a last-connection checkpoint and WAL-index
+recovery. It holds no transaction or read cursor; requests still use separate
+connections, existing FULL/NORMAL durability modes, and SQLite's normal automatic
+checkpoints. Durable transactions retain `synchronous=FULL`.
+`JsonStore.close()` releases this keeper, and later use in the same
+process with the same database file can reopen it. The owning embedded MCP
+runtime releases it after stopping its agent and API; other platforms keep the
+original per-request connection lifecycle. A store inherited through `fork`, or
+whose database inode was replaced, requires a fresh store instance. Linux
+keepers close before fork and reopen lazily in the parent. This uses standard
+Python 3.11 APIs rather than SQLite configuration flags added in Python 3.12.
+
+Committed state may remain in the WAL while the keeper is alive. Follow the
+[SQLite WAL backup rules](https://sqlite.org/wal.html): copying only the main
+database can omit committed changes. The coordinated release helper uses
+`sqlite3.Connection.backup()` for an online snapshot and restores with CRM
+stopped, removing stale WAL/SHM files before replacement. Keep that backup and
+restore path; do not replace a live store's database file in place.
+
 Desktop integration settings live in the compatibility data directory's
 `settings.json`. Initial creation and load-time normalization hold the same
 process lock as saves. An I/O read failure propagates without replacing settings;

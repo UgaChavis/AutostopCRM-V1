@@ -20,6 +20,7 @@ from minimal_kanban.mcp.main import (  # noqa: E402
     _start_embedded_api_runtime,
 )
 from minimal_kanban.settings_models import IntegrationSettings  # noqa: E402
+from minimal_kanban.storage.json_store import JsonStore  # noqa: E402
 
 
 class ReachableBoardApiUrlTests(unittest.TestCase):
@@ -76,6 +77,92 @@ class RuntimeBindHostTests(unittest.TestCase):
 
 
 class McpMainRunTests(unittest.TestCase):
+    def test_embedded_startup_failure_closes_owned_store_before_logger(self) -> None:
+        from minimal_kanban.mcp.main import run
+
+        for failure in ("service_constructor", "demo_seed"):
+            with self.subTest(failure=failure):
+                logger = Mock()
+                store = Mock(spec=JsonStore)
+                service = Mock()
+                cleanup_order = []
+                store.close.side_effect = lambda: cleanup_order.append("store")
+                if failure == "demo_seed":
+                    service.ensure_demo_board.side_effect = RuntimeError(
+                        "synthetic startup failure"
+                    )
+                with (
+                    patch("minimal_kanban.mcp.main.configure_logging", return_value=logger),
+                    patch("minimal_kanban.mcp.main.SettingsStore"),
+                    patch("minimal_kanban.mcp.main.SettingsService") as settings_cls,
+                    patch("minimal_kanban.mcp.main._resolve_api_bearer_token", return_value=None),
+                    patch("minimal_kanban.mcp.main._resolve_api_base_url", return_value=None),
+                    patch("minimal_kanban.mcp.main.JsonStore", return_value=store),
+                    patch("minimal_kanban.mcp.main.CardService", return_value=service) as cards_cls,
+                    patch("minimal_kanban.mcp.main.ApiServer") as api_cls,
+                    patch(
+                        "minimal_kanban.mcp.main.close_logger",
+                        side_effect=lambda _: cleanup_order.append("logger"),
+                    ),
+                    self.assertRaisesRegex(RuntimeError, "synthetic startup failure"),
+                ):
+                    settings_cls.return_value.load.return_value = IntegrationSettings.defaults()
+                    if failure == "service_constructor":
+                        cards_cls.side_effect = RuntimeError("synthetic startup failure")
+                    run()
+                store.close.assert_called_once_with()
+                api_cls.assert_not_called()
+                self.assertEqual(cleanup_order, ["store", "logger"])
+
+    def test_cleanup_attempts_owned_store_after_other_stops_and_always_closes_logger(self) -> None:
+        for failure in ("mcp", "agent", "api", "store"):
+            with self.subTest(failure=failure):
+                cleanup_order = []
+
+                def cleanup(resource: str) -> None:
+                    cleanup_order.append(resource)
+                    if resource == failure:
+                        raise RuntimeError("synthetic cleanup failure")
+
+                logger = Mock()
+                runtime = Mock()
+                runtime.stop.side_effect = lambda: cleanup("mcp")
+                agent = Mock()
+                agent.close.side_effect = lambda: cleanup("agent")
+                api = Mock()
+                api.stop.side_effect = lambda: cleanup("api")
+                store = Mock(spec=JsonStore)
+                store.close.side_effect = lambda: cleanup("store")
+                with (
+                    patch(
+                        "minimal_kanban.mcp.main.close_logger",
+                        side_effect=lambda _: cleanup("logger"),
+                    ),
+                    self.assertRaisesRegex(RuntimeError, "synthetic cleanup failure"),
+                ):
+                    _cleanup_mcp_main_resources(
+                        mcp_runtime=runtime,
+                        embedded_agent_control=agent,
+                        embedded_api_server=api,
+                        embedded_store=store,
+                        logger=logger,
+                    )
+                self.assertEqual(cleanup_order, ["mcp", "agent", "api", "store", "logger"])
+
+    def test_external_api_does_not_create_or_claim_a_store(self) -> None:
+        ownership = {"api_server": None, "agent_control": None, "store": None}
+        with patch("minimal_kanban.mcp.main.JsonStore") as store_cls:
+            result = _start_embedded_api_runtime(
+                IntegrationSettings.defaults(),
+                Mock(),
+                None,
+                "https://synthetic-api.invalid",
+                ownership=ownership,
+            )
+        store_cls.assert_not_called()
+        self.assertEqual(result, (None, None, "https://synthetic-api.invalid"))
+        self.assertEqual(ownership, {"api_server": None, "agent_control": None, "store": None})
+
     def test_embedded_runtime_publishes_api_ownership_before_agent_start_failure(self) -> None:
         logger = logging.getLogger("test.mcp.main.embedded_ownership")
         close_logger(logger)

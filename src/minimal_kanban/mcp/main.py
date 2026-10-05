@@ -85,6 +85,7 @@ def _cleanup_mcp_main_resources(
     embedded_agent_control: Any | None,
     embedded_api_server: ApiServer | None,
     logger: Any,
+    embedded_store: JsonStore | None = None,
 ) -> None:
     callbacks: list[tuple[str, Callable[[], Any]]] = []
     if mcp_runtime is not None:
@@ -93,6 +94,8 @@ def _cleanup_mcp_main_resources(
         callbacks.append(("embedded_agent", embedded_agent_control.close))
     if embedded_api_server is not None:
         callbacks.append(("embedded_api", embedded_api_server.stop))
+    if embedded_store is not None:
+        callbacks.append(("embedded_store", embedded_store.close))
     callbacks.append(("logger", lambda: close_logger(logger)))
 
     first_error: BaseException | None = None
@@ -157,6 +160,7 @@ def _start_embedded_api_runtime(
         return None, None, api_base_url
 
     store = JsonStore(logger=logger)
+    ownership["store"] = store
     service = CardService(store, logger)
     seeded_demo = service.ensure_demo_board()
     if seeded_demo:
@@ -273,6 +277,7 @@ def run() -> int:
     embedded_ownership: dict[str, Any | None] = {
         "api_server": None,
         "agent_control": None,
+        "store": None,
     }
     try:
         settings_store = SettingsStore(logger=logger)
@@ -359,6 +364,7 @@ def run() -> int:
             embedded_agent_control=embedded_ownership["agent_control"],
             embedded_api_server=embedded_ownership["api_server"],
             logger=logger,
+            embedded_store=embedded_ownership["store"],
         )
 
 
