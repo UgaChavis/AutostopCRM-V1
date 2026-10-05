@@ -11,7 +11,7 @@ import sqlite3
 import stat
 import sys
 from collections.abc import Callable, Iterable, Mapping
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -285,6 +285,11 @@ class ChangeFeedStore:
             raise RuntimeError("A replaced change-feed database requires a fresh store.") from exc
         if (file_stat.st_dev, file_stat.st_ino) != self._database_identity:
             raise RuntimeError("A replaced change-feed database requires a fresh store.")
+        if stat.S_IMODE(file_stat.st_mode) != 0o600:
+            try:
+                os.chmod(self.path, 0o600)
+            except OSError:
+                pass
         self._wal_anchor.ensure_open()
 
     def close(self) -> None:
@@ -322,17 +327,28 @@ class ChangeFeedStore:
             connection.close()
 
     @contextmanager
-    def _transaction(self, *, immediate: bool = False, durable: bool = True):
-        connection = self._connect(durable=durable)
-        try:
-            connection.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
-            yield connection
-            connection.commit()
-        except Exception:
-            connection.rollback()
-            raise
-        finally:
-            connection.close()
+    def _transaction(
+        self,
+        *,
+        immediate: bool = False,
+        durable: bool = True,
+        reuse_page_connection: bool = False,
+    ):
+        if reuse_page_connection and self._wal_anchor is not None:
+            if not durable:
+                raise ValueError("Reused consumer-page transactions must remain durable.")
+            self._ensure_wal_anchor()
+            connection_scope = self._wal_anchor.page_connection()
+        else:
+            connection_scope = closing(self._connect(durable=durable))
+        with connection_scope as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
+                yield connection
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
 
     def _ensure_schema(self) -> None:
         with self._connection() as connection:
@@ -1982,7 +1998,7 @@ class ChangeFeedStore:
             raise ChangeFeedProtocolError(
                 "invalid_limit", f"limit must be between 1 and {CHANGE_FEED_PAGE_MAX}.", 400
             )
-        with self._transaction(immediate=True) as connection:
+        with self._transaction(immediate=True, reuse_page_connection=True) as connection:
             secret = self._secret(connection)
             decoded = (
                 self._decode_token(cursor, kind="page", secret=secret)

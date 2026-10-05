@@ -38,6 +38,8 @@ class ObservedConnection(sqlite3.Connection):
     fail_commit = False
     fail_setup = False
     fail_close = False
+    fail_rollback = False
+    fail_interrupt = False
 
     def execute(self, sql, *args, **kwargs):
         if self.fail_setup and sql == "PRAGMA foreign_keys = ON":
@@ -45,9 +47,16 @@ class ObservedConnection(sqlite3.Connection):
         return super().execute(sql, *args, **kwargs)
 
     def commit(self):
+        if self.fail_interrupt:
+            raise KeyboardInterrupt("synthetic interrupted commit")
         if self.fail_commit:
             raise sqlite3.OperationalError("synthetic commit failure")
         return super().commit()
+
+    def rollback(self):
+        if self.fail_rollback:
+            raise sqlite3.OperationalError("synthetic rollback failure")
+        return super().rollback()
 
     def close(self):
         if self.fail_close:
@@ -224,6 +233,7 @@ print(json.dumps(status))
     def test_protocol_error_rolls_back_partial_consumer_and_closes_handle(self) -> None:
         self.seed("first")
         first = self.feed.read_page("owner")
+        self.feed.close()
         connections, observing = self.observe()
         with observing, self.assertRaises(ChangeFeedProtocolError) as failure:
             self.feed.read_page("other", cursor=first["replay_cursor"])
@@ -233,14 +243,29 @@ print(json.dumps(status))
 
     def test_failed_commit_rolls_back_registration_and_next_request_succeeds(self) -> None:
         self.seed("first")
-        connections, observing = self.observe(fail_commit=True)
-        with observing, self.assertRaisesRegex(sqlite3.OperationalError, "synthetic commit"):
-            self.feed.read_page("new-owner")
-        self.assert_closed(connections)
-        self.assert_no_consumer("new-owner")
-        page = self.feed.read_page("new-owner")
-        self.assertEqual(["first"], [event["event_id"] for event in page["events"]])
-        self.assertTrue(self.feed.acknowledge("new-owner", page["ack"])["delivery_complete"])
+        if sys.platform != "linux":
+            self.skipTest("Reusable page failure cleanup is Linux only")
+        for name, error, rollback_fails in (
+            ("commit", sqlite3.OperationalError, False),
+            ("rollback", sqlite3.OperationalError, True),
+            ("interrupt", KeyboardInterrupt, False),
+        ):
+            with self.subTest(failure=name):
+                self.feed.close()
+                connections, observing = self.observe()
+                with observing:
+                    self.feed._wal_anchor.ensure_open()
+                keeper = connections[-1]
+                keeper.fail_commit = name != "interrupt"
+                keeper.fail_interrupt = name == "interrupt"
+                keeper.fail_rollback = rollback_fails
+                with self.assertRaisesRegex(error, "synthetic"):
+                    self.feed.read_page(name)
+                self.assert_closed(connections)
+                self.assert_no_consumer(name)
+                page = self.feed.read_page(name)
+                self.assertEqual(["first"], [event["event_id"] for event in page["events"]])
+                self.assertTrue(self.feed.acknowledge(name, page["ack"])["delivery_complete"])
 
     def test_same_consumer_threads_and_instances_share_one_frozen_window(self) -> None:
         self.seed("first", "second")
@@ -295,6 +320,7 @@ print(json.dumps(status))
 @unittest.skipUnless(sys.platform == "linux", "Idle WAL ownership is Linux only")
 class ChangeFeedAnchorOwnershipTests(_FeedFixture):
     def test_keeper_is_idle_and_does_not_block_checkpoint_or_writer(self) -> None:
+        self.seed("first")
         connections, observing = self.observe()
         with observing:
             feed = ChangeFeedStore(self.path)
@@ -306,6 +332,19 @@ class ChangeFeedAnchorOwnershipTests(_FeedFixture):
         self.assertEqual(2, keeper.execute("PRAGMA synchronous").fetchone()[0])
         self.assertEqual(1, keeper.execute("PRAGMA foreign_keys").fetchone()[0])
         self.assertEqual(1000, keeper.execute("PRAGMA wal_autocheckpoint").fetchone()[0])
+        with patch.object(
+            feed, "_connect", side_effect=AssertionError("Unexpected page connection")
+        ):
+            first = feed.read_page("same-connection")
+            self.assertEqual(
+                first, feed.read_page("same-connection", cursor=first["replay_cursor"])
+            )
+        self.assertIs(keeper, feed._wal_anchor._finalizer.peek()[2][0])
+        self.assertFalse(keeper.in_transaction)
+        with feed._transaction(durable=False) as fresh:
+            self.assertIsNot(keeper, fresh)
+            self.assertEqual(1, fresh.execute("PRAGMA synchronous").fetchone()[0])
+        self.assertEqual(2, keeper.execute("PRAGMA synchronous").fetchone()[0])
         with closing(REAL_CONNECT(self.path, isolation_level=None)) as writer:
             writer.execute("BEGIN IMMEDIATE")
             writer.execute("INSERT INTO metadata VALUES ('test_idle_writer', '1')")
@@ -321,12 +360,67 @@ class ChangeFeedAnchorOwnershipTests(_FeedFixture):
         self.seed("first")
         first = self.feed.read_page("owner")
         finalizer = self.feed._wal_anchor._finalizer
+        started, finished = threading.Event(), threading.Event()
+
+        def close():
+            started.set()
+            self.feed.close()
+            finished.set()
+
         with ThreadPoolExecutor(max_workers=1) as pool:
-            pool.submit(self.feed.close).result(timeout=15)
+            with self.feed._transaction(immediate=True, reuse_page_connection=True) as connection:
+                connection.execute("INSERT INTO metadata VALUES ('held-page', 'committed')")
+                future = pool.submit(close)
+                self.assertTrue(started.wait(5))
+                self.assertFalse(
+                    finished.wait(0.1), "Close must wait for the active page transaction"
+                )
+                self.assertTrue(connection.in_transaction)
+            future.result(timeout=15)
         self.assertFalse(finalizer.alive)
         self.feed.close()
         self.assertEqual(first, self.feed.read_page("owner", cursor=first["replay_cursor"]))
         self.assertTrue(self.feed._wal_anchor._finalizer.alive)
+        with self.feed._transaction() as connection:
+            self.assertEqual(
+                "committed",
+                connection.execute("SELECT value FROM metadata WHERE key='held-page'").fetchone()[
+                    0
+                ],
+            )
+
+    def test_nested_page_and_active_close_rejection_preserve_outer_transaction(self) -> None:
+        with self.feed._transaction(immediate=True, reuse_page_connection=True) as connection:
+            connection.execute("INSERT INTO metadata VALUES ('outer-page', 'committed')")
+            with self.assertRaisesRegex(RuntimeError, "active"):
+                self.feed.close()
+            with self.assertRaises(RuntimeError):
+                self.feed.read_page("nested-owner")
+            self.assertTrue(connection.in_transaction)
+        self.assert_no_consumer("nested-owner")
+        with self.feed._transaction() as connection:
+            self.assertEqual(
+                "committed",
+                connection.execute("SELECT value FROM metadata WHERE key='outer-page'").fetchone()[
+                    0
+                ],
+            )
+
+    def test_fresh_wal_reader_finishes_while_page_writer_is_active(self) -> None:
+        with self.feed._transaction(immediate=True) as connection:
+            connection.execute("INSERT INTO metadata VALUES ('page-visibility', 'before')")
+
+        def read():
+            with self.feed._transaction() as connection:
+                return connection.execute(
+                    "SELECT value FROM metadata WHERE key='page-visibility'"
+                ).fetchone()[0]
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            with self.feed._transaction(immediate=True, reuse_page_connection=True) as connection:
+                connection.execute("UPDATE metadata SET value='after' WHERE key='page-visibility'")
+                self.assertEqual("before", pool.submit(read).result(timeout=5))
+            self.assertEqual("after", read())
 
     def test_closing_one_instance_preserves_other_instance_delivery(self) -> None:
         self.seed("first")

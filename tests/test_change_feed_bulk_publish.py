@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import shutil
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
@@ -24,6 +24,7 @@ class ChangeFeedBulkPublishTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.directory = Path(temporary.name)
         self.feed = ChangeFeedStore(self.directory / "feed.sqlite3")
+        self.addCleanup(self.feed.close)
         self.feed.initialize_baseline([])
 
     @staticmethod
@@ -126,8 +127,13 @@ class ChangeFeedBulkPublishTests(unittest.TestCase):
         identities = ("new-z", "seen-compacted", "new-a", "seen-retained")
         self.stage(identities)
         reference_path = self.directory / "reference.sqlite3"
-        shutil.copyfile(self.feed.path, reference_path)
+        with (
+            closing(sqlite3.connect(self.feed.path)) as source,
+            closing(sqlite3.connect(reference_path)) as destination,
+        ):
+            source.backup(destination)
         reference = ChangeFeedStore(reference_path)
+        self.addCleanup(reference.close)
         reference.reconcile_state("target", [])
 
         self.assertEqual(2, self.feed.commit_state_write("target"))

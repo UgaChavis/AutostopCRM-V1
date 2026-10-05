@@ -119,18 +119,29 @@ version. Ordinary regression tests do not establish protection against this rare
 concurrent-checkpoint fault. Keep runtime upgrades and before/after measurements
 as a controlled environment change; do not silently replace a machine-wide DLL.
 
-On Linux, each live change-feed store retains one idle SQLite connection so
-ordinary requests do not trigger a last-connection checkpoint and WAL-index
-recovery. It holds no transaction or read cursor; requests still use separate
-connections, existing FULL/NORMAL durability modes, and SQLite's normal automatic
-checkpoints. Durable transactions retain `synchronous=FULL`.
-`JsonStore.close()` releases this keeper, and later use in the same
-process with the same database file can reopen it. The owning embedded MCP
-runtime releases it after stopping its agent and API; other platforms keep the
-original per-request connection lifecycle. A store inherited through `fork`, or
-whose database inode was replaced, requires a fresh store instance. Linux
-keepers close before fork and reopen lazily in the parent. This uses standard
-Python 3.11 APIs rather than SQLite configuration flags added in Python 3.12.
+On Linux, each live change-feed store retains one SQLite connection and leases
+it exclusively for consumer page reads and replays. This avoids repeated
+directory synchronization from opening a new durable WAL handle for each page,
+as well as last-connection checkpoints and WAL-index recovery. The connection
+holds no transaction or read cursor outside its lease. Consumer pages retain
+`BEGIN IMMEDIATE` and durable `synchronous=FULL` commits; producers, ACKs,
+summaries and other operations retain separate connections and their existing
+FULL/NORMAL durability modes. SQLite's normal automatic checkpoints remain.
+The process-wide lifecycle lock serializes page leases across feed stores;
+the server uses one feed database. Already open keepers permit separate fresh
+WAL readers to start during a page lease. No additional persistent pool exists.
+
+`JsonStore.close()` releases the keeper, and later use in the same process with
+the same database file can reopen it. Closing a same-thread active page lease or
+nesting another active lease is rejected without rolling back the outer
+transaction. Failed page transactions roll back and discard the connection;
+later requests reopen it. The owning embedded MCP runtime releases the keeper
+after stopping its agent and API; other platforms keep the original per-request
+connection lifecycle. A store inherited through `fork`, or whose database inode
+was replaced, requires a fresh store instance. Fork only while feed activity is
+quiescent: Linux keepers close before Python fork and reopen lazily in the
+parent. This uses standard Python 3.11 APIs rather than SQLite configuration
+flags added in Python 3.12.
 
 Committed state may remain in the WAL while the keeper is alive. Follow the
 [SQLite WAL backup rules](https://sqlite.org/wal.html): copying only the main

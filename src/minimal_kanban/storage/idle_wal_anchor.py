@@ -4,6 +4,7 @@ import os
 import sqlite3
 import threading
 import weakref
+from contextlib import contextmanager
 from pathlib import Path
 
 _ANCHOR_LOCK = threading.RLock()
@@ -17,7 +18,7 @@ def _close_connection(connection: sqlite3.Connection, owner_pid: int) -> None:
 
 
 class IdleWalAnchor:
-    """Keep a WAL index alive without sharing business SQL or a read snapshot."""
+    """Keep one WAL connection idle between exclusive consumer-page leases."""
 
     def __init__(self, path: Path) -> None:
         self._path = path
@@ -29,6 +30,8 @@ class IdleWalAnchor:
     def ensure_open(self) -> None:
         if os.getpid() != self._owner_pid:
             raise RuntimeError("An inherited change-feed store requires a fresh instance.")
+        if self._finalizer is not None and self._finalizer.alive:
+            return
         with _ANCHOR_LOCK:
             if self._finalizer is not None and self._finalizer.alive:
                 return
@@ -36,6 +39,7 @@ class IdleWalAnchor:
                 self._path, timeout=10.0, isolation_level=None, check_same_thread=False
             )
             try:
+                connection.row_factory = sqlite3.Row
                 connection.execute("PRAGMA foreign_keys = ON")
                 connection.execute("PRAGMA busy_timeout = 10000")
                 connection.execute("PRAGMA synchronous = FULL")
@@ -53,15 +57,48 @@ class IdleWalAnchor:
                 raise
             self._finalizer = weakref.finalize(self, _close_connection, connection, self._owner_pid)
 
+    @contextmanager
+    def page_connection(self):
+        """Lease this FULL connection exclusively for one consumer-page transaction."""
+        if os.getpid() != self._owner_pid:
+            raise RuntimeError("An inherited change-feed store requires a fresh instance.")
+        with _ANCHOR_LOCK:
+            self.ensure_open()
+            info = self._finalizer.peek()
+            connection = info[2][0]
+            # A nested lease must not close or roll back its caller's transaction.
+            if connection.in_transaction:
+                raise RuntimeError("The change-feed page connection is already active.")
+            try:
+                cursor = connection.execute("PRAGMA synchronous")
+                try:
+                    synchronous = cursor.fetchone()[0]
+                finally:
+                    cursor.close()
+                if synchronous != 2 or connection.row_factory is not sqlite3.Row:
+                    raise RuntimeError("The change-feed page connection must retain FULL/Row.")
+                yield connection
+                if connection.in_transaction:
+                    raise RuntimeError("The change-feed page connection retained a transaction.")
+            except BaseException:
+                self._close_open_connection(allow_active=True)
+                raise
+
+    def _close_open_connection(self, *, allow_active: bool = False) -> None:
+        if self._finalizer is not None:
+            info = self._finalizer.peek()
+            if info is not None:
+                connection = info[2][0]
+                if connection.in_transaction and not allow_active:
+                    raise RuntimeError("The active change-feed page connection cannot be closed.")
+                _close_connection(connection, self._owner_pid)
+                self._finalizer.detach()
+
     def close(self) -> None:
         if os.getpid() != self._owner_pid:
             return
         with _ANCHOR_LOCK:
-            if self._finalizer is not None:
-                info = self._finalizer.peek()
-                if info is not None:
-                    _close_connection(info[2][0], self._owner_pid)
-                    self._finalizer.detach()
+            self._close_open_connection()
 
 
 def _before_fork() -> None:
