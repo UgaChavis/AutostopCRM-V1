@@ -81,6 +81,244 @@ class ManagerStructureBrowserTests(unittest.TestCase):
         self.assertEqual(result.status, 200)
         return result.json()["data"]
 
+    def automotive_fixture(self) -> dict:
+        baseline = self.read()
+
+        def restore_graph():
+            self.context.request.post(
+                self.runtime.base_url + "/api/manager_structure/apply",
+                headers={"X-Operator-Session": self.admin},
+                data={
+                    "operation": "replace",
+                    "diagram": {
+                        field: baseline[field]
+                        for field in ("schema_version", "canvas", "elements", "relations")
+                    },
+                    "expected_version": self.read()["version"],
+                    "idempotency_key": "restore-fixture-" + os.urandom(8).hex(),
+                },
+            )
+
+        self.addCleanup(restore_graph)
+        catalog = self.context.request.get(
+            self.runtime.base_url + "/api/manager_structure/tool_catalog",
+            headers={"X-Operator-Session": self.admin},
+        )
+        self.assertEqual(catalog.status, 200)
+        bundle = catalog.json()["data"]
+        graph = {
+            "schema_version": "autostopcrm.manager-structure.v1",
+            "canvas": {"width": 900, "height": 600},
+            "elements": [
+                {
+                    "id": "E1",
+                    "title": "Автомобильные данные",
+                    "kind": "module",
+                    "x": 30,
+                    "y": 30,
+                    "width": 320,
+                    "height": 220,
+                },
+                {
+                    "id": "E2",
+                    "title": "Автомобиль и модификация",
+                    "kind": "item",
+                    "parent": "E1",
+                    "x": 50,
+                    "y": 130,
+                    "width": 270,
+                    "height": 55,
+                },
+            ],
+            "relations": [],
+        }
+        result = self.context.request.post(
+            self.runtime.base_url + "/api/manager_structure/apply",
+            headers={"X-Operator-Session": self.admin},
+            data={
+                "operation": "replace",
+                "diagram": graph,
+                "expected_version": self.read()["version"],
+                "idempotency_key": "fixture-" + os.urandom(8).hex(),
+            },
+        )
+        self.assertEqual(result.status, 200)
+        self.page.reload()
+        self.page.locator('.node[data-id="E2"]').wait_for()
+        self.assertEqual(self.page.url, self.runtime.base_url + "/manager-structure")
+        self.assertEqual(self.page.title(), "Конструктор структуры менеджера · AutoStop")
+        return bundle
+
+    def test_automotive_view_dialog_keyboard_owner_status_poll_conflict_and_mobile(self):
+        bundle = self.automotive_fixture()
+        target = self.page.locator('.node[data-id="E2"]')
+        original_transform = self.page.locator("#stage").get_attribute("transform")
+        target.focus()
+        self.page.keyboard.press("Enter")
+        dialog = self.page.locator("#toolDialog")
+        dialog.wait_for(state="visible")
+        self.page.locator(".tool-card").first.wait_for()
+        module = next(item for item in bundle["modules"] if item["element_id"] == "E2")
+        self.assertEqual(self.page.locator(".tool-card").count(), len(module["tool_ids"]))
+        self.assertEqual(
+            self.page.locator("#toolDialogInstruction").inner_text(), module["instruction_text"]
+        )
+        card = self.page.locator(".tool-card").first
+        ident = card.get_attribute("data-tool-id")
+        select = card.locator("select")
+        select.select_option("temporarily_unavailable")
+        card.get_by_role("button", name="Сохранить отметку", exact=True).click()
+        card.locator(".tool-status-error").get_by_text("Сохранено", exact=True).wait_for()
+        self.assertEqual(self.read()["tool_statuses"][ident]["state"], "temporarily_unavailable")
+        self.page.keyboard.press("Escape")
+        self.assertFalse(dialog.is_visible())
+        self.assertEqual(target.evaluate("el => document.activeElement === el"), True)
+        self.assertIn("clean", self.page.locator("body").get_attribute("class"))
+        self.assertEqual(self.page.locator("#stage").get_attribute("transform"), original_transform)
+        self.page.reload()
+        target.click()
+        self.page.locator(".tool-card").first.wait_for()
+        card = self.page.locator(".tool-card").first
+        card.get_by_text("Временно не работает", exact=True).first.wait_for()
+        select = card.locator("select")
+        select.select_option("not_commissioned")
+        self.page.evaluate("document.getElementById('toolDialogScroll').scrollTop=220")
+        scroll = self.page.locator("#toolDialogScroll").evaluate("el => el.scrollTop")
+        result = self.context.request.post(
+            self.runtime.base_url + "/api/manager_structure/apply",
+            headers={"X-Operator-Session": self.admin},
+            data={
+                "operation": "set_tool_status",
+                "expected_version": self.read()["version"],
+                "idempotency_key": "poll-" + os.urandom(8).hex(),
+                "tool_status": {"operation_id": ident, "state": "working"},
+            },
+        )
+        self.assertEqual(result.status, 200)
+        card.get_by_text("Работает нормально", exact=True).first.wait_for(timeout=8000)
+        self.assertEqual(select.input_value(), "not_commissioned")
+        self.assertEqual(
+            self.page.locator("#toolDialogScroll").evaluate("el => el.scrollTop"), scroll
+        )
+        self.assertTrue(dialog.is_visible())
+        result = self.context.request.post(
+            self.runtime.base_url + "/api/manager_structure/apply",
+            headers={"X-Operator-Session": self.admin},
+            data={
+                "operation": "set_tool_status",
+                "expected_version": self.read()["version"],
+                "idempotency_key": "conflict-" + os.urandom(8).hex(),
+                "tool_status": {"operation_id": ident, "state": "temporarily_unavailable"},
+            },
+        )
+        self.assertEqual(result.status, 200)
+        card.get_by_role("button", name="Сохранить отметку", exact=True).click()
+        card.get_by_role("button", name="Перечитать состояние", exact=True).wait_for()
+        self.assertEqual(select.input_value(), "not_commissioned")
+        card.get_by_role("button", name="Перечитать состояние", exact=True).click()
+        card.get_by_role("button", name="Сохранить отметку", exact=True).click()
+        card.locator(".tool-status-error").get_by_text("Сохранено", exact=True).wait_for()
+        self.assertEqual(self.read()["tool_statuses"][ident]["state"], "not_commissioned")
+        screenshots = os.environ.get("AUTOSTOP_BROWSER_SMOKE_SCREENSHOT_DIR")
+        if screenshots:
+            output = Path(screenshots)
+            output.mkdir(parents=True, exist_ok=True)
+            self.page.screenshot(path=str(output / "e1-constructor-desktop.png"))
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        box = dialog.bounding_box()
+        self.assertGreaterEqual(box["x"], 0)
+        self.assertLessEqual(box["x"] + box["width"], 390)
+        self.assertFalse(
+            self.page.locator("#toolDialogScroll").evaluate("el => el.scrollWidth > el.clientWidth")
+        )
+        if screenshots:
+            self.page.screenshot(path=str(output / "e1-constructor-mobile.png"))
+        self.page.keyboard.press("Escape")
+        self.page.locator("#modeToggle").click()
+        target.click()
+        self.assertFalse(dialog.is_visible())
+        self.assertTrue(self.page.locator("#editor").is_visible())
+        self.assertEqual(self.errors, [])
+
+    def test_automotive_all_module_cards_share_one_status(self):
+        bundle = self.automotive_fixture()
+        graph = {
+            "schema_version": "autostopcrm.manager-structure.v1",
+            "canvas": {"width": 900, "height": 1000},
+            "elements": [
+                {
+                    "id": "E1",
+                    "title": "Автомобильные данные",
+                    "kind": "module",
+                    "x": 20,
+                    "y": 20,
+                    "width": 390,
+                    "height": 940,
+                },
+                *[
+                    {
+                        "id": module["element_id"],
+                        "title": module["title"],
+                        "kind": "item",
+                        "parent": "E1",
+                        "x": 35,
+                        "y": 100 + index * 52,
+                        "width": 355,
+                        "height": 40,
+                    }
+                    for index, module in enumerate(bundle["modules"])
+                    if module["element_id"] != "E1"
+                ],
+            ],
+            "relations": [],
+        }
+        result = self.context.request.post(
+            self.runtime.base_url + "/api/manager_structure/apply",
+            headers={"X-Operator-Session": self.admin},
+            data={
+                "operation": "replace",
+                "diagram": graph,
+                "expected_version": self.read()["version"],
+                "idempotency_key": "all-modules-" + os.urandom(8).hex(),
+            },
+        )
+        self.assertEqual(result.status, 200)
+        self.page.reload()
+        ownership = {}
+        for module in bundle["modules"]:
+            node = self.page.locator(f'.node[data-id="{module["element_id"]}"]')
+            node.focus()
+            self.page.keyboard.press("Enter")
+            self.page.locator("#toolDialogTitle").get_by_text(
+                f"{module['element_id']} · {module['title']}", exact=True
+            ).wait_for()
+            self.page.wait_for_function(
+                "count => document.querySelectorAll('.tool-card').length === count",
+                arg=len(module["tool_ids"]),
+            )
+            actual = self.page.locator(".tool-card").evaluate_all(
+                "cards => cards.map(card => card.dataset.toolId)"
+            )
+            self.assertEqual(actual, module["tool_ids"])
+            for ident in actual:
+                ownership.setdefault(ident, []).append(module["element_id"])
+            self.page.keyboard.press("Escape")
+        ident, modules = next(
+            (ident, modules) for ident, modules in ownership.items() if len(modules) > 1
+        )
+        self.page.locator(f'.node[data-id="{modules[0]}"]').click()
+        card = self.page.locator(f'.tool-card[data-tool-id="{ident}"]')
+        card.locator("select").select_option("working")
+        card.get_by_role("button", name="Сохранить отметку", exact=True).click()
+        card.locator(".tool-status-error").get_by_text("Сохранено", exact=True).wait_for()
+        self.page.keyboard.press("Escape")
+        self.page.locator(f'.node[data-id="{modules[1]}"]').click()
+        self.page.locator(f'.tool-card[data-tool-id="{ident}"] .tool-status-label').get_by_text(
+            "Работает нормально", exact=True
+        ).wait_for()
+        self.assertEqual(sum(key == ident for key in self.read()["tool_statuses"]), 1)
+        self.assertEqual(self.errors, [])
+
     def test_create_nested_text_relation_reload_and_version_conflict(self) -> None:
         self.page.get_by_role("button", name="Внешний модуль").click()
         self.page.locator('[name="title"]').fill("Руководитель")
@@ -132,6 +370,7 @@ class ManagerStructureBrowserTests(unittest.TestCase):
         self.assertEqual(self.errors, [])
 
     def test_viewer_can_read_but_cannot_write(self) -> None:
+        self.automotive_fixture()
         created = self.context.request.post(
             self.runtime.base_url + "/api/save_operator_user",
             headers={"X-Operator-Session": self.admin},
@@ -159,6 +398,34 @@ class ManagerStructureBrowserTests(unittest.TestCase):
             },
         )
         self.assertEqual(response.status, 403)
+        self.page.locator("#modeToggle").click()
+        self.page.locator('.node[data-id="E2"]').click()
+        self.page.locator(".tool-card").first.wait_for()
+        self.assertFalse(self.page.locator(".tool-card select").first.is_visible())
+        self.assertFalse(
+            self.page.get_by_role("button", name="Сохранить отметку").first.is_visible()
+        )
+        catalog = self.context.request.get(
+            self.runtime.base_url + "/api/manager_structure/tool_catalog",
+            headers={"X-Operator-Session": viewer},
+        )
+        self.assertEqual(catalog.status, 200)
+        first = catalog.json()["data"]["tools"][0]["tool_id"]
+        denied = self.context.request.post(
+            self.runtime.base_url + "/api/manager_structure/apply",
+            headers={"X-Operator-Session": viewer},
+            data={
+                "operation": "set_tool_status",
+                "expected_version": self.read()["version"],
+                "idempotency_key": "viewer-status-001",
+                "tool_status": {"operation_id": first, "state": "working"},
+            },
+        )
+        self.assertEqual(denied.status, 403)
+        anonymous = self.context.request.get(
+            self.runtime.base_url + "/api/manager_structure/tool_catalog"
+        )
+        self.assertEqual(anonymous.status, 401)
         self.assertEqual(self.errors, [])
 
     def test_indicator_and_clean_view(self) -> None:
@@ -535,6 +802,15 @@ class ManagerStructureBrowserTests(unittest.TestCase):
         self.assertEqual(self.errors, [])
 
     def test_z_reference_short_labels_and_crossing_bridges(self) -> None:
+        svg_errors = []
+        self.page.on(
+            "console",
+            lambda message: (
+                svg_errors.append(message.text)
+                if message.type == "error" and "<path>" in message.text
+                else None
+            ),
+        )
         reference = json.loads(
             (
                 Path(__file__).resolve().parents[1] / "templates" / "manager_structure.json"
@@ -554,6 +830,13 @@ class ManagerStructureBrowserTests(unittest.TestCase):
         self.page.reload()
         self.page.locator('.edge[data-id="L29"]').wait_for()
         self.assertGreater(self.page.locator(".bridge[d*='Q']").count(), 0)
+        self.assertFalse(self.page.locator(".bridge[d*='NaN']").count())
+        self.assertTrue(
+            self.page.locator(".bridge").evaluate_all(
+                "paths => paths.every(path => Number.isFinite(path.getTotalLength()) && path.getTotalLength() > 0)"
+            )
+        )
+        self.assertEqual(svg_errors, [])
         self.assertEqual(self.page.locator(".edge path.hit[d*='Q']").count(), 0)
         self.assertTrue(
             self.page.locator(".edge text").evaluate_all(

@@ -23,5 +23,6 @@ def build_manager_structure_routes(service: Any) -> dict:
 def manager_structure_route_handlers(diagram: Any) -> dict:
     return {
         "/api/manager_structure": diagram.read,
+        "/api/manager_structure/tool_catalog": lambda payload: diagram.tool_catalog(payload),
         "/api/manager_structure/apply": diagram.apply,
     }

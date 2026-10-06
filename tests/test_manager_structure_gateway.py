@@ -23,6 +23,8 @@ from minimal_kanban.mcp.raw_gateway import (  # noqa: E402
 class ManagerStructureGatewayTests(unittest.IsolatedAsyncioTestCase):
     def test_raw_capabilities_are_versioned_and_discoverable(self) -> None:
         self.assertIn("/api/manager_structure", RAW_API_READ_ROUTES)
+        self.assertIn("/api/manager_structure/tool_catalog", RAW_API_READ_ROUTES)
+        self.assertEqual(virtual_api_argument_errors("/api/manager_structure/tool_catalog", {}), [])
         self.assertIn("/api/manager_structure/apply", RAW_API_WRITE_ROUTES)
         schema = virtual_api_schema("/api/manager_structure/apply")
         self.assertTrue(schema_hash(schema))
@@ -36,6 +38,8 @@ class ManagerStructureGatewayTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(relation["properties"]["route_mode"]["enum"], ["auto", "manual"])
         self.assertIn("reroute", schema["properties"]["operation"]["enum"])
+        self.assertIn("set_tool_status", schema["properties"]["operation"]["enum"])
+        self.assertIn("clear_tool_status", schema["properties"]["operation"]["enum"])
         for element in (
             {"id": "M1", "x": 112.5, "parent": None},
             {"id": "M1", "instruction": "Context", "lines": ["Summary"]},

@@ -220,7 +220,15 @@ class AgentReleaseBackupTests(unittest.TestCase):
             root = Path(temp_dir)
             crm_data, manager_db, output_root = self._fixture(root)
             structure = crm_data / "manager_structure.json"
-            original = json.dumps(self._structure_payload()).encode("utf-8")
+            payload = self._structure_payload()
+            payload["tool_statuses"] = {
+                "demo.inspect": {
+                    "state": "temporarily_unavailable",
+                    "updated_at": "2026-10-07T00:00:00+00:00",
+                    "updated_by": "SYNTHETIC",
+                }
+            }
+            original = json.dumps(payload).encode("utf-8")
             structure.write_bytes(original)
             if os.name != "nt":
                 structure.chmod(0o600)

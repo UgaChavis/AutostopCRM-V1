@@ -22,6 +22,7 @@ private business data; keep it out of Git and shared output.
 | `scripts/crm_capability_parity.py --require-complete` | API/MCP capability manifest parity | R |
 | `scripts/crm_change_feed_producer_parity.py --require-complete` | Durable change-feed producer parity | R |
 | `scripts/check_web_assets_js.py` | Generated browser JavaScript parity | R |
+| `scripts/check_automotive_tool_catalog.py [--expected-source-revision SHA] [--manager-root PATH] [--manager-python PATH]` | Offline pinned automotive bundle/hash validation; optional exact sealed Manager revision, Markdown and regenerated registry/native-schema comparison | R |
 | `scripts/audit_localization.py` | Localization inventory | R |
 | `scripts/validate_production_env.py --require-production --require-store` | Required flags, URLs and scoped tokens present/valid; no values printed | R; prerequisite, not readiness |
 | `scripts/check_agent_gateway_v2.py --exhaustive --require-store --require-web` | Active 24-tool surface plus bounded official live smoke | R/S/T; only after release preflight, as in [Gateway card](crm_gateway.md) |
@@ -78,6 +79,7 @@ release permits only migrations explicitly versioned and checked by `deploy.sh`.
 | `scripts/run_dev.ps1`, `scripts/run_mcp_server.ps1` | T: start local disposable services; check ports and target data path. |
 | `scripts/run_manager_structure_demo.py [--build-reference] [--port N]` | S: synthetic local CRM and manager diagram under ignored `output/manager-structure-demo`. `--build-reference` creates modules and links through API operations and exports a reviewed sample. |
 | `scripts/manager_structure_template.py {build-reference,export,restore} [--url URL] [--template PATH]` | R for export, W for build/restore: exact local CRM target and admin session from environment. Build refuses nonempty diagrams; restore requires `--replace-existing` to overwrite. Review full instruction texts before publication. |
+| `scripts/migrate_e1_structure.py --snapshot PATH --bundle PATH --output PATH --receipt PATH --idempotency-key KEY [--x N] [--y N]` | S: offline guarded E1–E15 replacement preview and preservation receipt from a full fresh technical snapshot; no API call or live write. Apply only through owner/CAS/idempotency API with independent readback. |
 | `scripts/manager_structure_edit.py [--url URL] {list,module,relation,instruction}` | R for list, W for the other commands: exact local CRM target and admin session from environment. One versioned API change with readback; `.txt`/`.md` instruction content is embedded as text. Keep private source files outside Git. |
 | `scripts/manager_structure_reroute.py {--template PATH, --url URL} --backup PATH` | W: explicit rerouting of a portable template or exact local CRM diagram. Creates a new backup outside Git first, verifies no overlaps or parallel spacing conflicts, then rereads the saved result. Perpendicular crossings use display bridges. |
 | `scripts/build_app.ps1`, `scripts/prepare_release.ps1`, `scripts/run_quality_pass.ps1` | S: build and verify portable Windows artifacts. |

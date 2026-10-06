@@ -395,6 +395,16 @@ class CrmOnlyRelease:
         manager_revision = (MANAGER_LINK / "REVISION").read_text().strip()
         if not SHA_RE.fullmatch(manager_revision):
             raise ReleaseError("installed Manager revision is invalid")
+        self.run(
+            sys.executable,
+            str(self.source / "scripts/check_automotive_tool_catalog.py"),
+            "--expected-source-revision",
+            manager_revision,
+            "--manager-root",
+            str(MANAGER_LINK.resolve()),
+            "--manager-python",
+            str(MANAGER_ENV.parent / ".venv/bin/python"),
+        )
         if self.marker.exists():
             raise ReleaseError("production maintenance marker already exists")
         if shutil.disk_usage(self.production_root).free < 3 * 1024**3:

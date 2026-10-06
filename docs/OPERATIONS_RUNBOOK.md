@@ -969,6 +969,44 @@ manual recovery. Do not automatically restore live CRM data.
 
 ## Production Verification
 
+### Automotive constructor bundle and manual status verification
+
+The CRM image contains the self-contained automotive bundle in
+`src/minimal_kanban/web_app_assets/source/automotive_tool_catalog.json`. Export it
+from a clean, exact published Manager snapshot after Manager CI succeeds; commit
+that pin in the CRM candidate and rerun final CRM local and hosted gates. The
+catalog content hash excludes `source_revision` and `content_hash`; changing the
+Manager SHA alone does not pretend that instruction content changed.
+
+Before activation, compare the pinned artifact with the sealed Manager release:
+`python scripts/check_automotive_tool_catalog.py --manager-root /path/to/sealed-manager`
+regenerates the whole bundle from that sealed code with disposable state and
+compares registry, native schemas and instruction text. Use `--manager-python`
+for the approved dependency venv. Coordinated and CRM-only preflight run this
+comparison against the selected Manager `REVISION` before image build or maintenance.
+The checker requires its `REVISION` to match and compares every embedded Markdown
+instruction with that snapshot. The Docker CI stage runs the validator without
+network access. After activation, use the same checker inside the existing CRM
+container with `--expected-source-revision` set to the installed published Manager
+SHA, then independently read the protected catalog endpoint and graph metadata.
+Source-only or old candidate checks do not establish installed parity.
+
+In clean constructor view, open an E module with click or Enter/Space. Verify the
+canonical instruction, all operation cards, owner-only status controls, Escape
+and focus return, preserved viewport, and desktop/mobile scrolling. Manual status
+saves do not call providers. Production status smoke must save the exact prior
+record or its absence, mutate one authorized technical operation with a fresh
+version and key, read it independently, and restore the original state (use
+`clear_tool_status` when the original record was absent). An uncertain write is
+reconciled by readback before replaying its original body and key. A 409 requires
+a fresh read and a newly reviewed action; it must never overwrite a newer graph.
+
+Portable graph exports omit `tool_statuses`; applying one retains the destination
+map. Full release backup/restore preserves the complete JSON bytes, including
+commissioning states and receipts. Catalog updates keep stable operation IDs;
+retired IDs remain in the durable map until an explicit reviewed migration.
+Manual colors, technical implementation/access and result evidence are separate.
+
 From the server:
 
 ```bash
