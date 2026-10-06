@@ -56,6 +56,9 @@ if ($Profile -eq "changed") {
     Invoke-Python -StepName "Generated browser JavaScript" -Arguments @(
         "scripts/check_web_assets_js.py"
     )
+    Invoke-Python -StepName "Pinned automotive instruction bundle" -Arguments @(
+        "scripts/check_automotive_tool_catalog.py"
+    )
     Invoke-Python -StepName "Repository code health" -Arguments @(
         "scripts/code_health_audit.py", "--include-untracked"
     )
@@ -159,6 +162,9 @@ try {
     Invoke-Python -StepName "Localization audit" -Arguments @("scripts/audit_localization.py")
     Invoke-Python -StepName "Generated browser JavaScript" -Arguments @(
         "scripts/check_web_assets_js.py"
+    )
+    Invoke-Python -StepName "Pinned automotive instruction bundle" -Arguments @(
+        "scripts/check_automotive_tool_catalog.py"
     )
     Invoke-Python -StepName "CRM capability parity" -Arguments @(
         "scripts/crm_capability_parity.py", "--require-complete"

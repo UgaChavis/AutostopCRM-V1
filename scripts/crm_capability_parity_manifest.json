@@ -69,6 +69,13 @@
       "operation": "api:/api/manager_structure",
       "readback_class": "manager_structure_snapshot"
     },
+    "/api/manager_structure/tool_catalog": {
+      "backend_kind": "registered_operator_catalog_read",
+      "gateway_kind": "guarded_virtual_api",
+      "gateway_tool": "call_raw_capability",
+      "operation": "api:/api/manager_structure/tool_catalog",
+      "readback_class": "manager_tool_catalog"
+    },
     "/api/manager_structure/apply": {
       "backend_kind": "registered_admin_diagram_write",
       "gateway_kind": "guarded_virtual_api",

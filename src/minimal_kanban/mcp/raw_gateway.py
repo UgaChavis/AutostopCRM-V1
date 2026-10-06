@@ -38,6 +38,7 @@ RAW_API_WRITE_ROUTES = (
 RAW_API_READ_ROUTES = frozenset(
     {
         "/api/manager_structure",
+        "/api/manager_structure/tool_catalog",
         "/api/agent_actions",
         "/api/agent_scheduled_tasks",
         "/api/agent_status",
@@ -1365,6 +1366,7 @@ def virtual_api_preflight_errors(
     if route not in {
         "/api/get_completion_act_form",
         "/api/manager_structure",
+        "/api/manager_structure/tool_catalog",
         "/api/manager_structure/apply",
         *CHANGE_FEED_ROUTES,
     }:

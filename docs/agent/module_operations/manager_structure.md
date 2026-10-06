@@ -5,8 +5,11 @@
 Open `/manager-structure` from the board button **Конструктор структуры
 менеджера**. Any operator with a session can open a module and read its
 instruction. Only the configured owner can save, create or remove modules and
-relations. Click a nested module to edit its independent full instruction.
-The square toolbar button shows only the diagram; press Esc to restore controls.
+relations. In clean view, clicking an E1–E15 module (or pressing Enter/Space)
+opens its central automotive instruction and operation dialog. Escape closes
+the dialog and returns focus to the original module without moving the viewport.
+The corner button switches to the editor; there the same click selects properties
+and keeps drag, resize and connection editing.
 
 Set `AUTOSTOP_MANAGER_STRUCTURE_OWNER_LOGIN` to the owner CRM login. During
 transition, the older `AUTOSTOP_TELEGRAM_BEHAVIOR_OWNER_LOGIN` setting is a
@@ -15,6 +18,13 @@ fallback. In the disposable local demonstration, the owner is `admin`.
 The indicator is an editable display state: off, green, yellow or red. It does
 not query an integration. Codex reads module instructions as working context
 through the Gateway; the diagram does not execute instructions automatically.
+
+Automotive operation cards use a separate manual commissioning mark: red
+`not_commissioned` (**Ещё не введена**), yellow `temporarily_unavailable`
+(**Временно не работает**) or green `working` (**Работает нормально**). Only the
+configured owner can choose and save it, including in clean view. Other operators
+see the saved state. It does not probe or enable the provider, and does not prove
+part fitment, stock or procurement. A missing record displays red without writing.
 
 ## Data and compatibility
 
@@ -25,8 +35,20 @@ constructor reads a compatible copy. The first save writes the new file. It
 does not change or delete the older setting. An invalid older graph causes an
 error rather than an empty replacement.
 
-Coordinated release backup v4 includes `manager_structure.json`; rollback restores
+Coordinated release backup includes `manager_structure.json`; rollback restores
 the saved file or removes one first created by the failed candidate.
+
+The root `tool_statuses` map stores stable tool IDs with server-created
+`state`, `updated_at` and `updated_by`. Graph operations preserve it, complete
+backup/restore returns it, and portable templates omit commissioning state.
+Readonly catalog metadata and permissions are computed, not saved graph fields.
+The bundled catalog pins the exact published Manager revision and content hash;
+all canonical instruction text and tool cards come from that package. The browser
+compares schema, content hash and source revision when refreshing its catalog.
+Delayed graph responses cannot replace a newer version or a different session.
+An unconfirmed status write keeps its original body and idempotency key until
+exact receipt/readback reconciliation or a definite rejection; reopening the
+modal in the same page retains that attempt and the unsaved choice.
 
 An empty CRM has an empty constructor. The sample is a portable template in
 `templates/manager_structure.json`, generated from CRM operations. The local
@@ -38,12 +60,25 @@ Raw CRM Gateway capabilities:
 
 - `api:/api/manager_structure`: read version, canvas, elements, relations and
   editor permission.
+- `api:/api/manager_structure/tool_catalog`: authenticated readonly bundle,
+  canonical Markdown, stable module/tool IDs, provider and invocation bindings.
 - `api:/api/manager_structure/apply`: `upsert_element`,
   `upsert_relation`, `layout_element`, `layout_relation`, `remove_element`,
-  `remove_relation`, `set_canvas`, `reroute` or `replace`. Send `expected_version` and a new `idempotency_key` on every
-  write. An upsert merges supplied fields with the existing element, so an
+  `remove_relation`, `set_canvas`, `reroute`, `replace`, `set_tool_status` or
+  `clear_tool_status`. Status operations pass
+  `tool_status: {"operation_id":"partsapi.getArticles","state":"working"}`;
+  clear omits state to restore the absence of a record. Send `expected_version`
+  and a new `idempotency_key` for each new intended change. After an uncertain
+  outcome, reconcile or replay the original body and key before creating another
+  attempt. An upsert merges supplied fields with the existing element, so an
   instruction can be changed without replacing coordinates and style. Raw
   writes perform a second read and compare the changed fields and version.
+
+Status readback checks both the exact saved record and the digest of every
+unrelated persisted field. Preview uses the same durable projection to prove
+nonmutation; computed permission/catalog metadata does not affect this digest.
+`replace` preserves exact supplied manual paths and never reroutes unrelated
+relations. Supply already-valid anchors and endpoints for a code migration.
 
 Relations expose their route controls in both the constructor and this API:
 

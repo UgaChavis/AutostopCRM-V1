@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
+
+from ..services.manager_tool_status import durable_digest, status_scope_digest
 
 VirtualInvoker = Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]]
 
@@ -19,10 +19,7 @@ async def verify_manager_structure_readback(
     written = result.get("data") if isinstance(result.get("data"), Mapping) else {}
     current = readback.get("data") if isinstance(readback.get("data"), Mapping) else {}
     if arguments.get("preview") is True:
-        saved = {key: value for key, value in current.items() if key != "can_edit"}
-        digest = hashlib.sha256(
-            json.dumps(saved, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest()
+        digest = durable_digest(dict(current))
         unchanged = bool(
             result.get("ok")
             and readback.get("ok")
@@ -94,6 +91,20 @@ async def verify_manager_structure_readback(
                     for field in ("id", "x", "y", "width", "height")
                 )
             )
+    elif arguments.get("operation") in {"set_tool_status", "clear_tool_status"}:
+        status = arguments.get("tool_status") or {}
+        ident = status.get("operation_id")
+        actual = (current.get("tool_statuses") or {}).get(ident)
+        exact = actual == written.get("tool_status")
+        if arguments["operation"] == "set_tool_status":
+            exact = (
+                exact and isinstance(actual, Mapping) and actual.get("state") == status.get("state")
+            )
+        else:
+            exact = exact and actual is None
+        route_exact = written.get("unchanged_scope_digest") == status_scope_digest(
+            dict(current), ident
+        )
     elif arguments.get("operation") == "replace":
         template = arguments.get("diagram") or {}
         exact = all(
@@ -147,7 +158,7 @@ async def verify_manager_structure_readback(
 
 
 def manager_structure_schema(route: str) -> dict[str, Any] | None:
-    if route == "/api/manager_structure":
+    if route in {"/api/manager_structure", "/api/manager_structure/tool_catalog"}:
         return {
             "$id": f"autostopcrm-agent-gateway:{route}",
             "title": "Прочитать структуру менеджера",
@@ -259,6 +270,8 @@ def manager_structure_schema(route: str) -> dict[str, Any] | None:
                         "set_canvas",
                         "replace",
                         "reroute",
+                        "set_tool_status",
+                        "clear_tool_status",
                     ],
                 },
                 "expected_version": {"type": "integer", "minimum": 0},
@@ -278,6 +291,18 @@ def manager_structure_schema(route: str) -> dict[str, Any] | None:
                     "required": ["schema_version", "canvas", "elements", "relations"],
                 },
                 "preview": {"type": "boolean"},
+                "tool_status": {
+                    "type": "object",
+                    "properties": {
+                        "operation_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                        "state": {
+                            "type": "string",
+                            "enum": ["not_commissioned", "temporarily_unavailable", "working"],
+                        },
+                    },
+                    "required": ["operation_id"],
+                    "additionalProperties": False,
+                },
             },
             "required": ["operation", "expected_version", "idempotency_key"],
             "additionalProperties": False,

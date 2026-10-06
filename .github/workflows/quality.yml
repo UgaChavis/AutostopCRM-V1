@@ -61,6 +61,9 @@ jobs:
               test ! -e /app/output/docker-context-probe/ignored.png
             '
 
+      - name: Verify pinned automotive instruction bundle offline
+        run: docker run --rm --network none --entrypoint python "autostopcrm-ci:${GITHUB_SHA}" scripts/check_automotive_tool_catalog.py
+
       - name: Verify linked SQLite and temporary WAL database
         run: |
           docker run --rm -i --network none --tmpfs /tmp --entrypoint python "autostopcrm-ci:${GITHUB_SHA}" - <<'PY'

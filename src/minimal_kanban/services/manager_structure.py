@@ -29,6 +29,13 @@ from .manager_structure_routing import (
     route_conflicts,
     route_diagram,
 )
+from .manager_tool_catalog import bundle_metadata, installed_metadata, load_bundle
+from .manager_tool_status import (
+    apply_status,
+    durable_digest,
+    status_scope_digest,
+    validate_statuses,
+)
 from .telegram_behavior_graph import SETTING_KEY, graph_from_settings
 
 SCHEMA = "autostopcrm.manager-structure.v1"
@@ -139,6 +146,7 @@ def _number(value: Any, name: str, minimum: int, maximum: int) -> None:
 
 
 def _validate(diagram: dict[str, Any], *, check_attachment: bool = True) -> None:
+    validate_statuses(diagram)
     if diagram.get("schema_version") != SCHEMA:
         _bad("Неизвестная версия формата схемы.")
     canvas = diagram.get("canvas")
@@ -307,10 +315,12 @@ class ManagerStructureService:
         self,
         state_file: Path,
         legacy_settings_loader: Callable[[], dict[str, Any]] | None = None,
+        tool_catalog_loader: Callable[[], dict[str, Any]] = load_bundle,
     ) -> None:
         self._file = state_file
         self._lock = ProcessFileLock(state_file.with_suffix(".lock"))
         self._legacy_settings_loader = legacy_settings_loader
+        self._tool_catalog_loader = tool_catalog_loader
 
     @staticmethod
     def _owner_login() -> str:
@@ -483,7 +493,19 @@ class ManagerStructureService:
         with self._lock.acquire():
             data = self._public(self._read())
         data["can_edit"] = self._can_edit(payload)
+        try:
+            data["catalog_metadata"] = (
+                installed_metadata()
+                if self._tool_catalog_loader is load_bundle
+                else bundle_metadata(self._tool_catalog_loader())
+            )
+        except ServiceError:
+            data["catalog_metadata"] = {"available": False}
+        data["can_edit_tool_status"] = data["can_edit"] and data["catalog_metadata"]["available"]
         return data
+
+    def tool_catalog(self, payload: dict | None = None) -> dict[str, Any]:
+        return self._tool_catalog_loader()
 
     @staticmethod
     def _route_layout(
@@ -623,11 +645,21 @@ class ManagerStructureService:
             "set_canvas",
             "replace",
             "reroute",
+            "set_tool_status",
+            "clear_tool_status",
         }:
             _bad("Неизвестная операция конструктора.")
         request = {
             field: payload.get(field)
-            for field in ("operation", "element", "relation", "id", "canvas", "diagram")
+            for field in (
+                "operation",
+                "element",
+                "relation",
+                "id",
+                "canvas",
+                "diagram",
+                "tool_status",
+            )
             if field in payload
         }
         if preview:
@@ -657,7 +689,10 @@ class ManagerStructureService:
                     details={"current_version": data["version"]},
                 )
             next_data = copy.deepcopy(data)
-            if operation == "replace":
+            status_operation = operation in {"set_tool_status", "clear_tool_status"}
+            if status_operation:
+                apply_status(next_data, payload, self._tool_catalog_loader())
+            elif operation == "replace":
                 diagram = payload.get("diagram")
                 if not isinstance(diagram, dict):
                     _bad("Нужен переносимый шаблон схемы.")
@@ -711,7 +746,8 @@ class ManagerStructureService:
                     _bad("Сначала удалите вложенные модули и связи.")
                 next_data[field] = [item for item in next_data[field] if item["id"] != ident]
             _validate(next_data, check_attachment=False)
-            self._prepare_manual_routes(next_data)
+            if not status_operation and operation != "replace":
+                self._prepare_manual_routes(next_data)
             _validate(next_data)
             adjusted = False
             if operation == "reroute":
@@ -737,21 +773,15 @@ class ManagerStructureService:
                     else None,
                     item["id"] if operation == "layout_relation" else None,
                 )
-            self._verify_manual_routes(next_data)
+            if not status_operation:
+                self._verify_manual_routes(next_data)
             if preview:
                 return {
                     "version": data["version"],
                     "diagram": self._public(next_data),
                     "adjusted": adjusted,
                     "preview": True,
-                    "saved_digest": hashlib.sha256(
-                        json.dumps(
-                            self._public(data),
-                            ensure_ascii=False,
-                            sort_keys=True,
-                            separators=(",", ":"),
-                        ).encode()
-                    ).hexdigest(),
+                    "saved_digest": durable_digest(data),
                     "routes": {
                         relation["id"]: relation["path"] for relation in next_data["relations"]
                     },
@@ -769,6 +799,10 @@ class ManagerStructureService:
                 "deduplicated": False,
                 "adjusted": adjusted,
             }
+            if status_operation:
+                ident = payload["tool_status"]["operation_id"]
+                result["tool_status"] = copy.deepcopy(next_data["tool_statuses"].get(ident))
+                result["unchanged_scope_digest"] = status_scope_digest(data, ident)
             if operation in {"upsert_relation", "layout_relation"}:
                 accepted_relation = next(
                     relation for relation in next_data["relations"] if relation["id"] == item["id"]

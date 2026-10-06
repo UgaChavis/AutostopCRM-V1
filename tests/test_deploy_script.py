@@ -778,7 +778,7 @@ run_isolated_manager_knowledge_preflight
             observations = observed_path.read_text(encoding="utf-8").splitlines()
 
         self.assertEqual("", completed.stdout)
-        self.assertEqual(3, len(observations))
+        self.assertEqual(4, len(observations))
         for index, observation in enumerate(observations):
             interpreter, code_root, safe_path, no_bytecode, database = observation.split("|")
             self.assertEqual(str(fake_python if index < 2 else fake_audit_python), interpreter)

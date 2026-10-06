@@ -116,7 +116,14 @@ is saved on mouse release; text is saved with the form button. The diagram
 shows larger and nested module codes, status indicators, and only relation IDs.
 Full relation labels remain in hover hints and the properties panel. G1 reads
 automation status; other modules can use manual green, yellow, or red states.
-Instructions are stored for future use and are not consumed by the running agent.
+E1–E15 use the canonical Manager Markdown exported in the pinned automotive
+bundle. In clean view, click a module or press Enter/Space to open its central
+instruction and operation dialog; editor mode retains geometry and text editing.
+The dialog shows provider, implementation state, invocation and limitations for
+each stable operation ID. The configured owner can save a red **«Ещё не введена»**,
+yellow **«Временно не работает»**, or green **«Работает нормально»** commissioning
+mark. Other operators only read the mark. These marks never call or enable a
+provider, and never establish part fitment or stock.
 
 Orthogonal routes may cross at a visible bridge. Shared runs and free parallel
 lanes closer than 10 diagram units are rejected. Saved SVG paths remain
@@ -153,6 +160,15 @@ relation, or UTF-8 instruction through the versioned API and verifies readback.
 `scripts/manager_structure_reroute.py` explicitly recalculates a template or
 local diagram after writing a backup outside the repository. Existing saved
 v1 diagrams retain their paths until that explicit reroute.
+
+`scripts/check_automotive_tool_catalog.py` validates the bundled content hash and
+exact Manager source pin offline. The self-contained
+`web_app_assets/source/automotive_tool_catalog.json` travels inside the CRM image;
+the API never reads a mutable Manager checkout when opening a dialog. Local CI
+and the Docker runtime contract validate this artifact. Full release backups
+include the `tool_statuses` map; portable graph exports omit it and graph restore
+preserves the destination's existing commissioning marks. See the
+[operations runbook](docs/OPERATIONS_RUNBOOK.md) for release-tuple verification.
 
 ## Local Development
 

@@ -651,6 +651,15 @@ run_isolated_manager_knowledge_preflight() (
     AUTOSTOP_MANAGER_DB="$manager_knowledge_gate_dir/preflight.sqlite3" \
     "$DOCS_AUDIT_PYTHON" "$ROOT_DIR/scripts/docs_audit.py" \
       --manager-root "$manager_release_dir" --format text
+  env \
+    PYTHONPATH="$manager_release_dir" \
+    PYTHONSAFEPATH=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    AUTOSTOP_MANAGER_ENV_FILE=/dev/null \
+    AUTOSTOP_MANAGER_DB="$manager_knowledge_gate_dir/preflight.sqlite3" \
+    "$DOCS_AUDIT_PYTHON" "$ROOT_DIR/scripts/check_automotive_tool_catalog.py" \
+      --expected-source-revision "$manager_revision" --manager-root "$manager_release_dir" \
+      --manager-python "$MANAGER_RELEASE_PYTHON"
 )
 
 sync_current_manager_knowledge() {

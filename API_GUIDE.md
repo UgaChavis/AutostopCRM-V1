@@ -62,7 +62,10 @@ codes include `validation_error`, `not_found`, `unauthorized`, `forbidden`,
 
 `GET /api/manager_structure` (or POST with `{}`) requires an operator session
 and returns `schema_version: "autostopcrm.manager-structure.v1"`, `version`,
-`canvas`, `elements`, `relations`, and `can_edit`. Each element has an ID,
+`canvas`, `elements`, `relations`, and `can_edit`. It also returns optional durable
+`tool_statuses`, computed `can_edit_tool_status` and `catalog_metadata` containing
+the installed catalog's source revision and content hash. Missing status records
+are displayed as `not_commissioned` without any read-time write. Each element has an ID,
 title, kind (`module`, `item`, `storage`, or `condition`), x/y/width/height,
 optional parent, short `lines`, icon, color, brief `description`, and separate
 full `instruction` text. Optional `indicator_mode` is `none`, `manual`, or
@@ -92,6 +95,26 @@ path) for readback verification. If routing fails, HTTP 422 leaves the
 prior diagram intact. Existing v1 paths remain readable; text-only upserts
 preserve them. A route can contain a perpendicular crossing; the browser draws
 a bridge at that point. The stored SVG `path` remains orthogonal.
+
+The authenticated `GET|POST /api/manager_structure/tool_catalog` reads the
+self-contained `autostop.automotive-tools.bundle.v1` artifact shipped inside the
+CRM image. Its source revision is the exact published Manager SHA, separately
+from the canonical content hash. It contains stable module bindings, canonical
+instruction text, operation cards and generated schema references. This read
+does not call providers and does not disclose CRM business records.
+
+`set_tool_status` uses the same owner, version, atomic-file and idempotency guards:
+`tool_status={"operation_id":"partsapi.getArticles","state":"working"}`.
+Allowed states are `not_commissioned`, `temporarily_unavailable` and `working`;
+the operation ID must exist in the installed catalog. The server creates
+`updated_at` and `updated_by`, increments the graph version and verifies that
+every unrelated persisted field remains unchanged. `clear_tool_status` takes
+`tool_status={"operation_id":"partsapi.getArticles"}` and restores the absence of
+that record, including a safe smoke-test rollback. These operations do not alter
+geometry or module indicators, and do not probe or enable a provider. A preview
+validates the complete candidate without saving a status or receipt. Graph
+`replace` preserves existing statuses and exact supplied manual paths; portable
+templates never transfer commissioning state.
 
 Immutable `RouteSpec` entries in `api/route_registry.py` are the authoritative
 classifications for registry-owned routes. They define HTTP methods, mutation,
