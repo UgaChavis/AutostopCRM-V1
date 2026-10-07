@@ -919,6 +919,63 @@ class DocsAuditTests(unittest.TestCase):
         for path in extra_paths:
             self.assertIn(path, inventory_issues[0].detail)
 
+    def test_manager_historical_report_is_scanned_without_active_inventory_membership(self) -> None:
+        module = load_docs_audit_module()
+        report = "docs/agent/references/client-instruction-audit.md"
+        active_guide = "docs/agent/references/new-active-guide.md"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            for relative in (
+                *module.MANAGER_REQUIRED_INSTRUCTION_PATHS,
+                *module.MANAGER_MCP_CATALOG_PATHS,
+                report,
+            ):
+                target = root / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(
+                    "{}\n" if target.suffix == ".json" else "Synthetic technical document\n",
+                    encoding="utf-8",
+                )
+            with (
+                patch.object(
+                    module,
+                    "_registered_runtime_contract",
+                    return_value={
+                        "instruction_files": list(module.MANAGER_REQUIRED_INSTRUCTION_PATHS),
+                        "manager": {"tool_names": ["manager"], "schema_fingerprint": "a" * 64},
+                        "crm": {"tool_names": ["crm"], "schema_fingerprint": "b" * 64},
+                    },
+                ),
+                patch.object(module, "_manager_catalog_issues", return_value=[]),
+            ):
+                self.assertEqual([], module._check_manager_docs_and_catalogs(ROOT, root))
+                (root / report).write_text(
+                    "Historical migration used start_manager_run.\n", encoding="utf-8"
+                )
+                issues = module._check_manager_docs_and_catalogs(ROOT, root)
+                self.assertTrue(
+                    any(
+                        issue.code == "retired_manager_lifecycle_tool" and issue.path == report
+                        for issue in issues
+                    )
+                )
+                self.assertFalse(
+                    any(
+                        issue.code == "manager_instruction_inventory_missing_required"
+                        for issue in issues
+                    )
+                )
+                (root / active_guide).write_text("Synthetic active guide\n", encoding="utf-8")
+                issues = module._check_manager_docs_and_catalogs(ROOT, root)
+                inventory_issues = [
+                    issue
+                    for issue in issues
+                    if issue.code == "manager_instruction_inventory_missing_required"
+                ]
+                self.assertEqual(1, len(inventory_issues))
+                self.assertIn(active_guide, inventory_issues[0].detail)
+                self.assertNotIn(report, inventory_issues[0].detail)
+
     def test_manager_github_links_are_checked_in_docs_and_bundled_map(self) -> None:
         module = load_docs_audit_module()
         prefix = "https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/"
