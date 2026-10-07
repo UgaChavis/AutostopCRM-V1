@@ -1647,6 +1647,14 @@ class JsonRouteDispatcher:
                         data=result.render(generated_at=utc_now_iso()),
                         request_id=request_id,
                     )
+                elif route == "/api/manager_structure/tool_catalog":
+                    # Preserve the validated static package, including deep native schemas.
+                    body = _json_response_from_preencoded_data(
+                        data=json.dumps(result, ensure_ascii=False, allow_nan=False).encode(
+                            "utf-8"
+                        ),
+                        request_id=request_id,
+                    )
                 else:
                     result = project_operator_result(
                         payload,
