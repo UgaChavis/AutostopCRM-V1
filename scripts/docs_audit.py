@@ -160,6 +160,9 @@ MANAGER_REQUIRED_INSTRUCTION_PATHS = (
     ".agents/skills/manage-owner-instagram/SKILL.md",
     *(f"docs/agent/references/{name}.md" for name in MANAGER_REQUIRED_REFERENCE_NAMES),
 )
+# A dated migration report explicitly declares that it is not a client guide.
+# Keep the report in ordinary document scanning, outside the active inventory.
+MANAGER_HISTORICAL_REPORT_PATHS = frozenset({"docs/agent/references/client-instruction-audit.md"})
 
 MANAGER_REPOSITORY_FILE_LINK_PATTERN = re.compile(
     r"https://github\.com/UgaChavis/AutostopManager/blob/AutostopManager/"
@@ -1892,7 +1895,11 @@ def _check_manager_docs_and_catalogs(
         )
     )
     runtime_instruction_set = set(instruction_files)
-    missing_from_runtime = sorted(set(independent_instruction_files) - runtime_instruction_set)
+    missing_from_runtime = sorted(
+        set(independent_instruction_files)
+        - MANAGER_HISTORICAL_REPORT_PATHS
+        - runtime_instruction_set
+    )
     if missing_from_runtime:
         issues.append(
             Issue(
