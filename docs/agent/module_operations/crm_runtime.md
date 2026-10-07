@@ -1,6 +1,6 @@
 # CRM runtime and integration cards
 
-Source revision `ac10f534`, checked 2026-09-25. Use the current
+Use the current
 [operations runbook](../../OPERATIONS_RUNBOOK.md) for every release or rollback.
 The commands here are technical reads unless a row says otherwise. Do not
 open CRM records or inspect private logs for a general health check.
@@ -16,16 +16,15 @@ open CRM records or inspect private logs for a general health check.
 | Store adapter | Gateway → [`store_gateway.py`](../../../src/minimal_kanban/mcp/store_gateway.py) → Manager adapter → `http://autostop-app:8000/internal/agent/v1/...`; Store owns quotes, stock and orders | `scripts/validate_production_env.py --require-production --require-store` validates names/config without printing tokens. Official `--require-store` Gateway smoke checks scoped live read and flags. | Reads or guarded Store writes; no direct Store DB connection. |
 | Change feed | CRM commit → [`change_feed_gateway.py`](../../../src/minimal_kanban/mcp/change_feed_gateway.py) and `/api/change_feed/{bootstrap,read,ack,register,summarize}` → Manager scheduler; CRM owns feed, Manager owns consumer cursor | `POST /api/change_feed/readiness` is technical readiness. Bootstrap/ACK/register alter consumer state; the maintenance-safe release probe handles them with its own consumer. | Readiness R; cursor operations T, exact ACK and readback. |
 | G1 automation panel | [`module_map.html`](../../../src/minimal_kanban/web_app_assets/source/module_map.html) → [`automation_center.py`](../../../src/minimal_kanban/api/automation_center.py) → Manager control socket; Manager owns schedules and execution | Open `/module-map`, select G1 and use **i** beside any job or system timer. Help explains the action, live schedule, data, output and switch; opening it sends no control command. | Help/status R; switches and schedule edits T, admin session and revision guard required. |
-| J1 public-web dependency | Gateway → [`web_gateway.py`](../../../src/minimal_kanban/mcp/web_gateway.py) → `autostop-searxng` / `autostop-crawl4ai`; public web is untrusted evidence | `docker compose ps autostop-searxng autostop-crawl4ai`; official `--require-web` smoke checks static and browser paths separately. Health alone does not prove research. | R externally; no fitment confirmation from web alone. |
+| J1 public-web dependency | Gateway → [`web_gateway.py`](../../../src/minimal_kanban/mcp/web_gateway.py) → `searxng` and pinned HTTP extraction; public web is untrusted evidence | `docker compose ps searxng`; official `--require-web` smoke checks static and browser paths separately; browser stays guarded unavailable until verified isolation. Health alone does not prove research. | R externally; no fitment confirmation from web alone. |
 | OAuth | Owner client → [`oauth_provider.py`](../../../src/minimal_kanban/mcp/oauth_provider.py) → CRM protected state | `python scripts/configure_mcp_oauth.py check --env-file .env` checks configuration; official `check_mcp_oauth.py` checks live authorization/refresh in a release. Never print state key/tokens. | Config check R; `ensure` and authorization mutate protected state. |
 | Browser and Windows clients | UI/API → shared services; desktop entry [`main.py`](../../../main.py), MCP entry [`main_mcp.py`](../../../main_mcp.py) | `scripts/browser_smoke.py --profile core --attempts 1` uses disposable synthetic CRM; portable binary requires `run_quality_pass.ps1`. | Synthetic; local pass is not deployed UI proof. |
 
-The Compose project has three CRM services: `autostopcrm`, `autostop-searxng`
-and `autostop-crawl4ai`. Store and PostgreSQL are separate projects. The
-production CRM baseline at `5f2fb219` on 2026-09-25 showed all three CRM
-services healthy, public root 200, public MCP 401 without credentials and image
-revision matching that initial production source. The candidate `ac10f534`
-requires fresh release readback. These are bounded technical observations.
+The Compose project has two services: `autostopcrm` and `searxng` (container
+`autostop-searxng`). Store and PostgreSQL are separate projects. Legacy
+Crawl4AI retirement requires the coordinated release and cold recovery procedure
+in the [runbook](../../OPERATIONS_RUNBOOK.md#retiring-the-legacy-crawl4ai-container).
+Source tests do not establish its actual removal or live health.
 
 ## Diagnose and recover
 

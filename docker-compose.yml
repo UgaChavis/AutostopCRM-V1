@@ -37,41 +37,6 @@ services:
       retries: 5
       start_period: 30s
 
-  crawl4ai:
-    container_name: autostop-crawl4ai
-    image: docker.io/unclecode/crawl4ai@sha256:9021b3cb5c6f12570bbcd5395638495e0a06969b3148e377b953d174af2ebc9b
-    user: "appuser"
-    init: true
-    restart: always
-    shm_size: "1gb"
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    pids_limit: 384
-    mem_limit: 1536m
-    cpus: "3.00"
-    logging:
-      driver: local
-      options:
-        max-size: "20m"
-        max-file: "5"
-    ports:
-      - "127.0.0.1:11235:11235"
-    environment:
-      CRAWL4AI_API_TOKEN: "${AUTOSTOP_CRAWL4AI_API_TOKEN:?provision a dedicated Crawl4AI API token}"
-      SECRET_KEY: "${AUTOSTOP_CRAWL4AI_SECRET_KEY:?provision a dedicated Crawl4AI secret key}"
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "python -c \"import os, urllib.request; req=urllib.request.Request('http://127.0.0.1:11235/health', headers={'Authorization': 'Bearer ' + os.environ.get('CRAWL4AI_API_TOKEN', '')}); urllib.request.urlopen(req, timeout=5).read(1)\"",
-        ]
-      interval: 30s
-      timeout: 8s
-      retries: 5
-      start_period: 90s
-
   autostopcrm:
     container_name: autostopcrm
     image: "${AUTOSTOP_RELEASE_IMAGE:-autostopcrm-autostopcrm:latest}"
@@ -92,8 +57,6 @@ services:
         max-file: "5"
     depends_on:
       searxng:
-        condition: service_healthy
-      crawl4ai:
         condition: service_healthy
     extra_hosts:
       - "crm.autostopcrm.ru:host-gateway"
@@ -139,9 +102,6 @@ services:
       AUTOSTOP_SEARCH_PROVIDER_ORDER: "${AUTOSTOP_SEARCH_PROVIDER_ORDER:-searxng,marginalia,duckduckgo}"
       AUTOSTOP_SEARXNG_BASE_URL: "${AUTOSTOP_SEARXNG_CONTAINER_URL:-http://searxng:8080}"
       AUTOSTOP_MARGINALIA_ENABLED: "${AUTOSTOP_MARGINALIA_ENABLED:-1}"
-      AUTOSTOP_CRAWL4AI_BASE_URL: "${AUTOSTOP_CRAWL4AI_CONTAINER_URL:-http://crawl4ai:11235}"
-      AUTOSTOP_CRAWL4AI_ENABLED: "${AUTOSTOP_CRAWL4AI_ENABLED:-1}"
-      AUTOSTOP_CRAWL4AI_API_TOKEN: "${AUTOSTOP_CRAWL4AI_API_TOKEN:?provision a dedicated Crawl4AI API token}"
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       OPENAI_MODEL: "${OPENAI_MODEL:-gpt-5.4-mini}"
     volumes:

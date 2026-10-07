@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import shlex
@@ -1172,6 +1173,95 @@ printf 'status=%s\n' "$status"
         ):
             self.assertIn(protected, script[retention:])
 
+    @unittest.skipUnless(shutil.which("docker"), "Docker Compose CLI is required")
+    def test_production_compose_resolves_without_legacy_crawler_credentials(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".env").write_text("", encoding="utf-8")
+            environment = {"PATH": os.defpath, "HOME": directory}
+            environment["AUTOSTOP_MCP_OAUTH_STATE_KEY"] = "synthetic-oauth-state-key"
+            for suffix in (
+                "ENABLED",
+                "WRITES_ENABLED",
+                "FINANCE_ENABLED",
+                "MAIL_ENABLED",
+                "DESTRUCTIVE_ENABLED",
+                "RAW_ENABLED",
+            ):
+                environment[f"AUTOSTOP_AGENT_GATEWAY_{suffix}"] = "0"
+            completed = subprocess.run(
+                [
+                    "docker",
+                    "compose",
+                    "--project-directory",
+                    directory,
+                    "--file",
+                    str(PROJECT_ROOT / "docker-compose.yml"),
+                    "config",
+                    "--format",
+                    "json",
+                ],
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        services = json.loads(completed.stdout)["services"]
+        self.assertEqual(set(services), {"autostopcrm", "searxng"})
+        self.assertEqual(
+            services["autostopcrm"]["depends_on"],
+            {"searxng": {"condition": "service_healthy", "required": True}},
+        )
+        self.assertFalse(any("CRAWL4AI" in key for key in services["autostopcrm"]["environment"]))
+
+    @unittest.skipUnless(_posix_bash_available(), "a working POSIX bash is required")
+    def test_deploy_environment_reload_keeps_auth_guards_without_legacy_crawler(self) -> None:
+        script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
+        functions = []
+        for name in (
+            "validate_gateway_switches",
+            "validate_crawl4ai_credentials",
+            "reload_deploy_environment",
+        ):
+            signature = f"{name}() {{"
+            if signature in script:
+                start = script.index(signature)
+                functions.append(script[start : script.index("\n}\n", start) + 3])
+        with tempfile.TemporaryDirectory() as directory:
+            environment = {
+                "PATH": os.defpath,
+                "ROOT_DIR": directory,
+                "PUBLIC_SITE_URL": "https://crm.example.invalid",
+                "PUBLIC_MCP_URL": "https://crm.example.invalid/mcp",
+                "MANAGER_CURRENT_LINK": "/synthetic-manager",
+            }
+            for suffix in (
+                "ENABLED",
+                "WRITES_ENABLED",
+                "FINANCE_ENABLED",
+                "MAIL_ENABLED",
+                "DESTRUCTIVE_ENABLED",
+                "RAW_ENABLED",
+            ):
+                environment[f"AUTOSTOP_AGENT_GATEWAY_{suffix}"] = "0"
+            harness = (
+                "set -Eeuo pipefail\n" + "\n".join(functions) + "\nreload_deploy_environment\n"
+            )
+            for valid in (True, False):
+                candidate_env = dict(environment)
+                if not valid:
+                    candidate_env["AUTOSTOP_AGENT_GATEWAY_WRITES_ENABLED"] = "unexpected"
+                completed = subprocess.run(
+                    ["bash", "-c", harness],
+                    env=candidate_env,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                with self.subTest(valid_gateway_switches=valid):
+                    self.assertEqual(completed.returncode, 0 if valid else 2, completed.stderr)
+
     def test_production_compose_is_fail_closed_and_exposes_kill_switches(self) -> None:
         compose = (PROJECT_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
         dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
@@ -1188,23 +1278,8 @@ printf 'status=%s\n' "$status"
         self.assertNotIn("AUTOSTOP_AGENT_GATEWAY_ENABLED:-1", compose)
         self.assertNotIn("AUTOSTOP_AGENT_GATEWAY_WRITES_ENABLED:-1", compose)
         self.assertIn("${AUTOSTOP_AGENT_GATEWAY_ENABLED:?set explicitly to 0 or 1}", compose)
-        self.assertIn(
-            "${AUTOSTOP_CRAWL4AI_API_TOKEN:?provision a dedicated Crawl4AI API token}",
-            compose,
-        )
-        self.assertIn(
-            "${AUTOSTOP_CRAWL4AI_SECRET_KEY:?provision a dedicated Crawl4AI secret key}",
-            compose,
-        )
-        self.assertNotIn("autostop-local-crawl4ai-token-change-me", compose)
-        self.assertNotIn("autostop-local-crawl4ai-secret-change-me", compose)
         deploy_script = (PROJECT_ROOT / "deploy.sh").read_text()
         self.assertIn("validate_gateway_switches", deploy_script)
-        self.assertIn("validate_crawl4ai_credentials", deploy_script)
-        self.assertIn(
-            "AUTOSTOP_CRAWL4AI_API_TOKEN and AUTOSTOP_CRAWL4AI_SECRET_KEY must be distinct.",
-            deploy_script,
-        )
         self.assertIn("/opt/autostop-manager-releases/current", compose)
         self.assertIn("/opt/AutostopManager}:ro", compose)
         self.assertIn("/opt/AutostopManager}/data", compose)
@@ -1219,11 +1294,10 @@ printf 'status=%s\n' "$status"
 
         self.assertNotIn("searxng/searxng:latest", compose)
         self.assertNotIn("unclecode/crawl4ai:latest", compose)
-        self.assertEqual(compose.count("no-new-privileges:true"), 3)
-        self.assertEqual(compose.count("driver: local"), 3)
-        self.assertGreaterEqual(compose.count("cap_drop:"), 3)
+        self.assertEqual(compose.count("no-new-privileges:true"), 2)
+        self.assertEqual(compose.count("driver: local"), 2)
+        self.assertGreaterEqual(compose.count("cap_drop:"), 2)
         self.assertIn('user: "977:977"', compose)
-        self.assertIn('user: "appuser"', compose)
         self.assertIn("USER 10001:10001", dockerfile)
         self.assertIn("/home/autostop/.minimal-kanban", compose)
         self.assertIn("defusedxml==0.7.1", desktop_requirements)
@@ -1369,8 +1443,8 @@ printf 'status=%s\n' "$status"
         self.assertIn("python -m pip install -r requirements-dev.txt", workflow)
         self.assertIn("Validate production Compose configuration", workflow)
         self.assertIn("docker compose config --quiet", workflow)
-        self.assertIn("AUTOSTOP_CRAWL4AI_API_TOKEN", workflow)
-        self.assertIn("AUTOSTOP_CRAWL4AI_SECRET_KEY", workflow)
+        self.assertNotIn("AUTOSTOP_CRAWL4AI_API_TOKEN", workflow)
+        self.assertNotIn("AUTOSTOP_CRAWL4AI_SECRET_KEY", workflow)
         # GitHub's explicit bash invocation adds `-o pipefail`; without it the
         # exit status of tee could turn a failed Python quality check green.
         for artifact in (
@@ -1732,7 +1806,9 @@ printf 'status=%s\n' "$status"
         self.assertIn("AUTOSTOP_SMOKE_OPERATOR_PASSWORD", runbook)
         self.assertIn("AUTOSTOP_CRAWL4AI_API_TOKEN", runbook)
         self.assertIn("AUTOSTOP_CRAWL4AI_SECRET_KEY", runbook)
-        self.assertIn("Crawl4AI credential is absent or they", runbook)
+        self.assertIn("Retiring the legacy Crawl4AI container", runbook)
+        self.assertIn("cold load/recovery", runbook)
+        self.assertIn("No customer, financial, Telegram or GUI write", runbook)
         self.assertNotIn("--operator-username admin --operator-password admin", runbook)
         self.assertIn("run_checks.ps1 -Profile ci", runbook)
         self.assertIn("run_checks.ps1 -Profile ci", readme)

@@ -112,7 +112,7 @@ BACKUP_ROOT = Path("/root/autostopcrm-backups/crm-only")
 TELEGRAM_STATE = Path("/var/lib/autostop-work-telegram")
 TELEGRAM_RUNTIME = Path("/run/autostop-work-telegram")
 TELEGRAM_UNITS = ("autostop-work-telegram.service", "autostop-codex-wake.service")
-NON_CRM_CONTAINERS = ("autostop-searxng", "autostop-crawl4ai", "autostop-app", "autostop-db")
+NON_CRM_CONTAINERS = ("autostop-searxng", "autostop-app", "autostop-db")
 
 
 class ReleaseError(RuntimeError):

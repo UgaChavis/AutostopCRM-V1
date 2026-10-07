@@ -226,8 +226,6 @@ jobs:
           AUTOSTOP_AGENT_GATEWAY_MAIL_ENABLED: "0"
           AUTOSTOP_AGENT_GATEWAY_DESTRUCTIVE_ENABLED: "0"
           AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED: "0"
-          AUTOSTOP_CRAWL4AI_API_TOKEN: ci-only-crawl4ai-api-token
-          AUTOSTOP_CRAWL4AI_SECRET_KEY: ci-only-crawl4ai-secret-key
         run: |
           : > .env
           trap 'rm -f .env' EXIT

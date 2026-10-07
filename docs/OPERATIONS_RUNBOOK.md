@@ -17,17 +17,18 @@ maintenance safety.
 | Host data | `/opt/autostopcrm/data` |
 | Container data | `/home/autostop/.minimal-kanban` |
 
-`docker-compose.yml` defines three CRM-project services:
+`docker-compose.yml` defines two CRM-project services:
 
 | Service/container | Purpose | Host binding |
 | --- | --- | --- |
 | `autostopcrm` | UI, API, MCP, agent runtime | `127.0.0.1:8000 -> 41731`, `127.0.0.1:8001 -> 41831` |
 | `autostop-searxng` | local search provider | `127.0.0.1:8890 -> 8080` |
-| `autostop-crawl4ai` | local browser/extraction provider | `127.0.0.1:11235 -> 11235` |
 
-The CRM service depends on healthy SearXNG and Crawl4AI. A normal release
-replaces only `autostopcrm`; it does not recreate those dependencies or
-unrelated host services.
+The CRM service depends on healthy SearXNG. Static public-page extraction
+uses pinned HTTP directly; browser extraction stays fail-closed until its
+egress isolation is verified. Legacy Crawl4AI is not a runtime dependency.
+A normal release replaces only `autostopcrm`; it does not recreate SearXNG
+or remove an existing legacy Crawl4AI container.
 
 Store access uses a separate precreated external network named
 `autostop-store-agent`, created with `internal=true`. Its only allowed members
@@ -728,14 +729,10 @@ ssh -i $env:AUTOSTOPCRM_SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes root@crm.
 ```
 
 Prerequisites in server `.env` include the Gateway switches and Store URL/scoped
-tokens listed in [Production Authentication](#production-authentication),
-distinct non-empty
-`AUTOSTOP_CRAWL4AI_API_TOKEN` and `AUTOSTOP_CRAWL4AI_SECRET_KEY`, and
-`AUTOSTOP_SMOKE_OPERATOR_USERNAME` /
-`AUTOSTOP_SMOKE_OPERATOR_PASSWORD`. `deploy.sh` and Compose validation fail
-closed before maintenance when either Crawl4AI credential is absent or they
-are the same. Public HTTPS/API/MCP auth smoke is mandatory; there is no skip
-flag.
+tokens listed in [Production Authentication](#production-authentication), and
+`AUTOSTOP_SMOKE_OPERATOR_USERNAME` / `AUTOSTOP_SMOKE_OPERATOR_PASSWORD`.
+Legacy Crawl4AI credentials are not required by this Compose or deploy.
+Public HTTPS/API/MCP auth smoke is mandatory; there is no skip flag.
 
 The Manager catalog release is fetched separately from GitHub during the
 pre-maintenance phase. The server needs HTTPS access to GitHub Releases,
@@ -854,6 +851,48 @@ Commonly reviewed settings:
 Defaults and validation live in `deploy.sh`. Do not use
 `docker compose up -d --build --remove-orphans` as a production shortcut: it
 does not provide the release checkpoint or bounded rollback.
+
+### Retiring the legacy Crawl4AI container
+
+This is a coordinated deployment/configuration change, not a CRM-only UI
+release. The pinned HTTP extraction and static J1 path remain available;
+removing Crawl4AI does not enable browser egress or bypass its isolation guard.
+Do not remove the current/previous CRM image, Store image, data, or any business
+backup to reclaim its storage.
+
+Before any stop or image removal, record the exact legacy container/image ID,
+source Compose and private configuration provenance, then preserve the complete
+OCI image and original descriptors/tags in the approved private cold-image
+registry. Verify every blob digest and rootfs diff ID and prove an isolated
+cold load/recovery with no production-daemon hydration. Checksums of the cold archive or
+a compressed-stream byte counter alone are not recovery evidence. Review the
+peak archive/rehearsal/build/backup disk budget before starting.
+
+Publish this source through the canonical local CI profile and exact candidate,
+PR and merged hosted gates; deploy the exact reviewed revision normally. Keep
+all release checkpoint/hold/auth/rollback protections. Native health and
+cleanup policy must describe the new five-container host topology while
+protecting current and previous release tuples. The normal deploy does not
+use `--remove-orphans`: the legacy container remains until the separately
+reviewed native cleanup step verifies cold custody and the healthy new release.
+
+Under the native cleanup locks with CI quiescent and its prior state restored
+in `finally`, remove only the recorded legacy container and exact image after
+fresh ID/reference checks. Never use generic image, volume, system or builder
+prune. Independently compare all other image tags/rootfs, containers, service
+identities, protected backups/source work and free-space blocks afterward.
+Read-only HTTPS/API/MCP and static J1 checks establish availability; the normal
+Store release smoke may perform bounded business reads and must be labelled
+as such. No customer, financial, Telegram or GUI write is part of retirement.
+
+Preserve the server-local legacy credential entries for historical recovery;
+this release does not edit or print them. Before using an archived historical
+Compose that still declares Crawl4AI, hydrate its exact cold image and verify
+its original private `AUTOSTOP_CRAWL4AI_API_TOKEN` and
+`AUTOSTOP_CRAWL4AI_SECRET_KEY` configuration first. A rollback of the CRM image
+through the new Compose keeps the retired dependency absent. Once live writes
+have reopened, use a new reviewed forward/revert release rather than restoring
+old business state or manually replacing Compose.
 
 ### CRM-only UI release from an isolated worktree
 
