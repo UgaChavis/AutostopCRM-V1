@@ -10,6 +10,7 @@ import shutil
 import socket
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qs, quote_plus, unquote, urljoin, urlparse
 
@@ -128,7 +129,57 @@ _SENSITIVE_QUERY_FIELD_PATTERN = re.compile(
 
 
 class InternetToolError(RuntimeError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "cause_unknown",
+        retryable: bool = False,
+        status_code: int = 0,
+        content_type: str = "",
+        final_url: str = "",
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.retryable = retryable
+        self.status_code = status_code
+        self.content_type = content_type
+        self.final_url = final_url
+
+
+def _http_error_code(status_code: int) -> str:
+    return (
+        "http_not_found"
+        if status_code == 404
+        else "access_restricted"
+        if status_code in {401, 403}
+        else "rate_limited"
+        if status_code == 429
+        else "http_server_error"
+        if status_code >= 500
+        else "http_error"
+    )
+
+
+def _safe_provider_failure(exc: Exception) -> dict[str, Any]:
+    if isinstance(exc, InternetToolError):
+        return {"error_code": exc.code, "retryable": exc.retryable, "status_code": exc.status_code}
+    status = getattr(getattr(exc, "response", None), "status_code", 0)
+    if isinstance(exc, httpx.HTTPStatusError) and type(status) is int and 100 <= status <= 599:
+        return {
+            "error_code": _http_error_code(status),
+            "retryable": status == 429 or status >= 500,
+            "status_code": status,
+        }
+    return {
+        "error_code": "timeout"
+        if isinstance(exc, httpx.TimeoutException)
+        else "fetch_failed"
+        if isinstance(exc, httpx.HTTPError)
+        else "cause_unknown",
+        "retryable": isinstance(exc, httpx.HTTPError),
+        "status_code": 0,
+    }
 
 
 def redact_public_vin_text(value: str) -> tuple[str, bool]:
@@ -243,7 +294,13 @@ class DuckDuckGoSearchClient:
             ) as client:
                 html_text = self._fetch_limited_text(client, url, _MAX_SEARCH_RESPONSE_BYTES)
         except httpx.HTTPError as exc:
-            raise InternetToolError(f"Web search failed: {exc}") from exc
+            details = _safe_provider_failure(exc)
+            raise InternetToolError(
+                "Web search request failed",
+                code=details["error_code"],
+                retryable=details["retryable"],
+                status_code=details["status_code"],
+            ) from exc
         return self._parse_results(
             html_text, limit=normalized_limit, allowed_domains=allowed_domains
         )
@@ -329,11 +386,31 @@ class DuckDuckGoSearchClient:
                 headers={"User-Agent": "Mozilla/5.0 AutoStopCRM/1.0"},
                 trust_env=False,
             ) as client:
-                response_url, html_text = self._fetch_limited_text_with_url(
-                    client, normalized_url, _MAX_PAGE_RESPONSE_BYTES
+                response_url, html_text, status_code, content_type = (
+                    self._fetch_limited_text_with_metadata(
+                        client, normalized_url, _MAX_PAGE_RESPONSE_BYTES
+                    )
                 )
-        except httpx.HTTPError as exc:
-            raise InternetToolError(f"Page fetch failed: {exc}") from exc
+        except (InternetToolError, httpx.HTTPError) as exc:
+            if isinstance(exc, InternetToolError) and exc.code == "cause_unknown":
+                raise  # Preserve deterministic URL/redirect/size guard exceptions.
+            code = getattr(
+                exc,
+                "code",
+                "timeout" if isinstance(exc, httpx.TimeoutException) else "fetch_failed",
+            )
+            return {
+                "ok": False,
+                "url": normalized_url,
+                "final_url": getattr(exc, "final_url", "") or normalized_url,
+                "status_code": getattr(exc, "status_code", 0),
+                "content_type": getattr(exc, "content_type", ""),
+                "requested_chars": max_chars,
+                "effective_chars": normalized_max_chars,
+                "error": {"code": code, "retryable": getattr(exc, "retryable", True)},
+                "cause_unknown": code == "cause_unknown",
+                "acquisition_method": "unavailable",
+            }
         text = self._clean_html_text(html_text)
         access_flags = _detect_access_flags(" ".join((response_url, text[:5000])))
         return {
@@ -342,6 +419,14 @@ class DuckDuckGoSearchClient:
             "final_url": response_url,
             "domain": self._url_hostname(response_url),
             "excerpt": text[:normalized_max_chars],
+            "status_code": status_code,
+            "content_type": content_type,
+            "requested_chars": max_chars,
+            "effective_chars": normalized_max_chars,
+            "truncated": len(text) > normalized_max_chars,
+            "extraction_method": "html_text",
+            "acquisition_method": "live_http",
+            "retrieved_at": datetime.now(UTC).isoformat(),
             "format": "plain_text",
             "access_flags": access_flags,
             "requires_human": any(flag in _HUMAN_REQUIRED_FLAGS for flag in access_flags),
@@ -461,6 +546,12 @@ class DuckDuckGoSearchClient:
     def _fetch_limited_text_with_url(
         self, client: httpx.Client, url: str, max_bytes: int
     ) -> tuple[str, str]:
+        final_url, text, _, _ = self._fetch_limited_text_with_metadata(client, url, max_bytes)
+        return final_url, text
+
+    def _fetch_limited_text_with_metadata(
+        self, client: httpx.Client, url: str, max_bytes: int
+    ) -> tuple[str, str, int, str]:
         current_url = self._validated_public_http_url(url, resolve_dns=False)
         for _ in range(_MAX_REDIRECTS + 1):
             with self._stream_public_request(client, "GET", current_url) as response:
@@ -473,12 +564,39 @@ class DuckDuckGoSearchClient:
                         urljoin(current_url, location), resolve_dns=False
                     )
                     continue
-                response.raise_for_status()
+                content_type = (
+                    str(getattr(response, "headers", {}).get("content-type", ""))
+                    .split(";", 1)[0]
+                    .strip()
+                    .lower()[:100]
+                )
+                try:
+                    response.raise_for_status()
+                except httpx.HTTPStatusError as exc:
+                    code = _http_error_code(status_code)
+                    raise InternetToolError(
+                        "Public page HTTP error",
+                        code=code,
+                        retryable=status_code == 429 or status_code >= 500,
+                        status_code=status_code,
+                        content_type=content_type,
+                        final_url=current_url,
+                    ) from exc
+                if content_type and not (
+                    content_type.startswith("text/") or content_type == "application/xhtml+xml"
+                ):
+                    raise InternetToolError(
+                        "Public page media needs a supported extractor",
+                        code="unsupported_media",
+                        status_code=status_code,
+                        content_type=content_type,
+                        final_url=current_url,
+                    )
                 encoding = response.encoding or "utf-8"
                 text = self._read_limited_response_bytes(response, max_bytes).decode(
                     encoding, errors="replace"
                 )
-                return current_url, text
+                return current_url, text, status_code, content_type
         raise InternetToolError("Web redirect chain is too long.")
 
     def _read_limited_response_bytes(self, response: Any, max_bytes: int) -> bytes:
@@ -611,6 +729,21 @@ class DuckDuckGoSearchClient:
         allowed = [item.casefold() for item in _normalize_domain_list(allowed_domains)]
         results: list[SearchResult] = []
         seen_urls: set[str] = set()
+        flags = _detect_access_flags(html_text[:20000])
+        has_links = bool(_RESULT_LINK_PATTERN.search(html_text))
+        if not has_links and any(
+            flag in flags
+            for flag in ("captcha_required", "js_challenge", "access_denied", "ip_blocked")
+        ):
+            raise InternetToolError(
+                "Search access challenge", code="search_challenge", retryable=False
+            )
+        if not has_links and not re.search(
+            r"no[ -]results|no results found|no more results", html_text, re.I
+        ):
+            raise InternetToolError(
+                "Search response format is unknown", code="search_markup_unknown", retryable=False
+            )
         for block in _RESULT_BLOCK_PATTERN.findall(html_text):
             link_match = _RESULT_LINK_PATTERN.search(block)
             if not link_match:
@@ -735,12 +868,13 @@ class DuckDuckGoSearchClient:
                     allowed_domains=allowed_domains,
                 ), _provider_attempt(provider, "success")
             except InternetToolError as exc:
-                return [], _provider_attempt(
+                attempt = _provider_attempt(
                     provider,
                     "error",
                     reason="request_failed",
-                    error=_provider_error_message(exc),
                 )
+                attempt.update(_safe_provider_failure(exc))
+                return [], attempt
         return [], _provider_attempt(provider, "skipped", reason="unknown_provider")
 
     def _try_json_search_provider(
@@ -749,12 +883,13 @@ class DuckDuckGoSearchClient:
         try:
             return loader(), _provider_attempt(provider, "success")
         except Exception as exc:
-            return [], _provider_attempt(
+            attempt = _provider_attempt(
                 provider,
                 "error",
                 reason="request_failed",
-                error=_provider_error_message(exc),
             )
+            attempt.update(_safe_provider_failure(exc))
+            return [], attempt
 
     def _search_brave(
         self,

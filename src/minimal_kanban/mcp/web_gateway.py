@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from ..agent.tools import AgentToolExecutor
+from ..agent.web_tools import InternetToolError
 from .client import BoardApiClient
 
 WEB_RESEARCH_CAPABILITY_NAMES = frozenset(
@@ -147,6 +148,14 @@ def invoke_web_research(
         executor.reset_task_budget()
         result = dict(executor.execute(name, arguments))
         return result if "ok" in result else {"ok": True, "data": result}
+    except InternetToolError as exc:
+        return {
+            "ok": False,
+            "error": {"code": exc.code, "retryable": exc.retryable},
+            "status_code": exc.status_code,
+            "content_type": exc.content_type,
+            "cause_unknown": exc.code == "cause_unknown",
+        }
     except Exception as exc:  # pragma: no cover - transport integration failure
         return {
             "ok": False,
@@ -156,6 +165,7 @@ def invoke_web_research(
                 "error_type": type(exc).__name__,
                 "tool": name,
             },
+            "cause_unknown": True,
         }
 
 

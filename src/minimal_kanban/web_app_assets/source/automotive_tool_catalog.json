@@ -1,5 +1,5 @@
 {
-  "content_hash": "584c2c2954d47c4cecb27207375d25a04f5d011c01b29ae61aeb6a963ddefb76",
+  "content_hash": "55de18ce2e87c3c6cf2925688d20dde2534587dfac390ced86aebefb38c17fc3",
   "migration": {
     "old_to_new": {
       "E1": "E1",
@@ -26,9 +26,9 @@
       "input_notes": [
         "Выбирай один или несколько инструментов по задаче; фиксированной цепочки нет."
       ],
-      "instruction_hash": "c369e62a2be820e4f48a43ce63e102fd50a4cd9dca87d2df1b47194fa2bff409",
+      "instruction_hash": "d295ee12aaecb7cf467e48faf6c6c84e0ed8d6a74ea348ca39df6d5ba6a64748",
       "instruction_ref": "docs/agent/modules/E1.md",
-      "instruction_text": "# E1 — Автомобильные данные, запчасти и работы\n\nE1 — общая инструкция и карта независимых автомобильных инструментов Manager.\nАгент выбирает один инструмент, несколько операций одного модуля или средства разных модулей по задаче.\nНумерация не задаёт последовательность вызовов. Provider status и planner необязательны.\nУстойчивый ключ: automotive_workspace. Native MCP — [D1](D1.md); навигация проекта — [A1](A1.md).\n\n## Карта задач\n\n| Модуль | Назначение |\n| --- | --- |\n| [E2 — Автомобиль и модификация](E2.md) | VIN/frame/WMI, двигатель, КПП, рынок, альтернативы |\n| [E3 — Запрос детали и маркировки](E3.md) | Все позиции, количества, стороны, номера и EAN |\n| [E4 — Каталоги и оригинальные номера](E4.md) | Дерево, статьи, исходные OEM evidence |\n| [E5 — Кроссы, аналоги и замены номеров](E5.md) | Связи номеров, тип, направление, условия |\n| [E6 — Применимость и сравнение деталей](E6.md) | Vehicle+part+criteria/evidence, scope и конфликты |\n| [E7 — Техническое обслуживание](E7.md) | Позиции ТО и регламент с источником |\n| [E8 — Масла, жидкости и объёмы](E8.md) | Допуски, продукт, вязкость, заправочный объём |\n| [E9 — Новые детали и предложения](E9.md) | Предложения, остатки, доставка и закупочная основа |\n| [E10 — Б/у, контрактные и восстановленные детали](E10.md) | Объявления, состояние, комплектность, продавец |\n| [E11 — Цены и рынок деталей](E11.md) | Сопоставимая выборка, диапазон и медиана |\n| [E12 — Работы и нормочасы](E12.md) | Точная операция, норматив и включённые работы |\n| [E13 — Стоимость работ](E13.md) | Ценовые свидетельства отдельно от расчёта |\n| [E14 — Техническая информация и диагностика](E14.md) | Документы, процедуры, recalls/TSB metadata |\n| [E15 — Публичный поиск и исследования](E15.md) | Search/fetch/browser и bounded J1 jobs |\n\nДля E2–E15 parent — E1. Поставщики описываются внутри карточек операций.\nPartsAPI/vPIC/MANN/DENSO/Store/Avito/Drom не создают другую верхнюю карту.\nОтдельного E16 или обязательного скрытого оркестратора нет.\n\n## Выбор инструмента\n\n1. Определи нужный факт или расчёт и открой профильный модуль.\n2. Прочитай короткую карточку из docs/agent/tools/ с exact tool_name/operation/provider.\n3. Сверь входы с текущей inputSchema и передай готовые данные с проверяемым binding.\n4. Оцени outcome, missing_fields, conflicts и область результата.\n5. Выбирай следующий инструмент, если он нужен для недостающего утверждения.\n\nЭто способ чтения карты, а не обязательный runtime pipeline.\nИзвестный артикул можно передать прямо в поиск предложений без VIN.\nInspect полезен самостоятельно; каждый adapter проверяет собственный вход.\nСоставные wrappers — удобный самостоятельный выбор с явными внутренними вызовами.\nProvider status сообщает конфигурацию, не гарантирует live success.\n\n## Примеры маршрутов\n\n- Есть артикул и бренд → E9/E10; подходящие предложения можно сравнить в E11.\n- Есть VIN и несколько деталей → выбранный decoder E2 и multiposition E3; затем нужные E4/E6.\n- Нужен аналог → E5; важные условия машины проверяются подходящими средствами E6.\n- Нужна цена ремонта → E12 или переданное время; E13 получает основу и считает по явной политике.\n- Нужна техническая справка → E14; публичные материалы можно получить через E15.\n- Есть готовое дерево → pure resolve_catalog_group E4; повторный decode не требуется.\n- Есть варианты модификации → pure comparison E2 сохраняет альтернативы и missing.\n\n## Данные и достаточность\n\nНовые helpers возвращают tool_id/outcome/data/evidence/missing_fields/conflicts/warnings/execution.\nLegacy tools сохраняют публичные поля; новые envelope/reuse поля совместимы.\nsuccess/partial/empty/unsupported/invalid_input и dependency/configuration/database/auth/quota/provider/parse ошибки различаются.\nHTTP200 не доказывает пригодность payload, правильный parse или identifier binding.\nEvidence содержит provider, primary lineage, method/version, fetched_at, locator, scope и binding.\nСкопированные PartsAPI данные в crm_context сохраняют PartsAPI происхождение.\nvPIC online и Corgi offline используют одну первичную базу; это не независимые подтверждения.\nЛокальные WMI/platform/brand/frame правила используют один versioned registry.\n\nМодельный год отличается от даты производства; engine/KPP/drive/market не получают silent default.\nДве модификации остаются альтернативами; конфликт не исчезает выбором первого результата.\nКоличество неизвестно остаётся неизвестным; false, 0 и missing не взаимозаменяемы.\nRaw маркировка и normalized number сохраняются отдельно; EAN/название не становятся OEM.\nCatalog ref включает provider+namespace+entity_kind+id и parent/tree/carType, где требуется.\nTecDoc, Maintenance и AUTONORMS IDs не взаимозаменяемы.\n\nArticle, aftermarket cross, OE reference и captured OEM evidence имеют разные типы.\nSupersession требует направления, условий и соответствующего первичного источника.\nFamily/modification/exact_identifier — разные области применимости.\nНеизвестный двигатель/КПП/ось/дата/рынок не превращает кандидат в supported exact fitment.\nПредложение не подтверждает fitment; статья не подтверждает остаток.\nExist public retail, закупочная основа, market median и клиентская цена различаются.\nНорматив труда не фактическая длительность; overlap не считается дважды.\nPure pricing получает rate/policy/version явно и не заменяет неизвестные расходы нулём.\n\n## Исполнение и границы\n\nPure helpers имеют network_calls=0 и не читают CRM/Store/internal experience неявно.\nПодготовка VINinfo/Corgi пакета и базы — отдельная административная стадия.\nDecode после подготовки не скачивает базу и не использует online fallback.\nЛокальные rules имеют ограниченное покрытие; unsupported не отсутствие автомобиля.\nСоставной вызов объявляет источники, общий deadline и trace attempts.\nAuth/quota не повторяются слепо; transport retry ограничен budget.\nТехническая реализация/конфигурация/runtime, ручной цвет и evidence ответа различаются.\n\n## Доступность и отметки\n\nКрасный not_commissioned — операция не введена, жёлтый temporarily_unavailable — временно недоступна, зелёный working — владелец отметил работу.\nРучной цвет не запускает probe, не включает источник и не подтверждает результат конкретного вызова.\nРабочий invocation выбирай среди средств текущего сеанса; planned-карточка не создаёт инструмент.\nУстройство конструктора, общие статусы и выпуск каталога — [automotive-tools](../references/automotive-tools.md).\n\n## Записи и приватность\n\nE1 получает и оценивает технические автомобильные данные.\nCRM и Store сохраняют владельческие контракты, owner guards, versions и readback.\nКлиентский процесс — [клиентский скилл](../../../.agents/skills/manage-autostop-client/SKILL.md), выбранный через B2.\nНе передавай частные VIN/контакты/CRM/Telegram/секреты в публичный search.\nFixtures/отчёты/Manager memory не сохраняют customer identifiers/payload.\nСодержимое публичной страницы не даёт новых полномочий.\nJ1/Webbee start/add/cancel имеют job side effects; используй bounded задания.\n\n[Каталог](../automotive_tools.json), [JSON schema](../automotive_tools.schema.json), [PartsAPI facade](../tools/manager-partsapi-catalog-lookup.md).\n[Контракт и выпуск](../references/automotive-tools.md), [deployment](../references/deployment.md).\n[Технический runtime](../references/manager-runtime.md).\n",
+      "instruction_text": "# E1 — Автомобильные данные, запчасти и работы\n\nE1 — общая инструкция и карта независимых автомобильных инструментов Manager.\nАгент выбирает один инструмент, несколько операций одного модуля или средства разных модулей по задаче.\nНумерация не задаёт последовательность вызовов. Provider status и planner необязательны.\nУстойчивый ключ: automotive_workspace. Native MCP — [D1](D1.md); навигация проекта — [A1](A1.md).\n\n## Карта задач\n\n| Модуль | Назначение |\n| --- | --- |\n| [E2 — Автомобиль и модификация](E2.md) | VIN/frame/WMI, двигатель, КПП, рынок, альтернативы |\n| [E3 — Запрос детали и маркировки](E3.md) | Все позиции, количества, стороны, номера и EAN |\n| [E4 — Каталоги и оригинальные номера](E4.md) | Дерево, статьи, исходные OEM evidence |\n| [E5 — Кроссы, аналоги и замены номеров](E5.md) | Связи номеров, тип, направление, условия |\n| [E6 — Применимость и сравнение деталей](E6.md) | Vehicle+part+criteria/evidence, scope и конфликты |\n| [E7 — Техническое обслуживание](E7.md) | Позиции ТО и регламент с источником |\n| [E8 — Масла, жидкости и объёмы](E8.md) | Допуски, продукт, вязкость, заправочный объём |\n| [E9 — Новые детали и предложения](E9.md) | Предложения, остатки, доставка и закупочная основа |\n| [E10 — Б/у, контрактные и восстановленные детали](E10.md) | Объявления, состояние, комплектность, продавец |\n| [E11 — Цены и рынок деталей](E11.md) | Сопоставимая выборка, диапазон и медиана |\n| [E12 — Работы и нормочасы](E12.md) | Точная операция, норматив и включённые работы |\n| [E13 — Стоимость работ](E13.md) | Ценовые свидетельства отдельно от расчёта |\n| [E14 — Техническая информация и диагностика](E14.md) | Документы, процедуры, recalls/TSB metadata |\n| [E15 — Публичный поиск и исследования](E15.md) | Search/fetch/browser и bounded J1 jobs |\n\nДля E2–E15 parent — E1. Поставщики описываются внутри карточек операций.\nPartsAPI/vPIC/MANN/DENSO/Store/Avito/Drom не создают другую верхнюю карту.\nОтдельного E16 или обязательного скрытого оркестратора нет.\n\n## Выбор инструмента\n\n1. Определи нужный факт или расчёт и открой профильный модуль.\n2. Прочитай короткую карточку из docs/agent/tools/ с exact tool_name/operation/provider.\n3. Сверь входы с текущей inputSchema и передай готовые данные с проверяемым binding.\n4. Оцени outcome, missing_fields, conflicts и область результата.\n5. Выбирай следующий инструмент, если он нужен для недостающего утверждения.\n\nЭто способ чтения карты, а не обязательный runtime pipeline.\nИзвестный артикул можно передать прямо в поиск предложений без VIN.\nInspect полезен самостоятельно; каждый adapter проверяет собственный вход.\nСоставные wrappers — удобный самостоятельный выбор с явными внутренними вызовами.\nProvider status сообщает конфигурацию, не гарантирует live success.\n\nДля короткого подбора сначала используй `detail=\"summary\"` у provider status и PartsAPI:\nполная нормализация и проверки выполняются до сокращения ответа; количества и обрезка видимы.\n`detail=\"full\"` сохраняет прежнюю выдачу и нужен только для недостающих строк или диагностики.\nДля одной детали публичная сверка обычно ограничена двумя запросами и двумя целевыми страницами.\nРасширяй её только ради конкретного недостающего факта; одинаковый partial, известный404,\nauth/quota и отсутствие VIN/EPC-комплектации не исправляются повторением того же источника.\nНе запускай исследование JS/обработчиков сайта автоматически ради каталожного номера.\nВремя задачи измеряй отдельно от времени параллельных вызовов; сохраняй обезличенную трассу\nбез VIN, их хешей и частных payload. Успешный вызов не меняет ручные статусы конструктора.\n\n## Примеры маршрутов\n\n- Есть артикул и бренд → E9/E10; подходящие предложения можно сравнить в E11.\n- Есть VIN и несколько деталей → выбранный decoder E2 и multiposition E3; затем нужные E4/E6.\n- Нужен аналог → E5; важные условия машины проверяются подходящими средствами E6.\n- Нужна цена ремонта → E12 или переданное время; E13 получает основу и считает по явной политике.\n- Нужна техническая справка → E14; публичные материалы можно получить через E15.\n- Есть готовое дерево → pure resolve_catalog_group E4; повторный decode не требуется.\n- Есть варианты модификации → pure comparison E2 сохраняет альтернативы и missing.\n\n## Данные и достаточность\n\nНовые helpers возвращают tool_id/outcome/data/evidence/missing_fields/conflicts/warnings/execution.\nLegacy tools сохраняют публичные поля; новые envelope/reuse поля совместимы.\nsuccess/partial/empty/unsupported/invalid_input и dependency/configuration/database/auth/quota/provider/parse ошибки различаются.\nHTTP200 не доказывает пригодность payload, правильный parse или identifier binding.\nEvidence содержит provider, primary lineage, method/version, fetched_at, locator, scope и binding.\nСкопированные PartsAPI данные в crm_context сохраняют PartsAPI происхождение.\nvPIC online и Corgi offline используют одну первичную базу; это не независимые подтверждения.\nЛокальные WMI/platform/brand/frame правила используют один versioned registry.\n\nМодельный год отличается от даты производства; engine/KPP/drive/market не получают silent default.\nДве модификации остаются альтернативами; конфликт не исчезает выбором первого результата.\nКоличество неизвестно остаётся неизвестным; false, 0 и missing не взаимозаменяемы.\nRaw маркировка и normalized number сохраняются отдельно; EAN/название не становятся OEM.\nCatalog ref включает provider+namespace+entity_kind+id и parent/tree/carType, где требуется.\nTecDoc, Maintenance и AUTONORMS IDs не взаимозаменяемы.\n\nArticle, aftermarket cross, OE reference и captured OEM evidence имеют разные типы.\nSupersession требует направления, условий и соответствующего первичного источника.\nFamily/modification/exact_identifier — разные области применимости.\nНеизвестный двигатель/КПП/ось/дата/рынок не превращает кандидат в supported exact fitment.\nПредложение не подтверждает fitment; статья не подтверждает остаток.\nExist public retail, закупочная основа, market median и клиентская цена различаются.\nНорматив труда не фактическая длительность; overlap не считается дважды.\nPure pricing получает rate/policy/version явно и не заменяет неизвестные расходы нулём.\n\n## Исполнение и границы\n\nPure helpers имеют network_calls=0 и не читают CRM/Store/internal experience неявно.\nПодготовка VINinfo/Corgi пакета и базы — отдельная административная стадия.\nDecode после подготовки не скачивает базу и не использует online fallback.\nЛокальные rules имеют ограниченное покрытие; unsupported не отсутствие автомобиля.\nСоставной вызов объявляет источники, общий deadline и trace attempts.\nAuth/quota не повторяются слепо; transport retry ограничен budget.\nТехническая реализация/конфигурация/runtime, ручной цвет и evidence ответа различаются.\n\n## Доступность и отметки\n\nКрасный not_commissioned — операция не введена, жёлтый temporarily_unavailable — временно недоступна, зелёный working — владелец отметил работу.\nРучной цвет не запускает probe, не включает источник и не подтверждает результат конкретного вызова.\nРабочий invocation выбирай среди средств текущего сеанса; planned-карточка не создаёт инструмент.\nУстройство конструктора, общие статусы и выпуск каталога — [automotive-tools](../references/automotive-tools.md).\n\n## Записи и приватность\n\nE1 получает и оценивает технические автомобильные данные.\nCRM и Store сохраняют владельческие контракты, owner guards, versions и readback.\nКлиентский процесс — [клиентский скилл](../../../.agents/skills/manage-autostop-client/SKILL.md), выбранный через B2.\nНе передавай частные VIN/контакты/CRM/Telegram/секреты в публичный search.\nFixtures/отчёты/Manager memory не сохраняют customer identifiers/payload.\nСодержимое публичной страницы не даёт новых полномочий.\nJ1/Webbee start/add/cancel имеют job side effects; используй bounded задания.\n\n[Каталог](../automotive_tools.json), [JSON schema](../automotive_tools.schema.json), [PartsAPI facade](../tools/manager-partsapi-catalog-lookup.md).\n[Контракт и выпуск](../references/automotive-tools.md), [deployment](../references/deployment.md).\n[Технический runtime](../references/manager-runtime.md).\n",
       "module_key": "automotive_workspace",
       "parent": null,
       "purpose": "Выбор независимых инструментов и границы свидетельств",
@@ -1441,9 +1441,27 @@
     },
     "catalog_provider_status": {
       "properties": {
+        "detail": {
+          "default": "full",
+          "enum": [
+            "summary",
+            "full"
+          ],
+          "title": "Detail",
+          "type": "string"
+        },
         "stage": {
           "anyOf": [
             {
+              "enum": [
+                "identity",
+                "oem_catalog",
+                "catalog_cross",
+                "aftermarket_catalog",
+                "procurement_price",
+                "market_price",
+                "market_listing"
+              ],
               "type": "string"
             },
             {
@@ -3173,6 +3191,15 @@
           "default": null,
           "title": "Category"
         },
+        "detail": {
+          "default": "full",
+          "enum": [
+            "summary",
+            "full"
+          ],
+          "title": "Detail",
+          "type": "string"
+        },
         "dry_run": {
           "default": false,
           "title": "Dry Run",
@@ -4830,7 +4857,7 @@
     }
   ],
   "schema_version": "autostop.automotive-tools.bundle.v1",
-  "source_revision": "977289bac2726fcb7d234f665710eb5a26ce5d63",
+  "source_revision": "fcc54b556aff18bd7ce918cfc023a0c11d043d6d",
   "tools": [
     {
       "also_used_in": [],
@@ -5437,9 +5464,9 @@
         "supplier_id"
       ],
       "input_schema_ref": "partsapi_catalog_lookup",
-      "instruction_hash": "b08c0bf34e0fe241bba865afae1f266923079913398edc7fe7654f2d896444e9",
+      "instruction_hash": "5d8d9f042583d9fd7cc37ef5bf54724f96dbbab15c23a5599227f6e066ca1c24",
       "instruction_ref": "docs/agent/tools/partsapi-get-article.md",
-      "instruction_text": "# partsapi.getArticle — getArticle\n\nВызвать getArticle; TecDoc article details by article number and supplier ID.\n\nОсновной модуль: [E4](../modules/E4.md); другие модули: нет.\nКлассификация: active. Состояние реализации: implemented.\nИсточник: partsapi_ru; первичная база: declared_by_provider; VIN/TecDoc/maintenance/AUTONORMS namespaces. Исполнение: network_read.\n\nВызов: native Manager MCP `partsapi_catalog_lookup`.\noperation: `article`.\napi_method: `getArticle`.\n\nВходы: `part_number`, `supplier_id`.\nDefaults: `{\"lang_id\":16}`.\nОбязательные facade поля: `operation`.\nFingerprint проверяет [manifest](../manager_mcp_catalog.json); полная inputSchema берётся из регистрации и `tools/list`, в CRM — native_schemas того же bundle.\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"dry_run\":true,\"operation\":\"article\",\"part_number\":\"DEMO-ARTICLE-001\",\"supplier_id\":\"42\"}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"operation\":[]}\n```\n\nВыход: source/parser/outcome и raw payload; специализированные profiles/tree/article/labor данные только для распознанных методов; generic payload сохраняется без выдуманных нормализованных полей.\nОшибки и неполнота: invalid_input сохраняет ошибочный вход как отказ; empty/partial/unsupported не success; configuration/auth/quota/provider/parse ошибки различаются для сетевого источника.\n\n- Article/cross/OE-reference не подтверждают оригинальный номер конкретного VIN.\n- API method отличается от facade operation; key назначает сервер, secrets не принимаются.\n- TecDoc/maintenance/AUTONORMS ID namespace не взаимозаменяемы; указанные IDs в примере синтетические.\n\nПодробный контракт: [справочник](../references/partsapi.md). Карточка и inputSchema согласованы versioned export; ручной цвет не является результатом проверки.\n",
+      "instruction_text": "# partsapi.getArticle — getArticle\n\nВызвать getArticle; TecDoc article details by article number and supplier ID.\n\nОсновной модуль: [E4](../modules/E4.md); другие модули: нет.\nКлассификация: active. Состояние реализации: implemented.\nИсточник: partsapi_ru; первичная база: declared_by_provider; VIN/TecDoc/maintenance/AUTONORMS namespaces. Исполнение: network_read.\n\nВызов: native Manager MCP `partsapi_catalog_lookup`.\noperation: `article`.\napi_method: `getArticle`.\n\nВходы: `part_number`, `supplier_id`.\nDefaults: `{\"lang_id\":16}`.\nОбязательные facade поля: `operation`.\nFingerprint проверяет [manifest](../manager_mcp_catalog.json); полная inputSchema берётся из регистрации и `tools/list`, в CRM — native_schemas того же bundle.\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"operation\":\"article\",\"dry_run\":true,\"part_number\":\"DEMO-ARTICLE-001\",\"supplier_id\":\"42\"}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"operation\":[]}\n```\n\nВыход: article_candidates with article ID/part number/brand and typed oe_references from OEM_NUMBERS; criteria from ARTICLE_CRITERIA preserve labels, values and units; OEM candidates are not inferred by generic recursion.\nОшибки и неполнота: invalid_input сохраняет ошибочный вход как отказ; empty/partial/unsupported не success; configuration/auth/quota/provider/parse ошибки различаются для сетевого источника.\n\n- Article/cross/OE-reference не подтверждают оригинальный номер конкретного VIN.\n- API method отличается от facade operation; key назначает сервер, secrets не принимаются.\n- TecDoc/maintenance/AUTONORMS ID namespace не взаимозаменяемы; указанные IDs в примере синтетические.\n- OE references are not directed supersession and do not confirm VIN fitment; the aftermarket article number remains separate.\n\nПодробный контракт: [справочник](../references/partsapi.md). Карточка и inputSchema согласованы versioned export; ручной цвет не является результатом проверки.\n",
       "invalid_example": {
         "operation": []
       },
@@ -5452,12 +5479,12 @@
       "limitations": [
         "Article/cross/OE-reference не подтверждают оригинальный номер конкретного VIN.",
         "API method отличается от facade operation; key назначает сервер, secrets не принимаются.",
-        "TecDoc/maintenance/AUTONORMS ID namespace не взаимозаменяемы; указанные IDs в примере синтетические."
+        "TecDoc/maintenance/AUTONORMS ID namespace не взаимозаменяемы; указанные IDs в примере синтетические.",
+        "OE references are not directed supersession and do not confirm VIN fitment; the aftermarket article number remains separate."
       ],
       "outputs": [
-        "source/parser/outcome и raw payload",
-        "специализированные profiles/tree/article/labor данные только для распознанных методов",
-        "generic payload сохраняется без выдуманных нормализованных полей"
+        "article_candidates with article ID/part number/brand and typed oe_references from OEM_NUMBERS",
+        "criteria from ARTICLE_CRITERIA preserve labels, values and units; OEM candidates are not inferred by generic recursion"
       ],
       "primary_data_source": "declared_by_provider; VIN/TecDoc/maintenance/AUTONORMS namespaces",
       "primary_module": "E4",
@@ -5908,9 +5935,9 @@
         "provider_parameters.modelId"
       ],
       "input_schema_ref": "partsapi_catalog_lookup",
-      "instruction_hash": "35206f1ed006a52cc6eb77057d2a37e52f9ae9b77741cc6cd7a52a857eb7b23a",
+      "instruction_hash": "9a4ad736f1e79cf211a16a9b53c2a326bdb4c89cac0964d3c7013290e31d73b0",
       "instruction_ref": "docs/agent/tools/partsapi-get-cars.md",
-      "instruction_text": "# partsapi.getCars — getCars\n\nВызвать getCars; PartsAPI getCars; use provider_parameters with the documented API parameter names.\n\nОсновной модуль: [E2](../modules/E2.md); другие модули: нет.\nКлассификация: active. Состояние реализации: implemented.\nИсточник: partsapi_ru; первичная база: declared_by_provider; VIN/TecDoc/maintenance/AUTONORMS namespaces. Исполнение: network_read.\n\nВызов: native Manager MCP `partsapi_catalog_lookup`.\noperation: `getCars`.\napi_method: `getCars`.\n\nВходы: `provider_parameters.makeId`, `provider_parameters.carType`, `provider_parameters.modelId`.\nDefaults: `{}`.\nОбязательные facade поля: `operation`.\nFingerprint проверяет [manifest](../manager_mcp_catalog.json); полная inputSchema берётся из регистрации и `tools/list`, в CRM — native_schemas того же bundle.\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"dry_run\":true,\"operation\":\"getCars\",\"provider_parameters\":{\"carType\":\"PC\",\"makeId\":42,\"modelId\":42}}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"operation\":[]}\n```\n\nВыход: source/parser/outcome и raw payload; специализированные profiles/tree/article/labor данные только для распознанных методов; generic payload сохраняется без выдуманных нормализованных полей.\nОшибки и неполнота: invalid_input сохраняет ошибочный вход как отказ; empty/partial/unsupported не success; configuration/auth/quota/provider/parse ошибки различаются для сетевого источника.\n\n- Модельный год отдельно от даты производства; WMI не определяет двигатель.\n- API method отличается от facade operation; key назначает сервер, secrets не принимаются.\n- TecDoc/maintenance/AUTONORMS ID namespace не взаимозаменяемы; указанные IDs в примере синтетические.\n\nПодробный контракт: [справочник](../references/partsapi.md). Карточка и inputSchema согласованы versioned export; ручной цвет не является результатом проверки.\n",
+      "instruction_text": "# partsapi.getCars — getCars\n\nВызвать getCars; PartsAPI getCars; use provider_parameters with the documented API parameter names.\n\nОсновной модуль: [E2](../modules/E2.md); другие модули: нет.\nКлассификация: active. Состояние реализации: implemented.\nИсточник: partsapi_ru; первичная база: declared_by_provider; VIN/TecDoc/maintenance/AUTONORMS namespaces. Исполнение: network_read.\n\nВызов: native Manager MCP `partsapi_catalog_lookup`.\noperation: `getCars`.\napi_method: `getCars`.\n\nВходы: `provider_parameters.makeId`, `provider_parameters.carType`, `provider_parameters.modelId`.\nDefaults: `{}`.\nОбязательные facade поля: `operation`.\nFingerprint проверяет [manifest](../manager_mcp_catalog.json); полная inputSchema берётся из регистрации и `tools/list`, в CRM — native_schemas того же bundle.\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"operation\":\"getCars\",\"dry_run\":true,\"provider_parameters\":{\"makeId\":42,\"carType\":\"PC\",\"modelId\":42}}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"operation\":[]}\n```\n\nВыход: vehicle_profiles with catalog IDs, modification, engine, displacement_cc/litres, power and production bounds; uppercase and legacy aliases are checked together; multiple modifications remain candidates.\nОшибки и неполнота: invalid_input сохраняет ошибочный вход как отказ; empty/partial/unsupported не success; configuration/auth/quota/provider/parse ошибки различаются для сетевого источника.\n\n- Модельный год отдельно от даты производства; WMI не определяет двигатель.\n- API method отличается от facade operation; key назначает сервер, secrets не принимаются.\n- TecDoc/maintenance/AUTONORMS ID namespace не взаимозаменяемы; указанные IDs в примере синтетические.\n- CAPACITY units and YEAR_START/YEAR_END are retained; conflicting aliases or incomplete profiles do not establish an exact vehicle.\n\nПодробный контракт: [справочник](../references/partsapi.md). Карточка и inputSchema согласованы versioned export; ручной цвет не является результатом проверки.\n",
       "invalid_example": {
         "operation": []
       },
@@ -5923,12 +5950,12 @@
       "limitations": [
         "Модельный год отдельно от даты производства; WMI не определяет двигатель.",
         "API method отличается от facade operation; key назначает сервер, secrets не принимаются.",
-        "TecDoc/maintenance/AUTONORMS ID namespace не взаимозаменяемы; указанные IDs в примере синтетические."
+        "TecDoc/maintenance/AUTONORMS ID namespace не взаимозаменяемы; указанные IDs в примере синтетические.",
+        "CAPACITY units and YEAR_START/YEAR_END are retained; conflicting aliases or incomplete profiles do not establish an exact vehicle."
       ],
       "outputs": [
-        "source/parser/outcome и raw payload",
-        "специализированные profiles/tree/article/labor данные только для распознанных методов",
-        "generic payload сохраняется без выдуманных нормализованных полей"
+        "vehicle_profiles with catalog IDs, modification, engine, displacement_cc/litres, power and production bounds",
+        "uppercase and legacy aliases are checked together; multiple modifications remain candidates"
       ],
       "primary_data_source": "declared_by_provider; VIN/TecDoc/maintenance/AUTONORMS namespaces",
       "primary_module": "E2",
@@ -6341,9 +6368,9 @@
         "provider_parameters.vin"
       ],
       "input_schema_ref": "partsapi_catalog_lookup",
-      "instruction_hash": "c351006dc09d2639f422578edc867b29b1687a632e17c5222e0790570fef779c",
+      "instruction_hash": "0fd16d83c67a96eb3692405e29eac0522ee8eb5c276e6e42d1d2c5115c00ee76",
       "instruction_ref": "docs/agent/tools/partsapi-decode-v-i-nus.md",
-      "instruction_text": "# partsapi.decodeVINus — decodeVINus\n\nВызвать decodeVINus; PartsAPI decodeVINus; use provider_parameters with the documented API parameter names.\n\nОсновной модуль: [E2](../modules/E2.md); другие модули: нет.\nКлассификация: active. Состояние реализации: implemented.\nИсточник: partsapi_ru; первичная база: declared_by_provider; VIN/TecDoc/maintenance/AUTONORMS namespaces. Исполнение: network_read.\n\nВызов: native Manager MCP `partsapi_catalog_lookup`.\noperation: `decodeVINus`.\napi_method: `decodeVINus`.\n\nВходы: `provider_parameters.vin`.\nDefaults: `{}`.\nОбязательные facade поля: `operation`.\nFingerprint проверяет [manifest](../manager_mcp_catalog.json); полная inputSchema берётся из регистрации и `tools/list`, в CRM — native_schemas того же bundle.\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"dry_run\":true,\"operation\":\"decodeVINus\",\"provider_parameters\":{\"vin\":\"DEMO\"}}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"operation\":[]}\n```\n\nВыход: source/parser/outcome и raw payload; специализированные profiles/tree/article/labor данные только для распознанных методов; generic payload сохраняется без выдуманных нормализованных полей.\nОшибки и неполнота: invalid_input сохраняет ошибочный вход как отказ; empty/partial/unsupported не success; configuration/auth/quota/provider/parse ошибки различаются для сетевого источника.\n\n- Модельный год отдельно от даты производства; WMI не определяет двигатель.\n- API method отличается от facade operation; key назначает сервер, secrets не принимаются.\n- TecDoc/maintenance/AUTONORMS ID namespace не взаимозаменяемы; указанные IDs в примере синтетические.\n\nПодробный контракт: [справочник](../references/partsapi.md). Карточка и inputSchema согласованы versioned export; ручной цвет не является результатом проверки.\n",
+      "instruction_text": "# partsapi.decodeVINus — decodeVINus\n\nВызвать decodeVINus; PartsAPI decodeVINus; use provider_parameters with the documented API parameter names.\n\nОсновной модуль: [E2](../modules/E2.md); другие модули: нет.\nКлассификация: active. Состояние реализации: implemented.\nИсточник: partsapi_ru; первичная база: declared_by_provider; VIN/TecDoc/maintenance/AUTONORMS namespaces. Исполнение: network_read.\n\nВызов: native Manager MCP `partsapi_catalog_lookup`.\noperation: `decodeVINus`.\napi_method: `decodeVINus`.\n\nВходы: `provider_parameters.vin`.\nDefaults: `{}`.\nОбязательные facade поля: `operation`.\nFingerprint проверяет [manifest](../manager_mcp_catalog.json); полная inputSchema берётся из регистрации и `tools/list`, в CRM — native_schemas того же bundle.\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"operation\":\"decodeVINus\",\"dry_run\":true,\"provider_parameters\":{\"vin\":\"DEMO\"}}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"operation\":[]}\n```\n\nВыход: transport outcome, semantic completeness/missing fields and identifier binding; recognized NHTSA/vPIC provenance is shared with that primary source; unknown response provenance remains unknown.\nОшибки и неполнота: invalid_input сохраняет ошибочный вход как отказ; empty/partial/unsupported не success; configuration/auth/quota/provider/parse ошибки различаются для сетевого источника.\n\n- Модельный год отдельно от даты производства; WMI не определяет двигатель.\n- API method отличается от facade operation; key назначает сервер, secrets не принимаются.\n- TecDoc/maintenance/AUTONORMS ID namespace не взаимозаменяемы; указанные IDs в примере синтетические.\n- Repeated transports of one primary source are not independent evidence; partial diagnostics and an unverified VIN close exact fitment.\n\nПодробный контракт: [справочник](../references/partsapi.md). Карточка и inputSchema согласованы versioned export; ручной цвет не является результатом проверки.\n",
       "invalid_example": {
         "operation": []
       },
@@ -6356,12 +6383,12 @@
       "limitations": [
         "Модельный год отдельно от даты производства; WMI не определяет двигатель.",
         "API method отличается от facade operation; key назначает сервер, secrets не принимаются.",
-        "TecDoc/maintenance/AUTONORMS ID namespace не взаимозаменяемы; указанные IDs в примере синтетические."
+        "TecDoc/maintenance/AUTONORMS ID namespace не взаимозаменяемы; указанные IDs в примере синтетические.",
+        "Repeated transports of one primary source are not independent evidence; partial diagnostics and an unverified VIN close exact fitment."
       ],
       "outputs": [
-        "source/parser/outcome и raw payload",
-        "специализированные profiles/tree/article/labor данные только для распознанных методов",
-        "generic payload сохраняется без выдуманных нормализованных полей"
+        "transport outcome, semantic completeness/missing fields and identifier binding",
+        "recognized NHTSA/vPIC provenance is shared with that primary source; unknown response provenance remains unknown"
       ],
       "primary_data_source": "declared_by_provider; VIN/TecDoc/maintenance/AUTONORMS namespaces",
       "primary_module": "E2",
@@ -8179,9 +8206,9 @@
         "providers"
       ],
       "input_schema_ref": "search_web_multi",
-      "instruction_hash": "1a55e57226a50c0c76f688e02aa6be035fad319fb51bc9ea9166e571622b22db",
+      "instruction_hash": "9ff82a5953b8b5e7ed8a3f0d807fed0c27b4331f75c749046a26f4b34ad49535",
       "instruction_ref": "docs/agent/tools/manager-search-web-multi.md",
-      "instruction_text": "# manager.search_web_multi — Публичный поиск\n\nПубличный поиск\n\nОсновной модуль: [E15](../modules/E15.md); другие модули: нет.\nКлассификация: active. Состояние реализации: implemented.\nИсточник: public_web; первичная база: primary URL lineage must be preserved. Исполнение: network_read.\n\nВызов: native Manager MCP `search_web_multi`.\n\nВходы: `query`, `limit`, `allowed_domains`, `providers`.\nDefaults: `{\"allowed_domains\":null,\"limit\":5,\"providers\":null}`.\nОбязательные facade поля: `query`.\nFingerprint проверяет [manifest](../manager_mcp_catalog.json); полная inputSchema берётся из регистрации и `tools/list`, в CRM — native_schemas того же bundle.\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"query\":\"DEMO деталь\"}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"query\":null}\n```\n\nВыход: Legacy flat web gateway: ok/schema/capability/adapter/query/results/allowed_domains/provider_order/providers/fallback_used/read_only/vin_redacted.; results preserve URL/domain/title/snippet and provider metadata; optional error={code,retryable}..\nОшибки и неполнота: error.code distinguishes unsafe/empty query, unavailable gateway/provider and invalid provider response; retryable is explicit..\n\n- Public search only: VINs are redacted and private contacts refused; preserve primary URL lineage across search providers.\n- A hit/snippet is a lead; verify its primary document before exact technical or fitment conclusions.\n\nПодробный контракт: [справочник](../references/web-research.md). Карточка и inputSchema согласованы versioned export; ручной цвет не является результатом проверки.\n",
+      "instruction_text": "# manager.search_web_multi — Публичный поиск\n\nПубличный поиск\n\nОсновной модуль: [E15](../modules/E15.md); другие модули: нет.\nКлассификация: active. Состояние реализации: implemented.\nИсточник: public_web; первичная база: primary URL lineage must be preserved. Исполнение: network_read.\n\nВызов: native Manager MCP `search_web_multi`.\n\nВходы: `query`, `limit`, `allowed_domains`, `providers`.\nDefaults: `{\"limit\":5,\"allowed_domains\":null,\"providers\":null}`.\nОбязательные facade поля: `query`.\nFingerprint проверяет [manifest](../manager_mcp_catalog.json); полная inputSchema берётся из регистрации и `tools/list`, в CRM — native_schemas того же bundle.\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"query\":\"DEMO деталь\"}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"query\":null}\n```\n\nВыход: Legacy flat web gateway: ok/schema/capability/adapter/query/results/allowed_domains/provider_order/providers/fallback_used/read_only/vin_redacted.; results preserve URL/domain/title/snippet and provider metadata; optional error={code,retryable}.; Provider diagnostics distinguish empty results, unrecognized markup, access challenge and transport errors without exposing private exceptions..\nОшибки и неполнота: error.code distinguishes unsafe/empty query, unavailable gateway/provider and invalid provider response; retryable is explicit..\n\n- Public search only: VINs are redacted and private contacts refused; preserve primary URL lineage across search providers.\n- A hit/snippet is a lead; verify its primary document before exact technical or fitment conclusions.\n- For a short part crosscheck begin with two queries and two target pages; expand only for a concrete missing fact.\n\nПодробный контракт: [справочник](../references/web-research.md). Карточка и inputSchema согласованы versioned export; ручной цвет не является результатом проверки.\n",
       "invalid_example": {
         "query": null
       },
@@ -8191,11 +8218,13 @@
       },
       "limitations": [
         "Public search only: VINs are redacted and private contacts refused; preserve primary URL lineage across search providers.",
-        "A hit/snippet is a lead; verify its primary document before exact technical or fitment conclusions."
+        "A hit/snippet is a lead; verify its primary document before exact technical or fitment conclusions.",
+        "For a short part crosscheck begin with two queries and two target pages; expand only for a concrete missing fact."
       ],
       "outputs": [
         "Legacy flat web gateway: ok/schema/capability/adapter/query/results/allowed_domains/provider_order/providers/fallback_used/read_only/vin_redacted.",
-        "results preserve URL/domain/title/snippet and provider metadata; optional error={code,retryable}."
+        "results preserve URL/domain/title/snippet and provider metadata; optional error={code,retryable}.",
+        "Provider diagnostics distinguish empty results, unrecognized markup, access challenge and transport errors without exposing private exceptions."
       ],
       "primary_data_source": "primary URL lineage must be preserved",
       "primary_module": "E15",
@@ -8212,7 +8241,8 @@
         "max_chars": 2500
       },
       "errors": [
-        "web_page_url_invalid for unsafe/invalid URL; gateway/configuration/response errors and browser_render_failed remain distinct with retryable."
+        "web_page_url_invalid for unsafe/invalid URL; gateway/configuration/response errors and browser_render_failed remain distinct with retryable.",
+        "Safe HTTP/transport causes and upstream retryable=false are preserved; unknown legacy cause remains unknown. 404 does not start PDF/browser fallback."
       ],
       "example": {
         "max_chars": 1200,
@@ -8225,9 +8255,9 @@
         "max_chars"
       ],
       "input_schema_ref": "fetch_page_excerpt",
-      "instruction_hash": "8b73207b314ab763cfa67a3f5b58090121d3587d599606efec62ac49835d3955",
+      "instruction_hash": "e49e26b16406c9b606ea5aba833ed4d2c70ba1f524341040f6a23ad40ba7b279",
       "instruction_ref": "docs/agent/tools/manager-fetch-page-excerpt.md",
-      "instruction_text": "# manager.fetch_page_excerpt — Ограниченный текст публичной страницы\n\nОграниченный текст публичной страницы\n\nОсновной модуль: [E15](../modules/E15.md); другие модули: нет.\nКлассификация: active. Состояние реализации: implemented.\nИсточник: public_web; первичная база: primary URL lineage must be preserved. Исполнение: network_read.\n\nВызов: native Manager MCP `fetch_page_excerpt`.\n\nВходы: `url`, `max_chars`.\nDefaults: `{\"max_chars\":2500}`.\nОбязательные facade поля: `url`.\nFingerprint проверяет [manifest](../manager_mcp_catalog.json); полная inputSchema берётся из регистрации и `tools/list`, в CRM — native_schemas того же bundle.\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"max_chars\":1200,\"url\":\"https://example.com/\"}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"url\":null}\n```\n\nВыход: Legacy flat web gateway: ok/schema/capability/read_only/url/final_url/domain/title/excerpt/links/access_flags/requires_human/status_code/mode/vin_redacted.; Failure returns ok=false and error={code,retryable}; no canonical automotive data/evidence/execution envelope..\nОшибки и неполнота: web_page_url_invalid for unsafe/invalid URL; gateway/configuration/response errors and browser_render_failed remain distinct with retryable..\n\n- Reads one bounded public page through installed CRM WebResearchGatewayV1 (E15); max_chars is bounded at 8000.\n- No login/captcha bypass; access_flags/requires_human report blocked content. A public page is evidence, not automatic fitment or repair authorization.\n\nПодробный контракт: [справочник](../references/web-research.md). Карточка и inputSchema согласованы versioned export; ручной цвет не является результатом проверки.\n",
+      "instruction_text": "# manager.fetch_page_excerpt — Ограниченный текст публичной страницы\n\nОграниченный текст публичной страницы\n\nОсновной модуль: [E15](../modules/E15.md); другие модули: нет.\nКлассификация: active. Состояние реализации: implemented.\nИсточник: public_web; первичная база: primary URL lineage must be preserved. Исполнение: network_read.\n\nВызов: native Manager MCP `fetch_page_excerpt`.\n\nВходы: `url`, `max_chars`.\nDefaults: `{\"max_chars\":2500}`.\nОбязательные facade поля: `url`.\nFingerprint проверяет [manifest](../manager_mcp_catalog.json); полная inputSchema берётся из регистрации и `tools/list`, в CRM — native_schemas того же bundle.\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"url\":\"https://example.com/\",\"max_chars\":1200}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"url\":null}\n```\n\nВыход: Legacy flat web gateway: ok/schema/capability/read_only/url/final_url/domain/title/excerpt/links/access_flags/requires_human/status_code/mode/vin_redacted.; Failure returns ok=false and error={code,retryable}; no canonical automotive data/evidence/execution envelope.; Known HTTP status, content_type, requested/effective chars, extraction_method and truncated; explicit PDF uses the existing guarded static extractor..\nОшибки и неполнота: web_page_url_invalid for unsafe/invalid URL; gateway/configuration/response errors and browser_render_failed remain distinct with retryable.; Safe HTTP/transport causes and upstream retryable=false are preserved; unknown legacy cause remains unknown. 404 does not start PDF/browser fallback..\n\n- Reads one bounded public page through installed CRM WebResearchGatewayV1 (E15); max_chars is bounded at 8000.\n- No login/captcha bypass; access_flags/requires_human report blocked content. A public page is evidence, not automatic fitment or repair authorization.\n\nПодробный контракт: [справочник](../references/web-research.md). Карточка и inputSchema согласованы versioned export; ручной цвет не является результатом проверки.\n",
       "invalid_example": {
         "url": null
       },
@@ -8241,7 +8271,8 @@
       ],
       "outputs": [
         "Legacy flat web gateway: ok/schema/capability/read_only/url/final_url/domain/title/excerpt/links/access_flags/requires_human/status_code/mode/vin_redacted.",
-        "Failure returns ok=false and error={code,retryable}; no canonical automotive data/evidence/execution envelope."
+        "Failure returns ok=false and error={code,retryable}; no canonical automotive data/evidence/execution envelope.",
+        "Known HTTP status, content_type, requested/effective chars, extraction_method and truncated; explicit PDF uses the existing guarded static extractor."
       ],
       "primary_data_source": "primary URL lineage must be preserved",
       "primary_module": "E15",
@@ -8634,23 +8665,29 @@
       "also_used_in": [],
       "classification": "active",
       "defaults": {
+        "detail": "full",
         "stage": null
       },
       "errors": [
-        "Missing or disabled provider configuration is represented in providers and missing_provider_ids/disabled_provider_ids; status does not probe provider authentication."
+        "Missing or disabled provider configuration is represented in providers and missing_provider_ids/disabled_provider_ids; status does not probe provider authentication.",
+        "Unknown stage is invalid_stage, not an empty configured provider selection."
       ],
-      "example": {},
+      "example": {
+        "detail": "summary",
+        "stage": "oem_catalog"
+      },
       "execution_kind": "local_read",
       "implementation_state": "implemented",
       "input_fields": [
-        "stage"
+        "stage",
+        "detail"
       ],
       "input_schema_ref": "catalog_provider_status",
-      "instruction_hash": "8e0c9498657f45e0802263e91f79ce240bac0bde986cdafec543510a01678d94",
+      "instruction_hash": "34a5b0be280a30b918a0fa975545b4103462c5d47d818cf8597a3dd07efae29d",
       "instruction_ref": "docs/agent/tools/manager-catalog-provider-status.md",
-      "instruction_text": "# manager.catalog_provider_status — Необязательная справка о конфигурации\n\nНеобязательная справка о конфигурации\n\nОсновной модуль: [E1](../modules/E1.md); другие модули: нет.\nКлассификация: active. Состояние реализации: implemented.\nИсточник: manager; первичная база: AutoStop versioned rules or explicit supplied inputs. Исполнение: local_read.\n\nВызов: native Manager MCP `catalog_provider_status`.\n\nВходы: `stage`.\nDefaults: `{\"stage\":null}`.\nОбязательные facade поля: нет; ограничения конкретной операции всё равно применяются.\nFingerprint проверяет [manifest](../manager_mcp_catalog.json); полная inputSchema берётся из регистрации и `tools/list`, в CRM — native_schemas того же bundle.\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"stage\":[]}\n```\n\nВыход: Legacy flat JSON payload: ok/stage/providers/stage_matrix/configured_count/live_callable_count/missing_provider_ids/disabled_provider_ids.; Native MCP publishes this JSON as structuredContent and text; providers contain configuration/capability metadata without secrets..\nОшибки и неполнота: Missing or disabled provider configuration is represented in providers and missing_provider_ids/disabled_provider_ids; status does not probe provider authentication..\n\n- Local configuration/source registry read, no HTTP.\n- Configured PartsAPI keys and live_callable capability remain configured_unverified until a selected live response; no secrets are returned.\n\nПодробный контракт: [справочник](../references/manager-runtime.md). Карточка и inputSchema согласованы versioned export; ручной цвет не является результатом проверки.\n",
+      "instruction_text": "# manager.catalog_provider_status — Необязательная справка о конфигурации\n\nНеобязательная справка о конфигурации\n\nОсновной модуль: [E1](../modules/E1.md); другие модули: нет.\nКлассификация: active. Состояние реализации: implemented.\nИсточник: manager; первичная база: AutoStop versioned rules or explicit supplied inputs. Исполнение: local_read.\n\nВызов: native Manager MCP `catalog_provider_status`.\n\nВходы: `stage`, `detail`.\nDefaults: `{\"stage\":null,\"detail\":\"full\"}`.\nОбязательные facade поля: нет; ограничения конкретной операции всё равно применяются.\nFingerprint проверяет [manifest](../manager_mcp_catalog.json); полная inputSchema берётся из регистрации и `tools/list`, в CRM — native_schemas того же bundle.\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"stage\":\"oem_catalog\",\"detail\":\"summary\"}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"stage\":\"oem\"}\n```\n\nВыход: Legacy flat JSON payload: ok/stage/providers/stage_matrix/configured_count/live_callable_count/missing_provider_ids/disabled_provider_ids.; Native MCP publishes this JSON as structuredContent and text; providers contain configuration/capability metadata without secrets.; detail=summary bounds each collection to25 after complete validation, with collection counts and truncation; detail=full preserves the existing response..\nОшибки и неполнота: Missing or disabled provider configuration is represented in providers and missing_provider_ids/disabled_provider_ids; status does not probe provider authentication.; Unknown stage is invalid_stage, not an empty configured provider selection..\n\n- Local configuration/source registry read, no HTTP.\n- Configured PartsAPI keys and live_callable capability remain configured_unverified until a selected live response; no secrets are returned.\n- stage accepts identity/oem_catalog/catalog_cross/aftermarket_catalog/procurement_price/market_price/market_listing or null; detail accepts summary/full.\n\nПодробный контракт: [справочник](../references/manager-runtime.md). Карточка и inputSchema согласованы versioned export; ручной цвет не является результатом проверки.\n",
       "invalid_example": {
-        "stage": []
+        "stage": "oem"
       },
       "invocation": {
         "tool_name": "catalog_provider_status",
@@ -8658,11 +8695,13 @@
       },
       "limitations": [
         "Local configuration/source registry read, no HTTP.",
-        "Configured PartsAPI keys and live_callable capability remain configured_unverified until a selected live response; no secrets are returned."
+        "Configured PartsAPI keys and live_callable capability remain configured_unverified until a selected live response; no secrets are returned.",
+        "stage accepts identity/oem_catalog/catalog_cross/aftermarket_catalog/procurement_price/market_price/market_listing or null; detail accepts summary/full."
       ],
       "outputs": [
         "Legacy flat JSON payload: ok/stage/providers/stage_matrix/configured_count/live_callable_count/missing_provider_ids/disabled_provider_ids.",
-        "Native MCP publishes this JSON as structuredContent and text; providers contain configuration/capability metadata without secrets."
+        "Native MCP publishes this JSON as structuredContent and text; providers contain configuration/capability metadata without secrets.",
+        "detail=summary bounds each collection to25 after complete validation, with collection counts and truncation; detail=full preserves the existing response."
       ],
       "primary_data_source": "AutoStop versioned rules or explicit supplied inputs",
       "primary_module": "E1",
@@ -8783,7 +8822,9 @@
         "article_id": null,
         "brand": null,
         "car_id": null,
+        "catalog_context": null,
         "category": null,
+        "detail": "full",
         "dry_run": false,
         "identifier": null,
         "lang": null,
@@ -8806,6 +8847,7 @@
         "outcome includes invalid_operation/invalid_input/credentials_missing/configured_unverified/empty_result/unparsed_response/success/identifier_mismatch/identifier_unverified; failure_class preserves provider_auth_error/provider_ip_quota_exceeded/provider_rejected/transport/parse failures. Dry run attempt_count=0 is not authenticated success."
       ],
       "example": {
+        "detail": "summary",
         "dry_run": true,
         "operation": "search_articles",
         "part_number": "DEMO-ARTICLE-001"
@@ -8834,12 +8876,14 @@
         "car_id",
         "timeout",
         "max_attempts",
-        "dry_run"
+        "dry_run",
+        "catalog_context",
+        "detail"
       ],
       "input_schema_ref": "partsapi_catalog_lookup",
-      "instruction_hash": "7a9e5d2fa66127812aa50bdc12087b47433d43c3bf2e6d65cf19561f7701f32b",
+      "instruction_hash": "132295a9ea176775135009851682eaad33e14dbbd24c8f8605e45fdd58ae7cda",
       "instruction_ref": "docs/agent/tools/manager-partsapi-catalog-lookup.md",
-      "instruction_text": "# manager.partsapi_catalog_lookup — Один выбранный PartsAPI метод\n\nОдин выбранный PartsAPI метод\n\nОсновной модуль: [E1](../modules/E1.md); другие модули: нет.\nКлассификация: active. Состояние реализации: implemented.\nИсточник: partsapi_ru; первичная база: declared_by_provider; VIN/TecDoc/maintenance/AUTONORMS namespaces. Исполнение: network_read.\n\nВызов: native Manager MCP `partsapi_catalog_lookup`.\n\nВходы: `operation`, `identifier`, `registration_number`, `part_number`, `article_id`, `supplier_id`, `provider_parameters`, `brand`, `category`, `vehicle_type`, `type_id`, `lang`, `lang_id`, `make_name_seo`, `model_id`, `motor_id`, `top_category_id`, `sub_category_id`, `car_id`, `timeout`, `max_attempts`, `dry_run`.\nDefaults: `{\"article_id\":null,\"brand\":null,\"car_id\":null,\"category\":null,\"dry_run\":false,\"identifier\":null,\"lang\":null,\"lang_id\":null,\"make_name_seo\":null,\"max_attempts\":1,\"model_id\":null,\"motor_id\":null,\"part_number\":null,\"provider_parameters\":null,\"registration_number\":null,\"sub_category_id\":null,\"supplier_id\":null,\"timeout\":20.0,\"top_category_id\":null,\"type_id\":null,\"vehicle_type\":null}`.\nОбязательные facade поля: `operation`.\nFingerprint проверяет [manifest](../manager_mcp_catalog.json); полная inputSchema берётся из регистрации и `tools/list`, в CRM — native_schemas того же bundle.\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"dry_run\":true,\"operation\":\"search_articles\",\"part_number\":\"DEMO-ARTICLE-001\"}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"operation\":[]}\n```\n\nВыход: Legacy flat adapter: ok/provider/operation/partsapi_method/docs_url/role/quota_cost_estimate/request_plan/privacy/catalog_binding.; outcome/failure_class/retryable/requires_fallback/attempt_count/max_attempts/attempts/payload/response_shape/empty_payload/record_counts.; vehicle_profiles/oem_candidates/cross_candidates/article_candidates/autonorms_rows/fill_volumes/search_tree_rows/article_criteria_rows; sensitive identifiers are redacted..\nОшибки и неполнота: outcome includes invalid_operation/invalid_input/credentials_missing/configured_unverified/empty_result/unparsed_response/success/identifier_mismatch/identifier_unverified; failure_class preserves provider_auth_error/provider_ip_quota_exceeded/provider_rejected/transport/parse failures. Dry run attempt_count=0 is not authenticated success..\n\n- Selected methods validate actual provider IDs/category context before HTTP; supplied typed modification/node refs must match namespace, carType and exact tree hash.\n- Legacy raw parameters remain compatible but catalog_binding=raw_parameters_unverified and cannot establish an exact category or fitment.\n- TecDoc article, cross or OE-reference rows are not original VIN-specific OEM evidence; paid/quota requests require an explicitly selected live branch.\n\nПодробный контракт: [справочник](../references/manager-runtime.md). Карточка и inputSchema согласованы versioned export; ручной цвет не является результатом проверки.\n",
+      "instruction_text": "# manager.partsapi_catalog_lookup — Один выбранный PartsAPI метод\n\nОдин выбранный PartsAPI метод\n\nОсновной модуль: [E1](../modules/E1.md); другие модули: нет.\nКлассификация: active. Состояние реализации: implemented.\nИсточник: partsapi_ru; первичная база: declared_by_provider; VIN/TecDoc/maintenance/AUTONORMS namespaces. Исполнение: network_read.\n\nВызов: native Manager MCP `partsapi_catalog_lookup`.\n\nВходы: `operation`, `identifier`, `registration_number`, `part_number`, `article_id`, `supplier_id`, `provider_parameters`, `brand`, `category`, `vehicle_type`, `type_id`, `lang`, `lang_id`, `make_name_seo`, `model_id`, `motor_id`, `top_category_id`, `sub_category_id`, `car_id`, `timeout`, `max_attempts`, `dry_run`, `catalog_context`, `detail`.\nDefaults: `{\"identifier\":null,\"registration_number\":null,\"part_number\":null,\"article_id\":null,\"supplier_id\":null,\"provider_parameters\":null,\"brand\":null,\"category\":null,\"vehicle_type\":null,\"type_id\":null,\"lang\":null,\"lang_id\":null,\"make_name_seo\":null,\"model_id\":null,\"motor_id\":null,\"top_category_id\":null,\"sub_category_id\":null,\"car_id\":null,\"timeout\":20.0,\"max_attempts\":1,\"dry_run\":false,\"catalog_context\":null,\"detail\":\"full\"}`.\nОбязательные facade поля: `operation`.\nFingerprint проверяет [manifest](../manager_mcp_catalog.json); полная inputSchema берётся из регистрации и `tools/list`, в CRM — native_schemas того же bundle.\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"operation\":\"search_articles\",\"part_number\":\"DEMO-ARTICLE-001\",\"dry_run\":true,\"detail\":\"summary\"}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"operation\":[]}\n```\n\nВыход: Legacy flat adapter: ok/provider/operation/partsapi_method/docs_url/role/quota_cost_estimate/request_plan/privacy/catalog_binding.; outcome/failure_class/retryable/requires_fallback/attempt_count/max_attempts/attempts/payload/response_shape/empty_payload/record_counts.; vehicle_profiles/oem_candidates/cross_candidates/article_candidates/autonorms_rows/fill_volumes/search_tree_rows/article_criteria_rows; sensitive identifiers are redacted.; Summary retains normalized evidence and execution measurements, limits collection previews to25 and reports total/returned/truncated; raw payload is not duplicated..\nОшибки и неполнота: outcome includes invalid_operation/invalid_input/credentials_missing/configured_unverified/empty_result/unparsed_response/success/identifier_mismatch/identifier_unverified; failure_class preserves provider_auth_error/provider_ip_quota_exceeded/provider_rejected/transport/parse failures. Dry run attempt_count=0 is not authenticated success..\n\n- Selected methods validate actual provider IDs/category context before HTTP; supplied typed modification/node refs must match namespace, carType and exact tree hash.\n- Legacy raw parameters remain compatible but catalog_binding=raw_parameters_unverified and cannot establish an exact category or fitment.\n- TecDoc article, cross or OE-reference rows are not original VIN-specific OEM evidence; paid/quota requests require an explicitly selected live branch.\n- type_id is a string, for example \"42\". Full normalization and conflict checks run before summary truncation; detail=full remains the compatible default.\n\nПодробный контракт: [справочник](../references/manager-runtime.md). Карточка и inputSchema согласованы versioned export; ручной цвет не является результатом проверки.\n",
       "invalid_example": {
         "operation": []
       },
@@ -8850,12 +8894,14 @@
       "limitations": [
         "Selected methods validate actual provider IDs/category context before HTTP; supplied typed modification/node refs must match namespace, carType and exact tree hash.",
         "Legacy raw parameters remain compatible but catalog_binding=raw_parameters_unverified and cannot establish an exact category or fitment.",
-        "TecDoc article, cross or OE-reference rows are not original VIN-specific OEM evidence; paid/quota requests require an explicitly selected live branch."
+        "TecDoc article, cross or OE-reference rows are not original VIN-specific OEM evidence; paid/quota requests require an explicitly selected live branch.",
+        "type_id is a string, for example \"42\". Full normalization and conflict checks run before summary truncation; detail=full remains the compatible default."
       ],
       "outputs": [
         "Legacy flat adapter: ok/provider/operation/partsapi_method/docs_url/role/quota_cost_estimate/request_plan/privacy/catalog_binding.",
         "outcome/failure_class/retryable/requires_fallback/attempt_count/max_attempts/attempts/payload/response_shape/empty_payload/record_counts.",
-        "vehicle_profiles/oem_candidates/cross_candidates/article_candidates/autonorms_rows/fill_volumes/search_tree_rows/article_criteria_rows; sensitive identifiers are redacted."
+        "vehicle_profiles/oem_candidates/cross_candidates/article_candidates/autonorms_rows/fill_volumes/search_tree_rows/article_criteria_rows; sensitive identifiers are redacted.",
+        "Summary retains normalized evidence and execution measurements, limits collection previews to25 and reports total/returned/truncated; raw payload is not duplicated."
       ],
       "primary_data_source": "declared_by_provider; VIN/TecDoc/maintenance/AUTONORMS namespaces",
       "primary_module": "E1",
