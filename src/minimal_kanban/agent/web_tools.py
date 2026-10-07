@@ -9,12 +9,37 @@ import re
 import shutil
 import socket
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from time import perf_counter
 from typing import Any
 from urllib.parse import parse_qs, quote_plus, unquote, urljoin, urlparse
 
 import httpx
+
+_NETWORK_MEASUREMENT: ContextVar[dict[str, Any] | None] = ContextVar(
+    "web_network_measurement", default=None
+)
+
+
+@contextmanager
+def _measure_network() -> Any:
+    measurement: dict[str, Any] = {"network_request_count": 0}
+    token = _NETWORK_MEASUREMENT.set(measurement)
+    started = perf_counter()
+    try:
+        yield measurement
+    finally:
+        measurement["elapsed_ms"] = round((perf_counter() - started) * 1000)
+        _NETWORK_MEASUREMENT.reset(token)
+
+
+def _record_network_request() -> None:
+    measurement = _NETWORK_MEASUREMENT.get()
+    if measurement is not None:
+        measurement["network_request_count"] += 1
+
 
 _RESULT_BLOCK_PATTERN = re.compile(r'<div class="result(?:__body)?[^"]*".*?</div>\s*</div>', re.S)
 _RESULT_LINK_PATTERN = re.compile(
@@ -326,14 +351,17 @@ class DuckDuckGoSearchClient:
         attempts: list[dict[str, Any]] = []
         results: list[dict[str, str]] = []
         seen_urls: set[str] = set()
+        started = perf_counter()
 
         for provider in provider_order:
-            batch, attempt = self._run_search_provider(
-                provider,
-                query=query_text,
-                limit=normalized_limit,
-                allowed_domains=allowed,
-            )
+            with _measure_network() as measured:
+                batch, attempt = self._run_search_provider(
+                    provider,
+                    query=query_text,
+                    limit=normalized_limit,
+                    allowed_domains=allowed,
+                )
+            attempt.update(measured)
             added_count = 0
             article_filtered_count = 0
             for result in batch:
@@ -368,6 +396,22 @@ class DuckDuckGoSearchClient:
                 item.get("provider") == "duckduckgo" and item.get("status") == "success"
                 for item in attempts
             ),
+            "execution": {
+                "scope": "provider_http",
+                "attempt_count": len(attempts),
+                "provider_network_attempt_count": sum(
+                    item["network_request_count"] > 0 for item in attempts
+                ),
+                "network_request_count": sum(item["network_request_count"] for item in attempts),
+                "elapsed_ms": round((perf_counter() - started) * 1000),
+                "completeness": "unavailable"
+                if not any(item.get("status") == "success" for item in attempts)
+                else "partial"
+                if any(item.get("status") == "error" for item in attempts)
+                else "complete",
+                "completeness_scope": "bounded_provider_cascade",
+                "reused": False,
+            },
         }
 
     def fetch_page_excerpt(self, url: str, *, max_chars: int = 2500) -> dict[str, Any]:
@@ -381,11 +425,14 @@ class DuckDuckGoSearchClient:
             maximum=_MAX_PAGE_EXCERPT_CHARS,
         )
         try:
-            with httpx.Client(
-                timeout=self._timeout_seconds,
-                headers={"User-Agent": "Mozilla/5.0 AutoStopCRM/1.0"},
-                trust_env=False,
-            ) as client:
+            with (
+                _measure_network() as measured,
+                httpx.Client(
+                    timeout=self._timeout_seconds,
+                    headers={"User-Agent": "Mozilla/5.0 AutoStopCRM/1.0"},
+                    trust_env=False,
+                ) as client,
+            ):
                 response_url, html_text, status_code, content_type = (
                     self._fetch_limited_text_with_metadata(
                         client, normalized_url, _MAX_PAGE_RESPONSE_BYTES
@@ -410,6 +457,7 @@ class DuckDuckGoSearchClient:
                 "error": {"code": code, "retryable": getattr(exc, "retryable", True)},
                 "cause_unknown": code == "cause_unknown",
                 "acquisition_method": "unavailable",
+                "execution": {**measured, "scope": "page_http", "reused": False},
             }
         text = self._clean_html_text(html_text)
         access_flags = _detect_access_flags(" ".join((response_url, text[:5000])))
@@ -423,6 +471,9 @@ class DuckDuckGoSearchClient:
             "content_type": content_type,
             "requested_chars": max_chars,
             "effective_chars": normalized_max_chars,
+            "excerpt_limit_chars": normalized_max_chars,
+            "extracted_chars": len(text),
+            "delivered_chars": min(len(text), normalized_max_chars),
             "truncated": len(text) > normalized_max_chars,
             "extraction_method": "html_text",
             "acquisition_method": "live_http",
@@ -434,6 +485,13 @@ class DuckDuckGoSearchClient:
             "mode": "http_excerpt",
             "extractors": [_provider_attempt("httpx_html", "success")],
             "fallback_used": False,
+            "execution": {
+                **measured,
+                "scope": "page_http",
+                "completeness": "partial" if len(text) > normalized_max_chars else "complete",
+                "completeness_scope": "static_text_excerpt",
+                "reused": False,
+            },
         }
 
     def fetch_page_browser(
@@ -620,6 +678,7 @@ class DuckDuckGoSearchClient:
         addresses = self._resolve_public_host(host, port)
 
         if not hasattr(client, "build_request") or not hasattr(client, "send"):
+            _record_network_request()
             with client.stream(
                 method, normalized_url, follow_redirects=False, **request_kwargs
             ) as response:
@@ -635,6 +694,7 @@ class DuckDuckGoSearchClient:
         headers["Host"] = _http_host_header(host, explicit_port, parsed.scheme.casefold())
         request = client.build_request(method, pinned_url, headers=headers, **request_kwargs)
         request.extensions["sni_hostname"] = host
+        _record_network_request()
         response = client.send(request, stream=True, follow_redirects=False)
         try:
             yield response
@@ -654,6 +714,7 @@ class DuckDuckGoSearchClient:
         if public:
             response_context = self._stream_public_request(client, method, url, **request_kwargs)
         else:
+            _record_network_request()
             response_context = client.stream(method, url, follow_redirects=False, **request_kwargs)
         with response_context as response:
             response.raise_for_status()

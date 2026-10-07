@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from contextlib import contextmanager
 from unittest.mock import patch
 
@@ -78,6 +79,8 @@ def test_html_metadata_records_actual_acquisition_and_truncation():
     assert result["acquisition_method"] == "live_http"
     assert result["extraction_method"] == "html_text"
     assert result["retrieved_at"]
+    assert result["extracted_chars"] == 26
+    assert result["delivered_chars"] == result["excerpt_limit_chars"] == 12
 
 
 @pytest.mark.parametrize(
@@ -132,3 +135,79 @@ def test_json_provider_retains_status_without_error_body_or_url():
     assert attempt["status_code"] == 429
     assert attempt["retryable"] is True
     assert "private-key" not in str(attempt)
+
+
+def test_search_counts_dispatched_http_separately_from_skipped_providers():
+    class FakeClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+        @contextmanager
+        def stream(self, *_args, **_kwargs):
+            yield httpx.Response(
+                200,
+                json={"results": []},
+                request=httpx.Request("GET", "http://searxng:8080/search"),
+            )
+
+    with (
+        patch.dict(
+            os.environ,
+            {
+                "AUTOSTOP_SEARXNG_BASE_URL": "http://searxng:8080",
+                "AUTOSTOP_SEARCH_DISABLED_PROVIDERS": "tavily google_cse marginalia duckduckgo",
+            },
+            clear=True,
+        ),
+        patch("minimal_kanban.agent.web_tools.httpx.Client", FakeClient),
+    ):
+        result = DuckDuckGoSearchClient().search_multi("brake disc", providers=["brave", "searxng"])
+    assert result["providers"][0]["status"] == "skipped"
+    assert result["providers"][0]["network_request_count"] == 0
+    assert result["providers"][1]["network_request_count"] == 1
+    assert result["execution"]["attempt_count"] == 2
+    assert result["execution"]["provider_network_attempt_count"] == 1
+    assert result["execution"]["network_request_count"] == 1
+    assert result["execution"]["completeness"] == "complete"
+    assert result["execution"]["reused"] is False
+
+
+def test_page_counts_redirect_requests_and_returns_requested_8000_chars():
+    class FakeClient:
+        def __init__(self, **_kwargs):
+            self.requests = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+        @contextmanager
+        def stream(self, _method, url, **_kwargs):
+            self.requests += 1
+            yield httpx.Response(
+                302 if self.requests == 1 else 200,
+                headers={"location": "https://example.com/final", "content-type": "text/html"},
+                text="x" * 12000,
+                request=httpx.Request("GET", url),
+            )
+
+    client = DuckDuckGoSearchClient()
+    with (
+        patch("minimal_kanban.agent.web_tools.httpx.Client", FakeClient),
+        patch.object(client, "_resolve_public_host", return_value=["93.184.216.34"]),
+    ):
+        result = client.fetch_page_excerpt("https://example.com/disc", max_chars=8000)
+    assert result["excerpt"] == "x" * 8000
+    assert result["extracted_chars"] == 12000
+    assert result["delivered_chars"] == result["excerpt_limit_chars"] == 8000
+    assert result["truncated"] is True
+    assert result["execution"]["network_request_count"] == 2
+    assert result["execution"]["completeness"] == "partial"
