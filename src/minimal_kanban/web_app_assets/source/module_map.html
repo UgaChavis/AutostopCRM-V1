@@ -277,7 +277,8 @@
     const colors = {A:'#79b9d9',agent:'#5ecde9',B:'#73c4e8',C:'#dfb461',D:'#b497de',E:'#ec8492',F:'#8ed6ad',G:'#68dba8',H:'#d99bc9',I:'#e8a8b7',J:'#7adbb1',N:'#a2c2d5'};
     const indicatorStates = {
       on:{color:'#71ad86',label:'Включён'},off:{color:'#bb6868',label:'Выключен'},disabled:{color:'#7e8993',label:'Все задания выключены'},
-      applying:{color:'#c6ae61',label:'Применение изменений'},error:{color:'#cf7070',label:'Есть ошибка'},offline:{color:'#bba65e',label:'Нет связи'},unknown:{color:'#bba65e',label:'Состояние неизвестно'}
+      applying:{color:'#c6ae61',label:'Применение изменений'},error:{color:'#cf7070',label:'Есть ошибка'},offline:{color:'#bba65e',label:'Нет связи'},unknown:{color:'#bba65e',label:'Состояние неизвестно'},
+      green:{color:'#71ad86',label:'Включён'},yellow:{color:'#bba65e',label:'Состояние неизвестно'},red:{color:'#bb6868',label:'Выключен'}
     };
     let automationMapState='unknown';
     const indicatorFor = n => n.id==='G1' ? indicatorStates[automationMapState] : n.id==='B4'||n.indicator!==undefined ? indicatorStates[n.indicator]||indicatorStates.unknown : null;
@@ -890,8 +891,8 @@
         return;
       }
       if(id==='E1') {
-        drawFlow(['E4','E5','E7','E6','E9'].map(step=>[step]));
-        $('detailSources').textContent='Источники: vPIC / PartsAPI · каталоги и поставщики · веб-шлюз · Авито / ReefAPI · Drom / Webbee';
+        drawFlow(data.elements.filter(node=>node.parent==='E1').map(node=>[node.id]));
+        $('detailSources').textContent='Источники и ограничения приведены в каноничных инструкциях выбранного модуля.';
         $('detailSources').hidden=false;
         return;
       }
@@ -948,7 +949,7 @@
       }
       $('instructions').hidden=!$('instructionLinks').childElementCount;
       $('detailDescription').textContent=item.description.match(/^.*?[.!?](?:\s|$)/)?.[0]?.trim()||item.description;
-      const purpose=typeof item.purpose==='string'?item.purpose.trim():'';
+      const purpose=typeof item.instruction==='string'?item.instruction.trim():typeof item.purpose==='string'?item.purpose.trim():'';
       $('detailPurpose').textContent=purpose; $('detailPurpose').hidden=!purpose;
       $('detailFacts').replaceChildren(); $('related').replaceChildren(); $('detailMore').open=false;
       drawDiagram(id);

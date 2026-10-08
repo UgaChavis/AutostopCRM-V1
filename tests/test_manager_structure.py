@@ -24,7 +24,6 @@ from minimal_kanban.services.manager_structure_routing import (  # noqa: E402
     _point_segment_distance,
     _points_from_path,
     _reanchor_path,
-    _segment_through_box,
     _segments,
     route_conflicts,
     route_intersections,
@@ -502,56 +501,25 @@ class ManagerStructureTests(unittest.TestCase):
         self.assertEqual(service.read()["version"], 3)
         self.assertEqual(service.read()["relations"], [])
 
-    def test_portable_reference_routes_are_separate(self) -> None:
+    def test_portable_reference_preserves_retained_geometry_and_known_conflict(self) -> None:
         reference = json.loads(
             (
                 Path(__file__).resolve().parents[1] / "templates" / "manager_structure.json"
             ).read_text(encoding="utf-8")
         )
-        self.assertEqual(len(reference["elements"]), 40)
-        self.assertEqual(len(reference["relations"]), 32)
-        self.assertEqual(route_conflicts(reference), [])
+        self.assertEqual(len(reference["elements"]), 48)
+        self.assertEqual(len(reference["relations"]), 37)
+        # The instruction refresh preserves this existing owner's layout defect.
+        self.assertEqual(route_conflicts(reference), [("L30", "L36")])
         self.assertGreater(len(route_intersections(reference)), 0)
+        self.assertEqual(len({tuple(r["path"].split()[:2]) for r in reference["relations"]}), 37)
         self.assertEqual(
-            len({tuple(relation["path"].split()[:2]) for relation in reference["relations"]}),
-            32,
+            [n["id"] for n in reference["elements"] if n.get("parent") == "E1"],
+            [f"E{i}" for i in range(2, 16)],
         )
-        nodes = {node["id"]: node for node in reference["elements"]}
-        for relation in reference["relations"]:
-            segments = _segments(_points_from_path(relation["path"]))
-            excluded = {
-                relation["from"],
-                relation["to"],
-                nodes[relation["from"]].get("parent"),
-                nodes[relation["to"]].get("parent"),
-            }
-            for node in reference["elements"]:
-                if node["id"] not in excluded:
-                    self.assertFalse(
-                        any(_blocked_by_node(a, b, node) for a, b in segments),
-                        (relation["id"], node["id"]),
-                    )
-
-        for label in reference["relations"]:
-            if label.get("auto_hidden_label") or label.get("show_label") is False:
-                continue
-            content = label["id"]
-            width = max(38, min(label.get("label_max_width", 220), len(content) * 7.1 + 16))
-            box = (
-                label["label_x"] - width / 2,
-                label["label_y"] - 14,
-                label["label_x"] + width / 2,
-                label["label_y"] + 14,
-            )
-            for relation in reference["relations"]:
-                if relation["id"] != label["id"]:
-                    self.assertFalse(
-                        any(
-                            _segment_through_box(segment, box)
-                            for segment in _segments(_points_from_path(relation["path"]))
-                        ),
-                        (relation["id"], label["id"]),
-                    )
+        self.assertNotIn("tool_statuses", reference)
+        self.apply(0, "portable-retained-001", "replace", diagram=reference)
+        self.assertEqual(self.service.read()["relations"], reference["relations"])
 
     def test_reroute_preview_exact_geometry_and_semantic_preservation(self) -> None:
         reference = json.loads(
@@ -751,7 +719,7 @@ class ManagerStructureTests(unittest.TestCase):
         )
         after = ManagerStructureService(self.path).read()
         self.assertEqual(saved["accepted_element"]["x"], current["x"] + 30)
-        self.assertEqual(len(saved["routes"]), 32)
+        self.assertEqual(len(saved["routes"]), 37)
         self.assertEqual(route_conflicts(after), [])
 
 

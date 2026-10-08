@@ -70,9 +70,9 @@ Agent workflows, context selection and action guards are documented in the
 The retained reference map at `/module-map` is separate from the new diagram.
 The public HTML is a shell; `GET /api/get_module_map_infrastructure` still requires
 an operator session and returns `autostopmanager.infrastructure-map.v1`.
-The source dataset is `web_app_assets/source/manager_infrastructure.json`: 40
-element IDs and 32 connection IDs, with coordinates, nesting, descriptions and
-protocols. Update that dataset to change descriptions or layout. The former
+The source dataset is `web_app_assets/source/manager_infrastructure.json`: 48
+element IDs and 37 connection IDs, with retained coordinates, nesting, full
+canonical instructions and protocols. The former
 application/IT maps and their snapshots are retired. Removed IDs `N1`, `N2`, `C1`,
 `L8`, and `L9` are not reused. The Codex-to-CRM route is `A2` → `L10` → `C2` →
 `L11` → `C3`; the direct MCP/HTTPS route keeps OAuth 2.1.
@@ -81,13 +81,11 @@ The main instruction and note reading route is `A2` → `A3` → `D2` → `D3`:
 Codex reads local files through CLI. `D1` → `D2` represents only specific
 Manager functions that use saved technical experience, not general knowledge search.
 `L6` connects the work account to the compact wake node without a visible label.
-`E9` is the read-only market-price research child of `E1`: Codex explores public
-pages through `E8`, then assesses comparable price evidence. It does not create
-CRM cards or publish Store quotes.
-`E10` (Avito/ReefAPI) and `E11` (Drom/Webbee) are separate listing-lead routes
-from `E9`. Their map indicators describe the source checkout, not live API
-health: Avito is unverified; Drom is implemented but off after a Free API 401.
-The server is updated separately.
+`E1` has fourteen children, `E2`–`E15`: vehicle identity, part identification,
+catalogs, crosses, fitment, maintenance, fluids, new and used parts, market prices,
+labor times/prices, diagnostics and public research. `E8` covers fluids and
+`E15` covers public search. Provider instructions and readiness live in the
+pinned tool cards; source definitions do not prove live provider availability.
 
 Static node `indicator` values are manually maintained display states: `on`
 (green), `off` (red), or `unknown` (yellow; also the fallback for missing or
@@ -139,9 +137,9 @@ to the existing `AUTOSTOP_TELEGRAM_BEHAVIOR_OWNER_LOGIN`. Other operators can
 view modules and instructions. Browser and raw Gateway writes require the owner,
 an exact version and an idempotency key; raw writes verify a second read.
 
-The portable example is `templates/manager_structure.json`. It was built by
-individual CRM API operations from `manager_infrastructure.json` plus the
-updated Gmail modules and relations. To run the persistent local demonstration:
+The portable example is `templates/manager_structure.json`. It preserves the
+retained 48-node/37-relation technical graph and canonical Manager instructions.
+To run the persistent local demonstration:
 
 ```powershell
 python scripts/run_manager_structure_demo.py
@@ -169,6 +167,17 @@ and the Docker runtime contract validate this artifact. Full release backups
 include the `tool_statuses` map; portable graph exports omit it and graph restore
 preserves the destination's existing commissioning marks. See the
 [operations runbook](docs/OPERATIONS_RUNBOOK.md) for release-tuple verification.
+
+`scripts/sync_manager_structure_instructions.py` prepares or checks these two
+artifacts offline from a fresh full technical graph and canonical Manager docs.
+Pass `--bundle` to require parity with the already exported immutable package.
+`--refresh-templates` updates repository artifacts; `--check` only reads them.
+`--check-saved` reads stored texts and exits nonzero with changed node IDs on drift.
+An optional `--patch-output` outside the repository prepares instruction-only
+preview/write request bodies for a later authorized release, never sends them.
+Fresh full readback and current version guards are required before application.
+The retained L30/L36 route conflict is preserved; instruction refresh does not
+reroute the owner's graph.
 
 ## Local Development
 

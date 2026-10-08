@@ -37,6 +37,7 @@ NODE_FIELDS = {
     "width",
     "height",
     "description",
+    "instruction",
     "group",
     "tone",
     "kind",
@@ -45,6 +46,9 @@ NODE_FIELDS = {
     "parent",
     "compact",
     "indicator",
+    "indicator_mode",
+    "indicator_state",
+    "color",
 }
 EDGE_FIELDS = {
     "id",
@@ -62,6 +66,12 @@ EDGE_FIELDS = {
     "show_label",
     "compact_label",
     "label_max_width",
+    "route_mode",
+    "from_anchor",
+    "to_anchor",
+    "label_mode",
+    "auto_hidden_label",
+    "color",
 }
 
 
@@ -132,19 +142,23 @@ def build_reference(client: Client) -> dict:
         *filter(lambda n: n.get("parent"), nodes),
     ]:
         item = {key: value for key, value in node.items() if key in NODE_FIELDS}
-        item["instruction"] = str(node.get("purpose") or node.get("description") or "")
-        item["color"] = PALETTE.get(node.get("tone") or node.get("group"), "#91b8ca")
-        item["indicator"] = {"B4": "green", "G1": "yellow", "E10": "yellow", "E11": "red"}.get(
-            node["id"], "off"
+        item.setdefault("instruction", str(node.get("purpose") or node.get("description") or ""))
+        item.setdefault("color", PALETTE.get(node.get("tone") or node.get("group"), "#91b8ca"))
+        item.setdefault(
+            "indicator",
+            {"B4": "green", "G1": "yellow", "E10": "yellow", "E11": "red"}.get(node["id"], "off"),
         )
         version = client.apply(version, "upsert_element", element=item)["version"]
     for edge in source["relations"]:
         item = {key: value for key, value in edge.items() if key in EDGE_FIELDS}
-        item["color"] = PALETTE.get(
-            edge.get("tone")
-            or next(n for n in nodes if n["id"] == edge["from"]).get("tone")
-            or next(n for n in nodes if n["id"] == edge["from"]).get("group"),
-            "#91b8ca",
+        item.setdefault(
+            "color",
+            PALETTE.get(
+                edge.get("tone")
+                or next(n for n in nodes if n["id"] == edge["from"]).get("tone")
+                or next(n for n in nodes if n["id"] == edge["from"]).get("group"),
+                "#91b8ca",
+            ),
         )
         version = client.apply(version, "upsert_relation", relation=item)["version"]
     result = client.read()

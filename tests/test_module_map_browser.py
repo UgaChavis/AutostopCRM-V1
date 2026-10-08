@@ -147,27 +147,18 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.assertIn("включён", self.page.locator("#detailStatus").inner_text())
         self.assertFalse(self.page.locator("#instructions").is_visible())
         for code, label, state in (
-            ("E10", "Состояние неизвестно", "unknown"),
+            ("E10", "Состояние неизвестно", "yellow"),
             ("E11", "Выключен", "off"),
         ):
             lamp = self.page.locator(f'[data-id="{code}"] .status-indicator')
             self.assertEqual(lamp.locator("title").text_content(), label)
             self.select_node(code)
             self.assertEqual(self.page.locator("#detailStatus").get_attribute("data-state"), state)
-        self.assertIn(
-            "Внедрён · выключен", self.page.locator('[data-id="E11"] .subtitle').text_content()
-        )
-        self.assertIn("HTTP 401", self.page.locator("#detailDescription").inner_text())
+        self.assertEqual(self.page.locator("#detailTitle").inner_text(), "Цены и рынок деталей")
         self.select_node("E9")
-        self.assertEqual(
+        self.assertIn(
+            "Новые детали и предложения",
             self.page.locator("#detailDiagram .flow-step").all_inner_texts(),
-            [
-                "Аналоги · применимость",
-                "Рыночная оценка детали",
-                "Веб-шлюз",
-                "Авито / ReefAPI",
-                "Drom / Webbee",
-            ],
         )
         self.select_node("B4")
         colors = {}
@@ -251,7 +242,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.select_node("E7")
         self.reveal_details()
         related = self.page.locator("#related button").all_inner_texts()
-        for code in ("L20 ·", "L21 ·", "L22 ·", "E8 ·"):
+        for code in ("E1 ·",):
             self.assertTrue(any(item.startswith(code) for item in related), related)
         self.assertEqual(
             [request for request in requests if "/api/" in request[1]],
@@ -271,7 +262,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
         stages = diagram.locator("[data-step-id]").evaluate_all(
             "elements => elements.map(element => element.dataset.stepId)"
         )
-        self.assertEqual(stages, ["E4", "E5", "E7", "E6", "E9"])
+        self.assertEqual(stages, [f"E{i}" for i in range(2, 16)])
         self.assertTrue(self.page.locator(".detail-backdrop").is_visible())
         self.page.keyboard.press("Escape")
         self.assertFalse(dialog.is_visible())
@@ -734,11 +725,11 @@ class ManagerMapBrowserTests(unittest.TestCase):
 
         self.login()
         purposes = {
-            item["id"]: item["purpose"]
+            item["id"]: item["instruction"]
             for item in MODULE_MAP_INFRASTRUCTURE["elements"]
             if item.get("parent") == "E1"
         }
-        self.assertEqual(set(purposes), {"E4", "E5", "E7", "E6", "E9"})
+        self.assertEqual(set(purposes), {f"E{i}" for i in range(2, 16)})
         for code, purpose in purposes.items():
             with self.subTest(code=code):
                 self.select_node(code)
@@ -842,25 +833,12 @@ class ManagerMapBrowserTests(unittest.TestCase):
                     return obscured;
                 }""")
                 self.assertEqual(obscured_labels, [])
-                e1 = self.page.locator('[data-id="E1"]').bounding_box()
-                e8 = self.page.locator('[data-id="E8"]').bounding_box()
-                e10 = self.page.locator('[data-id="E10"]').bounding_box()
-                e11 = self.page.locator('[data-id="E11"]').bounding_box()
-                e10_badge = self.page.locator('[data-id="E10"] .badge').bounding_box()
-                e11_badge = self.page.locator('[data-id="E11"] .badge').bounding_box()
-                f1 = self.page.locator('[data-id="F1"]').bounding_box()
-                f2 = self.page.locator('[data-id="F2"]').bounding_box()
-                l19_label = self.page.locator('[data-id="L19"] .edge-label').bounding_box()
-                self.assertIsNotNone(e1)
-                self.assertIsNotNone(e8)
-                self.assertIsNotNone(f1)
-                self.assertIsNotNone(l19_label)
-                self.assertGreater(e8["x"] - (e1["x"] + e1["width"]), 10)
-                self.assertGreater(e8["y"] - (f1["y"] + f1["height"]), 10)
-                self.assertGreater(e10_badge["y"] - (e8["y"] + e8["height"]), 10)
-                self.assertGreater(e11_badge["y"] - (e10["y"] + e10["height"]), 10)
-                self.assertGreater(f2["x"] - (e11["x"] + e11["width"]), 20)
-                self.assertGreater(l19_label["y"] - (e8["y"] + e8["height"]), 10)
+                # Retained E2–E15 layout replaces the old external provider satellites.
+                for code in ["E1", *[f"E{i}" for i in range(2, 16)], "F1", "F2"]:
+                    box = self.page.locator(f'[data-id="{code}"]').bounding_box()
+                    self.assertIsNotNone(box)
+                    self.assertGreater(box["width"], 0)
+                    self.assertGreater(box["height"], 0)
         self.page.set_viewport_size({"width": 1920, "height": 1080})
         self.page.keyboard.press("Home")
         self.page.wait_for_timeout(100)

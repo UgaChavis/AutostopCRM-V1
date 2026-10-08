@@ -71,7 +71,11 @@ Raw CRM Gateway capabilities:
   and a new `idempotency_key` for each new intended change. After an uncertain
   outcome, reconcile or replay the original body and key before creating another
   attempt. An upsert merges supplied fields with the existing element, so an
-  instruction can be changed without replacing coordinates and style. Raw
+  instruction can be changed without replacing coordinates and style. For an
+  existing node, an exact `element: {"id": "E2", "instruction": "..."}` payload
+  preserves all geometry and manual paths without reanchoring or rerouting.
+  Structural validation, owner authorization, version and idempotency guards
+  still apply; adding any other field uses the normal route checks. Raw
   writes perform a second read and compare the changed fields and version.
 
 Status readback checks both the exact saved record and the digest of every
@@ -146,6 +150,22 @@ inspectable JSON template using a fresh API read. The `restore` command
 restores it and performs an exact readback. Use
 `AUTOSTOP_MANAGER_STRUCTURE_SESSION` for the owner session token. Restore
 refuses to replace a nonempty diagram without `--replace-existing`.
+
+`scripts/sync_manager_structure_instructions.py` is an offline preparation and
+checking route. It copies the retained technical graph (48 nodes, 37 relations,
+fourteen E1 children E2–E15), replaces instruction text from canonical Manager
+docs and keeps geometry/styles exactly. A2 reads `AGENTS.md`; A5 uses a stable
+canonical pointer if its full catalog exceeds the instruction limit. Portable
+artifacts exclude owner receipts and commissioning records. Pass `--bundle`
+to require exact module-text parity with the already exported immutable bundle.
+`--check` performs read-only artifact comparison; `--check-saved` checks stored
+instruction drift and returns changed IDs with a nonzero exit status.
+`--refresh-templates` writes
+only the selected repository template and blueprint. `--patch-output` prepares
+private preview/write bodies outside the repository and never invokes an API.
+Before a later authorized application, read the complete live graph again and
+regenerate the patch against its current version. The existing L30/L36 conflict
+is retained; instruction refresh is not a layout repair.
 
 ## Local demonstration
 
