@@ -32,6 +32,20 @@ AUTOMOTIVE_VIN_RESPONSE_MAX_BYTES = 1 * 1024 * 1024
 AUTOMOTIVE_PRICE_MAX_RUB = 100_000_000
 _PART_NUMBER_PATTERN = re.compile(r"\b[A-Z0-9-]{5,18}\b")
 _PUBLIC_PART_EVIDENCE_CONTRACT_VERSION = "autostop.web-research.v1"
+_PUBLIC_PAGE_ERROR_CODES = frozenset(
+    {
+        "robots_disallowed",
+        "http_not_found",
+        "access_restricted",
+        "rate_limited",
+        "http_server_error",
+        "http_error",
+        "unsupported_media",
+        "timeout",
+        "fetch_failed",
+        "cause_unknown",
+    }
+)
 
 
 _PRICE_PATTERN = re.compile(
@@ -394,9 +408,15 @@ class AutomotiveLookupService:
                 continue
             try:
                 page = self._search.fetch_page_excerpt(result["url"], max_chars=1200)
-            except InternetToolError:
-                entry.update({"access_status": "unavailable", "access_flags": ["fetch_failed"]})
+            except InternetToolError as exc:
+                entry.update(self._part_page_failure(exc.code, exc.retryable))
             else:
+                if page.get("ok") is False or page.get("error") is not None:
+                    error = page.get("error")
+                    error = error if isinstance(error, dict) else {}
+                    entry.update(self._part_page_failure(error.get("code"), error.get("retryable")))
+                    evidence.append(entry)
+                    continue
                 flags = [
                     str(self._redact_vin_value(flag or "")).strip()
                     for flag in page.get("access_flags", [])
@@ -432,6 +452,21 @@ class AutomotiveLookupService:
             "providers": self._redact_vin_value(search.get("providers", [])),
             "fallback_used": bool(search.get("fallback_used")),
             "rejected_domains": rejected_domains,
+        }
+
+    @staticmethod
+    def _part_page_failure(code: Any, retryable: Any) -> dict[str, Any]:
+        code = (
+            code if isinstance(code, str) and code in _PUBLIC_PAGE_ERROR_CODES else "cause_unknown"
+        )
+        return {
+            "access_status": "robots_disallowed" if code == "robots_disallowed" else "unavailable",
+            "access_flags": [code],
+            "error": {
+                "code": code,
+                "retryable": retryable is True
+                and code not in {"robots_disallowed", "cause_unknown"},
+            },
         }
 
     def _part_evidence_base(
