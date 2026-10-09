@@ -902,7 +902,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
                             for(let index=0;index<text.getNumberOfChars();index++) {
                                 if(!text.textContent[index]?.trim())continue;
                                 const glyph=text.getExtentOfChar(index);
-                                if(!visibleAt({x:glyph.x+glyph.width/2,y:glyph.y+glyph.height/2})) {
+                                if([.25,.5,.75].some(fraction=>!visibleAt({x:glyph.x+glyph.width/2,y:glyph.y+glyph.height*fraction}))) {
                                     obscured.push(`${edge.dataset.id} glyph ${text.textContent[index]} is hidden`);
                                     break;
                                 }

@@ -394,8 +394,14 @@
       let w=label?55+Math.max(...labelLines.map(t=>measure(t,14))):42;
       const h=Math.max(28,labelLines.length*17+10);
       for(const other of data.relations) {
-        if(other===r||!other.compact_label||other.show_label===false||Math.abs(other.label_y-r.label_y)>=(h+28)/2)continue;
-        const limit=2*Math.abs(other.label_x-r.label_x)-42-4;
+        if(other===r||other.show_label===false)continue;
+        const otherLabel=other.compact_label?'':other.label;
+        const otherLines=linesFor(otherLabel,other.label_max_width||220,14);
+        const otherWidth=otherLabel?55+Math.max(...otherLines.map(t=>measure(t,14))):42;
+        const otherHeight=Math.max(28,otherLines.length*17+10);
+        if(Math.abs(other.label_y-r.label_y)>=(h+otherHeight)/2)continue;
+        const distance=Math.abs(other.label_x-r.label_x);
+        const limit=Math.max(distance-4,2*distance-otherWidth-4);
         if(label&&limit<w) {
           offset=7+measure(r.id,15,'600')+5;
           labelLines=previewLines(labelLines,Math.max(measure('…',14),limit-offset-8),14,1);
