@@ -838,11 +838,24 @@ class ManagerStructureBrowserTests(unittest.TestCase):
         )
         self.assertEqual(svg_errors, [])
         self.assertEqual(self.page.locator(".edge path.hit[d*='Q']").count(), 0)
-        self.assertTrue(
-            self.page.locator(".edge text").evaluate_all(
-                "nodes => nodes.every(node => /^L\\d+$/.test(node.textContent))"
-            )
+        reference_ids = {edge["id"] for edge in reference["relations"]}
+        self.assertEqual(len(reference_ids), 37)
+        self.assertCountEqual(
+            self.page.locator(".edge").evaluate_all("nodes => nodes.map(node => node.dataset.id)"),
+            reference_ids,
         )
+        rendered_labels = self.page.locator(".edge text").evaluate_all(
+            "nodes => nodes.map(node => ({id: node.closest('.edge').dataset.id, text: node.textContent}))"
+        )
+        self.assertCountEqual(
+            [label["id"] for label in rendered_labels],
+            [
+                edge["id"]
+                for edge in reference["relations"]
+                if edge.get("show_label") is not False and not edge.get("auto_hidden_label")
+            ],
+        )
+        self.assertTrue(all(label["text"] == label["id"] for label in rendered_labels))
         self.assertEqual(
             self.page.locator('.node[data-id="A2"] .code-big').evaluate(
                 "node => getComputedStyle(node).fontSize"

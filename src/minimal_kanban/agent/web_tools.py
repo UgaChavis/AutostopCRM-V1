@@ -18,6 +18,8 @@ from urllib.parse import parse_qs, quote_plus, unquote, urljoin, urlparse
 
 import httpx
 
+from .source_registry import public_catalog_page_read_policy
+
 _NETWORK_MEASUREMENT: ContextVar[dict[str, Any] | None] = ContextVar(
     "web_network_measurement", default=None
 )
@@ -268,7 +270,9 @@ class _PublicBrowserRequestGuard:
             route.abort()
             return
         try:
-            self._client._validated_public_http_url(str(getattr(request, "url", "") or ""))
+            self._client._validated_public_http_url(
+                str(getattr(request, "url", "") or ""), acquire=True
+            )
         except InternetToolError:
             route.abort()
             return
@@ -418,7 +422,7 @@ class DuckDuckGoSearchClient:
         normalized_url = str(url or "").strip()
         if not normalized_url:
             raise InternetToolError("url is required")
-        normalized_url = self._validated_public_http_url(normalized_url)
+        normalized_url = self._validated_public_http_url(normalized_url, acquire=True)
         normalized_max_chars = _normalize_int(
             max_chars,
             default=_DEFAULT_PAGE_EXCERPT_CHARS,
@@ -503,7 +507,9 @@ class DuckDuckGoSearchClient:
         # Keep syntactic and literal-private-target validation, but do not resolve
         # or navigate.  Chromium has no stable per-request IP-pinning API, so an
         # application-level DNS preflight cannot safely authorize this sink.
-        normalized_url = self._validated_public_http_url(normalized_url, resolve_dns=False)
+        normalized_url = self._validated_public_http_url(
+            normalized_url, resolve_dns=False, acquire=True
+        )
         if not _browser_egress_isolation_verified():
             return self._browser_error_payload(
                 normalized_url,
@@ -671,7 +677,7 @@ class DuckDuckGoSearchClient:
     def _stream_public_request(
         self, client: Any, method: str, url: str, **request_kwargs: Any
     ) -> Any:
-        normalized_url = self._validated_public_http_url(url, resolve_dns=False)
+        normalized_url = self._validated_public_http_url(url, resolve_dns=False, acquire=True)
         parsed = urlparse(normalized_url)
         host = str(parsed.hostname or "").strip().casefold().rstrip(".")
         port = parsed.port or (443 if parsed.scheme.casefold() == "https" else 80)
@@ -727,7 +733,9 @@ class DuckDuckGoSearchClient:
         except json.JSONDecodeError as exc:
             raise InternetToolError("Web response was not valid JSON.") from exc
 
-    def _validated_public_http_url(self, url: str, *, resolve_dns: bool = True) -> str:
+    def _validated_public_http_url(
+        self, url: str, *, resolve_dns: bool = True, acquire: bool = False
+    ) -> str:
         try:
             parsed = urlparse(url)
             port = parsed.port
@@ -744,6 +752,12 @@ class DuckDuckGoSearchClient:
             or parsed.password is not None
         ):
             raise InternetToolError("Only public HTTP(S) URLs are supported.")
+        if acquire and (source_policy := public_catalog_page_read_policy(url)):
+            raise InternetToolError(
+                "Automated catalog page reads are blocked by the captured source robots policy.",
+                code=source_policy["reason"],
+                retryable=False,
+            )
         resolved_port = port or (443 if scheme == "https" else 80)
         try:
             address = ipaddress.ip_address(host)

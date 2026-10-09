@@ -133,7 +133,9 @@ class ManagerMapBrowserTests(unittest.TestCase):
         )
         self.select_node("A1")
         self.assertEqual(self.page.locator("#detailTitle").inner_text(), "Инструкции")
-        self.assertEqual(self.page.locator('[data-id="A1"] .subtitle').count(), 0)
+        subtitle = self.page.locator('[data-id="A1"] .subtitle')
+        self.assertEqual(subtitle.count(), 1)
+        self.assertEqual(subtitle.get_attribute("aria-label"), "Навигация · каталоги")
         links = self.page.locator("#instructionLinks a")
         self.assertEqual(links.count(), 6)
         for link in links.all():
@@ -143,6 +145,20 @@ class ManagerMapBrowserTests(unittest.TestCase):
                 )
             )
             self.assertEqual(link.get_attribute("rel"), "noopener noreferrer")
+        for code in ("A4", "A5", "M2"):
+            with self.subTest(caption=code):
+                item = next(n for n in MODULE_MAP_INFRASTRUCTURE["elements"] if n["id"] == code)
+                caption = "\n".join(item["lines"])
+                card = self.page.locator(f'[data-id="{code}"]')
+                self.assertEqual(
+                    card.locator("title").first.text_content(), f"{code} · {item['title']}"
+                )
+                self.assertEqual(card.locator(".subtitle").get_attribute("aria-label"), caption)
+                self.assertTrue(card.locator(".subtitle").text_content().strip("…"))
+                self.select_node(code)
+                self.assertEqual(self.page.locator("#detailTitle").text_content(), item["title"])
+                self.reveal_details()
+                self.assertEqual(self.page.locator("#detailFacts dd").text_content(), caption)
         self.select_node("B4")
         self.assertIn("включён", self.page.locator("#detailStatus").inner_text())
         self.assertFalse(self.page.locator("#instructions").is_visible())
@@ -195,6 +211,8 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.assertEqual(self.errors, [])
 
     def test_operator_access_all_elements_and_read_only_interactions(self) -> None:
+        from minimal_kanban.web_assets import MODULE_MAP_INFRASTRUCTURE
+
         self.page.get_by_text(
             "Для просмотра карты войдите в CRM под учётной записью оператора."
         ).wait_for()
@@ -205,29 +223,66 @@ class ManagerMapBrowserTests(unittest.TestCase):
         identifiers = self.page.locator("[data-id]").evaluate_all(
             "elements => elements.map(el => el.dataset.id)"
         )
-        self.assertEqual(len(identifiers), 72)
-        self.assertEqual(len(set(identifiers)), 72)
+        self.assertEqual(len(identifiers), 85)
+        self.assertEqual(len(set(identifiers)), 85)
+        self.assertEqual(self.page.locator(".node").count(), 48)
+        self.assertEqual(self.page.locator(".edge").count(), 37)
+        self.assertEqual(
+            self.page.locator("[data-edge-owner][data-id],[data-edge-owner][tabindex]").count(), 0
+        )
+        self.assertEqual(
+            self.page.locator('[data-edge-owner="L4"] title').text_content(),
+            "L4 · Telegram API",
+        )
+        self.assertEqual(
+            set(identifiers),
+            {
+                item["id"]
+                for item in MODULE_MAP_INFRASTRUCTURE["elements"]
+                + MODULE_MAP_INFRASTRUCTURE["relations"]
+            },
+        )
+        canonical = {
+            item["id"]: item
+            for item in MODULE_MAP_INFRASTRUCTURE["elements"]
+            + MODULE_MAP_INFRASTRUCTURE["relations"]
+        }
         for code in identifiers:
             with self.subTest(code=code):
                 if code == "G1":
                     continue
-                self.close_detail()
-                self.page.keyboard.press("Home")
-                self.page.evaluate(
-                    "() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))"
-                )
-                element = self.page.locator(f'[data-id="{code}"]')
-                if element.locator("text").count():
-                    element.locator("text").first.click()
-                else:
-                    point = element.locator(".wire-hit").evaluate("""path => {
-                        const p=path.getPointAtLength(path.getTotalLength()/2);
-                        const screen=p.matrixTransform(path.getScreenCTM());
-                        return {x:screen.x,y:screen.y};
-                    }""")
-                    self.page.mouse.click(point["x"], point["y"])
+                self.select_node(code)
                 self.assertEqual(self.page.locator("#detailCode").inner_text(), code)
-                self.assertTrue(self.page.locator("#detailDescription").inner_text())
+                item = canonical[code]
+                self.assertEqual(
+                    self.page.locator("#detailTitle").text_content(),
+                    item.get("title", item.get("label")),
+                )
+                expected_description = self.page.evaluate(
+                    "value => value.match(/^.*?[.!?](?:\\s|$)/)?.[0]?.trim()||value",
+                    item["description"],
+                )
+                self.assertEqual(
+                    self.page.locator("#detailDescription").text_content(),
+                    expected_description,
+                )
+                self.assertTrue(self.page.locator("#detailDiagram").is_visible())
+                if "from" in item:
+                    self.reveal_details()
+                    self.assertIn(item["from"], self.page.locator("#detailFacts").inner_text())
+                    self.assertIn(item["to"], self.page.locator("#detailFacts").inner_text())
+        self.close_detail()
+        self.page.keyboard.press("Home")
+        self.page.locator('[data-id="B4"] text').first.click()
+        self.assertEqual(self.page.locator("#detailCode").inner_text(), "B4")
+        self.close_detail()
+        self.page.keyboard.press("Home")
+        self.page.locator('[data-edge-owner="L3"]').click()
+        self.assertEqual(self.page.locator("#detailCode").inner_text(), "L3")
+        self.assertEqual(self.page.locator('[data-id="L3"]').get_attribute("aria-pressed"), "true")
+        self.assertIn(
+            "is-selected", self.page.locator('[data-edge-owner="L3"]').get_attribute("class")
+        )
         self.select_node("L19")
         self.reveal_details()
         self.assertIn("F1 ↔ F2", self.page.locator("#detailFacts").inner_text())
@@ -735,7 +790,8 @@ class ManagerMapBrowserTests(unittest.TestCase):
                 self.select_node(code)
                 purpose_element = self.page.locator("#detailPurpose")
                 self.assertTrue(purpose_element.is_visible())
-                self.assertEqual(purpose_element.inner_text(), purpose)
+                self.assertEqual(purpose_element.text_content(), purpose.strip())
+                self.assertEqual(purpose_element.inner_text().split(), purpose.split())
                 diagram_box = self.page.locator("#detailDiagram").bounding_box()
                 purpose_box = purpose_element.bounding_box()
                 self.assertIsNotNone(diagram_box)
@@ -758,7 +814,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
         )
         self.reveal_details()
         related = self.page.locator("#related button").all_inner_texts()
-        self.assertTrue(any(text.startswith("A2 ·") for text in related))
+        self.assertTrue(any(text.startswith("D1 ·") for text in related))
         self.assertTrue(any(text.startswith("L25 ·") for text in related))
         self.assertFalse(any(text.startswith("E1 ·") for text in related))
         self.assertEqual(self.errors, [])
@@ -767,12 +823,20 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.login()
         self.select_node("H2")
         self.assertEqual(self.page.locator("#detailTitle").inner_text(), "Instagram AutoStop")
-        self.assertIn("@auto.repair.parts", self.page.locator("#detailDescription").inner_text())
+        self.assertEqual(
+            self.page.locator("#detailDescription").inner_text(),
+            "H2 — рабочий публичный Instagram-аккаунт AutoStop.",
+        )
+        self.assertEqual(
+            self.page.locator('[data-id="H2"] .subtitle').get_attribute("aria-label"),
+            "@auto.repair.parts",
+        )
         self.assertEqual(
             self.page.locator("#detailDiagram .flow-step").all_inner_texts(),
             ["Windsor.ai", "Instagram AutoStop"],
         )
         self.reveal_details()
+        self.assertIn("@auto.repair.parts", self.page.locator("#detailFacts").inner_text())
         related = self.page.locator("#related button").all_inner_texts()
         self.assertTrue(any(text.startswith("H1 ·") for text in related))
         self.assertTrue(any(text.startswith("L30 ·") for text in related))
@@ -783,6 +847,15 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.login()
         self.assertEqual(self.page.locator("nav.toolbar, #search, #fullscreen").count(), 0)
         self.assertEqual(self.page.locator("#viewport").bounding_box()["y"], 0)
+        for code in ("C3", "F2", "E1"):
+            with self.subTest(header=code):
+                self.assertTrue(
+                    self.page.locator(f'[data-id="{code}"]').evaluate("""group => {
+                        const title=group.querySelector('text'),card=group.querySelector('.card');
+                        return title.getBBox().y<card.getBBox().height/3;
+                    }"""),
+                    "Parent headings must remain above their child cards",
+                )
         for width, height in ((1366, 768), (1920, 1080), (3840, 2160)):
             with self.subTest(width=width):
                 self.page.set_viewport_size({"width": width, "height": height})
@@ -799,10 +872,12 @@ class ManagerMapBrowserTests(unittest.TestCase):
                 overflow = self.page.evaluate("""() => {
                     const bad=[];
                     for(const group of document.querySelectorAll('.node,.edge')) {
-                        const frame=group.querySelector('.card,.edge-label');
+                        const content=group.classList.contains('edge')?
+                            document.querySelector(`[data-edge-owner="${group.dataset.id}"]`):group;
+                        const frame=content?.querySelector('.card,.edge-label');
                         if(!frame) continue;
                         const card=frame.getBBox();
-                        for(const text of group.querySelectorAll('text:not(.code)')) {
+                        for(const text of content.querySelectorAll('text:not(.code)')) {
                             const r=text.getBBox();
                             if(r.x<card.x-1 || r.x+r.width>card.x+card.width+1 || r.y+r.height>card.y+card.height+1)
                                 bad.push(group.dataset.id+': '+text.textContent);
@@ -813,18 +888,22 @@ class ManagerMapBrowserTests(unittest.TestCase):
                 self.assertEqual(overflow, [])
                 obscured_labels = self.page.evaluate("""() => {
                     const edges=[...document.querySelectorAll('.edge')], obscured=[];
-                    for(const [index,edge] of edges.entries()) {
-                        const label=edge.querySelector('.edge-label');
+                    for(const edge of edges) {
+                        const label=document.querySelector(`[data-edge-owner="${edge.dataset.id}"] .edge-label`);
                         if(!label) continue;
                         const bounds=label.getBBox();
-                        for(const later of edges.slice(index+1)) {
-                            const path=later.querySelector('.wire');
-                            if(!path) continue;
-                            for(let distance=0;distance<path.getTotalLength();distance+=2) {
-                                const point=path.getPointAtLength(distance);
-                                if(point.x>bounds.x+2 && point.x<bounds.x+bounds.width-2 &&
-                                   point.y>bounds.y+2 && point.y<bounds.y+bounds.height-2) {
-                                    obscured.push(`${edge.dataset.id} crossed by ${later.dataset.id}`);
+                        const visibleAt=point=>{
+                            const screen=new DOMPoint(point.x,point.y).matrixTransform(label.getScreenCTM());
+                            return document.elementFromPoint(screen.x,screen.y)?.closest('[data-edge-owner]')?.dataset.edgeOwner===edge.dataset.id;
+                        };
+                        if(!visibleAt({x:bounds.x+bounds.width/2,y:bounds.y+bounds.height/2}))
+                            obscured.push(`${edge.dataset.id} caption center is hidden`);
+                        for(const text of label.parentElement.querySelectorAll('text')) {
+                            for(let index=0;index<text.getNumberOfChars();index++) {
+                                if(!text.textContent[index]?.trim())continue;
+                                const glyph=text.getExtentOfChar(index);
+                                if([.25,.5,.75].some(fraction=>!visibleAt({x:glyph.x+glyph.width/2,y:glyph.y+glyph.height*fraction}))) {
+                                    obscured.push(`${edge.dataset.id} glyph ${text.textContent[index]} is hidden`);
                                     break;
                                 }
                             }
@@ -884,7 +963,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
     def test_removed_hashes_open_current_map(self) -> None:
         self.page.goto(self.runtime.base_url + "/module-map#C1")
         self.login()
-        self.assertEqual(self.page.locator("[data-id]").count(), 72)
+        self.assertEqual(self.page.locator("[data-id]").count(), 85)
         self.assertFalse(self.page.locator("#detail").is_visible())
         self.assertEqual(self.page.evaluate("location.hash"), "")
         for code in ("L8", "L9"):
@@ -893,7 +972,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
                 self.page.wait_for_function(
                     "location.hash==='' && document.querySelector('#detail').hidden"
                 )
-                self.assertEqual(self.page.locator("[data-id]").count(), 72)
+                self.assertEqual(self.page.locator("[data-id]").count(), 85)
         self.assertEqual(self.errors, [])
 
     def test_failed_load_can_retry_without_exposing_partial_map(self) -> None:
@@ -908,7 +987,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.assertEqual(self.page.locator("[data-id]").count(), 0)
         self.page.unroute("**/api/get_module_map_infrastructure")
         self.login()
-        self.assertEqual(self.page.locator("[data-id]").count(), 72)
+        self.assertEqual(self.page.locator("[data-id]").count(), 85)
         self.assertEqual(self.errors, [])
 
 

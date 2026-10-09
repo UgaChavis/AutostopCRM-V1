@@ -67,8 +67,8 @@ class ManagerToolCatalogWireTests(unittest.TestCase):
     def assert_full_catalog(self, actual):
         expected = load_bundle()
         self.assertEqual(len(expected["modules"]), 15)
-        self.assertEqual(len(expected["tools"]), 115)
-        self.assertEqual(len(expected["native_schemas"]), 67)
+        self.assertEqual(len(expected["tools"]), 120)
+        self.assertEqual(len(expected["native_schemas"]), 68)
         self.assertEqual(actual, expected)
         self.assertEqual(content_hash(actual), expected["content_hash"])
 

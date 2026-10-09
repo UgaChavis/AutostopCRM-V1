@@ -245,7 +245,15 @@ class AutomotiveLookupServiceTests(unittest.TestCase):
         vin = "WBA/000000/00000000"
         self.assertEqual(
             public_part_evidence_domains(),
-            ["partsouq.com", "amayama.com", "emex.ru", "exist.ru"],
+            [
+                "elcats.ru",
+                "japancats.ru",
+                "ssangyong.exist.ru",
+                "partsouq.com",
+                "amayama.com",
+                "emex.ru",
+                "exist.ru",
+            ],
         )
         fake_search.search_multi_payload = {
             "results": [
