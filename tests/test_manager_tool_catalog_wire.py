@@ -67,8 +67,8 @@ class ManagerToolCatalogWireTests(unittest.TestCase):
     def assert_full_catalog(self, actual):
         expected = load_bundle()
         self.assertEqual(len(expected["modules"]), 15)
-        self.assertEqual(len(expected["tools"]), 120)
-        self.assertEqual(len(expected["native_schemas"]), 68)
+        self.assertEqual(len(expected["tools"]), 122)
+        self.assertEqual(len(expected["native_schemas"]), 70)
         self.assertEqual(actual, expected)
         self.assertEqual(content_hash(actual), expected["content_hash"])
 
@@ -81,6 +81,49 @@ class ManagerToolCatalogWireTests(unittest.TestCase):
                 self.assertEqual(status, 200)
                 self.assertTrue(response["ok"])
                 self.assert_full_catalog(response["data"])
+
+    def test_vin_research_input_and_evidence_schemas_survive_protected_http_serialization(self):
+        for method in ("GET", "POST"):
+            with self.subTest(method=method):
+                status, response = self.request(
+                    CATALOG_ROUTE, method, {} if method == "POST" else None, self.admin
+                )
+                self.assertEqual(status, 200)
+                catalog = response["data"]
+                start = catalog["native_schemas"]["j1_research_vin"]
+                self.assertEqual(set(start["required"]), {"vin", "idempotency_key"})
+                self.assertEqual(set(start["properties"]), {"vin", "idempotency_key"})
+                self.assertEqual(start["properties"]["vin"]["type"], "string")
+
+                facts = catalog["native_schemas"]["j1_research_record_facts"]
+                self.assertEqual(
+                    set(facts["required"]),
+                    {"job_id", "expected_revision", "facts", "idempotency_key"},
+                )
+                self.assertEqual(facts["properties"]["expected_revision"]["type"], "integer")
+                self.assertEqual(facts["properties"]["expected_revision"]["minimum"], 0)
+                self.assertEqual(facts["properties"]["facts"]["type"], "array")
+                self.assertEqual(facts["properties"]["facts"]["items"]["type"], "object")
+                self.assertIs(facts["properties"]["facts"]["items"]["additionalProperties"], True)
+                self.assertEqual(facts["properties"]["finalize"]["type"], "boolean")
+                self.assertIs(facts["properties"]["finalize"]["default"], False)
+
+                document = catalog["native_schemas"]["j1_research_document"]["properties"]
+                self.assertIs(document["ocr"]["default"], False)
+                self.assertIsNone(document["page"]["default"])
+                self.assertEqual(
+                    document["page"]["anyOf"],
+                    [{"maximum": 1000, "minimum": 1, "type": "integer"}, {"type": "null"}],
+                )
+                cards = {card["tool_id"]: card for card in catalog["tools"]}
+                public_research = next(
+                    module for module in catalog["modules"] if module["element_id"] == "E15"
+                )
+                for name in ("j1_research_vin", "j1_research_record_facts"):
+                    ident = f"manager.{name}"
+                    self.assertEqual(cards[ident]["input_schema_ref"], name)
+                    self.assertEqual(cards[ident]["invocation"]["tool_name"], name)
+                    self.assertIn(ident, public_research["tool_ids"])
 
     def test_existing_service_identity_receives_full_catalog_with_view_only_graph(self):
         environment = {
